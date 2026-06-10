@@ -1,0 +1,55 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Actions\Fortify;
+
+use App\Domains\Customer\Models\Customer;
+use App\Models\User;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use Laravel\Fortify\Contracts\CreatesNewUsers;
+use Spatie\Permission\Models\Role;
+
+/**
+ * Registers a new customer account: User (auth identity) + Customer
+ * (billing identity) are created together, atomically.
+ */
+class CreateNewUser implements CreatesNewUsers
+{
+    use PasswordValidationRules;
+
+    /**
+     * @param  array<string, string>  $input
+     */
+    public function create(array $input): User
+    {
+        Validator::make($input, [
+            'name'     => ['required', 'string', 'max:255'],
+            'email'    => ['required', 'string', 'email', 'max:255', 'unique:users'],
+            'password' => $this->passwordRules(),
+        ])->validate();
+
+        return DB::transaction(function () use ($input): User {
+            $user = User::create([
+                'name'     => $input['name'],
+                'email'    => $input['email'],
+                'password' => $input['password'],
+                'locale'   => app()->getLocale(),
+            ]);
+
+            $user->assignRole(Role::findOrCreate('customer', 'web'));
+
+            Customer::create([
+                'user_id'            => $user->id,
+                'type'               => 'individual',
+                'email'              => $user->email,
+                'preferred_currency' => config('billing.default_currency', 'CZK'),
+                'preferred_locale'   => app()->getLocale(),
+                'country_code'       => 'CZ',
+            ]);
+
+            return $user;
+        });
+    }
+}

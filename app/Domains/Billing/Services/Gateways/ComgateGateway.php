@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Domains\Billing\Services\Gateways;
 
 use App\Domains\Billing\Models\Invoice;
-use Brick\Money\Money;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;

@@ -156,7 +156,7 @@ final class CreditLedger
 
     private function assertPositive(Money $amount): void
     {
-        if (! $amount->isPositive()) {
+        if (!$amount->isPositive()) {
             throw new \InvalidArgumentException('Ledger amount must be positive; sign is determined by the operation.');
         }
     }

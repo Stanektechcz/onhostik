@@ -30,5 +30,13 @@ return [
         'admin_provisioning' => 'Provisioning',
         'admin_audit'       => 'Audit log',
         'admin_settings'    => 'Nastavení',
+        'orders'            => 'Objednávky',
+        'security'          => 'Zabezpečení',
+        'support'           => 'Podpora',
+        'ai'                => 'AI asistent',
+    ],
+    'common' => [
+        'placeholder' => 'Tento modul připravujeme — dorazí v některé z dalších fází vývoje.',
+        'detail'      => 'Detail',
     ],
 ];

@@ -48,7 +48,7 @@ final class MoneyCast implements CastsAttributes
             return [$key => null];
         }
 
-        if (! $value instanceof Money) {
+        if (!$value instanceof Money) {
             throw new InvalidArgumentException(
                 "MoneyCast: attribute [{$key}] on " . $model::class . ' must be a Brick\Money\Money instance.'
             );

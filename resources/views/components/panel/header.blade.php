@@ -17,7 +17,7 @@
                     <li>
                         <a href="{{ route('panel.billing.credits') }}" class="credit-badge">
                             <i data-feather="dollar-sign"></i>
-                            <span>{{ app(\App\Domains\Billing\Services\CreditLedger::class)->getBalance(auth()->user()->customer)->formatTo(app()->getLocale()) }}</span>
+                            <span>{{ \App\Domains\Shared\Support\MoneyFormatter::format(app(\App\Domains\Billing\Services\CreditLedger::class)->getBalance(auth()->user()->customer)) }}</span>
                         </a>
                     </li>
                 @endif

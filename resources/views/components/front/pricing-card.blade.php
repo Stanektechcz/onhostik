@@ -15,7 +15,7 @@
                 <div class="fromer seccolor">{{ $plan->tagline }}</div>
             @endif
             <div class="price mergecolor">
-                {{ $price->formatTo(app()->getLocale()) }}
+                {{ \App\Domains\Shared\Support\MoneyFormatter::format($price) }}
                 <span class="period">/ {{ $plan->billing_cycle->label() }}</span>
             </div>
             <a href="{{ route('front.order', $plan) }}" class="btn btn-default-yellow-fill">

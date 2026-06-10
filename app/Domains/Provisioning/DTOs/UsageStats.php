@@ -21,7 +21,7 @@ final class UsageStats extends Data
 
     public function diskUsagePercent(): ?float
     {
-        if ($this->diskUsedMb === null || ! $this->diskLimitMb) {
+        if ($this->diskUsedMb === null || !$this->diskLimitMb) {
             return null;
         }
 

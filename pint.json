@@ -1,0 +1,23 @@
+{
+    "preset": "laravel",
+    "exclude": [
+        "homepage-sablona",
+        "laravel-admin-panel",
+        "public",
+        "storage",
+        "bootstrap/cache"
+    ],
+    "rules": {
+        "binary_operator_spaces": {
+            "default": "at_least_single_space"
+        },
+        "concat_space": {
+            "spacing": "one"
+        },
+        "not_operator_with_successor_space": false,
+        "new_with_parentheses": {
+            "anonymous_class": false,
+            "named_class": true
+        }
+    }
+}

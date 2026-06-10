@@ -42,7 +42,7 @@ final class ProcessComgateWebhookAction
         ]);
 
         try {
-            if (! $this->gateway->verifyWebhookSource($sourceIp)) {
+            if (!$this->gateway->verifyWebhookSource($sourceIp)) {
                 $log->update(['signature_valid' => false, 'error_message' => 'IP not whitelisted']);
 
                 return;
@@ -74,7 +74,7 @@ final class ProcessComgateWebhookAction
                 $amount = Money::ofMinor((int) $status['price'], $status['curr']);
 
                 // Idempotency gate #2: amount + currency must match the invoice.
-                if (! $amount->isEqualTo($invoice->total)) {
+                if (!$amount->isEqualTo($invoice->total)) {
                     throw new \RuntimeException(
                         "Comgate amount mismatch for invoice {$invoice->number}: expected {$invoice->total}, got {$amount}."
                     );

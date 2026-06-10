@@ -30,5 +30,13 @@ return [
         'admin_provisioning' => 'Provisioning',
         'admin_audit'       => 'Audit Log',
         'admin_settings'    => 'Settings',
+        'orders'            => 'Orders',
+        'security'          => 'Security',
+        'support'           => 'Support',
+        'ai'                => 'AI Assistant',
+    ],
+    'common' => [
+        'placeholder' => 'This module is under construction — it will arrive in an upcoming development phase.',
+        'detail'      => 'Detail',
     ],
 ];

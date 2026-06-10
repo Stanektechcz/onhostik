@@ -1,7 +1,0 @@
-====================
------ 28/3/2025 ------
-====================
-Added : Template Initial with Tailwind version
-
-
-
