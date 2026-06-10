@@ -1,0 +1,141 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Domains\Customer\Models;
+
+use App\Domains\Billing\Models\CreditTransaction;
+use App\Domains\Billing\Models\Invoice;
+use App\Domains\Billing\Models\Order;
+use App\Domains\Billing\Models\Payment;
+use App\Domains\Provisioning\Models\Service;
+use App\Domains\Shared\Enums\Currency;
+use App\Domains\Shared\Enums\Locale;
+use App\Domains\Shared\Traits\HasUuid;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
+
+/**
+ * Customer entity — billing identity, separate from auth User.
+ *
+ * One User (login) has exactly one Customer (billing profile).
+ * `credit_balance_cache` is a denormalized cache of the append-only
+ * credit ledger; the authoritative value is always SUM(credit_transactions.amount).
+ */
+class Customer extends Model
+{
+    use HasFactory;
+    use HasUuid;
+    use LogsActivity;
+    use SoftDeletes;
+
+    protected $fillable = [
+        'user_id',
+        'type',
+        'email',
+        'phone',
+        'company_name',
+        'vat_number',          // DIČ
+        'registration_number', // IČ
+        'preferred_currency',
+        'preferred_locale',
+        'country_code',
+        'vat_validated_at',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'preferred_currency' => Currency::class,
+            'preferred_locale'   => Locale::class,
+            'vat_validated_at'   => 'datetime',
+        ];
+    }
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly(['email', 'phone', 'company_name', 'vat_number', 'registration_number', 'country_code'])
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs()
+            ->useLogName('customer');
+    }
+
+    // ---------------------------------------------------------------- relations
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function addresses(): HasMany
+    {
+        return $this->hasMany(CustomerAddress::class);
+    }
+
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
+    }
+
+    public function creditTransactions(): HasMany
+    {
+        return $this->hasMany(CreditTransaction::class);
+    }
+
+    public function services(): HasMany
+    {
+        return $this->hasMany(Service::class);
+    }
+
+    // ---------------------------------------------------------------- helpers
+
+    public function billingAddress(): ?CustomerAddress
+    {
+        return $this->addresses->firstWhere('type', 'billing')
+            ?? $this->addresses->firstWhere('is_primary', true);
+    }
+
+    public function isCompany(): bool
+    {
+        return $this->type === 'company';
+    }
+
+    public function isVatPayer(): bool
+    {
+        return $this->vat_number !== null && $this->vat_validated_at !== null;
+    }
+
+    public function isCzech(): bool
+    {
+        return $this->country_code === 'CZ';
+    }
+
+    public function isEu(): bool
+    {
+        return in_array($this->country_code, self::EU_COUNTRIES, true);
+    }
+
+    /** EU member states (ISO 3166-1 alpha-2), 2026. */
+    public const EU_COUNTRIES = [
+        'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR',
+        'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL',
+        'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE',
+    ];
+}

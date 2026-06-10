@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="INEBUR is owner of Antler">
+    <link href="assets/img/favicon.ico" rel="shortcut icon">
+    <title>Antler - Hosting Provider & WHMCS Template</title>
+    <!-- Font Style -->
+    <link href="assets/fonts/fontawesome/css/all.min.css" rel='stylesheet'>
+    <link href="assets/fonts/fonts.min.css" rel='stylesheet'>
+    <!-- RTL Style -->
+    <link type="text/css" href="assets/css/rtl/bootstrap-rtl.min.css" rel='stylesheet' class="rtl" disabled>
+    <link type="text/css" href="assets/css/rtl/theme-rtl.min.css" rel='stylesheet' class="rtl" disabled>
+    <!-- CSS Style -->
+    <link type="text/css" href="assets/css/bootstrap.min.css" rel='stylesheet' class="ltr">
+    <link type="text/css" href="assets/css/vendors.min.css" rel='stylesheet'>
+    <link type="text/css" href="assets/css/theme.min.css" rel='stylesheet'>
+    <!-- Javascript -->
+    <script type="text/javascript" src="assets/js/jquery.min.js"></script>
+    <script type="text/javascript" src="assets/js/gdpr-cookie.min.js"></script>
+    <script type="text/javascript" src="assets/js/popper.min.js"></script>
+    <script defer type="text/javascript" src="assets/js/bootstrap.min.js"></script>
+    <script defer type="text/javascript" src="assets/js/slick.min.js"></script>
+    <script defer type="text/javascript" src="assets/js/aos.min.js"></script>
+    <script defer type="text/javascript" src="assets/js/swiper.min.js"></script>
+    <script defer type="text/javascript" src="assets/js/mixitup.min.js"></script>
+    <script defer type="text/javascript" src="assets/js/mixitup.multifilter.min.js"></script>
+    <script defer type="text/javascript" src="assets/js/mixevents.js"></script>
+    <script defer type="text/javascript" src="assets/js/jquery.lazyload-any.min.js"></script>
+    <script defer type="text/javascript" src="assets/js/scripts.min.js"></script>
+    <script defer type="text/javascript" src="assets/js/settings-init.js"></script>
+  </head>
+  <body >
+  <div class="box-container limit-width">
+    <!-- ***** SETTINGS ****** -->
+    <section id="settings"> </section>
+    <!-- ***** LOADING PAGE ****** -->
+    <div id="spinner-area">
+      <div class="spinner">
+        <div class="double-bounce1"></div>
+        <div class="double-bounce2"></div>
+        <div class="spinner-txt">Antler...</div>
+      </div>
+    </div>
+    <!-- ***** FRAME MODE ****** -->
+    <div class="body-borders" data-border="20">
+      <div class="top-border bg-white"></div>
+      <div class="right-border bg-white"></div>
+      <div class="bottom-border bg-white"></div>
+      <div class="left-border bg-white"></div>
+    </div>
+    <!-- ***** UPLOADED MENU FROM HEADER.HTML ***** -->
+    <header id="header"> </header>
+    <!-- ***** SLIDER ***** -->
+    <div class="top-header overlay">
+      <div class="lazyload">
+        <!--<img src="./assets/img/topbanner06.jpg" class="img-defaultbanner" alt="Background image">-->
+      </div>
+      <div class="container">
+        <div class="row">
+          <div class="col-sm-12 col-md-12">
+            <div class="wrapper">
+              <h1 class="heading mb-0">Filter Perfect Domain Name</h1>
+              <p class="subheading">Choose from hundreds of extensions and put your website in the world.</p>
+              <form action="https://inebur.com/whmcs/domainchecker.php?carttpl=antler&systpl=antler" method="post">
+                <div class="general-input w-50">
+                  <input type="text" name="domain" placeholder="Get your next domain name here" class="fill-input">
+                  <input type="submit" value="Search" class="btn btn-default-yellow-fill initial-transform">
+                </div>
+              </form>
+              <a href="#" class="btn btn-default-pink-fill cd-filter-trigger"><i class="fa fa-filter"></i> Show Filter</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- ***** CONTROLS ***** -->
+    <section class="cd-main-content mb-80 sec-up bg-seccolorstyle">
+      <div class="cd-filter bg-seccolorstyle">
+        <form>
+          <div class="container">
+            <div class="sec-main pb-5 sec-bg1 p-5 bg-seccolorstyle noshadow nopadding">
+              <div class="row">
+                <a href="#0" aria-label="Close Tab" class="cd-close"><i class="fas fa-long-arrow-alt-left"></i></a>
+                <div class="col-md-6">
+                  <div class="cd-filter-block" data-filter-group>
+                    <p class="mergecolor fw-bolder">Highlight</p>
+                    <ul class="radio-group radios-filter cd-filter-content list">
+                      <li>
+                        <input value="all" type="radio" name="radioButton" id="radio1" checked/>
+                        <label class="radio-label seccolor" for="radio1">All Domains</label>
+                      </li>
+                      <li>
+                        <input value=".sale" type="radio" name="radioButton" id="radio2">
+                        <label class="radio-label seccolor" for="radio2">Sales</label>
+                      </li>
+                      <li>
+                        <input value=".newest" type="radio" name="radioButton" id="radio3">
+                        <label class="radio-label seccolor" for="radio3">Newest</label>
+                      </li>
+                      <li>
+                        <input value=".popular" type="radio" name="radioButton" id="radio4">
+                        <label class="radio-label seccolor" for="radio4">Popular</label>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="cd-filter-block checkbox-group" data-filter-group>
+                    <p class="mergecolor fw-bolder">Types</p>
+                    <ul class="cd-filter-content cd-filters list">
+                      <li>
+                        <input class="filter" value=".gtld" type="checkbox" id="checkbox1">
+                        <label class="checkbox-label seccolor" for="checkbox1">gtld (Generic)</label>
+                      </li>
+                      <li>
+                        <input class="filter" value=".cctld" type="checkbox" id="checkbox2">
+                        <label class="checkbox-label seccolor" for="checkbox2">cctld (Country)</label>
+                      </li>
+                      <li>
+                        <input class="filter" value=".ngtld" type="checkbox" id="checkbox3">
+                        <label class="checkbox-label seccolor" for="checkbox3">ngtld (News)</label>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="cd-filter-block" data-filter-group>
+                    <div class="cd-filter-content cd-select">
+                      <select class="select-filter" aria-label="Select Category">
+                        <option value="all">Select Category</option>
+                        <option value=".business">Business</option>
+                        <option value=".commerce">Commerce</option>
+                        <option value=".social">Social</option>
+                        <option value=".health">Health</option>
+                        <option value=".educations">Education</option>
+                        <option value=".technology">Technology</option>
+                        <option value=".others">Others</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="cd-filter-block checkbox-group" data-filter-group>
+                    <input type="text" class="input" data-ref="input-search" placeholder="Enter a domain extension (.com)"/>
+                  </div>
+                </div>
+                <div class="range-disabled">
+                  <input name="minSize" class="range-slider-input tooltip-parent" type="range" min="0" max="5" value="0"/>
+                  <input name="maxSize" class="range-slider-input tooltip-parent" type="range" min="0" max="5" value="5"/>
+                </div>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    </section>
+    <!-- ***** FILTER PLANS ***** -->
+    <div class="mixcontainer sec-normal sec-bg2 bg-noimage nobottompadding bg-colorstyle tophalfpadding" data-ref="container">
+      <div class="container ">
+        <div class="pricing special">
+          <div class="p-0 m-0">
+            <div class="best-plans pricing">
+              <div class="sec-main sec-bg1">
+                <div class="row">
+                  <div class="col-sm-12">
+                    <div class="table-responsive-lg">
+                      <table class="table compare">
+                        <thead>
+                          <tr>
+                            <th class="bb-pink pt-0 title border-start-0">Extensions (TLD)</th>
+                            <th class="bb-pink pt-0 title border-start-0">Register</th>
+                            <th class="bb-pink pt-0 title border-start-0">Renew</th>
+                            <th class="bb-pink pt-0 title border-start-0">Transfer</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr class="mix ext gtld  popular others .com">
+                            <th><div class="badge bg-grey me-1">popular</div> <span class="c-black mergecolor">.com</span></th>
+                            <td>$16.00</td>
+                            <td>$19.90</td>
+                            <td>$19.90</td>
+                          </tr>
+                          <tr class="mix ext gtld sale others  .info">
+                            <th><div class="badge bg-purple me-1">sale</div> <span class="c-black mergecolor">.info</span></th>
+                            <td><span class="ltgh">$11.90</span>  <b class="c-pink">$7.99</b></td>
+                            <td>$11.90</td>
+                            <td>$14.00</td>
+                          </tr>
+                          <tr class="mix ext ngtld newest health .hospital">
+                            <th><div class="badge bg-purple me-1">newest</div> <span class="c-black mergecolor">.hospital</span></th>
+                            <td>$52.24</td>
+                            <td>$52.24</td>
+                            <td>$59.00</td>
+                          </tr>
+                          <tr class="mix ext gtld popular others .org">
+                            <th><div class="badge bg-grey me-1">popular</div> <span class="c-black mergecolor">.org</span></th>
+                            <td>$9.00</td>
+                            <td>$12.90</td>
+                            <td>$12.90</td>
+                          </tr>
+                          <tr class="mix ext gtld others .co.uk">
+                            <th> <span class="c-black mergecolor">.co.uk</span></th>
+                            <td>$32.00</td>
+                            <td>$36.90</td>
+                            <td>$36.90</td>
+                          </tr>
+                          <tr class="mix ext ngtld newest health .healthcare">
+                            <th> <div class="badge bg-purple me-1">newest</div> <span class="c-black mergecolor">.healthcare</span></th>
+                            <td>$32.00</td>
+                            <td>$36.90</td>
+                            <td>$36.90</td>
+                          </tr>
+                          <tr class="mix ext ngtld sale technology .blog">
+                            <th> <div class="badge bg-purple me-1">sale</div> <span class="c-black mergecolor">.blog</span></th>
+                            <td><span class="ltgh">$45.10</span>  <b class="c-pink">$26.00</b></td>
+                            <td>$45.10</td>
+                            <td>$45.10</td>
+                          </tr>
+                          <tr class="mix ext ngtld newest commerce .banque">
+                            <th> <div class="badge bg-purple me-1">newest</div> <span class="c-black mergecolor">.banque</span></th>
+                            <td>$32.00</td>
+                            <td>$36.90</td>
+                            <td>$36.90</td>
+                          </tr>
+                          <tr class="mix ext cctld popular .eu">
+                            <th> <div class="badge bg-grey me-1">popular</div> <span class="c-black mergecolor">.eu</span></th>
+                            <td>$5.80</td>
+                            <td>$5.80</td>
+                            <td>$7.00</td>
+                          </tr>
+                          <tr class="mix ext cctld popular .pt">
+                            <th> <div class="badge bg-grey me-1">popular</div> <span class="c-black mergecolor">.pt</span></th>
+                            <td>$13.00</td>
+                            <td>$13.00</td>
+                            <td>$19.90</td>
+                          </tr>
+                          <tr class="mix ext ngtld newest business .company">
+                            <th> <span class="c-black mergecolor">.company</span></th>
+                            <td>$13.00</td>
+                            <td>$13.00</td>
+                            <td>$19.90</td>
+                          </tr>
+                          <tr class="mix ext ngtld newest social .church">
+                            <th> <span class="c-black mergecolor">.church</span></th>
+                            <td>$42.00</td>
+                            <td>$42.00</td>
+                            <td>$42.00</td>
+                          </tr>
+                          <tr class="mix ext ngtld sale social .democrat">
+                            <th><div class="badge bg-purple me-1">sale</div><span class="c-black mergecolor">.democrat</span></th>
+                            <td><span class="ltgh">$35.10</span>  <b class="c-pink">$19.00</b></td>
+                            <td>$35.10</td>
+                            <td>$42.90</td>
+                          </tr>
+                          <tr class="mix ext ngtld popular educations .academy">
+                            <th> <span class="c-black mergecolor">.academy</span></th>
+                            <td>$112.10</td>
+                            <td>$112.10</td>
+                            <td>$112.10</td>
+                          </tr>
+                          <tr class="mix ext ngtld sale health .dentist">
+                            <th><div class="badge bg-purple me-1">sale</div><span class="c-black mergecolor">.dentist</span></th>
+                            <td><span class="ltgh">$50.10</span>  <b class="c-pink">$25.05</b></td>
+                            <td>$50.10</td>
+                            <td>$72.90</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+                <div class="cd-fail-message">" No items could be found matching the criteria "</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- ***** FEATURES ***** -->
+    <section id="scroll" class="history-section feat01 sec-normal bg-colorstyle">
+      <div class="container">
+        <div class="randomline">
+          <div class="bigline"></div>
+          <div class="smallline"></div>
+        </div>
+        <div class="sec-main sec-bg1 bg-colorstyle noshadow nopadding">
+          <div class="row">
+            <div class="col-md-12 col-lg-5 first">
+              <img class="svg" src="assets/patterns/domainmanage.svg" alt="domain management">
+            </div>
+            <div class="col-md-12 col-lg-6 offset-lg-1">
+              <div class="info-content">
+                <h1 class="fw-bold mb-3 mergecolor">Simple Domain Management</h1>
+                <p class="seccolor">But I must explain to you how all this mistaken idea of denouncing pleasure and praising pain was born and I will. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt.</p>
+                <p class="seccolor">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt. <a href="#" class="golink-dark">But I must explain</a> to you how all this mistaken. </p>
+              </div>
+              <a href="#" class="btn btn-default-yellow-fill mt-3">Learn more</a>
+            </div>
+          </div>
+          <hr>
+          <div class="row">
+            <div class="col-md-12 col-lg-6">
+              <div class="info-content">
+                <h1 class="fw-bold mb-3 mergecolor">Don't worry! We have support premium 24/7/365</h1>
+                <p class="seccolor">But I must explain to you how all this mistaken idea of <a href="#" class="golink-dark">denouncing pleasure</a> and praising pain was born and I will.</p>
+              </div>
+              <a href="#" class="btn btn-default-yellow-fill mt-3">Support Now</a>
+            </div>
+            <div class="col-md-12 col-lg-5 offset-lg-1 backups second">
+              <div class="lazyload">
+                <!-- <svg class="svg" x="0" y="0" style="enable-background:new 0 0 631.3 460.5" version="1.1" viewBox="0 0 631.3 460.5"><style>.support0{stroke:#ee5586;stroke-width:3}.support0,.support2,.support3,.support4{stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:10;fill:none}.support2{stroke:#ee5586;stroke-width:2}.support3{stroke:gray}.support4{stroke:#ee5586}.support5{fill:#ee5586}</style><path id="svg-concept" d="M569.1 81.3C499.3.7 380-21.7 284.3 33.6c-108.4 62.7-145.5 201.3-82.8 309.8s201.3 145.5 309.8 82.8c108.4-62.7 145.5-201.3 82.8-309.8" class="support0"/><path id="svg-concept" d="M170.9 237.3v-4.7m.1-5.5v-4.7" class="support2"/><g><path d="M389.8 60c-26.3 1.2-52.7 8.6-77.1 22.7a169.61 169.61 0 0 0-83.6 126m307.2 119.6c37.3-52.6 43-124.2 8.6-183.6-30-52-83.5-82.1-139.3-84.7M229 251.1c2.7 21.9 9.8 43.6 21.5 63.8 47 81.3 151 109.1 232.3 62.1 17.3-10 32.1-22.5 44.3-36.9M397.7 67.3v49.2M390.3 60c0-4.1 3.3-7.5 7.4-7.5s7.4 3.3 7.5 7.4c0 4.1-3.3 7.4-7.4 7.4-4.2.1-7.5-3.2-7.5-7.3z" class="support3"/><path d="M395 59.9a2.8 2.8 0 1 1 5.6 0c0 1.6-1.2 2.8-2.8 2.8-1.6 0-2.8-1.2-2.8-2.8zm132.2 280.3a7.56 7.56 0 0 1-1.3-10.5c2.5-3.2 7.2-3.8 10.5-1.3 3.2 2.5 3.8 7.2 1.3 10.4a7.51 7.51 0 0 1-10.5 1.4z" class="support3"/><path d="M530 336.5c-1.2-.9-1.4-2.7-.5-3.9.9-1.2 2.7-1.4 3.9-.5s1.4 2.7.5 3.9c-.9 1.2-2.7 1.4-3.9.5z" class="support3"/><animateTransform fill="remove" accumulate="none" additive="replace" attributeName="transform" calcMode="linear" dur="10s" from="0 397 229" repeatCount="indefinite" restart="always" to="-360 397 230" type="rotate"/></g><g><path d="M284.6 237.7c1.2 16.7 6 33.4 15 48.9 31.4 54.2 100.7 72.8 154.9 41.4 29.7-17.1 48.7-45.7 54.6-76.9m-40.6-109.9c-35.4-28.2-85.9-33.6-127.5-9.5-33.8 19.5-53.9 54.5-56.5 90.7m224.6-13.8a114.2 114.2 0 0 0-13.2-35.5c-4.6-8-10.1-15.2-16.2-21.6" class="support3"/><path d="m428.9 191.3 39.8-39.8m-120.6 78.4H292m187.4-78.6a7.44 7.44 0 1 1-.5-10.5c3 2.8 3.2 7.5.5 10.5z" class="support3"/><path d="M475.9 148.2c-1 1.1-2.8 1.2-3.9.2s-1.2-2.8-.2-3.9 2.8-1.2 3.9-.2 1.2 2.7.2 3.9zm-191.4 74.2c4.1 0 7.4 3.3 7.5 7.4.1 4.2-3.2 7.5-7.4 7.5-4.1 0-7.5-3.3-7.5-7.4 0-4.1 3.3-7.5 7.4-7.5" class="support3"/><path d="M284.6 232.6a2.8 2.8 0 1 1 0-5.6c1.6 0 2.8 1.2 2.8 2.7 0 1.7-1.3 2.9-2.8 2.9h0z" class="support3"/><animateTransform fill="remove" accumulate="none" additive="replace" attributeName="transform" calcMode="linear" dur="15s" from="0 397 229" repeatCount="indefinite" restart="always" to="360 397 230" type="rotate"/></g><path d="m140.9 63.2-1 .1h-.9a2.4 2.4 0 0 0-2.3 2.3v10.6c0 .5.1.9.4 1.3l.7.5s0 3.3-.4 4.4c-1.7 8.4-8.8 13.8-17.3 13.8-9.8 0-17.7-7.2-17.7-18.4l.5-.4c.5-.4.3-.6.3-1.2V65.5c0-1.2-1.1-2.3-2.3-2.3h-1.4" class="support3"/><path id="svg-concept" d="M99.5 63.2c0-11.4 9.3-21.3 20.7-21.3 11.1 0 20.7 9.3 20.7 21.3" class="support2"/><path d="M114.8 74.4c0 1.3-1 2.3-2.3 2.3s-2.3-1-2.3-2.3 1-2.3 2.3-2.3c1.2.1 2.3 1.1 2.3 2.3zm15 0c0 1.3-1 2.3-2.3 2.3s-2.3-1-2.3-2.3 1-2.3 2.3-2.3c1.3.1 2.3 1.1 2.3 2.3z" class="support3"/><circle id="svg-concept" cx="124" cy="87.9" r="3" class="support2"/><path d="m103.3 67.2 8.1-9.2c.5-.6 1.4-.6 1.8 0 0 0 8.5 9.9 23.6 9.2" class="support3"/><path id="svg-concept" d="M150.4 27.7c5.3 0 9.7 4.4 9.7 9.7v102.1c0 5.3-4.4 9.7-9.7 9.7H11.9c-5.3 0-9.7-4.4-9.7-9.7V37.4c0-5.3 4.4-9.7 9.7-9.7h138.5z" class="support2"/><path id="svg-concept" d="M160.3 58.5h1.8c.5 0 .8.4.8.8v6.1c0 .5-.4.8-.8.8h-1.8m0-19.8h1.8c.5 0 .8.4.8.8v6.1c0 .5-.4.8-.8.8h-1.8" class="support4"/><path d="M58.3 102.1H18.9M82 87.7H18.9m29.9-14.5H18.9m51.5-14.4H18.9M82 44.4H18.9m122.5 87.7H21.9a3 3 0 0 1-3-3v-6.2c0-1.6 1.4-3 3-3h119.5a3 3 0 0 1 3 3v6.2a3 3 0 0 1-3 3zm29.5 100.5H82m-.8-83.4v83.4" class="support3"/><circle id="svg-ico" cx="81.1" cy="232.5" r="4.3" class="support5"/><g><path id="svg-concept" d="M418.4 275c1.4-.6 2.8-1.4 4.1-2.1 23.7-13.7 31.8-44 18.1-67.8a49.64 49.64 0 0 0-67.8-18.1 49.64 49.64 0 0 0 3 87.5" class="support2"/><animateTransform fill="remove" accumulate="none" additive="replace" attributeName="transform" calcMode="linear" dur="12s" from="0 397 229" repeatCount="indefinite" restart="always" to="-360 397 230" type="rotate"/></g><g><path id="svg-ico" d="M406.9 229.9a8.5 8.5 0 1 1-16.99.01 8.5 8.5 0 0 1 16.99-.01z" class="support5"/><animateMotion fill="remove" accumulate="none" additive="replace" begin="0s" calcMode="paced" dur="2s" path="M0, 0 -15 0 -15 -15 -25 10 0 0" repeatCount="indefinite" restart="always"/></g><path id="svg-concept" d="M127.2 87.8h2.8s8.2-.1 8.2-9.4m-34.9-2.2c0 1.2-1.1 2.3-2.3 2.3h-3a2.4 2.4 0 0 1-2.3-2.3V65.5c0-1.2 1.1-2.3 2.3-2.3h3c1.2 0 2.3 1.1 2.3 2.3v10.7zm41.1-.1c0 1.2-1.1 2.3-2.3 2.3h-3a2.4 2.4 0 0 1-2.3-2.3V65.5c0-1.2 1.1-2.3 2.3-2.3h3c1.2 0 2.3 1.1 2.3 2.3v10.6z" class="support2"/></svg> -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- ***** CUSTOMIZE ***** -->
+    <section class="sec-normal history-section custom sec-bg3 bg-seccolorstyle">
+      <div class="faq">
+        <div class="container">
+          <div class="row">
+            <div class="col-md-12 col-sm-12 text-center">
+              <h2 class="section-heading text-white mergecolor">Advanced domain control made easy</h2>
+              <p class="section-subheading text-white mergecolor">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt.</p>
+            </div>
+            <div class="col-md-12 col-sm-12">
+              <div class="section-offer services w-100">
+                <div class="tabs offers-tabs">
+                  <div class="tabs-header mb-5">
+                    <ul>
+                      <li class="col-sm-12 col-md-3 col-lg-3 text-white active">
+                        <i class="icon-features"></i> <div class="seccolor">Easy Management</div>
+                      </li>
+                      <li  class="col-sm-12 col-md-3 col-lg-3 text-white">
+                        <i class="icon-domainserver"></i> <div class="seccolor">Domain API</div>
+                      </li >
+                      <li  class="col-sm-12 col-md-3 col-lg-3 text-white">
+                        <i class="icon-lock"></i> <div class="seccolor">Domain Lock</div>
+                      </li >
+                      <li  class="col-sm-12 col-md-3 col-lg-2 text-white">
+                        <i class="icon-helpdesk"></i> <div class="seccolor">Support Premium</div>
+                      </li >
+                    </ul>
+                  </div>
+                  <div class="tabs-content text-start">
+                    <div class="tabs-item active">
+                      <div class="row">
+                        <div class="col-md-12 col-lg-5">
+                          <div class="lazyload">
+                            <!-- <svg class="svg" x="0" y="0" viewBox="0 0 608.9 468" style="enable-background:new 0 0 608.9 468" xml:space="preserve"><style>.controlpanel0,.controlpanel1{fill:none;stroke:gray;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:10}.controlpanel1{stroke:#ee5586;stroke-width:2}</style><path class="controlpanel0" d="M48 54.6V18.1C48 9 55.4 1.7 64.4 1.7h518c9.1 0 16.4 7.4 16.4 16.4V397c0 9.1-7.4 16.4-16.4 16.4h-29.9"/><path class="controlpanel0" d="M18.1 54.6h518c9.1 0 16.4 7.4 16.4 16.4v378.9c0 9.1-7.4 16.4-16.4 16.4h-518c-9.1 0-16.4-7.4-16.4-16.4V71C1.6 62 9 54.6 18.1 54.6z"/><path id="svg-concept" class="controlpanel1" d="M61.8 80.4c0 2.4-2 4.4-4.4 4.4s-4.4-2-4.4-4.4 2-4.4 4.4-4.4c2.5 0 4.4 2 4.4 4.4z"/><path class="controlpanel0" d="M82.7 80.4c0 2.4-2 4.4-4.4 4.4s-4.4-2-4.4-4.4 2-4.4 4.4-4.4 4.4 2 4.4 4.4zm20.8 0c0 2.4-2 4.4-4.4 4.4s-4.4-2-4.4-4.4 2-4.4 4.4-4.4c2.5 0 4.4 2 4.4 4.4zM2.9 100.9h548.2"/><path id="svg-concept" class="controlpanel0" d="M46.9 126.7h464.4v47.7H46.9v-47.7z"/><path id="svg-concept" class="controlpanel1" d="M149.4 234.4h33.3v29h-33.3v-29z"/><path class="controlpanel0" d="M269.7 234.4H303v29h-33.3v-29z"/><g><path id="svg-concept" class="controlpanel1" d="M389.8 234.4h33.3v29h-33.3v-29z"/><animate accumulate="none" additive="replace" attributeName="opacity" calcMode="linear" dur="1s" fill="remove" repeatCount="indefinite" restart="always" values="0;1;0"/><animate accumulate="none" additive="replace" attributeName="fill" begin="0s" calcMode="linear" dur="1s" fill="freeze" from="#ffffff" restart="always" to="#ee5486"/></g><path class="controlpanel0" d="M149.4 273.5h33.3v29h-33.3v-29z"/><path id="svg-concept" class="controlpanel1" d="M269.7 273.5H303v29h-33.3v-29z"/><path class="controlpanel0" d="M389.7 273.5H423v29h-33.3zM46.9 233h82.8M46.9 205.3h82.8M149.9 205.3h361.4M149.9 327.6h361.4M199.8 244.7h52.4M199.8 255.1h43.6M318.5 244.7h52.4M318.5 255.1h43.6M437.2 244.7h52.4M437.2 255.1h43.6M199.8 281.9h52.4M199.8 292.4h43.6M318.5 281.9h52.4M318.5 292.4h43.6M437.2 281.9h52.4M437.2 292.4h43.6M149.4 356.3h33.3v29h-33.3z"/><g><path id="svg-concept" class="controlpanel1" d="M269.7 356.3H303v29h-33.3v-29z"/><animate accumulate="none" additive="replace" attributeName="opacity" calcMode="linear" dur="1s" fill="remove" repeatCount="indefinite" restart="always" values="0;1;0"/><animate accumulate="none" additive="replace" attributeName="fill" begin="0.5s" calcMode="linear" dur="1s" fill="freeze" from="#ffffff" restart="always" to="#ee5486"/></g><path class="controlpanel0" d="M389.8 356.3h33.3v29h-33.3v-29z"/><path id="svg-concept" class="controlpanel1" d="M149.4 395.4h33.3v29h-33.3v-29z"/><path class="controlpanel0" d="M269.7 395.4H303v29h-33.3v-29z"/><path id="svg-concept" class="controlpanel1" d="M389.7 395.4H423v29h-33.3v-29z"/><path class="controlpanel0" d="M199.8 366.6h52.4m-52.4 10.5h43.6m75.1-10.5h52.4m-52.4 10.5h43.6m75.1-10.5h52.4m-52.4 10.5h43.6m-281 26.7h52.4m-52.4 10.5h43.6m75.1-10.5h52.4m-52.4 10.5h43.6m75.1-10.5h52.4m-52.4 10.5h43.6M46.9 254h82.8M46.9 275h82.8M46.9 327.6h82.8M46.9 348.6h82.8M46.9 369.6h82.8M46.9 398.6h36.3M46.9 419.6h36.3M93.6 398.6h36.3M414.9 160.5c0 .3-.3.6-.7.6h-72.4c-.4 0-.7-.3-.7-.6v-18.7c0-.3.3-.6.7-.6h72.4c.4 0 .7.3.7.6v18.7zm72.9 0c0 .3-.3.6-.6.6h-55.7a.6.6 0 0 1-.6-.6v-18.7c0-.3.2-.6.6-.6h55.7c.3 0 .6.3.6.6v18.7z"/><path d="m103.3 150.8.1-.3-.1-.3-.3-.1h-8.1l-.9-.2c-.3-.1-.5-.3-.7-.6l-.4-.8v-1l.5-1.9h11c.7 0 1.3.1 1.9.5a4.5 4.5 0 0 1 2.2 2.9 6 6 0 0 1 0 1.9l-2 7.3c-.2.7-.6 1.4-1.2 1.8-.6.5-1.3.7-2.1.7h-8.1a4.6 4.6 0 0 1-3.5-1.7c-.4-.5-.7-1.1-.8-1.8-.2-.7-.1-1.3 0-2l.1-.4c.1-.5.3-.9.6-1.3l1-1 1.2-.7c.5-.2.9-.2 1.4-.2h6.8l-.5 1.9c-.1.4-.4.8-.8 1.1s-.8.4-1.3.4h-3c-.3 0-.5.1-.6.4-.1.2 0 .3.1.5l.4.2h4.9l.5-.1.2-.4.1-.2 1.4-4.6zm-34-5.2H75l-.9 3.3c-.1.5-.4.8-.7 1.1a2 2 0 0 1-1.3.4h-2.6c-.6 0-1.1.2-1.6.5s-.8.8-1 1.4v1.3l.5 1.1c.2.3.5.6.9.7l1.2.3H71c.3 0 .5.1.7.4.2.2.2.5.2.8l-1 3.7h-1.7a7.3 7.3 0 0 1-5.8-2.9 8.3 8.3 0 0 1-1.4-3c-.2-1.1-.2-2.2.1-3.4l.1-.4c.2-.8.6-1.5 1-2.2a7 7 0 0 1 3.7-2.8l2.4-.3m2.9 15.1 4.9-18.5c.1-.5.4-.8.8-1.1s.8-.4 1.3-.4h5.2a7.3 7.3 0 0 1 5.8 2.9c.7.9 1.1 1.9 1.4 3s.2 2.2-.1 3.4l-.1.4c-.2.8-.5 1.5-1 2.2-.4.7-1 1.3-1.6 1.7-.6.5-1.3.9-2.1 1.1-.8.3-1.6.4-2.4.4h-4.5l.9-3.4c.1-.5.4-.8.8-1.1s.8-.4 1.3-.4h1.4c.6 0 1.1-.2 1.6-.6.5-.4.8-.8.9-1.4v-1.2l-.5-1.1c-.2-.3-.5-.6-.9-.8l-1.2-.3h-2.8l-3.6 13.6c-.1.5-.4.8-.8 1.1s-.8.4-1.3.4h-3.4v.1zm45.7-15.1a7.3 7.3 0 0 1 5.8 2.9c.7.9 1.1 1.9 1.4 3 .2 1.1.2 2.3-.1 3.4l-1.3 4.7-.5.8-.9.3h-2.7a1 1 0 0 1-.8-.4c-.2-.2-.2-.5-.1-.8l1.5-5.7v-1.2l-.5-1.1c-.2-.3-.5-.6-.9-.7l-1.2-.3h-2.8l-2.4 9.1-.5.8-.9.3h-2.7c-.3 0-.5-.1-.7-.4-.2-.2-.2-.5-.2-.8l3.7-13.9h6.8zm14.7 4.8-.4.6-1.1 4.3c-.1.2 0 .4.1.7l.6.3h10.4l-.8 3c-.1.5-.4.8-.8 1.1a2 2 0 0 1-1.3.4h-9.4a4 4 0 0 1-1.9-.4 4.5 4.5 0 0 1-2.2-2.9 4 4 0 0 1 .1-1.9l1.5-5.7c.2-.6.4-1.2.8-1.7.3-.5.8-1 1.2-1.3.5-.4 1-.7 1.6-.9l1.8-.3h6.7c.7 0 1.3.2 1.9.4a4.5 4.5 0 0 1 2.2 2.9 4 4 0 0 1-.1 1.9l-.5 1.7a3 3 0 0 1-1.2 1.8c-.6.5-1.3.7-2.1.7h-7.5l.5-1.9c.1-.4.4-.8.7-1.1a2 2 0 0 1 1.3-.4h3.1c.3 0 .5-.1.6-.4l.1-.4c.1-.2 0-.4-.1-.5-.1-.2-.3-.2-.5-.2h-4.6c-.3-.1-.5 0-.7.2m9.5 10.3 5-18.9.5-.8.9-.3h2.7c.3 0 .6.1.8.4.2.2.2.5.2.8l-3.7 13.9c-.2.7-.5 1.4-.9 2s-.9 1.1-1.5 1.5-1.2.8-1.9 1c-.6.2-1.3.4-2.1.4" style="fill:gray"/><g><path id="svg-ico" d="M504.4 100.9c0 2.2-1.8 4-4 4s-4-1.8-4-4 1.8-4 4-4 4 1.7 4 4z"/><animateMotion accumulate="none" additive="replace" begin="0s" calcMode="paced" dur="12s" fill="remove" path="M40, 0 -495 0 45 0" repeatCount="indefinite" restart="always"/></g></svg> -->
+                          </div>
+                        </div>
+                        <div class="col-md-12 col-lg-6 offset-lg-1">
+                          <div class="info-content text-white">
+                            <div class="mergecolor mb-4 h2">Change DNS records through an Control Panel</div>
+                            <p class="seccolor">But I must explain to you how all this mistaken idea of <a href="#" class="golink-dark">denouncing pleasure</a> and praising pain was born and I will. </p>
+                            <p class="seccolor">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="tabs-item">
+                      <div class="row">
+                        <div class="col-md-12 col-lg-5">
+                          <div class="lazyload">
+                            <!-- <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" x="0" y="0" viewBox="0 0 693.4 556" style="enable-background:new 0 0 693.4 556" xml:space="preserve"><style>.performance0{fill:none;stroke:gray;stroke-miterlimit:10}</style><path class="performance0" d="M57.2 378.6a8 8 0 1 1-15.8 0 8 8 0 0 1 15.8 0z"/><g><path class="performance0" d="M57.5 315.9a8 8 0 1 1-7.9-7.9 8 8 0 0 1 7.9 7.9z"/><animate accumulate="none" additive="replace" attributeName="stroke" calcMode="linear" dur="1s" fill="freeze" restart="always" stroke="gray" values="#808080;#ee5486;#ee5486;#808080"/></g><g><path class="performance0" d="M71 254.7a8 8 0 1 1-7.9-7.9 8 8 0 0 1 7.9 7.9z"/><animate accumulate="none" additive="replace" attributeName="stroke" calcMode="linear" dur="1s" fill="freeze" restart="always" stroke="gray" values="#808080;#ee5486;#ee5486;#808080"/></g><g><path class="performance0" d="M95.8 198.2a8 8 0 1 1-7.9-7.9 8 8 0 0 1 7.9 7.9z"/><animate accumulate="none" additive="replace" attributeName="stroke" calcMode="linear" dur="1s" fill="freeze" restart="always" stroke="gray" values="#808080;#ee5486;#ee5486;#808080"/></g><g><path class="performance0" d="M132.7 148.3a8 8 0 1 1-7.9-7.9 8 8 0 0 1 7.9 7.9z"/><animate accumulate="none" additive="replace" attributeName="stroke" calcMode="linear" dur="2s" fill="freeze" restart="always" stroke="gray" values="#808080;#ee5486;#ee5486;#808080"/></g><g><path class="performance0" d="M179.1 107.3a8 8 0 1 1-7.9-7.9 8 8 0 0 1 7.9 7.9z"/><animate accumulate="none" additive="replace" attributeName="stroke" calcMode="linear" dur="2s" fill="freeze" restart="always" stroke="gray" values="#808080;#ee5486;#ee5486;#808080"/></g><g><path class="performance0" d="M232.3 76a8 8 0 1 1-15.8 0 8 8 0 0 1 15.8 0z"/><animate accumulate="none" additive="replace" attributeName="stroke" calcMode="linear" dur="2s" fill="freeze" restart="always" stroke="gray" values="#808080;#ee5486;#ee5486;#808080"/></g><g><path class="performance0" d="M291.7 57.5a8 8 0 1 1-7.9-7.9 8 8 0 0 1 7.9 7.9z"/><animate accumulate="none" additive="replace" attributeName="stroke" calcMode="linear" dur="2s" fill="freeze" restart="always" stroke="gray" values="#808080;#ee5486;#ee5486;#808080"/></g><g><path class="performance0" d="M353.1 51a8 8 0 1 1-7.9-7.9 8 8 0 0 1 7.9 7.9z"/><animate accumulate="none" additive="replace" attributeName="stroke" calcMode="linear" dur="3s" fill="freeze" restart="always" stroke="gray" values="#808080;#ee5486;#ee5486;#808080"/></g><g><path class="performance0" d="M414.3 57.5a8 8 0 1 1-15.8 0 8 8 0 0 1 15.8 0z"/><animate accumulate="none" additive="replace" attributeName="stroke" calcMode="linear" dur="3s" fill="freeze" restart="always" stroke="gray" values="#808080;#ee5486;#ee5486;#808080"/></g><g><path class="performance0" d="M473.2 76.4a8 8 0 1 1-7.9-7.9 8 8 0 0 1 7.9 7.9z"/><animate accumulate="none" additive="replace" attributeName="stroke" calcMode="linear" dur="3s" fill="freeze" restart="always" stroke="gray" values="#808080;#ee5486;#ee5486;#808080"/></g><g><path class="performance0" d="M526.8 107.7a8 8 0 1 1-7.9-7.9 8 8 0 0 1 7.9 7.9z"/><animate accumulate="none" additive="replace" attributeName="stroke" calcMode="linear" dur="3s" fill="freeze" restart="always" stroke="gray" values="#808080;#ee5486;#ee5486;#808080"/></g><g><path class="performance0" d="M573 148.7a8 8 0 1 1-7.9-7.9 8 8 0 0 1 7.9 7.9z"/><animate accumulate="none" additive="replace" attributeName="stroke" calcMode="linear" dur="3s" fill="freeze" restart="always" stroke="gray" values="#808080;#ee5486;#ee5486;#808080"/></g><path id="svg-ico" d="M609.4 199a8 8 0 1 1-7.9-7.9 8 8 0 0 1 7.9 7.9zm25.1 56.1a8 8 0 1 1-15.8 0 8 8 0 0 1 15.8 0zm12.9 60.9a8 8 0 1 1-15.8 0 8 8 0 0 1 15.8 0zm-.5 62.1a8 8 0 1 1-15.8 0 8 8 0 0 1 15.8 0z"/><g><path id="svg-concept" d="M300.1 179.5s35.6 50.9 37.5 139.6m-99-109.5s52.5 33.2 88.5 114.4m-133.5-63s61.2 10.6 125.6 71.7M172 324.6s60.6-13.4 143.4 18.8m-139 49.2s50.9-35.5 139.6-37.4M206.9 454s33.3-52.3 114.6-88.1M494 435.5s-60.9-10.7-124.8-72.3m147.2 7.6s-60.3 13.6-143.1-18.6m138.8-49.5s-50.6 35.7-139.3 37.7m109.7-98.1s-33.3 52.2-114.7 87.7m63.7-132.8s-11 61-72.7 124.9m7.8-146.9s13.2 60.7-19.2 143.3m-89.1 180.3s10.6-61.2 71.8-125.5m-7.3 147s-13.7-60.6 18.2-143.4m48.5 138.7S353.8 460.5 352 376m97.9 109.9s-52.3-33.4-88-114.7" style="fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:10"/><animateTransform accumulate="none" additive="replace" attributeName="transform" begin="0s" calcMode="linear" dur="2s" fill="remove" from="0 343 350" repeatCount="indefinite" restart="always" to="360 347 345" type="rotate"/></g><path d="M345.2 8.1v19.4M6.6 311.5l19.4 2M6.6 382.7l19.3-2m-4.2-139.4 18.6 6.1M51 176.9l16.7 9.7m25.3-67 14.3 12.9m38.5-60.1L157.1 88M207 37.1l7.9 17.7m59.3-39.6 4 19.1M6.6 382.7c-1.2-11.5-1.8-35-1.8-35a339.6 339.6 0 1 1 677.4 34.7M4.8 347.1h8.9m-1.4-70.5 8.4 1.8m14-70.2 8.1 3.6m27.9-65.2 7.2 5.3m41-57.8 5.8 6.4M175.5 53l4.4 7.7m59.4-36 2.8 8.4m68.5-23.4.9 8.9m370.7 293-19.5 2.1m19.6 68.8-19.4-2.1m4.3-138.6-18.5 6.1m-10.3-70.4-16.9 9.8m-24.8-67-14.5 13m-38-60.3-11.5 15.8m-49.5-51.2-7.9 17.8m-59.1-39.7-4.1 19m272 312.4H675m1.7-70.2-8.8 1.9m-13.4-70-8.3 3.7m-27.5-65.2-7.2 5.4m-40.5-58-6 6.7m-50.4-47.7-4.5 7.8M451 25.1l-2.8 8.5M379.8 9.9l-.9 8.9" style="fill:none;stroke:gray;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:10"/><path d="M356.8 360.1a17.4 17.4 0 0 1-24.8 0 17.5 17.5 0 1 1 24.8 0z" style="fill:none;stroke:gray;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:10"/><g><path id="svg-concept" d="m155.3 378-35-4.5c-3.8-.5-4.4-5.8-.8-7.1l33.4-12.4" style="fill:none;stroke-width:3;stroke-linejoin:round;stroke-miterlimit:10"/><animateTransform accumulate="none" additive="replace" attributeName="transform" calcMode="linear" dur="2s" fill="freeze" from="0 346 348" restart="always" to="192 344 349" type="rotate"/></g><path id="svg-concept" d="m151.9 355.3-.1-7.6a192.5 192.5 0 1 1 .1 7.6" style="fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:10"/></svg> -->
+                          </div>
+                        </div>
+                        <div class="col-md-12 col-lg-6 offset-lg-1">
+                          <div class="info-content text-white">
+                            <div class="mergecolor mb-4 h2">Register multiple domains can be done in a matter of seconds</div>
+                            <p class="seccolor">But I must explain to you how all this mistaken idea of <a href="#" class="golink-dark">denouncing pleasure</a> and praising pain was born and I will. </p>
+                            <p class="seccolor">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="tabs-item">
+                      <div class="row">
+                        <div class="col-md-12 col-lg-5">
+                          <div class="lazyload">
+                            <!-- <svg class="svg" x="0" y="0" viewBox="0 0 608.9 401" style="enable-background:new 0 0 608.9 401" xml:space="preserve"><style>.st0{stroke-linecap:round;stroke-linejoin:round}.st0,.st1{fill:none;stroke:gray;stroke-miterlimit:10}.st2{stroke-width:2}.st2,.st3{fill:none;stroke:#ee5586;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:10}</style><path class="st0" d="M2.6 364.5a4 4 0 0 1 3.9-4h595.6a4 4 0 0 1 3.9 4v12s-.3 14.5-30.6 14.5H33.2c-30.3 0-30.6-14.5-30.6-14.5v-12zm535.5-24.4V29.6c0-8.8-7-15.9-15.6-15.9H86.2c-8.6 0-15.6 7.1-15.6 15.9v310.5h467.5z"/><path class="st1" d="M605 376.4H3.7M308.2 29.6c0 2.2-1.7 4-3.9 4s-3.9-1.8-3.9-4 1.7-4 3.9-4 3.9 1.8 3.9 4z"/><path class="st0" d="M238.2 360.6s.7 6.6 7.8 6.6h116.2c7.2 0 7.8-6.6 7.8-6.6"/><path class="st1" d="M93.2 48.7h423.2v273.5H93.2V48.7z"/><path class="st1" d="M109.4 61.5c0 1.8-1.5 3.3-3.3 3.3s-3.3-1.5-3.3-3.3 1.5-3.3 3.3-3.3c1.8.1 3.3 1.5 3.3 3.3zM124.9 61.5c0 1.8-1.5 3.3-3.3 3.3s-3.3-1.5-3.3-3.3 1.5-3.3 3.3-3.3c1.9.1 3.3 1.5 3.3 3.3zM140.5 61.5c0 1.8-1.5 3.3-3.3 3.3s-3.3-1.5-3.3-3.3 1.5-3.3 3.3-3.3c1.8.1 3.3 1.5 3.3 3.3zM93.2 73h423.2M93.2 114.7h423.2"/><path id="svg-concept" class="st2" d="M316.9 303.8H120.2c-8.2 0-15-6.8-15-15V153.2c0-8.2 6.8-15 15-15h196.7c8.2 0 15 6.8 15 15v135.6c0 8.2-6.8 15-15 15z"/><path class="st0" d="M200.6 169.5h104m-104 15.7h54.2m-54.2 15.6h104m-104 15.7h86.2"/><path id="svg-concept" class="st3" d="M200.6 261.9h66.6M200.6 277.5h104M178.6 261.6v-4.7c0-9.6-13.9-10.3-13.9 0v4.7M179.8 261.6h1.1c.5 0 .9.4.9.9v14.2c0 .5-.4.9-.9.9h-18.7a.9.9 0 0 1-.9-.9v-14.2c0-.5.4-.9.9-.9h17.6zM161.4 267.6h20.4M162.4 261.6l6.2 6M167.6 261.6l6 6M172.6 261.6l6 6M177.6 261.6l4.2 4.2M161.4 264.9l2.7 2.7"/><path id="svg-concept" class="st0" d="M172.2 218.2h-37.6a10 10 0 0 1-10-10v-37.6a10 10 0 0 1 10-10h37.6a10 10 0 0 1 10 10v37.6a10 10 0 0 1-10 10h0z"/><path id="svg-concept" class="st2" d="M125.3 121.7v16.5"/><path id="svg-concept" class="st3" d="M148.3 197.3v13.1l4.3-4.3.1-.1c.2-.2.5-.3.7-.3.3 0 .5.1.7.3l.1.1 4.3 4.3v-13.1h-1.6l-3.6 2.1-3.6-2.1h-1.4zm16.6-18.7V175l-3.1-1.7-1.8-3.1h-3.5l-3.1-1.8-3 1.8h-3.5l-1.8 3.1-3.1 1.7v3.6l-1.7 3 1.7 3.1v3.5l3.1 1.8 1.8 3h3.5l3 1.8 3.1-1.8h3.5l1.8-3 3.1-1.8v-3.5l1.7-3.1-1.7-3z"/><path class="st1" d="m369.6 360.4-65.3-.1h-65.5"/><g><path id="svg-concept" class="st3" d="M129.6 93.9V91c0-5.9-8.7-6.4-8.7 0v2.9M130.5 93.9h.6c.3 0 .5.3.5.5v8.8c0 .3-.3.5-.5.5h-11.6c-.3 0-.5-.3-.5-.5v-8.8c0-.3.3-.5.5-.5h11z"/><path id="svg-concept" class="st3" d="M125.2 101.1a2 2 0 0 1-2-2c0-1.1.9-2 2-2s2 .9 2 2c.1 1.1-.9 2-2 2z"/><animate accumulate="none" additive="replace" attributeName="opacity" calcMode="linear" dur="1s" fill="remove" repeatCount="indefinite" restart="always" values="0;1;0"/></g><path id="svg-concept" d="M153.2 96.2h154.3" style="fill:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:10"/><g><path id="svg-ico" d="M99.2 340.1c0 3.3-2.7 6-6 6s-6-2.7-6-6 2.7-6 6-6 6 2.7 6 6z"/><animateMotion accumulate="none" additive="replace" begin="0s" calcMode="paced" dur="12s" fill="remove" path="M-20, 0 440 0 -20 0" repeatCount="indefinite" restart="always"/></g><path class="st1" d="M495.1 108.7H116.4a13.6 13.6 0 0 1 0-27.2H495c7.5 0 13.6 6.1 13.6 13.6.1 7.5-6 13.6-13.5 13.6z"/></svg> -->
+                          </div>
+                        </div>
+                        <div class="col-md-12 col-lg-6 offset-lg-1">
+                          <div class="info-content text-white">
+                            <div class="mergecolor mb-4 h2">Lock and Unlock to prevent unauthorized transfers</div>
+                            <p class="seccolor">But I must explain to you how all this mistaken idea of <a href="#" class="golink-dark">denouncing pleasure</a> and praising pain was born and I will. </p>
+                            <p class="seccolor">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="tabs-item">
+                      <div class="row">
+                        <div class="col-md-12 col-lg-5">
+                          <div class="lazyload">
+                            <!-- <svg class="svg" x="0" y="0" style="enable-background:new 0 0 631.3 460.5" version="1.1" viewBox="0 0 631.3 460.5"><style>.support0{stroke:#ee5586;stroke-width:3}.support0,.support2,.support3,.support4{stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:10;fill:none}.support2{stroke:#ee5586;stroke-width:2}.support3{stroke:gray}.support4{stroke:#ee5586}.support5{fill:#ee5586}</style><path id="svg-concept" d="M569.1 81.3C499.3.7 380-21.7 284.3 33.6c-108.4 62.7-145.5 201.3-82.8 309.8s201.3 145.5 309.8 82.8c108.4-62.7 145.5-201.3 82.8-309.8" class="support0"/><path id="svg-concept" d="M170.9 237.3v-4.7m.1-5.5v-4.7" class="support2"/><g><path d="M389.8 60c-26.3 1.2-52.7 8.6-77.1 22.7a169.61 169.61 0 0 0-83.6 126m307.2 119.6c37.3-52.6 43-124.2 8.6-183.6-30-52-83.5-82.1-139.3-84.7M229 251.1c2.7 21.9 9.8 43.6 21.5 63.8 47 81.3 151 109.1 232.3 62.1 17.3-10 32.1-22.5 44.3-36.9M397.7 67.3v49.2M390.3 60c0-4.1 3.3-7.5 7.4-7.5s7.4 3.3 7.5 7.4c0 4.1-3.3 7.4-7.4 7.4-4.2.1-7.5-3.2-7.5-7.3z" class="support3"/><path d="M395 59.9a2.8 2.8 0 1 1 5.6 0c0 1.6-1.2 2.8-2.8 2.8-1.6 0-2.8-1.2-2.8-2.8zm132.2 280.3a7.56 7.56 0 0 1-1.3-10.5c2.5-3.2 7.2-3.8 10.5-1.3 3.2 2.5 3.8 7.2 1.3 10.4a7.51 7.51 0 0 1-10.5 1.4z" class="support3"/><path d="M530 336.5c-1.2-.9-1.4-2.7-.5-3.9.9-1.2 2.7-1.4 3.9-.5s1.4 2.7.5 3.9c-.9 1.2-2.7 1.4-3.9.5z" class="support3"/><animateTransform fill="remove" accumulate="none" additive="replace" attributeName="transform" calcMode="linear" dur="10s" from="0 397 229" repeatCount="indefinite" restart="always" to="-360 397 230" type="rotate"/></g><g><path d="M284.6 237.7c1.2 16.7 6 33.4 15 48.9 31.4 54.2 100.7 72.8 154.9 41.4 29.7-17.1 48.7-45.7 54.6-76.9m-40.6-109.9c-35.4-28.2-85.9-33.6-127.5-9.5-33.8 19.5-53.9 54.5-56.5 90.7m224.6-13.8a114.2 114.2 0 0 0-13.2-35.5c-4.6-8-10.1-15.2-16.2-21.6" class="support3"/><path d="m428.9 191.3 39.8-39.8m-120.6 78.4H292m187.4-78.6a7.44 7.44 0 1 1-.5-10.5c3 2.8 3.2 7.5.5 10.5z" class="support3"/><path d="M475.9 148.2c-1 1.1-2.8 1.2-3.9.2s-1.2-2.8-.2-3.9 2.8-1.2 3.9-.2 1.2 2.7.2 3.9zm-191.4 74.2c4.1 0 7.4 3.3 7.5 7.4.1 4.2-3.2 7.5-7.4 7.5-4.1 0-7.5-3.3-7.5-7.4 0-4.1 3.3-7.5 7.4-7.5" class="support3"/><path d="M284.6 232.6a2.8 2.8 0 1 1 0-5.6c1.6 0 2.8 1.2 2.8 2.7 0 1.7-1.3 2.9-2.8 2.9h0z" class="support3"/><animateTransform fill="remove" accumulate="none" additive="replace" attributeName="transform" calcMode="linear" dur="15s" from="0 397 229" repeatCount="indefinite" restart="always" to="360 397 230" type="rotate"/></g><path d="m140.9 63.2-1 .1h-.9a2.4 2.4 0 0 0-2.3 2.3v10.6c0 .5.1.9.4 1.3l.7.5s0 3.3-.4 4.4c-1.7 8.4-8.8 13.8-17.3 13.8-9.8 0-17.7-7.2-17.7-18.4l.5-.4c.5-.4.3-.6.3-1.2V65.5c0-1.2-1.1-2.3-2.3-2.3h-1.4" class="support3"/><path id="svg-concept" d="M99.5 63.2c0-11.4 9.3-21.3 20.7-21.3 11.1 0 20.7 9.3 20.7 21.3" class="support2"/><path d="M114.8 74.4c0 1.3-1 2.3-2.3 2.3s-2.3-1-2.3-2.3 1-2.3 2.3-2.3c1.2.1 2.3 1.1 2.3 2.3zm15 0c0 1.3-1 2.3-2.3 2.3s-2.3-1-2.3-2.3 1-2.3 2.3-2.3c1.3.1 2.3 1.1 2.3 2.3z" class="support3"/><circle id="svg-concept" cx="124" cy="87.9" r="3" class="support2"/><path d="m103.3 67.2 8.1-9.2c.5-.6 1.4-.6 1.8 0 0 0 8.5 9.9 23.6 9.2" class="support3"/><path id="svg-concept" d="M150.4 27.7c5.3 0 9.7 4.4 9.7 9.7v102.1c0 5.3-4.4 9.7-9.7 9.7H11.9c-5.3 0-9.7-4.4-9.7-9.7V37.4c0-5.3 4.4-9.7 9.7-9.7h138.5z" class="support2"/><path id="svg-concept" d="M160.3 58.5h1.8c.5 0 .8.4.8.8v6.1c0 .5-.4.8-.8.8h-1.8m0-19.8h1.8c.5 0 .8.4.8.8v6.1c0 .5-.4.8-.8.8h-1.8" class="support4"/><path d="M58.3 102.1H18.9M82 87.7H18.9m29.9-14.5H18.9m51.5-14.4H18.9M82 44.4H18.9m122.5 87.7H21.9a3 3 0 0 1-3-3v-6.2c0-1.6 1.4-3 3-3h119.5a3 3 0 0 1 3 3v6.2a3 3 0 0 1-3 3zm29.5 100.5H82m-.8-83.4v83.4" class="support3"/><circle id="svg-ico" cx="81.1" cy="232.5" r="4.3" class="support5"/><g><path id="svg-concept" d="M418.4 275c1.4-.6 2.8-1.4 4.1-2.1 23.7-13.7 31.8-44 18.1-67.8a49.64 49.64 0 0 0-67.8-18.1 49.64 49.64 0 0 0 3 87.5" class="support2"/><animateTransform fill="remove" accumulate="none" additive="replace" attributeName="transform" calcMode="linear" dur="12s" from="0 397 229" repeatCount="indefinite" restart="always" to="-360 397 230" type="rotate"/></g><g><path id="svg-ico" d="M406.9 229.9a8.5 8.5 0 1 1-16.99.01 8.5 8.5 0 0 1 16.99-.01z" class="support5"/><animateMotion fill="remove" accumulate="none" additive="replace" begin="0s" calcMode="paced" dur="2s" path="M0, 0 -15 0 -15 -15 -25 10 0 0" repeatCount="indefinite" restart="always"/></g><path id="svg-concept" d="M127.2 87.8h2.8s8.2-.1 8.2-9.4m-34.9-2.2c0 1.2-1.1 2.3-2.3 2.3h-3a2.4 2.4 0 0 1-2.3-2.3V65.5c0-1.2 1.1-2.3 2.3-2.3h3c1.2 0 2.3 1.1 2.3 2.3v10.7zm41.1-.1c0 1.2-1.1 2.3-2.3 2.3h-3a2.4 2.4 0 0 1-2.3-2.3V65.5c0-1.2 1.1-2.3 2.3-2.3h3c1.2 0 2.3 1.1 2.3 2.3v10.6z" class="support2"/></svg> -->
+                          </div>
+                        </div>
+                        <div class="col-md-12 col-lg-6 offset-lg-1">
+                          <div class="info-content text-white">
+                            <div class="mergecolor mb-4 h2">Don't worry! We have support premium 24/7/365</div>
+                            <p class="seccolor">But I must explain to you how all this mistaken idea of <a href="#" class="golink-dark">denouncing pleasure</a> and praising pain was born and I will. </p>
+                            <p class="seccolor">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <hr class="fullline d-none">
+    <!-- ***** FAQ. ***** -->
+    <section class="sec-normal bg-colorstyle">
+      <div class="faq">
+        <div class="container">
+          <div class="row">
+            <div class="col-md-12 col-sm-12 text-center">
+              <h2 class="section-heading mergecolor">Frequently Asked Questions Hosting</h2>
+              <p class="section-subheading mergecolor">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt.</p>
+            </div>
+            <div class="col-sm-12">
+              <div class="accordion faq pt-5">
+                <div class="panel-wrap">
+                  <div class="panel-title seccolor active">
+                    <span>What is a domain name?</span>
+                    <div class="float-end">
+                      <i class="fa fa-plus"></i>
+                      <i class="fa fa-minus c-pink"></i>
+                    </div>
+                  </div>
+                  <div class="panel-collapse" style="display: block">
+                    <div class="wrapper-collapse">
+                      <div class="info">
+                        <ul class="list seccolor">
+                          <li>
+                            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna.</p>
+                            <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="panel-wrap">
+                  <div class="panel-title seccolor">
+                    <span>What can I do with a domain name?</span>
+                    <div class="float-end">
+                      <i class="fa fa-plus"></i>
+                      <i class="fa fa-minus c-pink"></i>
+                    </div>
+                  </div>
+                  <div class="panel-collapse">
+                    <div class="wrapper-collapse">
+                      <div class="info">
+                        <ul class="list seccolor">
+                          <li>
+                            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna.</p>
+                            <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="panel-wrap">
+                  <div class="panel-title seccolor">
+                    <span>How many domains can I host at Antler?</span>
+                    <div class="float-end">
+                      <i class="fa fa-plus"></i>
+                      <i class="fa fa-minus c-pink"></i>
+                    </div>
+                  </div>
+                  <div class="panel-collapse">
+                    <div class="wrapper-collapse">
+                      <div class="info">
+                        <ul class="list seccolor">
+                          <li>
+                            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna.</p>
+                            <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="panel-wrap">
+                  <div class="panel-title seccolor">
+                    <span>What domain should I buy? </span>
+                    <div class="float-end">
+                      <i class="fa fa-plus"></i>
+                      <i class="fa fa-minus c-pink"></i>
+                    </div>
+                  </div>
+                  <div class="panel-collapse">
+                    <div class="wrapper-collapse">
+                      <div class="info">
+                        <ul class="list seccolor">
+                          <li>
+                            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna.</p>
+                            <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- ***** HELP ***** -->
+    <section class="help sec-normal pt-80 sec-bg2 bg-seccolorstyle">
+      <div class="container">
+        <div class="service-wrap">
+          <div class="row">
+            <div class="col-sm-12 col-md-6 col-lg-6">
+              <div class="help-container bg-colorstyle noshadow">
+                <div class="plans badge feat left bg-grey"><i class="fas fa-long-arrow-alt-left"></i></div>
+                <a href="hosting" class="help-item">
+                  <div class="img">
+                    <div class="lazyload">
+                      <!-- <svg class="svg ico" viewBox="0 0 32 32"><path id="svg-ico" d="M21.294 1.969h-.232c-5.325.087-10.656 3.756-10.656 10.688 0 .238.194.425.425.425.238 0 .425-.194.425-.425 0-6.719 5.125-9.8 9.912-9.838 5.387.038 9.762 4.438 9.762 9.838 0 5.425-4.412 9.837-9.838 9.837H7.767c-3.725 0-6.756-3.031-6.756-6.756s3.031-6.756 6.756-6.756c.238 0 .425-.194.425-.425s-.194-.425-.425-.425c-4.2-.006-7.612 3.412-7.612 7.606s3.413 7.613 7.612 7.613h13.331c5.894 0 10.694-4.794 10.694-10.694 0-5.825-4.694-10.581-10.5-10.688z"/><path fill="#5e686c" d="M24.413 28.15h-6.781c-.156-.6-.631-1.075-1.231-1.231v-2.194c0-.238-.194-.425-.425-.425-.238 0-.425.194-.425.425v2.194c-.6.156-1.075.631-1.231 1.231H7.539c-.237 0-.425.194-.425.425s.194.425.425.425h6.781c.188.738.863 1.281 1.656 1.281s1.469-.544 1.656-1.281h6.781c.238 0 .425-.194.425-.425s-.188-.425-.425-.425zm-8.438 1.281c-.469 0-.856-.381-.856-.856 0-.469.381-.856.856-.856s.856.381.856.856-.387.856-.856.856zM21.238 6.931c.238 0 .425-.194.425-.431-.006-.237-.219-.444-.431-.425-3.381.044-6.375 2.719-6.675 6.044l.006.075c.006.156.012.313.012.463 0 .238.194.425.425.425.238 0 .425-.194.425-.425 0-.162-.006-.331-.012-.525l-.012-.019c.269-2.819 2.888-5.144 5.838-5.181z"/></svg> -->
+                    </div>
+                  </div>
+                  <div class="inform">
+                    <div class="title mergecolor">Go to Cloud Reseller</div>
+                    <div class="description seccolor">Do you need to host multiple Websites?</div>
+                  </div>
+                </a>
+              </div>
+            </div>
+            <div class="col-sm-12 col-md-6 col-lg-6">
+              <div class="help-container bg-colorstyle noshadow">
+                <div class="plans badge feat bg-grey"><i class="fas fa-long-arrow-alt-right"></i></div>
+                <a href="vps" class="help-item">
+                  <div class="img">
+                    <div class="lazyload">
+                      <!-- <svg class="svg ico" viewBox="0 0 32 32"><path fill="#5e686b" d="M29.55 13.35H13.37a.42.42 0 0 0 0 .84h16.18c.65 0 1.18.45 1.18 1.02v8.05c0 .57-.53 1.03-1.18 1.03H2.47c-.65 0-1.18-.46-1.18-1.03v-8.05c0-.56.53-1.02 1.18-1.02h4.17a.42.42 0 0 0 0-.84H2.47c-1.11 0-2.03.84-2.03 1.86v8.05c0 1.03.91 1.87 2.03 1.87h27.08c1.11 0 2.02-.84 2.02-1.87v-8.05c0-1.02-.9-1.86-2.02-1.86zM29.55.27H13.37a.42.42 0 0 0 0 .84h16.18c.65 0 1.18.45 1.18 1.02v8.05c0 .57-.53 1.03-1.18 1.03H2.47c-.65 0-1.18-.46-1.18-1.03V2.13c0-.56.53-1.02 1.18-1.02h4.17a.42.42 0 0 0 0-.84H2.47C1.36.27.45 1.1.45 2.13v8.05c0 1.03.9 1.86 2.03 1.86h27.08c1.1 0 2.02-.83 2.02-1.86V2.13c0-1.02-.92-1.86-2.03-1.86z"/><path id="svg-ico" d="M25.77 19.66a.42.42 0 0 0 0-.84h-2.16a.42.42 0 0 0 0 .84h2.16zM25.77 6.58a.42.42 0 0 0 0-.84h-2.16a.42.42 0 0 0 0 .83h2.16z"/><path fill="#5e686b" d="M26 29.61h-8.36a1.7 1.7 0 0 0-1.2-1.2v-1.88a.42.42 0 0 0-.85 0v1.87c-.58.15-1.05.62-1.2 1.21H6.02a.42.42 0 0 0 0 .84h8.36a1.69 1.69 0 0 0 3.26 0H26c.23 0 .42-.19.42-.42 0-.23-.2-.42-.43-.42zM16 30.88a.84.84 0 1 1 0-1.7.84.84 0 0 1 0 1.7z"/></svg> -->
+                    </div>
+                  </div>
+                  <div class="inform">
+                    <div class="title mergecolor">Go to VPS Server</div>
+                    <div class="description seccolor">Needs scalable resources in Hosting Environment?</div>
+                  </div>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- ***** UPLOADED FOOTER FROM FOOTER.HTML ***** -->
+    <footer id="footer"> </footer>
+</div>
+<!-- ***** BUTTON GO TOP ***** -->
+<a href="#" class="cd-top" title="Go Top"> <i class="fas fa-angle-up"></i> </a>
+</body>
+</html>

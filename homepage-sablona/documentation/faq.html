@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Antler Documentation</title>
+        <link href="assets/css/bootstrap.min.css" rel="stylesheet">
+        <link href="assets/css/jquery.tocify.css" rel="stylesheet">
+        <link href="assets/img/favicon.ico" rel="shortcut icon">
+        <link href="assets/css/prettify.css" rel="stylesheet">
+        <link href="assets/css/style.css" rel="stylesheet">
+    </head>
+    <body>
+        <nav class="navbar navbar-inverse navbar-fixed-top" role="navigation">
+            <div class="container">
+                <div class="navbar-header col-md-3">
+                    <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="index.html">
+                        <img src="assets/img/logo.svg" alt="logo" width="150" height="40">
+                    </a>
+                </div>
+                <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
+                    <ul class="nav navbar-nav pull-right">
+                        <li><a href="index.html">Overview</a></li>
+                        <li><a href="structure.html">Structure</a></li>
+                        <li class="active"><a href="faq.html">FAQ</a></li>
+                        <li><a href="policy.html">Support Policy</a></li>
+                        <li><a href="copyright.html">Copyright</a></li>
+                        <li><a href="contact.html">Contacts</a></li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+        <div class="container">
+            <div class="row">
+                <div class="col-sm-12 col-md-12 col-lg-12">
+                    <div class="content b-solid mt-0 mb-50">
+                        <h6 class="byinebur">Hybrid Design With ♥ by <a href="http://inebur.com" target="_blank">inebur</a></h6>
+                        <h1>FAQ.</h1>
+                        <p id="softwaredit"><span class="badge bg-pink">1</span> <b>What Software Can I Use To Edit Antler Template?</b></p>
+                        <p>There are several softwares that can be used to edit Antler Template. however, we highlight the Sublime Text. Besides being an open source software, is a sophisticated text editor for code, markup and prose. We highlighted the fact that you can save and upload files directly to the server. Through the FTP Sync plugin <a class="link" href="https://packagecontrol.io/packages/FTPSync" target="_blank">here</a> The simplest method of installation is through the Sublime Text console at <a class="link" href="https://packagecontrol.io/installation" target="_blank">Package Control</a><br>Learn more about Sublime text <a class="link" href="https://www.sublimetext.com/" target="_blank">here </a></p><br>
+                        <p id="licensekey"><span class="badge bg-pink">2</span> <b>Is My WHMCS License Key Invalid?</b></p>
+                        <p>First, you must purchase a WHMCS plan to gain access your license key. Please, check WHMCS plans <a class="link" href="https://www.whmcs.com/pricing/" target="_blank">here</a> <br>If you have already been purchased a WHMCS plan and you have a license key, do login to your WHMCS members area, go to your license page and then reissue it. More some suggestions:<br>
+                        - Make sure your server firewall isn't blocking WHMCS as well, <br>
+                        - Make sure curl is running in your server;<br>
+                        - Contact WHMCS Support via <a class="link" href="https://www.whmcs.com/support/" target="_blank">help center</a></p><br>
+                        <p id="demoimages"><span class="badge bg-pink">3</span> <b>Where Can I Find For The Demo Images?</b></p>
+                        <p>All images used on the demo site is for demonstration purposes only and are not included in the main download file. However, because the images they may be used freely for almost any purpose, I can send you all images. Please, contact me via <a class="link" href="mailto:support@inebur.com">support@inebur.com</a></p><br>
+                        <p id="livechatconfig"><span class="badge bg-pink">4</span> <b>How Can I Add And Configure Live Chat (Tawk.to) on Antler Demo Template?</b></p>
+                        <p>Tawk.to is a free messaging app to monitor and chat with the visitors on your website, mobile app or from a free customisable page. To install as owner, following the steps below:<br>
+                        <b>1 -</b> First, sign up at tawk.to;<br>
+                        <b>2 -</b> Now, follow the admin panel and copy Widget Code;<br>
+                        <b>3 -</b> Paste code inside custom.js file. Please note, don't forget to add script tag, in all HTML files, like this: 
+                        <pre class="prettyprint linenums">&lt;script src="js/custom.js"&gt; &lt;script/&gt;</pre>
+                        <p>If you wish to run tawk.to in the WHMCS Template, follow the steps in question number 17. <a class="link" href="https://www.tawk.to/knowledgebase/getting-started/adding-a-widget-to-your-website/" target="_blank">here</a></p></p><br>
+                        <p id="downloadlatestversion"><span class="badge bg-pink">5</span> <b>Where Can I Download The Latest Version?</b></p>
+                        <p>All updates are free and you can <a class="link" href="https://themeforest.net/downloads" target="_blank">download</a> through Themeforest page.<br> Antler Template is constantly updated with code fixes, layout adjustments or introduction of new features and pages. <br>So, It is recommended to update always to the recent version, however it is necessary attention care to not lose information already contained in your Website.</p><br>
+                        <p id="cartwork"><span class="badge bg-pink">6</span> <b>How can I Put The Cart To Work?</b></p>
+                        <p>Well, I will try to help, but I'm not developer. First, you need create an icon cart on header for example. You should add a condition on the  "Cart" button event to check the selected plan. When user clicks the button (Any product), the click event will be fired and he will be added to cart , according to the selected plan. You can use an if/else or switch/case conditional statement. I hope this help you!</p><br>
+                        <p id="blognotwork"><span class="badge bg-pink">7</span> <b>The Blog Comment System Does Not Work?</b></p>
+                        <p>Please note, the Blog Page was build in HTML5 and CSS3 Technology and no back-end code has been implemented. You need to implement server side script like PHP to get working the blog comment system in HTML template or you need to convert the HTML template to WordPress theme.</p><br>
+                        <p id="customtemplate"><span class="badge bg-pink">8</span> <b>Exist Any Admin Panel Where I Can Customize My Template?</b></p>
+                        <p>Antler template was build in HTML5 and CSS Technology based on Bootstrap Framework and is not a WorPress Theme. Antler Demo Template was designed to integrate directly with the WHMCS client area, through login, domain search and hosting & VPS plans (already integrated). Please, learn more about integration <a class="link" href="https://inebur.com/antler-up/documentation/structure.html#IntegrationWHMCS"> here</a>.</p><br>
+                        <p id="updatenewrelease"><span class="badge bg-pink">9</span> <b>How do I update the template after a new release comes out or updated?</b></p>
+                        <p>There is no automatic way to update is true!
+                        You should note the changelog posted on the item page or check  the changelog file inside the Antler folder after downloaded.</p>
+                        <p><b>So, what you should do?</b> Remember, If you need to customize the Antler demo template or the WHMCS Client Area Template to your liking and style, you should use "custom" files <b>(custom.css & custom.js)</b>. So, you can added and replace all files or code lines updated, following the changelog file without losing your configurations already implemented.</p>
+                        <p><b>How can I update the WHMCS Template?</b> Everything that is related to image, css style, fonts, patters or js files, you can find inside the "assets" folder.</p>
+                        <p class="alert alert-info"> <b>Suggestion:</b><br> If I add new sections, elements or features inside the header.tpl file for example, you should open the two files and compare.</p><br>
+                        <p id="settings"><span class="badge bg-pink">10</span> <b>How can I set my website according the settings bar?</b>
+                        <p>To set and change any style switch, open the <b>"js/settings-init.js"</b> file, and get inspired.<br>
+                        <p>The settings are divide to 5 big section: <b>[ layout, color, background, header, font and showSettings ]</b> <br>By default, you will find the settings defined according the following set:</p>
+
+<pre class="prettyprint linenums">
+var optionSettings = {
+    layout:"wide",
+    background:"origin",
+    color:"pink",
+    header:"static",
+    font:"opensans",
+    textDirection:"ltr",
+    radius:"defaultradius",
+    showSettings:"show",
+};
+</pre><br>
+                        <p>Each section is divided into several styles, namely:<br>
+                        Layout Mode: <b>wide, frame, boxed, and wideboxed;</b><br>
+                        Background Style: <b>default, dark, light and Modern (in updating);</b><br>
+                        Color Scheme: <b>pink, blue, green and black;</b><br>
+                        Header Position: <b>static and fixed;</b><br>
+                        Body Font: <b>opensans, poppins, nunito and raleway.</b><br>
+                        Border Radius <b>defaultradius, threeradius, sixradius or twelveradius ;</b></br>
+                        showSettings: <b>show or hide.</b>
+                        </p>
+
+                        <p><strong>NOTE:</strong> In case of WHMCS Client Area template, to remove the "Settings & Demo" buttons on the right side screen, open the "header.tpl" file and remove the following line of code: <strong>{include file="$template/assets/layout/settings.tpl"}</strong> </p>
+                        <p>FYI, this last one, show or hide the sidebar settings. So, choise and change your delicious "style" set and run your amazing website.</p><br>
+                        <p id="startanothercolor"><span class="badge bg-pink">11</span> <b>How can create a new color style for my Website?</b></p>
+                        <p>If you are interested in implement another color for your website that not present at the demo, follow the steps:<br>
+                        <b>1 -</b> Open the <b>"style.css"</b> file to demo template or the <b>"style.css & main.css"</b> files, in case you need to change the default color on your WHMCS Client Area. Now, copy the all <b>[data-color="pink"]</b> style data color or find for the <b>"Pink Light" & "Pink Dark"</b> comment section;<br>
+                        <p><b>Directory:</b> template -> assets -> css -> style.css<br>
+                        <b>Exemple:</b> [data-color="pink"] svg #svg-ico {fill: #ee5586;}</p>
+                        <b>2 -</b> Past all <b>[data-color="pink"]</b> data color to inside the <b>"custom.css"</b> file.<br>
+                        <p><b>Directory:</b> template -> assets -> css -> custom.css</p>
+                        <b>3 -</b> Replace all hexadecimal <b>"ee5586" & "#a5215e"</b> color pink for your hex color style.<br>
+                        <p>Now, you need enabled the Pink Color as your default color. Please check how to do <a class="link" href="https://inebur.com/antler/documentation/index.html#ChangeSettings" target="_blank">here. </a></p><br>
+                        <p id="changeanimation"><span class="badge bg-pink">12</span> <b>How can I change animation text (typed.js)</b></p>
+                        <p>Antler template comes with the (Typed.js) library.
+                        Typed.js is a library that types. Enter in any string, and watch it type at the speed you've set, backspace what it's typed, and begin a new sentence for however many strings you've set.
+                        Take a look the library <a class="link" href="https://mattboldt.com/demos/typed-js/" target="_blank">here. </a><br> If you need change text or strings, go to the bottom of the page index.html and customize to your liking.<p><br>
+                        <p id="whichplataform"><span class="badge bg-pink">13</span> <b>How can I use Antler Template and on which platform?</b></p>
+                        <p>Well, you have 3 possibilities to use the Antler Template:<br>
+                        <b>1</b> - You may use only the WHMCS Client Area Template. The WHMCS Client Area Template is a turn-key project developed by the WHMCS group, allowing you to launch a new online business easily and efficiently. However you are loss all components, sections, resources and pages that Antler demo template offer.<a class="link" href="https://www.whmcs.com/" target="_blank">Go to WHMCS Website.</a><br>
+                        <b>2</b> - You may use only the Antler Template built in HTML5 and CSS3 Technology based in Bootstrap Framework, however, you need to develop all the back-end issues and database that the WHMCS Template offers.<br><b>3</b> - Or you can integrate both templates. That is without doubt the option that ensures hight scalability and resources.</p><br>
+                        <p id="antlerfolders"><span class="badge bg-pink">14</span> <b>What can I find inside Antler Template folder after downloading?</b></p>
+                        <p>After downloading the Antler item, you will find <b>7 folders:</b><br>
+                        <p><b>documentation</b> - Everything you need to know will find inside this folder. WHMCS and Template Installation, Language Translation i18next system, settings mode, features, rules and support policy and much more. <br>Please, preview Documentation Folder <a class="link" href="http://inebur.com/antler/documentation" target="_blank">here</a></p>
+                        <p><b>email</b> - Install and customize your Antler WHMCS Email Template. You can use the custom email template for your own and send manually via WHMCS for all your customers. <br>Please, preview WHMCS Email Template <a class="link" href="http://inebur.com/antler/email/" target="_blank">here</a></p>
+                        <p><b>graphic</b> - If you need customize your patterns, graphics or logo, check this folder. All files are in fully customizable AI format. To edit your logo, do you just need open the logo.ai file in Adobe Illustrator or any vector image editor software. <b>Please note,</b> If you have no skills with any vector image editor software, tell me and I will provide your custom logo according Antler logo.</b></p>
+                        <p><b>newsletter</b> - Like the Email Template, you are free to customize and add new component or sections according to your requirements. You can use the WHMCS Newsletter Template on your own newsletter templates (Email) and send manually or massive via WHMCS any time. <br>Please, preview WHMCS Newsletter Template <a class="link" href="http://inebur.com/antler/newsletter/" target="_blank">here</a></p></p>
+                        <p><b>order-form</b> - WHMCS Order Form Templates define the look and feel of the shopping cart process. <br>Please, preview WHMCS Newsletter Template <a class="link" href="https://inebur.com/whmcs/index.php/store/shared-hosting/?systpl=antler&carttpl=antler" target="_blank">here</a></p></p>
+                        <p><b>template</b> - Antler is a professional and responsive premium template developed with
+                        the latest HTML5 and CSS3 technology, based on the <a class="link" href="https://getbootstrap.com/" target="_blank">Bootstrap Framework</a> and is <b>not a WordPress Theme.</b> Comes with 40+ powerful page templates, and 35+ custom short-code elements with special reference to the professional Filter of Dedicated Servers and Domains - Switch prices dynamically - And customize servers according to your needs<br>Please, preview Antler Demo Template <a class="link" href="http://inebur.com/antler/template" target="_blank">here</a></p></p>
+                        <p><b>whmcs-template</b> - WHMCS Client Area or Custom Default SIX Template of WHMCS. WHMCS Client Area Template is a turn-key project developed by the WHMCS Group, allowing you to launch a new online business easily and efficiently. Basically, I only created the header, footer and some layout, based on the Antler Demo Template.<br>Please, preview WHMCS Client Area Template <a class="link" href="http://inebur.com/whmcs/?systpl=antler&carttpl=antler" target="_blank">here</a></p></p><br>
+                        <p id="alertsinspecting"><span class="badge bg-pink">15</span> <b>Why I am having alerts when inspecting source?</b></p>
+                        <p>This is working as it always has since `.load()` was created. The warning is coming from the browser, not jQuery. The API is guaranteeing that if you attempted to use the loaded HTML in the line of JavaScript after the `.load()` it would be available. If the request is changed to an async request, jQuery can no longer guarantee that the loaded HTML is available. Worse, there is no mechanism available via `.load()` to indicate when the HTML has been loaded.</p>
+                        <p>TIf you do not want to receive this warning from the browser, you will need to rewrite the `.load()` call as an async `jQuery.ajax()` call that injects the HTML into the document. I cannot change `.load()` in a minor version since it is a breaking change. It's not even clear whether it makes sense to try and fix this. <br><b>Please note:</b> This alerts in no way affect the proper functioning of the site, features and optimization</p><br>
+                        <p id="datalocation"><span class="badge bg-pink">16</span> <b>How to change Datacenter Location?</b></p>
+                        <p>There is no exist automatic process to change the Datacenter Location. Please, follow the steps below:<br>
+                        <b>1</b> - Open the <b>"index.html"</b> file and go to the MAP section.  Now, duplicate the first "span" tag.  This refers to the Montreal location but you should customize to your liking. Just replace the Montreal name to India, like this:
+<pre class="prettyprint linenums">
+&lt;span data-toggle="popover" data-container="body" data-trigger="hover" data-placement="top" title="" class="datacenters india" data-original-title="India" data-content="Vivamus sagittis lacus vel augue laoreet rutrum faucibus."&gt;&lt;/span&gt;
+</pre>
+                        <b>2</b> - Now, create a new "india" classe and, put inside "custom.css" file, like this: <b>.maping .datacenters.india { top: 55%; left: 68%; }</b><br>
+                        <b>3</b> - Refresh your browser and that's it : )</p><br>
+                        <p id="configtawk"><span class="badge bg-pink">17</span> <b>How To Add And Configure (Tawk.to) Live Chat on WHMCS Client Area?</b></p>
+                        <p>tawk.to is a 100% FREE live chat app that lets you monitor and chat with visitors on your WHMCS Template. <br>Please, folow the steps below to configure your widget tawk.to in your WHMCS Template:<br>
+                        <b>1 -</b> Download the "tawkto" folder addon module and place it in your WHMCS directory. Path: whmcs -> modules -> addons <br> Download <a class="link" href="https://marketplace.whmcs.com/product/3134" target="_blank">here</a><br>
+                        <b>2 -</b> Log in to your WHMCS Admin Panel and access the Addon Modules section from the drop-down Setup menu, find the tawk.to addon on the list and Activate it. Path: Setup - > Addon Modules;<br>
+                        <b>3 -</b> Enter the tawk.to widget script, add your API Key and check the first option "Enable mod". Follow the recommendations.<br></p><br>
+                        <p id="createnewpage"><span class="badge bg-pink">18</span> <b>How can I create a new page?</b></p>
+                        <p>First of all, find inside the item folder the empty.html file.
+                        If you want develop or create more pages, use the empty.html file and customize with 35+ short-code elements and sections. Please, check the empty page <a class="link" href="http://inebur.com/antler/template/empty" target="_blank">here</a></p><br>
+                        <p id="bringelements"><span class="badge bg-pink">19</span> <b>How can I  bring elements or sections of the Demo Template to the WHMCS?</b></p>
+                        <p>Now (after v2.8) are possible to bring elements, sections or pages from the Antler demo template to the WHMCS Client Area template. However and despite all efforts, cases with deformation of the layout may arise, which we ask for your understanding.</p>
+                        <p>In this cases customization is recommended through custom <b>(custom.css & custom.js)</b> files.</p><br>
+                        <p id="extendedsupport"><span class="badge bg-pink">20</span> <b>How can I extended support for this item?</b></p>
+                        <p>Item support is a service provided by on ThemeForest. Having support for your purchased item means that the author will be available to you, the buyer, to iron-out any potential issues you have in using the item. To extend your licence and continue with supported item, go <a class="link" href="https://themeforest.net/downloads" target="_blank">here</a></p><br>
+                        <p id="useantler"><span class="badge bg-pink">21</span> <b>Can I use only the Antler Demo Template?</b></p>
+                        <p>Well, you have several solutions for using the Antler template, but we highlight 3:</p><p>1, Yes, you may use only the Antler Template develop in HTML5 and CSS3 Technology based on Bootstrap Framework, however, you need to develop all the back-end issues that the WHMCS Template offers.</p> <p>2. You may use only the WHMCS Client Area Template. The WHMCS Client Area Template is a turn-key project developed by the WHMCS group, allowing you to launch a new online business easily and efficiently. However you are loss all components, sections, resources and pages that Antler demo template offer.</p> <p>3. Or you can integrate both templates. That is without doubt the option that ensures hight scalability and resources. </p><br>
+                        <p id="betterperformance"><span class="badge bg-pink">22</span> <b>How can I check the latest Otimization and Performance report for Antler?</b></p>
+                        <p>Antler uses several SVG-format animations and some resources that require more processing and, that’s is a fact. However, after release of the 2.0.6 version, the optimization and performance have dramatically improved. Version 2.0.6, was outstanding performance focused version that also included some exciting new features. Please, check all features implemented <a class="link" href="https://themeforest.net/item/antler-hosting-provider-whmcs-template/23139614#item-description__change-log" target="_blank">here</a></p> <p><b>PageSpeed Score A100%</b> <br> Antler has high performance framework base with small file sizes and adaptive content, delivering the maximum performance i.e, 100% PageSpeed Score. Attention to details, well written code and optimised images helped I create such a super fast template. Your visitors will love how fast your website is.</p> <p><b>YSlow Score B82% (Recommendation)</b> <br> Antler is just a demo template and not a final website and, for this and another reasons, I can not combining all external Javascript scripts and all external stylesheets as recommended, making it impossible for the buyer's to use them consistently. This small recommendation is left to the buyer's and end customer.</p> <p>GTmetrix also recommends using a CDN (Content Delivery Network) in user settings. YSlow is an open-source tool that analyzes your website and gives you suggestions to improve its performance.</p><br>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <script src="assets/js/jquery.min.js"></script>
+        <script src="assets/js/bootstrap.min.js"></script>
+        <script src="assets/js/jquery-ui.min.js"></script>
+        <script src="assets/js/jquery.tocify.min.js"></script>
+        <script src="assets/js/prettify.js"></script>
+        <script>
+        $(function() {
+          var toc = $("#toc").tocify({
+          selectors: "h1, h2"
+          }).data("toc-tocify");
+          prettyPrint();
+        });
+        </script>
+    </body>
+</html>
