@@ -9,10 +9,17 @@ use App\Domains\Shared\Traits\HasUuid;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * Tracked provisioning operation (create/suspend/terminate/...).
  * One DB row per logical task; queue job updates it as it progresses.
+ *
+ * @property TaskStatus $status
+ * @property array<string, mixed>|null $payload
+ * @property array<string, mixed>|null $result
+ * @property Carbon|null $started_at
+ * @property Carbon|null $finished_at
  */
 class ProvisioningTask extends Model
 {
@@ -44,6 +51,7 @@ class ProvisioningTask extends Model
         ];
     }
 
+    /** @return BelongsTo<Service, $this> */
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);

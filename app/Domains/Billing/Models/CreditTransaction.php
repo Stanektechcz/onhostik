@@ -9,6 +9,7 @@ use App\Domains\Customer\Models\Customer;
 use App\Domains\Shared\Casts\MoneyCast;
 use App\Domains\Shared\Enums\Currency;
 use App\Domains\Shared\Traits\HasUuid;
+use Brick\Money\Money;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -24,6 +25,11 @@ use RuntimeException;
  *    DB transaction under SELECT ... FOR UPDATE on the customer row.
  *  - Authoritative balance = SUM(amount); `balance_after` of the latest row
  *    must always equal it (verified by audit command).
+ *
+ * @property CreditTransactionType $type
+ * @property Currency $currency
+ * @property Money $amount
+ * @property Money $balance_after
  */
 class CreditTransaction extends Model
 {
@@ -68,6 +74,7 @@ class CreditTransaction extends Model
 
     // ---------------------------------------------------------------- relations
 
+    /** @return BelongsTo<Customer, $this> */
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);

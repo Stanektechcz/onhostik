@@ -29,11 +29,26 @@ return [
     'pricing' => [
         'most_popular' => 'most popular',
         'order_now'    => 'Order Now',
+        'vat_note'     => 'Prices are listed excluding VAT.',
+    ],
+    'order' => [
+        'plan_summary' => 'Plan summary',
+        'price'        => 'Price',
+        'continue'     => 'Continue to checkout',
+        'login_first'  => 'Log in or create an account to finish your order.',
+        'vat_note'     => 'Price excluding VAT.',
     ],
     'domains' => [
         'search_placeholder' => 'your-domain.com',
         'search_button'      => 'Check Availability',
         'check_coming_soon'  => 'Domain availability checking is coming soon — the domain module is under development.',
+        'check_available'    => 'Domain :domain is available.',
+        'check_unavailable'  => 'Domain :domain is not available (:reason).',
+        'reasons'            => [
+            'taken'           => 'already registered',
+            'invalid_syntax'  => 'invalid format',
+            'unsupported_tld' => 'unsupported TLD',
+        ],
     ],
     'resources' => [
         'disk_mb'      => 'DISK',

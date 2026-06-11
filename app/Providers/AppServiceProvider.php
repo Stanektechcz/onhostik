@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Domains\Billing\Events\InvoicePaid;
+use App\Domains\Billing\Listeners\HandleInvoicePaid;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Order;
 use App\Domains\Customer\Models\Customer;
@@ -19,6 +21,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -36,6 +39,16 @@ class AppServiceProvider extends ServiceProvider
         $this->configureGates();
         $this->configurePolicies();
         $this->configureRateLimiters();
+        $this->configureEvents();
+    }
+
+    /**
+     * One event path for every payment source: mock gateway, credit ledger
+     * and (later) the real Comgate webhook all fire InvoicePaid.
+     */
+    private function configureEvents(): void
+    {
+        Event::listen(InvoicePaid::class, HandleInvoicePaid::class);
     }
 
     /**

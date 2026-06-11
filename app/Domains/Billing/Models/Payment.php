@@ -10,9 +10,11 @@ use App\Domains\Customer\Models\Customer;
 use App\Domains\Shared\Casts\MoneyCast;
 use App\Domains\Shared\Enums\Currency;
 use App\Domains\Shared\Traits\HasUuid;
+use Brick\Money\Money;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
@@ -21,6 +23,13 @@ use Spatie\Activitylog\Traits\LogsActivity;
  *
  * Idempotency: `gateway_transaction_id` carries a UNIQUE index — a duplicate
  * Comgate webhook can never create a second payment row.
+ *
+ * @property PaymentMethod $method
+ * @property PaymentStatus $status
+ * @property Currency $currency
+ * @property Money $amount
+ * @property array<string, mixed>|null $gateway_response
+ * @property Carbon|null $processed_at
  */
 class Payment extends Model
 {
@@ -60,11 +69,13 @@ class Payment extends Model
             ->useLogName('payment');
     }
 
+    /** @return BelongsTo<Customer, $this> */
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
     }
 
+    /** @return BelongsTo<Invoice, $this> */
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);

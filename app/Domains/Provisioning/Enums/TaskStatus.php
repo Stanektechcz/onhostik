@@ -27,6 +27,19 @@ enum TaskStatus: string
         };
     }
 
+    public function color(): string
+    {
+        return match ($this) {
+            self::Pending      => 'warning',
+            self::Running      => 'info',
+            self::Success      => 'success',
+            self::Failed       => 'danger',
+            self::Retrying     => 'warning',
+            self::Cancelled    => 'gray',
+            self::ManualReview => 'warning',
+        };
+    }
+
     public function canRetry(): bool
     {
         return in_array($this, [self::Failed, self::ManualReview], true);

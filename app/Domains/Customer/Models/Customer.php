@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
@@ -27,6 +28,10 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * One User (login) has exactly one Customer (billing profile).
  * `credit_balance_cache` is a denormalized cache of the append-only
  * credit ledger; the authoritative value is always SUM(credit_transactions.amount).
+ *
+ * @property Currency $preferred_currency
+ * @property Locale $preferred_locale
+ * @property Carbon|null $vat_validated_at
  */
 class Customer extends Model
 {
@@ -69,36 +74,43 @@ class Customer extends Model
 
     // ---------------------------------------------------------------- relations
 
+    /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
+    /** @return HasMany<CustomerAddress, $this> */
     public function addresses(): HasMany
     {
         return $this->hasMany(CustomerAddress::class);
     }
 
+    /** @return HasMany<Order, $this> */
     public function orders(): HasMany
     {
         return $this->hasMany(Order::class);
     }
 
+    /** @return HasMany<Invoice, $this> */
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);
     }
 
+    /** @return HasMany<Payment, $this> */
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
     }
 
+    /** @return HasMany<CreditTransaction, $this> */
     public function creditTransactions(): HasMany
     {
         return $this->hasMany(CreditTransaction::class);
     }
 
+    /** @return HasMany<Service, $this> */
     public function services(): HasMany
     {
         return $this->hasMany(Service::class);

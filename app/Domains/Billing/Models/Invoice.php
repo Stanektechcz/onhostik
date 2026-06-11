@@ -11,10 +11,12 @@ use App\Domains\Customer\Models\Customer;
 use App\Domains\Shared\Casts\MoneyCast;
 use App\Domains\Shared\Enums\Currency;
 use App\Domains\Shared\Traits\HasUuid;
+use Brick\Money\Money;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
@@ -24,6 +26,17 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * The customer's billing details are COPIED into snapshot columns at issue
  * time. Later changes to the Customer record never affect issued invoices
  * (legal requirement for tax documents).
+ *
+ * @property InvoiceType $type
+ * @property InvoiceStatus $status
+ * @property VatScenario $vat_scenario
+ * @property Currency $currency
+ * @property Money $subtotal
+ * @property Money $tax_amount
+ * @property Money $total
+ * @property Carbon|null $issue_date
+ * @property Carbon|null $due_date
+ * @property Carbon|null $paid_at
  */
 class Invoice extends Model
 {
@@ -89,26 +102,31 @@ class Invoice extends Model
 
     // ---------------------------------------------------------------- relations
 
+    /** @return BelongsTo<Customer, $this> */
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
     }
 
+    /** @return BelongsTo<Order, $this> */
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
     }
 
+    /** @return HasMany<InvoiceItem, $this> */
     public function items(): HasMany
     {
         return $this->hasMany(InvoiceItem::class);
     }
 
+    /** @return HasMany<Payment, $this> */
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
     }
 
+    /** @return BelongsTo<Invoice, $this> */
     public function parentInvoice(): BelongsTo
     {
         return $this->belongsTo(self::class, 'parent_invoice_id');

@@ -36,6 +36,32 @@ Default local admin (from `.env`): `admin@onhost.local` / `password`.
 See [docs/setup.md](docs/setup.md) for details and Windows caveats, and
 [docs/architecture.md](docs/architecture.md) for the system design.
 
+## Status: Phase 2 — mock vertical slice ✅
+
+The full order-to-provisioning flow works end to end **in mock mode**:
+
+```text
+catalog → checkout (plan + optional domain) → order → proforma invoice
+→ mock gateway payment / credit payment → InvoicePaid event
+→ order Processing → Service created → queued jobs
+→ aaPanel MOCK provisioning (service Active, MOCK-AAP-… id)
+→ WEDOS MOCK domain registration (MOCK-WD-… id)
+→ customer panel (services/domains/invoices/payments/credit)
+→ admin oversight (orders/invoices/payments/services/servers/provisioning/audit + retry)
+```
+
+Try it locally: register at `/register`, order at `/panel/objednavky/nova`,
+pay the proforma with the mock gateway button, run `php artisan queue:work`
+(or watch it complete synchronously in tests). Simulated failures +
+admin retry: tick the *DEV: simulate provisioning failure* checkbox.
+
+**Intentionally not real yet:** Comgate/GoPay/Stripe gateways, real aaPanel
+API, real WEDOS WAPI, Proxmox/Pterodactyl (reserved slots), tax-document
+(daňový doklad) issuance, credit top-up UI, PDF invoices. See
+[docs/billing.md](docs/billing.md), [docs/provisioning.md](docs/provisioning.md),
+[docs/aapanel.md](docs/aapanel.md), [docs/wedos-wapi.md](docs/wedos-wapi.md)
+and [docs/development.md](docs/development.md).
+
 ## Non-negotiable development rules
 
 - **All external integrations are mock/test mode in development.** No real

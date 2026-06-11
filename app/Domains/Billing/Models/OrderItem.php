@@ -7,10 +7,20 @@ namespace App\Domains\Billing\Models;
 use App\Domains\Products\Models\PricingPlan;
 use App\Domains\Provisioning\Enums\TaskStatus;
 use App\Domains\Shared\Casts\MoneyCast;
+use Brick\Money\Money;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property Money $unit_price
+ * @property Money $total
+ * @property TaskStatus|null $provisioning_status
+ * @property array<string, mixed>|null $config
+ * @property Carbon|null $period_from
+ * @property Carbon|null $period_to
+ */
 class OrderItem extends Model
 {
     use HasFactory;
@@ -43,11 +53,13 @@ class OrderItem extends Model
         ];
     }
 
+    /** @return BelongsTo<Order, $this> */
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
     }
 
+    /** @return BelongsTo<PricingPlan, $this> */
     public function pricingPlan(): BelongsTo
     {
         return $this->belongsTo(PricingPlan::class);

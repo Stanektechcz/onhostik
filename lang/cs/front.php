@@ -29,11 +29,26 @@ return [
     'pricing' => [
         'most_popular' => 'nejoblíbenější',
         'order_now'    => 'Objednat',
+        'vat_note'     => 'Ceny jsou uvedeny bez DPH.',
+    ],
+    'order' => [
+        'plan_summary' => 'Souhrn tarifu',
+        'price'        => 'Cena',
+        'continue'     => 'Pokračovat do objednávky',
+        'login_first'  => 'Pro dokončení objednávky se přihlaste nebo si vytvořte účet.',
+        'vat_note'     => 'Cena bez DPH.',
     ],
     'domains' => [
         'search_placeholder' => 'vase-domena.cz',
         'search_button'      => 'Ověřit dostupnost',
         'check_coming_soon'  => 'Ověřování dostupnosti domén právě připravujeme — modul domén je ve vývoji.',
+        'check_available'    => 'Doména :domain je dostupná.',
+        'check_unavailable'  => 'Doména :domain není dostupná (:reason).',
+        'reasons'            => [
+            'taken'           => 'již registrovaná',
+            'invalid_syntax'  => 'neplatný formát',
+            'unsupported_tld' => 'nepodporovaná koncovka',
+        ],
     ],
     'resources' => [
         'disk_mb'      => 'DISK',

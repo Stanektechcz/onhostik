@@ -18,6 +18,11 @@ use Spatie\Translatable\HasTranslations;
  *
  * Prices are entered manually per currency (no FX auto-conversion of
  * customer-facing prices — that is a pricing decision, not a math one).
+ *
+ * @property BillingCycle $billing_cycle
+ * @property array<string, mixed>|null $resources
+ * @property bool $is_active
+ * @property bool $is_featured
  */
 class PricingPlan extends Model
 {
@@ -53,6 +58,7 @@ class PricingPlan extends Model
         ];
     }
 
+    /** @return BelongsTo<Product, $this> */
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);

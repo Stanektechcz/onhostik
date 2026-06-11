@@ -76,20 +76,36 @@ call drivers; drivers never run outside jobs.
   endpoint (`POST /api/webhooks/comgate`) currently only logs; processing is
   wired via a queued job in Phase 5.
 
-## Provisioning (Phase 8–9 target)
+## Payment event pipeline (implemented — Phase 2)
+
+Every payment source fires the same `InvoicePaid` event after passing the
+same three idempotency gates (unique transaction id, amount match, single
+invoice transition): the **mock gateway** (`ProcessMockPaymentAction`,
+deterministic `MOCK-{uuid}` id), the **credit ledger**
+(`PayInvoiceWithCreditAction`, `CREDIT-{uuid}`, row-locked overdraw-proof
+deduction) and later the real Comgate webhook. `HandleInvoicePaid` then
+transitions the order, creates `Service` rows idempotently and queues the
+provisioning/domain jobs — all auditable. Details: [billing.md](billing.md).
+
+## Provisioning (implemented in MOCK — Phase 2)
 
 `ProvisioningDriverInterface`: create / suspend / unsuspend / terminate /
 changePackage / getUsageStats / resetPassword / loginAsUser / testConnection.
-Flow: paid order → `Service` (pending) → `ProvisioningTask` → queued job →
-driver (mock in dev) → external mapping saved → service active → audit log.
-Failures mark the task failed/manual_review, notify admin, allow retry, and
-never duplicate remote resources.
+Flow: paid order → `Service` (pending) → `ProvisioningTask` → queued job
+(`provisioning-high`) → driver via `DriverResolver` (**AapanelMockDriver**;
+`WedosMockRegistrar` behind `DomainRegistrarInterface` for domains) →
+external mapping saved (`MOCK-AAP-…` / `MOCK-WD-…`) → service active /
+domain registered → audit log. Failures mark the task failed (→
+manual_review beyond max attempts), are visible and retryable in
+`/admin/provisioning`, and never duplicate remote resources. Real drivers
+are a later phase; Proxmox/Pterodactyl slots stay reserved.
+Details: [provisioning.md](provisioning.md).
 
 ## Phase roadmap
 
-0 ✅ discovery · **1 ✅ foundation (this phase)** · 2 product catalog ·
-3 credits/wallet · 4 orders/checkout · 5 payments · 6 invoices ·
-7 domains/WEDOS mock · 8 servers/aaPanel mock · 9 provisioning ·
-10 customer portal · 11 admin operations · 12 monitoring · 13 backups ·
-14 AI hub · 15 support/automation · 16 builder prep · 17 real API prep ·
-18 hardening · 19 release QA
+0 ✅ discovery · 1 ✅ foundation · **2 ✅ mock vertical slice** (catalog →
+checkout → proforma → mock/credit payment → mock WEDOS domain + mock aaPanel
+provisioning → customer portal + admin oversight + audit + tests) ·
+next: tax documents & PDF invoices · credit top-up · Comgate test-mode
+end-to-end · real aaPanel/WEDOS drivers (approval required) · monitoring ·
+backups · AI hub · support/automation · hardening · release QA

@@ -11,6 +11,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Spatie\Translatable\HasTranslations;
 
+/**
+ * @property ProductType $type
+ * @property ProvisioningDriver|null $provisioning_driver
+ * @property bool $is_active
+ */
 class Product extends Model
 {
     use HasFactory;
@@ -38,6 +43,7 @@ class Product extends Model
         ];
     }
 
+    /** @return HasMany<PricingPlan, $this> */
     public function pricingPlans(): HasMany
     {
         return $this->hasMany(PricingPlan::class)->orderBy('sort_order');

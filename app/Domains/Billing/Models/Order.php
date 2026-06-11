@@ -9,13 +9,24 @@ use App\Domains\Customer\Models\Customer;
 use App\Domains\Shared\Casts\MoneyCast;
 use App\Domains\Shared\Enums\Currency;
 use App\Domains\Shared\Traits\HasUuid;
+use Brick\Money\Money;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
+/**
+ * @property OrderStatus $status
+ * @property Currency $currency
+ * @property Money $subtotal
+ * @property Money $tax_amount
+ * @property Money $total
+ * @property Carbon|null $paid_at
+ * @property Carbon|null $cancelled_at
+ */
 class Order extends Model
 {
     use HasFactory;
@@ -58,16 +69,19 @@ class Order extends Model
 
     // ---------------------------------------------------------------- relations
 
+    /** @return BelongsTo<Customer, $this> */
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
     }
 
+    /** @return HasMany<OrderItem, $this> */
     public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class);
     }
 
+    /** @return HasMany<Invoice, $this> */
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);

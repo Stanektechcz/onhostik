@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
@@ -25,6 +26,13 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * `external_id` is the backend identifier (AAPanel site id, Proxmox VMID,
  * Pterodactyl server id, WEDOS domain). Idempotency: drivers MUST check
  * for an existing external_id before any remote create.
+ *
+ * @property ProvisioningDriver|null $provisioning_driver
+ * @property ServiceStatus $status
+ * @property array<string, mixed>|null $resources
+ * @property Carbon|null $next_due_date
+ * @property Carbon|null $suspended_at
+ * @property Carbon|null $terminated_at
  */
 class Service extends Model
 {
@@ -71,31 +79,37 @@ class Service extends Model
 
     // ---------------------------------------------------------------- relations
 
+    /** @return BelongsTo<Customer, $this> */
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
     }
 
+    /** @return BelongsTo<OrderItem, $this> */
     public function orderItem(): BelongsTo
     {
         return $this->belongsTo(OrderItem::class);
     }
 
+    /** @return BelongsTo<Product, $this> */
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
     }
 
+    /** @return BelongsTo<Server, $this> */
     public function server(): BelongsTo
     {
         return $this->belongsTo(Server::class);
     }
 
+    /** @return HasMany<ProvisioningTask, $this> */
     public function provisioningTasks(): HasMany
     {
         return $this->hasMany(ProvisioningTask::class);
     }
 
+    /** @return HasOne<DomainRegistration, $this> */
     public function domainRegistration(): HasOne
     {
         return $this->hasOne(DomainRegistration::class);

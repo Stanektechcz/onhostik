@@ -14,6 +14,7 @@ class DatabaseSeeder extends Seeder
             RoleSeeder::class,
             AdminUserSeeder::class,
             ProductCatalogSeeder::class,
+            MockServerSeeder::class,
         ]);
     }
 }

@@ -24,4 +24,10 @@ class InvoicePolicy
         return $user->customer !== null
             && $user->customer->id === $invoice->customer_id;
     }
+
+    /** Paying is allowed for the owning customer only. */
+    public function pay(User $user, Invoice $invoice): bool
+    {
+        return $this->view($user, $invoice);
+    }
 }

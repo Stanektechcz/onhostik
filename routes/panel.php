@@ -25,10 +25,13 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
 
     Route::get('/objednavky', [Panel\OrderController::class, 'index'])->name('orders.index');
     Route::get('/objednavky/nova', [Panel\OrderController::class, 'create'])->name('orders.create');
+    Route::post('/objednavky', [Panel\OrderController::class, 'store'])->name('orders.store');
     Route::get('/objednavky/{order}', [Panel\OrderController::class, 'show'])->name('orders.show');
 
     Route::get('/fakturace/faktury', [Panel\BillingController::class, 'invoices'])->name('billing.invoices');
     Route::get('/fakturace/faktury/{invoice}', [Panel\BillingController::class, 'invoiceShow'])->name('billing.invoices.show');
+    Route::post('/fakturace/faktury/{invoice}/zaplatit/mock', [Panel\BillingController::class, 'payMock'])->name('billing.invoices.pay-mock');
+    Route::post('/fakturace/faktury/{invoice}/zaplatit/kredit', [Panel\BillingController::class, 'payCredit'])->name('billing.invoices.pay-credit');
     Route::get('/fakturace/platby', [Panel\BillingController::class, 'payments'])->name('billing.payments');
     Route::get('/fakturace/kredit', [Panel\BillingController::class, 'credits'])->name('billing.credits');
 
@@ -56,6 +59,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/sluzby', [Admin\ServiceController::class, 'index'])->name('services.index');
     Route::get('/servery', [Admin\ServerController::class, 'index'])->name('servers.index');
     Route::get('/provisioning', [Admin\ProvisioningController::class, 'index'])->name('provisioning.index');
+    Route::post('/provisioning/{task}/retry', [Admin\ProvisioningController::class, 'retry'])->name('provisioning.retry');
     Route::get('/audit', [Admin\AuditLogController::class, 'index'])->name('logs.audit');
     Route::get('/nastaveni', [Admin\SettingsController::class, 'index'])->name('settings.index');
 });
