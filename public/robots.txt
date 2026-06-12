@@ -1,2 +1,10 @@
 User-agent: *
-Disallow:
+Disallow: /panel/
+Disallow: /admin/
+Disallow: /api/
+Disallow: /storage/
+
+User-agent: *
+Allow: /
+
+Sitemap: https://onhost.cz/sitemap.xml
