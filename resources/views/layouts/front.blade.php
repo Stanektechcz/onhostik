@@ -6,6 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="description" content="@yield('meta_description', __('front.meta.default_description'))">
+    <link rel="canonical" href="{{ url()->current() }}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Onhost.cz">
+    <meta property="og:title" content="@yield('title', 'Onhost.cz') — Onhost.cz">
+    <meta property="og:description" content="@yield('meta_description', __('front.meta.default_description'))">
+    <meta property="og:url" content="{{ url()->current() }}">
+    <meta property="og:locale" content="{{ app()->getLocale() === 'cs' ? 'cs_CZ' : 'en_US' }}">
+    <meta name="twitter:card" content="summary">
     <link href="{{ asset('front/img/favicon.ico') }}" rel="shortcut icon">
     <title>@yield('title', 'Onhost.cz') — Onhost.cz</title>
 
@@ -19,6 +27,7 @@
     @stack('styles')
 
     <script src="{{ asset('front/js/jquery.min.js') }}"></script>
+    <script src="{{ asset('front/js/gdpr-cookie.min.js') }}"></script>
     <script src="{{ asset('front/js/popper.min.js') }}"></script>
     <script defer src="{{ asset('front/js/bootstrap.min.js') }}"></script>
     <script defer src="{{ asset('front/js/slick.min.js') }}"></script>
@@ -26,11 +35,15 @@
     <script defer src="{{ asset('front/js/swiper.min.js') }}"></script>
     <script defer src="{{ asset('front/js/jquery.lazyload-any.min.js') }}"></script>
     <script defer src="{{ asset('front/js/scripts.min.js') }}"></script>
+    <script defer src="{{ asset('front/js/settings-init.js') }}"></script>
 </head>
 <body>
 <div class="box-container limit-width">
 
-    {{-- Loading spinner (Antler) --}}
+    {{-- Antler settings panel (dark/light mode, etc.) --}}
+    <section id="settings"></section>
+
+    {{-- Loading spinner --}}
     <div id="spinner-area">
         <div class="spinner">
             <div class="double-bounce1"></div>

@@ -33,3 +33,13 @@ Where it is used in Phase 2:
   `ProvisioningTask.external_request_id`.
 - `WAPI_TEST_MODE=true` keeps even the real client on the WEDOS test
   endpoint; production credentials never enter `.env.example`.
+
+## Phase 3: real-ready client
+
+`App\Domains\Integrations\Clients\WedosWapiClient` implements
+connectionTest/checkDomain/registerDomain/transferDomain/updateNameservers/
+upsertDnsRecord/getDomainInfo — all dry-run until the refusal gates open
+(`WAPI_ALLOW_REAL_WRITES=true` + vault credentials + flags). Auth model:
+`sha1(user . sha1(password) . hour-in-Prague)`; quotas 1000 req/h
+(100 req/h domain-check) must be respected by the live implementation.
+Domain registration still uses the mock registrar in this phase.

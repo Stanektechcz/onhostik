@@ -67,6 +67,6 @@ class SettingsController extends Controller
         }
 
         return redirect()->route('admin.settings.index')
-            ->with('flash_success', 'Nastavení bylo uloženo.');
+            ->with('status', 'Nastavení bylo uloženo.');
     }
 }

@@ -23,6 +23,17 @@ enum CreditTransactionType: string
         };
     }
 
+    public function color(): string
+    {
+        return match ($this) {
+            self::Deposit    => 'success',
+            self::Deduction  => 'danger',
+            self::Refund     => 'info',
+            self::Adjustment => 'warning',
+            self::Bonus      => 'primary',
+        };
+    }
+
     /** Sign convention for the ledger: credits positive, debits negative. */
     public function sign(): int
     {

@@ -6,7 +6,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Support\Facades\Route;
 
-return Application::configure(basePath: dirname(__DIR__))
+$app = Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__ . '/../routes/web.php',
         api: __DIR__ . '/../routes/api.php',
@@ -25,3 +25,10 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         //
     })->create();
+
+// Translations live in the base lang/ directory. Pin it explicitly: an
+// (empty) legacy resources/lang directory would otherwise silently win
+// the lang_path() resolution and break every __() lookup.
+$app->useLangPath(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lang');
+
+return $app;

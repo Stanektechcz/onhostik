@@ -17,19 +17,24 @@ class ProvisioningController extends Controller
 {
     public function index(Request $request): View
     {
-        $status = $request->string('status')->toString();
+        $status          = $request->string('status')->toString();
+        $operationFilter = $request->string('operation')->toString();
 
         return view('admin.provisioning', [
             'tasks' => ProvisioningTask::query()
                 ->with('service.customer')
-                ->when(
-                    TaskStatus::tryFrom($status) !== null,
-                    fn ($query) => $query->where('status', $status),
-                )
+                ->when(TaskStatus::tryFrom($status) !== null, fn ($q) => $q->where('status', $status))
+                ->when($operationFilter !== '', fn ($q) => $q->where('operation', $operationFilter))
                 ->latest('id')
                 ->paginate(25)
                 ->withQueryString(),
-            'filter' => $status,
+            'filter'          => $status,
+            'operationFilter' => $operationFilter,
+            'operations'      => ProvisioningTask::query()->distinct()->orderBy('operation')->pluck('operation'),
+            'failedCount'     => ProvisioningTask::query()->where('status', TaskStatus::Failed->value)->count(),
+            'pendingCount'    => ProvisioningTask::query()->whereIn('status', [TaskStatus::Pending->value, TaskStatus::Running->value, TaskStatus::Retrying->value])->count(),
+            'reviewCount'     => ProvisioningTask::query()->where('status', TaskStatus::ManualReview->value)->count(),
+            'successCount'    => ProvisioningTask::query()->where('status', TaskStatus::Success->value)->count(),
         ]);
     }
 

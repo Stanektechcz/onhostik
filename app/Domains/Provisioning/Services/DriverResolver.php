@@ -7,6 +7,7 @@ namespace App\Domains\Provisioning\Services;
 use App\Domains\Provisioning\Contracts\DomainRegistrarInterface;
 use App\Domains\Provisioning\Contracts\ProvisioningDriverInterface;
 use App\Domains\Provisioning\Drivers\AapanelMockDriver;
+use App\Domains\Provisioning\Drivers\ProxmoxDriver;
 use App\Domains\Provisioning\Drivers\WedosMockRegistrar;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Provisioning\Exceptions\ProvisioningException;
@@ -31,6 +32,30 @@ final class DriverResolver
 
     public function forDriver(ProvisioningDriver $driver): ProvisioningDriverInterface
     {
+        // Domains are handled by the registrar contract, not this interface.
+        if ($driver === ProvisioningDriver::Wedos) {
+            throw new ProvisioningException(
+                'WEDOS is a domain registrar — resolve it via registrar().',
+                driver: 'wedos',
+                retryable: false,
+            );
+        }
+
+        // Pterodactyl is still a reserved slot.
+        if ($driver === ProvisioningDriver::Pterodactyl) {
+            throw new ProvisioningException(
+                'Pterodactyl driver is not implemented yet.',
+                driver: 'pterodactyl',
+                retryable: false,
+            );
+        }
+
+        // Proxmox has a real driver — use it regardless of mock_mode.
+        if ($driver === ProvisioningDriver::Proxmox) {
+            return app(ProxmoxDriver::class);
+        }
+
+        // All other drivers fall back to mock in mock_mode.
         if (!$this->mockMode()) {
             throw new ProvisioningException(
                 "Real {$driver->value} driver is not implemented yet — enable PROVISIONING_MOCK_MODE.",
@@ -41,18 +66,8 @@ final class DriverResolver
 
         return match ($driver) {
             ProvisioningDriver::AAPanel => app(AapanelMockDriver::class),
-
-            // Domains are handled by the registrar contract, not this interface.
-            ProvisioningDriver::Wedos => throw new ProvisioningException(
-                'WEDOS is a domain registrar — resolve it via registrar().',
-                driver: 'wedos',
-                retryable: false,
-            ),
-
-            // Reserved slots — intentionally NOT implemented in Phase 2.
-            ProvisioningDriver::Proxmox,
-            ProvisioningDriver::Pterodactyl => throw new ProvisioningException(
-                "Driver slot {$driver->value} is reserved for a later phase.",
+            default => throw new ProvisioningException(
+                "No driver for {$driver->value}.",
                 driver: $driver->value,
                 retryable: false,
             ),

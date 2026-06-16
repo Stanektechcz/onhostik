@@ -29,7 +29,6 @@ document.addEventListener('DOMContentLoaded', function() {
     display();
     switching();
     headerfooter();
-    translate();
     switchVisible();
     sticky();
     changeColorStyle();

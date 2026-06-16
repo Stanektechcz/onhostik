@@ -6,17 +6,20 @@ namespace App\Providers;
 
 use App\Domains\Billing\Events\InvoicePaid;
 use App\Domains\Billing\Listeners\HandleInvoicePaid;
+use App\Domains\Billing\Services\Gateways\ComgateGateway;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Order;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Provisioning\Models\DomainRegistration;
 use App\Domains\Provisioning\Models\Service;
+use App\Domains\Support\Models\SupportTicket;
 use App\Models\User;
 use App\Policies\CustomerPolicy;
 use App\Policies\DomainRegistrationPolicy;
 use App\Policies\InvoicePolicy;
 use App\Policies\OrderPolicy;
 use App\Policies\ServicePolicy;
+use App\Policies\SupportTicketPolicy;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
@@ -30,7 +33,7 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        //
+        $this->app->singleton(ComgateGateway::class, fn () => ComgateGateway::fromConfig());
     }
 
     public function boot(): void
@@ -81,6 +84,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Order::class, OrderPolicy::class);
         Gate::policy(DomainRegistration::class, DomainRegistrationPolicy::class);
         Gate::policy(Customer::class, CustomerPolicy::class);
+        Gate::policy(SupportTicket::class, SupportTicketPolicy::class);
     }
 
     private function configureRateLimiters(): void

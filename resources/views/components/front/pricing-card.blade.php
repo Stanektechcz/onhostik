@@ -26,8 +26,7 @@
             @foreach($plan->resources ?? [] as $key => $value)
                 <li>
                     <i class="{{ config("resources.icons.$key", 'icon-drives') }}"></i>
-                    <span class="f-14">{{ __("front.resources.$key") }}</span><br>
-                    <span>{{ $value }}</span>
+                    <div>{{ __("front.resources.$key") }}<br><span>{{ $value }}</span></div>
                 </li>
             @endforeach
         </ul>

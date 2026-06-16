@@ -4,16 +4,24 @@ declare(strict_types=1);
 
 namespace App\Domains\Billing\Listeners;
 
+use App\Domains\Billing\Actions\IssueTaxDocumentAction;
+use App\Domains\Billing\Enums\CreditTransactionType;
+use App\Domains\Billing\Enums\InvoiceType;
 use App\Domains\Billing\Enums\OrderStatus;
 use App\Domains\Billing\Events\InvoicePaid;
+use App\Domains\Billing\Exceptions\IncompleteBillingDetailsException;
+use App\Domains\Billing\Models\CreditTransaction;
+use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Order;
 use App\Domains\Billing\Models\OrderItem;
+use App\Domains\Billing\Services\CreditLedger;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Jobs\ProvisionHostingServiceJob;
 use App\Domains\Provisioning\Jobs\RegisterDomainJob;
 use App\Domains\Provisioning\Models\Server;
 use App\Domains\Provisioning\Models\Service;
+use App\Notifications\InvoicePaidNotification;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -35,14 +43,36 @@ final class HandleInvoicePaid
 {
     public function handle(InvoicePaid $event): void
     {
-        $order = $event->invoice->order;
+        $invoice = $event->invoice;
 
-        if ($order === null) {
-            return; // standalone invoice (e.g. future credit top-up) — nothing to provision
+        // Credit top-ups deposit into the wallet — no order, no provisioning.
+        if ($invoice->purpose === 'credit_topup') {
+            $this->creditWallet($invoice);
+            $this->notifyCustomer($invoice);
+
+            return;
         }
 
-        $this->markOrderPaid($order, $event->invoice->id);
+        $order = $invoice->order;
 
+        if ($order === null) {
+            $this->issueTaxDocument($invoice);
+            $this->notifyCustomer($invoice);
+
+            return;
+        }
+
+        $this->markOrderPaid($order, $invoice->id);
+
+        $this->provisionOrderItems($order);
+
+        $this->issueTaxDocument($invoice);
+
+        $this->notifyCustomer($invoice);
+    }
+
+    private function provisionOrderItems(Order $order): void
+    {
         foreach ($order->items as $item) {
             $service = $this->ensureService($order, $item);
 
@@ -63,6 +93,73 @@ final class HandleInvoicePaid
                 RegisterDomainJob::dispatch($service->id, $domain);
             }
         }
+    }
+
+    /**
+     * Deposits a paid top-up into the credit ledger — exactly once.
+     * Idempotency: one deposit per invoice reference, checked before the
+     * ledger write (the ledger itself is append-only on top of that).
+     */
+    private function creditWallet(Invoice $invoice): void
+    {
+        $customer = $invoice->customer;
+        $total    = $invoice->total;
+
+        if ($customer === null) {
+            return;
+        }
+
+        $alreadyCredited = CreditTransaction::query()
+            ->where('reference_type', Invoice::class)
+            ->where('reference_id', $invoice->id)
+            ->where('type', CreditTransactionType::Deposit->value)
+            ->exists();
+
+        if ($alreadyCredited) {
+            return; // replay — never double-credit
+        }
+
+        $entry = app(CreditLedger::class)->deposit(
+            customer: $customer,
+            amount: $total,
+            description: "Dobití kreditu dle {$invoice->number}",
+            reference: $invoice,
+        );
+
+        activity('credit')
+            ->performedOn($invoice)
+            ->withProperties([
+                'credit_transaction_id' => $entry->id,
+                'amount'                => $total->getMinorAmount()->toInt(),
+            ])
+            ->log('credit.topup_completed');
+    }
+
+    /**
+     * Issues the post-payment tax document where safe; incomplete billing
+     * details only block the document (audited), never the payment flow.
+     */
+    private function issueTaxDocument(Invoice $invoice): void
+    {
+        if ($invoice->type !== InvoiceType::Proforma) {
+            return;
+        }
+
+        try {
+            app(IssueTaxDocumentAction::class)->execute($invoice);
+        } catch (IncompleteBillingDetailsException $e) {
+            activity('invoice')
+                ->performedOn($invoice)
+                ->withProperties(['reason' => 'incomplete_billing_details'])
+                ->log('invoice.tax_document_blocked');
+        }
+    }
+
+    private function notifyCustomer(Invoice $invoice): void
+    {
+        $user = $invoice->customer?->user;
+
+        $user?->notify(new InvoicePaidNotification($invoice));
     }
 
     private function markOrderPaid(Order $order, int $invoiceId): void

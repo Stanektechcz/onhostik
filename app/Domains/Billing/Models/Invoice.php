@@ -49,6 +49,7 @@ class Invoice extends Model
         'order_id',
         'parent_invoice_id', // proforma → tax doc / invoice → credit note linkage
         'type',
+        'purpose',           // order | credit_topup — what a paid invoice triggers
         'series',
         'number',
         'status',

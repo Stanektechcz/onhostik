@@ -9,6 +9,22 @@
         <x-panel.flash />
 
         <x-panel.card :title="__('panel.nav.admin_orders')">
+            <form method="GET" action="{{ route('admin.orders.index') }}" class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+                <select name="status" class="form-select" style="max-width: 200px;">
+                    <option value="">{{ __('panel.admin.all') }}</option>
+                    @foreach(\App\Domains\Billing\Enums\OrderStatus::cases() as $s)
+                        <option value="{{ $s->value }}" @selected($filter === $s->value)>{{ $s->label() }}</option>
+                    @endforeach
+                </select>
+                <input type="text" name="q" class="form-control" style="max-width: 260px;"
+                       placeholder="E-mail, firma…" value="{{ $search ?? '' }}">
+                <button type="submit" class="btn btn-outline-primary btn-sm">{{ __('panel.admin.filter') }}</button>
+                @if($filter || ($search ?? ''))
+                    <a href="{{ route('admin.orders.index') }}" class="btn btn-outline-secondary btn-sm">×</a>
+                @endif
+                <span class="f-light f-12 ms-auto">{{ $orders->total() }} objednávek</span>
+            </form>
+
             @if($orders->isEmpty())
                 <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
             @else
@@ -22,11 +38,19 @@
                 ]">
                     @foreach($orders as $order)
                         <tr>
-                            <td>#{{ $order->id }}</td>
-                            <td>{{ $order->customer?->company_name ?? $order->customer?->email }}</td>
-                            <td>{{ $order->created_at?->format('d.m.Y H:i') }}</td>
+                            <td><a href="{{ route('admin.orders.show', $order) }}">#{{ $order->id }}</a></td>
+                            <td>
+                                @if($order->customer)
+                                    <a href="{{ route('admin.customers.show', $order->customer) }}" class="f-light">
+                                        {{ $order->customer->company_name ?? $order->customer->email }}
+                                    </a>
+                                @else
+                                    —
+                                @endif
+                            </td>
+                            <td class="f-12">{{ $order->created_at?->format('d.m.Y H:i') }}</td>
                             <td><x-panel.status-badge :status="$order->status" /></td>
-                            <td>{{ $order->paid_at?->format('d.m.Y H:i') ?? '—' }}</td>
+                            <td class="f-12">{{ $order->paid_at?->format('d.m.Y H:i') ?? '—' }}</td>
                             <td><x-panel.money :money="$order->total" /></td>
                         </tr>
                     @endforeach

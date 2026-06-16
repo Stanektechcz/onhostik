@@ -80,6 +80,8 @@ it('serves admin pages to admins', function (string $uri): void {
     '/admin/provisioning',
     '/admin/audit',
     '/admin/nastaveni',
+    '/admin/kredit',
+    '/admin/kredit/transakce',
 ]);
 
 it('forbids admin pages to customers', function (string $uri): void {

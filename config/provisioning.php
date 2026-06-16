@@ -29,8 +29,21 @@ return [
     ],
 
     'proxmox' => [
-        'timeout'    => env('PROXMOX_TIMEOUT', 60),
-        'verify_tls' => env('PROXMOX_VERIFY_TLS', true),
+        // Connection
+        'host'             => env('PROXMOX_HOST'),                   // e.g. https://proxmox.example.com:8006
+        'node'             => env('PROXMOX_NODE', 'pve'),            // Proxmox node name
+        // API token auth (root@pam!mytoken=uuid) — preferred over ticket auth
+        'api_user'         => env('PROXMOX_API_USER', 'root@pam'),
+        'api_token_id'     => env('PROXMOX_API_TOKEN_ID'),           // token name (part before =)
+        'api_token_secret' => env('PROXMOX_API_TOKEN_SECRET'),       // token UUID
+        // VM defaults
+        'template_vmid'    => env('PROXMOX_TEMPLATE_VMID', 9000),    // VMID of the cloud-init template
+        'storage'          => env('PROXMOX_STORAGE', 'local-lvm'),   // storage for cloned disks
+        'network_bridge'   => env('PROXMOX_BRIDGE', 'vmbr0'),        // network bridge
+        'nameservers'      => env('PROXMOX_NAMESERVERS', '1.1.1.1 8.8.8.8'),
+        // Request settings
+        'timeout'          => env('PROXMOX_TIMEOUT', 60),
+        'verify_tls'       => env('PROXMOX_VERIFY_TLS', true),
     ],
 
     'pterodactyl' => [

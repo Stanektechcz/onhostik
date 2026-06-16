@@ -3,7 +3,18 @@
 @section('title', __('front.pages.order.title'))
 
 @section('content')
-    <x-front.page-banner :title="__('front.pages.order.title')" :subtitle="$plan->name" />
+    <div class="top-header overlay">
+        <div class="container">
+            <div class="row">
+                <div class="col-sm-12 col-md-12">
+                    <div class="wrapper">
+                        <h1 class="heading text-center">{{ __('front.pages.order.title') }}</h1>
+                        <div class="subheading text-center">{{ $plan->name }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <section class="services bg-colorstyle pb-150">
         <div class="container">

@@ -15,6 +15,8 @@ class DatabaseSeeder extends Seeder
             AdminUserSeeder::class,
             ProductCatalogSeeder::class,
             MockServerSeeder::class,
+            IntegrationSeeder::class,
+            AiPromptTemplateSeeder::class,
         ]);
     }
 }

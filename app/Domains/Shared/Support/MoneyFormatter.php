@@ -14,6 +14,11 @@ use NumberFormatter;
  */
 final class MoneyFormatter
 {
+    public static function formatMinor(int $minorAmount, string $currency, ?string $locale = null): string
+    {
+        return self::format(Money::ofMinor($minorAmount, $currency), $locale);
+    }
+
     public static function format(?Money $money, ?string $locale = null): string
     {
         if ($money === null) {

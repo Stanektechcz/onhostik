@@ -109,3 +109,15 @@ provisioning → customer portal + admin oversight + audit + tests) ·
 next: tax documents & PDF invoices · credit top-up · Comgate test-mode
 end-to-end · real aaPanel/WEDOS drivers (approval required) · monitoring ·
 backups · AI hub · support/automation · hardening · release QA
+
+## Phase 3 additions (2026-06-11)
+
+New bounded contexts under `app/Domains`: **Integrations** (credential
+vault + real-ready gated clients), **Monitoring**, **Backups**, **Support**,
+**Ai** — each with the same rules as the original domains (thin controllers,
+actions/services/jobs, queued idempotent external ops, audit on every
+transition). `HandleInvoicePaid` now also handles credit top-ups
+(`invoices.purpose`) and post-payment tax documents. Service activation
+hooks auto-create a monitor + backup policy. The five-layer refusal gate
+(active + !mock + !dry_run + env flag + credentials) guarantees no real
+external write can happen in this phase. See docs/integrations.md.

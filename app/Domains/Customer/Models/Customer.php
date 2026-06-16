@@ -12,6 +12,7 @@ use App\Domains\Provisioning\Models\Service;
 use App\Domains\Shared\Enums\Currency;
 use App\Domains\Shared\Enums\Locale;
 use App\Domains\Shared\Traits\HasUuid;
+use App\Domains\Support\Models\SupportTicket;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -114,6 +115,12 @@ class Customer extends Model
     public function services(): HasMany
     {
         return $this->hasMany(Service::class);
+    }
+
+    /** @return HasMany<SupportTicket, $this> */
+    public function supportTickets(): HasMany
+    {
+        return $this->hasMany(SupportTicket::class);
     }
 
     // ---------------------------------------------------------------- helpers

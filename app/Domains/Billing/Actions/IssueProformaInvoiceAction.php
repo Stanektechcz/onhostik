@@ -10,6 +10,7 @@ use App\Domains\Billing\Enums\VatScenario;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Order;
 use App\Domains\Billing\Services\InvoiceNumberGenerator;
+use App\Notifications\InvoiceIssuedNotification;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -106,6 +107,8 @@ final class IssueProformaInvoiceAction
                 'type'     => InvoiceType::Proforma->value,
             ])
             ->log('invoice.issued');
+
+        $customer->user?->notify(new InvoiceIssuedNotification($invoice));
 
         return $invoice->load('items');
     }

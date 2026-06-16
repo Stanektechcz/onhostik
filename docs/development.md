@@ -59,3 +59,16 @@ vendor/bin/phpstan analyse --memory-limit=1G
   and `laravel-admin-panel/` are **read-only**.
 - Localization: every customer-facing string exists in `lang/cs` + `lang/en`.
 - UUIDv7 public identifiers (`HasUuid`), integer PKs internally.
+
+## Phase 3 notes
+
+- Lang path is pinned in `bootstrap/app.php` (`useLangPath`) — an empty
+  legacy `resources/lang` directory would otherwise hijack translations.
+- New module pages: customer `/panel/podpora`, `/panel/ai`, credit
+  top-up on `/panel/fakturace/kredit`; admin `/admin/integrace`,
+  `/admin/system`, `/admin/monitoring`, `/admin/zalohy`,
+  `/admin/podpora`, `/admin/ai`, `/admin/domeny`.
+- Full local E2E: register → order (+domain) → pay (mock) → service active
+  → monitor + backup policy exist → tax document (after billing details)
+  → top-up → ticket → AI run. Covered by tests:
+  `php artisan test` (147 tests).

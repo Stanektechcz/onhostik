@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domains\Shared\Traits;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
@@ -16,8 +17,8 @@ trait HasUuid
     public static function bootHasUuid(): void
     {
         static::creating(function (Model $model): void {
-            if (empty($model->uuid)) {
-                $model->uuid = (string) Str::uuid7();
+            if (empty($model->getAttribute('uuid'))) {
+                $model->setAttribute('uuid', (string) Str::uuid7());
             }
         });
     }
@@ -27,6 +28,9 @@ trait HasUuid
         return 'uuid';
     }
 
+    /**
+     * @param  Builder<static>  $query
+     */
     public function scopeWhereUuid($query, string $uuid): mixed
     {
         return $query->where('uuid', $uuid);

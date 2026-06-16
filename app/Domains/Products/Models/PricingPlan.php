@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Domains\Products\Models;
 
+use App\Domains\Billing\Models\OrderItem;
 use App\Domains\Products\Enums\BillingCycle;
 use App\Domains\Shared\Enums\Currency;
 use Brick\Money\Money;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use InvalidArgumentException;
 use Spatie\Translatable\HasTranslations;
 
@@ -62,6 +64,12 @@ class PricingPlan extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    /** @return HasMany<OrderItem, $this> */
+    public function orderItems(): HasMany
+    {
+        return $this->hasMany(OrderItem::class);
     }
 
     // ---------------------------------------------------------------- pricing

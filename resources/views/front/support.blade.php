@@ -1,72 +1,104 @@
-@extends('layouts.front')
+﻿@extends('layouts.front')
 
 @section('title', __('front.pages.support.title'))
 @section('meta_description', 'Podpora Onhost.cz — tickety, znalostní báze a AI asistent. Reakce na urgentní výpadky do 1 hodiny.')
 
 @section('content')
-    <x-front.page-banner :title="__('front.pages.support.title')" :subtitle="__('front.pages.support.subtitle')" />
-
-    <section class="services bg-colorstyle pb-90">
+    {{-- ============ HERO ============ --}}
+    <div class="top-header overlay">
         <div class="container">
             <div class="row">
-                <div class="col-md-4">
-                    <div class="wrapper bg-seccolorstyle p-4 rounded mb-4" data-aos="fade-up">
-                        <i class="ico-support f-30 purple"></i>
-                        <h2 class="title mergecolor pt-3 f-18">Ticketová podpora</h2>
-                        <p class="seccolor mb-3">Nejrychlejší cesta k řešení — ticket zůstane v historii a sledujete průběh v reálném čase.</p>
-                        <a href="{{ route('panel.support.index') }}" class="btn btn-default-yellow-fill btn-sm">Otevřít ticket</a>
+                <div class="col-sm-12 col-md-12">
+                    <div class="wrapper">
+                        <h1 class="heading text-center">{{ __('front.pages.support.title') }}</h1>
+                        <div class="subheading text-center mb-5">{{ __('front.pages.support.subtitle') }}</div>
+                        <div class="included">
+                            <div class="h4 mb-3">Jak nás kontaktovat</div>
+                            <ul><li><i class="fas fa-check-circle"></i> Ticketová podpora</li></ul>
+                            <ul><li><i class="fas fa-check-circle"></i> AI asistent 24/7</li></ul>
+                            <ul><li><i class="fas fa-check-circle"></i> Znalostní báze</li></ul>
+                            <ul><li><i class="fas fa-check-circle"></i> Reakce na urgentní výpadky do 1 hodiny</li></ul>
+                        </div>
                     </div>
                 </div>
-                <div class="col-md-4">
-                    <div class="wrapper bg-seccolorstyle p-4 rounded mb-4" data-aos="fade-up" data-aos-delay="100">
-                        <i class="ico-chip f-30 purple"></i>
-                        <h2 class="title mergecolor pt-3 f-18">AI asistent</h2>
-                        <p class="seccolor mb-3">Okamžité odpovědi na otázky o DNS, PHP, e-mailech nebo tarifu. Dostupný 24/7 v klientské zóně.</p>
-                        <a href="{{ route('panel.ai.index') }}" class="btn btn-default-grey btn-sm">Otevřít AI asistenta</a>
+            </div>
+        </div>
+    </div>
+
+    {{-- ============ SUPPORT CHANNELS ============ --}}
+    <section class="services sec-normal motpath sec-bg4">
+        <div class="container">
+            <div class="service-wrap">
+                <div class="row">
+                    <div class="col-sm-12 text-center">
+                        <h2 class="section-heading">Kanály podpory</h2>
+                        <p class="section-subheading">Vyberte nejrychlejší cestu k řešení.</p>
                     </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="wrapper bg-seccolorstyle p-4 rounded mb-4" data-aos="fade-up" data-aos-delay="200">
-                        <i class="ico-speedometer f-30 purple"></i>
-                        <h2 class="title mergecolor pt-3 f-18">Znalostní báze</h2>
-                        <p class="seccolor mb-3">Návody pro nastavení DNS, e-mailů, SSL, přesměrování a dalších běžných operací.</p>
-                        <a href="{{ route('front.kb') }}" class="btn btn-default-grey btn-sm">Procházet návody</a>
-                    </div>
+                    @foreach([
+                        ['icon' => 'icon-support',      'badge' => 'Ticket',  'title' => 'Ticketová podpora',  'text' => 'Nejrychlejší cesta k řešení — ticket zůstane v historii a sledujete průběh v reálném čase.', 'route' => 'panel.support.index', 'label' => 'Otevřít ticket'],
+                        ['icon' => 'icon-cpu',          'badge' => '24/7',    'title' => 'AI asistent',        'text' => 'Okamžité odpovědi na otázky o DNS, PHP, e-mailech nebo tarifu. Dostupný 24/7 v klientské zóně.', 'route' => 'panel.ai.index', 'label' => 'Otevřít AI asistenta'],
+                        ['icon' => 'icon-speed',   'badge' => 'Návody',  'title' => 'Znalostní báze',     'text' => 'Návody pro nastavení DNS, e-mailů, SSL, přesměrování a dalších běžných operací.', 'route' => 'front.kb', 'label' => 'Procházet návody'],
+                    ] as $channel)
+                        <div class="col-sm-12 col-md-4" data-aos="fade-up">
+                            <div class="service-section bg-colorstyle">
+                                <div class="plans badge feat bg-purple">{{ $channel['badge'] }}</div>
+                                <i class="{{ $channel['icon'] }} f-30 purple mb-3 d-block"></i>
+                                <div class="title mergecolor">{{ $channel['title'] }}</div>
+                                <p class="subtitle seccolor">{{ $channel['text'] }}</p>
+                                <a href="{{ route($channel['route']) }}" class="btn btn-default-yellow-fill btn-sm mt-2">{{ $channel['label'] }}</a>
+                            </div>
+                        </div>
+                    @endforeach
                 </div>
             </div>
         </div>
     </section>
 
-    <section class="services bg-colorstyle pb-90">
-        <div class="container">
-            <div class="sec-main-title text-center pb-5">
-                <h2 class="title mergecolor" data-aos="fade-up">Reakční doby podpory</h2>
-            </div>
-            <div class="row justify-content-center">
-                <div class="col-lg-8">
-                    <div class="wrapper bg-seccolorstyle p-4 rounded" data-aos="fade-up">
-                        <div class="table-responsive">
-                            <table class="table table-borderless mb-0">
-                                <tbody class="seccolor">
+    {{-- ============ RESPONSE TIMES TABLE ============ --}}
+    <section id="sla" class="sec-normal sec-bg1 bg-colorstyle pb-80">
+        <div class="best-plans pricing">
+            <div class="container">
+                <div class="row">
+                    <div class="col-sm-12 text-center">
+                        <h2 class="section-heading mergecolor">Reakční doby podpory</h2>
+                        <p class="section-subheading mergecolor">Garantujeme tyto doby reakce pro všechny aktivní zákazníky.</p>
+                    </div>
+                    <div class="col-sm-12">
+                        <div class="table-responsive-lg">
+                            <table class="table sample mt-5">
+                                <thead>
                                     <tr>
-                                        <td><span class="badge bg-danger">Urgentní</span></td>
+                                        <th class="border-start-0 title">Priorita</th>
+                                        <th class="border-start-0 title">Příklady</th>
+                                        <th class="border-start-0 title">Reakční doba</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <th><span class="fas fa-check-circle me-2"></span> Urgentní</th>
                                         <td>Výpadek služby, ztráta dat</td>
-                                        <td class="mergecolor f-w-600">Reakce do 1 hodiny, 24/7</td>
+                                        <td><strong>Do 1 hodiny, 24/7</strong></td>
                                     </tr>
                                     <tr>
-                                        <td><span class="badge bg-warning">Vysoká</span></td>
+                                        <th><span class="fas fa-check-circle me-2"></span> Vysoká</th>
                                         <td>Výrazné zpomalení, funkční chyba</td>
-                                        <td class="mergecolor f-w-600">Reakce do 4 hodin</td>
+                                        <td><strong>Do 4 hodin</strong></td>
                                     </tr>
                                     <tr>
-                                        <td><span class="badge bg-info">Standardní</span></td>
+                                        <th><span class="fas fa-check-circle me-2"></span> Standardní</th>
                                         <td>Dotazy, nastavení, přesměrování</td>
-                                        <td class="mergecolor f-w-600">Reakce do 1 pracovního dne</td>
+                                        <td><strong>Do 1 pracovního dne</strong></td>
                                     </tr>
                                     <tr>
-                                        <td><span class="badge bg-secondary">Nízká</span></td>
+                                        <th><span class="fas fa-check-circle me-2"></span> Nízká</th>
                                         <td>Obecné dotazy, konzultace</td>
-                                        <td class="mergecolor f-w-600">Reakce do 2 pracovních dnů</td>
+                                        <td><strong>Do 2 pracovních dnů</strong></td>
+                                    </tr>
+                                    <tr>
+                                        <th class="border-0">
+                                            <a href="{{ route('panel.support.index') }}" class="btn btn-default-purple-fill">Otevřít ticket</a>
+                                        </th>
+                                        <td class="border-0" colspan="2"></td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -77,12 +109,45 @@
         </div>
     </section>
 
-    <section class="services bg-colorstyle pb-150">
+    {{-- ============ HELP ============ --}}
+    <section class="services help sec-bg2 pt-4 pb-80 bg-colorstyle">
         <div class="container">
-            <div class="wrapper bg-purple p-5 rounded text-center" data-aos="fade-up">
-                <h2 class="title text-white">Potřebujete okamžitou pomoc?</h2>
-                <p class="text-white-50 pb-3">Přihlaste se do klientské zóny a otevřete ticket s prioritou Urgentní.</p>
-                <a href="{{ config('app.customer_panel_url') }}" class="btn btn-default-yellow-fill">Klientská zóna</a>
+            <div class="service-wrap">
+                <div class="row">
+                    <div class="col-sm-12 col-md-6 col-lg-4">
+                        <div class="help-container bg-seccolorstyle noshadow">
+                            <a href="{{ route('front.kb') }}" class="help-item" title="Znalostní báze">
+                                <div class="img"><i class="icon-speed f-40 purple"></i></div>
+                                <div class="inform">
+                                    <div class="title mergecolor">Znalostní báze</div>
+                                    <div class="description seccolor">Návody pro DNS, e-mail, SSL, FTP a další obvyklé operace.</div>
+                                </div>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-sm-12 col-md-6 col-lg-4">
+                        <div class="help-container bg-seccolorstyle noshadow">
+                            <a href="{{ route('front.faq') }}" class="help-item" title="Časté dotazy">
+                                <div class="img"><i class="icon-cpu f-40 purple"></i></div>
+                                <div class="inform">
+                                    <div class="title mergecolor">Časté dotazy</div>
+                                    <div class="description seccolor">Nejčastější otázky o tarifech, platbách a technickém nastavení.</div>
+                                </div>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-sm-12 col-md-6 col-lg-4">
+                        <div class="help-container bg-seccolorstyle noshadow">
+                            <a href="{{ route('front.webhosting') }}" class="help-item" title="Webhosting">
+                                <div class="img"><i class="icon-drives f-40 purple"></i></div>
+                                <div class="inform">
+                                    <div class="title mergecolor">Přejít na webhosting</div>
+                                    <div class="description seccolor">Prohlédněte tarify a vyberte ten správný pro váš projekt.</div>
+                                </div>
+                            </a>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </section>

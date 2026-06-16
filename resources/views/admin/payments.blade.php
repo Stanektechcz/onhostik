@@ -6,7 +6,29 @@
 
 @section('content')
     <div class="container-fluid">
+        <x-panel.flash />
+
         <x-panel.card :title="__('panel.nav.admin_payments')">
+            <form method="GET" action="{{ route('admin.payments.index') }}" class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+                <select name="status" class="form-select" style="max-width: 180px;">
+                    <option value="">{{ __('panel.admin.all') }}</option>
+                    @foreach(\App\Domains\Billing\Enums\PaymentStatus::cases() as $s)
+                        <option value="{{ $s->value }}" @selected(($statusFilter ?? '') === $s->value)>{{ $s->label() }}</option>
+                    @endforeach
+                </select>
+                <input type="date" name="date_from" class="form-control" style="max-width: 155px;"
+                       value="{{ $dateFrom ?? '' }}" title="Od">
+                <input type="date" name="date_to" class="form-control" style="max-width: 155px;"
+                       value="{{ $dateTo ?? '' }}" title="Do">
+                <input type="text" name="q" class="form-control" style="max-width: 220px;"
+                       placeholder="E-mail, firma, faktura…" value="{{ $search ?? '' }}">
+                <button type="submit" class="btn btn-outline-primary btn-sm">{{ __('panel.admin.filter') }}</button>
+                @if(($statusFilter ?? '') || ($dateFrom ?? '') || ($dateTo ?? '') || ($search ?? ''))
+                    <a href="{{ route('admin.payments.index') }}" class="btn btn-outline-secondary btn-sm">×</a>
+                @endif
+                <span class="f-light f-12 ms-auto">{{ $payments->total() }} plateb</span>
+            </form>
+
             @if($payments->isEmpty())
                 <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
             @else
@@ -22,8 +44,22 @@
                     @foreach($payments as $payment)
                         <tr>
                             <td>#{{ $payment->id }}</td>
-                            <td>{{ $payment->customer?->company_name ?? $payment->customer?->email }}</td>
-                            <td>{{ $payment->invoice?->number ?? '—' }}</td>
+                            <td>
+                                @if($payment->customer)
+                                    <a href="{{ route('admin.customers.show', $payment->customer) }}">
+                                        {{ $payment->customer->company_name ?? $payment->customer->email }}
+                                    </a>
+                                @else
+                                    —
+                                @endif
+                            </td>
+                            <td>
+                                @if($payment->invoice)
+                                    <a href="{{ route('admin.invoices.show', $payment->invoice) }}">{{ $payment->invoice->number }}</a>
+                                @else
+                                    —
+                                @endif
+                            </td>
                             <td>{{ $payment->method->label() }}</td>
                             <td>{{ $payment->processed_at?->format('d.m.Y H:i') ?? $payment->created_at?->format('d.m.Y H:i') }}</td>
                             <td><x-panel.status-badge :status="$payment->status" /></td>
@@ -32,6 +68,26 @@
                     @endforeach
                 </x-panel.data-table>
                 {{ $payments->links() }}
+            @endif
+        </x-panel.card>
+
+        <x-panel.card :title="__('panel.admin.webhook_logs')">
+            @if($webhookLogs->isEmpty())
+                <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+            @else
+                <x-panel.data-table :headers="[__('panel.common.date'), __('panel.admin.provider'), 'Event', 'IP', 'Zpracováno', __('panel.admin.error')]">
+                    @foreach($webhookLogs as $log)
+                        <tr>
+                            <td>{{ $log->created_at?->format('d.m.Y H:i') }}</td>
+                            <td>{{ $log->provider }}</td>
+                            <td class="f-12">{{ $log->event_id ?? '—' }}</td>
+                            <td class="f-12">{{ $log->ip_address }}</td>
+                            <td>{{ $log->processed ? __('panel.common.yes') : __('panel.common.no') }}</td>
+                            <td class="f-light f-12">{{ $log->error_message ?? '—' }}</td>
+                        </tr>
+                    @endforeach
+                </x-panel.data-table>
+                {{ $webhookLogs->links() }}
             @endif
         </x-panel.card>
     </div>

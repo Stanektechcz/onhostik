@@ -1,54 +1,135 @@
-@extends('layouts.front')
+﻿@extends('layouts.front')
 
 @section('title', __('front.pages.kb.title'))
 @section('meta_description', 'Znalostní báze Onhost.cz — návody pro nastavení DNS, e-mailu, SSL, FTP a dalších funkcí hostingu.')
 
 @section('content')
-    <x-front.page-banner :title="__('front.pages.kb.title')" :subtitle="__('front.pages.kb.subtitle')" />
-
-    <section class="services bg-colorstyle pb-90">
+    {{-- ============ HERO ============ --}}
+    <div class="top-header overlay">
         <div class="container">
-            <div class="sec-main-title text-center pb-5">
-                <h2 class="title mergecolor" data-aos="fade-up">Oblíbené kategorie</h2>
-            </div>
             <div class="row">
-                @foreach([
-                    ['icon' => 'ico-globe', 'title' => 'DNS a domény', 'count' => 12, 'items' => ['Nastavení A záznamu', 'MX záznamy pro e-mail', 'CNAME a subdoména', 'Přenos domény']],
-                    ['icon' => 'ico-mail', 'title' => 'E-mail', 'count' => 8, 'items' => ['Nastavení Outlooku', 'Nastavení Thunderbirdu', 'Webmail RoundCube', 'SPF / DKIM / DMARC']],
-                    ['icon' => 'ico-ssl', 'title' => 'SSL a bezpečnost', 'count' => 6, 'items' => ["Let's Encrypt certifikát", 'HTTPS přesměrování', 'HTTP hlavičky', 'Firewall pravidla']],
-                    ['icon' => 'ico-speed', 'title' => 'WordPress', 'count' => 10, 'items' => ['Instalace WordPress', 'Migrace WP webu', 'Cache pluginy', 'Obnovení zálohy']],
-                    ['icon' => 'ico-drives', 'title' => 'Databáze', 'count' => 5, 'items' => ['phpMyAdmin', 'Import / export SQL', 'Uživatel a práva', 'Vzdálený přístup']],
-                    ['icon' => 'ico-backup', 'title' => 'Zálohy a obnova', 'count' => 4, 'items' => ['Jak fungují zálohy', 'Obnova ze zálohy', 'Manuální záloha', 'Plán záloh']],
-                ] as $i => $cat)
-                    <div class="col-md-6 col-lg-4">
-                        <div class="wrapper bg-seccolorstyle p-4 rounded mb-4" data-aos="fade-up" data-aos-delay="{{ ($i % 3) * 100 }}">
-                            <i class="{{ $cat['icon'] }} f-30 purple"></i>
-                            <h3 class="title mergecolor pt-3 f-18">
-                                {{ $cat['title'] }}
-                                <span class="badge badge-light-primary f-12 ms-1">{{ $cat['count'] }} článků</span>
-                            </h3>
-                            <ul class="list-unstyled seccolor f-14 mt-2 mb-0">
-                                @foreach($cat['items'] as $item)
-                                    <li class="py-1"><i class="fas fa-chevron-right purple pe-2 f-12"></i>{{ $item }}</li>
-                                @endforeach
-                            </ul>
+                <div class="col-sm-12 col-md-12">
+                    <div class="wrapper">
+                        <h1 class="heading text-center">{{ __('front.pages.kb.title') }}</h1>
+                        <div class="subheading text-center mb-5">{{ __('front.pages.kb.subtitle') }}</div>
+                        <div class="included">
+                            <div class="h4 mb-3">Oblíbené kategorie</div>
+                            <ul><li><i class="fas fa-check-circle"></i> DNS a domény</li></ul>
+                            <ul><li><i class="fas fa-check-circle"></i> Nastavení e-mailu</li></ul>
+                            <ul><li><i class="fas fa-check-circle"></i> SSL a bezpečnost</li></ul>
+                            <ul><li><i class="fas fa-check-circle"></i> WordPress</li></ul>
                         </div>
                     </div>
-                @endforeach
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- ============ CATEGORIES GRID ============ --}}
+    <section class="services sec-normal motpath sec-bg4">
+        <div class="container">
+            <div class="service-wrap">
+                <div class="row">
+                    <div class="col-sm-12 text-center">
+                        <h2 class="section-heading">Oblíbené kategorie</h2>
+                        <p class="section-subheading">Návody a odpovědi na nejčastější otázky.</p>
+                    </div>
+                    @php
+                        $catIcons = [
+                            'dns'      => 'ico-globe',
+                            'email'    => 'icon-emailopen',
+                            'ssl'      => 'icon-lock',
+                            'wordpress'=> 'icon-speed',
+                            'databaze' => 'icon-drives',
+                            'zalohy'   => 'icon-diskette',
+                            'general'  => 'icon-drives',
+                        ];
+                        $placeholder = [
+                            ['icon' => 'ico-globe',      'badge' => '12 článků',  'title' => 'DNS a domény',      'items' => ['Nastavení A záznamu', 'MX záznamy pro e-mail', 'CNAME a subdoména', 'Přenos domény']],
+                            ['icon' => 'icon-emailopen',  'badge' => '8 článků',   'title' => 'E-mail',            'items' => ['Nastavení Outlooku', 'Nastavení Thunderbirdu', 'Webmail RoundCube', 'SPF / DKIM / DMARC']],
+                            ['icon' => 'icon-lock',        'badge' => '6 článků',   'title' => 'SSL a bezpečnost',  'items' => ["Let's Encrypt certifikát", 'HTTPS přesměrování', 'HTTP hlavičky', 'Firewall pravidla']],
+                            ['icon' => 'icon-speed',      'badge' => '10 článků',  'title' => 'WordPress',         'items' => ['Instalace WordPress', 'Migrace WP webu', 'Cache pluginy', 'Obnovení zálohy']],
+                            ['icon' => 'icon-drives',     'badge' => '5 článků',   'title' => 'Databáze',          'items' => ['phpMyAdmin', 'Import / export SQL', 'Uživatel a práva', 'Vzdálený přístup']],
+                            ['icon' => 'icon-diskette',     'badge' => '4 články',   'title' => 'Zálohy a obnova',   'items' => ['Jak fungují zálohy', 'Obnova ze zálohy', 'Manuální záloha', 'Plán záloh']],
+                        ];
+                    @endphp
+                    @if(isset($categories) && $categories->isNotEmpty())
+                        @foreach($categories as $catName => $articles)
+                            <div class="col-sm-12 col-md-4" data-aos="fade-up">
+                                <div class="service-section bg-colorstyle">
+                                    <div class="plans badge feat bg-purple">{{ $articles->count() }} {{ $articles->count() === 1 ? 'článek' : 'článků' }}</div>
+                                    <i class="{{ $catIcons[strtolower($catName)] ?? 'icon-drives' }} f-30 purple mb-3 d-block"></i>
+                                    <div class="title mergecolor">{{ $catName }}</div>
+                                    <ul class="list-unstyled seccolor f-14 mt-2 mb-0">
+                                        @foreach($articles->take(4) as $a)
+                                            <li class="py-1">
+                                                <a href="{{ route('front.kb.show', $a->slug) }}" class="seccolor">
+                                                    <i class="fas fa-chevron-right purple pe-2 f-12"></i>{{ $a->title }}
+                                                </a>
+                                            </li>
+                                        @endforeach
+                                    </ul>
+                                </div>
+                            </div>
+                        @endforeach
+                    @else
+                        @foreach($placeholder as $cat)
+                            <div class="col-sm-12 col-md-4" data-aos="fade-up">
+                                <div class="service-section bg-colorstyle">
+                                    <div class="plans badge feat bg-purple">{{ $cat['badge'] }}</div>
+                                    <i class="{{ $cat['icon'] }} f-30 purple mb-3 d-block"></i>
+                                    <div class="title mergecolor">{{ $cat['title'] }}</div>
+                                    <ul class="list-unstyled seccolor f-14 mt-2 mb-0">
+                                        @foreach($cat['items'] as $item)
+                                            <li class="py-1"><i class="fas fa-chevron-right purple pe-2 f-12"></i>{{ $item }}</li>
+                                        @endforeach
+                                    </ul>
+                                </div>
+                            </div>
+                        @endforeach
+                    @endif
+                </div>
             </div>
         </div>
     </section>
 
-    <section class="services bg-colorstyle pb-150">
+    {{-- ============ HELP ============ --}}
+    <section class="services help sec-bg2 pt-4 pb-80 bg-colorstyle">
         <div class="container">
-            <div class="row justify-content-center">
-                <div class="col-lg-6 text-center" data-aos="fade-up">
-                    <div class="wrapper bg-seccolorstyle p-4 rounded">
-                        <i class="ico-chip f-30 purple"></i>
-                        <h3 class="title mergecolor pt-3 f-18">Nenašli jste odpověď?</h3>
-                        <p class="seccolor mb-3">Zeptejte se AI asistenta v klientské zóně, nebo otevřete ticket — odpovíme do 1 pracovního dne.</p>
-                        <a href="{{ route('front.support') }}" class="btn btn-default-yellow-fill btn-sm me-2">Kontaktovat podporu</a>
-                        <a href="{{ route('front.faq') }}" class="btn btn-default-grey btn-sm">Časté dotazy</a>
+            <div class="service-wrap">
+                <div class="row">
+                    <div class="col-sm-12 col-md-6 col-lg-4">
+                        <div class="help-container bg-seccolorstyle noshadow">
+                            <a href="{{ route('front.support') }}" class="help-item" title="Podpora">
+                                <div class="img"><i class="icon-support f-40 purple"></i></div>
+                                <div class="inform">
+                                    <div class="title mergecolor">Kontaktovat podporu</div>
+                                    <div class="description seccolor">Nenašli jste odpověď? Otevřete ticket — odpovíme do 1 prac. dne.</div>
+                                </div>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-sm-12 col-md-6 col-lg-4">
+                        <div class="help-container bg-seccolorstyle noshadow">
+                            <a href="{{ route('panel.ai.index') }}" class="help-item" title="AI asistent">
+                                <div class="img"><i class="icon-cpu f-40 purple"></i></div>
+                                <div class="inform">
+                                    <div class="title mergecolor">AI asistent</div>
+                                    <div class="description seccolor">Okamžité odpovědi na technické otázky — DNS, PHP, e-mail.</div>
+                                </div>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-sm-12 col-md-6 col-lg-4">
+                        <div class="help-container bg-seccolorstyle noshadow">
+                            <a href="{{ route('front.faq') }}" class="help-item" title="Časté dotazy">
+                                <div class="img"><i class="icon-speed f-40 purple"></i></div>
+                                <div class="inform">
+                                    <div class="title mergecolor">Časté dotazy</div>
+                                    <div class="description seccolor">Nejčastější otázky o tarifech, platbách a aktivaci služeb.</div>
+                                </div>
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>

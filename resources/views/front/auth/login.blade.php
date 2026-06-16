@@ -1,54 +1,62 @@
-@extends('layouts.front')
+@extends('layouts.auth')
 
 @section('title', __('front.auth.login_title'))
 
 @section('content')
-    <section class="top-header sec-bg6 pb-150 bg-colorstyle">
-        <div class="container">
-            <div class="row justify-content-center">
-                <div class="col-md-6 col-lg-5">
-                    <div class="wrapper bg-seccolorstyle p-5 rounded mt-5" data-aos="fade-up">
-                        <h1 class="heading mergecolor pb-4 f-26">{{ __('front.auth.login_title') }}</h1>
+    <h2 class="mergecolor mb-2"><b>{{ __('front.auth.login_title') }}</b></h2>
+    <p class="seccolor mb-5">Vítejte zpět — přihlaste se do klientské zóny.</p>
 
-                        @if(session('status'))
-                            <div class="alert alert-success" role="alert">{{ session('status') }}</div>
-                        @endif
+    @if(session('status'))
+        <div class="alert alert-success mb-4" role="alert">{{ session('status') }}</div>
+    @endif
 
-                        <form method="POST" action="{{ route('login') }}">
-                            @csrf
-                            <div class="general-input mb-3">
-                                <label class="seccolor d-block pb-1" for="email">{{ __('front.auth.email') }}</label>
-                                <input id="email" class="fill-input w-100" type="email" name="email"
-                                       value="{{ old('email') }}" required autofocus autocomplete="username">
-                                @error('email')<div class="text-danger mt-1">{{ $message }}</div>@enderror
-                            </div>
-
-                            <div class="general-input mb-3">
-                                <label class="seccolor d-block pb-1" for="password">{{ __('front.auth.password') }}</label>
-                                <input id="password" class="fill-input w-100" type="password" name="password"
-                                       required autocomplete="current-password">
-                                @error('password')<div class="text-danger mt-1">{{ $message }}</div>@enderror
-                            </div>
-
-                            <div class="d-flex justify-content-between align-items-center mb-4">
-                                <label class="seccolor mb-0">
-                                    <input type="checkbox" name="remember"> {{ __('front.auth.remember_me') }}
-                                </label>
-                                <a href="{{ route('password.request') }}" class="purple">{{ __('front.auth.forgot_password') }}</a>
-                            </div>
-
-                            <button type="submit" class="btn btn-default-yellow-fill w-100">
-                                {{ __('front.auth.login_button') }}
-                            </button>
-                        </form>
-
-                        <p class="seccolor pt-4 mb-0">
-                            {{ __('front.auth.no_account') }}
-                            <a href="{{ route('register') }}" class="purple">{{ __('front.auth.register_button') }}</a>
-                        </p>
+    <div class="cd-filter-block mb-0">
+        <div class="cd-filter-content">
+            <form method="POST" action="{{ route('login') }}">
+                @csrf
+                <div class="row">
+                    <div class="col-md-6 position-relative mb-3">
+                        <div class="general-input">
+                            <label class="seccolor d-block pb-1" for="email">
+                                <i class="fas fa-envelope me-1"></i>{{ __('front.auth.email') }}
+                            </label>
+                            <input id="email" class="fill-input w-100" type="email" name="email"
+                                   value="{{ old('email') }}" required autofocus autocomplete="username"
+                                   placeholder="vas@email.cz">
+                            @error('email')<div class="text-danger mt-1 f-13">{{ $message }}</div>@enderror
+                        </div>
+                    </div>
+                    <div class="col-md-6 position-relative mb-3">
+                        <div class="general-input">
+                            <label class="seccolor d-block pb-1" for="password">
+                                <i class="fas fa-lock me-1"></i>{{ __('front.auth.password') }}
+                            </label>
+                            <input id="password" class="fill-input w-100" type="password" name="password"
+                                   required autocomplete="current-password" placeholder="••••••••">
+                            @error('password')<div class="text-danger mt-1 f-13">{{ $message }}</div>@enderror
+                        </div>
+                    </div>
+                    <div class="col-md-12 mt-4 position-relative">
+                        <button type="submit" class="btn btn-default-yellow-fill me-3">
+                            {{ __('front.auth.login_button') }} <i class="fas fa-lock ps-1 f-15"></i>
+                        </button>
+                        <a href="{{ route('password.request') }}" class="golink me-3 position-relative seccolor">
+                            {{ __('front.auth.forgot_password') }}
+                        </a>
+                        <ul class="list d-inline">
+                            <li>
+                                <input name="remember" type="checkbox" id="remember" class="filter">
+                                <label for="remember" class="checkbox-label c-grey seccolor">{{ __('front.auth.remember_me') }}</label>
+                            </li>
+                        </ul>
                     </div>
                 </div>
-            </div>
+            </form>
         </div>
-    </section>
+    </div>
+
+    <p class="seccolor pt-4 mb-0 f-14">
+        {{ __('front.auth.no_account') }}
+        <a href="{{ route('register') }}" class="purple">{{ __('front.auth.register_button') }}</a>
+    </p>
 @endsection

@@ -9,6 +9,7 @@ use App\Domains\Provisioning\Enums\TaskStatus;
 use App\Domains\Provisioning\Models\ProvisioningTask;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Provisioning\Services\DriverResolver;
+use App\Domains\Provisioning\Services\ServiceActivationHooks;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -92,6 +93,9 @@ final class ProvisionHostingServiceJob implements ShouldQueue
                 ->performedOn($service)
                 ->withProperties(['task_id' => $task->id, 'external_id' => $result->externalId, 'mock' => true])
                 ->log('provisioning.succeeded');
+
+            // Monitoring + default backup policy ride on successful activation.
+            app(ServiceActivationHooks::class)->handle($service);
 
             return;
         }

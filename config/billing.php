@@ -21,6 +21,12 @@ return [
     */
     'credit_low_threshold_minor' => env('BILLING_CREDIT_LOW_THRESHOLD', 10000),
 
+    /** Allowed credit top-up range in minor units of the ledger currency. */
+    'credit_topup' => [
+        'min_minor' => env('BILLING_TOPUP_MIN', 10_000),     // 100 CZK
+        'max_minor' => env('BILLING_TOPUP_MAX', 5_000_000),  // 50 000 CZK
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Invoicing

@@ -29,3 +29,14 @@ them out of band).
 - Honour `provisioning.aapanel.timeout`; wrap errors into
   `ProvisioningException` (retryable vs not); same task lifecycle as mock.
 - The mock stays the default for local dev and tests forever.
+
+## Phase 3: real-ready client
+
+`App\Domains\Integrations\Clients\AapanelClient` implements
+connectionTest/createSite/createDatabase/createFtpAccount/setPhpVersion/
+configureSsl/suspendSite/reactivateSite/deleteSite/getUsage/getServerHealth.
+Every write routes through dry-run unless ALL refusal gates open
+(vault row active, mock off, dry-run off, `AAPANEL_ALLOW_REAL_WRITES=true`,
+credentials present). Auth model for the live path:
+`request_token = md5(time . md5(api_key))`. Provisioning still uses the
+mock driver in this phase.

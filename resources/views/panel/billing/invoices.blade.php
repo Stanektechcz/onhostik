@@ -22,16 +22,26 @@
                     '',
                 ]">
                     @foreach($invoices as $invoice)
+                        @php($isOverdue = $invoice->status->value === 'overdue' || ($invoice->due_date?->isPast() && $invoice->status->isOpen()))
                         <tr>
-                            <td>{{ $invoice->number }}</td>
-                            <td>{{ $invoice->type->label() }}</td>
-                            <td>{{ $invoice->issue_date?->format('d.m.Y') }}</td>
-                            <td>{{ $invoice->due_date?->format('d.m.Y') }}</td>
+                            <td>
+                                <a href="{{ route('panel.billing.invoices.show', $invoice) }}" class="f-w-600">
+                                    {{ $invoice->number }}
+                                </a>
+                            </td>
+                            <td class="f-12">{{ $invoice->type->label() }}</td>
+                            <td class="f-12">{{ $invoice->issue_date?->format('d.m.Y') }}</td>
+                            <td class="f-12 {{ $isOverdue ? 'text-danger f-w-600' : '' }}">
+                                {{ $invoice->due_date?->format('d.m.Y') }}
+                                @if($isOverdue)
+                                    <i data-feather="alert-circle" style="width:11px;height:11px" class="text-danger"></i>
+                                @endif
+                            </td>
                             <td><x-panel.status-badge :status="$invoice->status" /></td>
                             <td><x-panel.money :money="$invoice->total" /></td>
                             <td>
-                                <a class="btn btn-outline-primary btn-sm" href="{{ route('panel.billing.invoices.show', $invoice) }}">
-                                    {{ __('panel.common.detail') }}
+                                <a class="btn btn-{{ $isOverdue ? 'primary' : 'outline-primary' }} btn-sm" href="{{ route('panel.billing.invoices.show', $invoice) }}">
+                                    {{ $isOverdue ? __('panel.dashboard.pay_now') : __('panel.common.detail') }}
                                 </a>
                             </td>
                         </tr>

@@ -5,6 +5,9 @@ declare(strict_types=1);
 use App\Http\Controllers\Admin;
 use App\Http\Controllers\Panel;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Admin\BlogController as AdminBlogController;
+use App\Http\Controllers\Admin\KbController as AdminKbController;
+use App\Http\Controllers\Admin\SiteContentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -35,6 +38,8 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::get('/fakturace/faktury/{invoice}/tisk', [Panel\BillingController::class, 'invoicePrint'])->name('billing.invoices.print');
     Route::post('/fakturace/faktury/{invoice}/zaplatit/mock', [Panel\BillingController::class, 'payMock'])->name('billing.invoices.pay-mock');
     Route::post('/fakturace/faktury/{invoice}/zaplatit/kredit', [Panel\BillingController::class, 'payCredit'])->name('billing.invoices.pay-credit');
+    Route::post('/fakturace/faktury/{invoice}/zaplatit/comgate', [Panel\BillingController::class, 'payComgate'])->name('billing.invoices.pay-comgate');
+    Route::get('/fakturace/faktury/{invoice}/zaplatit/comgate/navrat', [Panel\BillingController::class, 'comgateReturn'])->name('billing.invoices.comgate-return');
     Route::get('/fakturace/platby', [Panel\BillingController::class, 'payments'])->name('billing.payments');
     Route::get('/fakturace/kredit', [Panel\BillingController::class, 'credits'])->name('billing.credits');
     Route::post('/fakturace/kredit/dobit', [Panel\BillingController::class, 'topUp'])->name('billing.credits.topup');
@@ -67,6 +72,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::post('/zakaznici/{customer}/kredit', [Admin\CustomerController::class, 'adjustCredit'])->name('customers.credit');
 
     Route::get('/objednavky', [Admin\OrderController::class, 'index'])->name('orders.index');
+    Route::get('/objednavky/{order}', [Admin\OrderController::class, 'show'])->name('orders.show');
 
     Route::get('/faktury', [Admin\InvoiceController::class, 'index'])->name('invoices.index');
     Route::get('/faktury/{invoice}', [Admin\InvoiceController::class, 'show'])->name('invoices.show');
@@ -75,16 +81,32 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
 
     Route::get('/platby', [Admin\PaymentController::class, 'index'])->name('payments.index');
 
+    Route::get('/kredit', [Admin\CreditController::class, 'index'])->name('credits.index');
+    Route::get('/kredit/transakce', [Admin\CreditController::class, 'transactions'])->name('credits.transactions');
+
     Route::get('/produkty', [Admin\ProductController::class, 'index'])->name('products.index');
+    Route::get('/produkty/novy', [Admin\ProductController::class, 'create'])->name('products.create');
+    Route::post('/produkty', [Admin\ProductController::class, 'store'])->name('products.store');
+    Route::get('/produkty/{product}/upravit', [Admin\ProductController::class, 'edit'])->name('products.edit');
+    Route::put('/produkty/{product}', [Admin\ProductController::class, 'update'])->name('products.update');
+    Route::delete('/produkty/{product}', [Admin\ProductController::class, 'destroy'])->name('products.destroy');
+    Route::post('/produkty/{product}/plan', [Admin\ProductController::class, 'addPlan'])->name('products.plans.add');
     Route::put('/plany/{plan}', [Admin\ProductController::class, 'updatePlan'])->name('products.plans.update');
+    Route::delete('/plany/{plan}', [Admin\ProductController::class, 'deletePlan'])->name('products.plans.delete');
 
     Route::get('/sluzby', [Admin\ServiceController::class, 'index'])->name('services.index');
+    Route::get('/sluzby/{service}', [Admin\ServiceController::class, 'show'])->name('services.show');
     Route::post('/sluzby/{service}/pozastavit', [Admin\ServiceController::class, 'suspend'])->name('services.suspend');
     Route::post('/sluzby/{service}/obnovit', [Admin\ServiceController::class, 'unsuspend'])->name('services.unsuspend');
 
     Route::get('/domeny', [Admin\DomainController::class, 'index'])->name('domains.index');
 
     Route::get('/servery', [Admin\ServerController::class, 'index'])->name('servers.index');
+    Route::get('/servery/novy', [Admin\ServerController::class, 'create'])->name('servers.create');
+    Route::post('/servery', [Admin\ServerController::class, 'store'])->name('servers.store');
+    Route::get('/servery/{server}/upravit', [Admin\ServerController::class, 'edit'])->name('servers.edit');
+    Route::put('/servery/{server}', [Admin\ServerController::class, 'update'])->name('servers.update');
+    Route::delete('/servery/{server}', [Admin\ServerController::class, 'destroy'])->name('servers.destroy');
     Route::post('/servery/{server}/test', [Admin\ServerController::class, 'test'])->name('servers.test');
 
     Route::get('/provisioning', [Admin\ProvisioningController::class, 'index'])->name('provisioning.index');
@@ -112,4 +134,23 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/audit', [Admin\AuditLogController::class, 'index'])->name('logs.audit');
     Route::get('/nastaveni', [Admin\SettingsController::class, 'index'])->name('settings.index');
     Route::post('/nastaveni', [Admin\SettingsController::class, 'update'])->name('settings.update');
+
+    Route::get('/obsah', [SiteContentController::class, 'index'])->name('site-content.index');
+    Route::post('/obsah/bulk', [SiteContentController::class, 'bulkUpdate'])->name('site-content.bulk');
+    Route::get('/obsah/{siteContent}/upravit', [SiteContentController::class, 'edit'])->name('site-content.edit');
+    Route::put('/obsah/{siteContent}', [SiteContentController::class, 'update'])->name('site-content.update');
+
+    Route::get('/blog', [AdminBlogController::class, 'index'])->name('blog.index');
+    Route::get('/blog/novy', [AdminBlogController::class, 'create'])->name('blog.create');
+    Route::post('/blog', [AdminBlogController::class, 'store'])->name('blog.store');
+    Route::get('/blog/{blog}/upravit', [AdminBlogController::class, 'edit'])->name('blog.edit');
+    Route::put('/blog/{blog}', [AdminBlogController::class, 'update'])->name('blog.update');
+    Route::delete('/blog/{blog}', [AdminBlogController::class, 'destroy'])->name('blog.destroy');
+
+    Route::get('/znalostni-baze', [AdminKbController::class, 'index'])->name('kb.index');
+    Route::get('/znalostni-baze/novy', [AdminKbController::class, 'create'])->name('kb.create');
+    Route::post('/znalostni-baze', [AdminKbController::class, 'store'])->name('kb.store');
+    Route::get('/znalostni-baze/{kb}/upravit', [AdminKbController::class, 'edit'])->name('kb.edit');
+    Route::put('/znalostni-baze/{kb}', [AdminKbController::class, 'update'])->name('kb.update');
+    Route::delete('/znalostni-baze/{kb}', [AdminKbController::class, 'destroy'])->name('kb.destroy');
 });

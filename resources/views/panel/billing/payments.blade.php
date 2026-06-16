@@ -6,6 +6,8 @@
 
 @section('content')
     <div class="container-fluid">
+        <x-panel.flash />
+
         <x-panel.card :title="__('panel.nav.payments')">
             @if($payments->isEmpty())
                 <p class="f-light mb-0">{{ __('panel.billing.no_payments') }}</p>

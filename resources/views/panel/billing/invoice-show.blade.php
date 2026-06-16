@@ -10,8 +10,20 @@
         <x-panel.flash />
 
         <x-panel.card :title="$invoice->type->label() . ' ' . $invoice->number">
+            <div class="d-flex justify-content-end mb-2">
+                <a href="{{ route('panel.billing.invoices.print', $invoice) }}" target="_blank" class="btn btn-outline-secondary btn-sm">
+                    {{ __('panel.billing.print') }}
+                </a>
+            </div>
+
+            @if($invoice->purpose === 'credit_topup')
+                <div class="alert alert-light-primary" role="alert">{{ __('panel.billing.purpose_topup') }}</div>
+            @endif
+
             @if(!$invoice->isTaxDocument())
                 <div class="alert alert-light-info" role="alert">{{ __('panel.billing.proforma_note') }}</div>
+            @else
+                <div class="alert alert-light-success" role="alert">{{ __('panel.billing.tax_document_note') }}</div>
             @endif
 
             <div class="row mb-3">
@@ -74,33 +86,66 @@
 
             @if($invoice->status->isOpen())
                 <div class="border-top pt-3 mt-3">
-                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <h6 class="mb-3">{{ __('panel.billing.choose_payment') }}</h6>
+                    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                        <form method="POST" action="{{ route('panel.billing.invoices.pay-comgate', $invoice) }}">
+                            @csrf
+                            <button type="submit" class="btn btn-primary">
+                                <i data-feather="credit-card" style="width:14px;height:14px"></i>
+                                {{ __('panel.billing.pay_comgate') }}
+                            </button>
+                        </form>
+                        @if($invoice->purpose !== 'credit_topup')
+                            <form method="POST" action="{{ route('panel.billing.invoices.pay-credit', $invoice) }}">
+                                @csrf
+                                <button type="submit" class="btn btn-outline-primary">
+                                    <i data-feather="dollar-sign" style="width:14px;height:14px"></i>
+                                    {{ __('panel.billing.pay_credit') }}
+                                    <span class="f-light f-12 ms-1">({{ \App\Domains\Shared\Support\MoneyFormatter::format($creditBalance) }})</span>
+                                </button>
+                            </form>
+                        @endif
                         @if($mockMode)
                             <form method="POST" action="{{ route('panel.billing.invoices.pay-mock', $invoice) }}">
                                 @csrf
-                                <button type="submit" class="btn btn-primary">
+                                <button type="submit" class="btn btn-outline-secondary btn-sm">
                                     {{ __('panel.billing.pay_mock') }}
-                                    <span class="badge badge-light-warning ms-1">{{ __('panel.admin.mock_badge') }}</span>
+                                    <span class="badge badge-light-warning ms-1">mock</span>
                                 </button>
                             </form>
                             <form method="POST" action="{{ route('panel.billing.invoices.pay-mock', $invoice) }}">
                                 @csrf
                                 <input type="hidden" name="outcome" value="fail">
-                                <button type="submit" class="btn btn-outline-warning">
+                                <button type="submit" class="btn btn-outline-warning btn-sm">
                                     {{ __('panel.billing.pay_mock_fail') }}
                                 </button>
                             </form>
                         @endif
-                        <form method="POST" action="{{ route('panel.billing.invoices.pay-credit', $invoice) }}">
-                            @csrf
-                            <button type="submit" class="btn btn-outline-primary">
-                                {{ __('panel.billing.pay_credit') }}
-                            </button>
-                        </form>
-                        <span class="f-light f-12">
-                            {{ __('panel.billing.balance') }}: <x-panel.money :money="$creditBalance" />
-                        </span>
                     </div>
+
+                    {{-- Bank transfer info --}}
+                    @if($invoice->purpose === 'order' || $invoice->purpose === 'credit_topup')
+                        <div class="alert alert-light-info py-2 mb-0">
+                            <p class="f-12 mb-1 f-w-600">
+                                <i data-feather="info" style="width:12px;height:12px"></i>
+                                Platba převodem
+                            </p>
+                            <p class="f-12 mb-1">
+                                <span class="f-light">Číslo účtu (CZK):</span>
+                                <strong>{{ $bankCzk ?? 'neuvedeno' }}</strong>
+                            </p>
+                            @if($bankEur)
+                                <p class="f-12 mb-1">
+                                    <span class="f-light">Číslo účtu (EUR):</span>
+                                    <strong>{{ $bankEur }}</strong>
+                                </p>
+                            @endif
+                            <p class="f-12 mb-0">
+                                <span class="f-light">Variabilní symbol:</span>
+                                <strong>{{ $invoice->variable_symbol }}</strong>
+                            </p>
+                        </div>
+                    @endif
                 </div>
             @endif
         </x-panel.card>
