@@ -62,6 +62,10 @@
             {{-- Monitors table --}}
             <div class="col-xl-8">
                 <x-panel.card :title="__('panel.admin.monitors')">
+                    <p class="f-12 f-light mb-3">
+                        <i data-feather="alert-triangle" style="width:12px;height:12px;"></i>
+                        {{ __('panel.admin.monitoring_mock_note') }}
+                    </p>
                     @if($monitors->isEmpty())
                         <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
                     @else
@@ -87,7 +91,12 @@
                                         @endphp
                                         <tr>
                                             <td>
-                                                <div class="f-w-600">{{ $monitor->name }}</div>
+                                                <div class="f-w-600">
+                                                    {{ $monitor->name }}
+                                                    @if($monitor->provider === 'internal_mock')
+                                                        <span class="badge badge-light-warning f-10 ms-1" title="{{ __('panel.admin.monitoring_mock_note') }}">MOCK</span>
+                                                    @endif
+                                                </div>
                                                 <div class="f-light f-12">{{ $monitor->type }} · {{ $monitor->target }}</div>
                                             </td>
                                             <td class="f-light f-12">

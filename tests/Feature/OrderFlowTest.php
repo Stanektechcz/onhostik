@@ -96,3 +96,37 @@ it('never issues a second proforma for the same order', function (): void {
     expect(Invoice::count())->toBe(1)
         ->and($second->id)->toBe($first->id);
 });
+
+it('lets a guest open the public order page without crashing', function (): void {
+    $plan = PricingPlan::query()->orderBy('sort_order')->firstOrFail(); // active webhosting plan
+
+    $this->get(route('front.order', $plan))->assertOk();
+});
+
+it('404s the public order page for an inactive (not-for-sale) plan', function (): void {
+    $gamehostingPlan = PricingPlan::query()
+        ->whereHas('product', fn ($query) => $query->where('slug', 'gamehosting'))
+        ->firstOrFail();
+
+    $this->get(route('front.order', $gamehostingPlan))->assertNotFound();
+});
+
+it('excludes gamehosting from the active pricing plan list', function (): void {
+    $gamehostingProduct = \App\Domains\Products\Models\Product::where('slug', 'gamehosting')->firstOrFail();
+
+    expect($gamehostingProduct->is_active)->toBeFalse()
+        ->and($gamehostingProduct->pricingPlans()->where('is_active', true)->count())->toBe(0);
+});
+
+it('rejects a direct order POST for an inactive gamehosting plan', function (): void {
+    $user = customerUser();
+    $gamehostingPlan = PricingPlan::query()
+        ->whereHas('product', fn ($query) => $query->where('slug', 'gamehosting'))
+        ->firstOrFail();
+
+    $this->actingAs($user)
+        ->post('/panel/objednavky', ['pricing_plan_id' => $gamehostingPlan->id])
+        ->assertNotFound();
+
+    expect(Order::count())->toBe(0);
+});

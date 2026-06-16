@@ -75,7 +75,7 @@ class SystemHealthController extends Controller
         $checks[] = [
             'name'   => 'scheduler',
             'ok'     => true,
-            'detail' => 'billing:mark-overdue @ 01:00 | billing:suspend-overdue @ 01:15 | cron: * * * * * php artisan schedule:run',
+            'detail' => 'billing:create-renewals @ 00:30 | billing:mark-overdue @ 01:00 | billing:suspend-overdue @ 01:15 | cron: * * * * * php artisan schedule:run',
         ];
 
         // ── Storage ──────────────────────────────────────────────

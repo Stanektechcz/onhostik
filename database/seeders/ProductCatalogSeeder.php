@@ -171,6 +171,11 @@ class ProductCatalogSeeder extends Seeder
 
     private function seedGamehosting(): void
     {
+        // NOT FOR SALE: no Pterodactyl driver exists yet (DriverResolver
+        // throws). Keep the product/plans present for the marketing page
+        // ("coming soon" copy) but inactive everywhere orders are placed.
+        // updateOrCreate re-applies is_active=false on every seeder run,
+        // including against an already-seeded database.
         $product = Product::updateOrCreate(
             ['slug' => 'gamehosting'],
             [
@@ -181,12 +186,16 @@ class ProductCatalogSeeder extends Seeder
                     'en' => 'Game servers with low latency, DDoS protection and one-click game installation.',
                 ],
                 'provisioning_driver' => ProvisioningDriver::Pterodactyl,
-                'is_active'           => true,
+                'is_active'           => false,
                 'sort_order'          => 3,
             ],
         );
 
         if ($product->pricingPlans()->exists()) {
+            // Existing rows from before this fix — close the plan-level
+            // hole too, since PricingPlan checks don't all join Product.
+            $product->pricingPlans()->update(['is_active' => false]);
+
             return;
         }
 
@@ -221,7 +230,7 @@ class ProductCatalogSeeder extends Seeder
             $product->pricingPlans()->create([
                 ...$plan,
                 'billing_cycle' => BillingCycle::Monthly,
-                'is_active'     => true,
+                'is_active'     => false, // not orderable — see seedGamehosting() docblock
                 'sort_order'    => $index + 1,
             ]);
         }

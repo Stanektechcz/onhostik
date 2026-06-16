@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+use App\Domains\Billing\Actions\CreateOrderAction;
+use App\Domains\Billing\Actions\IssueProformaInvoiceAction;
+use App\Domains\Billing\Actions\ProcessMockPaymentAction;
+use App\Domains\Products\Enums\ProductType;
+use App\Domains\Products\Models\PricingPlan;
+use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Enums\TaskStatus;
 use App\Domains\Provisioning\Jobs\ProvisionHostingServiceJob;
@@ -11,6 +17,7 @@ use App\Domains\Provisioning\Models\Service;
 use App\Domains\Provisioning\Services\DriverResolver;
 use Database\Seeders\MockServerSeeder;
 use Database\Seeders\ProductCatalogSeeder;
+use Illuminate\Support\Facades\Queue;
 use Spatie\Activitylog\Models\Activity;
 
 /*
@@ -61,6 +68,29 @@ it('provisions hosting and registers the domain after payment (mock end to end)'
             ->toBeTrue("missing activity {$event}");
     }
     expect(Activity::where('log_name', 'domain')->where('description', 'domain.registered')->exists())->toBeTrue();
+});
+
+it('dispatches ProvisionHostingServiceJob for a VPS (Proxmox) service after payment', function (): void {
+    Queue::fake();
+
+    $user = customerUser();
+    $plan = PricingPlan::query()
+        ->whereHas('product', fn ($query) => $query->where('type', ProductType::Vps))
+        ->firstOrFail();
+
+    $order   = app(CreateOrderAction::class)->execute($user->customer, $plan);
+    $invoice = app(IssueProformaInvoiceAction::class)->execute($order);
+
+    app(ProcessMockPaymentAction::class)->execute($invoice);
+
+    $service = Service::where('provisioning_driver', ProvisioningDriver::Proxmox)->firstOrFail();
+
+    expect($service->status)->toBe(ServiceStatus::Pending);
+
+    Queue::assertPushed(
+        ProvisionHostingServiceJob::class,
+        fn (ProvisionHostingServiceJob $job): bool => $job->serviceId === $service->id,
+    );
 });
 
 it('handles a simulated provisioning failure and succeeds on admin retry', function (): void {

@@ -80,5 +80,8 @@ return [
         'suspension_warning_after' => 3,
         'suspend_after'          => 7,
         'terminate_after'        => 30,
+
+        /** Days before Service.next_due_date that a renewal proforma is issued. */
+        'renewal_days_before'    => env('BILLING_RENEWAL_DAYS_BEFORE', 7),
     ],
 ];

@@ -265,9 +265,11 @@ class OnhostDoctorCommand extends Command
         $scheduleFile = base_path('routes/console.php');
         $scheduleContent = file_exists($scheduleFile) ? (string) file_get_contents($scheduleFile) : '';
 
+        $hasRenewals       = str_contains($scheduleContent, 'create-renewals') || str_contains($scheduleContent, 'CreateRenewalInvoices');
         $hasMarkOverdue    = str_contains($scheduleContent, 'mark-overdue') || str_contains($scheduleContent, 'MarkOverdue');
         $hasSuspendOverdue = str_contains($scheduleContent, 'suspend-overdue') || str_contains($scheduleContent, 'SuspendOverdue');
 
+        $this->check('billing:create-renewals scheduled', $hasRenewals, '00:30 daily');
         $this->check('billing:mark-overdue scheduled', $hasMarkOverdue, '01:00 daily');
         $this->check('billing:suspend-overdue scheduled', $hasSuspendOverdue, '01:15 daily');
         $this->check('cron installed', true, '* * * * * php artisan schedule:run (verify with: crontab -l)');

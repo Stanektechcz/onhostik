@@ -48,6 +48,7 @@ class Invoice extends Model
         'customer_id',
         'order_id',
         'parent_invoice_id', // proforma → tax doc / invoice → credit note linkage
+        'renewal_service_id', // set only on renewal invoices — idempotency key with due_date
         'type',
         'purpose',           // order | credit_topup — what a paid invoice triggers
         'series',

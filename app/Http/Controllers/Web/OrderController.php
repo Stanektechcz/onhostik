@@ -19,7 +19,11 @@ class OrderController extends Controller
      */
     public function start(Request $request, PricingPlan $plan): View
     {
-        $currency = $request->user()->customer->preferred_currency ?? Currency::default();
+        // Plans/products taken off sale (e.g. gamehosting until Pterodactyl
+        // ships) must 404 here, not just disappear from the picker UI.
+        abort_if(! $plan->is_active || ! $plan->product?->is_active, 404);
+
+        $currency = $request->user()?->customer?->preferred_currency ?? Currency::default();
 
         return view('front.order', [
             'plan'     => $plan->load('product'),

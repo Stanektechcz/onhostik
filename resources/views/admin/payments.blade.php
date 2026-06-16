@@ -29,6 +29,11 @@
                 <span class="f-light f-12 ms-auto">{{ $payments->total() }} plateb</span>
             </form>
 
+            <p class="f-12 f-light mb-3">
+                <i data-feather="alert-triangle" style="width:12px;height:12px;"></i>
+                {{ __('panel.admin.refund_warning') }}
+            </p>
+
             @if($payments->isEmpty())
                 <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
             @else
@@ -68,12 +73,18 @@
                             <td>
                                 @if($payment->status === \App\Domains\Billing\Enums\PaymentStatus::Completed)
                                     <form method="POST" action="{{ route('admin.payments.refund', $payment) }}"
-                                          onsubmit="return confirm('Označit platbu #{{ $payment->id }} jako vrácenou?')">
+                                          onsubmit="return onhostConfirmManualRefund(this, {{ $payment->id }})"
+                                          title="{{ __('panel.admin.refund_warning') }}">
                                         @csrf
+                                        <input type="hidden" name="reason" value="">
                                         <button type="submit" class="btn btn-outline-warning btn-xs">
                                             {{ __('panel.admin.refund') }}
                                         </button>
                                     </form>
+                                @elseif($payment->status === \App\Domains\Billing\Enums\PaymentStatus::ManualRefund)
+                                    <span class="f-light f-12" title="{{ __('panel.admin.refund_warning') }}">
+                                        {{ __('panel.admin.payment_refunded') }}
+                                    </span>
                                 @else
                                     —
                                 @endif
@@ -105,4 +116,23 @@
             @endif
         </x-panel.card>
     </div>
+
+    <script>
+        function onhostConfirmManualRefund(form, paymentId) {
+            const reason = prompt(@json(__('panel.admin.refund_reason_prompt')));
+
+            if (reason === null) {
+                return false;
+            }
+
+            if (reason.trim().length < 3) {
+                alert(@json(__('panel.admin.refund_reason_required')));
+                return false;
+            }
+
+            form.querySelector('input[name="reason"]').value = reason.trim();
+
+            return confirm(@json(__('panel.admin.refund_warning')) + '\n\n#' + paymentId);
+        }
+    </script>
 @endsection

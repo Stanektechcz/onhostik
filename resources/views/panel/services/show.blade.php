@@ -202,6 +202,12 @@
                             $uptime = $monitor->uptime_percent ?? 0;
                             $uptimeColor = $uptime >= 99 ? 'success' : ($uptime >= 95 ? 'warning' : 'danger');
                         @endphp
+                        @if($monitor->provider === 'internal_mock')
+                            <p class="f-12 f-light mb-2">
+                                <i data-feather="info" style="width:12px;height:12px;"></i>
+                                {{ __('panel.services.monitoring_mock_note') }}
+                            </p>
+                        @endif
                         <div class="row align-items-center mb-3">
                             <div class="col-md-6">
                                 <div class="d-flex justify-content-between mb-1">

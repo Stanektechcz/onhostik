@@ -1,0 +1,115 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Console\Commands\CreateRenewalInvoicesCommand;
+use App\Domains\Billing\Actions\IssueRenewalInvoiceAction;
+use App\Domains\Billing\Models\Invoice;
+use App\Domains\Provisioning\Enums\ProvisioningDriver;
+use App\Domains\Provisioning\Enums\ServiceStatus;
+use App\Domains\Provisioning\Models\Service;
+use Database\Seeders\MockServerSeeder;
+use Database\Seeders\ProductCatalogSeeder;
+
+beforeEach(function (): void {
+    $this->seed([ProductCatalogSeeder::class, MockServerSeeder::class]);
+});
+
+/** Creates a paid order + Active service due in $daysUntilDue days. */
+function activeServiceDueIn(int $daysUntilDue, ?\App\Models\User $user = null): Service
+{
+    $user = $user ?? customerUser();
+    ['order' => $order] = placeOrder($user);
+
+    $orderItem = $order->items()->with('pricingPlan.product')->first();
+
+    return Service::create([
+        'customer_id'         => $user->customer->id,
+        'order_item_id'       => $orderItem->id,
+        'product_id'          => $orderItem->pricingPlan->product_id,
+        'provisioning_driver' => ProvisioningDriver::AAPanel,
+        'status'              => ServiceStatus::Active,
+        'label'               => 'renewal-test-' . $orderItem->id . '.onhost.cz',
+        'next_due_date'       => now()->addDays($daysUntilDue)->toDateString(),
+    ]);
+}
+
+it('issues a renewal proforma for a service due within the renewal window', function (): void {
+    $days    = (int) config('billing.lifecycle.renewal_days_before', 7);
+    $service = activeServiceDueIn($days);
+
+    $this->artisan(CreateRenewalInvoicesCommand::class)->assertSuccessful();
+
+    $invoice = Invoice::where('renewal_service_id', $service->id)->first();
+
+    expect($invoice)->not->toBeNull()
+        ->and($invoice->purpose)->toBe('renewal')
+        ->and($invoice->due_date->toDateString())->toBe($service->next_due_date->toDateString())
+        ->and($invoice->status->value)->toBe('sent');
+});
+
+it('does not create a duplicate renewal invoice when run twice', function (): void {
+    $days    = (int) config('billing.lifecycle.renewal_days_before', 7);
+    $service = activeServiceDueIn($days);
+
+    $this->artisan(CreateRenewalInvoicesCommand::class)->assertSuccessful();
+    $this->artisan(CreateRenewalInvoicesCommand::class)->assertSuccessful();
+
+    expect(Invoice::where('renewal_service_id', $service->id)->count())->toBe(1);
+});
+
+it('does not issue a second renewal invoice via the action directly either', function (): void {
+    $days    = (int) config('billing.lifecycle.renewal_days_before', 7);
+    $service = activeServiceDueIn($days);
+
+    $action = app(IssueRenewalInvoiceAction::class);
+    $first  = $action->execute($service);
+    $second = $action->execute($service->refresh());
+
+    expect(Invoice::where('renewal_service_id', $service->id)->count())->toBe(1)
+        ->and($second->id)->toBe($first->id);
+});
+
+it('ignores services whose due date is outside the renewal window', function (): void {
+    activeServiceDueIn(20); // far in the future
+    activeServiceDueIn(1);  // already inside the grace/overdue zone, not the renewal window
+
+    $this->artisan(CreateRenewalInvoicesCommand::class)->assertSuccessful();
+
+    expect(Invoice::where('purpose', 'renewal')->count())->toBe(0);
+});
+
+it('ignores suspended, terminated and pending services', function (): void {
+    $days = (int) config('billing.lifecycle.renewal_days_before', 7);
+
+    $user = customerUser();
+    ['order' => $order] = placeOrder($user);
+    $orderItem = $order->items()->with('pricingPlan.product')->first();
+
+    foreach ([ServiceStatus::Suspended, ServiceStatus::Terminated, ServiceStatus::Pending, ServiceStatus::Failed] as $status) {
+        Service::create([
+            'customer_id'         => $user->customer->id,
+            'order_item_id'       => $orderItem->id,
+            'product_id'          => $orderItem->pricingPlan->product_id,
+            'provisioning_driver' => ProvisioningDriver::AAPanel,
+            'status'              => $status,
+            'label'               => "renewal-skip-{$status->value}.onhost.cz",
+            'next_due_date'       => now()->addDays($days)->toDateString(),
+        ]);
+    }
+
+    $this->artisan(CreateRenewalInvoicesCommand::class)->assertSuccessful();
+
+    expect(Invoice::where('purpose', 'renewal')->count())->toBe(0);
+});
+
+it('renewal invoice copies the original plan price, not a re-derived one', function (): void {
+    $days    = (int) config('billing.lifecycle.renewal_days_before', 7);
+    $service = activeServiceDueIn($days);
+    $orderItem = $service->orderItem;
+
+    $invoice = app(IssueRenewalInvoiceAction::class)->execute($service);
+
+    expect($invoice->total->getMinorAmount()->toInt())
+        ->toBe($orderItem->total->plus($orderItem->total->multipliedBy((float) $orderItem->vat_rate / 100, \Brick\Math\RoundingMode::HALF_UP))->getMinorAmount()->toInt());
+});

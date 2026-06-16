@@ -8,7 +8,9 @@ use App\Domains\Billing\Actions\ProcessMockPaymentAction;
 use App\Domains\Billing\Enums\InvoiceStatus;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Provisioning\Enums\ServiceStatus;
+use App\Domains\Provisioning\Jobs\ChangeServiceStateJob;
 use App\Domains\Provisioning\Models\Service;
+use App\Domains\Provisioning\Services\DriverResolver;
 use Database\Seeders\MockServerSeeder;
 use Database\Seeders\ProductCatalogSeeder;
 use Illuminate\Support\Facades\Queue;
@@ -65,7 +67,7 @@ it('does not mark paid invoices as overdue', function (): void {
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
 });
 
-it('suspends active services linked to overdue invoices past the grace period', function (): void {
+it('dispatches a real suspend job for active services past the grace period', function (): void {
     $user = customerUser();
     ['invoice' => $invoice, 'order' => $order] = placeOrder($user);
 
@@ -89,7 +91,46 @@ it('suspends active services linked to overdue invoices past the grace period', 
 
     $this->artisan(SuspendOverdueServicesCommand::class)->assertSuccessful();
 
-    expect($service->fresh()->status)->toBe(ServiceStatus::Suspended);
+    // The command itself never flips the DB status — it only dispatches.
+    expect($service->fresh()->status)->toBe(ServiceStatus::Active);
+
+    Queue::assertPushed(
+        ChangeServiceStateJob::class,
+        fn (ChangeServiceStateJob $job): bool => $job->serviceId === $service->id
+            && $job->operation === 'suspend'
+            && $job->reason === 'overdue_invoice',
+    );
+});
+
+it('actually suspends the service once the dispatched job runs', function (): void {
+    $user = customerUser();
+    ['invoice' => $invoice, 'order' => $order] = placeOrder($user);
+
+    $graceDays = (int) config('billing.lifecycle.suspend_after', 7);
+    $invoice->update([
+        'status'   => InvoiceStatus::Overdue,
+        'due_date' => now()->subDays($graceDays + 1)->toDateString(),
+    ]);
+
+    $orderItem = $order->items()->with('pricingPlan')->first();
+    $service   = Service::create([
+        'customer_id'         => $user->customer->id,
+        'order_item_id'       => $orderItem->id,
+        'product_id'          => $orderItem->pricingPlan->product_id,
+        'provisioning_driver' => ProvisioningDriver::AAPanel,
+        'status'              => ServiceStatus::Active,
+        'label'               => 'test-service-runjob.onhost.cz',
+    ]);
+
+    $this->artisan(SuspendOverdueServicesCommand::class)->assertSuccessful();
+
+    // Simulate the queue worker actually processing the dispatched job —
+    // this is what makes the suspension real (calls driver->suspend()).
+    (new ChangeServiceStateJob($service->id, 'suspend', 'overdue_invoice'))
+        ->handle(app(DriverResolver::class));
+
+    expect($service->fresh()->status)->toBe(ServiceStatus::Suspended)
+        ->and($service->fresh()->suspension_reason)->toBe('overdue_invoice');
 });
 
 it('does not suspend services within the grace period', function (): void {
@@ -116,4 +157,40 @@ it('does not suspend services within the grace period', function (): void {
     $this->artisan(SuspendOverdueServicesCommand::class)->assertSuccessful();
 
     expect($service->fresh()->status)->toBe(ServiceStatus::Active);
+    Queue::assertNotPushed(ChangeServiceStateJob::class);
+});
+
+it('does not suspend services on a fully paid invoice', function (): void {
+    $user = customerUser([
+        'company_name' => 'Paid Co s.r.o.',
+        'country_code' => 'CZ',
+    ]);
+
+    $user->customer->addresses()->create([
+        'type'         => 'billing',
+        'street'       => 'Uhrazená 1',
+        'city'         => 'Praha',
+        'zip'          => '11000',
+        'country_code' => 'CZ',
+        'is_primary'   => true,
+    ]);
+
+    ['invoice' => $invoice, 'order' => $order] = placeOrder($user);
+    app(ProcessMockPaymentAction::class)->execute($invoice);
+
+    // Invoice is Paid, not Overdue — the command's query should never match it.
+    $orderItem = $order->items()->with('pricingPlan')->first();
+    $service   = Service::create([
+        'customer_id'         => $user->customer->id,
+        'order_item_id'       => $orderItem->id,
+        'product_id'          => $orderItem->pricingPlan->product_id,
+        'provisioning_driver' => ProvisioningDriver::AAPanel,
+        'status'              => ServiceStatus::Active,
+        'label'               => 'test-service-paid.onhost.cz',
+    ]);
+
+    $this->artisan(SuspendOverdueServicesCommand::class)->assertSuccessful();
+
+    expect($service->fresh()->status)->toBe(ServiceStatus::Active);
+    Queue::assertNotPushed(ChangeServiceStateJob::class);
 });

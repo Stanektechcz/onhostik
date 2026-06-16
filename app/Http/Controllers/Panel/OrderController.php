@@ -61,6 +61,7 @@ class OrderController extends Controller
 
         $plan = PricingPlan::query()
             ->where('is_active', true)
+            ->whereHas('product', fn ($query) => $query->where('is_active', true))
             ->findOrFail((int) $validated['pricing_plan_id']);
 
         $domain         = isset($validated['domain']) && is_string($validated['domain']) ? $validated['domain'] : null;

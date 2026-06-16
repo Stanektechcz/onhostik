@@ -7,7 +7,6 @@ namespace App\Domains\Backups\Jobs;
 use App\Domains\Backups\Enums\BackupJobStatus;
 use App\Domains\Backups\Models\BackupJob;
 use App\Domains\Backups\Providers\LocalMockBackupProvider;
-use App\Domains\Provisioning\Exceptions\ProvisioningException;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -18,6 +17,12 @@ use Throwable;
 /**
  * Executes one backup job via the (mock) provider.
  * Idempotent: a job row already in a final state is never re-run.
+ *
+ * Launch-safe behaviour: if PROVISIONING_MOCK_MODE is off and no real
+ * backup provider is configured, this ends the job in a clean Failed
+ * state with an explanatory error_message — it never lets an unhandled
+ * exception escape to the queue's failed_jobs table while leaving the
+ * BackupJob row stuck at Pending with no explanation.
  */
 final class RunBackupJob implements ShouldQueue
 {
@@ -40,11 +45,19 @@ final class RunBackupJob implements ShouldQueue
         }
 
         if (config('provisioning.mock_mode', true) !== true) {
-            throw new ProvisioningException(
-                'Real backup providers are not implemented — enable PROVISIONING_MOCK_MODE.',
-                driver: 'backups',
-                retryable: false,
-            );
+            $job->update([
+                'status'        => BackupJobStatus::Failed,
+                'started_at'    => now(),
+                'finished_at'   => now(),
+                'error_message' => 'Backup provider not configured — contact administrator.',
+            ]);
+
+            activity('backup')
+                ->performedOn($job)
+                ->withProperties(['service_id' => $job->service_id, 'reason' => 'provider_not_configured'])
+                ->log('backup.provider_not_configured');
+
+            return;
         }
 
         $job->update(['status' => BackupJobStatus::Running, 'started_at' => now()]);

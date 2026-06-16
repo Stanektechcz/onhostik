@@ -17,7 +17,8 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Config;
 
 /**
- * Provisions a webhosting service via the (mock) aaPanel driver.
+ * Provisions a service via its resolved driver (aaPanel webhosting or
+ * Proxmox VPS — whichever DriverResolver::forService() returns).
  *
  * Lifecycle contract:
  *  - exactly one ProvisioningTask row per logical create operation; retries

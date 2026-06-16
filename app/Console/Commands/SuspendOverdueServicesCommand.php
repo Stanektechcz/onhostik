@@ -7,35 +7,39 @@ namespace App\Console\Commands;
 use App\Domains\Billing\Enums\InvoiceStatus;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Provisioning\Enums\ServiceStatus;
+use App\Domains\Provisioning\Jobs\ChangeServiceStateJob;
 use App\Domains\Provisioning\Models\Service;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Config;
 
 /**
- * Suspends active services linked to overdue invoices that have exceeded
- * the configured grace period (billing.suspension_grace_days, default 7).
+ * Dispatches a real suspend job for active services linked to overdue
+ * invoices that have exceeded the configured grace period
+ * (billing.lifecycle.suspend_after, default 7 days).
  *
- * Only suspends via a status update — actual hosting suspension jobs are
- * dispatched separately once the provisioning drivers support it.
+ * The status transition itself happens inside ChangeServiceStateJob, which
+ * also calls the provisioning driver's suspend() — this command only finds
+ * candidates and dispatches; it never flips Service.status directly, so the
+ * real hosting account is actually suspended, not just the DB row.
  */
 class SuspendOverdueServicesCommand extends Command
 {
     protected $signature   = 'billing:suspend-overdue';
-    protected $description = 'Suspend services whose invoice is overdue beyond the grace period';
+    protected $description = 'Dispatch suspend jobs for services whose invoice is overdue beyond the grace period';
 
     public function handle(): int
     {
         $graceDays = Config::integer('billing.lifecycle.suspend_after', 7);
         $cutoff    = now()->subDays($graceDays)->toDateString();
 
-        $suspended = 0;
+        $dispatched = 0;
 
         Invoice::query()
             ->where('status', InvoiceStatus::Overdue)
             ->whereNotNull('order_id')
             ->whereDate('due_date', '<', $cutoff)
             ->with('order.items')
-            ->each(function (Invoice $invoice) use (&$suspended): void {
+            ->each(function (Invoice $invoice) use (&$dispatched): void {
                 $order = $invoice->order;
 
                 if ($order === null) {
@@ -44,25 +48,28 @@ class SuspendOverdueServicesCommand extends Command
 
                 $orderItemIds = $order->items->pluck('id');
 
-                $count = Service::query()
+                $services = Service::query()
                     ->whereIn('order_item_id', $orderItemIds)
                     ->where('status', ServiceStatus::Active)
-                    ->update(['status' => ServiceStatus::Suspended]);
+                    ->get();
 
-                $suspended += $count;
+                foreach ($services as $service) {
+                    ChangeServiceStateJob::dispatch($service->id, 'suspend', 'overdue_invoice');
+                    $dispatched++;
+                }
 
-                if ($count > 0) {
+                if ($services->isNotEmpty()) {
                     activity('service')
                         ->withProperties([
                             'invoice_id' => $invoice->id,
                             'order_id'   => $order->id,
-                            'count'      => $count,
+                            'count'      => $services->count(),
                         ])
-                        ->log('service.suspended_overdue');
+                        ->log('service.suspend_dispatched');
                 }
             });
 
-        $this->info("Suspended {$suspended} service(s) for non-payment.");
+        $this->info("Dispatched suspend job for {$dispatched} service(s) for non-payment.");
 
         return self::SUCCESS;
     }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domains\Billing\Actions\RefundPaymentAction;
 use App\Domains\Billing\Enums\PaymentStatus;
 use App\Domains\Billing\Models\Payment;
 use App\Domains\Billing\Models\PaymentWebhookLog;
@@ -11,24 +12,33 @@ use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
 
 class PaymentController extends Controller
 {
     /**
-     * Mark a completed payment as refunded (placeholder).
-     * The actual gateway refund must be initiated manually via the provider dashboard.
+     * Records a MANUAL refund. No gateway in this system can be called to
+     * actually move money back — see RefundPaymentAction docblock. The
+     * admin must still complete the real refund in the Comgate portal.
      */
-    public function refund(Payment $payment): RedirectResponse
+    public function refund(Request $request, Payment $payment, RefundPaymentAction $refundPayment): RedirectResponse
     {
         if ($payment->status !== PaymentStatus::Completed) {
             return back()->withErrors(['payment' => __('panel.admin.refund_not_completed')]);
         }
 
-        $payment->update(['status' => PaymentStatus::Refunded]);
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
 
-        activity('payment')
-            ->performedOn($payment)
-            ->log('payment.refunded_placeholder');
+        $admin = $request->user();
+        abort_if($admin === null, 403);
+
+        try {
+            $refundPayment->execute($payment, $admin, $validated['reason']);
+        } catch (InvalidArgumentException $e) {
+            return back()->withErrors(['payment' => $e->getMessage()]);
+        }
 
         return back()->with('status', __('panel.admin.payment_refunded'));
     }
