@@ -1,0 +1,15 @@
+# OnHost.cz — Laravel Scheduler
+# ───────────────────────────────────────────────────────────────────────────────
+# Umístění: /etc/cron.d/onhost   (nebo přidejte do crontab uživatele www-data)
+# Oprávnění souboru: 644
+#
+# Spouštěč: schedule:run volá Laravel Scheduler a spustí všechny registrované
+# příkazy dle jejich plánu. Samotné příkazy se nespouštějí každou minutu —
+# to řídí schedule konfigurace v routes/console.php.
+#
+# Zaregistrované úlohy (routes/console.php):
+#   01:00  billing:mark-overdue     → označí faktury po splatnosti jako Overdue
+#   01:15  billing:suspend-overdue  → pozastaví služby zákazníků po grace period
+# ───────────────────────────────────────────────────────────────────────────────
+
+* * * * * www-data cd /var/www/onhost && php8.2 artisan schedule:run >> /dev/null 2>&1
