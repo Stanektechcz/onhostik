@@ -118,6 +118,11 @@ return [
         'related_proforma'    => 'Proforma invoice',
         'print'               => 'Print / PDF',
         'purpose_topup'       => 'Credit top-up',
+        'pay_comgate'         => 'Pay by card / bank transfer',
+        'comgate_paid'        => 'Payment successful. Thank you!',
+        'comgate_cancelled'   => 'Payment was cancelled. You can try again below.',
+        'comgate_pending'     => 'Payment is pending — we will notify you by email.',
+        'comgate_error'       => 'Could not reach the payment gateway. Please try again shortly.',
     ],
     'dashboard' => [
         'active_services' => 'Active services',
@@ -319,5 +324,11 @@ return [
         'all_transactions'        => 'All transactions',
         'system_checks'           => 'System checks',
         'provider_health'         => 'Provider health',
+        'cancel_invoice'          => 'Cancel invoice',
+        'invoice_cancelled'       => 'The invoice was cancelled.',
+        'cancel_invoice_forbidden' => 'Only open (sent/overdue) invoices can be cancelled.',
+        'refund'                  => 'Refund (placeholder)',
+        'payment_refunded'        => 'The payment was marked as refunded (gateway refund must be initiated manually).',
+        'refund_not_completed'    => 'Only completed payments can be refunded.',
     ],
 ];

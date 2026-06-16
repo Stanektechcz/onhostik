@@ -78,6 +78,16 @@
                                 </button>
                             </form>
                         @endif
+                        @if($invoice->status->isOpen())
+                            <form method="POST" action="{{ route('admin.invoices.cancel', $invoice) }}"
+                                  onsubmit="return confirm('Opravdu stornovat fakturu {{ $invoice->number }}?')">
+                                @csrf
+                                <button type="submit" class="btn btn-outline-danger btn-sm">
+                                    <i data-feather="x-circle" style="width:13px;height:13px"></i>
+                                    {{ __('panel.admin.cancel_invoice') }}
+                                </button>
+                            </form>
+                        @endif
                         @if(!$invoice->isTaxDocument() && $invoice->status === \App\Domains\Billing\Enums\InvoiceStatus::Paid && $taxDocument === null && $invoice->purpose === 'order')
                             <form method="POST" action="{{ route('admin.invoices.tax-document', $invoice) }}">
                                 @csrf

@@ -324,5 +324,11 @@ return [
         'all_transactions'        => 'Všechny transakce',
         'system_checks'           => 'Systémové kontroly',
         'provider_health'         => 'Stav providerů',
+        'cancel_invoice'          => 'Stornovat fakturu',
+        'invoice_cancelled'       => 'Faktura byla stornována.',
+        'cancel_invoice_forbidden' => 'Lze stornovat pouze otevřené faktury (odeslané/po splatnosti).',
+        'refund'                  => 'Vrátit platbu (placeholder)',
+        'payment_refunded'        => 'Platba byla označena jako vrácená (vrácení u brány musí být zahájeno ručně).',
+        'refund_not_completed'    => 'Vrátit lze pouze dokončené platby.',
     ],
 ];

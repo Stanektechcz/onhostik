@@ -40,6 +40,7 @@
                     __('panel.common.date'),
                     __('panel.common.status'),
                     __('panel.billing.amount'),
+                    __('panel.common.actions'),
                 ]">
                     @foreach($payments as $payment)
                         <tr>
@@ -64,6 +65,19 @@
                             <td>{{ $payment->processed_at?->format('d.m.Y H:i') ?? $payment->created_at?->format('d.m.Y H:i') }}</td>
                             <td><x-panel.status-badge :status="$payment->status" /></td>
                             <td><x-panel.money :money="$payment->amount" /></td>
+                            <td>
+                                @if($payment->status === \App\Domains\Billing\Enums\PaymentStatus::Completed)
+                                    <form method="POST" action="{{ route('admin.payments.refund', $payment) }}"
+                                          onsubmit="return confirm('Označit platbu #{{ $payment->id }} jako vrácenou?')">
+                                        @csrf
+                                        <button type="submit" class="btn btn-outline-warning btn-xs">
+                                            {{ __('panel.admin.refund') }}
+                                        </button>
+                                    </form>
+                                @else
+                                    —
+                                @endif
+                            </td>
                         </tr>
                     @endforeach
                 </x-panel.data-table>

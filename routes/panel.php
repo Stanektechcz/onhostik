@@ -78,8 +78,10 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/faktury/{invoice}', [Admin\InvoiceController::class, 'show'])->name('invoices.show');
     Route::post('/faktury/{invoice}/oznacit-zaplacenou', [Admin\InvoiceController::class, 'markPaid'])->name('invoices.mark-paid');
     Route::post('/faktury/{invoice}/danovy-doklad', [Admin\InvoiceController::class, 'issueTaxDocument'])->name('invoices.tax-document');
+    Route::post('/faktury/{invoice}/zrusit', [Admin\InvoiceController::class, 'cancel'])->name('invoices.cancel');
 
     Route::get('/platby', [Admin\PaymentController::class, 'index'])->name('payments.index');
+    Route::post('/platby/{payment}/vraceni', [Admin\PaymentController::class, 'refund'])->name('payments.refund');
 
     Route::get('/kredit', [Admin\CreditController::class, 'index'])->name('credits.index');
     Route::get('/kredit/transakce', [Admin\CreditController::class, 'transactions'])->name('credits.transactions');

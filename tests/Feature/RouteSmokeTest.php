@@ -82,6 +82,16 @@ it('serves admin pages to admins', function (string $uri): void {
     '/admin/nastaveni',
     '/admin/kredit',
     '/admin/kredit/transakce',
+    '/admin/domeny',
+    '/admin/monitoring',
+    '/admin/zalohy',
+    '/admin/integrace',
+    '/admin/podpora',
+    '/admin/ai',
+    '/admin/system',
+    '/admin/obsah',
+    '/admin/blog',
+    '/admin/znalostni-baze',
 ]);
 
 it('forbids admin pages to customers', function (string $uri): void {

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Domains\Billing\Actions\IssueTaxDocumentAction;
 use App\Domains\Billing\Actions\ProcessMockPaymentAction;
+use App\Domains\Billing\Enums\InvoiceStatus;
 use App\Domains\Billing\Exceptions\IncompleteBillingDetailsException;
 use App\Domains\Billing\Models\Invoice;
 use App\Http\Controllers\Controller;
@@ -66,6 +67,23 @@ class InvoiceController extends Controller
         }
 
         return back()->with('status', __('panel.admin.invoice_marked_paid'));
+    }
+
+    /** Admin cancel — marks an open invoice as cancelled with audit log. */
+    public function cancel(Invoice $invoice): RedirectResponse
+    {
+        if (! $invoice->status->isOpen()) {
+            return back()->withErrors(['invoice' => __('panel.admin.cancel_invoice_forbidden')]);
+        }
+
+        $invoice->update(['status' => InvoiceStatus::Cancelled]);
+
+        activity('invoice')
+            ->performedOn($invoice)
+            ->withProperties(['previous_status' => $invoice->getOriginal('status')])
+            ->log('invoice.cancelled');
+
+        return back()->with('status', __('panel.admin.invoice_cancelled'));
     }
 
     /** Manual tax-document issuance after the customer completes billing details. */
