@@ -14,18 +14,21 @@ return [
     'mock_mode' => env('PROVISIONING_MOCK_MODE', true),
 
     'wedos' => [
-        'user'        => env('WAPI_USER'),
-        'password'    => env('WAPI_PASSWORD'),
-        'url'         => env('WAPI_URL', 'https://api.wedos.com/wapi/json'),
-        'test_mode'   => env('WAPI_TEST_MODE', true),
-        'timeout'     => env('WAPI_TIMEOUT', 30),
+        'user'             => env('WAPI_USER'),
+        'password'         => env('WAPI_PASSWORD'),
+        'url'              => env('WAPI_URL', 'https://api.wedos.com/wapi/json'),
+        'test_mode'        => env('WAPI_TEST_MODE', true),
+        'timeout'          => env('WAPI_TIMEOUT', 30),
+        'allow_real_writes' => env('WAPI_ALLOW_REAL_WRITES', false),
         // WEDOS limits: 1000 req/h total, 100 req/h domain-check/create/transfer-check
-        'rate_limit_per_hour'        => 1000,
+        'rate_limit_per_hour'         => 1000,
         'domain_check_limit_per_hour' => 100,
     ],
 
     'aapanel' => [
-        'timeout' => env('AAPANEL_TIMEOUT', 30),
+        'timeout'          => env('AAPANEL_TIMEOUT', 30),
+        'verify_tls'       => env('AAPANEL_VERIFY_TLS', false),
+        'allow_real_writes' => env('AAPANEL_ALLOW_REAL_WRITES', false),
     ],
 
     'proxmox' => [

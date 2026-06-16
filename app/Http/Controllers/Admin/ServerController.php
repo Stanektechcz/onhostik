@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Domains\Provisioning\Drivers\AapanelMockDriver;
+use App\Domains\Provisioning\Drivers\AapanelProductionDriver;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Provisioning\Models\Server;
 use App\Http\Controllers\Controller;
@@ -115,12 +116,18 @@ class ServerController extends Controller
         return redirect()->route('admin.servers.index')->with('status', 'Server byl smazán.');
     }
 
-    /** Connection test — mock/dry-run only in this phase. */
+    /** Test the connection to the server node using the appropriate driver. */
     public function test(Request $request, Server $server): RedirectResponse
     {
-        $ok = $server->mock_mode || config('provisioning.mock_mode', true) === true
-            ? app(AapanelMockDriver::class)->testConnection()
-            : false;
+        $isMock = $server->mock_mode || (bool) config('provisioning.mock_mode', true);
+
+        try {
+            $ok = $isMock
+                ? app(AapanelMockDriver::class)->testConnection()
+                : (new AapanelProductionDriver($server))->testConnection();
+        } catch (\Throwable) {
+            $ok = false;
+        }
 
         $server->update([
             'last_health_check_at' => now(),
@@ -130,7 +137,7 @@ class ServerController extends Controller
         activity('provisioning')
             ->performedOn($server)
             ->causedBy($request->user())
-            ->withProperties(['ok' => $ok, 'mock' => true])
+            ->withProperties(['ok' => $ok, 'mock' => $isMock])
             ->log('server.connection_tested');
 
         return back()->with(

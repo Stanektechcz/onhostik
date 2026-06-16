@@ -7,8 +7,10 @@ namespace App\Domains\Provisioning\Services;
 use App\Domains\Provisioning\Contracts\DomainRegistrarInterface;
 use App\Domains\Provisioning\Contracts\ProvisioningDriverInterface;
 use App\Domains\Provisioning\Drivers\AapanelMockDriver;
+use App\Domains\Provisioning\Drivers\AapanelProductionDriver;
 use App\Domains\Provisioning\Drivers\ProxmoxDriver;
 use App\Domains\Provisioning\Drivers\WedosMockRegistrar;
+use App\Domains\Provisioning\Drivers\WedosProductionRegistrar;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Provisioning\Exceptions\ProvisioningException;
 use App\Domains\Provisioning\Models\Service;
@@ -16,9 +18,10 @@ use App\Domains\Provisioning\Models\Service;
 /**
  * Maps a service/driver enum to a concrete driver implementation.
  *
- * Phase 2: only MOCK implementations exist. With provisioning.mock_mode
- * disabled this resolver throws — the real aaPanel/WEDOS clients arrive in
- * a later phase, and the Proxmox/Pterodactyl slots stay reserved untouched.
+ * Mock mode (PROVISIONING_MOCK_MODE=true) overrides everything and uses the
+ * mock drivers. In production, per-server mock_mode provides an additional
+ * escape hatch for individual nodes. The real aaPanel and WEDOS drivers are
+ * gated by separate ALLOW_REAL_WRITES env flags.
  */
 final class DriverResolver
 {
@@ -26,6 +29,16 @@ final class DriverResolver
     {
         $driver = $service->provisioning_driver
             ?? throw new ProvisioningException('Service has no provisioning driver assigned.', retryable: false);
+
+        // AAPanel: use the production driver when global mock_mode is off AND
+        // the linked server has mock_mode=false and has valid credentials.
+        if ($driver === ProvisioningDriver::AAPanel && ! $this->mockMode()) {
+            $server = $service->server;
+
+            if ($server !== null && ! $server->mock_mode) {
+                return new AapanelProductionDriver($server);
+            }
+        }
 
         return $this->forDriver($driver);
     }
@@ -55,33 +68,29 @@ final class DriverResolver
             return app(ProxmoxDriver::class);
         }
 
-        // All other drivers fall back to mock in mock_mode.
-        if (!$this->mockMode()) {
-            throw new ProvisioningException(
-                "Real {$driver->value} driver is not implemented yet — enable PROVISIONING_MOCK_MODE.",
-                driver: $driver->value,
-                retryable: false,
-            );
+        // AAPanel fallback in mock_mode (forDriver has no Server context).
+        if ($driver === ProvisioningDriver::AAPanel) {
+            return app(AapanelMockDriver::class);
         }
 
-        return match ($driver) {
-            ProvisioningDriver::AAPanel => app(AapanelMockDriver::class),
-            default => throw new ProvisioningException(
-                "No driver for {$driver->value}.",
-                driver: $driver->value,
-                retryable: false,
-            ),
-        };
+        throw new ProvisioningException(
+            "No driver for {$driver->value}.",
+            driver: $driver->value,
+            retryable: false,
+        );
     }
 
     public function registrar(): DomainRegistrarInterface
     {
-        if (!$this->mockMode() && config('provisioning.wedos.test_mode') !== true) {
-            throw new ProvisioningException(
-                'Real WEDOS WAPI client is not implemented yet — enable PROVISIONING_MOCK_MODE or WAPI_TEST_MODE.',
-                driver: 'wedos',
-                retryable: false,
-            );
+        // Use the real WEDOS WAPI registrar when global mock_mode is off and
+        // WAPI credentials are configured.
+        if (! $this->mockMode()) {
+            $user     = (string) config('provisioning.wedos.user', '');
+            $password = (string) config('provisioning.wedos.password', '');
+
+            if ($user !== '' && $password !== '') {
+                return app(WedosProductionRegistrar::class);
+            }
         }
 
         return app(WedosMockRegistrar::class);
