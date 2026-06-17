@@ -18,6 +18,13 @@
 
             @if($invoice->purpose === 'credit_topup')
                 <div class="alert alert-light-primary" role="alert">{{ __('panel.billing.purpose_topup') }}</div>
+            @elseif($invoice->purpose === 'renewal')
+                <div class="alert alert-light-info" role="alert">
+                    {{ __('panel.billing.purpose_renewal') }}
+                    @if($invoice->renewalService)
+                        — {{ __('panel.billing.renews_service') }}: {{ $invoice->renewalService->label }}
+                    @endif
+                </div>
             @endif
 
             @if(!$invoice->isTaxDocument())
@@ -124,7 +131,7 @@
                     </div>
 
                     {{-- Bank transfer info --}}
-                    @if($invoice->purpose === 'order' || $invoice->purpose === 'credit_topup')
+                    @if(in_array($invoice->purpose, ['order', 'credit_topup', 'renewal'], true))
                         <div class="alert alert-light-info py-2 mb-0">
                             <p class="f-12 mb-1 f-w-600">
                                 <i data-feather="info" style="width:12px;height:12px"></i>

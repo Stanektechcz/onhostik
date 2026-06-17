@@ -37,6 +37,7 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property Carbon|null $issue_date
  * @property Carbon|null $due_date
  * @property Carbon|null $paid_at
+ * @property Carbon|null $renewal_applied_at
  */
 class Invoice extends Model
 {
@@ -64,6 +65,7 @@ class Invoice extends Model
         'taxable_supply_date',
         'due_date',
         'paid_at',
+        'renewal_applied_at', // set once a renewal invoice's payment has extended Service.next_due_date
         'pdf_path',
         'notes',
         // --- billing snapshot ---
@@ -91,6 +93,7 @@ class Invoice extends Model
             'taxable_supply_date' => 'date',
             'due_date'            => 'date',
             'paid_at'             => 'datetime',
+            'renewal_applied_at'  => 'datetime',
         ];
     }
 
@@ -114,6 +117,12 @@ class Invoice extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    /** @return BelongsTo<\App\Domains\Provisioning\Models\Service, $this> */
+    public function renewalService(): BelongsTo
+    {
+        return $this->belongsTo(\App\Domains\Provisioning\Models\Service::class, 'renewal_service_id');
     }
 
     /** @return HasMany<InvoiceItem, $this> */

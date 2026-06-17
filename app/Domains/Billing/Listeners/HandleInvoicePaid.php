@@ -17,6 +17,7 @@ use App\Domains\Billing\Models\OrderItem;
 use App\Domains\Billing\Services\CreditLedger;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Provisioning\Enums\ServiceStatus;
+use App\Domains\Provisioning\Jobs\ChangeServiceStateJob;
 use App\Domains\Provisioning\Jobs\ProvisionHostingServiceJob;
 use App\Domains\Provisioning\Jobs\RegisterDomainJob;
 use App\Domains\Provisioning\Models\Server;
@@ -31,9 +32,12 @@ use Illuminate\Support\Facades\DB;
  * Responsibilities (all idempotent — the event itself fires exactly once,
  * but every step also tolerates replays defensively):
  *  1. order: Pending → Processing + paid_at, exactly once,
- *  2. one Service per order item (keyed by order_item_id),
- *  3. queue the aaPanel provisioning job for webhosting items,
- *  4. queue the WEDOS domain registration job when the item carries a domain.
+ *  2. one Service per order item (keyed by order_item_id) on first purchase,
+ *  3. queue the aaPanel/Proxmox provisioning job for new hosting/VPS items,
+ *  4. queue the WEDOS domain registration job when the item carries a domain,
+ *  5. for renewal invoices (purpose=renewal): extend the service's
+ *     next_due_date and unsuspend it if it was suspended for non-payment —
+ *     instead of (re-)provisioning, which only applies to first purchase.
  *
  * Runs synchronously inside the payment transaction: the state transitions
  * commit atomically with the payment; jobs land in the queue table within
@@ -64,11 +68,80 @@ final class HandleInvoicePaid
 
         $this->markOrderPaid($order, $invoice->id);
 
-        $this->provisionOrderItems($order);
+        if ($invoice->purpose === 'renewal') {
+            $this->applyRenewal($invoice);
+        } else {
+            $this->provisionOrderItems($order);
+        }
 
         $this->issueTaxDocument($invoice);
 
         $this->notifyCustomer($invoice);
+    }
+
+    /**
+     * Extends the renewed service's next_due_date by its plan's billing
+     * cycle, and unsuspends it if it was suspended for non-payment.
+     *
+     * Idempotency: renewal_applied_at is checked and set under row lock —
+     * a replayed InvoicePaid for the same invoice never extends twice.
+     *
+     * Anchor date: if the service's current next_due_date is still in the
+     * future (on-time/early payment), extend from THAT date so paying
+     * early never shrinks the customer's paid-for period. Otherwise
+     * (overdue/missing), anchor to the invoice's paid_at so a very late
+     * payment starts a fresh cycle from today rather than compounding a
+     * stale date.
+     */
+    private function applyRenewal(Invoice $invoice): void
+    {
+        $serviceId = $invoice->renewal_service_id;
+
+        if ($serviceId === null) {
+            return; // defensive — purpose=renewal always carries this
+        }
+
+        DB::transaction(function () use ($invoice, $serviceId): void {
+            $lockedInvoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedInvoice->renewal_applied_at !== null) {
+                return; // replay — already extended once
+            }
+
+            $service = Service::whereKey($serviceId)->lockForUpdate()->first();
+
+            if ($service === null) {
+                return;
+            }
+
+            $cycleMonths = $service->orderItem?->pricingPlan?->billing_cycle?->months() ?? 1;
+            $oldDueDate  = $service->next_due_date;
+
+            $base = ($oldDueDate !== null && $oldDueDate->isFuture())
+                ? $oldDueDate
+                : ($invoice->paid_at ?? now())->copy()->startOfDay();
+
+            $newDueDate = $base->copy()->addMonths($cycleMonths);
+
+            $wasSuspended = $service->status === ServiceStatus::Suspended;
+
+            $service->update(['next_due_date' => $newDueDate]);
+            $lockedInvoice->update(['renewal_applied_at' => now()]);
+
+            activity('service')
+                ->performedOn($service)
+                ->withProperties([
+                    'invoice_id'        => $invoice->id,
+                    'previous_due_date' => $oldDueDate?->toDateString(),
+                    'new_due_date'      => $newDueDate->toDateString(),
+                    'was_suspended'     => $wasSuspended,
+                ])
+                ->log('service.renewed');
+
+            if ($wasSuspended) {
+                ChangeServiceStateJob::dispatch($service->id, 'unsuspend', 'renewal_paid');
+            }
+        });
     }
 
     private function provisionOrderItems(Order $order): void

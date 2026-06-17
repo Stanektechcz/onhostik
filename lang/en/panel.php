@@ -118,6 +118,8 @@ return [
         'related_proforma'    => 'Proforma invoice',
         'print'               => 'Print / PDF',
         'purpose_topup'       => 'Credit top-up',
+        'purpose_renewal'     => 'Service renewal',
+        'renews_service'      => 'Renews service',
         'pay_comgate'         => 'Pay by card / bank transfer',
         'comgate_paid'        => 'Payment successful. Thank you!',
         'comgate_cancelled'   => 'Payment was cancelled. You can try again below.',

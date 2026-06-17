@@ -117,6 +117,8 @@ return [
         'related_proforma'    => 'Zálohová faktura',
         'print'               => 'Tisk / PDF',
         'purpose_topup'       => 'Dobití kreditu',
+        'purpose_renewal'     => 'Obnova služby',
+        'renews_service'      => 'Obnovuje službu',
         'choose_payment'      => 'Způsob úhrady',
         'pay_comgate'         => 'Zaplatit kartou / bankou',
         'comgate_paid'        => 'Platba proběhla úspěšně. Děkujeme!',

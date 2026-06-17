@@ -27,6 +27,13 @@
                         <span class="badge badge-light-secondary f-12">VS: {{ $invoice->variable_symbol }}</span>
                         @if($invoice->purpose === 'credit_topup')
                             <span class="badge badge-light-primary">{{ __('panel.billing.purpose_topup') }}</span>
+                        @elseif($invoice->purpose === 'renewal')
+                            <span class="badge badge-light-info">{{ __('panel.billing.purpose_renewal') }}</span>
+                            @if($invoice->renewalService)
+                                <a href="{{ route('admin.services.show', $invoice->renewalService) }}" class="f-12">
+                                    {{ __('panel.billing.renews_service') }}: {{ $invoice->renewalService->label }}
+                                </a>
+                            @endif
                         @endif
                         @if($invoice->parentInvoice)
                             <a href="{{ route('admin.invoices.show', $invoice->parentInvoice) }}" class="f-12">
@@ -88,7 +95,7 @@
                                 </button>
                             </form>
                         @endif
-                        @if(!$invoice->isTaxDocument() && $invoice->status === \App\Domains\Billing\Enums\InvoiceStatus::Paid && $taxDocument === null && $invoice->purpose === 'order')
+                        @if(!$invoice->isTaxDocument() && $invoice->status === \App\Domains\Billing\Enums\InvoiceStatus::Paid && $taxDocument === null && in_array($invoice->purpose, ['order', 'renewal'], true))
                             <form method="POST" action="{{ route('admin.invoices.tax-document', $invoice) }}">
                                 @csrf
                                 <button type="submit" class="btn btn-outline-primary btn-sm">

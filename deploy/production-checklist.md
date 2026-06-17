@@ -160,6 +160,36 @@ php8.2 artisan onhost:doctor --production
 - [ ] Vytvořte testovací zákazníka, objednávku, proformu
 - [ ] Vyzkoušejte Comgate platbu (testovací kartou)
 - [ ] Webhook přijat a zalogován v `/admin/platby`
+- [ ] `php8.2 artisan onhost:doctor --production` — 0 kritických chyb
+
+---
+
+## FÁZE K2 — Renewal lifecycle smoke test (lze provést celé v mock módu, před L1–L3)
+
+> Ověřuje řetězec: `billing:create-renewals` → zaplacení → prodloužení `next_due_date` →
+> (pokud byla služba suspendovaná) automatický unsuspend. Bezpečné spustit i s
+> `PROVISIONING_MOCK_MODE=true`, žádné reálné credentials potřeba.
+
+1. **Testovací služba** — vytvořte objednávku a zaplaťte ji (mock platba) → vznikne `Service` se stavem `Active` a vyplněným `next_due_date`
+2. **Renewal faktura** — dočasně nastavte `service.next_due_date` na den uvnitř renewal okna (`billing.lifecycle.renewal_days_before`, výchozí 7 dní) a spusťte:
+   ```bash
+   php8.2 artisan billing:create-renewals
+   ```
+   — [ ] vznikla proforma faktura s `purpose = renewal`, viditelná v `/panel/fakturace/faktury` i `/admin/faktury`
+3. **Zaplacení renewal faktury** — zaplaťte ji kteroukoliv metodou (Comgate test platba / kredit / mock)
+   — [ ] faktura má status `Paid`
+   — [ ] `service.next_due_date` se posunulo o jeden billing cyklus dál (ověřte v `/panel/sluzby/{id}` i `/admin/sluzby/{id}`)
+   — [ ] v `/admin/audit` existuje záznam `service.renewed`
+4. **Opakované spuštění** — spusťte `billing:create-renewals` znovu pro stejnou službu/cyklus
+   — [ ] nevznikla druhá renewal faktura (idempotence)
+5. **Overdue + suspend** — vytvořte další testovací službu, nastavte její fakturu jako `Overdue` za hranicí grace period (`billing.lifecycle.suspend_after`) a spusťte:
+   ```bash
+   php8.2 artisan billing:suspend-overdue
+   ```
+   — [ ] `ChangeServiceStateJob` (`suspend`) byl dispatchnut a po zpracování workerem je služba `Suspended`
+6. **Zaplacení overdue renewal** — zaplaťte renewal fakturu pro suspendovanou službu ze sekce 5
+   — [ ] `ChangeServiceStateJob` (`unsuspend`) byl dispatchnut
+   — [ ] po zpracování workerem je služba zpět `Active` a `next_due_date` je v budoucnosti
 
 ---
 

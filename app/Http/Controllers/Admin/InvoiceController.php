@@ -45,7 +45,7 @@ class InvoiceController extends Controller
     public function show(Invoice $invoice): View
     {
         return view('admin.invoice-show', [
-            'invoice' => $invoice->load(['items', 'payments', 'order', 'customer.user', 'customer.addresses', 'parentInvoice']),
+            'invoice' => $invoice->load(['items', 'payments', 'order', 'customer.user', 'customer.addresses', 'parentInvoice', 'renewalService']),
             'taxDocument' => Invoice::query()->where('parent_invoice_id', $invoice->id)->first(),
             'mockMode'    => (bool) config('provisioning.mock_mode', true),
         ]);

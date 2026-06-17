@@ -48,7 +48,7 @@ class BillingController extends Controller
             ->map(fn ($v) => json_decode($v, true));
 
         return view('panel.billing.invoice-show', [
-            'invoice'       => $invoice->load(['items', 'payments', 'order']),
+            'invoice'       => $invoice->load(['items', 'payments', 'order', 'renewalService']),
             'creditBalance' => $ledger->getBalance($this->customer($request)),
             'mockMode'      => (bool) config('provisioning.mock_mode', true),
             'bankCzk'       => $bankSettings['bank_czk'] ?? config('billing.supplier.bank_account_czk'),
