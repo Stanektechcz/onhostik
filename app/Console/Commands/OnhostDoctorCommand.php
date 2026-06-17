@@ -46,7 +46,7 @@ class OnhostDoctorCommand extends Command
         $this->line('  ' . str_repeat('─', self::W));
 
         $this->sectionApp($strict);
-        $this->sectionDatabase();
+        $this->sectionDatabase($strict);
         $this->sectionStorage($strict);
         $this->sectionQueue($strict);
         $this->sectionMail($strict);
@@ -79,8 +79,9 @@ class OnhostDoctorCommand extends Command
     {
         $this->section('Application');
 
-        $key = (string) config('app.key');
-        $this->check('APP_KEY', $key !== '' && str_starts_with($key, 'base64:'), 'not set');
+        $key   = (string) config('app.key');
+        $keyOk = $key !== '' && str_starts_with($key, 'base64:');
+        $this->check('APP_KEY', $keyOk, $keyOk ? 'configured (base64)' : 'Run: php artisan key:generate', critical: $strict);
 
         $env = (string) config('app.env');
         $this->check('APP_ENV', true, $env); // info only
@@ -106,7 +107,7 @@ class OnhostDoctorCommand extends Command
         $this->check('PHP >= 8.2', $phpOk, "found PHP {$php}");
     }
 
-    private function sectionDatabase(): void
+    private function sectionDatabase(bool $strict = false): void
     {
         $this->section('Database');
 
@@ -120,12 +121,20 @@ class OnhostDoctorCommand extends Command
         }
 
         try {
-            // Check for pending migrations
-            $pending = DB::table('migrations')->count();
-            // Rough check: artisan migrate:status would be more accurate but slow
-            $this->check('tables accessible', true, "migrations table readable ({$pending} rows)");
+            $ran = DB::table('migrations')->count();
+            $this->check('tables accessible', true, "migrations table readable ({$ran} rows)");
         } catch (Throwable $e) {
             $this->check('migrations table', false, 'Run: php artisan migrate', critical: true);
+        }
+
+        try {
+            $migrationFiles = glob(database_path('migrations') . DIRECTORY_SEPARATOR . '*.php') ?: [];
+            $files          = count($migrationFiles);
+            $ran            = (int) DB::table('migrations')->count();
+            $pending        = max(0, $files - $ran);
+            $this->check('pending migrations', $pending === 0, $pending === 0 ? 'all applied' : "{$pending} pending — run: php artisan migrate --force", critical: $strict && $pending > 0);
+        } catch (Throwable) {
+            $this->warn_check('pending migrations', false, 'Could not count migrations');
         }
 
         try {
@@ -184,6 +193,16 @@ class OnhostDoctorCommand extends Command
         } catch (Throwable) {
             $this->warn_check('jobs table', false, 'Run: php artisan queue:table && migrate');
         }
+
+        $sessionDriver = (string) config('session.driver', 'file');
+        if ($strict) {
+            $this->check('SESSION_DRIVER != file/cookie', ! in_array($sessionDriver, ['file', 'cookie'], true), "driver='{$sessionDriver}'", critical: true);
+        } else {
+            $this->warn_check('SESSION_DRIVER', ! in_array($sessionDriver, ['file', 'cookie'], true), "driver='{$sessionDriver}' (use database or redis in production)");
+        }
+
+        $sessionDomain = (string) config('session.domain', '');
+        $this->warn_check('SESSION_DOMAIN', str_starts_with($sessionDomain, '.'), "'{$sessionDomain}' (must start with . for subdomains)");
     }
 
     private function sectionMail(bool $strict): void

@@ -8,6 +8,7 @@
 # to řídí schedule konfigurace v routes/console.php.
 #
 # Zaregistrované úlohy (routes/console.php):
+#   00:30  billing:create-renewals  → vystaví renewal proformy pro služby splatné do 7 dní
 #   01:00  billing:mark-overdue     → označí faktury po splatnosti jako Overdue
 #   01:15  billing:suspend-overdue  → pozastaví služby zákazníků po grace period
 # ───────────────────────────────────────────────────────────────────────────────

@@ -55,7 +55,7 @@ php8.2 artisan key:generate
 - [ ] `APP_URL=https://onhost.cz` nastaven
 - [ ] `DB_*` vyplněno a otestováno
 - [ ] `MAIL_*` vyplněno (SMTP přihlašovací údaje)
-- [ ] `COMGATE_MERCHANT_ID`, `COMGATE_SECRET`, `COMGATE_TEST_MODE=false` vyplněno
+- [ ] `COMGATE_MERCHANT_ID`, `COMGATE_SECRET` vyplněno; `COMGATE_TEST_MODE=true` pro smoke test (na `false` změňte až v FÁZI L3)
 - [ ] `ADMIN_EMAIL`, `ADMIN_PASSWORD` nastaveno (dočasné — změňte po prvním přihlášení)
 - [ ] Billing firemní údaje vyplněny (`BILLING_COMPANY_*`)
 
