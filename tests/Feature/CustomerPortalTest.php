@@ -26,8 +26,8 @@ it('loads the customer dashboard with real widgets', function (): void {
     $this->actingAs($user)
         ->get(route('panel.dashboard'))
         ->assertOk()
-        ->assertSee(__('panel.dashboard.unpaid_invoices'))
-        ->assertSee(__('panel.dashboard.quick_actions'));
+        ->assertSee('Moje faktury')
+        ->assertSee('Objednávky');
 });
 
 it('tops up credit via mock payment and never double-credits', function (): void {

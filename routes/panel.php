@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Admin;
 use App\Http\Controllers\Panel;
+use App\Http\Controllers\Partner;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\BlogController as AdminBlogController;
 use App\Http\Controllers\Admin\KbController as AdminKbController;
@@ -56,6 +57,16 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
 
     Route::get('/ai', [Panel\AiController::class, 'index'])->name('ai.index');
     Route::post('/ai', [Panel\AiController::class, 'run'])->name('ai.run');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Partner portal — auth + access-partner permission
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware(['auth', 'can:access-partner'])->prefix('partner')->name('partner.')->group(function (): void {
+    Route::get('/', [Partner\DashboardController::class, 'index'])->name('dashboard');
 });
 
 /*

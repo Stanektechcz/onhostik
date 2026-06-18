@@ -15,13 +15,16 @@ class RoleSeeder extends Seeder
     {
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
-        $admin = Role::findOrCreate('admin', 'web');
+        $admin   = Role::findOrCreate('admin', 'web');
+        $partner = Role::findOrCreate('partner', 'web');
         Role::findOrCreate('customer', 'web');
         Role::findOrCreate('support', 'web');
 
         // The access-admin gate checks the admin role directly; the permission
         // exists so future granular grants (e.g. support read-only) are possible.
-        $accessAdmin = Permission::findOrCreate('access-admin', 'web');
+        $accessAdmin   = Permission::findOrCreate('access-admin', 'web');
+        $accessPartner = Permission::findOrCreate('access-partner', 'web');
         $admin->givePermissionTo($accessAdmin);
+        $partner->givePermissionTo($accessPartner);
     }
 }

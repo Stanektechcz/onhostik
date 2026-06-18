@@ -36,6 +36,12 @@
                     <x-panel.sidebar-link :href="route('panel.account.billing')" icon="briefcase" :label="__('panel.nav.billing_details')" />
                     <x-panel.sidebar-link :href="route('panel.account.security')" icon="lock" :label="__('panel.nav.security')" />
 
+                    {{-- ====== PARTNER SECTION (partner role only) ====== --}}
+                    @can('access-partner')
+                        <x-panel.sidebar-title label="PARTNER" />
+                        <x-panel.sidebar-link :href="route('partner.dashboard')" icon="share-2" label="Partner Dashboard" />
+                    @endcan
+
                     {{-- ====== ADMIN SECTION (admin role only) ====== --}}
                     @can('access-admin')
                         <x-panel.sidebar-title label="ADMIN" />
