@@ -236,14 +236,14 @@
                     $paid = $cust->total_paid ?? 0;
                   @endphp
                   <tr>
+                    <td></td>
                     <td>
-                      <img class="max-w-full h-auto img-40 rounded-full me-2"
+                      <div class="flex"><img class="max-w-full h-auto img-40 rounded-full me-2"
                            src="{{ asset('panel/images/dashboard/user/'.$avatarNum.'.jpg') }}" alt="user"/>
-                    </td>
-                    <td>
-                      <div class="img-content-box">
-                        <a class="font-medium" href="{{ route('admin.customers.show', $cust) }}">{{ $name }}</a>
-                        <p class="mb-0 f-light">{{ $cust->email }}</p>
+                        <div class="img-content-box">
+                          <a class="font-medium" href="{{ route('admin.customers.show', $cust) }}">{{ $name }}</a>
+                          <p class="mb-0 f-light">{{ $cust->email }}</p>
+                        </div>
                       </div>
                     </td>
                     <td>{{ $cust->orders_count }} objednávek</td>

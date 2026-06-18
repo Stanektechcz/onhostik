@@ -41,7 +41,7 @@ class DashboardController extends Controller
             ->sum('amount');
 
         // Revenue per month last 6 months
-        $revenueRaw = Payment::query()
+        $revenueRaw = DB::table('payments')
             ->where('status', PaymentStatus::Completed->value)
             ->where('currency', 'CZK')
             ->where('created_at', '>=', now()->subMonths(5)->startOfMonth())
@@ -64,7 +64,7 @@ class DashboardController extends Controller
         $chartData   = $months->values()->map(fn ($v) => round($v / 100, 2))->values();
 
         // ── Order counts per month (visitor_chart) ───────────────────────────
-        $orderCountsRaw = Order::query()
+        $orderCountsRaw = DB::table('orders')
             ->where('created_at', '>=', now()->subMonths(5)->startOfMonth())
             ->select(DB::raw("$monthExpr as month"), DB::raw('COUNT(*) as total'))
             ->groupBy('month')->orderBy('month')
@@ -82,7 +82,7 @@ class DashboardController extends Controller
         $monthlyTargetPct = $totalThisMonth > 0 ? round($paidThisMonth / $totalThisMonth * 100, 1) : 0;
 
         // ── Sales report data (orders, revenue, refunds last 6 months) ────────
-        $failedPerMonth = Payment::query()
+        $failedPerMonth = DB::table('payments')
             ->where('status', PaymentStatus::Failed->value)
             ->where('created_at', '>=', now()->subMonths(5)->startOfMonth())
             ->select(DB::raw("$monthExpr as month"), DB::raw('COUNT(*) as total'))
