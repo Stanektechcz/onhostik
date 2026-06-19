@@ -227,14 +227,14 @@
                 @forelse($topReferrals as $i => $ref)
                   @php $avatarNum = ($i % 5) + 1; @endphp
                   <tr>
+                    <td></td>
                     <td>
-                      <img class="max-w-full h-auto img-40 rounded-full me-2"
+                      <div class="flex"><img class="max-w-full h-auto img-40 rounded-full me-2"
                            src="{{ asset('panel/images/dashboard/user/'.$avatarNum.'.jpg') }}" alt="user"/>
-                    </td>
-                    <td>
-                      <div class="img-content-box">
-                        <a class="font-medium" href="#">{{ $ref->name ?? $ref->email }}</a>
-                        <p class="mb-0 f-light">{{ $ref->email }}</p>
+                        <div class="img-content-box">
+                          <a class="font-medium" href="#">{{ $ref->name ?? $ref->email }}</a>
+                          <p class="mb-0 f-light">{{ $ref->email }}</p>
+                        </div>
                       </div>
                     </td>
                     <td>{{ $ref->orders_count ?? 0 }} obj.</td>

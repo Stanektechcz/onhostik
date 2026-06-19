@@ -222,8 +222,8 @@
             <table class="table [@media(max-width:1700px)]:whitespace-nowrap">
               <thead>
                 <tr>
-                  <th>Číslo</th>
-                  <th>Splatnost</th>
+                  <th></th>
+                  <th>Faktura</th>
                   <th>Celkem</th>
                   <th class="[@media(min-width:1399px)_and_(max-width:1700)]:!hidden">Stav</th>
                 </tr>
@@ -247,12 +247,18 @@
                     };
                   @endphp
                   <tr>
+                    <td></td>
                     <td>
-                      <div class="img-content-box">
-                        <a class="font-medium" href="{{ route('panel.billing.invoices.show', $inv) }}">{{ $inv->number }}</a>
+                      <div class="flex items-center gap-2">
+                        <div class="currency-icon primary">
+                          <i data-feather="file-text" style="width:18px;height:18px;"></i>
+                        </div>
+                        <div>
+                          <a class="f-14 mb-0 font-medium c-light" href="{{ route('panel.billing.invoices.show', $inv) }}">{{ $inv->number }}</a>
+                          <p class="c-o-light">{{ $inv->due_date?->format('d.m.Y') ?? '—' }}</p>
+                        </div>
                       </div>
                     </td>
-                    <td>{{ $inv->due_date?->format('d.m.Y') ?? '—' }}</td>
                     <td class="font-medium">{{ \App\Domains\Shared\Support\MoneyFormatter::format($inv->total) }}</td>
                     <td class="[@media(min-width:1399px)_and_(max-width:1700)]:!hidden">
                       <span class="badge badge-light-{{ $statusColor }}">{{ $statusLabel }}</span>
