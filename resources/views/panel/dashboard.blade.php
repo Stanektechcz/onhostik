@@ -449,6 +449,7 @@
               <thead>
                 <tr class="whitespace-nowrap">
                   <th></th>
+                  <th>Objednávka</th>
                   <th>Celkem</th>
                   <th>Datum</th>
                   <th class="[@media(max-width:1696px)]:hidden [@media(max-width:1199px)]:!table-cell">Stav</th>
@@ -474,6 +475,7 @@
                     };
                   @endphp
                   <tr>
+                    <td></td>
                     <td>
                       <div class="flex items-center gap-2">
                         <div class="currency-icon warning">
@@ -492,7 +494,7 @@
                     </td>
                   </tr>
                 @empty
-                  <tr><td colspan="4" class="text-center f-light py-4">{{ __('panel.orders.none') }}</td></tr>
+                  <tr><td colspan="5" class="text-center f-light py-4">{{ __('panel.orders.none') }}</td></tr>
                 @endforelse
               </tbody>
             </table>

@@ -424,6 +424,7 @@
               <thead>
                 <tr class="whitespace-nowrap">
                   <th></th>
+                  <th>Objednávka</th>
                   <th>Zákazník</th>
                   <th>Celkem</th>
                   <th>Datum</th>
@@ -451,6 +452,7 @@
                     $dispName = $order->customer?->company_name ?? $order->customer?->email ?? '—';
                   @endphp
                   <tr>
+                    <td></td>
                     <td>
                       <div class="flex items-center gap-2">
                         <div class="currency-icon warning">
@@ -470,7 +472,7 @@
                     </td>
                   </tr>
                 @empty
-                  <tr><td colspan="5" class="text-center f-light py-4">Žádné objednávky</td></tr>
+                  <tr><td colspan="6" class="text-center f-light py-4">Žádné objednávky</td></tr>
                 @endforelse
               </tbody>
             </table>

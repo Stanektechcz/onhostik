@@ -414,6 +414,7 @@
               <thead>
                 <tr class="whitespace-nowrap">
                   <th></th>
+                  <th>Objednávka</th>
                   <th>Klient</th>
                   <th>Celkem</th>
                   <th>Datum</th>
@@ -423,6 +424,7 @@
               <tbody>
                 @forelse($recentReferredOrders as $ord)
                   <tr>
+                    <td></td>
                     <td>
                       <div class="flex items-center gap-2">
                         <div class="currency-icon success">
@@ -442,7 +444,7 @@
                     </td>
                   </tr>
                 @empty
-                  <tr><td colspan="5" class="text-center f-light py-4">Žádné referral objednávky</td></tr>
+                  <tr><td colspan="6" class="text-center f-light py-4">Žádné referral objednávky</td></tr>
                 @endforelse
               </tbody>
             </table>
