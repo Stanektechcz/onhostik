@@ -69,7 +69,10 @@
             <div class="col-xl-8">
                 <x-panel.card :title="__('panel.admin.backup_jobs')">
                     @if($jobs->isEmpty())
-                        <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                        <div class="text-center py-4">
+                            <i data-feather="archive" style="width:36px;height:36px;" class="text-muted mb-2"></i>
+                            <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                        </div>
                     @else
                         <x-panel.data-table :headers="[
                             __('panel.common.date'),
@@ -120,7 +123,10 @@
             <div class="col-xl-4">
                 <x-panel.card :title="__('panel.admin.policies')">
                     @if($policies->isEmpty())
-                        <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                        <div class="text-center py-4">
+                            <i data-feather="shield" style="width:36px;height:36px;" class="text-muted mb-2"></i>
+                            <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                        </div>
                     @else
                         @foreach($policies as $policy)
                             <div class="border rounded p-3 mb-2">

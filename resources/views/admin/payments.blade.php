@@ -104,7 +104,11 @@
 
         <x-panel.card :title="__('panel.admin.webhook_logs')">
             @if($webhookLogs->isEmpty())
-                <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                <div class="text-center py-4">
+                    <i data-feather="radio" style="width:36px;height:36px;" class="text-muted mb-2"></i>
+                    <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                    <p class="f-light f-12 mb-0">Žádné webhook události. Comgate webhooky se zobrazí po první platbě.</p>
+                </div>
             @else
                 <x-panel.data-table :headers="[__('panel.common.date'), __('panel.admin.provider'), 'Event', 'IP', 'Zpracováno', __('panel.admin.error')]">
                     @foreach($webhookLogs as $log)

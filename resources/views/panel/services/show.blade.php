@@ -196,7 +196,11 @@
                 {{-- Monitoring --}}
                 <x-panel.card :title="__('panel.services.monitoring')">
                     @if($monitor === null)
-                        <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                        <div class="text-center py-4">
+                            <i data-feather="activity" style="width:36px;height:36px;" class="text-muted mb-2"></i>
+                            <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                            <p class="f-light f-12 mb-0">Monitoring se nastaví automaticky po aktivaci služby.</p>
+                        </div>
                     @else
                         @php
                             $uptime = $monitor->uptime_percent ?? 0;
@@ -262,7 +266,10 @@
                     @error('backup')<div class="text-danger f-12 mb-2">{{ $message }}</div>@enderror
                     @error('wordpress')<div class="text-danger f-12 mb-2">{{ $message }}</div>@enderror
                     @if($backupJobs->isEmpty())
-                        <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                        <div class="text-center py-3">
+                            <i data-feather="archive" style="width:30px;height:30px;" class="text-muted mb-2"></i>
+                            <p class="f-light mb-0 f-12">{{ __('panel.common.empty') }}</p>
+                        </div>
                     @else
                         <x-panel.data-table :headers="[__('panel.common.date'), __('panel.common.status'), 'Velikost']">
                             @foreach($backupJobs as $backupJob)

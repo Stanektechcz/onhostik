@@ -65,7 +65,10 @@
 
         <x-panel.card :title="__('panel.orders.invoice')">
             @if($order->invoices->isEmpty())
-                <p class="f-light mb-0">{{ __('panel.billing.no_invoices') }}</p>
+                <div class="text-center py-4">
+                    <i data-feather="file-text" style="width:36px;height:36px;" class="text-muted mb-2"></i>
+                    <p class="f-light mb-0">{{ __('panel.billing.no_invoices') }}</p>
+                </div>
             @else
                 <x-panel.data-table :headers="[
                     __('panel.billing.number'),

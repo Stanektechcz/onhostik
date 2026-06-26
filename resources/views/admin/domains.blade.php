@@ -149,7 +149,10 @@
         {{-- Domain registration tasks --}}
         <x-panel.card title="Úkoly registrace domén">
             @if($domainTasks->isEmpty())
-                <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                <div class="text-center py-4">
+                    <i data-feather="check-circle" style="width:36px;height:36px;" class="text-muted mb-2"></i>
+                    <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                </div>
             @else
                 <x-panel.data-table :headers="[
                     __('panel.admin.task'),

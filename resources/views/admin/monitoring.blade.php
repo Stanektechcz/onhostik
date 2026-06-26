@@ -68,7 +68,10 @@
                         {{ __('panel.admin.monitoring_mock_note') }}
                     </p>
                     @if($monitors->isEmpty())
-                        <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                        <div class="text-center py-4">
+                            <i data-feather="activity" style="width:36px;height:36px;" class="text-muted mb-2"></i>
+                            <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                        </div>
                     @else
                         <div class="table-responsive">
                             <table class="table table-borderless">

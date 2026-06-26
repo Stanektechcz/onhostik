@@ -67,6 +67,11 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
 
 Route::middleware(['auth', 'can:access-partner'])->prefix('partner')->name('partner.')->group(function (): void {
     Route::get('/', [Partner\DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/referraly', [Partner\PartnerController::class, 'referrals'])->name('referrals');
+    Route::get('/provize', [Partner\PartnerController::class, 'commissions'])->name('commissions');
+    Route::get('/vyplaty', [Partner\PartnerController::class, 'payouts'])->name('payouts');
+    Route::get('/materialy', [Partner\PartnerController::class, 'assets'])->name('assets');
+    Route::get('/nastaveni', [Partner\PartnerController::class, 'profile'])->name('profile');
 });
 
 /*

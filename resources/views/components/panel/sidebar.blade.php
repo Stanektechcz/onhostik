@@ -39,7 +39,12 @@
                     {{-- ====== PARTNER SECTION (partner role only) ====== --}}
                     @can('access-partner')
                         <x-panel.sidebar-title label="PARTNER" />
-                        <x-panel.sidebar-link :href="route('partner.dashboard')" icon="share-2" label="Partner Dashboard" />
+                        <x-panel.sidebar-link :href="route('partner.dashboard')" icon="activity" label="Přehled" />
+                        <x-panel.sidebar-link :href="route('partner.referrals')" icon="users" label="Referraly" />
+                        <x-panel.sidebar-link :href="route('partner.commissions')" icon="trending-up" label="Provize" />
+                        <x-panel.sidebar-link :href="route('partner.payouts')" icon="dollar-sign" label="Výplaty" />
+                        <x-panel.sidebar-link :href="route('partner.assets')" icon="share-2" label="Materiály" />
+                        <x-panel.sidebar-link :href="route('partner.profile')" icon="user" label="Profil partnera" />
                     @endcan
 
                     {{-- ====== ADMIN SECTION (admin role only) ====== --}}

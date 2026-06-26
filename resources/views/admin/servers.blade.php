@@ -86,7 +86,11 @@
 
         <x-panel.card :title="__('panel.nav.admin_servers')">
             @if($servers->isEmpty())
-                <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                <div class="text-center py-5">
+                    <i data-feather="hard-drive" style="width:40px;height:40px;" class="text-muted mb-3"></i>
+                    <h6 class="f-light mt-2">{{ __('panel.common.empty') }}</h6>
+                    <p class="f-light f-12 mb-0">Žádné servery. Přidejte server pomocí tlačítka výše.</p>
+                </div>
             @else
                 <x-panel.data-table :headers="[
                     'ID',
