@@ -52,6 +52,7 @@ class OnhostDoctorCommand extends Command
         $this->sectionMail($strict);
         $this->sectionComgate($strict);
         $this->sectionProvisioning($strict);
+        $this->sectionBilling($strict);
         $this->sectionScheduler();
 
         $this->line('  ' . str_repeat('─', self::W));
@@ -203,6 +204,13 @@ class OnhostDoctorCommand extends Command
 
         $sessionDomain = (string) config('session.domain', '');
         $this->warn_check('SESSION_DOMAIN', str_starts_with($sessionDomain, '.'), "'{$sessionDomain}' (must start with . for subdomains)");
+
+        $secureCookie = config('session.secure');
+        if ($strict) {
+            $this->check('SESSION_SECURE_COOKIE', (bool) $secureCookie, $secureCookie ? 'true' : 'false — required for HTTPS production', critical: true);
+        } else {
+            $this->warn_check('SESSION_SECURE_COOKIE', (bool) $secureCookie, $secureCookie ? 'true' : 'null/false (set true for HTTPS)');
+        }
     }
 
     private function sectionMail(bool $strict): void
@@ -211,6 +219,7 @@ class OnhostDoctorCommand extends Command
 
         $mailer = (string) config('mail.default');
         $from   = (string) config('mail.from.address', '');
+        $port   = (int) config('mail.mailers.smtp.port', 0);
 
         if ($strict) {
             $this->check('mailer != log', $mailer !== 'log', "mailer='{$mailer}'", critical: true);
@@ -219,6 +228,13 @@ class OnhostDoctorCommand extends Command
         }
 
         $this->check('FROM address', $from !== '' && ! str_contains($from, '.local'), $from ?: 'not set');
+
+        // Port 3306 is MySQL — not SMTP. Flag it explicitly.
+        if ($port === 3306) {
+            $this->check('MAIL_PORT', false, "MAIL_PORT=3306 is the MySQL port, not SMTP! Use 587 (STARTTLS) or 465 (SSL)", critical: true);
+        } elseif ($port > 0 && ! in_array($port, [25, 465, 587, 2525], true)) {
+            $this->warn_check('MAIL_PORT', false, "MAIL_PORT={$port} is unusual (typical: 587/465/25/2525)");
+        }
     }
 
     private function sectionComgate(bool $strict): void
@@ -274,6 +290,34 @@ class OnhostDoctorCommand extends Command
         } catch (Throwable) {
             $this->warn_check('servers table', false, 'Cannot read servers table');
         }
+    }
+
+    private function sectionBilling(bool $strict): void
+    {
+        $this->section('Billing / Company');
+
+        $name   = (string) config('billing.supplier.name', '');
+        $ic     = (string) config('billing.supplier.ic', '');
+        $street = (string) config('billing.supplier.street', '');
+        $city   = (string) config('billing.supplier.city', '');
+        $zip    = (string) config('billing.supplier.zip', '');
+        $bank   = (string) config('billing.supplier.bank_account_czk', '');
+
+        $this->check('BILLING_COMPANY_NAME', $name !== '' && $name !== 'Onhost.cz s.r.o.', $name ?: 'not set — required for invoices');
+
+        if ($strict) {
+            $this->check('BILLING_COMPANY_IC', $ic !== '', $ic ?: 'BILLING_COMPANY_IC not set — required for tax documents', critical: true);
+            $this->check('BILLING_COMPANY_STREET', $street !== '', $street ?: 'BILLING_COMPANY_STREET not set — required for tax documents', critical: true);
+            $this->check('BILLING_COMPANY_CITY', $city !== '', $city ?: 'BILLING_COMPANY_CITY not set', critical: true);
+            $this->check('BILLING_COMPANY_ZIP', $zip !== '', $zip ?: 'BILLING_COMPANY_ZIP not set', critical: true);
+        } else {
+            $this->warn_check('BILLING_COMPANY_IC', $ic !== '', $ic ?: 'not set (required for tax documents)');
+            $this->warn_check('BILLING_COMPANY_STREET', $street !== '', $street ?: 'not set (required for tax documents)');
+            $this->warn_check('BILLING_COMPANY_CITY', $city !== '', $city ?: 'not set');
+            $this->warn_check('BILLING_COMPANY_ZIP', $zip !== '', $zip ?: 'not set');
+        }
+
+        $this->warn_check('BILLING_BANK_CZK', $bank !== '', $bank ?: 'not set (customers cannot pay by bank transfer)');
     }
 
     private function sectionScheduler(): void
