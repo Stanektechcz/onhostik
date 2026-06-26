@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Console\Commands\ApproveEligibleCommissionsCommand;
 use App\Console\Commands\CreateRenewalInvoicesCommand;
 use App\Console\Commands\MarkOverdueInvoicesCommand;
 use App\Console\Commands\SuspendOverdueServicesCommand;
@@ -31,5 +32,12 @@ Schedule::command(MarkOverdueInvoicesCommand::class)
 // (billing.suspension_grace_days, default 7 days).
 Schedule::command(SuspendOverdueServicesCommand::class)
     ->dailyAt('01:15')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Auto-approve partner commissions that have passed their hold period.
+// Runs after dunning jobs so refund status is already set correctly.
+Schedule::command(ApproveEligibleCommissionsCommand::class)
+    ->dailyAt('02:00')
     ->withoutOverlapping()
     ->runInBackground();

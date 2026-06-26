@@ -174,7 +174,13 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
 
     Route::prefix('partneri')->name('partners.')->group(function (): void {
         Route::get('/', [Admin\PartnerController::class, 'index'])->name('index');
+        Route::get('/novy', [Admin\PartnerController::class, 'create'])->name('create');
+        Route::post('/', [Admin\PartnerController::class, 'store'])->name('store');
+        Route::get('/generate-code', [Admin\PartnerController::class, 'generateCode'])->name('generate-code');
         Route::get('/{partner:uuid}', [Admin\PartnerController::class, 'show'])->name('show');
+        Route::get('/{partner:uuid}/upravit', [Admin\PartnerController::class, 'edit'])->name('edit');
+        Route::put('/{partner:uuid}', [Admin\PartnerController::class, 'update'])->name('update');
+        Route::post('/{partner:uuid}/status', [Admin\PartnerController::class, 'changeStatus'])->name('status');
         Route::post('/{partner:uuid}/provize/{commission}/schvalit', [Admin\PartnerController::class, 'approveCommission'])->name('commissions.approve');
         Route::post('/{partner:uuid}/provize/{commission}/zamitnout', [Admin\PartnerController::class, 'rejectCommission'])->name('commissions.reject');
         Route::post('/{partner:uuid}/vyplata', [Admin\PartnerController::class, 'createPayout'])->name('payouts.create');

@@ -21,11 +21,18 @@
     </div>
 
     <x-panel.card title="Partnerské profily">
+        <div class="d-flex justify-content-end mb-3">
+            <a href="{{ route('admin.partners.create') }}" class="btn btn-primary btn-sm">
+                <i data-feather="plus" style="width:13px;height:13px;"></i>
+                Nový partner
+            </a>
+        </div>
         @if($partners->isEmpty())
             <div class="text-center py-5">
                 <i data-feather="share-2" style="width:40px;height:40px;" class="text-muted mb-3"></i>
                 <h6 class="f-light mt-2">Žádní partneři</h6>
-                <p class="f-light f-12 mb-0">Partnerské profily se vytvoří automaticky po přidělení access-partner oprávnění uživateli.</p>
+                <p class="f-light f-12 mb-3">Zatím nebyl přidán žádný partnerský profil.</p>
+                <a href="{{ route('admin.partners.create') }}" class="btn btn-primary btn-sm">Vytvořit prvního partnera</a>
             </div>
         @else
             <x-panel.data-table :headers="['Partner', 'Referral kód', 'Stav', 'Referraly', 'Provize', 'Registrace', '']">

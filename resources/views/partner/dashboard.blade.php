@@ -12,6 +12,29 @@
 @endpush
 
 @section('content')
+@if(($profile ?? null) === null)
+<div class="container-fluid">
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <i data-feather="share-2" style="width:56px;height:56px;" class="text-muted mb-3"></i>
+            <h5 class="mt-2">Partner profil zatím není aktivní</h5>
+            <p class="f-light f-14 mb-3 mx-auto" style="max-width:480px;">
+                Váš účet nemá přiřazený partner profil. Kontaktujte administrátora na
+                <a href="mailto:partner@onhost.cz" class="txt-primary">partner@onhost.cz</a>
+                pro aktivaci partnerského programu.
+            </p>
+            <a href="{{ route('panel.dashboard') }}" class="btn btn-outline-primary btn-sm me-2">
+                <i data-feather="arrow-left" style="width:13px;height:13px;"></i>
+                Zpět do panelu
+            </a>
+            <a href="mailto:partner@onhost.cz" class="btn btn-primary btn-sm">
+                <i data-feather="mail" style="width:13px;height:13px;"></i>
+                Kontaktovat administrátora
+            </a>
+        </div>
+    </div>
+</div>
+@else
 <div class="container default-dashboard">
   <div class="grid grid-cols-12 card-gap widget-grid">
 
@@ -550,9 +573,11 @@
 
   </div>
 </div>
+@endif
 @endsection
 
 @push('scripts')
+@if(($profile ?? null) !== null)
 <script src="{{ asset('panel/js/clock.js') }}"></script>
 <script src="{{ asset('panel/js/chart/apex-chart/apex-chart.js') }}"></script>
 <script src="{{ asset('panel/js/counter/counter-custom.js') }}"></script>
@@ -641,4 +666,5 @@
   }).render();
 })();
 </script>
+@endif
 @endpush

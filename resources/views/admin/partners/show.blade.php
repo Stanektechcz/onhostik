@@ -16,6 +16,34 @@
         </div>
     @endif
 
+    {{-- Action bar --}}
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+        <x-panel.status-badge :status="$partner->status" />
+        <a href="{{ route('admin.partners.edit', $partner) }}" class="btn btn-outline-primary btn-sm">
+            <i data-feather="edit-2" style="width:13px;height:13px;"></i> Upravit
+        </a>
+        {{-- Quick status toggle --}}
+        @if($partner->status->value !== 'active')
+            <form method="POST" action="{{ route('admin.partners.status', $partner) }}" class="d-inline">
+                @csrf <input type="hidden" name="status" value="active">
+                <button type="submit" class="btn btn-outline-success btn-sm">Aktivovat</button>
+            </form>
+        @endif
+        @if($partner->status->value === 'active')
+            <form method="POST" action="{{ route('admin.partners.status', $partner) }}" class="d-inline">
+                @csrf <input type="hidden" name="status" value="paused">
+                <button type="submit" class="btn btn-outline-warning btn-sm">Pozastavit</button>
+            </form>
+        @endif
+        @if($partner->status->value !== 'banned')
+            <form method="POST" action="{{ route('admin.partners.status', $partner) }}" class="d-inline"
+                  onsubmit="return confirm('Opravdu zablokovat partnera?')">
+                @csrf <input type="hidden" name="status" value="banned">
+                <button type="submit" class="btn btn-outline-danger btn-sm">Zablokovat</button>
+            </form>
+        @endif
+    </div>
+
     {{-- KPI strip --}}
     <div class="grid grid-cols-12 card-gap mb-1">
         <div class="col-span-6 sm:col-span-12 lg:col-span-3">
@@ -54,10 +82,27 @@
                             <tr><td class="f-light f-12 ps-0">Referral kód</td><td><code class="badge badge-light-primary">{{ $partner->referral_code }}</code></td></tr>
                             <tr><td class="f-light f-12 ps-0">Stav</td><td><x-panel.status-badge :status="$partner->status" /></td></tr>
                             <tr><td class="f-light f-12 ps-0">Sazba provize</td><td class="f-w-600">{{ $partner->commission_rate_percent }}%</td></tr>
+                            <tr><td class="f-light f-12 ps-0">Schváleno (nevyplaceno)</td>
+                                <td class="f-w-600 txt-success">{{ number_format($approvedUnpaidMinor / 100, 0, ',', ' ') }} Kč</td></tr>
                             <tr><td class="f-light f-12 ps-0">Metoda výplaty</td><td>{{ $partner->payout_method ?? '—' }}</td></tr>
+                            <tr><td class="f-light f-12 ps-0">Výplatní údaje</td>
+                                <td>{{ $partner->payout_details_encrypted ? '●●●●●● (šifrováno)' : '—' }}</td></tr>
                             <tr><td class="f-light f-12 ps-0">Registrace</td><td class="f-12">{{ $partner->created_at?->format('d.m.Y') }}</td></tr>
                         </tbody>
                     </table>
+
+                    {{-- Referral link --}}
+                    <div class="mt-3">
+                        <label class="form-label f-12 f-light mb-1">Referral odkaz</label>
+                        <div class="input-group">
+                            <input type="text" id="admin-ref-url" class="form-control f-12"
+                                   value="{{ url('/') }}?ref={{ $partner->referral_code }}" readonly>
+                            <button class="btn btn-outline-secondary btn-sm" type="button"
+                                    onclick="navigator.clipboard.writeText(document.getElementById('admin-ref-url').value).then(()=>{this.textContent='✓'})">
+                                <i data-feather="copy" style="width:12px;height:12px;"></i>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 

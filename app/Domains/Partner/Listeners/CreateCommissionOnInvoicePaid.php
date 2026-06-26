@@ -10,6 +10,7 @@ use App\Domains\Partner\Enums\PartnerStatus;
 use App\Domains\Partner\Models\PartnerCommission;
 use App\Domains\Partner\Models\PartnerReferral;
 use App\Domains\Partner\Services\ReferralTracker;
+use App\Notifications\PartnerCommissionCreatedNotification;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -93,7 +94,7 @@ final class CreateCommissionOnInvoicePaid
 
         // Atomic insert — unique constraint on invoice_id prevents duplicates
         try {
-            PartnerCommission::create([
+            $commission = PartnerCommission::create([
                 'partner_profile_id'  => $profile->id,
                 'partner_referral_id' => $referral->id,
                 'order_id'            => $invoice->order_id,
@@ -108,6 +109,16 @@ final class CreateCommissionOnInvoicePaid
 
             // Mark referral as converted (idempotent)
             $this->tracker->markConverted($customerId);
+
+            // Notify partner via email — never block on notification failure
+            try {
+                $partnerUser = $profile->loadMissing('user')->user;
+                if ($partnerUser?->email) {
+                    $partnerUser->notify(new PartnerCommissionCreatedNotification($commission));
+                }
+            } catch (\Throwable) {
+                // Notification failure must never break the payment flow
+            }
 
         } catch (\Illuminate\Database\UniqueConstraintViolationException) {
             // Race condition or replay — silently ignore (idempotent)
