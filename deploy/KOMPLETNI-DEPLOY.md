@@ -1,47 +1,40 @@
-# OnHost.cz — Kompletní deploy průvodce
+# OnHost.cz — Kompletní Deploy Průvodce
 
 **Repozitář:** https://github.com/Stanektechcz/onhostik  
 **Branch:** `development`  
 **Server:** s2.onhost.cz  
-**PHP:** 8.2, MySQL, Apache + ISPConfig  
+**PHP:** 8.2, MySQL (OH_10_OHnew), Apache + ISPConfig  
 
 ---
 
-## Přehled architektury
+## Reálné cesty na serveru
 
-```
-GitHub repo (onhostik)
-        ↓ git clone
-/var/www/onhost/          ← JEDEN projekt pro obě domény
-├── public/               ← Document Root pro onhost.cz i admin.onhost.cz
-├── .env                  ← produkční konfigurace (z .env.production na lokálu)
-└── ...
+| Doména | ISPConfig cesta | Nový Document Root |
+|--------|----------------|--------------------|
+| `onhost.cz` | `/var/www/clients/client10/web19/web` | `/var/www/clients/client10/web19/public` |
+| `admin.onhost.cz` | `/var/www/clients/client10/web62/web` | `/var/www/clients/client10/web19/public` |
 
-onhost.cz       → /var/www/onhost/public   (veřejný web + /panel + /partner)
-admin.onhost.cz → /var/www/onhost/public   (totéž, Apache přesměruje / → /admin)
-```
+> **Klíčová informace:** Laravel se nainstaluje do `/var/www/clients/client10/web19/`
+> (rodičovská složka stránky onhost.cz). Obě domény potom budou mít Custom Document Root
+> nastaven na `/var/www/clients/client10/web19/public`.
 
 ---
 
-## ČÁST 1: ISPConfig — Weby a Apache
+## ČÁST 1: ISPConfig — Změna Document Root
 
-### 1.1 Vytvořte web onhost.cz
+### 1.1 onhost.cz — změňte Document Root
 
-ISPConfig → **Sites → Add Website**:
+ISPConfig → **Sites → Websites → onhost.cz → Edit**:
 
-| Pole | Hodnota |
-|------|---------|
-| Domain | `onhost.cz` |
-| Auto-Subdomain | `www` |
-| Document Root | `/web` (ISPConfig přidá prefix automaticky) |
-| Custom Document Root | `/var/www/onhost/public` |
-| PHP | FPM 8.2 |
-| SSL | ✓ Let's Encrypt |
-| Force SSL | ✓ |
+- Záložka **Domain**:
+  - ✅ SSL / Let's Encrypt by mělo být aktivní
+- Záložka **Options → Custom Document Root**:
+  - Změňte z: `/var/www/clients/client10/web19/web`
+  - Na: `/var/www/clients/client10/web19/public`
 
-**Options → Apache Directives** (vložte):
+**Apache Directives** (záložka Options → Apache Directives — přidejte):
 ```apache
-<Directory /var/www/onhost/public>
+<Directory /var/www/clients/client10/web19/public>
     Options -Indexes +FollowSymLinks
     AllowOverride All
     Require all granted
@@ -52,29 +45,27 @@ Header always set X-Content-Type-Options "nosniff"
 Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
 ```
 
+Klikněte **Save**.
+
 ---
 
-### 1.2 Vytvořte web admin.onhost.cz
+### 1.2 admin.onhost.cz — změňte Document Root na STEJNOU složku
 
-ISPConfig → **Sites → Add Website** (nebo Add Subdomain):
+ISPConfig → **Sites → Websites → admin.onhost.cz → Edit**:
 
-| Pole | Hodnota |
-|------|---------|
-| Domain | `admin.onhost.cz` |
-| Custom Document Root | `/var/www/onhost/public` (STEJNÁ jako onhost.cz!) |
-| PHP | FPM 8.2 |
-| SSL | ✓ Let's Encrypt |
-| Force SSL | ✓ |
+- Záložka **Options → Custom Document Root**:
+  - Změňte z: `/var/www/clients/client10/web62/web`
+  - Na: `/var/www/clients/client10/web19/public` ← **stejná jako onhost.cz!**
 
-**Options → Apache Directives** (vložte):
+**Apache Directives** (záložka Options → Apache Directives):
 ```apache
-<Directory /var/www/onhost/public>
+<Directory /var/www/clients/client10/web19/public>
     Options -Indexes +FollowSymLinks
     AllowOverride All
     Require all granted
 </Directory>
 
-# Přesměruj kořen domény na /admin
+# Přesměruj / na /admin
 RewriteEngine On
 RewriteRule ^/?$ /admin [R=302,L]
 
@@ -83,223 +74,261 @@ Header always set X-Content-Type-Options "nosniff"
 Header always set Strict-Transport-Security "max-age=31536000"
 ```
 
-> ⚠️ Pokud ISPConfig neumožní dvě domény se stejnou složkou, přidejte ServerAlias nebo
-> vytvořte admin.onhost.cz jako alias v konfiguraci onhost.cz.
+Klikněte **Save**. ISPConfig automaticky reloadne Apache.
 
 ---
 
-## ČÁST 2: Přenos .env na server
-
-Na **lokálním počítači** (ve složce projektu):
+## ČÁST 2: SSH na server a příprava složky
 
 ```bash
-# Zkopírujte produkční .env na server:
+# Přihlaste se na server:
+ssh root@s2.onhost.cz
+
+# Ověřte, že složka web19 existuje:
+ls /var/www/clients/client10/web19/
+# Měla by existovat podsložka web/, log/, ... — to jsou ISPConfig složky
+
+# Složka web/ nás už nezajímá (Laravel půjde do parent /web19/)
+# Můžeme ji nechat prázdnou nebo ji smazat:
+# rm -rf /var/www/clients/client10/web19/web/*   # volitelné
+```
+
+---
+
+## ČÁST 3: Přenos .env na server
+
+Na **lokálním počítači** (spusťte v příkazové řádce ve složce projektu):
+
+```bash
 scp .env.production root@s2.onhost.cz:/tmp/onhost-env
 ```
 
 Na **serveru**:
 ```bash
-# Vytvořte složku a přesuňte .env
-mkdir -p /var/www/onhost
-mv /tmp/onhost-env /var/www/onhost/.env
+# Přesuňte .env do cílové složky:
+mv /tmp/onhost-env /var/www/clients/client10/web19/.env
 
-# Ověřte:
-grep APP_ENV /var/www/onhost/.env    # → production
-grep APP_DEBUG /var/www/onhost/.env  # → false
-grep APP_URL /var/www/onhost/.env    # → https://onhost.cz
-grep MAIL_PORT /var/www/onhost/.env  # → 587 (NE 3306!)
-ls -la /var/www/onhost/.env          # → oprávnění jen pro www-data
+# Ověřte klíčové hodnoty:
+grep APP_ENV   /var/www/clients/client10/web19/.env  # → production
+grep APP_DEBUG /var/www/clients/client10/web19/.env  # → false
+grep APP_URL   /var/www/clients/client10/web19/.env  # → https://onhost.cz
+grep MAIL_PORT /var/www/clients/client10/web19/.env  # → 587 (NE 3306!)
+
+# .env nesmí být čitelný pro veřejnost:
+chmod 640 /var/www/clients/client10/web19/.env
+chown web19:client10 /var/www/clients/client10/web19/.env
+# (uživatel a skupina závisí na ISPConfig konfiguraci — ověřte: ls -la /var/www/clients/client10/web19/)
 ```
 
 ---
 
-## ČÁST 3: Clone z GitHubu
-
-Na **serveru**:
+## ČÁST 4: Clone z GitHubu
 
 ```bash
-# Klonujte do /var/www/onhost
-# (pokud složka již existuje s .env, použijte --separate-git-dir nebo přidejte remote do existující)
-cd /var/www
-git clone https://github.com/Stanektechcz/onhostik.git onhost-git
-cp -a onhost-git/. onhost/
-rm -rf onhost-git
+# Klonujte do rodičovské složky (NE do /web19/web/ ale do /web19/):
+cd /var/www/clients/client10
 
-# NEBO — pokud složka /var/www/onhost je prázdná (jen .env):
-cd /var/www/onhost
+# MOŽNOST A — klonovat do nové složky a pak přesunout:
+git clone https://github.com/Stanektechcz/onhostik.git onhost-tmp
+# Přesuňte obsah do web19/:
+cp -a onhost-tmp/. web19/
+rm -rf onhost-tmp
+
+# MOŽNOST B — inicializovat git přímo ve web19/:
+cd /var/www/clients/client10/web19
 git init
 git remote add origin https://github.com/Stanektechcz/onhostik.git
 git fetch origin
 git checkout development
-# .env zůstane (gitignored)
+# .env zůstane (je v .gitignore)
 
-# Ověřte branch a poslední commit:
-git branch        # → development
+# Ověřte:
+cd /var/www/clients/client10/web19
+git branch          # → development
 git log --oneline -3
+# → fb2a506 docs: complete deploy guide for s2.onhost.cz
 # → ba25bfc docs: staging-deploy-docs-update
 # → f26b155 docs: phase-24-production-env-completion-docs
+
+ls                  # → app/ bootstrap/ config/ database/ public/ resources/ routes/ vendor(nebude) .env ...
+ls public/          # → index.php .htaccess ...
 ```
 
 ---
 
-## ČÁST 4: Instalace závislostí
+## ČÁST 5: Instalace Composeru
 
 ```bash
-cd /var/www/onhost
+cd /var/www/clients/client10/web19
 
-# Composer — production mode, bez dev balíčků
+# Zjistěte PHP binary:
+which php8.2 || which php
+php8.2 --version    # musí být 8.2.x
+
+# Instalace závislostí (production mode, bez dev):
+php8.2 /usr/bin/composer install --no-dev --optimize-autoloader --no-interaction
+# nebo pokud composer je dostupný přímo:
 composer install --no-dev --optimize-autoloader --no-interaction
 
 # Ověřte:
-ls vendor/  # → složky balíčků
+ls vendor/   # → složky balíčků
 ```
-
-> PHP 8.2 a composer musí být dostupné. Zkontrolujte: `php8.2 --version` a `composer --version`
 
 ---
 
-## ČÁST 5: APP_KEY — Pozor!
+## ČÁST 6: APP_KEY — Důležité!
 
 ```bash
-# Zkontrolujte, zda APP_KEY NENÍ prázdný:
-grep APP_KEY /var/www/onhost/.env
+cd /var/www/clients/client10/web19
 
-# → Musí vypadat: APP_KEY=base64:XXXX...
+# Zkontrolujte APP_KEY:
+grep APP_KEY .env
+
+# → Musí vypadat: APP_KEY=base64:7y3PTP11...
+# → Pokud je VYPLNĚNÝ: NIC NEDĚLEJTE! APP_KEY se nesmí měnit.
 # → Pokud je PRÁZDNÝ: php artisan key:generate --force
-# → Pokud je VYPLNĚNÝ: NEZAHAJUJTE generování! APP_KEY se po prvním spuštění nesmí měnit.
 ```
+
+> ⚠️ **Kritické:** APP_KEY šifruje sessions a partner payout details.
+> Po prvním spuštění ho NIKDY nemeňte.
 
 ---
 
-## ČÁST 6: Migrace a seedery (PRVNÍ deploy = --fresh)
+## ČÁST 7: Migrace a seedery (PRVNÍ deploy)
 
 ```bash
-cd /var/www/onhost
+cd /var/www/clients/client10/web19
 
-# PRVNÍ deploy — smaže a znovu vytvoří všechny tabulky + seeduje data:
-php artisan migrate:fresh --seed --force
+# PRVNÍ deploy — --fresh smaže vše a vytvoří nové (ztratí se data!):
+php8.2 artisan migrate:fresh --seed --force
 
 # Ověřte:
-php artisan migrate:status | grep Pending  # → žádné pending
+php8.2 artisan migrate:status
+# → Všechny migrace: Ran | 0 Pending
+
+# Co se seedovalo:
+# ✅ Role: admin, customer, support, partner
+# ✅ Admin uživatel: admin@onhost.cz
+# ✅ Produkty: Webhosting, VPS, Mailhosting, Managed, Gamehosting (coming soon)
+# ✅ Mock server pro provisioning
+# ✅ Integrace (Comgate, aaPanel, WEDOS placeholders)
+# ✅ SiteContent (homepage announcement bar)
+# ✅ Blog (2 články) + KB (5 článků)
 ```
 
-Co seedery vytvoří:
-- Role a oprávnění (admin, customer, partner, support)
-- Admin uživatel `admin@onhost.cz`
-- Produktový katalog (Webhosting, VPS, Mailhosting, Managed, Gamehosting coming soon)
-- Mock server pro provisioning
-- Integrace
-- AI prompt šablony
-- SiteContent (homepage announcement)
-- Blog a KB starter obsah
-
-> Na každém dalším deployi používejte `php artisan migrate --force` (BEZ --fresh, aby se nezmazala data)
+> Pro každý příští deploy: `php8.2 artisan migrate --force` (BEZ --fresh!)
 
 ---
 
-## ČÁST 7: Storage, cache a oprávnění
+## ČÁST 8: Storage, cache a oprávnění
 
 ```bash
-cd /var/www/onhost
+cd /var/www/clients/client10/web19
 
-# Storage symlink (public/storage → storage/app/public)
-php artisan storage:link
+# Storage symlink (public/storage → storage/app/public):
+php8.2 artisan storage:link
 
-# Artisan caches
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-php artisan event:cache
+# Artisan cache:
+php8.2 artisan config:cache
+php8.2 artisan route:cache
+php8.2 artisan view:cache
+php8.2 artisan event:cache
 
-# Oprávnění — www-data musí moci zapisovat
-chown -R www-data:www-data /var/www/onhost/storage
-chown -R www-data:www-data /var/www/onhost/bootstrap/cache
-chmod -R 775 /var/www/onhost/storage
-chmod -R 775 /var/www/onhost/bootstrap/cache
+# Oprávnění — ISPConfig web user musí moci zapisovat:
+# (zjistěte správného vlastníka: ls -la /var/www/clients/client10/web19/)
+chown -R web19:client10 /var/www/clients/client10/web19/storage
+chown -R web19:client10 /var/www/clients/client10/web19/bootstrap/cache
+chmod -R 775 /var/www/clients/client10/web19/storage
+chmod -R 775 /var/www/clients/client10/web19/bootstrap/cache
 
-# Ověřte:
-ls -la public/storage       # → symlink na ../storage/app/public
-ls -la storage/logs/         # → zapisovatelné
+# Pokud PHP-FPM běží jako www-data:
+# chown -R www-data:www-data storage bootstrap/cache
+
+# Ověřte symlink:
+ls -la /var/www/clients/client10/web19/public/storage
+# → lrwxrwxrwx ... storage -> ../storage/app/public
 ```
 
 ---
 
-## ČÁST 8: Production Doctor
+## ČÁST 9: Production Doctor
 
 ```bash
-cd /var/www/onhost
-php artisan onhost:doctor --production
+cd /var/www/clients/client10/web19
+php8.2 artisan onhost:doctor --production
 ```
 
-**Akceptovatelný výsledek pro první staging deploy:**
+**Akceptovatelný výsledek pro staging deploy:**
 ```
 ✅ APP_KEY           configured (base64)
 ✅ APP_ENV           production
 ✅ APP_DEBUG=false   false
 ✅ APP_URL           https://onhost.cz
-✅ DB                připojeno, migrace OK
-✅ Storage           zapisovatelné, symlink OK
+✅ DB connection     OH_10_OHnew
+✅ migrations        all applied
+✅ Storage           writable, symlink OK
 ✅ SESSION           database, .onhost.cz, secure=true
 ✅ MAIL              smtp, info@onhost.cz, port 587
-✅ BILLING           Adrian Staněk, 08094616, Molákova 2145/5...
+✅ BILLING           Adrian Staněk, 08094616, Molákova 2145/5, Brno, 62800
 ✅ Scheduler         4 joby
 
-⚠️  PROVISIONING_MOCK_MODE=true   → záměrné (staged cutover)
+⚠️  PROVISIONING_MOCK_MODE=true   → záměrné
 ⚠️  AAPANEL_ALLOW_REAL_WRITES=false → záměrné
 ⚠️  WAPI_ALLOW_REAL_WRITES=false  → záměrné
-✗  COMGATE credentials missing    → záměrné (veřejný launch blocker)
+✗   COMGATE credentials           → záměrné (veřejný launch blocker)
 ```
 
-Pokud vidíte jiný critical error → opravte před pokračováním.
+Pokud vidíte jiné critical errors → opravte před pokračováním.
 
 ---
 
-## ČÁST 9: Supervisor — Queue Worker
+## ČÁST 10: Supervisor — Queue Worker
 
 ```bash
-# Zkopírujte konfiguraci
-cp /var/www/onhost/deploy/supervisor-queue.conf /etc/supervisor/conf.d/onhost-queue.conf
+# Zkopírujte konfiguraci:
+cp /var/www/clients/client10/web19/deploy/supervisor-queue.conf \
+   /etc/supervisor/conf.d/onhost-queue.conf
 
-# Ověřte PHP cestu (musí odpovídat serveru):
-which php8.2       # → /usr/bin/php8.2
-# Pokud je na jiné cestě, upravte /etc/supervisor/conf.d/onhost-queue.conf:
-# command=php8.2 /var/www/onhost/artisan queue:work ...
+# Ověřte PHP binary v konfig souboru:
+grep command /etc/supervisor/conf.d/onhost-queue.conf
+# Musí odpovídat: php8.2 /var/www/clients/client10/web19/artisan queue:work ...
+# Pokud cesta nesedí, upravte:
+nano /etc/supervisor/conf.d/onhost-queue.conf
+# Změňte řádek command=php8.2 /var/www/clients/client10/web19/artisan queue:work ...
 
-# Načtěte novou konfiguraci a spusťte:
+# Spusťte:
 supervisorctl reread
 supervisorctl update
 supervisorctl start "onhost-queue:*"
 
-# Ověřte — oba procesy musí být RUNNING:
+# Ověřte:
 supervisorctl status
-# → onhost-queue:onhost-queue_00   RUNNING   pid XXXX
-# → onhost-queue:onhost-queue_01   RUNNING   pid XXXX
+# → onhost-queue:onhost-queue_00   RUNNING   pid XXXXX, uptime 0:00:XX
+# → onhost-queue:onhost-queue_01   RUNNING   pid XXXXX, uptime 0:00:XX
 ```
-
-Co worker zpracovává:
-- Provisioning webhostingu a VPS
-- Registrace domén
-- Suspend/unsuspend služeb
-- Obecné queue joby
 
 ---
 
-## ČÁST 10: Cron — Scheduler
+## ČÁST 11: Cron — Scheduler
 
 ```bash
-# Metoda A — /etc/cron.d/ (doporučeno):
-cp /var/www/onhost/deploy/cron.txt /etc/cron.d/onhost
+# Metoda A — /etc/cron.d/:
+cp /var/www/clients/client10/web19/deploy/cron.txt /etc/cron.d/onhost
 chmod 644 /etc/cron.d/onhost
-cat /etc/cron.d/onhost
-# → * * * * * www-data cd /var/www/onhost && php8.2 artisan schedule:run >> /dev/null 2>&1
 
-# Metoda B — crontab pro www-data:
+# Upravte cron.txt na správnou cestu (pokud se liší):
+nano /etc/cron.d/onhost
+# Řádek musí být:
+# * * * * * www-data cd /var/www/clients/client10/web19 && php8.2 artisan schedule:run >> /dev/null 2>&1
+
+# NEBO Metoda B — přidejte ručně do crontabu:
 crontab -u www-data -e
-# Přidejte řádek:
-* * * * * cd /var/www/onhost && php8.2 artisan schedule:run >> /dev/null 2>&1
+# Přidejte:
+* * * * * cd /var/www/clients/client10/web19 && php8.2 artisan schedule:run >> /dev/null 2>&1
 
 # Ověřte registrované joby:
-php artisan schedule:list
+cd /var/www/clients/client10/web19
+php8.2 artisan schedule:list
 # → billing:create-renewals   00:30 daily
 # → billing:mark-overdue      01:00 daily
 # → billing:suspend-overdue   01:15 daily
@@ -308,40 +337,40 @@ php artisan schedule:list
 
 ---
 
-## ČÁST 11: Smoke Test — Základní ověření
+## ČÁST 12: Smoke Test
 
 ```bash
-# Health endpoint:
+# Health check:
 curl -I https://onhost.cz/up
 # → HTTP/2 200
 
-# Hlavní stránky:
-for url in / /webhosting /vps /mailhosting /managed-hosting /domeny /gamehosting /login /register /blog /znalostni-baze; do
-    CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://onhost.cz$url" --max-time 10 -L)
+# Veřejné stránky:
+for url in / /webhosting /vps /mailhosting /managed-hosting /gamehosting /login /blog; do
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://onhost.cz$url" -L --max-time 10)
     echo "$CODE https://onhost.cz$url"
 done
-# → všechny musí být 200
+# → Všechno 200
 
-# Admin redirect:
+# Admin subdoména redirect:
 curl -I https://admin.onhost.cz/
-# → 302 Location: https://admin.onhost.cz/admin
+# → HTTP/2 302   Location: https://admin.onhost.cz/admin
+curl -I https://admin.onhost.cz/admin
+# → HTTP/2 200 nebo 302 (redirect na login)
 
-# Admin přihlášení v prohlížeči:
-# https://onhost.cz/admin
-# Email: admin@onhost.cz
-# Heslo: (z .env.production ADMIN_PASSWORD)
+# V prohlížeči:
+# https://onhost.cz/admin → login stránka
+# https://admin.onhost.cz → redirect na /admin → login stránka
 ```
 
 ---
 
-## ČÁST 12: SMTP Live Test
+## ČÁST 13: SMTP Live Test
 
 ```bash
-cd /var/www/onhost
-php artisan tinker
+cd /var/www/clients/client10/web19
+php8.2 artisan tinker
 ```
 
-V tinker konzoli:
 ```php
 \Illuminate\Support\Facades\Mail::raw(
     'Onhost.cz SMTP test - ' . now(),
@@ -350,27 +379,25 @@ V tinker konzoli:
 exit;
 ```
 
-Ověřte:
-- Žádná exception v tinker
-- `tail -f /var/www/onhost/storage/logs/laravel.log` nevypisuje SMTP error
+Zkontrolujte:
+- Žádná exception v konzoli
+- `tail /var/www/clients/client10/web19/storage/logs/laravel.log` — bez SMTP erroru
 - E-mail dorazil na info@onhost.cz
 
 ---
 
-## ČÁST 13: E2E Mock Billing Test
+## ČÁST 14: E2E Mock Billing Test
 
 ```bash
-cd /var/www/onhost
-php artisan tinker
+cd /var/www/clients/client10/web19
+php8.2 artisan tinker
 ```
 
-V tinker konzoli:
 ```php
-// Admin user jako zákazník
 $user = App\Models\User::where('email', 'admin@onhost.cz')->first();
 $customer = $user->customer;
 
-// Přidej billing adresu pokud ještě není
+// Přidej billing adresu (pokud ještě není — seeder ji přidal, ale pro jistotu):
 if (!$customer->billingAddress()) {
     App\Domains\Customer\Models\CustomerAddress::create([
         'customer_id' => $customer->id, 'type' => 'billing',
@@ -380,151 +407,170 @@ if (!$customer->billingAddress()) {
     $customer->update(['type' => 'company', 'company_name' => 'Adrian Staněk', 'registration_number' => '08094616']);
 }
 
-// Order → Proforma → Mock payment
-$plan = App\Domains\Products\Models\PricingPlan::whereHas('product',
-    fn($q) => $q->where('slug', 'webhosting')
-)->where('is_active', true)->first();
-
+$plan    = App\Domains\Products\Models\PricingPlan::whereHas('product', fn($q) => $q->where('slug','webhosting'))->where('is_active',true)->first();
 $order   = app(App\Domains\Billing\Actions\CreateOrderAction::class)->execute($customer, $plan, []);
 $invoice = app(App\Domains\Billing\Actions\IssueProformaInvoiceAction::class)->execute($order);
 $payment = app(App\Domains\Billing\Actions\ProcessMockPaymentAction::class)->execute($invoice);
 $invoice->refresh();
 
-echo "Payment: " . $payment->status->value . "\n";         // → completed
-echo "Invoice: " . $invoice->status->value . " " . $invoice->number . "\n"; // → paid CZ-2026-000001
+echo "Payment: "  . $payment->status->value . "\n";  // → completed
+echo "Invoice: "  . $invoice->status->value . " " . $invoice->number . "\n";  // → paid CZ-2026-000001
 
-// Tax document
 $taxDoc = app(App\Domains\Billing\Actions\IssueTaxDocumentAction::class)->execute($invoice);
-echo "Tax doc: " . $taxDoc->number . "\n";                 // → CZ-2026-000002
+echo "Tax doc: "  . $taxDoc->number . "\n";  // → CZ-2026-000002
 
 exit;
 ```
 
-Pak ve frontě zpracujte provisioning job:
+Zpracujte provisioning job:
 ```bash
-php artisan queue:work --stop-when-empty --max-jobs=5
-php artisan queue:work --stop-when-empty --max-jobs=5  # druhé kolo pro CheckProxmoxTask
+php8.2 artisan queue:work --stop-when-empty --max-jobs=10
 ```
 
-Ověřte v admin panelu:
-- `https://onhost.cz/admin/objednavky` — objednávka existuje
-- `https://onhost.cz/admin/faktury` — faktura + daňový doklad
-- `https://onhost.cz/admin/sluzby` — služba Active (MOCK-AAP-*)
+Ověřte v adminu:
+- https://onhost.cz/admin/objednavky → objednávka existuje
+- https://onhost.cz/admin/faktury → faktura + daňový doklad
+- https://onhost.cz/admin/sluzby → služba Active (MOCK-AAP-...)
 
 ---
 
-## ČÁST 14: Post-Deploy Security (NUTNÉ!)
+## ČÁST 15: Post-Deploy Security (POVINNÉ!)
 
 ```bash
-# 1. Změňte admin heslo — přihlaste se a jděte na:
-# https://onhost.cz/admin → "Zapomenuté heslo" nebo přes nastavení
+# 1. Změňte admin heslo — přihlaste se na https://onhost.cz/admin
+#    → "Zapomenuté heslo" nebo Nastavení → Změna hesla
 
 # 2. Rotujte SMTP heslo (bylo sdíleno přes chat):
-# ISPConfig → Email → Mailboxes → info@onhost.cz → Change password
-# Pak aktualizujte MAIL_PASSWORD v /var/www/onhost/.env:
-nano /var/www/onhost/.env    # nebo vim, nebo sed
+#    ISPConfig → Email → Mailboxes → info@onhost.cz → Change password
+#    Pak aktualizujte .env na serveru:
+nano /var/www/clients/client10/web19/.env
+# Změňte řádek: MAIL_PASSWORD="nové-heslo"
 
-# 3. Po změně .env znovu cachujte config:
-cd /var/www/onhost
-php artisan config:cache
+# 3. Smažte ADMIN_PASSWORD ze .env (bezpečnost):
+#    Smažte řádek ADMIN_PASSWORD=... z .env
 
-# 4. Smažte ADMIN_PASSWORD ze .env (není potřeba po vytvoření admina):
-# V /var/www/onhost/.env smažte řádek ADMIN_PASSWORD=...
-php artisan config:cache
+# 4. Po úpravě .env znovu cachujte:
+cd /var/www/clients/client10/web19
+php8.2 artisan config:cache
 ```
 
 ---
 
-## ČÁST 15: Budoucí deploye (ne --fresh!)
+## ČÁST 16: Budoucí deploye (aktualizace)
 
-Pro každý příští deploy (po prvním):
+Při každé další aktualizaci kódu — **BEZ `--fresh`!**:
 
 ```bash
-cd /var/www/onhost
+cd /var/www/clients/client10/web19
 
 git pull origin development
 
 composer install --no-dev --optimize-autoloader --no-interaction
 
-php artisan migrate --force          # BEZ --fresh! Data se zachovají
+php8.2 artisan migrate --force        # BEZ --fresh! Data se zachovají.
 
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-php artisan event:cache
+php8.2 artisan config:cache
+php8.2 artisan route:cache
+php8.2 artisan view:cache
+php8.2 artisan event:cache
 
-chown -R www-data:www-data storage bootstrap/cache
+chown -R web19:client10 storage bootstrap/cache
 
 supervisorctl restart "onhost-queue:*"
 
-php artisan onhost:doctor --production
+php8.2 artisan onhost:doctor --production
 ```
 
 ---
 
-## ČÁST 16: Staged Cutover (po prvním testování)
-
-| Krok | Akce | Kdy |
-|------|------|-----|
-| 1 | SMTP heslo rotace | Okamžitě po deployi |
-| 2 | Admin heslo změna | Okamžitě po prvním loginu |
-| 3 | WEDOS WAPI test | Po ověření availability check |
-| 4 | aaPanel server přidání | V adminu → /admin/servery |
-| 5 | Comgate sandbox | Po aktivaci merchant účtu |
-| 6 | `COMGATE_TEST_MODE=false` | Po úspěšném sandbox testu |
-| 7 | `AAPANEL_ALLOW_REAL_WRITES=true` | Po Connection Test v adminu |
-| 8 | `PROVISIONING_MOCK_MODE=false` | Po ověření aaPanel provisioning |
-| 9 | Marketing launch | Po Comgate + právní kontrole |
-
----
-
-## GO/NO-GO
-
-| Tier | Podmínky |
-|------|---------|
-| ✅ **Technický staging** | Části 1–11 splněny, doctor OK |
-| ✅ **Neveřejný staging** | + SMTP test + E2E billing test |
-| ❌ **Veřejný launch** | + Comgate credentials + právní kontrola |
-
----
-
-## Checklist
+## ČÁST 17: Staged Cutover (po staging testování)
 
 ```
-[ ] ISPConfig: onhost.cz vytvořen, doc root = /var/www/onhost/public
-[ ] ISPConfig: admin.onhost.cz vytvořen, doc root = /var/www/onhost/public
+[ ] SMTP heslo rotace          → okamžitě po deployi
+[ ] Admin heslo změna          → okamžitě po prvním loginu
+[ ] ADMIN_PASSWORD ze .env     → smazat po vytvoření admina
+[ ] Comgate sandbox test       → po aktivaci merchant účtu na portal.comgate.cz
+[ ] COMGATE_TEST_MODE=false    → po úspěšném sandbox testu
+[ ] aaPanel server přidání     → adminu → /admin/servery → Test connection
+[ ] AAPANEL_ALLOW_REAL_WRITES  → true, až po Connection Test
+[ ] PROVISIONING_MOCK_MODE     → false, až po ověření aaPanel
+[ ] WEDOS WAPI ověření         → test availability check na reálnou doménu
+[ ] WAPI_ALLOW_REAL_WRITES     → true, až po ověření
+[ ] Právní kontrola            → docs/LEGAL-REVIEW-CHECKLIST.md
+[ ] Marketing launch           → announce, start provozu
+```
+
+---
+
+## Kompletní checklist
+
+```
+ISPConfig:
+[ ] onhost.cz Custom Doc Root = /var/www/clients/client10/web19/public
+[ ] admin.onhost.cz Custom Doc Root = /var/www/clients/client10/web19/public
 [ ] SSL certifikáty aktivní na obou doménách
-[ ] .env přenesen na server (ne v gitu!)
-[ ] git clone z https://github.com/Stanektechcz/onhostik branch development
+[ ] Apache Directives vloženy pro obě domény
+
+Server:
+[ ] .env přenesen na /var/www/clients/client10/web19/.env
+[ ] git clone z github.com/Stanektechcz/onhostik branch development
 [ ] composer install --no-dev
-[ ] APP_KEY zachován (ne regenerován)
-[ ] migrate:fresh --seed proběhlo
+[ ] APP_KEY je zachován (neprázdný, nezměněný)
+[ ] migrate:fresh --seed --force (první deploy)
 [ ] storage:link
 [ ] config/route/view/event cache
-[ ] Oprávnění www-data na storage + bootstrap/cache
-[ ] onhost:doctor --production → 0 neočekávaných critical
+[ ] Oprávnění storage + bootstrap/cache (web19:client10 nebo www-data)
+[ ] onhost:doctor --production → pouze záměrné warningy
+
+Services:
 [ ] Supervisor: onhost-queue RUNNING (2 procesy)
 [ ] Cron: schedule:run každou minutu
+
+Testy:
 [ ] curl https://onhost.cz/up → 200
+[ ] Smoke test veřejných stránek → všechny 200
 [ ] Admin přihlášení funguje
-[ ] Admin heslo ZMĚNĚNO
-[ ] SMTP test proběhl (e-mail dorazil)
-[ ] SMTP heslo ROTOVÁNO
-[ ] E2E mock billing test proběhl
+[ ] SMTP test → e-mail dorazil
+[ ] E2E mock billing → payment + tax doc
+
+Security:
+[ ] Admin heslo ZMĚNĚNO po prvním loginu
+[ ] SMTP heslo ROTOVÁNO v ISPConfig
 [ ] ADMIN_PASSWORD odstraněno ze .env
+[ ] php8.2 artisan config:cache po úpravě .env
 ```
 
 ---
 
-## Důležité soubory
+## Důležité cesty
 
-| Soubor | Popis |
-|--------|-------|
-| `.env.production` | Produkční env (lokálně, nikdy do gitu) |
-| `deploy/supervisor-queue.conf` | Queue worker konfigurece |
-| `deploy/cron.txt` | Cron řádek pro scheduler |
-| `deploy/apache-onhost.cz.conf` | Apache vhost pro přímé nasazení bez ISPConfig |
-| `deploy/apache-admin.onhost.cz.conf` | Apache vhost admin subdomény |
-| `docs/PRODUCTION-BLOCKERS.md` | Zbývající blockery |
-| `docs/COMGATE-CUTOVER.md` | Průvodce Comgate integrací |
-| `docs/LEGAL-REVIEW-CHECKLIST.md` | Právní kontrola |
+| Soubor/složka | Cesta na serveru |
+|---------------|-----------------|
+| Laravel projekt | `/var/www/clients/client10/web19/` |
+| Document Root (obě domény) | `/var/www/clients/client10/web19/public` |
+| Produkční .env | `/var/www/clients/client10/web19/.env` |
+| Laravel logy | `/var/www/clients/client10/web19/storage/logs/laravel.log` |
+| Supervisor config | `/etc/supervisor/conf.d/onhost-queue.conf` |
+| Cron | `/etc/cron.d/onhost` |
+
+---
+
+## Klíčové příkazy rychlého přehledu
+
+```bash
+# Všechno najednou — ruční fallback bez deploy.sh:
+APP=/var/www/clients/client10/web19
+cd $APP
+
+composer install --no-dev --optimize-autoloader
+php8.2 artisan migrate:fresh --seed --force    # jen první deploy!
+php8.2 artisan storage:link
+php8.2 artisan config:cache
+php8.2 artisan route:cache
+php8.2 artisan view:cache
+php8.2 artisan event:cache
+chown -R web19:client10 storage bootstrap/cache
+chmod -R 775 storage bootstrap/cache
+supervisorctl reread && supervisorctl update && supervisorctl start "onhost-queue:*"
+php8.2 artisan onhost:doctor --production
+```
