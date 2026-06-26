@@ -17,6 +17,8 @@ class DatabaseSeeder extends Seeder
             MockServerSeeder::class,
             IntegrationSeeder::class,
             AiPromptTemplateSeeder::class,
+            SiteContentSeeder::class,
+            BlogKbContentSeeder::class,
         ]);
     }
 }

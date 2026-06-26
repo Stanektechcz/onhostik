@@ -4,6 +4,23 @@
 @section('meta_description', 'Webhosting, domény a cloud hosting v ČR. Rychlé NVMe servery, SSL zdarma, denní zálohy a AI asistent. Moderní hosting s férovými cenami.')
 
 @section('content')
+    {{-- ============ ANNOUNCEMENT BAR (editable via /admin/obsah) ============ --}}
+    @php($announcementActive = \App\Models\SiteContent::get('homepage.announcement.active', '0'))
+    @if($announcementActive === '1')
+        @php($announcementText = \App\Models\SiteContent::get('homepage.announcement.text'))
+        @php($announcementLink = \App\Models\SiteContent::get('homepage.announcement.link', '#'))
+        @if($announcementText)
+            <div class="announcement-bar bg-purple text-white text-center py-2 px-3" style="font-size:.9rem;">
+                <i class="fas fa-bolt me-1"></i>
+                @if($announcementLink && $announcementLink !== '#')
+                    <a href="{{ $announcementLink }}" class="text-white text-decoration-underline">{{ $announcementText }}</a>
+                @else
+                    {{ $announcementText }}
+                @endif
+            </div>
+        @endif
+    @endif
+
     {{-- ============ HERO ============ --}}
     <section class="top-header sec-bg6 pb-150 bg-colorstyle">
         <div class="container">

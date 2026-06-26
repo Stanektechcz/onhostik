@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Database\Seeders;
 
 use App\Domains\Customer\Models\Customer;
+use App\Domains\Customer\Models\CustomerAddress;
 use App\Domains\Partner\Models\PartnerProfile;
 use App\Models\User;
 use Illuminate\Database\Seeder;
@@ -43,14 +44,28 @@ class AdminUserSeeder extends Seeder
         }
 
         // Ensure admin also has a customer profile for /panel access
-        Customer::firstOrCreate(
+        $customer = Customer::firstOrCreate(
             ['user_id' => $user->id],
             [
-                'type'               => 'individual',
-                'email'              => $user->email,
-                'preferred_currency' => 'CZK',
-                'preferred_locale'   => 'cs',
-                'country_code'       => 'CZ',
+                'type'                => 'company',
+                'email'               => $user->email,
+                'company_name'        => 'Onhost.cz s.r.o.',
+                'registration_number' => '08094616',
+                'preferred_currency'  => 'CZK',
+                'preferred_locale'    => 'cs',
+                'country_code'        => 'CZ',
+            ],
+        );
+
+        // Billing address — required for tax documents (IssueTaxDocumentAction)
+        CustomerAddress::firstOrCreate(
+            ['customer_id' => $customer->id, 'type' => 'billing'],
+            [
+                'street'      => 'Testovací ulice 1',
+                'city'        => 'Praha',
+                'zip'         => '11000',
+                'country_code' => 'CZ',
+                'is_primary'  => true,
             ],
         );
     }

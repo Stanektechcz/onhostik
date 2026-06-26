@@ -86,6 +86,32 @@
             </div>
         </div>
 
+        {{-- Pending/activating banner for VPS and other provisioning-heavy services --}}
+        @if($service->status->value === 'pending')
+            @php
+                $isVps = $service->provisioning_driver?->value === 'proxmox';
+                $latestTask = $service->provisioningTasks->first();
+            @endphp
+            <div class="alert alert-light-warning d-flex align-items-center gap-3 mb-3">
+                <i data-feather="loader" style="width:20px;height:20px;" class="txt-warning flex-shrink-0"></i>
+                <div>
+                    <span class="f-w-600">Služba se aktivuje</span>
+                    <p class="mb-0 f-14 f-light">
+                        {{ $isVps
+                            ? 'VPS server se provisionuje — klonování a konfigurace může trvat 2–5 minut.'
+                            : 'Hosting se zřizuje. Obvykle to trvá méně než minutu.' }}
+                        Stránku obnovte za chvíli.
+                        @if($latestTask)
+                            <span class="f-12 text-muted ms-2">
+                                ({{ $latestTask->operation }}: {{ $latestTask->status->label() }}
+                                @if($latestTask->attempts) · {{ $latestTask->attempts }}/{{ $latestTask->max_attempts }} @endif)
+                            </span>
+                        @endif
+                    </p>
+                </div>
+            </div>
+        @endif
+
         <div class="row">
             <div class="col-xl-4">
                 {{-- Service info --}}

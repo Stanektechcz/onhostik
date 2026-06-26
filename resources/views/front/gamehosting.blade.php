@@ -63,7 +63,28 @@
                 </div>
                 <p class="seccolor f-14 mt-4 text-center pb-5">{{ __('front.pricing.vat_note') }}</p>
             @else
-                <p class="seccolor">{{ __('front.pages.placeholder_note') }}</p>
+                {{-- Gamehosting připravujeme — Pterodactyl driver není ještě k dispozici --}}
+                <div class="text-center py-5">
+                    <div class="plans badge feat bg-purple d-inline-block mb-4" style="font-size:1rem;padding:.5rem 1.5rem;">
+                        Připravujeme
+                    </div>
+                    <h2 class="mergecolor mb-3">Gamehosting brzy spustíme</h2>
+                    <p class="seccolor mb-4" style="max-width:560px;margin:0 auto;">
+                        Herní servery s Pterodactyl panelem jsou ve vývoji. Přihlaste se k odběru nebo nás kontaktujte
+                        — jakmile spustíme, dáme vám vědět jako prvním.
+                    </p>
+                    <div class="d-flex justify-content-center gap-3 flex-wrap">
+                        <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">
+                            Chci být informován
+                        </a>
+                        <a href="{{ route('front.vps') }}" class="btn btn-default-yellow-outline">
+                            Prohlédnout VPS servery
+                        </a>
+                        <a href="{{ route('front.webhosting') }}" class="btn btn-default-yellow-outline">
+                            Webhosting
+                        </a>
+                    </div>
+                </div>
             @endif
         </div>
     </section>
@@ -115,7 +136,7 @@
                             <h2 class="fw-bold mb-3 mergecolor">Pterodactyl — moderní herní panel</h2>
                             <p class="seccolor">Webový panel pro správu serveru, instalaci modifikací, sledování výkonu a konzolový přístup v reálném čase. Funguje na mobilu i desktopu.</p>
                         </div>
-                        <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill mt-3">Spustit server</a>
+                        <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill mt-3">Více informací</a>
                     </div>
                     <div class="col-md-12 col-lg-5 offset-lg-1 mt-4 mt-lg-0 text-center">
                         <i class="icon-speed purple" style="font-size:100px;opacity:.8"></i>
