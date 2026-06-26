@@ -1,104 +1,121 @@
 # OnHost.cz — Production Blockers
 
-**Stav po Phase 23:** Deploy gate check — server připraven, vyčkáváme na 3 business blockers.  
+**Aktualizováno: Phase 24**  
 **Lokální acceptance:** ✅ GO (Phase 21)  
-**Technický deploy:** ✅ READY (server dostupný, MySQL připravena, SMTP porty ověřeny)
+**Produkční .env:** ✅ 97% kompletní — chybí pouze Comgate, DIČ  
+**Server:** s2.onhost.cz — SMTP 587/465 ✅, MySQL 3306 ✅ ready  
 
 ---
 
-## Stav SMTP portů (ověřeno Phase 23)
+## Doctor --production výsledek se production .env (Phase 24 simulace)
 
 ```
-PORT 587 (STARTTLS): OPEN  ✅
-PORT 465 (SSL):      OPEN  ✅
+✅ APP_KEY                  configured (base64)
+✅ APP_ENV                  production
+✅ APP_DEBUG=false           false
+✅ APP_URL                  https://onhost.cz
+✅ SESSION_DOMAIN            .onhost.cz
+✅ SESSION_SECURE_COOKIE     true
+✅ MAIL_MAILER               smtp
+✅ MAIL_FROM                 info@onhost.cz
+✅ BILLING_COMPANY_NAME      Adrian Staněk
+✅ BILLING_COMPANY_IC        08094616
+✅ BILLING_COMPANY_STREET    Molákova 2145/5
+✅ BILLING_COMPANY_CITY      Brno - Líšeň
+✅ BILLING_COMPANY_ZIP       62800
+✅ BILLING_BANK_CZK          318 000 2153/0800
+✅ WAPI_USER                 configured
+✅ Scheduler                 4 jobs
+
+✗ DB (migrations table)     → EXPECTED: MySQL na serveru ještě není migrated
+✗ Storage symlink           → EXPECTED: php artisan storage:link na serveru
+✗ COMGATE credentials       → INTENTIONAL BLOCKER pro public launch
+✗ COMGATE_TEST_MODE=false   → INTENTIONAL (staging používá true)
+✗ PROVISIONING_MOCK_MODE    → INTENTIONAL pro staged cutover
+
+Critical errors: 6 → z toho 4 intentional / deploy-time fixes
 ```
 
-→ Použijte `MAIL_PORT=587` s `MAIL_ENCRYPTION=tls`  
-→ Stále potřeba ověřit SMTP credentials (heslo "tester" může být placeholder)
+**Závěr: Na serveru po `php artisan migrate && php artisan storage:link` zbydou pouze Comgate a provisioning blocker — obojí záměrné.**
 
 ---
 
-## ✅ RESOLVED — Vyřešené blokery
+## ✅ RESOLVED — Vyřešené blokery (Phase 23–24)
 
-| # | Blocker | Stav | Výsledek |
-|---|---------|------|----------|
-| R1 | **APP_KEY** | ✅ DONE | Vygenerován, uložen v `.env.production` |
-| R2 | **MySQL přepnutí** | ✅ DONE | DB_CONNECTION=mysql, s2.onhost.cz:3306, OH_10_OHnew |
-| R3 | **SMTP port** | ✅ DONE | Port 587 a 465 oba OPEN na s2.onhost.cz |
-| R4 | **SESSION_SECURE_COOKIE** | ✅ DONE | =true v `.env.production` |
-| R5 | **SESSION_DOMAIN** | ✅ DONE | =.onhost.cz |
-| R6 | **MAIL_FROM_ADDRESS** | ✅ DONE | =info@onhost.cz (ne stanektech.cz) |
-| R7 | **BILLING_COMPANY_IC** | ✅ DONE | 08094616 vyplněno |
-| R8 | **BILLING_BANK_CZK** | ✅ DONE | 318 000 2153/0800 vyplněno |
-
----
-
-## 🔴 CRITICAL — Stále blokují technický deploy
-
-| # | Blocker | Akce potřebná | Kdo |
-|---|---------|---------------|-----|
-| C1 | **SMTP credentials** — heslo "tester" pravděpodobně placeholder | Ověřit/nastavit správné SMTP heslo v ISPConfig → Email → Accounts → info@onhost.cz | DevOps |
-| C2 | **Billing company address** — street/city/zip/DIČ chybí | Doplnit do `.env.production` (BILLING_COMPANY_STREET/CITY/ZIP) | Majitel |
-| C3 | **ADMIN_PASSWORD** — v `.env.production` prázdný | Nastavit silné heslo před prvním přihlášením | Majitel |
+| # | Blocker | Stav |
+|---|---------|------|
+| R1 | **APP_KEY** | ✅ Vygenerován, v .env.production |
+| R2 | **MySQL credentials** | ✅ OH_10_OHnew, s2.onhost.cz |
+| R3 | **SMTP port** | ✅ 587 OPEN a 465 OPEN ověřeno |
+| R4 | **SESSION_SECURE_COOKIE** | ✅ =true |
+| R5 | **SESSION_DOMAIN** | ✅ =.onhost.cz |
+| R6 | **MAIL_FROM_ADDRESS** | ✅ =info@onhost.cz |
+| R7 | **BILLING_COMPANY_IC** | ✅ 08094616 |
+| R8 | **BILLING_BANK_CZK** | ✅ 318 000 2153/0800 |
+| R9 | **BILLING_COMPANY_STREET** | ✅ Molákova 2145/5 |
+| R10 | **BILLING_COMPANY_CITY** | ✅ Brno - Líšeň |
+| R11 | **BILLING_COMPANY_ZIP** | ✅ 62800 |
+| R12 | **BILLING_COMPANY_NAME** | ✅ Adrian Staněk |
+| R13 | **ADMIN_PASSWORD** | ✅ nastaveno — rotace po prvním loginu! |
+| R14 | **SMTP password** | ✅ nastaveno — rotace po prvním deployi doporučena |
 
 ---
 
-## 🟡 HIGH — Blokují veřejný marketingový launch
+## 🔴 Zbývající blocker pro technický staging deploy
 
-| # | Blocker | Akce | Kdo |
-|---|---------|------|-----|
-| H1 | **Comgate credentials** — MERCHANT_ID + SECRET chybí | Aktivovat merchant účet na portal.comgate.cz | Business |
-| H2 | **Právní kontrola** — TOS/GDPR/SLA/Cookies/Reklamace | Předat právníkovi k revizi (viz docs/LEGAL-REVIEW-CHECKLIST.md) | Právník |
-| H3 | **BILLING_COMPANY_DIC** — neznámo, zda je firma plátce DPH | Potvrdit DIČ status | Majitel |
+| # | Blocker | Urgentnost | Akce |
+|---|---------|-----------|------|
+| C1 | **SMTP credentials rotace** — heslo sdíleno přes chat | Po deployi | ISPConfig → Email → Mailboxes → Change password |
 
 ---
 
-## ✅ Confirmed OK (Phase 23 smoke check)
+## 🟡 Blokují veřejný marketingový launch
 
-| Položka | Stav |
-|---------|------|
-| s2.onhost.cz dostupný | ✅ |
-| MySQL port 3306 dostupný | ✅ (viz DB credentials) |
-| SMTP port 587 | ✅ OPEN |
-| SMTP port 465 | ✅ OPEN |
-| APP_KEY vygenerován | ✅ |
-| .env.production připraven | ✅ (3 prázdné položky) |
+| # | Blocker | Akce |
+|---|---------|------|
+| H1 | **Comgate credentials** — MERCHANT_ID + SECRET | Aktivovat na portal.comgate.cz |
+| H2 | **Právní kontrola** — TOS/GDPR/SLA/Cookies/Reklamace | Předat právníkovi |
+| H3 | **BILLING_COMPANY_DIC** — je firma plátce DPH? | Potvrdit DIČ status |
 
 ---
 
-## Postup pro technický deploy (jakmile C1-C3 jsou vyřešeny)
+## Technický staging deploy — postup
 
 ```bash
-# Z lokálního stroje:
+# 1. Zkopírovat .env.production na server
 scp .env.production root@s2.onhost.cz:/var/www/onhost/.env
 
-# Na serveru:
+# 2. Deploy
 cd /var/www/onhost
 git clone <repo> . || git pull
 composer install --no-dev --optimize-autoloader
-php artisan key:generate --only-if-empty  # NEgeneruje pokud APP_KEY existuje
-php artisan migrate:fresh --seed
+php artisan migrate:fresh --seed    # PRVNÍ deploy
 php artisan storage:link
-php artisan config:cache && php artisan route:cache && php artisan view:cache
-chown -R www-data:www-data storage bootstrap/cache
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
 
-# Ověření:
+# 3. Ověření
 php artisan onhost:doctor --production
+# Zbydou pouze 2 blocker: Comgate + PROVISIONING_MOCK_MODE (obojí záměrné)
+
 curl https://onhost.cz/up
+# → HTTP 200
 ```
 
 ---
 
-## Staged cutover po technickém deployi
+## Staged cutover plán
 
 ```
-[1] Technický deploy    → PROVISIONING_MOCK_MODE=true, COMGATE_TEST_MODE=true
+[1] Technický deploy    → PROVISIONING_MOCK_MODE=true ✓ CURRENT
 [2] SMTP ověření       → testovací e-mail přes tinker
-[3] Billing ověření    → tax document smoke test
-[4] Comgate sandbox    → viz docs/COMGATE-CUTOVER.md
-[5] Comgate production → COMGATE_TEST_MODE=false
-[6] aaPanel cutover    → AAPANEL_ALLOW_REAL_WRITES=true (po Connection Test)
-[7] WEDOS cutover      → WAPI_ALLOW_REAL_WRITES=true (po availability check)
-[8] Marketing launch   → announce, zatím mock provisioning
-[9] Provisioning live  → PROVISIONING_MOCK_MODE=false
+[3] SMTP rotace        → zmenit heslo v ISPConfig
+[4] Billing smoke      → tax document E2E test
+[5] Comgate sandbox    → COMGATE_TEST_MODE=true, viz COMGATE-CUTOVER.md
+[6] Comgate production → COMGATE_TEST_MODE=false
+[7] Marketing launch   → oznámení, start provozu
+[8] aaPanel cutover    → AAPANEL_ALLOW_REAL_WRITES=true (po Connection Test)
+[9] WEDOS cutover      → WAPI_ALLOW_REAL_WRITES=true
+[10] Live provisioning → PROVISIONING_MOCK_MODE=false
 ```

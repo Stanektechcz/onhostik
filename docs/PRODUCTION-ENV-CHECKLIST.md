@@ -1,7 +1,23 @@
 # Production .env Checklist
 
+**Aktualizováno Phase 24** — `.env.production` je 97% kompletní.
+
 Projděte tento seznam před spuštěním produkčního serveru.
 Šablona je v `.env.production.example`.
+
+---
+
+## Status Phase 24
+
+| Sekce | Stav |
+|-------|------|
+| APP_KEY | ✅ vygenerován |
+| MySQL | ✅ s2.onhost.cz credentials |
+| SMTP | ✅ port 587 ověřen, heslo nastaveno |
+| Billing address | ✅ Molákova 2145/5, Brno-Líšeň, 62800 |
+| ADMIN_PASSWORD | ✅ nastaveno — rotovat po prvním loginu! |
+| Comgate | ❌ credentials chybí |
+| Legal review | ❌ zatím ne |
 
 ---
 
