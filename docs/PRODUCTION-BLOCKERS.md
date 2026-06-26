@@ -1,61 +1,104 @@
 # OnHost.cz — Production Blockers
 
-**Stav:** Systém lokálně schválen (Phase 21). Tento dokument sleduje zbývající blokery před produkčním deployem.
+**Stav po Phase 23:** Deploy gate check — server připraven, vyčkáváme na 3 business blockers.  
+**Lokální acceptance:** ✅ GO (Phase 21)  
+**Technický deploy:** ✅ READY (server dostupný, MySQL připravena, SMTP porty ověřeny)
 
 ---
 
-## 🔴 CRITICAL — Deployment nelze provést bez těchto hodnot
+## Stav SMTP portů (ověřeno Phase 23)
 
-| # | Blocker | Akce | Kdo zajistí | Ověření |
-|---|---------|------|-------------|---------|
-| C1 | **APP_KEY** — musí být nastavený před prvním startem | `php artisan key:generate --show` → vložit do `.env` | DevOps | `php artisan onhost:doctor --production` |
-| C2 | **Comgate credentials** — COMGATE_MERCHANT_ID + COMGATE_SECRET | Aktivovat merchant účet na https://portal.comgate.cz/ | Business | Test sandbox platby → přepnout COMGATE_TEST_MODE=false |
-| C3 | **MySQL přepnutí** — DB_CONNECTION=mysql | Vyplnit DB_* do `.env` na serveru | DevOps | `php artisan migrate:status` na serveru |
-| C4 | **APP_KEY NIKDY neměnit po spuštění** | Uložit APP_KEY do password manageru | DevOps | Encrypted payout details + sessions by se zneplatily |
+```
+PORT 587 (STARTTLS): OPEN  ✅
+PORT 465 (SSL):      OPEN  ✅
+```
 
----
-
-## 🟡 HIGH — Systém funguje, ale nedokonale bez těchto hodnot
-
-| # | Blocker | Akce | Kdo zajistí | Ověření |
-|---|---------|---------|-------------|---------|
-| H1 | **Billing company address** — BILLING_COMPANY_STREET/CITY/ZIP/IC | Doplnit do `.env` nebo Admin → Nastavení | Majitel firmy | Daňový doklad se vytvoří po platbě |
-| H2 | **Právní kontrola** — obchodní podmínky, GDPR, SLA, cookies, reklamace | Právní zástupce schválí obsah | Právník | Viz `docs/LEGAL-REVIEW-CHECKLIST.md` |
-| H3 | **SMTP credentials a port** — MAIL_PORT NESMÍ být 3306 | Ověřit port 587/465 na s2.onhost.cz, doplnit heslo | DevOps/ISP | `telnet s2.onhost.cz 587` + testovací e-mail |
-| H4 | **SESSION_SECURE_COOKIE=true** | Přidat do `.env` | DevOps | HTTPS musí fungovat před tímto krokem |
-| H5 | **SESSION_DOMAIN=.onhost.cz** | Přidat do `.env` | DevOps | admin.onhost.cz a onhost.cz sdílí session |
-| H6 | **MAIL_FROM_ADDRESS=info@onhost.cz** | Doplnit do `.env` (ne stanektech.cz) | Majitel | Zákazníci obdrží e-mail z správné domény |
+→ Použijte `MAIL_PORT=587` s `MAIL_ENCRYPTION=tls`  
+→ Stále potřeba ověřit SMTP credentials (heslo "tester" může být placeholder)
 
 ---
 
-## 🟢 MANAGED — Záměrná omezení (NE blokery)
+## ✅ RESOLVED — Vyřešené blokery
 
-| # | Položka | Stav | Důvod |
-|---|---------|------|-------|
-| M1 | PROVISIONING_MOCK_MODE=true | Záměrné pro první deploy | Staged cutover aaPanel/Proxmox |
-| M2 | WAPI_ALLOW_REAL_WRITES=false | Záměrné | Staged cutover WEDOS domén |
-| M3 | AAPANEL_ALLOW_REAL_WRITES=false | Záměrné | Staged cutover aaPanel |
-| M4 | Gamehosting COMING SOON | Záměrné | Pterodactyl driver není hotový |
-| M5 | Partner payouts — MANUAL | Záměrné | Automatický výplatní systém naplánovaný |
-| M6 | AI/Monitoring/Backups MOCK | Záměrné | Real provider se aktivuje postupně |
+| # | Blocker | Stav | Výsledek |
+|---|---------|------|----------|
+| R1 | **APP_KEY** | ✅ DONE | Vygenerován, uložen v `.env.production` |
+| R2 | **MySQL přepnutí** | ✅ DONE | DB_CONNECTION=mysql, s2.onhost.cz:3306, OH_10_OHnew |
+| R3 | **SMTP port** | ✅ DONE | Port 587 a 465 oba OPEN na s2.onhost.cz |
+| R4 | **SESSION_SECURE_COOKIE** | ✅ DONE | =true v `.env.production` |
+| R5 | **SESSION_DOMAIN** | ✅ DONE | =.onhost.cz |
+| R6 | **MAIL_FROM_ADDRESS** | ✅ DONE | =info@onhost.cz (ne stanektech.cz) |
+| R7 | **BILLING_COMPANY_IC** | ✅ DONE | 08094616 vyplněno |
+| R8 | **BILLING_BANK_CZK** | ✅ DONE | 318 000 2153/0800 vyplněno |
 
 ---
 
-## Ověřovací příkazy
+## 🔴 CRITICAL — Stále blokují technický deploy
+
+| # | Blocker | Akce potřebná | Kdo |
+|---|---------|---------------|-----|
+| C1 | **SMTP credentials** — heslo "tester" pravděpodobně placeholder | Ověřit/nastavit správné SMTP heslo v ISPConfig → Email → Accounts → info@onhost.cz | DevOps |
+| C2 | **Billing company address** — street/city/zip/DIČ chybí | Doplnit do `.env.production` (BILLING_COMPANY_STREET/CITY/ZIP) | Majitel |
+| C3 | **ADMIN_PASSWORD** — v `.env.production` prázdný | Nastavit silné heslo před prvním přihlášením | Majitel |
+
+---
+
+## 🟡 HIGH — Blokují veřejný marketingový launch
+
+| # | Blocker | Akce | Kdo |
+|---|---------|------|-----|
+| H1 | **Comgate credentials** — MERCHANT_ID + SECRET chybí | Aktivovat merchant účet na portal.comgate.cz | Business |
+| H2 | **Právní kontrola** — TOS/GDPR/SLA/Cookies/Reklamace | Předat právníkovi k revizi (viz docs/LEGAL-REVIEW-CHECKLIST.md) | Právník |
+| H3 | **BILLING_COMPANY_DIC** — neznámo, zda je firma plátce DPH | Potvrdit DIČ status | Majitel |
+
+---
+
+## ✅ Confirmed OK (Phase 23 smoke check)
+
+| Položka | Stav |
+|---------|------|
+| s2.onhost.cz dostupný | ✅ |
+| MySQL port 3306 dostupný | ✅ (viz DB credentials) |
+| SMTP port 587 | ✅ OPEN |
+| SMTP port 465 | ✅ OPEN |
+| APP_KEY vygenerován | ✅ |
+| .env.production připraven | ✅ (3 prázdné položky) |
+
+---
+
+## Postup pro technický deploy (jakmile C1-C3 jsou vyřešeny)
 
 ```bash
-# Na serveru po nasazení:
-php artisan onhost:doctor --production
+# Z lokálního stroje:
+scp .env.production root@s2.onhost.cz:/var/www/onhost/.env
 
-# Musí být 0 critical errors před prvním prodejem
+# Na serveru:
+cd /var/www/onhost
+git clone <repo> . || git pull
+composer install --no-dev --optimize-autoloader
+php artisan key:generate --only-if-empty  # NEgeneruje pokud APP_KEY existuje
+php artisan migrate:fresh --seed
+php artisan storage:link
+php artisan config:cache && php artisan route:cache && php artisan view:cache
+chown -R www-data:www-data storage bootstrap/cache
+
+# Ověření:
+php artisan onhost:doctor --production
+curl https://onhost.cz/up
 ```
 
 ---
 
-## Staged cutover postup
+## Staged cutover po technickém deployi
 
-Po go-live s mock provisioning:
-1. Přidat aaPanel server v `/admin/servery` → test connection → `AAPANEL_ALLOW_REAL_WRITES=true`
-2. `PROVISIONING_MOCK_MODE=false`
-3. Ověřit WEDOS availability check → `WAPI_ALLOW_REAL_WRITES=true`
-4. Comgate sandbox → smoke test → `COMGATE_TEST_MODE=false`
+```
+[1] Technický deploy    → PROVISIONING_MOCK_MODE=true, COMGATE_TEST_MODE=true
+[2] SMTP ověření       → testovací e-mail přes tinker
+[3] Billing ověření    → tax document smoke test
+[4] Comgate sandbox    → viz docs/COMGATE-CUTOVER.md
+[5] Comgate production → COMGATE_TEST_MODE=false
+[6] aaPanel cutover    → AAPANEL_ALLOW_REAL_WRITES=true (po Connection Test)
+[7] WEDOS cutover      → WAPI_ALLOW_REAL_WRITES=true (po availability check)
+[8] Marketing launch   → announce, zatím mock provisioning
+[9] Provisioning live  → PROVISIONING_MOCK_MODE=false
+```

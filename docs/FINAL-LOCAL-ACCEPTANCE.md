@@ -1,18 +1,22 @@
 # OnHost.cz — Final Local Acceptance Report
 
-**Phase:** 21 — Final Local Acceptance Audit  
+**Phase:** 21 (acceptance) → 22 (blockers) → 23 (deploy gate)  
 **Date:** 2026-06-26  
 **Branch:** development  
-**Commit:** 883ad1f (phase-20-full-catalog-final-local-qa)  
+**Latest commit:** bb739d8 (phase-22-production-blocker-readiness)  
 **Environment:** Local SQLite / PHP 8.2.4 / Windows dev  
+**Server:** s2.onhost.cz (SMTP 587/465 ✅, MySQL 3306 ✅ ready)  
 
 ---
 
 ## ✅ GO / NO-GO DECISION
 
-**GO — Systém je lokálně schválen jako funkční MVP.**
+**GO (lokálně) — Systém je lokálně schválen jako funkční MVP.**  
+**PENDING (produkce) — Čeká na 3 critical + 2 high blockers (viz docs/PRODUCTION-BLOCKERS.md).**
 
-Všechna GO kritéria splněna. Zbývající deploy blockery jsou jasně zdokumentovány a nezasahují do core funkcionality.
+Všechna GO kritéria lokálně splněna. Server připraven (SMTP ✅, MySQL ✅).
+Technický deploy možný po doplnění SMTP hesla, billing adresy a admin hesla.
+Veřejný launch po Comgate + právní kontrole.
 
 ---
 
