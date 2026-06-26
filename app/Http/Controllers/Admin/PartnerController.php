@@ -37,7 +37,7 @@ class PartnerController extends Controller
         ]);
     }
 
-    public function create(): View
+    public function create(Request $request): View
     {
         $existingPartnerUserIds = PartnerProfile::pluck('user_id')->toArray();
 
@@ -45,10 +45,14 @@ class PartnerController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'email']);
 
+        // Support ?user_id= pre-fill from customer detail shortcut
+        $prefilledUserId = $request->integer('user_id') ?: null;
+
         return view('admin.partners.form', [
-            'partner'       => null,
-            'users'         => $users,
-            'defaultRate'   => config('partner.default_commission_rate_percent', 10.0),
+            'partner'         => null,
+            'users'           => $users,
+            'defaultRate'     => config('partner.default_commission_rate_percent', 10.0),
+            'prefilledUserId' => $prefilledUserId,
         ]);
     }
 
@@ -233,17 +237,24 @@ class PartnerController extends Controller
     public function createPayout(Request $request, PartnerProfile $partner): RedirectResponse
     {
         $validated = $request->validate([
-            'amount' => ['required', 'integer', 'min:1'],
-            'method' => ['nullable', 'string', 'max:100'],
-            'note'   => ['nullable', 'string', 'max:500'],
+            'commission_ids'   => ['required', 'array', 'min:1'],
+            'commission_ids.*' => ['integer'],
+            'method'           => ['nullable', 'string', 'max:100'],
+            'note'             => ['nullable', 'string', 'max:500'],
         ]);
 
-        $amountMinor = (int) $validated['amount'] * 100;
-
-        // Warn if payout exceeds approved unpaid commissions, but don't block
-        $approvedMinor = (int) $partner->commissions()
+        // Load only approved, unpaid (not yet in a payout) commissions belonging to this partner
+        $commissions = PartnerCommission::where('partner_profile_id', $partner->id)
             ->where('status', CommissionStatus::Approved->value)
-            ->sum('amount');
+            ->whereNull('partner_payout_id')
+            ->whereIn('id', $validated['commission_ids'])
+            ->get();
+
+        if ($commissions->isEmpty()) {
+            return back()->withErrors(['commission_ids' => 'Žádné platné schválené provize nebyly nalezeny.']);
+        }
+
+        $amountMinor = (int) $commissions->sum('amount');
 
         $payout = PartnerPayout::create([
             'partner_profile_id' => $partner->id,
@@ -255,23 +266,24 @@ class PartnerController extends Controller
             'requested_at'       => now(),
         ]);
 
+        // Link selected commissions to this payout
+        PartnerCommission::whereIn('id', $commissions->pluck('id'))
+            ->update(['partner_payout_id' => $payout->id]);
+
         activity('partner')
             ->performedOn($payout)
             ->causedBy($request->user())
             ->withProperties([
-                'amount'   => $amountMinor,
-                'currency' => 'CZK',
-                'method'   => $validated['method'] ?? 'n/a',
-                'admin'    => $request->user()?->email,
+                'amount'         => $amountMinor,
+                'currency'       => 'CZK',
+                'method'         => $validated['method'] ?? 'n/a',
+                'admin'          => $request->user()?->email,
+                'commission_ids' => $commissions->pluck('id')->toArray(),
+                'commission_count' => $commissions->count(),
             ])
             ->log('payout.created');
 
-        $message = 'Výplata byla vytvořena.';
-        if ($amountMinor > $approvedMinor) {
-            $message .= ' Upozornění: částka překračuje schválené nečerpané provize.';
-        }
-
-        return back()->with('status', $message);
+        return back()->with('status', "Výplata vytvořena: {$commissions->count()} provizí, " . number_format($amountMinor / 100, 0, ',', ' ') . ' Kč.');
     }
 
     public function markPayoutPaid(Request $request, PartnerProfile $partner, PartnerPayout $payout): RedirectResponse
@@ -294,24 +306,59 @@ class PartnerController extends Controller
             'admin_note'   => $validated['note'] ?? $payout->admin_note,
         ]);
 
-        // Mark approved commissions as paid (all approved at time of payout)
-        $affected = PartnerCommission::where('partner_profile_id', $partner->id)
-            ->where('status', CommissionStatus::Approved->value)
+        // Only mark commissions linked to THIS payout as paid
+        $affected = PartnerCommission::where('partner_payout_id', $payout->id)
+            ->whereIn('status', [CommissionStatus::Approved->value])
             ->update(['status' => CommissionStatus::Paid->value, 'paid_at' => now()]);
+
+        $commissionIds = PartnerCommission::where('partner_payout_id', $payout->id)
+            ->pluck('id')
+            ->toArray();
 
         activity('partner')
             ->performedOn($payout)
             ->causedBy($request->user())
             ->withProperties([
+                'payout_id'           => $payout->id,
                 'amount'              => $payout->amount,
                 'currency'            => $payout->currency,
                 'method'              => $payout->method ?? 'manual',
+                'admin_id'            => $request->user()?->id,
                 'admin'               => $request->user()?->email,
+                'commission_ids'      => $commissionIds,
                 'commissions_settled' => $affected,
             ])
             ->log('payout.paid');
 
         return back()->with('status', "Výplata označena jako zaplacená. Zúčtováno {$affected} provizí.");
+    }
+
+    public function cancelPayout(Request $request, PartnerProfile $partner, PartnerPayout $payout): RedirectResponse
+    {
+        if ($payout->partner_profile_id !== $partner->id) {
+            abort(404);
+        }
+
+        if ($payout->status === PayoutStatus::Paid) {
+            return back()->withErrors(['payout' => 'Zaplacenou výplatu nelze zrušit.']);
+        }
+
+        // Return linked commissions to approved state
+        $affected = PartnerCommission::where('partner_payout_id', $payout->id)
+            ->update(['partner_payout_id' => null]);
+
+        $payout->update([
+            'status'     => PayoutStatus::Cancelled,
+            'admin_note' => ($payout->admin_note ? $payout->admin_note . '; ' : '') . 'Zrušeno adminem.',
+        ]);
+
+        activity('partner')
+            ->performedOn($payout)
+            ->causedBy($request->user())
+            ->withProperties(['commissions_released' => $affected])
+            ->log('payout.cancelled');
+
+        return back()->with('status', "Výplata zrušena. {$affected} provizí vráceno do stavu approved.");
     }
 
     /** Quick status toggle from detail page. */

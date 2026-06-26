@@ -116,22 +116,60 @@
                 </div>
                 <div class="card-body">
                     <p class="f-light f-12 mb-3">Výplata probíhá manuálně přes bankovní převod mimo systém.</p>
-                    <form method="POST" action="{{ route('admin.partners.payouts.create', $partner) }}">
-                        @csrf
-                        <div class="mb-2">
-                            <label class="form-label f-12 f-light">Částka (Kč, celé číslo)</label>
-                            <input type="number" name="amount" class="form-control" min="1" placeholder="1000" required>
+                    @php
+                        $unpaidApproved = $partner->commissions()
+                            ->where('status', \App\Domains\Partner\Enums\CommissionStatus::Approved->value)
+                            ->whereNull('partner_payout_id')
+                            ->get();
+                    @endphp
+
+                    @if($unpaidApproved->isEmpty())
+                        <div class="alert alert-light-secondary f-12 mb-0">
+                            <i data-feather="info" style="width:12px;height:12px;" class="me-1"></i>
+                            Žádné schválené nevyplacené provize. Nejprve schvalte provize.
                         </div>
+                    @else
+                    <form method="POST" action="{{ route('admin.partners.payouts.create', $partner) }}" id="payout-form">
+                        @csrf
+
+                        {{-- Commission checkboxes --}}
+                        <div class="mb-3">
+                            <label class="form-label f-12 f-light">Zahrnout provize do výplaty</label>
+                            @php $payoutTotal = 0; @endphp
+                            @foreach($unpaidApproved as $c)
+                                @php $payoutTotal += $c->amount; @endphp
+                                <div class="form-check mb-1">
+                                    <input class="form-check-input payout-commission-cb" type="checkbox"
+                                           name="commission_ids[]" value="{{ $c->id }}"
+                                           id="com_{{ $c->id }}" checked
+                                           onchange="updatePayoutTotal()">
+                                    <label class="form-check-label f-12" for="com_{{ $c->id }}">
+                                        #{{ $c->id }}
+                                        @if($c->invoice) — {{ $c->invoice->number ?? '' }} @endif
+                                        — <strong>{{ $c->formattedAmount() }}</strong>
+                                        <span class="f-light">({{ $c->eligible_at?->format('d.m.Y') ?? 'eligible' }})</span>
+                                    </label>
+                                </div>
+                            @endforeach
+                            <p class="f-12 mt-2 mb-0 f-w-600">
+                                Celkem k výplatě: <span id="payout-total">{{ number_format($payoutTotal / 100, 0, ',', ' ') }} Kč</span>
+                            </p>
+                        </div>
+                        <input type="hidden" id="commission-amounts"
+                               data-amounts="{{ $unpaidApproved->mapWithKeys(fn($c) => [$c->id => $c->amount])->toJson() }}">
+
                         <div class="mb-2">
                             <label class="form-label f-12 f-light">Metoda</label>
-                            <input type="text" name="method" class="form-control" placeholder="Bankovní převod">
+                            <input type="text" name="method" class="form-control"
+                                   value="{{ $partner->payout_method }}" placeholder="Bankovní převod">
                         </div>
                         <div class="mb-3">
                             <label class="form-label f-12 f-light">Poznámka</label>
-                            <input type="text" name="note" class="form-control" placeholder="Poznámka pro partnera">
+                            <input type="text" name="note" class="form-control" placeholder="Poznámka pro auditní log">
                         </div>
                         <button type="submit" class="btn btn-warning btn-sm">Vytvořit výplatu</button>
                     </form>
+                    @endif
                 </div>
             </div>
         </div>
@@ -202,13 +240,20 @@
                                 <td><x-panel.status-badge :status="$payout->status" /></td>
                                 <td class="f-12">{{ $payout->requested_at?->format('d.m.Y') }}</td>
                                 <td>
-                                    @if($payout->status->value !== 'paid')
+                                    @if($payout->status->value === 'paid')
+                                        <span class="badge badge-light-success">Zaplaceno</span>
+                                    @elseif($payout->status->value !== 'cancelled')
                                         <form method="POST" action="{{ route('admin.partners.payouts.paid', [$partner, $payout]) }}" class="d-inline">
                                             @csrf
-                                            <button type="submit" class="btn btn-outline-primary btn-xs">Označit zaplaceno</button>
+                                            <button type="submit" class="btn btn-outline-primary btn-xs">Zaplaceno</button>
+                                        </form>
+                                        <form method="POST" action="{{ route('admin.partners.payouts.cancel', [$partner, $payout]) }}" class="d-inline ms-1"
+                                              onsubmit="return confirm('Zrušit výplatu?')">
+                                            @csrf
+                                            <button type="submit" class="btn btn-outline-danger btn-xs">Zrušit</button>
                                         </form>
                                     @else
-                                        <span class="badge badge-light-success">Zaplaceno</span>
+                                        <span class="badge badge-light-danger">Zrušeno</span>
                                     @endif
                                 </td>
                             </tr>
@@ -251,4 +296,20 @@
         </div>
     </div>
 </div>
+
+<script>
+function updatePayoutTotal() {
+    const el = document.getElementById('commission-amounts');
+    if (!el) return;
+    const amounts = JSON.parse(el.dataset.amounts || '{}');
+    let total = 0;
+    document.querySelectorAll('.payout-commission-cb:checked').forEach(cb => {
+        total += (amounts[cb.value] || 0);
+    });
+    const display = document.getElementById('payout-total');
+    if (display) {
+        display.textContent = new Intl.NumberFormat('cs-CZ').format(Math.round(total / 100)) + ' Kč';
+    }
+}
+</script>
 @endsection

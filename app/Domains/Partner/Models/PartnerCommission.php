@@ -26,6 +26,7 @@ class PartnerCommission extends Model
     protected $fillable = [
         'partner_profile_id',
         'partner_referral_id',
+        'partner_payout_id',
         'order_id',
         'invoice_id',
         'payment_id',
@@ -66,6 +67,12 @@ class PartnerCommission extends Model
     public function partnerProfile(): BelongsTo
     {
         return $this->belongsTo(PartnerProfile::class);
+    }
+
+    /** @return BelongsTo<PartnerPayout, $this> */
+    public function payout(): BelongsTo
+    {
+        return $this->belongsTo(PartnerPayout::class, 'partner_payout_id');
     }
 
     /** @return BelongsTo<PartnerReferral, $this> */

@@ -8,6 +8,7 @@ use App\Domains\Partner\Enums\PayoutStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
@@ -54,6 +55,12 @@ class PartnerPayout extends Model
     public function partnerProfile(): BelongsTo
     {
         return $this->belongsTo(PartnerProfile::class);
+    }
+
+    /** @return HasMany<PartnerCommission, $this> */
+    public function commissions(): HasMany
+    {
+        return $this->hasMany(PartnerCommission::class);
     }
 
     public function formattedAmount(): string

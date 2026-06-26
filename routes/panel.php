@@ -185,5 +185,6 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
         Route::post('/{partner:uuid}/provize/{commission}/zamitnout', [Admin\PartnerController::class, 'rejectCommission'])->name('commissions.reject');
         Route::post('/{partner:uuid}/vyplata', [Admin\PartnerController::class, 'createPayout'])->name('payouts.create');
         Route::post('/{partner:uuid}/vyplata/{payout}/zaplatit', [Admin\PartnerController::class, 'markPayoutPaid'])->name('payouts.paid');
+        Route::post('/{partner:uuid}/vyplata/{payout}/zrusit', [Admin\PartnerController::class, 'cancelPayout'])->name('payouts.cancel');
     });
 });

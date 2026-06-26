@@ -38,7 +38,7 @@
                                 <select id="user_id" name="user_id" class="form-select" required>
                                     <option value="">— Vyberte uživatele —</option>
                                     @foreach($users as $user)
-                                        <option value="{{ $user->id }}" @selected(old('user_id') == $user->id)>
+                                        <option value="{{ $user->id }}" @selected(old('user_id', $prefilledUserId) == $user->id)>
                                             {{ $user->name }} ({{ $user->email }})
                                         </option>
                                     @endforeach

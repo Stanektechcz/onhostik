@@ -9,6 +9,26 @@
     <div class="container-fluid">
         <x-panel.flash />
 
+        {{-- Partner profile shortcut --}}
+        @php($customerPartner = $customer->user ? \App\Domains\Partner\Models\PartnerProfile::where('user_id', $customer->user_id)->first() : null)
+        @if($customerPartner)
+            <div class="alert alert-light-primary d-flex align-items-center gap-3 mb-3 py-2">
+                <i data-feather="share-2" style="width:16px;height:16px;"></i>
+                <span class="f-14">Tento zákazník je partner.</span>
+                <a href="{{ route('admin.partners.show', $customerPartner) }}" class="btn btn-outline-primary btn-xs ms-auto">
+                    Zobrazit partner profil
+                </a>
+            </div>
+        @elseif($customer->user_id)
+            <div class="alert alert-light-secondary d-flex align-items-center gap-3 mb-3 py-2">
+                <i data-feather="share-2" style="width:16px;height:16px;"></i>
+                <span class="f-14 f-light">Zákazník nemá partner profil.</span>
+                <a href="{{ route('admin.partners.create') }}?user_id={{ $customer->user_id }}" class="btn btn-outline-secondary btn-xs ms-auto">
+                    Vytvořit partner profil
+                </a>
+            </div>
+        @endif
+
         {{-- KPI row --}}
         <div class="row">
             <div class="col-sm-6 col-xl-3">

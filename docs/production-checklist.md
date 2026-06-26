@@ -30,6 +30,21 @@
 - [ ] CSP + security headers, cookie settings review
 - [ ] Comgate webhook IP whitelist confirmed against current Comgate docs
 
+## Partner / affiliate program
+
+- [ ] Nastavit `PARTNER_*` proměnné v `.env` (viz `.env.production.example`)
+- [ ] Vytvořit první partner profil: `/admin/partneri/novy`
+- [ ] Otestovat referral link: navštívit `/?ref=KOD` — ověřit cookie `onhost_ref` v DevTools
+- [ ] Otestovat registraci přes referral link — ověřit záznam v `partner_referrals`
+- [ ] Vytvořit testovací objednávku přes referral zákazníka a zaplatit ji — ověřit vznik `partner_commissions` (status: pending)
+- [ ] Ověřit auto-approve command: `php artisan partner:approve-eligible-commissions --dry-run`
+- [ ] Ověřit scheduler: `php artisan schedule:list` — partner:approve-eligible-commissions 02:00
+- [ ] Otestovat manuální approve commission v admin detailu partnera
+- [ ] Otestovat vytvoření payout se zahrnutými commission checkboxy
+- [ ] Otestovat mark payout paid — ověřit, že pouze navázané commissions se označí jako paid
+- [ ] Ověřit, že partner notifikace dorazí (MAIL_MAILER=smtp, email v User.email)
+- [ ] Nastavit `PARTNER_SELF_REFERRAL_BLOCKED=true` v produkci
+
 ## Nice to have before launch
 
 - [ ] Invoice PDF generation job (Chromium on host)
