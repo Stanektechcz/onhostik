@@ -77,6 +77,27 @@ final class ProvisionHostingServiceJob implements ShouldQueue
         $result = $drivers->forService($service)->create($service, $config);
 
         if ($result->success) {
+            // Pending task: driver submitted an async task (e.g. Proxmox UPID).
+            // Store the task metadata and dispatch a polling job.
+            if ($result->isPendingTask()) {
+                $task->update([
+                    'status' => TaskStatus::Running,
+                    'result' => array_merge(
+                        $this->sanitizeResult($result->metadata, $result->credentials),
+                        ['pending_task' => true],
+                    ),
+                ]);
+
+                CheckProxmoxTaskStatusJob::dispatch($service->id, $task->id);
+
+                activity('provisioning')
+                    ->performedOn($service)
+                    ->withProperties(['task_id' => $task->id, 'upid' => $result->metadata['upid'] ?? null])
+                    ->log('provisioning.proxmox_task_submitted');
+
+                return;
+            }
+
             $service->update([
                 'external_id' => $result->externalId,
                 'status'      => ServiceStatus::Active,

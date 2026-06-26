@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Domains\Products\Models;
 
 use App\Domains\Products\Enums\ProductType;
+use App\Domains\Products\Enums\SalesMode;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -15,6 +16,7 @@ use Spatie\Translatable\HasTranslations;
  * @property ProductType $type
  * @property ProvisioningDriver|null $provisioning_driver
  * @property bool $is_active
+ * @property SalesMode $sales_mode
  */
 class Product extends Model
 {
@@ -31,6 +33,7 @@ class Product extends Model
         'description',   // JSON
         'provisioning_driver',
         'is_active',
+        'sales_mode',
         'sort_order',
     ];
 
@@ -40,6 +43,7 @@ class Product extends Model
             'type'                => ProductType::class,
             'provisioning_driver' => ProvisioningDriver::class,
             'is_active'           => 'boolean',
+            'sales_mode'          => SalesMode::class,
         ];
     }
 

@@ -6,6 +6,7 @@ namespace Database\Seeders;
 
 use App\Domains\Products\Enums\BillingCycle;
 use App\Domains\Products\Enums\ProductType;
+use App\Domains\Products\Enums\SalesMode;
 use App\Domains\Products\Models\Product;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use Illuminate\Database\Seeder;
@@ -42,6 +43,7 @@ class ProductCatalogSeeder extends Seeder
                 ],
                 'provisioning_driver' => ProvisioningDriver::AAPanel,
                 'is_active'           => true,
+                'sales_mode'          => SalesMode::SelfService->value,
                 'sort_order'          => 1,
             ],
         );
@@ -116,6 +118,7 @@ class ProductCatalogSeeder extends Seeder
                 ],
                 'provisioning_driver' => ProvisioningDriver::Proxmox,
                 'is_active'           => true,
+                'sales_mode'          => SalesMode::SelfService->value,
                 'sort_order'          => 2,
             ],
         );
@@ -187,6 +190,7 @@ class ProductCatalogSeeder extends Seeder
                 ],
                 'provisioning_driver' => ProvisioningDriver::Pterodactyl,
                 'is_active'           => false,
+                'sales_mode'          => SalesMode::ComingSoon->value,
                 'sort_order'          => 3,
             ],
         );
@@ -249,6 +253,7 @@ class ProductCatalogSeeder extends Seeder
                 ],
                 'provisioning_driver' => ProvisioningDriver::AAPanel,
                 'is_active'           => true,
+                'sales_mode'          => SalesMode::SelfService->value,
                 'sort_order'          => 4,
             ],
         );
@@ -307,6 +312,7 @@ class ProductCatalogSeeder extends Seeder
                 ],
                 'provisioning_driver' => ProvisioningDriver::AAPanel,
                 'is_active'           => true,
+                'sales_mode'          => SalesMode::SelfService->value,
                 'sort_order'          => 5,
             ],
         );

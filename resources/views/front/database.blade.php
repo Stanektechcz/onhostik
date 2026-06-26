@@ -45,19 +45,19 @@
                                                 <div class="title">MySQL Starter</div>
                                                 <div class="price mergecolor"><sup>Kč</sup>99<span class="period">/rok</span></div>
                                                 <div class="info seccolor">Ideální pro malé projekty a aplikace</div>
-                                                <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a>
+                                                <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a>
                                             </th>
                                             <th>
                                                 <div class="title">MySQL Pro</div>
                                                 <div class="price mergecolor"><sup>Kč</sup>299<span class="period">/rok</span></div>
                                                 <div class="info seccolor">Pro produkční aplikace s vysokým výkonem</div>
-                                                <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a>
+                                                <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a>
                                             </th>
                                             <th>
                                                 <div class="title">MySQL Enterprise</div>
                                                 <div class="price mergecolor"><sup>Kč</sup>699<span class="period">/rok</span></div>
                                                 <div class="info seccolor">Maximální výkon pro náročné systémy</div>
-                                                <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a>
+                                                <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a>
                                             </th>
                                         </tr>
                                     </thead>
@@ -136,9 +136,9 @@
                                         </tr>
                                         <tr>
                                             <th class="border-0 sticky-stopper"></th>
-                                            <td><a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a></td>
-                                            <td><a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a></td>
-                                            <td><a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a></td>
+                                            <td><a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a></td>
+                                            <td><a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a></td>
+                                            <td><a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a></td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -151,19 +151,19 @@
                                                 <div class="title">MariaDB Starter</div>
                                                 <div class="price mergecolor"><sup>Kč</sup>89<span class="period">/rok</span></div>
                                                 <div class="info seccolor">Ideální pro malé projekty a aplikace</div>
-                                                <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a>
+                                                <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a>
                                             </th>
                                             <th class="price-container">
                                                 <div class="title">MariaDB Pro</div>
                                                 <div class="price mergecolor"><sup>Kč</sup>269<span class="period">/rok</span></div>
                                                 <div class="info seccolor">Pro produkční aplikace s vysokým výkonem</div>
-                                                <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a>
+                                                <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a>
                                             </th>
                                             <th class="price-container">
                                                 <div class="title">MariaDB Enterprise</div>
                                                 <div class="price mergecolor"><sup>Kč</sup>629<span class="period">/rok</span></div>
                                                 <div class="info seccolor">Maximální výkon pro náročné systémy</div>
-                                                <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a>
+                                                <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a>
                                             </th>
                                         </tr>
                                     </thead>
@@ -242,9 +242,9 @@
                                         </tr>
                                         <tr>
                                             <th class="border-0 sticky-stopper"></th>
-                                            <td><a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a></td>
-                                            <td><a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a></td>
-                                            <td><a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a></td>
+                                            <td><a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a></td>
+                                            <td><a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a></td>
+                                            <td><a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a></td>
                                         </tr>
                                     </tbody>
                                 </table>

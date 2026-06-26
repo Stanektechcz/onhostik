@@ -17,6 +17,7 @@
         </div>
 
         @foreach($products as $product)
+            @php($salesMode = $product->sales_mode ?? \App\Domains\Products\Enums\SalesMode::SelfService)
             <x-panel.card :title="$product->name" :subtitle="$product->type->label() . ' · ' . ($product->provisioning_driver?->label() ?? '')">
                 {{-- one hidden form per plan; inputs reference it via the HTML5 form attribute --}}
                 @foreach($product->pricingPlans as $plan)
@@ -44,8 +45,15 @@
                         </tr>
                     @endforeach
                 </x-panel.data-table>
-                <div class="d-flex gap-2 mt-3">
+                <div class="d-flex gap-2 mt-3 align-items-center">
                     <a href="{{ route('admin.products.edit', $product) }}" class="btn btn-outline-secondary btn-sm">Upravit produkt / přidat plán</a>
+                    <span class="badge badge-light-{{ $salesMode->color() }}">{{ $salesMode->label() }}</span>
+                    @if($product->provisioning_driver?->value === 'pterodactyl')
+                        <span class="badge badge-light-danger ms-1">
+                            <i data-feather="alert-triangle" style="width:11px;height:11px;"></i>
+                            Pterodactyl driver chybí
+                        </span>
+                    @endif
                 </div>
             </x-panel.card>
         @endforeach

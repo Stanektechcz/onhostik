@@ -38,4 +38,29 @@ final class ProvisioningResult extends Data
             externalRequestId: $externalRequestId,
         );
     }
+
+    /** Alias for failure() — used by drivers that prefer the shorter name. */
+    public static function fail(string $errorMessage, bool $retryable = true, ?string $externalRequestId = null): self
+    {
+        return self::failure($errorMessage, $externalRequestId);
+    }
+
+    /**
+     * Pending result — task has been submitted but not yet completed.
+     * The externalId is null; the polling job will set it once the task succeeds.
+     */
+    public static function pending(?string $externalId = null, array $credentials = [], array $metadata = []): self
+    {
+        return new self(
+            success: true,
+            externalId: $externalId,
+            credentials: $credentials,
+            metadata: array_merge($metadata, ['pending_task' => true]),
+        );
+    }
+
+    public function isPendingTask(): bool
+    {
+        return (bool) ($this->metadata['pending_task'] ?? false);
+    }
 }

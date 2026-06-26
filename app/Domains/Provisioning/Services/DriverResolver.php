@@ -9,6 +9,7 @@ use App\Domains\Provisioning\Contracts\ProvisioningDriverInterface;
 use App\Domains\Provisioning\Drivers\AapanelMockDriver;
 use App\Domains\Provisioning\Drivers\AapanelProductionDriver;
 use App\Domains\Provisioning\Drivers\ProxmoxDriver;
+use App\Domains\Provisioning\Drivers\ProxmoxMockDriver;
 use App\Domains\Provisioning\Drivers\WedosMockRegistrar;
 use App\Domains\Provisioning\Drivers\WedosProductionRegistrar;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
@@ -63,9 +64,11 @@ final class DriverResolver
             );
         }
 
-        // Proxmox has a real driver — use it regardless of mock_mode.
+        // Proxmox: use mock driver in mock_mode, real driver in production.
         if ($driver === ProvisioningDriver::Proxmox) {
-            return app(ProxmoxDriver::class);
+            return $this->mockMode()
+                ? app(ProxmoxMockDriver::class)
+                : app(ProxmoxDriver::class);
         }
 
         // AAPanel fallback in mock_mode (forDriver has no Server context).

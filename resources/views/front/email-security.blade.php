@@ -28,7 +28,7 @@
                             <div class="title">Anti-Spam Essential</div>
                             <div class="fromer seccolor">Základní ochrana pro malé firmy</div>
                             <div class="price mergecolor"><sup>Kč</sup>49 <span class="period">/měs.</span></div>
-                            <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a>
+                            <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a>
                         </div>
                         <ul class="list-info bg-purple">
                             <li><i class="icon-drives"></i> <div>DISK<br><span>20 GB prostoru</span></div></li>
@@ -44,7 +44,7 @@
                             <div class="title">Anti-Spam Business</div>
                             <div class="fromer seccolor">Pro rostoucí firmy s větším objemem</div>
                             <div class="price mergecolor"><sup>Kč</sup>199 <span class="period">/měs.</span></div>
-                            <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a>
+                            <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a>
                         </div>
                         <ul class="list-info bg-purple">
                             <li><i class="icon-drives"></i> <div>DISK<br><span>40 GB prostoru</span></div></li>
@@ -61,7 +61,7 @@
                             <div class="title">Anti-Spam Enterprise</div>
                             <div class="fromer seccolor">Maximální ochrana pro velké organizace</div>
                             <div class="price mergecolor"><sup>Kč</sup>499 <span class="period">/měs.</span></div>
-                            <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Objednat</a>
+                            <a href="{{ route('front.contact') }}" class="btn btn-default-yellow-fill">Poptat řešení</a>
                         </div>
                         <ul class="list-info bg-purple">
                             <li><i class="icon-drives"></i> <div>DISK<br><span>60 GB prostoru</span></div></li>
