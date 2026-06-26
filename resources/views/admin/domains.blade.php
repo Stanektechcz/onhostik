@@ -2,6 +2,7 @@
 
 @php
     $breadcrumbTitle = __('panel.nav.admin_domains');
+    $breadcrumbItems = [__('panel.nav.admin_domains') => ''];
 @endphp
 
 @section('title', __('panel.nav.admin_domains'))
@@ -66,7 +67,10 @@
             </form>
 
             @if($domains->isEmpty())
-                <p class="f-light mb-0">{{ __('panel.domains.none') }}</p>
+                <div class="text-center py-5">
+                    <i data-feather="globe" style="width:40px;height:40px;" class="text-muted mb-3"></i>
+                    <h6 class="f-light mt-2">{{ __('panel.domains.none') }}</h6>
+                </div>
             @else
                 <div class="table-responsive">
                     <table class="table table-borderless">

@@ -2,6 +2,7 @@
 
 @php
     $breadcrumbTitle = __('panel.nav.admin_services');
+    $breadcrumbItems = [__('panel.nav.admin_services') => ''];
 @endphp
 
 @section('title', __('panel.nav.admin_services'))
@@ -97,7 +98,10 @@
             </form>
 
             @if($services->isEmpty())
-                <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                <div class="text-center py-5">
+                    <i data-feather="server" style="width:40px;height:40px;" class="text-muted mb-3"></i>
+                    <h6 class="f-light mt-2">{{ __('panel.common.empty') }}</h6>
+                </div>
             @else
                 <x-panel.data-table :headers="[
                     'ID',

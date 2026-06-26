@@ -1,6 +1,9 @@
 @extends('layouts.panel')
 
-@php($breadcrumbTitle = 'Upravit obsah: ' . $item->label)
+@php
+    $breadcrumbTitle = 'Upravit obsah: ' . $item->label;
+    $breadcrumbItems = ['Obsah webu' => route('admin.content.index'), $breadcrumbTitle => ''];
+@endphp
 
 @section('title', 'Upravit obsah')
 

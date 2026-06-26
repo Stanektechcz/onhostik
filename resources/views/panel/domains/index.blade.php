@@ -2,6 +2,7 @@
 
 @php
     $breadcrumbTitle = __('panel.nav.domains');
+    $breadcrumbItems = [__('panel.nav.domains') => ''];
 @endphp
 
 @section('title', __('panel.nav.domains'))
@@ -12,7 +13,15 @@
 
         <x-panel.card :title="__('panel.nav.domains')">
             @if($domains->isEmpty())
-                <p class="f-light mb-0">{{ __('panel.domains.none') }}</p>
+                <div class="text-center py-5">
+                    <i data-feather="globe" style="width:48px;height:48px;" class="text-muted mb-3"></i>
+                    <h6 class="f-light mt-2">{{ __('panel.domains.none') }}</h6>
+                    <p class="f-light f-12 mb-3">Domény se zobrazí po registraci nebo převodu.</p>
+                    <a href="{{ route('panel.orders.create') }}" class="btn btn-primary btn-sm">
+                        <i data-feather="plus" style="width:13px;height:13px;"></i>
+                        {{ __('panel.nav.new_order') }}
+                    </a>
+                </div>
             @else
                 <x-panel.data-table :headers="[
                     __('panel.domains.domain'),

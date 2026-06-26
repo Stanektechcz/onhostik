@@ -1,6 +1,9 @@
 @extends('layouts.panel')
 
-@php($breadcrumbTitle = 'Znalostní báze')
+@php
+    $breadcrumbTitle = 'Znalostní báze';
+    $breadcrumbItems = ['Znalostní báze' => ''];
+@endphp
 
 @section('title', 'Znalostní báze')
 

@@ -32,8 +32,19 @@ class BillingController extends Controller
     {
         $customer = $this->customer($request);
 
+        $iCounts = DB::table('invoices')
+            ->where('customer_id', $customer->id)
+            ->selectRaw('status, COUNT(*) as cnt')
+            ->groupBy('status')
+            ->pluck('cnt', 'status');
+
         return view('panel.billing.invoices', [
-            'invoices' => $customer->invoices()->latest('id')->paginate(15),
+            'invoices'      => $customer->invoices()->latest('id')->paginate(15),
+            'countUnpaid'   => (int) (($iCounts[\App\Domains\Billing\Enums\InvoiceStatus::Sent->value] ?? 0)
+                                    + ($iCounts[\App\Domains\Billing\Enums\InvoiceStatus::Overdue->value] ?? 0)),
+            'countOverdue'  => (int) ($iCounts[\App\Domains\Billing\Enums\InvoiceStatus::Overdue->value] ?? 0),
+            'countPaid'     => (int) ($iCounts[\App\Domains\Billing\Enums\InvoiceStatus::Paid->value] ?? 0),
+            'countTotal'    => (int) $iCounts->sum(),
         ]);
     }
 
@@ -60,8 +71,23 @@ class BillingController extends Controller
     {
         $customer = $this->customer($request);
 
+        $pCounts = DB::table('payments')
+            ->where('customer_id', $customer->id)
+            ->selectRaw('status, COUNT(*) as cnt')
+            ->groupBy('status')
+            ->pluck('cnt', 'status');
+
+        $paidTotal = (int) DB::table('payments')
+            ->where('customer_id', $customer->id)
+            ->where('status', PaymentStatus::Completed->value)
+            ->sum('amount');
+
         return view('panel.billing.payments', [
-            'payments' => $customer->payments()->with('invoice')->latest('id')->paginate(15),
+            'payments'      => $customer->payments()->with('invoice')->latest('id')->paginate(15),
+            'countPaid'     => (int) ($pCounts[PaymentStatus::Completed->value] ?? 0),
+            'countPending'  => (int) ($pCounts[PaymentStatus::Pending->value] ?? 0),
+            'countFailed'   => (int) ($pCounts[PaymentStatus::Failed->value] ?? 0),
+            'paidTotalMinor' => $paidTotal,
         ]);
     }
 

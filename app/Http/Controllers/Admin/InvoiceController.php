@@ -22,6 +22,8 @@ class InvoiceController extends Controller
         $status = $request->string('status')->toString();
         $search = $request->string('q')->toString();
 
+        $counts = Invoice::query()->selectRaw('status, COUNT(*) as cnt')->groupBy('status')->pluck('cnt', 'status');
+
         return view('admin.invoices', [
             'invoices' => Invoice::query()
                 ->with('customer')
@@ -37,8 +39,12 @@ class InvoiceController extends Controller
                 ->latest('id')
                 ->paginate(25)
                 ->withQueryString(),
-            'filter' => $status,
-            'search' => $search,
+            'filter'        => $status,
+            'search'        => $search,
+            'countSent'     => (int) ($counts[InvoiceStatus::Sent->value] ?? 0),
+            'countOverdue'  => (int) ($counts[InvoiceStatus::Overdue->value] ?? 0),
+            'countPaid'     => (int) ($counts[InvoiceStatus::Paid->value] ?? 0),
+            'countDraft'    => (int) ($counts[InvoiceStatus::Draft->value] ?? 0),
         ]);
     }
 

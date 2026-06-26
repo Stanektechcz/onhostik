@@ -2,6 +2,7 @@
 
 @php
     $breadcrumbTitle = __('panel.admin.wallets');
+    $breadcrumbItems = [__('panel.admin.wallets') => ''];
 @endphp
 
 @section('title', __('panel.admin.wallets'))

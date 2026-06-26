@@ -22,6 +22,8 @@ class SupportController extends Controller
         $priorityFilter = $request->string('priority')->toString();
         $search         = $request->string('q')->toString();
 
+        $counts = SupportTicket::query()->selectRaw('status, COUNT(*) as cnt')->groupBy('status')->pluck('cnt', 'status');
+
         return view('admin.support', [
             'tickets' => SupportTicket::query()
                 ->with(['customer.user', 'assignee'])
@@ -37,9 +39,13 @@ class SupportController extends Controller
                 ->latest('last_reply_at')
                 ->paginate(25)
                 ->withQueryString(),
-            'filter'         => $status,
-            'priorityFilter' => $priorityFilter,
-            'search'         => $search,
+            'filter'          => $status,
+            'priorityFilter'  => $priorityFilter,
+            'search'          => $search,
+            'countOpen'       => (int) ($counts[TicketStatus::Open->value] ?? 0),
+            'countPending'    => (int) ($counts[TicketStatus::Pending->value] ?? 0),
+            'countAnswered'   => (int) ($counts[TicketStatus::Answered->value] ?? 0),
+            'countClosed'     => (int) ($counts[TicketStatus::Closed->value] ?? 0),
         ]);
     }
 

@@ -1,6 +1,9 @@
 @extends('layouts.panel')
 
-@php($breadcrumbTitle = __('panel.nav.invoices'))
+@php
+    $breadcrumbTitle = __('panel.nav.invoices');
+    $breadcrumbItems = [__('panel.billing.billing') => '#', __('panel.nav.invoices') => ''];
+@endphp
 
 @section('title', __('panel.nav.invoices'))
 
@@ -8,9 +11,33 @@
     <div class="container-fluid">
         <x-panel.flash />
 
+        {{-- KPI strip --}}
+        <div class="grid grid-cols-12 card-gap mb-1">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
+                <x-panel.stat-widget :label="__('panel.billing.total')"
+                    :value="$countTotal" icon="file-text" color="primary" />
+            </div>
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
+                <x-panel.stat-widget :label="__('panel.billing.unpaid')"
+                    :value="$countUnpaid" icon="alert-circle" color="warning" />
+            </div>
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
+                <x-panel.stat-widget :label="__('panel.billing.overdue')"
+                    :value="$countOverdue" icon="clock" color="danger" />
+            </div>
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
+                <x-panel.stat-widget :label="__('panel.billing.paid')"
+                    :value="$countPaid" icon="check-circle" color="success" />
+            </div>
+        </div>
+
         <x-panel.card :title="__('panel.nav.invoices')">
             @if($invoices->isEmpty())
-                <p class="f-light mb-0">{{ __('panel.billing.no_invoices') }}</p>
+                <div class="text-center py-5">
+                    <i data-feather="file-text" style="width:48px;height:48px;" class="text-muted mb-3"></i>
+                    <h6 class="f-light mt-2">{{ __('panel.billing.no_invoices') }}</h6>
+                    <p class="f-light f-12 mb-0">Faktury se objeví po první objednávce.</p>
+                </div>
             @else
                 <x-panel.data-table :headers="[
                     __('panel.billing.number'),
@@ -31,16 +58,17 @@
                             </td>
                             <td class="f-12">{{ $invoice->type->label() }}</td>
                             <td class="f-12">{{ $invoice->issue_date?->format('d.m.Y') }}</td>
-                            <td class="f-12 {{ $isOverdue ? 'text-danger f-w-600' : '' }}">
+                            <td class="f-12 {{ $isOverdue ? 'txt-danger f-w-600' : '' }}">
                                 {{ $invoice->due_date?->format('d.m.Y') }}
                                 @if($isOverdue)
-                                    <i data-feather="alert-circle" style="width:11px;height:11px" class="text-danger"></i>
+                                    <i data-feather="alert-circle" style="width:11px;height:11px" class="txt-danger ms-1"></i>
                                 @endif
                             </td>
                             <td><x-panel.status-badge :status="$invoice->status" /></td>
                             <td><x-panel.money :money="$invoice->total" /></td>
                             <td>
-                                <a class="btn btn-{{ $isOverdue ? 'primary' : 'outline-primary' }} btn-sm" href="{{ route('panel.billing.invoices.show', $invoice) }}">
+                                <a class="btn btn-{{ $isOverdue ? 'primary' : 'outline-primary' }} btn-xs"
+                                   href="{{ route('panel.billing.invoices.show', $invoice) }}">
                                     {{ $isOverdue ? __('panel.dashboard.pay_now') : __('panel.common.detail') }}
                                 </a>
                             </td>

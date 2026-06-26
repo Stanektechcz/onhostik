@@ -1,6 +1,9 @@
 @extends('layouts.panel')
 
-@php($breadcrumbTitle = 'Obsah webu')
+@php
+    $breadcrumbTitle = 'Obsah webu';
+    $breadcrumbItems = ['Obsah webu' => ''];
+@endphp
 
 @section('title', 'Obsah webu')
 

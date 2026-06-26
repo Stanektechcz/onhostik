@@ -1,6 +1,9 @@
 @extends('layouts.panel')
 
-@php($breadcrumbTitle = __('panel.nav.admin_customers'))
+@php
+    $breadcrumbTitle = __('panel.nav.admin_customers');
+    $breadcrumbItems = [__('panel.nav.admin_customers') => ''];
+@endphp
 
 @section('title', __('panel.nav.admin_customers'))
 
@@ -47,7 +50,11 @@
             </form>
 
             @if($customers->isEmpty())
-                <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
+                <div class="text-center py-5">
+                    <i data-feather="users" style="width:40px;height:40px;" class="text-muted mb-3"></i>
+                    <h6 class="f-light mt-2">{{ __('panel.common.empty') }}</h6>
+                    <p class="f-light f-12 mb-0">Žádní zákazníci neodpovídají hledání.</p>
+                </div>
             @else
                 <x-panel.data-table :headers="[
                     'ID',

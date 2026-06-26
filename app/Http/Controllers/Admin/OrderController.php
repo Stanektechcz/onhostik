@@ -18,6 +18,8 @@ class OrderController extends Controller
         $status = $request->string('status')->toString();
         $search = $request->string('q')->toString();
 
+        $counts = Order::query()->selectRaw('status, COUNT(*) as cnt')->groupBy('status')->pluck('cnt', 'status');
+
         return view('admin.orders', [
             'orders' => Order::query()
                 ->with(['customer', 'items'])
@@ -29,8 +31,12 @@ class OrderController extends Controller
                 ->latest('id')
                 ->paginate(25)
                 ->withQueryString(),
-            'filter' => $status,
-            'search' => $search,
+            'filter'           => $status,
+            'search'           => $search,
+            'countActive'      => (int) ($counts[OrderStatus::Active->value] ?? 0),
+            'countPending'     => (int) ($counts[OrderStatus::Pending->value] ?? 0),
+            'countProcessing'  => (int) ($counts[OrderStatus::Processing->value] ?? 0),
+            'countCancelled'   => (int) ($counts[OrderStatus::Cancelled->value] ?? 0),
         ]);
     }
 

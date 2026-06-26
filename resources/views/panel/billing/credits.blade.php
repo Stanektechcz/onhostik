@@ -1,6 +1,9 @@
 @extends('layouts.panel')
 
-@php($breadcrumbTitle = __('panel.nav.credits'))
+@php
+    $breadcrumbTitle = __('panel.nav.credits');
+    $breadcrumbItems = [__('panel.billing.billing') => '#', __('panel.nav.credits') => ''];
+@endphp
 
 @section('title', __('panel.nav.credits'))
 
@@ -37,7 +40,10 @@
 
         <x-panel.card :title="__('panel.billing.history')">
             @if($history->isEmpty())
-                <p class="f-light mb-0">{{ __('panel.billing.no_transactions') }}</p>
+                <div class="text-center py-4">
+                    <i data-feather="list" style="width:36px;height:36px;" class="text-muted mb-2"></i>
+                    <p class="f-light mb-0">{{ __('panel.billing.no_transactions') }}</p>
+                </div>
             @else
                 <x-panel.data-table :headers="[
                     __('panel.common.date'),

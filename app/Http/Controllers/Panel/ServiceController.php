@@ -25,8 +25,18 @@ class ServiceController extends Controller
 
         abort_if($customer === null, 403, 'No customer profile attached to this account.');
 
+        $sCounts = \Illuminate\Support\Facades\DB::table('services')
+            ->where('customer_id', $customer->id)
+            ->whereNull('deleted_at')
+            ->selectRaw('status, COUNT(*) as cnt')
+            ->groupBy('status')
+            ->pluck('cnt', 'status');
+
         return view('panel.services.index', [
-            'services' => $customer->services()->with('product')->latest('id')->paginate(15),
+            'services'       => $customer->services()->with('product')->latest('id')->paginate(15),
+            'countActive'    => (int) ($sCounts[ServiceStatus::Active->value] ?? 0),
+            'countSuspended' => (int) ($sCounts[ServiceStatus::Suspended->value] ?? 0),
+            'countTotal'     => (int) $sCounts->sum(),
         ]);
     }
 

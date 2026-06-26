@@ -1,6 +1,9 @@
 @extends('layouts.panel')
 
-@php($breadcrumbTitle = __('panel.nav.support'))
+@php
+    $breadcrumbTitle = __('panel.nav.support');
+    $breadcrumbItems = [__('panel.nav.support') => ''];
+@endphp
 
 @section('title', __('panel.nav.support'))
 
@@ -39,7 +42,10 @@
             <div class="col-xl-7">
                 <x-panel.card :title="__('panel.nav.support')">
                     @if($tickets->isEmpty())
-                        <p class="f-light mb-0">{{ __('panel.support.none') }}</p>
+                        <div class="text-center py-4">
+                            <i data-feather="message-square" style="width:36px;height:36px;" class="text-muted mb-2"></i>
+                            <p class="f-light mb-0">{{ __('panel.support.none') }}</p>
+                        </div>
                     @else
                         <x-panel.data-table :headers="[__('panel.support.subject'), __('panel.common.status'), __('panel.support.priority'), __('panel.support.last_reply')]">
                             @foreach($tickets as $ticket)

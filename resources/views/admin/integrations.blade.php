@@ -1,6 +1,9 @@
 @extends('layouts.panel')
 
-@php($breadcrumbTitle = __('panel.nav.admin_integrations'))
+@php
+    $breadcrumbTitle = __('panel.nav.admin_integrations');
+    $breadcrumbItems = [__('panel.nav.admin_integrations') => ''];
+@endphp
 
 @section('title', __('panel.nav.admin_integrations'))
 

@@ -2,6 +2,7 @@
 
 @php
     $breadcrumbTitle = __('panel.nav.ai');
+    $breadcrumbItems = [__('panel.nav.ai') => ''];
 @endphp
 
 @section('title', __('panel.nav.ai'))

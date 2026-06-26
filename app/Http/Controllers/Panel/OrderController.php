@@ -22,8 +22,18 @@ class OrderController extends Controller
     {
         $customer = $this->customer($request);
 
+        $counts = \Illuminate\Support\Facades\DB::table('orders')
+            ->where('customer_id', $customer->id)
+            ->selectRaw('status, COUNT(*) as cnt')
+            ->groupBy('status')
+            ->pluck('cnt', 'status');
+
         return view('panel.orders.index', [
-            'orders' => $customer->orders()->with('items')->latest('id')->paginate(15),
+            'orders'         => $customer->orders()->with('items')->latest('id')->paginate(15),
+            'countTotal'     => (int) $counts->sum(),
+            'countActive'    => (int) ($counts[\App\Domains\Billing\Enums\OrderStatus::Active->value] ?? 0),
+            'countPending'   => (int) ($counts[\App\Domains\Billing\Enums\OrderStatus::Pending->value] ?? 0),
+            'countCancelled' => (int) ($counts[\App\Domains\Billing\Enums\OrderStatus::Cancelled->value] ?? 0),
         ]);
     }
 
