@@ -11,6 +11,17 @@
 <div class="container-fluid">
     <x-panel.flash />
 
+    @if(!$referralCode)
+        <div class="card mb-3">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center gap-3">
+                    <i data-feather="info" class="txt-warning" style="width:18px;height:18px;"></i>
+                    <span class="f-light f-14">Váš partnerský profil ještě není aktivní. Kontaktujte administrátora pro aktivaci.</span>
+                </div>
+            </div>
+        </div>
+    @endif
+
     <div class="grid grid-cols-12 card-gap">
 
         {{-- Referral link card --}}

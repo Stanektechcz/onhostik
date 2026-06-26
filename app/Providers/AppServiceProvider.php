@@ -6,6 +6,7 @@ namespace App\Providers;
 
 use App\Domains\Billing\Events\InvoicePaid;
 use App\Domains\Billing\Listeners\HandleInvoicePaid;
+use App\Domains\Partner\Listeners\CreateCommissionOnInvoicePaid;
 use App\Domains\Billing\Services\Gateways\ComgateGateway;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Order;
@@ -52,6 +53,7 @@ class AppServiceProvider extends ServiceProvider
     private function configureEvents(): void
     {
         Event::listen(InvoicePaid::class, HandleInvoicePaid::class);
+        Event::listen(InvoicePaid::class, CreateCommissionOnInvoicePaid::class);
     }
 
     /**

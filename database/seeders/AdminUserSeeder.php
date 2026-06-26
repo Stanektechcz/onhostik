@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Domains\Customer\Models\Customer;
+use App\Domains\Partner\Models\PartnerProfile;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 
@@ -28,5 +30,28 @@ class AdminUserSeeder extends Seeder
         );
 
         $user->assignRole('admin');
+
+        // Give admin a demo partner profile so partner panel is testable in dev
+        if (!PartnerProfile::where('user_id', $user->id)->exists()) {
+            $user->givePermissionTo('access-partner');
+            PartnerProfile::create([
+                'user_id'                  => $user->id,
+                'referral_code'            => 'ONHOSTDEV',
+                'status'                   => 'active',
+                'commission_rate_percent'  => 10.0,
+            ]);
+        }
+
+        // Ensure admin also has a customer profile for /panel access
+        Customer::firstOrCreate(
+            ['user_id' => $user->id],
+            [
+                'type'               => 'individual',
+                'email'              => $user->email,
+                'preferred_currency' => 'CZK',
+                'preferred_locale'   => 'cs',
+                'country_code'       => 'CZ',
+            ],
+        );
     }
 }

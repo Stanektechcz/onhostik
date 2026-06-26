@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Fortify;
 
 use App\Domains\Customer\Models\Customer;
+use App\Domains\Partner\Services\ReferralTracker;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -30,7 +31,7 @@ class CreateNewUser implements CreatesNewUsers
             'password' => $this->passwordRules(),
         ])->validate();
 
-        return DB::transaction(function () use ($input): User {
+        $user = DB::transaction(function () use ($input): User {
             $user = User::create([
                 'name'     => $input['name'],
                 'email'    => $input['email'],
@@ -51,5 +52,18 @@ class CreateNewUser implements CreatesNewUsers
 
             return $user;
         });
+
+        // Link referral code from session — outside transaction so failures
+        // never break registration. ReferralTracker handles all edge cases.
+        $referralCode = session(config('partner.session_key'));
+        if (is_string($referralCode) && $referralCode !== '') {
+            try {
+                app(ReferralTracker::class)->linkRegistration($user->fresh('customer'), $referralCode);
+            } catch (\Throwable) {
+                // Never break registration over referral errors
+            }
+        }
+
+        return $user;
     }
 }

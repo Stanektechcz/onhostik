@@ -72,6 +72,7 @@
                         <x-panel.sidebar-link :href="route('admin.site-content.index')" icon="edit" label="Obsah webu" />
                         <x-panel.sidebar-link :href="route('admin.blog.index')" icon="rss" label="Blog" />
                         <x-panel.sidebar-link :href="route('admin.kb.index')" icon="book" label="Znalostní báze" />
+                        <x-panel.sidebar-link :href="route('admin.partners.index')" icon="share-2" label="Partneři" />
                     @endcan
                 </ul>
             </div>

@@ -4,78 +4,104 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Partner;
 
+use App\Domains\Partner\Enums\CommissionStatus;
+use App\Domains\Partner\Models\PartnerProfile;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class PartnerController extends Controller
 {
-    /**
-     * Referrals / lead list.
-     * Real affiliate tracking is a future phase — page shows referral link and empty state.
-     */
+    private function partnerProfile(Request $request): ?PartnerProfile
+    {
+        $user = $request->user();
+
+        return $user ? PartnerProfile::where('user_id', $user->id)->first() : null;
+    }
+
     public function referrals(Request $request): View
     {
-        $user         = $request->user();
-        $referralCode = strtoupper(Str::substr(md5((string) $user?->id . 'onhost'), 0, 8));
-        $referralUrl  = url('/') . '?ref=' . $referralCode;
+        $profile = $this->partnerProfile($request);
+
+        if ($profile === null) {
+            return view('partner.referrals', [
+                'referralCode' => null,
+                'referralUrl'  => null,
+                'referrals'    => collect(),
+            ]);
+        }
+
+        $referrals = $profile->referrals()
+            ->with('referredUser', 'referredCustomer')
+            ->latest()
+            ->paginate(20);
 
         return view('partner.referrals', [
-            'referralCode' => $referralCode,
-            'referralUrl'  => $referralUrl,
-            'referrals'    => collect(), // stub — real referral tracking not yet implemented
+            'referralCode' => $profile->referral_code,
+            'referralUrl'  => url('/') . '?ref=' . $profile->referral_code,
+            'referrals'    => $referrals,
         ]);
     }
 
-    /**
-     * Commissions list.
-     * Commission model not yet implemented — shows coming-soon empty state.
-     */
     public function commissions(Request $request): View
     {
+        $profile = $this->partnerProfile($request);
+
+        if ($profile === null) {
+            return view('partner.commissions', [
+                'commissions' => collect(),
+                'counts'      => ['pending' => 0, 'approved' => 0, 'paid' => 0, 'rejected' => 0],
+            ]);
+        }
+
+        $counts = [
+            'pending'  => (int) $profile->commissions()->where('status', CommissionStatus::Pending->value)->sum('amount'),
+            'approved' => (int) $profile->commissions()->where('status', CommissionStatus::Approved->value)->sum('amount'),
+            'paid'     => (int) $profile->commissions()->where('status', CommissionStatus::Paid->value)->sum('amount'),
+            'rejected' => (int) $profile->commissions()->where('status', CommissionStatus::Rejected->value)->sum('amount'),
+        ];
+
+        $commissions = $profile->commissions()
+            ->with('invoice', 'order')
+            ->latest()
+            ->paginate(20);
+
         return view('partner.commissions', [
-            'commissions' => collect(), // stub
+            'commissions' => $commissions,
+            'counts'      => $counts,
         ]);
     }
 
-    /**
-     * Payouts list.
-     * Manual payouts only — no automatic payout model yet.
-     */
     public function payouts(Request $request): View
     {
-        return view('partner.payouts', [
-            'payouts' => collect(), // stub
-        ]);
+        $profile = $this->partnerProfile($request);
+
+        $payouts = $profile
+            ? $profile->payouts()->latest()->paginate(15)
+            : collect();
+
+        return view('partner.payouts', ['payouts' => $payouts]);
     }
 
-    /**
-     * Partner assets — referral link, promotional materials.
-     */
     public function assets(Request $request): View
     {
-        $user         = $request->user();
-        $referralCode = strtoupper(Str::substr(md5((string) $user?->id . 'onhost'), 0, 8));
-        $referralUrl  = url('/') . '?ref=' . $referralCode;
+        $profile = $this->partnerProfile($request);
 
         return view('partner.assets', [
-            'referralCode' => $referralCode,
-            'referralUrl'  => $referralUrl,
+            'referralCode' => $profile?->referral_code,
+            'referralUrl'  => $profile ? url('/') . '?ref=' . $profile->referral_code : null,
         ]);
     }
 
-    /**
-     * Partner profile & settings.
-     */
     public function profile(Request $request): View
     {
-        $user     = $request->user();
-        $customer = $user?->customer;
+        $user    = $request->user();
+        $profile = $this->partnerProfile($request);
 
         return view('partner.profile', [
-            'user'     => $user,
-            'customer' => $customer,
+            'user'           => $user,
+            'customer'       => $user?->customer,
+            'partnerProfile' => $profile,
         ]);
     }
 }

@@ -171,4 +171,13 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/znalostni-baze/{kb}/upravit', [AdminKbController::class, 'edit'])->name('kb.edit');
     Route::put('/znalostni-baze/{kb}', [AdminKbController::class, 'update'])->name('kb.update');
     Route::delete('/znalostni-baze/{kb}', [AdminKbController::class, 'destroy'])->name('kb.destroy');
+
+    Route::prefix('partneri')->name('partners.')->group(function (): void {
+        Route::get('/', [Admin\PartnerController::class, 'index'])->name('index');
+        Route::get('/{partner:uuid}', [Admin\PartnerController::class, 'show'])->name('show');
+        Route::post('/{partner:uuid}/provize/{commission}/schvalit', [Admin\PartnerController::class, 'approveCommission'])->name('commissions.approve');
+        Route::post('/{partner:uuid}/provize/{commission}/zamitnout', [Admin\PartnerController::class, 'rejectCommission'])->name('commissions.reject');
+        Route::post('/{partner:uuid}/vyplata', [Admin\PartnerController::class, 'createPayout'])->name('payouts.create');
+        Route::post('/{partner:uuid}/vyplata/{payout}/zaplatit', [Admin\PartnerController::class, 'markPayoutPaid'])->name('payouts.paid');
+    });
 });

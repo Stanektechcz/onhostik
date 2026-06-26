@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\HandleReferralCookie;
 use App\Http\Middleware\SetLocale;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -20,6 +21,7 @@ $app = Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(append: [
             SetLocale::class,
+            HandleReferralCookie::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
