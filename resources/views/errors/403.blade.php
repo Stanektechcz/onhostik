@@ -1,24 +1,26 @@
-@extends('layouts.front')
-
-@section('title', '403 — Přístup odepřen')
-@section('meta_description', 'Přístup odepřen — Onhost.cz')
-
+@extends('layouts.cuba-standalone')
+@section('title', '403 — Přístup zakázán')
 @section('content')
-    <section class="sec-normal notfound pt-150">
-        <div class="total-grad-pink-blue-intense"></div>
-        <div class="container">
-            <div class="row justify-content-center">
-                <div class="col-sm-12 col-md-8 col-lg-6">
-                    <img class="svg" src="{{ asset('front/patterns/notfound.svg') }}" alt="403 — přístup odepřen" width="100%" height="100%">
-                </div>
-            </div>
-            <div class="col-md-12 text-center pt-5">
-                <p class="text-white f-18">
-                    {{ isset($exception) && $exception->getMessage() !== '' ? $exception->getMessage() : 'K této stránce nemáte přístup.' }}
+<div class="error-wrapper">
+    <div class="container">
+        <svg><use href="{{ asset('panel/assets/svg/icon-sprite.svg#error-403') }}"></use></svg>
+        <div class="grid grid-cols-12">
+            <div class="col-start-4 md:col-start-0 col-span-6 md:col-span-12">
+                <h3 class="[@media(max-width:575px)]:text-center">Přístup zakázán</h3>
+                <p class="sub-content [@media(max-width:575px)]:text-center [@media(max-width:767px)]:px-[15px]">
+                    Nemáte oprávnění pro přístup k této stránce.
+                    Ověřte svá přístupová práva nebo kontaktujte správce.
                 </p>
-                <a href="{{ route('front.home') }}" class="btn btn-default-grad-purple-fill mt-3 me-2">Zpět na úvod</a>
-                <a href="{{ config('app.customer_panel_url') }}" class="btn btn-default-yellow-fill mt-3">Klientská zóna</a>
             </div>
         </div>
-    </section>
+        <div class="[@media(max-width:575px)]:text-center">
+            <a class="btn btn-primary btn-lg text-white hover:text-white !rounded-lg me-2" href="{{ url('/panel') }}">
+                Zákaznický panel
+            </a>
+            <a class="btn btn-outline-primary btn-lg !rounded-lg" href="{{ url('/') }}">
+                Domovská stránka
+            </a>
+        </div>
+    </div>
+</div>
 @endsection

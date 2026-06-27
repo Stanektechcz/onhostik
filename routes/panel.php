@@ -169,6 +169,63 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/system', [Admin\SystemHealthController::class, 'index'])->name('system.index');
 
     Route::get('/audit', [Admin\AuditLogController::class, 'index'])->name('logs.audit');
+
+    /* ── User management ── */
+    Route::get('/uzivatele', [Admin\UserController::class, 'index'])->name('users.index');
+    Route::get('/uzivatele/karty', [Admin\UserController::class, 'cards'])->name('user-cards');
+    Route::get('/uzivatele/novy', [Admin\UserController::class, 'create'])->name('users.create');
+    Route::post('/uzivatele', [Admin\UserController::class, 'store'])->name('users.store');
+    Route::get('/uzivatele/{user}/upravit', [Admin\UserController::class, 'edit'])->name('users.edit');
+    Route::put('/uzivatele/{user}', [Admin\UserController::class, 'update'])->name('users.update');
+
+    /* ── Roles & permissions ── */
+    Route::get('/role-opravneni', [Admin\PageController::class, 'rolesPermission'])->name('roles-permission');
+
+    /* ── Pricing ── */
+    Route::get('/cenik', [Admin\PageController::class, 'pricing'])->name('pricing');
+
+    /* ── Reviews ── */
+    Route::get('/recenze', [Admin\PageController::class, 'reviews'])->name('reviews');
+
+    /* ── Mailbox ── */
+    Route::get('/posta', [Admin\PageController::class, 'mailbox'])->name('mailbox');
+
+    /* ── Kanban ── */
+    Route::get('/kanban', [Admin\PageController::class, 'kanban'])->name('kanban');
+
+    /* ── Tasks ── */
+    Route::get('/ukoly', [Admin\PageController::class, 'tasks'])->name('tasks');
+
+    /* ── Calendar ── */
+    Route::get('/kalendar', [Admin\PageController::class, 'calendar'])->name('calendar');
+
+    /* ── Todo ── */
+    Route::get('/todo', [Admin\PageController::class, 'todo'])->name('todo');
+
+    /* ── Contacts ── */
+    Route::get('/kontakty', [Admin\PageController::class, 'contacts'])->name('contacts');
+
+    /* ── Bookmarks ── */
+    Route::get('/zalozky', [Admin\PageController::class, 'bookmarks'])->name('bookmarks');
+
+    /* ── Social / Profile ── */
+    Route::get('/profil', [Admin\PageController::class, 'social'])->name('social');
+
+    /* ── File manager ── */
+    Route::get('/soubory', [Admin\PageController::class, 'fileManager'])->name('file-manager');
+
+    /* ── Subscribers ── */
+    Route::get('/odberevatele', [Admin\PageController::class, 'subscribers'])->name('subscribers');
+
+    /* ── Sitemap ── */
+    Route::get('/mapa-webu', [Admin\PageController::class, 'sitemap'])->name('sitemap');
+
+    /* ── Sample page ── */
+    Route::get('/ukazka', [Admin\PageController::class, 'samplePage'])->name('sample-page');
+
+    /* ── Search ── */
+    Route::get('/hledani', [Admin\SearchController::class, 'index'])->name('search');
+
     Route::get('/nastaveni', [Admin\SettingsController::class, 'index'])->name('settings.index');
     Route::post('/nastaveni', [Admin\SettingsController::class, 'update'])->name('settings.update');
 

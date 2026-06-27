@@ -1,22 +1,26 @@
-@extends('layouts.front')
-
-@section('title', '419 — Platnost vypršela')
-@section('meta_description', 'Platnost formuláře vypršela — Onhost.cz')
-
+@extends('layouts.cuba-standalone')
+@section('title', '419 — Platnost relace vypršela')
 @section('content')
-    <section class="sec-normal notfound pt-150">
-        <div class="total-grad-pink-blue-intense"></div>
-        <div class="container">
-            <div class="row justify-content-center">
-                <div class="col-sm-12 col-md-8 col-lg-6">
-                    <img class="svg" src="{{ asset('front/patterns/notfound.svg') }}" alt="419 — vypršela platnost" width="100%" height="100%">
-                </div>
-            </div>
-            <div class="col-md-12 text-center pt-5">
-                <p class="text-white f-18">Platnost formuláře vypršela. Vraťte se zpět a akci zopakujte.</p>
-                <a href="{{ url()->previous() }}" class="btn btn-default-grad-purple-fill mt-3 me-2">Zkusit znovu</a>
-                <a href="{{ route('front.home') }}" class="btn btn-default-yellow-fill mt-3">Zpět na úvod</a>
+<div class="error-wrapper">
+    <div class="container">
+        <svg><use href="{{ asset('panel/assets/svg/icon-sprite.svg#error-403') }}"></use></svg>
+        <div class="grid grid-cols-12">
+            <div class="col-start-4 md:col-start-0 col-span-6 md:col-span-12">
+                <h3 class="[@media(max-width:575px)]:text-center">Platnost relace vypršela</h3>
+                <p class="sub-content [@media(max-width:575px)]:text-center [@media(max-width:767px)]:px-[15px]">
+                    Vaše relace vypršela z důvodu nečinnosti. Přejděte zpět a zkuste akci zopakovat.
+                </p>
             </div>
         </div>
-    </section>
+        <div class="[@media(max-width:575px)]:text-center">
+            <a class="btn btn-primary btn-lg text-white hover:text-white !rounded-lg me-2"
+               href="javascript:history.back()">
+                Zpět
+            </a>
+            <a class="btn btn-outline-primary btn-lg !rounded-lg" href="{{ url('/login') }}">
+                Přihlásit se
+            </a>
+        </div>
+    </div>
+</div>
 @endsection
