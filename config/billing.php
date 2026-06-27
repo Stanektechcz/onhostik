@@ -32,8 +32,8 @@ return [
     | Invoicing
     |--------------------------------------------------------------------------
     */
-    'invoice_due_days'        => env('BILLING_INVOICE_DUE_DAYS', 14),
-    'proforma_validity_days'  => env('BILLING_PROFORMA_VALIDITY_DAYS', 10),
+    'invoice_due_days'        => (int) env('BILLING_INVOICE_DUE_DAYS', 14),
+    'proforma_validity_days'  => (int) env('BILLING_PROFORMA_VALIDITY_DAYS', 10),
 
     'supplier' => [
         'name'    => env('BILLING_COMPANY_NAME', 'Onhost.cz s.r.o.'),

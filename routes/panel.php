@@ -34,6 +34,15 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/objednavky', [Panel\OrderController::class, 'store'])->name('orders.store');
     Route::get('/objednavky/{order}', [Panel\OrderController::class, 'show'])->name('orders.show');
 
+    Route::get('/kosik', [Panel\CartController::class, 'index'])->name('cart.index');
+    Route::post('/kosik/pridat/{plan}', [Panel\CartController::class, 'add'])->name('cart.add');
+    Route::delete('/kosik/odebrat/{plan}', [Panel\CartController::class, 'remove'])->name('cart.remove');
+    Route::delete('/kosik', [Panel\CartController::class, 'clear'])->name('cart.clear');
+
+    Route::get('/oblibene', [Panel\WishlistController::class, 'index'])->name('wishlist.index');
+    Route::post('/oblibene/pridat/{plan}', [Panel\WishlistController::class, 'add'])->name('wishlist.add');
+    Route::delete('/oblibene/odebrat/{plan}', [Panel\WishlistController::class, 'remove'])->name('wishlist.remove');
+
     Route::get('/fakturace/faktury', [Panel\BillingController::class, 'invoices'])->name('billing.invoices');
     Route::get('/fakturace/faktury/{invoice}', [Panel\BillingController::class, 'invoiceShow'])->name('billing.invoices.show');
     Route::get('/fakturace/faktury/{invoice}/tisk', [Panel\BillingController::class, 'invoicePrint'])->name('billing.invoices.print');
