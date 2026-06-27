@@ -16,6 +16,20 @@
     // Billing cycles
     $billingCycles = $plans->map(fn($p) => ['value' => $p->billing_cycle->value, 'label' => $p->billing_cycle->label()])
                            ->unique('value')->values();
+
+    // JS plan data (pre-build to avoid @json + fn() Blade parse issue)
+    $jsPlanData = $plans->map(function ($p) use ($customer) {
+        return [
+            'id'        => $p->id,
+            'name'      => ($p->product?->name ?? '') . ' ' . $p->name,
+            'product'   => $p->product?->name,
+            'price'     => intdiv($p->priceFor($customer->preferred_currency)?->getMinorAmount()->toInt() ?? 0, 100),
+            'currency'  => $p->priceFor($customer->preferred_currency)?->getCurrency()->getCurrencyCode() ?? 'CZK',
+            'billing'   => $p->billing_cycle->label(),
+            'resources' => $p->resources ?? [],
+            'slug'      => $p->product?->slug,
+        ];
+    })->values();
 @endphp
 
 @section('title', __('panel.nav.new_order'))
@@ -561,16 +575,7 @@
     'use strict';
 
     /* ── Plan data from PHP ── */
-    var planData = @json($plans->map(fn($p) => [
-        'id'       => $p->id,
-        'name'     => $p->product?->name . ' ' . $p->name,
-        'product'  => $p->product?->name,
-        'price'    => intdiv($p->priceFor($customer->preferred_currency)?->getMinorAmount()->toInt() ?? 0, 100),
-        'currency' => $p->priceFor($customer->preferred_currency)?->getCurrency()->getCurrencyCode() ?? 'CZK',
-        'billing'  => $p->billing_cycle->label(),
-        'resources'=> $p->resources ?? [],
-        'slug'     => $p->product?->slug,
-    ])->values());
+    var planData = {!! json_encode($jsPlanData) !!};
 
     /* ─────────────── Plan selection ─────────────── */
     function selectPlan(planId) {
