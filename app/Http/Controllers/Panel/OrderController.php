@@ -40,10 +40,13 @@ class OrderController extends Controller
     public function create(Request $request): View
     {
         $plans = PricingPlan::query()
-            ->where('is_active', true)
+            ->where('pricing_plans.is_active', true)
             ->whereHas('product', fn ($query) => $query->where('is_active', true))
             ->with('product')
-            ->orderBy('sort_order')
+            ->join('products', 'pricing_plans.product_id', '=', 'products.id')
+            ->orderBy('products.sort_order')
+            ->orderBy('pricing_plans.sort_order')
+            ->select('pricing_plans.*')
             ->get();
 
         return view('panel.orders.create', [
