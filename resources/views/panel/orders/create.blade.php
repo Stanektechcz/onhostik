@@ -7,6 +7,29 @@
 
 @section('title', __('panel.nav.new_order'))
 
+@push('styles')
+<style>
+/* Plan card selection highlight */
+.plan-card-wrapper { cursor: pointer; height: 100%; }
+.plan-card-wrapper input[type="radio"] { position: absolute; opacity: 0; width: 0; height: 0; }
+.plan-card-wrapper .pricingtable {
+    border: 2px solid transparent;
+    transition: border-color .2s, box-shadow .2s;
+}
+.plan-card-wrapper:hover .pricingtable {
+    border-color: rgba(var(--theme-default), .4);
+}
+.plan-card-wrapper.selected .pricingtable {
+    border-color: rgba(var(--theme-default), 1);
+    box-shadow: 0 0 0 4px rgba(var(--theme-default), .12) !important;
+}
+.plan-card-wrapper .select-btn { transition: all .15s; }
+/* Override pricingtable center for feature list */
+.pricingtable .pricing-content { text-align: left; padding-left: 1.5rem; }
+.pricingtable .pricing-content li { display: flex; align-items: center; gap: .4rem; }
+</style>
+@endpush
+
 @section('content')
 <div class="container-fluid">
     <x-panel.flash />
@@ -33,17 +56,17 @@
             <div class="card-body py-3">
                 <div class="d-flex align-items-center gap-3 flex-wrap">
                     <div class="d-flex align-items-center gap-2">
-                        <span class="badge badge-light-primary rounded-circle f-14" style="width:28px;height:28px;line-height:20px;text-align:center;">1</span>
+                        <span class="badge badge-light-primary rounded-circle" style="width:28px;height:28px;line-height:20px;">1</span>
                         <span class="f-w-500">Vyberte tarif</span>
                     </div>
                     <i data-feather="chevron-right" style="width:14px;height:14px;" class="text-muted"></i>
                     <div class="d-flex align-items-center gap-2">
-                        <span class="badge badge-light-secondary rounded-circle f-14" style="width:28px;height:28px;line-height:20px;text-align:center;">2</span>
+                        <span class="badge badge-light-secondary rounded-circle" style="width:28px;height:28px;line-height:20px;">2</span>
                         <span class="f-light">Doména (volitelně)</span>
                     </div>
                     <i data-feather="chevron-right" style="width:14px;height:14px;" class="text-muted"></i>
                     <div class="d-flex align-items-center gap-2">
-                        <span class="badge badge-light-secondary rounded-circle f-14" style="width:28px;height:28px;line-height:20px;text-align:center;">3</span>
+                        <span class="badge badge-light-secondary rounded-circle" style="width:28px;height:28px;line-height:20px;">3</span>
                         <span class="f-light">Potvrzení</span>
                     </div>
                     @if($mockMode)
@@ -53,7 +76,7 @@
             </div>
         </div>
 
-        {{-- Plan selection using Cuba pricingtable pattern --}}
+        {{-- Plan selection --}}
         <div class="card">
             <div class="card-header card-no-border pb-0">
                 <div class="header-top">
@@ -61,39 +84,46 @@
                 </div>
             </div>
             <div class="card-body">
+
                 @error('pricing_plan_id')
                     <div class="alert alert-light-danger mb-3 f-12">{{ $message }}</div>
                 @enderror
 
-                <div class="grid grid-cols-12 card-gap">
+                {{-- 4 per row: row-cols-xl-4, 2 per row on md, 1 on mobile --}}
+                <div class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-4">
                     @foreach($plans as $plan)
                     @php
-                        $selected = (int) old('pricing_plan_id', $selectedPlan) === $plan->id;
-                        $price = $plan->priceFor($customer->preferred_currency);
-                        // Detect icon per product type
-                        $icon = match($plan->product?->type?->value ?? '') {
-                            'vps'         => 'cpu',
-                            'gamehosting' => 'monitor',
-                            default       => 'server',
+                        $isSelected = (int) old('pricing_plan_id', $selectedPlan) === $plan->id;
+                        $minor = $plan->priceFor($customer->preferred_currency)?->getMinorAmount()->toInt() ?? 0;
+                        $whole = intdiv($minor, 100);
+                        $curr  = $plan->priceFor($customer->preferred_currency)?->getCurrency()->getCurrencyCode() ?? 'CZK';
+                        $icon  = match($plan->product?->type?->value ?? '') {
+                            'vps'  => 'cpu',
+                            'vps'  => 'cpu',
+                            default => 'server',
                         };
                     @endphp
-                    <div class="col-span-12 md:col-span-6 xl:col-span-4 xxl:col-span-3">
-                        <label class="plan-card w-100 mb-0" style="cursor:pointer;">
-                            <input type="radio" name="pricing_plan_id" value="{{ $plan->id }}"
-                                   class="d-none plan-radio" @checked($selected)>
-                            <div class="pricingtable h-100 {{ $selected ? 'active' : '' }}"
-                                 style="border:2px solid {{ $selected ? 'var(--theme-default)' : 'transparent' }};border-radius:10px;transition:all .2s;">
-                                {{-- Header --}}
-                                <div class="pricingtable-header text-center pb-0">
-                                    @if($plan->is_featured)
-                                        <div class="ribbon ribbon-primary" style="position:absolute;top:-1px;right:-1px;">
-                                            <span>Oblíbený</span>
-                                        </div>
-                                    @endif
-                                    <div class="mb-2 mt-1">
-                                        <i data-feather="{{ $icon }}" class="txt-primary" style="width:32px;height:32px;"></i>
+                    <div class="col">
+                        <label class="plan-card-wrapper d-block h-100 {{ $isSelected ? 'selected' : '' }}"
+                               data-plan-id="{{ $plan->id }}">
+                            <input type="radio" name="pricing_plan_id"
+                                   value="{{ $plan->id }}"
+                                   @checked($isSelected)>
+
+                            <div class="pricingtable h-100">
+                                {{-- Featured ribbon --}}
+                                @if($plan->is_featured)
+                                    <div class="ribbon ribbon-primary">
+                                        <span>Oblíbený</span>
                                     </div>
-                                    <h4 class="title mergecolor mb-0">{{ $plan->name }}</h4>
+                                @endif
+
+                                {{-- Header --}}
+                                <div class="pricingtable-header">
+                                    <div class="mb-2">
+                                        <i data-feather="{{ $icon }}" class="txt-primary" style="width:36px;height:36px;"></i>
+                                    </div>
+                                    <h4 class="title mergecolor mb-1">{{ $plan->name }}</h4>
                                     <p class="f-light f-12 mb-0">{{ $plan->product?->name }}</p>
                                     @if($plan->tagline)
                                         <p class="f-light f-12 mb-0">{{ $plan->tagline }}</p>
@@ -101,40 +131,37 @@
                                 </div>
 
                                 {{-- Price --}}
-                                <div class="price-value text-center py-3">
-                                    @php
-                                        $minor  = $price?->getMinorAmount()->toInt() ?? 0;
-                                        $whole  = intdiv($minor, 100);
-                                        $curr   = $price?->getCurrency()->getCurrencyCode() ?? 'CZK';
-                                    @endphp
-                                    <span class="currency txt-primary f-16 f-w-600">{{ $curr === 'CZK' ? '' : '$' }}</span>
-                                    <span class="amount display-6 f-w-700 mergecolor">{{ number_format($whole, 0, ',', ' ') }}</span>
-                                    <span class="f-light f-12">&nbsp;{{ $curr === 'CZK' ? 'Kč' : $curr }}</span>
-                                    <span class="duration f-light f-12">&nbsp;/&nbsp;{{ $plan->billing_cycle->label() }}</span>
+                                <div class="price-value">
+                                    <span class="currency">{{ $curr === 'CZK' ? '' : '$' }}</span>
+                                    <span class="amount">{{ number_format($whole, 0, ',', ' ') }}</span>
+                                    <span class="duration">&nbsp;{{ $curr === 'CZK' ? 'Kč' : $curr }}/{{ $plan->billing_cycle->label() }}</span>
                                 </div>
 
                                 {{-- Features --}}
-                                @if(!empty($plan->resources))
                                 <ul class="pricing-content">
-                                    @foreach($plan->resources as $key => $value)
+                                    @forelse($plan->resources ?? [] as $key => $value)
                                         <li>
-                                            <i data-feather="check" style="width:13px;height:13px;" class="txt-success me-1"></i>
-                                            <span class="f-light">{{ __("front.resources.$key") }}:</span>
-                                            <span class="f-w-500">{{ $value }}</span>
+                                            <i data-feather="check" style="width:13px;height:13px;" class="txt-success"></i>
+                                            {{ __("front.resources.$key") }}: <strong>{{ $value }}</strong>
                                         </li>
-                                    @endforeach
+                                    @empty
+                                        <li>
+                                            <i data-feather="check" style="width:13px;height:13px;" class="txt-success"></i>
+                                            Standardní hosting
+                                        </li>
+                                    @endforelse
                                 </ul>
-                                @else
-                                <ul class="pricing-content">
-                                    <li class="f-light f-12">Standardní hosting</li>
-                                </ul>
-                                @endif
 
                                 {{-- CTA --}}
-                                <div class="pricingtable-signup text-center pt-2 pb-3">
-                                    <span class="btn {{ $selected ? 'btn-primary' : 'btn-outline-primary' }} w-75 plan-btn">
-                                        <i data-feather="{{ $selected ? 'check-circle' : 'shopping-cart' }}" style="width:14px;height:14px;" class="me-1"></i>
-                                        {{ $selected ? 'Vybráno' : 'Vybrat' }}
+                                <div class="pricingtable-signup">
+                                    <span class="btn select-btn {{ $isSelected ? 'btn-primary' : 'btn-outline-primary' }} btn-lg">
+                                        @if($isSelected)
+                                            <i data-feather="check-circle" style="width:16px;height:16px;"></i>
+                                            Vybráno
+                                        @else
+                                            <i data-feather="shopping-cart" style="width:16px;height:16px;"></i>
+                                            Vybrat
+                                        @endif
                                     </span>
                                 </div>
                             </div>
@@ -142,6 +169,7 @@
                     </div>
                     @endforeach
                 </div>
+
             </div>
         </div>
 
@@ -153,59 +181,63 @@
                 </div>
             </div>
             <div class="card-body">
-                <div class="row g-3">
+                <div class="row g-3 align-items-end">
                     <div class="col-md-7">
-                        <label class="form-label f-12 f-light">Doménové jméno <span class="f-light">(volitelné)</span></label>
+                        <label class="form-label f-12 f-light">
+                            Doménové jméno
+                            <span class="badge badge-light-secondary ms-1">volitelné</span>
+                        </label>
                         <div class="input-group">
-                            <span class="input-group-text bg-light-primary txt-primary">
+                            <span class="input-group-text">
                                 <i data-feather="globe" style="width:14px;height:14px;"></i>
                             </span>
-                            <input class="form-control" type="text" name="domain" value="{{ old('domain') }}"
+                            <input class="form-control" type="text" name="domain"
+                                   value="{{ old('domain') }}"
                                    placeholder="{{ __('front.domains.search_placeholder') }}">
                         </div>
-                        <small class="f-light f-12">{{ __('panel.orders.domain_hint') }}</small>
+                        <small class="f-light f-12 mt-1 d-block">{{ __('panel.orders.domain_hint') }}</small>
                         @error('domain')
                             <p class="text-danger mt-1 mb-0 f-12">{{ $message }}</p>
                         @enderror
                     </div>
-                    <div class="col-md-5 d-flex align-items-end">
-                        <div class="w-100">
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" name="register_domain"
-                                       id="register_domain" value="1" @checked(old('register_domain'))>
-                                <label class="form-check-label" for="register_domain">
-                                    {{ __('panel.orders.register_domain') }}
+                    <div class="col-md-5">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox"
+                                   name="register_domain" id="register_domain"
+                                   value="1" @checked(old('register_domain'))>
+                            <label class="form-check-label" for="register_domain">
+                                {{ __('panel.orders.register_domain') }}
+                            </label>
+                        </div>
+                        @if($mockMode)
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox"
+                                       name="simulate_failure" id="simulate_failure"
+                                       value="1" @checked(old('simulate_failure'))>
+                                <label class="form-check-label f-light f-12" for="simulate_failure">
+                                    {{ __('panel.orders.simulate_failure') }}
+                                    <span class="badge badge-light-warning">MOCK</span>
                                 </label>
                             </div>
-                            @if($mockMode)
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" name="simulate_failure"
-                                           id="simulate_failure" value="1" @checked(old('simulate_failure'))>
-                                    <label class="form-check-label f-light f-12" for="simulate_failure">
-                                        {{ __('panel.orders.simulate_failure') }}
-                                        <span class="badge badge-light-warning">MOCK</span>
-                                    </label>
-                                </div>
-                            @endif
-                        </div>
+                        @endif
                     </div>
                 </div>
             </div>
         </div>
 
         {{-- Submit --}}
-        <div class="d-flex align-items-center gap-3 mb-4">
-            <button type="submit" class="btn btn-primary btn-lg px-4">
+        <div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
+            <button type="submit" class="btn btn-primary btn-lg px-5">
                 <i data-feather="check" style="width:16px;height:16px;"></i>
                 {{ __('panel.orders.submit') }}
             </button>
             <a href="{{ route('panel.orders.index') }}" class="btn btn-outline-secondary">
                 {{ __('panel.nav.back') }}
             </a>
-            <span class="f-light f-12 ms-2">
+            <small class="f-light ms-2">
                 <i data-feather="info" style="width:12px;height:12px;"></i>
                 Po odeslání bude vystavena zálohová faktura.
-            </span>
+            </small>
         </div>
     </form>
 
@@ -213,34 +245,36 @@
 </div>
 
 <script>
-// Plan card selection — Cuba pricingtable style
-document.querySelectorAll('.plan-card').forEach(function(label) {
-    label.addEventListener('click', function() {
-        // Deselect all
-        document.querySelectorAll('.pricingtable').forEach(function(card) {
-            card.style.border = '2px solid transparent';
-            var btn = card.querySelector('.plan-btn');
+(function () {
+    var wrappers = document.querySelectorAll('.plan-card-wrapper');
+
+    wrappers.forEach(function (wrapper) {
+        wrapper.addEventListener('click', function (e) {
+            // Deselect all
+            wrappers.forEach(function (w) {
+                w.classList.remove('selected');
+                var r = w.querySelector('input[type="radio"]');
+                if (r) r.checked = false;
+                var btn = w.querySelector('.select-btn');
+                if (btn) {
+                    btn.className = btn.className.replace('btn-primary', 'btn-outline-primary');
+                    btn.innerHTML = '<i data-feather="shopping-cart" style="width:16px;height:16px;"></i> Vybrat';
+                }
+            });
+
+            // Select this
+            this.classList.add('selected');
+            var radio = this.querySelector('input[type="radio"]');
+            if (radio) radio.checked = true;
+            var btn = this.querySelector('.select-btn');
             if (btn) {
-                btn.className = btn.className.replace('btn-primary', 'btn-outline-primary');
-                btn.innerHTML = '<i data-feather="shopping-cart" style="width:14px;height:14px;" class="me-1"></i> Vybrat';
+                btn.className = btn.className.replace('btn-outline-primary', 'btn-primary');
+                btn.innerHTML = '<i data-feather="check-circle" style="width:16px;height:16px;"></i> Vybráno';
             }
+
+            if (typeof feather !== 'undefined') feather.replace();
         });
-        document.querySelectorAll('.plan-radio').forEach(function(r) { r.checked = false; });
-
-        // Select this
-        var radio = this.querySelector('.plan-radio');
-        var card  = this.querySelector('.pricingtable');
-        var btn   = this.querySelector('.plan-btn');
-        if (radio) radio.checked = true;
-        if (card)  card.style.border = '2px solid var(--theme-default)';
-        if (btn) {
-            btn.className = btn.className.replace('btn-outline-primary', 'btn-primary');
-            btn.innerHTML = '<i data-feather="check-circle" style="width:14px;height:14px;" class="me-1"></i> Vybráno';
-        }
-
-        // Re-init feather icons
-        if (typeof feather !== 'undefined') feather.replace();
     });
-});
+}());
 </script>
 @endsection
