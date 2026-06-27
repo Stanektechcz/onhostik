@@ -40,6 +40,29 @@ class KbController extends Controller
         ]);
     }
 
+    public function show(KbArticle $kb): View
+    {
+        $related = KbArticle::query()
+            ->where('id', '!=', $kb->id)
+            ->when($kb->category, fn ($q) => $q->where('category', $kb->category))
+            ->orderBy('sort_order')
+            ->limit(5)
+            ->get();
+
+        $allCategories = KbArticle::query()
+            ->where('is_published', true)
+            ->orderBy('category')
+            ->orderBy('sort_order')
+            ->get()
+            ->groupBy('category');
+
+        return view('admin.kb.show', [
+            'article'       => $kb,
+            'related'       => $related,
+            'allCategories' => $allCategories,
+        ]);
+    }
+
     public function create(): View
     {
         return view('admin.kb.form', ['article' => new KbArticle()]);

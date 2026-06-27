@@ -170,6 +170,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::put('/obsah/{siteContent}', [SiteContentController::class, 'update'])->name('site-content.update');
 
     Route::get('/blog', [AdminBlogController::class, 'index'])->name('blog.index');
+    Route::get('/blog/{blog}/nahled', [AdminBlogController::class, 'show'])->name('blog.show');
     Route::get('/blog/novy', [AdminBlogController::class, 'create'])->name('blog.create');
     Route::post('/blog', [AdminBlogController::class, 'store'])->name('blog.store');
     Route::get('/blog/{blog}/upravit', [AdminBlogController::class, 'edit'])->name('blog.edit');
@@ -177,6 +178,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::delete('/blog/{blog}', [AdminBlogController::class, 'destroy'])->name('blog.destroy');
 
     Route::get('/znalostni-baze', [AdminKbController::class, 'index'])->name('kb.index');
+    Route::get('/znalostni-baze/{kb}/nahled', [AdminKbController::class, 'show'])->name('kb.show');
     Route::get('/znalostni-baze/novy', [AdminKbController::class, 'create'])->name('kb.create');
     Route::post('/znalostni-baze', [AdminKbController::class, 'store'])->name('kb.store');
     Route::get('/znalostni-baze/{kb}/upravit', [AdminKbController::class, 'edit'])->name('kb.edit');

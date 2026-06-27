@@ -123,6 +123,7 @@
                                     <hr>
                                     <p class="mt-0">{{ Str::limit($post->excerpt, 80) }}</p>
                                     <div class="d-flex gap-2 mt-2">
+                                        <a href="{{ route('admin.blog.show', $post) }}" class="btn btn-outline-secondary btn-xs">Náhled</a>
                                         <a href="{{ route('admin.blog.edit', $post) }}" class="btn btn-outline-primary btn-xs">Upravit</a>
                                         <form method="POST" action="{{ route('admin.blog.destroy', $post) }}" style="display:inline;"
                                               onsubmit="return confirm('Smazat?')">

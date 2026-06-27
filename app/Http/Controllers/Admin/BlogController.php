@@ -39,6 +39,19 @@ class BlogController extends Controller
         ]);
     }
 
+    public function show(BlogPost $blog): View
+    {
+        $related = BlogPost::query()
+            ->where('id', '!=', $blog->id)
+            ->where('is_published', true)
+            ->when($blog->category, fn ($q) => $q->where('category', $blog->category))
+            ->latest('published_at')
+            ->limit(3)
+            ->get();
+
+        return view('admin.blog.show', ['post' => $blog, 'related' => $related]);
+    }
+
     public function create(): View
     {
         return view('admin.blog.form', ['post' => new BlogPost()]);
