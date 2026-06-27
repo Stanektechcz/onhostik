@@ -61,6 +61,12 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::put('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'updateBilling'])->name('account.billing.update');
     Route::get('/ucet/zabezpeceni', [Panel\AccountController::class, 'security'])->name('account.security');
 
+    Route::get('/blog', [Panel\BlogController::class, 'index'])->name('blog.index');
+    Route::get('/blog/{slug}', [Panel\BlogController::class, 'show'])->name('blog.show');
+
+    Route::get('/znalostni-baze', [Panel\KbController::class, 'index'])->name('kb.index');
+    Route::get('/znalostni-baze/{slug}', [Panel\KbController::class, 'show'])->name('kb.show');
+
     Route::get('/podpora', [Panel\SupportController::class, 'index'])->name('support.index');
     Route::post('/podpora', [Panel\SupportController::class, 'store'])->name('support.store');
     Route::get('/podpora/{ticket}', [Panel\SupportController::class, 'show'])->name('support.show');

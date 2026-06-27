@@ -53,6 +53,7 @@
 
 {{-- Cuba JS stack --}}
 <script src="{{ asset('panel/js/jquery.min.js') }}"></script>
+<script src="{{ asset('panel/js/bootstrap.bundle.min.js') }}"></script>
 <script src="{{ asset('panel/js/icons/feather-icon/feather.min.js') }}"></script>
 <script src="{{ asset('panel/js/icons/feather-icon/feather-icon.js') }}"></script>
 <script src="{{ asset('panel/js/scrollbar/simplebar.min.js') }}"></script>
