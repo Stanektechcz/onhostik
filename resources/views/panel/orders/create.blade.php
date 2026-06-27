@@ -9,24 +9,40 @@
 
 @push('styles')
 <style>
-/* Plan card selection highlight */
-.plan-card-wrapper { cursor: pointer; height: 100%; }
-.plan-card-wrapper input[type="radio"] { position: absolute; opacity: 0; width: 0; height: 0; }
-.plan-card-wrapper .pricingtable {
-    border: 2px solid transparent;
-    transition: border-color .2s, box-shadow .2s;
-}
-.plan-card-wrapper:hover .pricingtable {
-    border-color: rgba(var(--theme-default), .4);
-}
-.plan-card-wrapper.selected .pricingtable {
-    border-color: rgba(var(--theme-default), 1);
+/* ── Plan card selection ── */
+.plan-label { cursor: pointer; display: block; height: 100%; }
+.plan-label input[type="radio"] { position: absolute; opacity: 0; width: 0; height: 0; }
+
+/* Selected state — border on the card */
+.plan-label.plan-selected .card {
+    border: 2px solid rgba(var(--theme-default), 1);
     box-shadow: 0 0 0 4px rgba(var(--theme-default), .12) !important;
 }
-.plan-card-wrapper .select-btn { transition: all .15s; }
-/* Override pricingtable center for feature list */
-.pricingtable .pricing-content { text-align: left; padding-left: 1.5rem; }
-.pricingtable .pricing-content li { display: flex; align-items: center; gap: .4rem; }
+
+/* Visual area background (replaces product image) */
+.plan-visual {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 160px;
+    overflow: hidden;
+    background: linear-gradient(135deg, rgba(var(--theme-default), .08) 0%, rgba(var(--theme-default), .04) 100%);
+    border-bottom: 1px solid rgba(var(--light-background), 1);
+}
+.plan-visual .plan-icon { transition: transform .3s ease; }
+.plan-label:hover .plan-visual .plan-icon { transform: scale(1.08); }
+
+/* product-price override — use Cuba's class */
+.product-price { font-size: 1.2rem; font-weight: 700; color: rgba(var(--theme-default), 1); }
+.product-price .duration { font-size: .8rem; font-weight: 400; color: rgba(var(--font-color), .6); }
+
+/* Features list */
+.plan-features li { display: flex; align-items: center; gap: .35rem; font-size: 12px; color: rgba(var(--font-color), .7); padding: 2px 0; }
+
+/* Hover overlay button — "Vybrat" */
+.product-hover .btn-select-plan { white-space: nowrap; padding: 8px 16px; font-size: .85rem; }
+.plan-selected .product-hover .btn-select-plan { background-color: rgba(var(--theme-default), 1) !important; color: rgba(var(--white), 1) !important; }
 </style>
 @endpush
 
@@ -42,7 +58,7 @@
                 <p class="f-light f-14 mb-3">Aktuálně nejsou dostupné žádné aktivní tarify.</p>
                 <a href="{{ route('panel.orders.index') }}" class="btn btn-outline-primary btn-sm">
                     <i data-feather="arrow-left" style="width:13px;height:13px;"></i>
-                    Zpět na objednávky
+                    Zpět
                 </a>
             </div>
         </div>
@@ -51,7 +67,7 @@
     <form method="POST" action="{{ route('panel.orders.store') }}" id="order-form">
         @csrf
 
-        {{-- Step indicator --}}
+        {{-- ── Krok indikátor ─────────────────────────────────────── --}}
         <div class="card mb-3">
             <div class="card-body py-3">
                 <div class="d-flex align-items-center gap-3 flex-wrap">
@@ -62,7 +78,7 @@
                     <i data-feather="chevron-right" style="width:14px;height:14px;" class="text-muted"></i>
                     <div class="d-flex align-items-center gap-2">
                         <span class="badge badge-light-secondary rounded-circle" style="width:28px;height:28px;line-height:20px;">2</span>
-                        <span class="f-light">Doména (volitelně)</span>
+                        <span class="f-light">Doména</span>
                     </div>
                     <i data-feather="chevron-right" style="width:14px;height:14px;" class="text-muted"></i>
                     <div class="d-flex align-items-center gap-2">
@@ -76,117 +92,146 @@
             </div>
         </div>
 
-        {{-- Plan selection --}}
-        <div class="card">
-            <div class="card-header card-no-border pb-0">
-                <div class="header-top">
-                    <h5>{{ __('panel.orders.choose_plan') }}</h5>
-                </div>
-            </div>
-            <div class="card-body">
+        {{-- ── Cuba product-grid pattern ──────────────────────────── --}}
+        @error('pricing_plan_id')
+            <div class="alert alert-light-danger mb-3">{{ $message }}</div>
+        @enderror
 
-                @error('pricing_plan_id')
-                    <div class="alert alert-light-danger mb-3 f-12">{{ $message }}</div>
-                @enderror
+        <div class="container product-wrapper px-0">
+            <div class="product-grid">
 
-                {{-- 4 per row: row-cols-xl-4, 2 per row on md, 1 on mobile --}}
-                <div class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-4">
-                    @foreach($plans as $plan)
-                    @php
-                        $isSelected = (int) old('pricing_plan_id', $selectedPlan) === $plan->id;
-                        $minor = $plan->priceFor($customer->preferred_currency)?->getMinorAmount()->toInt() ?? 0;
-                        $whole = intdiv($minor, 100);
-                        $curr  = $plan->priceFor($customer->preferred_currency)?->getCurrency()->getCurrencyCode() ?? 'CZK';
-                        $icon  = match($plan->product?->type?->value ?? '') {
-                            'vps'  => 'cpu',
-                            'vps'  => 'cpu',
-                            default => 'server',
-                        };
-                    @endphp
-                    <div class="col">
-                        <label class="plan-card-wrapper d-block h-100 {{ $isSelected ? 'selected' : '' }}"
-                               data-plan-id="{{ $plan->id }}">
-                            <input type="radio" name="pricing_plan_id"
-                                   value="{{ $plan->id }}"
-                                   @checked($isSelected)>
-
-                            <div class="pricingtable h-100">
-                                {{-- Featured ribbon --}}
-                                @if($plan->is_featured)
-                                    <div class="ribbon ribbon-primary">
-                                        <span>Oblíbený</span>
-                                    </div>
-                                @endif
-
-                                {{-- Header --}}
-                                <div class="pricingtable-header">
-                                    <div class="mb-2">
-                                        <i data-feather="{{ $icon }}" class="txt-primary" style="width:36px;height:36px;"></i>
-                                    </div>
-                                    <h4 class="title mergecolor mb-1">{{ $plan->name }}</h4>
-                                    <p class="f-light f-12 mb-0">{{ $plan->product?->name }}</p>
-                                    @if($plan->tagline)
-                                        <p class="f-light f-12 mb-0">{{ $plan->tagline }}</p>
-                                    @endif
-                                </div>
-
-                                {{-- Price --}}
-                                <div class="price-value">
-                                    <span class="currency">{{ $curr === 'CZK' ? '' : '$' }}</span>
-                                    <span class="amount">{{ number_format($whole, 0, ',', ' ') }}</span>
-                                    <span class="duration">&nbsp;{{ $curr === 'CZK' ? 'Kč' : $curr }}/{{ $plan->billing_cycle->label() }}</span>
-                                </div>
-
-                                {{-- Features --}}
-                                <ul class="pricing-content">
-                                    @forelse($plan->resources ?? [] as $key => $value)
-                                        <li>
-                                            <i data-feather="check" style="width:13px;height:13px;" class="txt-success"></i>
-                                            {{ __("front.resources.$key") }}: <strong>{{ $value }}</strong>
-                                        </li>
-                                    @empty
-                                        <li>
-                                            <i data-feather="check" style="width:13px;height:13px;" class="txt-success"></i>
-                                            Standardní hosting
-                                        </li>
-                                    @endforelse
-                                </ul>
-
-                                {{-- CTA --}}
-                                <div class="pricingtable-signup">
-                                    <span class="btn select-btn {{ $isSelected ? 'btn-primary' : 'btn-outline-primary' }} btn-lg">
-                                        @if($isSelected)
-                                            <i data-feather="check-circle" style="width:16px;height:16px;"></i>
-                                            Vybráno
-                                        @else
-                                            <i data-feather="shopping-cart" style="width:16px;height:16px;"></i>
-                                            Vybrat
-                                        @endif
-                                    </span>
-                                </div>
-                            </div>
-                        </label>
+                {{-- Feature bar (product count + sort) --}}
+                <div class="feature-products mb-3">
+                    <div class="grid grid-cols-12 gap-3 align-items-center">
+                        <div class="col-span-6 md:col-span-12 products-total">
+                            <span class="f-light f-14">
+                                <strong>{{ $plans->count() }}</strong> tarify jsou k dispozici
+                            </span>
+                        </div>
+                        <div class="col-span-6 md:col-span-12 text-end md:text-start">
+                            <span class="f-light f-12">Vyberte tarif kliknutím</span>
+                        </div>
                     </div>
-                    @endforeach
                 </div>
 
-            </div>
-        </div>
+                {{-- Product grid: 4 per row (col-span-3) --}}
+                <div class="product-wrapper-grid">
+                    <div class="grid grid-cols-12 card-gap">
 
-        {{-- Domain --}}
-        <div class="card">
+                        @foreach($plans as $plan)
+                        @php
+                            $isSelected = (int) old('pricing_plan_id', $selectedPlan) === $plan->id;
+                            $price  = $plan->priceFor($customer->preferred_currency);
+                            $minor  = $price?->getMinorAmount()->toInt() ?? 0;
+                            $whole  = intdiv($minor, 100);
+                            $curr   = $price?->getCurrency()->getCurrencyCode() ?? 'CZK';
+                            $type   = $plan->product?->type?->value ?? 'webhosting';
+                            $icon   = match($type) {
+                                'vps'  => 'cpu',
+                                default => 'server',
+                            };
+                            // Icon color per product type
+                            $iconColor = match($type) {
+                                'vps'  => 'txt-secondary',
+                                default => 'txt-primary',
+                            };
+                        @endphp
+
+                        <div class="col-span-3 xxl:col-span-4 md:col-span-6 sm:col-span-12 box-col-4">
+                            <label class="plan-label {{ $isSelected ? 'plan-selected' : '' }}"
+                                   data-plan-id="{{ $plan->id }}">
+
+                                <input type="radio"
+                                       name="pricing_plan_id"
+                                       value="{{ $plan->id }}"
+                                       @checked($isSelected)>
+
+                                <div class="card h-100">
+                                    <div class="product-box">
+
+                                        {{-- ── product-img (visual area) ── --}}
+                                        <div class="plan-visual">
+                                            {{-- Featured ribbon --}}
+                                            @if($plan->is_featured)
+                                                <div class="ribbon ribbon-primary">
+                                                    <span>Oblíbený</span>
+                                                </div>
+                                            @endif
+
+                                            {{-- Service icon --}}
+                                            <div class="plan-icon text-center">
+                                                <i data-feather="{{ $icon }}"
+                                                   class="{{ $iconColor }}"
+                                                   style="width:52px;height:52px;stroke-width:1.5;"></i>
+                                                <p class="f-light f-12 mb-0 mt-1">{{ $plan->product?->name }}</p>
+                                            </div>
+
+                                            {{-- Hover overlay (Cuba product-hover) --}}
+                                            <div class="product-hover">
+                                                <ul>
+                                                    <li>
+                                                        <span class="btn btn-select-plan {{ $isSelected ? 'btn-primary' : 'btn-outline-primary' }}">
+                                                            @if($isSelected)
+                                                                <i data-feather="check-circle" style="width:14px;height:14px;" class="me-1"></i>Vybráno
+                                                            @else
+                                                                <i data-feather="shopping-cart" style="width:14px;height:14px;" class="me-1"></i>Vybrat
+                                                            @endif
+                                                        </span>
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                        </div>
+
+                                        {{-- ── product-details ── --}}
+                                        <div class="product-details">
+                                            <h4>{{ $plan->name }}</h4>
+
+                                            @if($plan->tagline)
+                                                <p class="f-light f-12 mb-1">{{ $plan->tagline }}</p>
+                                            @endif
+
+                                            <div class="product-price">
+                                                {{ number_format($whole, 0, ',', ' ') }}
+                                                {{ $curr === 'CZK' ? 'Kč' : $curr }}
+                                                <span class="duration">/ {{ $plan->billing_cycle->label() }}</span>
+                                            </div>
+
+                                            @if(!empty($plan->resources))
+                                                <ul class="plan-features mt-2 ps-0 list-unstyled">
+                                                    @foreach(array_slice($plan->resources, 0, 4) as $key => $value)
+                                                        <li>
+                                                            <i data-feather="check" style="width:12px;height:12px;" class="txt-success"></i>
+                                                            {{ __("front.resources.$key") }}: <strong>{{ $value }}</strong>
+                                                        </li>
+                                                    @endforeach
+                                                </ul>
+                                            @endif
+                                        </div>
+
+                                    </div>{{-- /product-box --}}
+                                </div>{{-- /card --}}
+                            </label>
+                        </div>{{-- /col --}}
+                        @endforeach
+
+                    </div>{{-- /grid --}}
+                </div>{{-- /product-wrapper-grid --}}
+
+            </div>{{-- /product-grid --}}
+        </div>{{-- /product-wrapper --}}
+
+        {{-- ── Doména ──────────────────────────────────────────────── --}}
+        <div class="card mt-3">
             <div class="card-header card-no-border pb-0">
                 <div class="header-top">
                     <h5>{{ __('panel.orders.domain_label') }}</h5>
+                    <span class="badge badge-light-secondary ms-2">Volitelné</span>
                 </div>
             </div>
             <div class="card-body">
                 <div class="row g-3 align-items-end">
                     <div class="col-md-7">
-                        <label class="form-label f-12 f-light">
-                            Doménové jméno
-                            <span class="badge badge-light-secondary ms-1">volitelné</span>
-                        </label>
+                        <label class="form-label f-12 f-light">Doménové jméno</label>
                         <div class="input-group">
                             <span class="input-group-text">
                                 <i data-feather="globe" style="width:14px;height:14px;"></i>
@@ -225,8 +270,8 @@
             </div>
         </div>
 
-        {{-- Submit --}}
-        <div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
+        {{-- ── Submit ───────────────────────────────────────────────── --}}
+        <div class="d-flex align-items-center gap-3 mt-3 mb-4 flex-wrap">
             <button type="submit" class="btn btn-primary btn-lg px-5">
                 <i data-feather="check" style="width:16px;height:16px;"></i>
                 {{ __('panel.orders.submit') }}
@@ -239,37 +284,37 @@
                 Po odeslání bude vystavena zálohová faktura.
             </small>
         </div>
-    </form>
 
+    </form>
     @endif
 </div>
 
 <script>
 (function () {
-    var wrappers = document.querySelectorAll('.plan-card-wrapper');
+    var labels = document.querySelectorAll('.plan-label');
 
-    wrappers.forEach(function (wrapper) {
-        wrapper.addEventListener('click', function (e) {
+    labels.forEach(function (label) {
+        label.addEventListener('click', function () {
             // Deselect all
-            wrappers.forEach(function (w) {
-                w.classList.remove('selected');
-                var r = w.querySelector('input[type="radio"]');
+            labels.forEach(function (l) {
+                l.classList.remove('plan-selected');
+                var r = l.querySelector('input[type="radio"]');
                 if (r) r.checked = false;
-                var btn = w.querySelector('.select-btn');
+                var btn = l.querySelector('.btn-select-plan');
                 if (btn) {
                     btn.className = btn.className.replace('btn-primary', 'btn-outline-primary');
-                    btn.innerHTML = '<i data-feather="shopping-cart" style="width:16px;height:16px;"></i> Vybrat';
+                    btn.innerHTML = '<i data-feather="shopping-cart" style="width:14px;height:14px;" class="me-1"></i>Vybrat';
                 }
             });
 
             // Select this
-            this.classList.add('selected');
+            this.classList.add('plan-selected');
             var radio = this.querySelector('input[type="radio"]');
             if (radio) radio.checked = true;
-            var btn = this.querySelector('.select-btn');
+            var btn = this.querySelector('.btn-select-plan');
             if (btn) {
                 btn.className = btn.className.replace('btn-outline-primary', 'btn-primary');
-                btn.innerHTML = '<i data-feather="check-circle" style="width:16px;height:16px;"></i> Vybráno';
+                btn.innerHTML = '<i data-feather="check-circle" style="width:14px;height:14px;" class="me-1"></i>Vybráno';
             }
 
             if (typeof feather !== 'undefined') feather.replace();
