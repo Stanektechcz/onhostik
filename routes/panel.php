@@ -61,6 +61,8 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::put('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'updateBilling'])->name('account.billing.update');
     Route::get('/ucet/zabezpeceni', [Panel\AccountController::class, 'security'])->name('account.security');
 
+    Route::get('/faq', [Panel\FaqController::class, 'index'])->name('faq.index');
+
     Route::get('/blog', [Panel\BlogController::class, 'index'])->name('blog.index');
     Route::get('/blog/{slug}', [Panel\BlogController::class, 'show'])->name('blog.show');
 
