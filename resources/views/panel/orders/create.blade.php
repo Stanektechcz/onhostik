@@ -79,6 +79,14 @@
 .plan-icon-area { height: 160px; display: flex; align-items: center; justify-content: center;
     background: linear-gradient(135deg,rgba(var(--theme-default),.06),rgba(var(--theme-default),.01)); }
 .plan-icon-area svg, .plan-icon-area i { stroke: rgba(var(--theme-default),1); }
+
+/* Force filter sidebar to always be visible (override Cuba's collapse default) */
+.filter-section .left-filter {
+    visibility: visible !important;
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+}
 </style>
 @endpush
 
@@ -411,7 +419,7 @@
       <button type="button" class="btn btn-sm" style="background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.4);" onclick="clearSelection()">
         Zrušit výběr
       </button>
-      <button type="button" class="btn btn-success btn-sm fw-bold" id="btn-submit-order" onclick="document.getElementById('order-form').submit();" disabled>
+      <button type="button" class="btn btn-success btn-sm fw-bold" id="btn-submit-order" onclick="goToCheckout()" disabled>
         Pokračovat k objednávce →
       </button>
     </div>
@@ -673,6 +681,12 @@
         document.getElementById('plan-search').value = '';
         document.getElementById('sort-select').value = 'default';
         applyFilters();
+    };
+
+    /* ── Checkout redirect ── */
+    window.goToCheckout = function() {
+        if (!selectedPlanId) return;
+        window.location.href = '{{ route('panel.checkout.index') }}?plan=' + selectedPlanId;
     };
 
     /* ── Init preselected plan ── */

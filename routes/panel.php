@@ -34,6 +34,8 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/objednavky', [Panel\OrderController::class, 'store'])->name('orders.store');
     Route::get('/objednavky/{order}', [Panel\OrderController::class, 'show'])->name('orders.show');
 
+    Route::get('/pokladna', [Panel\CheckoutController::class, 'index'])->name('checkout.index');
+
     Route::get('/kosik', [Panel\CartController::class, 'index'])->name('cart.index');
     Route::post('/kosik/pridat/{plan}', [Panel\CartController::class, 'add'])->name('cart.add');
     Route::delete('/kosik/odebrat/{plan}', [Panel\CartController::class, 'remove'])->name('cart.remove');

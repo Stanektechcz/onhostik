@@ -130,7 +130,7 @@
                                                         <th class="[@media(max-width:1260px)]:!min-w-[140px]">
                                                             <span class="f-light font-semibold">Platba</span>
                                                         </th>
-                                                        <th><span class="f-light font-semibold">{{ __('panel.common.action') }}</span></th>
+                                                        <th><span class="f-light font-semibold">{{ __('panel.common.actions') }}</span></th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
