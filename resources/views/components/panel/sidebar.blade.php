@@ -64,7 +64,7 @@
         </x-panel.sidebar-submenu>
 
         {{-- Objednávky & Nákup --}}
-        <x-panel.sidebar-submenu icon="shopping-cart" label="Objednávky &amp; Nákup"
+        <x-panel.sidebar-submenu icon="shopping-cart" label="Objednávky & Nákup"
             :active="$p('panel.orders') || $p('panel.cart') || $p('panel.checkout') || $p('panel.wishlist')">
             <x-panel.sidebar-link :href="route('panel.orders.index')" icon="list" label="Moje objednávky" />
             <x-panel.sidebar-link :href="route('panel.orders.create')" icon="plus-circle" label="Nová objednávka" />
@@ -82,7 +82,7 @@
         </x-panel.sidebar-submenu>
 
         {{-- Obsah --}}
-        <x-panel.sidebar-submenu icon="book-open" label="Obsah &amp; Info"
+        <x-panel.sidebar-submenu icon="book-open" label="Obsah & Info"
             :active="$p('panel.blog') || $p('panel.kb') || $p('panel.faq')">
             <x-panel.sidebar-link :href="route('panel.faq.index')" icon="help-circle" label="FAQ" />
             <x-panel.sidebar-link :href="route('panel.kb.index')" icon="book-open" label="Znalostní báze" />
@@ -118,7 +118,7 @@
             </a>
         </li>
 
-        <x-panel.sidebar-submenu icon="users" label="Referraly &amp; Provize"
+        <x-panel.sidebar-submenu icon="users" label="Referraly & Provize"
             :active="$p('partner.referrals') || $p('partner.commissions')">
             <x-panel.sidebar-link :href="route('partner.referrals')" icon="user-plus" label="Referraly" />
             <x-panel.sidebar-link :href="route('partner.commissions')" icon="trending-up" label="Provize" />
@@ -163,7 +163,7 @@
         </x-panel.sidebar-submenu>
 
         {{-- Obchod --}}
-        <x-panel.sidebar-submenu icon="shopping-cart" label="Obchod &amp; Platby"
+        <x-panel.sidebar-submenu icon="shopping-cart" label="Obchod & Platby"
             :active="$p('admin.orders') || $p('admin.invoices') || $p('admin.payments') || $p('admin.credits')">
             <x-panel.sidebar-link :href="route('admin.orders.index')" icon="package" label="Objednávky" />
             <x-panel.sidebar-link :href="route('admin.invoices.index')" icon="file-text" label="Faktury" />
@@ -172,7 +172,7 @@
         </x-panel.sidebar-submenu>
 
         {{-- Produkty --}}
-        <x-panel.sidebar-submenu icon="box" label="Produkty &amp; Ceník"
+        <x-panel.sidebar-submenu icon="box" label="Produkty & Ceník"
             :active="$p('admin.products') || $p('admin.pricing') || $p('admin.reviews')">
             <x-panel.sidebar-link :href="route('admin.products.index')" icon="box" label="Produkty a tarify" />
             <x-panel.sidebar-link :href="route('admin.pricing')" icon="tag" label="Ceník" />

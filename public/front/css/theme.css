@@ -1,4 +1,4 @@
-/*------------------------------------------------------------------
+﻿/*------------------------------------------------------------------
 Project: Antler - Hosting Provider & WHMCS Template
 Description: Antler Responsive Premium Template Designed for all web hosting providers
 Author: inebur (Rúben Rodrigues)
@@ -779,7 +779,7 @@ input:-webkit-autofill {
 	font-size: 52px !important;
 	margin-top: 0px !important;
 	margin-bottom: 20px !important;
-	text-transform: capitalize !important;
+	text-transform: none;
 	position: relative !important;
 	display: inline-block !important;
 	color: #181b22;
@@ -1323,7 +1323,7 @@ nav .tech-box svg:hover{
     4 - Buttons
 ------------------------------------*/
 .btn {
-	text-transform: capitalize;
+	text-transform: none;
 	cursor: pointer !important;
 	border: 1px solid #4c4a4a;
 	border-radius: 50px;
@@ -2058,7 +2058,7 @@ nav .tech-box svg:hover{
 }
 
 .pricing .heading {
-	text-transform: capitalize;
+	text-transform: none;
 	color: #181b22;
 	font-weight: 700;
 	font-size: 48px;
@@ -2954,7 +2954,7 @@ nav .tech-box svg:hover{
 .services .heading {
 	font-size: 20px;
 	color: #464646;
-	text-transform: capitalize;
+	text-transform: none;
 }
 
 .services .info {
@@ -3664,7 +3664,7 @@ nav .tech-box svg:hover{
 	font-weight: 700;
 	margin-bottom: 15px;
 	text-align: left;
-	text-transform: capitalize;
+	text-transform: none;
 }
 
 .casestudy .content-info p {
@@ -4967,7 +4967,7 @@ nav .tech-box svg:hover{
 .circle-section .title-round {
 	font-size: 22px;
 	font-weight: 700;
-	text-transform: capitalize;
+	text-transform: none;
 	margin-top: 85px;
 }
 
@@ -5321,7 +5321,7 @@ nav .tech-box svg:hover{
 .top-header .wrapper .heading {
     font-weight: 500;
     font-size: 72px;
-    text-transform: capitalize;
+    text-transform: none;
     color: #fff;
 }
 
@@ -5333,7 +5333,7 @@ nav .tech-box svg:hover{
 
 .top-header .golink {
 	margin-right: 15px;
-	text-transform: capitalize;
+	text-transform: none;
 	letter-spacing: 0.5px;
 	border-bottom: solid 3px #808080;
 	padding-bottom: 5px;

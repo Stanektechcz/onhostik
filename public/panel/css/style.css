@@ -1,4 +1,4 @@
-/* Variables */
+﻿/* Variables */
 
 :root {
   /* General variables */
@@ -287,11 +287,11 @@
   --common-box-shadow: 2px 3.464px 8px 0px rgba(22, 145, 248, 0.18);
   --page-title-font-size: 24px;
   --page-title-margin-bottom: 0;
-  --page-title-text-transform: capitalize;
+  --page-title-text-transform: none;
   --page-small-title-display: block;
   --page-small-title-font-size: 12px;
   --page-small-title-margin-bottom: 5px;
-  --page-small-title-text-transform: capitalize;
+  --page-small-title-text-transform: none;
   --page-small-title-text-color: 117, 117, 138;
   --breadcrumb-size: 16px;
   --breadcrumb-content: "/";
@@ -1134,7 +1134,7 @@ video {
   border-radius: 0.125rem;
   font-size: 0.75rem;
   line-height: 1rem;
-  text-transform: capitalize;
+  text-transform: none;
   line-height: 1;
   --tw-text-opacity: 1;
   color: rgb(255 255 255 / var(--tw-text-opacity, 1));
@@ -10270,7 +10270,7 @@ table tbody tr {
     }
     h5:not(.mb-0),
       h5:not(.m-0) {
-      text-transform: capitalize;
+      text-transform: none;
     }
     > span {
       display: block;
@@ -34241,7 +34241,7 @@ table.dataTable thead > tr > th.dt-ordering-asc span.dt-column-order:before,
     font-weight: 500;
   }
   &.active {
-    text-transform: capitalize;
+    text-transform: none;
   }
   &.active {
     color: rgba(var(--theme-default),1);
@@ -37502,7 +37502,7 @@ table.dataTable thead > tr > th.dt-ordering-asc span.dt-column-order:before,
     .fc-toolbar-chunk {
       .fc-button-group {
         button {
-          text-transform: capitalize;
+          text-transform: none;
         }
         ~ .fc-today-button {
           margin-left: 0.5rem;
@@ -37513,7 +37513,7 @@ table.dataTable thead > tr > th.dt-ordering-asc span.dt-column-order:before,
           margin-bottom: 0px;
         }
         ~ .fc-today-button {
-          text-transform: capitalize;
+          text-transform: none;
         }
       }
     }
@@ -40185,7 +40185,7 @@ input[type="number"] {
   text-align: right;
   font-size: 0.75rem;
   line-height: 1rem;
-  text-transform: capitalize;
+  text-transform: none;
   font-style: italic;
   --tw-text-opacity: 1;
   color: rgb(170 170 170 / var(--tw-text-opacity, 1));
@@ -67302,7 +67302,7 @@ select {
       text-align: left;
     }
     li {
-      text-transform: capitalize;
+      text-transform: none;
     }
     li {
       color: rgba(var(--badge-light-color),1);
@@ -69739,7 +69739,7 @@ select {
             font-family: var(--font-roboto);
           }
           h6 {
-            text-transform: capitalize;
+            text-transform: none;
           }
           .product-price {
             margin-bottom: 0.625rem;
@@ -77716,7 +77716,7 @@ select {
               font-weight: 400;
             }
             a {
-              text-transform: capitalize;
+              text-transform: none;
             }
             a {
               color: rgba(var(--chart-text-color),1);
@@ -77763,7 +77763,7 @@ select {
         font-weight: 400;
       }
       .tab-link {
-        text-transform: capitalize !important;
+        text-transform: none;
       }
       .tab-link {
         color: rgba(var(--chart-text-color),1);
@@ -81141,7 +81141,7 @@ select {
     width: fit-content;
   }
   .md-sidebar-toggle {
-    text-transform: capitalize;
+    text-transform: none;
   }
 }
 
@@ -87578,7 +87578,7 @@ p {
         }
         a {
           > .title {
-            text-transform: capitalize;
+            text-transform: none;
           }
         }
       }
@@ -87596,7 +87596,7 @@ p {
     font-weight: 500;
   }
   a {
-    text-transform: capitalize;
+    text-transform: none;
   }
   a {
     line-height: 1;
@@ -101746,7 +101746,7 @@ p {
           width: fit-content;
         }
         .md-sidebar-toggle {
-          text-transform: capitalize;
+          text-transform: none;
         }
         .md-sidebar-aside {
           visibility: hidden;
@@ -101829,7 +101829,7 @@ p {
           width: fit-content;
         }
          {
-          text-transform: capitalize;
+          text-transform: none;
         }
          {
           visibility: hidden;
@@ -111005,7 +111005,7 @@ ul.dot-group {
         font-size: calc(15px + (20 - 15) * ((100vw - 300px) / (1920 - 300)));
       }
       .theme-name {
-        text-transform: capitalize;
+        text-transform: none;
       }
       .theme-name {
         span {
@@ -133086,7 +133086,7 @@ html[dir="rtl"] {
                   vertical-align: -2px;
                 }
                 span {
-                  text-transform: capitalize;
+                  text-transform: none;
                 }
                 span {
                   letter-spacing: 0.7px;
@@ -134860,7 +134860,7 @@ html[dir="rtl"] {
                         font-weight: 500;
                       }
                       > a {
-                        text-transform: capitalize;
+                        text-transform: none;
                       }
                       > a {
                         line-height: 23px;
@@ -135650,7 +135650,7 @@ html[dir="rtl"] {
                   font-weight: 500;
                 }
                 span {
-                  text-transform: capitalize;
+                  text-transform: none;
                 }
                 span {
                   letter-spacing: 1px;
@@ -137160,7 +137160,7 @@ html[dir="rtl"] {
               .simplebar-content {
                 > li {
                   a {
-                    text-transform: capitalize;
+                    text-transform: none;
                   }
                   a {
                     svg {
@@ -137262,7 +137262,7 @@ body {
     width: fit-content;
   }
   .md-sidebar-toggle {
-    text-transform: capitalize;
+    text-transform: none;
   }
 }
 
@@ -142271,7 +142271,7 @@ table {
             width: fit-content;
           }
           .md-sidebar-toggle {
-            text-transform: capitalize;
+            text-transform: none;
           }
           .md-sidebar-aside {
             visibility: hidden;
@@ -142452,7 +142452,7 @@ table {
             width: fit-content;
           }
           .md-sidebar-toggle {
-            text-transform: capitalize;
+            text-transform: none;
           }
           .md-sidebar-aside {
             visibility: hidden;
@@ -145577,7 +145577,7 @@ table {
 .component {
   .input-group {
     .btn {
-      text-transform: capitalize;
+      text-transform: none;
     }
     .btn {
       line-height: 2rem;
@@ -155421,7 +155421,7 @@ body {
           color: rgba(var(--dark-all-font-color),1);
         }
         .help-block {
-          text-transform: capitalize;
+          text-transform: none;
         }
         .help-block {
           color: rgba(var(--dark-small-font-color),1);
@@ -232964,11 +232964,11 @@ body {
 }
 
 .\!capitalize {
-  text-transform: capitalize !important;
+  text-transform: none;
 }
 
 .capitalize {
-  text-transform: capitalize;
+  text-transform: none;
 }
 
 .italic {
