@@ -35,6 +35,24 @@
         <x-panel.sidebar />
 
         <div class="page-body">
+            {{-- Impersonation top bar --}}
+            @if(session()->has('_impersonated_by'))
+            <div class="container-fluid py-0">
+                <div class="alert alert-warning mb-0 py-2 d-flex align-items-center gap-3" role="alert"
+                     style="border-radius:0;border-left:0;border-right:0;border-top:0;">
+                    <i data-feather="eye" style="width:16px;height:16px;flex-shrink:0;"></i>
+                    <span class="f-13 flex-1">
+                        Jste přihlášen <strong>za zákazníka {{ auth()->user()?->name }}</strong>
+                        ({{ auth()->user()?->email }}) — vidíte zákaznický panel z perspektivy zákazníka.
+                    </span>
+                    <a href="{{ route('admin.impersonate.stop') }}"
+                       class="btn btn-sm btn-warning text-white flex-shrink-0">
+                        <i data-feather="log-out" style="width:13px;height:13px;"></i>
+                        Zpět na admin účet
+                    </a>
+                </div>
+            </div>
+            @endif
             <x-panel.breadcrumb :title="$breadcrumbTitle ?? null" :items="$breadcrumbItems ?? []" />
             @yield('content')
         </div>

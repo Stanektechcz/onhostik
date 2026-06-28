@@ -9,6 +9,20 @@
     <div class="container-fluid">
         <x-panel.flash />
 
+        {{-- Impersonation banner --}}
+        @if($customer->user_id)
+        <div class="alert alert-light-warning d-flex align-items-center gap-3 mb-3 py-2">
+            <i data-feather="eye" style="width:16px;height:16px;"></i>
+            <span class="f-14">Přihlásit se jako tento zákazník a zobrazit jeho panel.</span>
+            <a href="{{ route('admin.impersonate.start', $customer->user_id) }}"
+               class="btn btn-warning btn-xs ms-auto text-white"
+               onclick="return confirm('Přihlásit se za zákazníka {{ addslashes($customer->user?->name) }}?')">
+                <i data-feather="log-in" style="width:12px;height:12px;"></i>
+                Přihlásit se za zákazníka
+            </a>
+        </div>
+        @endif
+
         {{-- Partner profile shortcut --}}
         @php($customerPartner = $customer->user ? \App\Domains\Partner\Models\PartnerProfile::where('user_id', $customer->user_id)->first() : null)
         @if($customerPartner)

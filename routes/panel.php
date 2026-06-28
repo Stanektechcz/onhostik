@@ -171,6 +171,10 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/audit', [Admin\AuditLogController::class, 'index'])->name('logs.audit');
 
     /* ── User management ── */
+    /* ── Impersonation ── */
+    Route::get('/impersonate/{user}/start', [Admin\ImpersonateController::class, 'start'])->name('impersonate.start');
+    Route::get('/impersonate/stop', [Admin\ImpersonateController::class, 'stop'])->name('impersonate.stop');
+
     Route::get('/uzivatele', [Admin\UserController::class, 'index'])->name('users.index');
     Route::get('/uzivatele/karty', [Admin\UserController::class, 'cards'])->name('user-cards');
     Route::get('/uzivatele/novy', [Admin\UserController::class, 'create'])->name('users.create');
