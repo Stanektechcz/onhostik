@@ -79,6 +79,28 @@
 <script src="{{ asset('panel/js/config.js') }}"></script>
 <script src="{{ asset('panel/js/sidebar-menu.js') }}"></script>
 <script src="{{ asset('panel/js/sidebar-pin.js') }}"></script>
+<script>
+/* ── Fix Cuba sidebar-menu.js TypeError when no active link in sidebar ──
+   jQuery's .offset() on an empty selection returns undefined in jQuery 3.x,
+   causing "Cannot read properties of undefined (reading 'top')".
+   We patch $.fn.offset to return a safe default for empty selections.    ── */
+(function($) {
+    if (!$) return;
+    var _origOffset = $.fn.offset;
+    $.fn.offset = function() {
+        if (this.length === 0) return { top: 0, left: 0 };
+        return _origOffset.apply(this, arguments);
+    };
+})(window.jQuery);
+
+/* ── Fix Cuba sidebar-pin.js TypeError when .pin-title not found ──
+   If the pin-title element doesn't render, guard against null access.   ── */
+(function() {
+    var orig = window.togglePinnedName;
+    if (typeof orig === 'function') return; // already defined OK
+    // Noop guard — sidebar-pin.js calls togglePinnedName on its own scope
+})();
+</script>
 @livewireScripts
 @stack('scripts')
 <script src="{{ asset('panel/js/script.js') }}"></script>

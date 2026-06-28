@@ -1,11 +1,13 @@
 {{-- ───────────────────────────────────────────────────────
      Cuba Panel Sidebar — Customer / Partner / Admin
-     Categories with collapsible sub-menus per section.
+     ALL icon names VERIFIED against feather.min.js:
+     Non-hyphenated: stored as  name:'<svg>'
+     Hyphenated:    stored as  "name":'<svg>'
 ──────────────────────────────────────────────────────── --}}
 @php
     $p = fn(string $name) => request()->routeIs($name . '*');
-    $canAdmin   = auth()->user()?->can('access-admin');
-    $canPartner = auth()->user()?->can('access-partner');
+    $canAdmin       = auth()->user()?->can('access-admin');
+    $canPartner     = auth()->user()?->can('access-partner');
     $isImpersonating = session()->has('_impersonated_by');
 @endphp
 
@@ -42,13 +44,16 @@
             <div class="mobile-back text-end"><span>Zpět</span><i class="fa-solid fa-angle-right ps-2"></i></div>
         </li>
 
-{{-- ══════════════════════════════════════════════════════
-     ZÁKAZNÍK — CUSTOMER SECTION
-══════════════════════════════════════════════════════ --}}
+        {{-- Required by sidebar-pin.js --}}
+        <li class="pin-title sidebar-main-title">
+            <div><h6>Oblíbené</h6></div>
+        </li>
 
+{{-- ══════════════════════════════════════════════════════
+     ZÁKAZNÍK
+══════════════════════════════════════════════════════ --}}
         <li class="sidebar-main-title"><div><h6>Zákazník</h6></div></li>
 
-        {{-- Dashboard --}}
         <li class="sidebar-list">
             <i class="fa-solid fa-thumbtack"></i>
             <a class="sidebar-link sidebar-title link-nav {{ $p('panel.dashboard') ? 'active' : '' }}"
@@ -57,23 +62,21 @@
             </a>
         </li>
 
-        {{-- Moje služby --}}
-        <x-panel.sidebar-submenu icon="server" label="Moje služby" :active="$p('panel.services') || $p('panel.domains')">
+        <x-panel.sidebar-submenu icon="server" label="Moje služby"
+            :active="$p('panel.services') || $p('panel.domains')">
             <x-panel.sidebar-link :href="route('panel.services.index')" icon="server" label="Hostingové služby" />
-            <x-panel.sidebar-link :href="route('panel.domains.index')" icon="at-sign" label="Domény" />
+            <x-panel.sidebar-link :href="route('panel.domains.index')" icon="globe" label="Domény" />
         </x-panel.sidebar-submenu>
 
-        {{-- Objednávky & Nákup --}}
-        <x-panel.sidebar-submenu icon="shopping-cart" label="Objednávky & Nákup"
+        <x-panel.sidebar-submenu icon="shopping-cart" label="Objednávky a nákup"
             :active="$p('panel.orders') || $p('panel.cart') || $p('panel.checkout') || $p('panel.wishlist')">
-            <x-panel.sidebar-link :href="route('panel.orders.index')" icon="list" label="Moje objednávky" />
+            <x-panel.sidebar-link :href="route('panel.orders.index')" icon="package" label="Moje objednávky" />
             <x-panel.sidebar-link :href="route('panel.orders.create')" icon="plus-circle" label="Nová objednávka" />
             <x-panel.sidebar-link :href="route('panel.cart.index')" icon="shopping-bag" label="Košík" />
             <x-panel.sidebar-link :href="route('panel.checkout.index')" icon="credit-card" label="Pokladna" />
             <x-panel.sidebar-link :href="route('panel.wishlist.index')" icon="heart" label="Oblíbené" />
         </x-panel.sidebar-submenu>
 
-        {{-- Fakturace --}}
         <x-panel.sidebar-submenu icon="file-text" label="Fakturace"
             :active="$p('panel.billing')">
             <x-panel.sidebar-link :href="route('panel.billing.invoices')" icon="file-text" label="Faktury" />
@@ -81,31 +84,28 @@
             <x-panel.sidebar-link :href="route('panel.billing.credits')" icon="dollar-sign" label="Kredit" />
         </x-panel.sidebar-submenu>
 
-        {{-- Obsah --}}
-        <x-panel.sidebar-submenu icon="book-open" label="Obsah & Info"
+        <x-panel.sidebar-submenu icon="book-open" label="Obsah a info"
             :active="$p('panel.blog') || $p('panel.kb') || $p('panel.faq')">
             <x-panel.sidebar-link :href="route('panel.faq.index')" icon="help-circle" label="FAQ" />
             <x-panel.sidebar-link :href="route('panel.kb.index')" icon="book-open" label="Znalostní báze" />
             <x-panel.sidebar-link :href="route('panel.blog.index')" icon="rss" label="Blog" />
         </x-panel.sidebar-submenu>
 
-        {{-- Podpora --}}
         <x-panel.sidebar-submenu icon="life-buoy" label="Podpora"
             :active="$p('panel.support') || $p('panel.ai')">
             <x-panel.sidebar-link :href="route('panel.support.index')" icon="message-square" label="Tickety" />
             <x-panel.sidebar-link :href="route('panel.ai.index')" icon="zap" label="AI asistent" />
         </x-panel.sidebar-submenu>
 
-        {{-- Účet --}}
-        <x-panel.sidebar-submenu icon="user" label="Můj účet"
+        <x-panel.sidebar-submenu icon="user" label="Muj ucet"
             :active="$p('panel.account')">
             <x-panel.sidebar-link :href="route('panel.account.profile')" icon="user" label="Profil" />
-            <x-panel.sidebar-link :href="route('panel.account.billing')" icon="briefcase" label="Fakturační údaje" />
+            <x-panel.sidebar-link :href="route('panel.account.billing')" icon="dollar-sign" label="Fakturační údaje" />
             <x-panel.sidebar-link :href="route('panel.account.security')" icon="lock" label="Zabezpečení" />
         </x-panel.sidebar-submenu>
 
 {{-- ══════════════════════════════════════════════════════
-     PARTNER SECTION
+     PARTNER
 ══════════════════════════════════════════════════════ --}}
         @if($canPartner)
         <li class="sidebar-main-title"><div><h6>Partner program</h6></div></li>
@@ -114,11 +114,11 @@
             <i class="fa-solid fa-thumbtack"></i>
             <a class="sidebar-link sidebar-title link-nav {{ $p('partner.dashboard') ? 'active' : '' }}"
                href="{{ route('partner.dashboard') }}">
-                <i data-feather="activity"></i><span>Dashboard partnera</span>
+                <i data-feather="bar-chart"></i><span>Dashboard partnera</span>
             </a>
         </li>
 
-        <x-panel.sidebar-submenu icon="users" label="Referraly & Provize"
+        <x-panel.sidebar-submenu icon="trending-up" label="Referraly a provize"
             :active="$p('partner.referrals') || $p('partner.commissions')">
             <x-panel.sidebar-link :href="route('partner.referrals')" icon="user-plus" label="Referraly" />
             <x-panel.sidebar-link :href="route('partner.commissions')" icon="trending-up" label="Provize" />
@@ -129,7 +129,7 @@
             <x-panel.sidebar-link :href="route('partner.payouts')" icon="dollar-sign" label="Výplaty" />
         </x-panel.sidebar-submenu>
 
-        <x-panel.sidebar-submenu icon="share-2" label="Propagace"
+        <x-panel.sidebar-submenu icon="image" label="Propagace"
             :active="$p('partner.assets') || $p('partner.profile')">
             <x-panel.sidebar-link :href="route('partner.assets')" icon="image" label="Materiály a bannery" />
             <x-panel.sidebar-link :href="route('partner.profile')" icon="settings" label="Nastavení profilu" />
@@ -137,33 +137,30 @@
         @endif
 
 {{-- ══════════════════════════════════════════════════════
-     ADMIN SECTION
+     ADMIN
 ══════════════════════════════════════════════════════ --}}
         @if($canAdmin)
         <li class="sidebar-main-title"><div><h6>Administrace</h6></div></li>
 
-        {{-- Admin dashboard --}}
         <li class="sidebar-list">
             <i class="fa-solid fa-thumbtack"></i>
             <a class="sidebar-link sidebar-title link-nav {{ $p('admin.dashboard') ? 'active' : '' }}"
                href="{{ route('admin.dashboard') }}">
-                <i data-feather="layout"></i><span>Admin Dashboard</span>
+                <i data-feather="pie-chart"></i><span>Admin Dashboard</span>
             </a>
         </li>
 
-        {{-- CRM --}}
-        <x-panel.sidebar-submenu icon="users" label="CRM — Uživatelé"
-            :active="$p('admin.customers') || $p('admin.users') || $p('admin.roles') || $p('admin.subscribers')">
+        <x-panel.sidebar-submenu icon="users" label="CRM — Uzivatele"
+            :active="$p('admin.customers') || $p('admin.users') || $p('admin.roles') || $p('admin.subscribers') || $p('admin.contacts')">
             <x-panel.sidebar-link :href="route('admin.customers.index')" icon="users" label="Zákazníci" />
             <x-panel.sidebar-link :href="route('admin.users.index')" icon="user" label="Uživatelé" />
             <x-panel.sidebar-link :href="route('admin.user-cards')" icon="grid" label="Kartový pohled" />
             <x-panel.sidebar-link :href="route('admin.roles-permission')" icon="shield" label="Role a oprávnění" />
             <x-panel.sidebar-link :href="route('admin.subscribers')" icon="mail" label="Odběratelé" />
-            <x-panel.sidebar-link :href="route('admin.contacts')" icon="book" label="Kontakty" />
+            <x-panel.sidebar-link :href="route('admin.contacts')" icon="book-open" label="Kontakty" />
         </x-panel.sidebar-submenu>
 
-        {{-- Obchod --}}
-        <x-panel.sidebar-submenu icon="shopping-cart" label="Obchod & Platby"
+        <x-panel.sidebar-submenu icon="shopping-cart" label="Obchod a platby"
             :active="$p('admin.orders') || $p('admin.invoices') || $p('admin.payments') || $p('admin.credits')">
             <x-panel.sidebar-link :href="route('admin.orders.index')" icon="package" label="Objednávky" />
             <x-panel.sidebar-link :href="route('admin.invoices.index')" icon="file-text" label="Faktury" />
@@ -171,15 +168,13 @@
             <x-panel.sidebar-link :href="route('admin.credits.index')" icon="dollar-sign" label="Kredit" />
         </x-panel.sidebar-submenu>
 
-        {{-- Produkty --}}
-        <x-panel.sidebar-submenu icon="box" label="Produkty & Ceník"
+        <x-panel.sidebar-submenu icon="box" label="Produkty a cenik"
             :active="$p('admin.products') || $p('admin.pricing') || $p('admin.reviews')">
             <x-panel.sidebar-link :href="route('admin.products.index')" icon="box" label="Produkty a tarify" />
             <x-panel.sidebar-link :href="route('admin.pricing')" icon="tag" label="Ceník" />
             <x-panel.sidebar-link :href="route('admin.reviews')" icon="star" label="Recenze" />
         </x-panel.sidebar-submenu>
 
-        {{-- Infrastruktura --}}
         <x-panel.sidebar-submenu icon="hard-drive" label="Infrastruktura"
             :active="$p('admin.servers') || $p('admin.services') || $p('admin.domains') || $p('admin.provisioning') || $p('admin.monitoring') || $p('admin.backups')">
             <x-panel.sidebar-link :href="route('admin.servers.index')" icon="hard-drive" label="Servery" />
@@ -190,15 +185,13 @@
             <x-panel.sidebar-link :href="route('admin.backups.index')" icon="archive" label="Zálohy" />
         </x-panel.sidebar-submenu>
 
-        {{-- Obsah webu --}}
         <x-panel.sidebar-submenu icon="edit" label="Obsah webu"
             :active="$p('admin.blog') || $p('admin.kb') || $p('admin.site-content')">
             <x-panel.sidebar-link :href="route('admin.blog.index')" icon="rss" label="Blog" />
             <x-panel.sidebar-link :href="route('admin.kb.index')" icon="book-open" label="Znalostní báze" />
-            <x-panel.sidebar-link :href="route('admin.site-content.index')" icon="file" label="Obsah stránek" />
+            <x-panel.sidebar-link :href="route('admin.site-content.index')" icon="file-text" label="Obsah stránek" />
         </x-panel.sidebar-submenu>
 
-        {{-- Partneři --}}
         <li class="sidebar-list">
             <i class="fa-solid fa-thumbtack"></i>
             <a class="sidebar-link sidebar-title link-nav {{ $p('admin.partners') ? 'active' : '' }}"
@@ -207,7 +200,6 @@
             </a>
         </li>
 
-        {{-- Komunikace --}}
         <x-panel.sidebar-submenu icon="message-square" label="Komunikace"
             :active="$p('admin.support') || $p('admin.mailbox')">
             <x-panel.sidebar-link :href="route('admin.support.index')" icon="life-buoy" label="Podpora — Tickety" />
@@ -215,8 +207,7 @@
             <x-panel.sidebar-link :href="route('admin.ai.index')" icon="zap" label="AI asistent" />
         </x-panel.sidebar-submenu>
 
-        {{-- Nástroje --}}
-        <x-panel.sidebar-submenu icon="tool" label="Pracovní nástroje"
+        <x-panel.sidebar-submenu icon="settings" label="Pracovni nastroje"
             :active="$p('admin.kanban') || $p('admin.tasks') || $p('admin.calendar') || $p('admin.todo') || $p('admin.bookmarks') || $p('admin.file-manager') || $p('admin.social')">
             <x-panel.sidebar-link :href="route('admin.kanban')" icon="trello" label="Kanban board" />
             <x-panel.sidebar-link :href="route('admin.tasks')" icon="check-square" label="Úkoly" />
@@ -227,7 +218,6 @@
             <x-panel.sidebar-link :href="route('admin.social')" icon="user-check" label="Admin profil" />
         </x-panel.sidebar-submenu>
 
-        {{-- Hledání --}}
         <li class="sidebar-list">
             <i class="fa-solid fa-thumbtack"></i>
             <a class="sidebar-link sidebar-title link-nav {{ $p('admin.search') ? 'active' : '' }}"
@@ -236,12 +226,11 @@
             </a>
         </li>
 
-        {{-- Systém --}}
-        <x-panel.sidebar-submenu icon="settings" label="Systém"
+        <x-panel.sidebar-submenu icon="sliders" label="System a nastaveni"
             :active="$p('admin.integrations') || $p('admin.settings') || $p('admin.system') || $p('admin.logs') || $p('admin.sitemap') || $p('admin.sample-page')">
             <x-panel.sidebar-link :href="route('admin.integrations.index')" icon="link" label="Integrace" />
-            <x-panel.sidebar-link :href="route('admin.settings.index')" icon="sliders" label="Nastavení" />
-            <x-panel.sidebar-link :href="route('admin.system.index')" icon="heart" label="System health" />
+            <x-panel.sidebar-link :href="route('admin.settings.index')" icon="settings" label="Nastavení" />
+            <x-panel.sidebar-link :href="route('admin.system.index')" icon="activity" label="System health" />
             <x-panel.sidebar-link :href="route('admin.logs.audit')" icon="shield" label="Audit log" />
             <x-panel.sidebar-link :href="route('admin.sitemap')" icon="map" label="Mapa webu" />
             <x-panel.sidebar-link :href="route('admin.sample-page')" icon="file-plus" label="Ukázková stránka" />
@@ -249,7 +238,6 @@
 
         @endif
 
-        {{-- Odhlášení --}}
         <li class="sidebar-main-title"><div><h6>Relace</h6></div></li>
         <li class="sidebar-list">
             <i class="fa-solid fa-thumbtack"></i>
