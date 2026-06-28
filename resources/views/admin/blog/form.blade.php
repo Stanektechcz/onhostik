@@ -45,12 +45,23 @@
                                           style="font-family:monospace;font-size:13px">{{ old('body', $post->body) }}</textarea>
                                 <div id="body-preview" class="border rounded p-3 mt-2 prose-content" style="display:none; min-height: 200px;"></div>
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-md-4">
+                                <label class="form-label f-w-500">Jazyk obsahu</label>
+                                <select name="locale" class="form-select">
+                                    <option value="cs" @selected(old('locale', $post->locale ?? 'cs') === 'cs')>
+                                        🇨🇿 Čeština (cs)
+                                    </option>
+                                    <option value="en" @selected(old('locale', $post->locale ?? 'cs') === 'en')>
+                                        🇬🇧 English (en)
+                                    </option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
                                 <label class="form-label f-w-500">Datum publikace</label>
                                 <input type="datetime-local" name="published_at" class="form-control"
                                        value="{{ old('published_at', $post->published_at?->format('Y-m-d\TH:i')) }}">
                             </div>
-                            <div class="col-md-6 d-flex align-items-end pb-2">
+                            <div class="col-md-4 d-flex align-items-end pb-2">
                                 <div class="form-check">
                                     <input type="hidden" name="is_published" value="0">
                                     <input type="checkbox" name="is_published" value="1" class="form-check-input" id="is_published"

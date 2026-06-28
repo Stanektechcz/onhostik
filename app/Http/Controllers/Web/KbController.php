@@ -12,7 +12,10 @@ class KbController extends Controller
 {
     public function index(): View
     {
+        $locale = app()->getLocale();
+
         $categories = KbArticle::published()
+            ->where(fn ($q) => $q->where('locale', $locale)->orWhereNull('locale'))
             ->orderBy('category')
             ->orderBy('sort_order')
             ->get()
@@ -23,10 +26,17 @@ class KbController extends Controller
 
     public function show(string $slug): View
     {
-        $article = KbArticle::published()->where('slug', $slug)->firstOrFail();
+        $locale = app()->getLocale();
+
+        $article = KbArticle::published()
+            ->where('slug', $slug)
+            ->where(fn ($q) => $q->where('locale', $locale)->orWhereNull('locale'))
+            ->firstOr(fn () => KbArticle::published()->where('slug', $slug)->firstOrFail());
+
         $related = KbArticle::published()
             ->where('id', '!=', $article->id)
             ->where('category', $article->category)
+            ->where(fn ($q) => $q->where('locale', $locale)->orWhereNull('locale'))
             ->orderBy('sort_order')
             ->take(5)
             ->get();

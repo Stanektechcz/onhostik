@@ -12,7 +12,7 @@ class KbArticle extends Model
 {
     protected $fillable = [
         'title', 'slug', 'category', 'excerpt', 'body',
-        'is_published', 'sort_order',
+        'is_published', 'sort_order', 'locale',
     ];
 
     protected $casts = [

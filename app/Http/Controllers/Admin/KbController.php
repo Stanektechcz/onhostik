@@ -19,12 +19,14 @@ class KbController extends Controller
         $search   = $request->string('q')->toString();
         $category = $request->string('cat')->toString();
         $status   = $request->string('status')->toString();
+        $locale   = $request->string('locale')->toString();
 
         $articles = KbArticle::query()
             ->when($search !== '', fn ($q) => $q->where('title', 'like', "%{$search}%"))
             ->when($category !== '', fn ($q) => $q->where('category', $category))
             ->when($status === 'published', fn ($q) => $q->where('is_published', true))
             ->when($status === 'draft', fn ($q) => $q->where('is_published', false))
+            ->when($locale !== '', fn ($q) => $q->where('locale', $locale))
             ->orderBy('category')
             ->orderBy('sort_order')
             ->paginate(30)
@@ -137,6 +139,7 @@ class KbController extends Controller
             'body'         => 'nullable|string',
             'is_published' => 'boolean',
             'sort_order'   => 'integer|min:0',
+            'locale'       => 'nullable|string|in:cs,en',
         ]);
     }
 }

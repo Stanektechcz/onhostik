@@ -17,8 +17,11 @@ class BlogController extends Controller
         $search   = $request->string('q')->toString();
         $category = $request->string('cat')->toString();
 
+        $locale = app()->getLocale();
+
         $posts = BlogPost::with('author')
             ->where('is_published', true)
+            ->where(fn ($q) => $q->where('locale', $locale)->orWhereNull('locale'))
             ->when($search !== '', fn ($q) => $q->where('title', 'like', "%{$search}%"))
             ->when($category !== '', fn ($q) => $q->where('category', $category))
             ->latest('published_at')
@@ -27,6 +30,7 @@ class BlogController extends Controller
 
         $categories = BlogPost::query()
             ->where('is_published', true)
+            ->where(fn ($q) => $q->where('locale', $locale)->orWhereNull('locale'))
             ->distinct()
             ->orderBy('category')
             ->pluck('category')
@@ -38,11 +42,15 @@ class BlogController extends Controller
 
     public function show(string $slug): View
     {
-        $post = BlogPost::where('slug', $slug)->where('is_published', true)->firstOrFail();
+        $locale = app()->getLocale();
+        $post = BlogPost::where('slug', $slug)->where('is_published', true)
+            ->where(fn ($q) => $q->where('locale', $locale)->orWhereNull('locale'))
+            ->firstOr(fn () => BlogPost::where('slug', $slug)->where('is_published', true)->firstOrFail());
 
         $related = BlogPost::with('author')
             ->where('id', '!=', $post->id)
             ->where('is_published', true)
+            ->where(fn ($q) => $q->where('locale', $locale)->orWhereNull('locale'))
             ->when($post->category, fn ($q) => $q->where('category', $post->category))
             ->latest('published_at')
             ->limit(3)

@@ -22,11 +22,30 @@
                     </li>
                 @endif
 
-                {{-- Locale switcher --}}
+                {{-- Locale switcher — Cuba translate_wrapper style --}}
                 <li class="language-nav">
-                    <a href="{{ route('locale.switch', app()->getLocale() === 'cs' ? 'en' : 'cs') }}">
-                        <span class="lang-txt">{{ strtoupper(app()->getLocale() === 'cs' ? 'EN' : 'CZ') }}</span>
-                    </a>
+                    <div class="translate_wrapper relative">
+                        <input class="peer hidden" id="lang-toggle-panel" type="checkbox">
+                        <label class="current_lang flex items-center cursor-pointer !mb-0" for="lang-toggle-panel">
+                            <span class="lang flex items-center gap-1">
+                                <i class="flag-icon flag-icon-{{ app()->getLocale() === 'cs' ? 'cz' : 'us' }}" style="font-size:14px;"></i>
+                                <span class="lang-txt">{{ strtoupper(app()->getLocale()) }}</span>
+                            </span>
+                        </label>
+                        <div class="more_lang custom-scrollbar absolute top-full mt-2 bg-white rounded-md shadow-md w-36 z-50 hidden peer-checked:block" style="right:0;">
+                            @foreach(['cs' => ['cz','Čeština'], 'en' => ['us','English']] as $loc => [$flag, $label])
+                            <div class="lang {{ app()->getLocale() === $loc ? 'selected' : '' }}">
+                                <a href="{{ route('locale.switch', $loc) }}" class="flex items-center cursor-pointer px-3 py-2 gap-2 text-sm hover:bg-gray-50">
+                                    <i class="flag-icon flag-icon-{{ $flag }}"></i>
+                                    <span class="lang-txt">{{ $label }}</span>
+                                    @if(app()->getLocale() === $loc)
+                                        <i data-feather="check" style="width:12px;height:12px;margin-left:auto;color:#54ba4a;"></i>
+                                    @endif
+                                </a>
+                            </div>
+                            @endforeach
+                        </div>
+                    </div>
                 </li>
 
                 {{-- Dark mode toggle (Cuba built-in) --}}

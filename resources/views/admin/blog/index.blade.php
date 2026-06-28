@@ -30,6 +30,11 @@
                     <option value="published" @selected($status === 'published')>Publikovaný</option>
                     <option value="draft" @selected($status === 'draft')>Koncept</option>
                 </select>
+                <select name="locale" class="form-select form-select-sm w-auto">
+                    <option value="">Všechny jazyky</option>
+                    <option value="cs" @selected(request('locale') === 'cs')>🇨🇿 CS</option>
+                    <option value="en" @selected(request('locale') === 'en')>🇬🇧 EN</option>
+                </select>
                 <button type="submit" class="btn btn-outline-primary btn-sm">Filtrovat</button>
                 @if($search || $category || $status)
                     <a href="{{ route('admin.blog.index') }}" class="btn btn-outline-secondary btn-sm">Resetovat</a>
@@ -73,6 +78,11 @@
                                     @else
                                         <span class="badge badge-light-warning">Koncept</span>
                                     @endif
+                                </li>
+                                <li>
+                                    <span class="badge badge-light-primary f-10">
+                                        {{ strtoupper($post->locale ?? 'cs') }}
+                                    </span>
                                 </li>
                             </ul>
                         </div>

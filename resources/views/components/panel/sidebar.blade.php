@@ -166,6 +166,7 @@
             <x-panel.sidebar-link :href="route('admin.invoices.index')" icon="file-text" label="Faktury" />
             <x-panel.sidebar-link :href="route('admin.payments.index')" icon="credit-card" label="Platby" />
             <x-panel.sidebar-link :href="route('admin.credits.index')" icon="dollar-sign" label="Kredit" />
+            <x-panel.sidebar-link :href="route('admin.credits.transactions')" icon="list" label="Kreditní transakce" />
         </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="box" label="Produkty a cenik"

@@ -19,8 +19,11 @@ class KbController extends Controller
         $search   = $request->string('q')->toString();
         $category = $request->string('cat')->toString();
 
+        $locale = app()->getLocale();
+
         $articles = KbArticle::query()
             ->where('is_published', true)
+            ->where(fn ($q) => $q->where('locale', $locale)->orWhereNull('locale'))
             ->when($search !== '', fn ($q) => $q->where('title', 'like', "%{$search}%")
                 ->orWhere('body', 'like', "%{$search}%"))
             ->when($category !== '', fn ($q) => $q->where('category', $category))
@@ -34,11 +37,16 @@ class KbController extends Controller
 
     public function show(string $slug): View
     {
-        $article = KbArticle::where('slug', $slug)->where('is_published', true)->firstOrFail();
+        $locale = app()->getLocale();
+
+        $article = KbArticle::where('slug', $slug)->where('is_published', true)
+            ->where(fn ($q) => $q->where('locale', $locale)->orWhereNull('locale'))
+            ->firstOr(fn () => KbArticle::where('slug', $slug)->where('is_published', true)->firstOrFail());
 
         $related = KbArticle::query()
             ->where('id', '!=', $article->id)
             ->where('is_published', true)
+            ->where(fn ($q) => $q->where('locale', $locale)->orWhereNull('locale'))
             ->when($article->category, fn ($q) => $q->where('category', $article->category))
             ->orderBy('sort_order')
             ->limit(4)
@@ -46,6 +54,7 @@ class KbController extends Controller
 
         $allCategories = KbArticle::query()
             ->where('is_published', true)
+            ->where(fn ($q) => $q->where('locale', $locale)->orWhereNull('locale'))
             ->orderBy('category')
             ->orderBy('sort_order')
             ->get()

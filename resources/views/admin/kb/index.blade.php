@@ -91,7 +91,12 @@
                                             <option value="published" @selected($status === 'published')>Publikovaný</option>
                                             <option value="draft" @selected($status === 'draft')>Skrytý</option>
                                         </select>
-                                        @if($search || $category || $status)
+                                        <select name="locale" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+                                            <option value="">Všechny jazyky</option>
+                                            <option value="cs" @selected(request('locale') === 'cs')>🇨🇿 CS</option>
+                                            <option value="en" @selected(request('locale') === 'en')>🇬🇧 EN</option>
+                                        </select>
+                                        @if($search || $category || $status || request('locale'))
                                             <a href="{{ route('admin.kb.index') }}" class="btn btn-outline-light btn-sm">Resetovat</a>
                                         @endif
                                     </form>

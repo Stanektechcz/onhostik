@@ -18,12 +18,14 @@ class BlogController extends Controller
         $search   = $request->string('q')->toString();
         $category = $request->string('cat')->toString();
         $status   = $request->string('status')->toString(); // 'published' | 'draft' | ''
+        $locale   = $request->string('locale')->toString(); // 'cs' | 'en' | ''
 
         $posts = BlogPost::with('author')
             ->when($search !== '', fn ($q) => $q->where('title', 'like', "%{$search}%"))
             ->when($category !== '', fn ($q) => $q->where('category', $category))
             ->when($status === 'published', fn ($q) => $q->where('is_published', true))
             ->when($status === 'draft', fn ($q) => $q->where('is_published', false))
+            ->when($locale !== '', fn ($q) => $q->where('locale', $locale))
             ->latest('published_at')
             ->paginate(20)
             ->withQueryString();
@@ -101,6 +103,7 @@ class BlogController extends Controller
             'body'         => 'nullable|string',
             'is_published' => 'boolean',
             'published_at' => 'nullable|date',
+            'locale'       => 'nullable|string|in:cs,en',
         ]);
     }
 }

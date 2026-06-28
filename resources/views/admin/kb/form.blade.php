@@ -34,6 +34,17 @@
                                 <input type="number" name="sort_order" class="form-control"
                                        value="{{ old('sort_order', $article->sort_order ?? 0) }}" min="0">
                             </div>
+                            <div class="col-md-3">
+                                <label class="form-label f-w-500">Jazyk obsahu</label>
+                                <select name="locale" class="form-select">
+                                    <option value="cs" @selected(old('locale', $article->locale ?? 'cs') === 'cs')>
+                                        🇨🇿 Čeština (cs)
+                                    </option>
+                                    <option value="en" @selected(old('locale', $article->locale ?? 'cs') === 'en')>
+                                        🇬🇧 English (en)
+                                    </option>
+                                </select>
+                            </div>
                             <div class="col-md-12">
                                 <label class="form-label f-w-500">Perex</label>
                                 <textarea name="excerpt" rows="2" class="form-control">{{ old('excerpt', $article->excerpt) }}</textarea>
