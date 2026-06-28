@@ -109,6 +109,85 @@
                                 @endif
                             </div>
 
+                            {{-- ── Voting section ──────────────────────── --}}
+                            <div class="job-description">
+                                <div class="border rounded p-3" style="background:rgba(var(--light-background),.4);">
+                                    <h6 class="mb-2">Byl tento článek užitečný?</h6>
+                                    <div class="d-flex align-items-center gap-3">
+                                        <button type="button" id="vote-helpful"
+                                                class="btn {{ ($userVote ?? '') === 'helpful' ? 'btn-success' : 'btn-outline-success' }} btn-sm"
+                                                onclick="castVote(true)">
+                                            <i data-feather="thumbs-up" style="width:14px;height:14px;"></i>
+                                            Ano <span class="ms-1 badge bg-white text-success" id="helpful-count">{{ $voteStats['helpful'] }}</span>
+                                        </button>
+                                        <button type="button" id="vote-not-helpful"
+                                                class="btn {{ ($userVote ?? '') === 'not_helpful' ? 'btn-danger' : 'btn-outline-danger' }} btn-sm"
+                                                onclick="castVote(false)">
+                                            <i data-feather="thumbs-down" style="width:14px;height:14px;"></i>
+                                            Ne <span class="ms-1 badge bg-white text-danger" id="not-helpful-count">{{ $voteStats['not_helpful'] }}</span>
+                                        </button>
+                                        @php $total = $voteStats['helpful'] + $voteStats['not_helpful']; @endphp
+                                        @if($total > 0)
+                                        <span class="f-light f-12">
+                                            {{ $total }} hodnocení,
+                                            {{ $total > 0 ? round($voteStats['helpful'] / $total * 100) : 0 }}% považuje za užitečné
+                                        </span>
+                                        @endif
+                                    </div>
+                                </div>
+                            </div>
+
+                            {{-- ── Review form ──────────────────────────── --}}
+                            <div class="job-description">
+                                <h6 class="mb-3">Napsat komentář k článku</h6>
+                                <form method="POST" action="{{ route('panel.kb.review', $article->slug) }}" class="custom-input">
+                                    @csrf
+                                    @if(!auth()->check())
+                                    <div class="mb-3">
+                                        <label class="form-label">Vaše jméno</label>
+                                        <input type="text" class="form-control" name="author_name" placeholder="Jak se jmenujete?" maxlength="100">
+                                    </div>
+                                    @endif
+                                    <div class="mb-3">
+                                        <label class="form-label">Komentář *</label>
+                                        <textarea class="form-control @error('content') is-invalid @enderror"
+                                                  name="content" rows="3" required minlength="10" maxlength="1000"
+                                                  placeholder="Sdílejte svůj pohled, zkušenost nebo doplňující informaci k článku…"></textarea>
+                                        @error('content')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                        <div class="form-text f-11 f-light">Komentář bude zveřejněn po schválení administrátorem.</div>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary text-white btn-sm">
+                                        <i data-feather="send" style="width:13px;height:13px;"></i>
+                                        Odeslat komentář
+                                    </button>
+                                </form>
+
+                                {{-- Approved reviews --}}
+                                @if($reviews->isNotEmpty())
+                                <div class="mt-4">
+                                    <h6 class="mb-3">Komentáře ({{ $reviews->count() }})</h6>
+                                    @foreach($reviews as $review)
+                                    <div class="d-flex gap-3 py-3 {{ !$loop->last ? 'border-bottom' : '' }}">
+                                        <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,rgba(var(--theme-default),.15),rgba(var(--theme-default),.03));display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                                            <span class="f-w-600 f-12" style="color:rgba(var(--theme-default),1);">
+                                                {{ strtoupper(substr($review->author_name ?? 'A', 0, 2)) }}
+                                            </span>
+                                        </div>
+                                        <div class="flex-1">
+                                            <div class="d-flex justify-content-between">
+                                                <span class="f-w-500 f-13">{{ $review->author_name ?? 'Anonymní' }}</span>
+                                                <span class="f-light f-11">{{ $review->created_at?->format('d.m.Y') }}</span>
+                                            </div>
+                                            <p class="f-13 mb-0 mt-1">{{ $review->content }}</p>
+                                        </div>
+                                    </div>
+                                    @endforeach
+                                </div>
+                                @endif
+                            </div>
+
                             {{-- Actions --}}
                             <div class="job-description d-flex gap-3 flex-wrap mt-2">
                                 <a href="{{ route('panel.kb.index') }}" class="btn btn-hover-effect">
@@ -161,3 +240,35 @@
     </div>
 </div>
 @endsection
+
+@push('scripts')
+<script>
+var _voteUrl = '{{ route('panel.kb.vote', $article->slug) }}';
+var _csrfToken = '{{ csrf_token() }}';
+
+function castVote(helpful) {
+    fetch(_voteUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': _csrfToken, 'Accept': 'application/json'},
+        body: JSON.stringify({helpful: helpful})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            document.getElementById('helpful-count').textContent = data.helpful;
+            document.getElementById('not-helpful-count').textContent = data.not_helpful;
+            var hBtn = document.getElementById('vote-helpful');
+            var nBtn = document.getElementById('vote-not-helpful');
+            if (data.user_vote === 'helpful') {
+                hBtn.className = hBtn.className.replace('btn-outline-success', 'btn-success');
+                nBtn.className = nBtn.className.replace('btn-danger', 'btn-outline-danger');
+            } else {
+                nBtn.className = nBtn.className.replace('btn-outline-danger', 'btn-danger');
+                hBtn.className = hBtn.className.replace('btn-success', 'btn-outline-success');
+            }
+        }
+    })
+    .catch(function() {});
+}
+</script>
+@endpush

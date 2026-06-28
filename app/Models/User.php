@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Fortify\TwoFactorAuthenticatable;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
@@ -28,6 +29,8 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasFactory;
 
+    use TwoFactorAuthenticatable;
+
     use HasRoles;
     use HasUuid;
     use LogsActivity;
@@ -40,20 +43,26 @@ class User extends Authenticatable
         'password',
         'is_active',
         'locale',
+        'two_factor_secret',
+        'two_factor_recovery_codes',
+        'two_factor_confirmed_at',
     ];
 
     protected $hidden = [
         'password',
         'remember_token',
+        'two_factor_secret',
+        'two_factor_recovery_codes',
     ];
 
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
-            'password'          => 'hashed',
-            'is_active'         => 'boolean',
-            'last_login_at'     => 'datetime',
+            'email_verified_at'      => 'datetime',
+            'password'               => 'hashed',
+            'is_active'              => 'boolean',
+            'last_login_at'          => 'datetime',
+            'two_factor_confirmed_at'=> 'datetime',
         ];
     }
 

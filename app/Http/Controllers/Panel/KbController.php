@@ -6,6 +6,8 @@ namespace App\Http\Controllers\Panel;
 
 use App\Http\Controllers\Controller;
 use App\Models\KbArticle;
+use App\Models\KbArticleReview;
+use App\Models\KbArticleVote;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -49,6 +51,24 @@ class KbController extends Controller
             ->get()
             ->groupBy('category');
 
-        return view('panel.kb.show', compact('article', 'related', 'allCategories'));
+        $voteStats = [
+            'helpful'     => KbArticleVote::where('kb_article_id', $article->id)->where('is_helpful', true)->count(),
+            'not_helpful' => KbArticleVote::where('kb_article_id', $article->id)->where('is_helpful', false)->count(),
+        ];
+
+        $userVote = null;
+        if (auth()->check()) {
+            $vote = KbArticleVote::where('kb_article_id', $article->id)
+                ->where('user_id', auth()->id())
+                ->first();
+            $userVote = $vote?->is_helpful ? 'helpful' : ($vote ? 'not_helpful' : null);
+        }
+
+        $reviews = KbArticleReview::where('kb_article_id', $article->id)
+            ->where('is_visible', true)
+            ->latest()
+            ->get();
+
+        return view('panel.kb.show', compact('article', 'related', 'allCategories', 'voteStats', 'userVote', 'reviews'));
     }
 }

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\KbArticle;
+use App\Models\KbArticleReview;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -56,10 +57,21 @@ class KbController extends Controller
             ->get()
             ->groupBy('category');
 
+        $reviews = \App\Models\KbArticleReview::where('kb_article_id', $kb->id)
+            ->latest()
+            ->get();
+
+        $voteStats = [
+            'helpful'     => \App\Models\KbArticleVote::where('kb_article_id', $kb->id)->where('is_helpful', true)->count(),
+            'not_helpful' => \App\Models\KbArticleVote::where('kb_article_id', $kb->id)->where('is_helpful', false)->count(),
+        ];
+
         return view('admin.kb.show', [
             'article'       => $kb,
             'related'       => $related,
             'allCategories' => $allCategories,
+            'reviews'       => $reviews,
+            'voteStats'     => $voteStats,
         ]);
     }
 
@@ -100,6 +112,20 @@ class KbController extends Controller
 
         return redirect()->route('admin.kb.index')
             ->with('status', 'Článek byl smazán.');
+    }
+
+    public function approveReview(KbArticleReview $review): RedirectResponse
+    {
+        $review->update(['is_visible' => true]);
+
+        return back()->with('status', 'Recenze byla schválena.');
+    }
+
+    public function deleteReview(KbArticleReview $review): RedirectResponse
+    {
+        $review->delete();
+
+        return back()->with('status', 'Recenze byla smazána.');
     }
 
     private function validated(Request $request): array

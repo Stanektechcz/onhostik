@@ -101,6 +101,16 @@ return [
             'category' => 'builder',
             'fields'   => ['base_url', 'api_key'],
         ],
+        'pterodactyl' => [
+            'label'    => 'Pterodactyl Panel (game servery)',
+            'category' => 'provisioning',
+            'fields'   => ['base_url', 'application_api_key', 'client_api_key'],
+        ],
+        'proxmox' => [
+            'label'    => 'Proxmox VE (VPS / Cloud)',
+            'category' => 'provisioning',
+            'fields'   => ['base_url', 'username', 'password', 'realm', 'node'],
+        ],
     ],
 
     /*

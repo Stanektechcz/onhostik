@@ -60,6 +60,7 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::get('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'billing'])->name('account.billing');
     Route::put('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'updateBilling'])->name('account.billing.update');
     Route::get('/ucet/zabezpeceni', [Panel\AccountController::class, 'security'])->name('account.security');
+    Route::put('/ucet/zmena-hesla', [Panel\AccountController::class, 'updatePassword'])->name('account.password.update');
 
     Route::get('/faq', [Panel\FaqController::class, 'index'])->name('faq.index');
 
@@ -68,6 +69,8 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
 
     Route::get('/znalostni-baze', [Panel\KbController::class, 'index'])->name('kb.index');
     Route::get('/znalostni-baze/{slug}', [Panel\KbController::class, 'show'])->name('kb.show');
+    Route::post('/znalostni-baze/{article}/hlasovat', [Panel\KbVoteController::class, 'vote'])->name('kb.vote');
+    Route::post('/znalostni-baze/{article}/recenze', [Panel\KbVoteController::class, 'review'])->name('kb.review');
 
     Route::get('/podpora', [Panel\SupportController::class, 'index'])->name('support.index');
     Route::post('/podpora', [Panel\SupportController::class, 'store'])->name('support.store');
@@ -248,11 +251,16 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
 
     Route::get('/znalostni-baze', [AdminKbController::class, 'index'])->name('kb.index');
     Route::get('/znalostni-baze/{kb}/nahled', [AdminKbController::class, 'show'])->name('kb.show');
+    Route::post('/znalostni-baze/recenze/{review}/schvalit', [AdminKbController::class, 'approveReview'])->name('kb.review.approve');
+    Route::delete('/znalostni-baze/recenze/{review}', [AdminKbController::class, 'deleteReview'])->name('kb.review.delete');
     Route::get('/znalostni-baze/novy', [AdminKbController::class, 'create'])->name('kb.create');
     Route::post('/znalostni-baze', [AdminKbController::class, 'store'])->name('kb.store');
     Route::get('/znalostni-baze/{kb}/upravit', [AdminKbController::class, 'edit'])->name('kb.edit');
     Route::put('/znalostni-baze/{kb}', [AdminKbController::class, 'update'])->name('kb.update');
     Route::delete('/znalostni-baze/{kb}', [AdminKbController::class, 'destroy'])->name('kb.destroy');
+
+    Route::get('/partner-program/nastaveni', [Admin\PartnerProgramController::class, 'settings'])->name('partner-program.settings');
+    Route::put('/partner-program/nastaveni', [Admin\PartnerProgramController::class, 'updateSettings'])->name('partner-program.settings.update');
 
     Route::prefix('partneri')->name('partners.')->group(function (): void {
         Route::get('/', [Admin\PartnerController::class, 'index'])->name('index');

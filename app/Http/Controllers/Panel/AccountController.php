@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 
 class AccountController extends Controller
@@ -77,9 +78,47 @@ class AccountController extends Controller
 
     public function security(Request $request): View
     {
-        return view('panel.account.security', [
-            'user' => $request->user(),
+        $user = $request->user();
+        $twoFactorEnabled = $user?->hasEnabledTwoFactorAuthentication() ?? false;
+        $twoFactorConfirmed = $user?->two_factor_confirmed_at !== null;
+        $showingQrCode = $twoFactorEnabled && !$twoFactorConfirmed;
+        $recoveryCodes = [];
+
+        if ($twoFactorEnabled && $twoFactorConfirmed) {
+            try {
+                $recoveryCodes = json_decode(decrypt($user->two_factor_recovery_codes), true) ?? [];
+            } catch (\Throwable) {
+                $recoveryCodes = [];
+            }
+        }
+
+        return view('panel.account.security', compact(
+            'user',
+            'twoFactorEnabled',
+            'twoFactorConfirmed',
+            'showingQrCode',
+            'recoveryCodes',
+        ));
+    }
+
+    public function updatePassword(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'current_password' => ['required', 'string'],
+            'password'         => ['required', 'string', 'min:8', 'confirmed'],
         ]);
+
+        $user = $request->user();
+
+        if (!Hash::check($validated['current_password'], $user->password)) {
+            return back()->withErrors(['current_password' => 'Současné heslo není správné.']);
+        }
+
+        $user->update(['password' => Hash::make($validated['password'])]);
+
+        activity()->causedBy($user)->log('password_changed');
+
+        return back()->with('status', 'Heslo bylo úspěšně změněno.');
     }
 
     private function customer(Request $request): Customer

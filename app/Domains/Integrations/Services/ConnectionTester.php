@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Domains\Integrations\Services;
 
 use App\Domains\Integrations\Clients\AapanelClient;
+use App\Domains\Integrations\Clients\ProxmoxClient;
+use App\Domains\Integrations\Clients\PterodactylClient;
 use App\Domains\Integrations\Clients\WedosWapiClient;
 use App\Domains\Integrations\Models\IntegrationSetting;
 use Throwable;
@@ -54,9 +56,11 @@ final class ConnectionTester
     private function run(IntegrationSetting $setting): array
     {
         $result = match ($setting->provider) {
-            'aapanel' => (new AapanelClient($setting))->connectionTest(),
-            'wedos'   => (new WedosWapiClient($setting))->connectionTest(),
-            default   => null,
+            'aapanel'     => (new AapanelClient($setting))->connectionTest(),
+            'wedos'       => (new WedosWapiClient($setting))->connectionTest(),
+            'pterodactyl' => (new PterodactylClient($setting))->connectionTest(),
+            'proxmox'     => (new ProxmoxClient($setting))->connectionTest(),
+            default       => null,
         };
 
         if ($result !== null) {

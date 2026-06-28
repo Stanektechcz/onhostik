@@ -160,6 +160,96 @@
                     </div>
                 </div>
 
+                {{-- Voting stats + reviews --}}
+                <div class="card">
+                    <div class="card-header card-no-border">
+                        <div class="header-top">
+                            <h5>Hodnocení a komentáře</h5>
+                            <div class="card-header-right-icon">
+                                @php $totalVotes = ($voteStats['helpful'] ?? 0) + ($voteStats['not_helpful'] ?? 0); @endphp
+                                <span class="badge badge-light-primary">{{ $totalVotes }} hlasů</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        {{-- Stats --}}
+                        <div class="d-flex gap-4 mb-4">
+                            <div class="text-center">
+                                <h4 class="txt-success mb-0">{{ $voteStats['helpful'] ?? 0 }}</h4>
+                                <small class="f-light">Užitečný</small>
+                            </div>
+                            <div class="text-center">
+                                <h4 class="txt-danger mb-0">{{ $voteStats['not_helpful'] ?? 0 }}</h4>
+                                <small class="f-light">Neužitečný</small>
+                            </div>
+                            @if($totalVotes > 0)
+                            <div class="flex-1">
+                                <div class="progress mt-2" style="height:8px;">
+                                    <div class="progress-bar bg-success"
+                                         style="width:{{ round(($voteStats['helpful'] / $totalVotes) * 100) }}%">
+                                    </div>
+                                </div>
+                                <small class="f-light">{{ round(($voteStats['helpful'] / $totalVotes) * 100) }}% pozitivních</small>
+                            </div>
+                            @endif
+                        </div>
+
+                        {{-- Reviews --}}
+                        @if(($reviews ?? collect())->isEmpty())
+                            <p class="f-light f-13 text-center py-3">Žádné komentáře zatím.</p>
+                        @else
+                            <div class="recent-table overflow-x-auto custom-scrollbar">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th><span class="f-light font-semibold">Autor</span></th>
+                                            <th><span class="f-light font-semibold">Komentář</span></th>
+                                            <th><span class="f-light font-semibold">Datum</span></th>
+                                            <th><span class="f-light font-semibold">Stav</span></th>
+                                            <th><span class="f-light font-semibold">Akce</span></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($reviews as $review)
+                                        <tr class="inbox-data">
+                                            <td class="f-w-500">{{ $review->author_name ?? 'Anonymní' }}</td>
+                                            <td class="f-13">{{ Str::limit($review->content, 80) }}</td>
+                                            <td class="f-12 f-light">{{ $review->created_at?->format('d.m.Y H:i') }}</td>
+                                            <td>
+                                                @if($review->is_visible)
+                                                    <span class="badge badge-light-success">Schváleno</span>
+                                                @else
+                                                    <span class="badge badge-light-warning">Čeká</span>
+                                                @endif
+                                            </td>
+                                            <td>
+                                                <div class="common-align gap-2 justify-start">
+                                                    @if(!$review->is_visible)
+                                                    <form method="POST" action="{{ route('admin.kb.review.approve', $review) }}" style="display:inline;">
+                                                        @csrf
+                                                        <button type="submit" class="square-white" title="Schválit">
+                                                            <i data-feather="check" style="width:14px;height:14px;color:#54ba4a;"></i>
+                                                        </button>
+                                                    </form>
+                                                    @endif
+                                                    <form method="POST" action="{{ route('admin.kb.review.delete', $review) }}"
+                                                          style="display:inline;" onsubmit="return confirm('Smazat komentář?')">
+                                                        @csrf @method('DELETE')
+                                                        <button type="submit" class="square-white trash-3" title="Smazat">
+                                                            <svg><use href="{{ asset('panel/assets/svg/icon-sprite.svg#trash1') }}"></use></svg>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+
                 {{-- Related articles --}}
                 @if($related->isNotEmpty())
                 <div class="header-faq">

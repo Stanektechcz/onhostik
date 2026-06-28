@@ -192,13 +192,11 @@
             <x-panel.sidebar-link :href="route('admin.site-content.index')" icon="file-text" label="Obsah stránek" />
         </x-panel.sidebar-submenu>
 
-        <li class="sidebar-list">
-            <i class="fa-solid fa-thumbtack"></i>
-            <a class="sidebar-link sidebar-title link-nav {{ $p('admin.partners') ? 'active' : '' }}"
-               href="{{ route('admin.partners.index') }}">
-                <i data-feather="share-2"></i><span>Partnerský program</span>
-            </a>
-        </li>
+        <x-panel.sidebar-submenu icon="share-2" label="Partnersky program"
+            :active="$p('admin.partners') || $p('admin.partner-program')">
+            <x-panel.sidebar-link :href="route('admin.partners.index')" icon="users" label="Partneři" />
+            <x-panel.sidebar-link :href="route('admin.partner-program.settings')" icon="settings" label="Nastavení programu" />
+        </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="message-square" label="Komunikace"
             :active="$p('admin.support') || $p('admin.mailbox')">

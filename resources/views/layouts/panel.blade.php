@@ -97,8 +97,39 @@
    If the pin-title element doesn't render, guard against null access.   ── */
 (function() {
     var orig = window.togglePinnedName;
-    if (typeof orig === 'function') return; // already defined OK
-    // Noop guard — sidebar-pin.js calls togglePinnedName on its own scope
+    if (typeof orig === 'function') return;
+})();
+
+/* ── Open the active sidebar submenu on page load ──────────────────────
+   Cuba's sidebar-menu.js hides ALL .sidebar-submenu on load.
+   We re-open the one that contains the active link.                    ── */
+(function() {
+    function openActiveSubmenu() {
+        document.querySelectorAll('.sidebar-submenu').forEach(function(sub) {
+            var hasActive = sub.querySelector('a.active') || sub.querySelector('li.active');
+            if (!hasActive) return;
+
+            // Show the submenu
+            sub.style.display = 'block';
+            sub.style.removeProperty('display'); // let slideDown handle it via jQuery
+            if (window.jQuery) jQuery(sub).show();
+
+            // Mark parent .sidebar-title as active and update arrow icon
+            var title = sub.previousElementSibling;
+            if (title && title.classList.contains('sidebar-title')) {
+                title.classList.add('active');
+                var arrow = title.querySelector('.according-menu');
+                if (arrow) arrow.innerHTML = '<i class="fa-solid fa-angle-down"></i>';
+            }
+        });
+    }
+
+    // Run after sidebar-menu.js has had time to hide submenus
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', openActiveSubmenu);
+    } else {
+        setTimeout(openActiveSubmenu, 50);
+    }
 })();
 </script>
 @livewireScripts
