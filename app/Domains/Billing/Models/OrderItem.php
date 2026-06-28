@@ -53,6 +53,17 @@ class OrderItem extends Model
         ];
     }
 
+    /**
+     * Subtotal = unit price × quantity (before VAT).
+     * Alias for unit_price to maintain consistency with invoice terminology.
+     *
+     * @return Money|null
+     */
+    public function getSubtotalAttribute(): ?Money
+    {
+        return $this->unit_price;
+    }
+
     /** @return BelongsTo<Order, $this> */
     public function order(): BelongsTo
     {

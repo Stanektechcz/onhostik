@@ -29,14 +29,35 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::updateUserPasswordsUsing(UpdateUserPassword::class);
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
 
-        // Auth views rendered in the Antler front layout.
+        /*
+        |--------------------------------------------------------------------
+        | Auth views — rendered in the Antler front layout.
+        |--------------------------------------------------------------------
+        */
         Fortify::loginView(fn () => view('front.auth.login'));
         Fortify::registerView(fn () => view('front.auth.register'));
         Fortify::requestPasswordResetLinkView(fn () => view('front.auth.forgot-password'));
         Fortify::resetPasswordView(fn (Request $request) => view('front.auth.reset-password', ['request' => $request]));
 
+        /*
+        |--------------------------------------------------------------------
+        | 2FA views — required when Features::twoFactorAuthentication is on.
+        |   twoFactorChallengeView: TOTP code entry page shown at login.
+        |   confirmPasswordView: password re-entry gate before 2FA setup.
+        |--------------------------------------------------------------------
+        */
+        Fortify::twoFactorChallengeView(fn () => view('auth.two-factor-challenge'));
+        Fortify::confirmPasswordView(fn () => view('auth.confirm-password'));
+
+        /*
+        |--------------------------------------------------------------------
+        | Rate limiters
+        |--------------------------------------------------------------------
+        */
         RateLimiter::for('login', function (Request $request): Limit {
-            $throttleKey = Str::transliterate($request->string(Fortify::username())->lower() . '|' . $request->ip());
+            $throttleKey = Str::transliterate(
+                $request->string(Fortify::username())->lower() . '|' . $request->ip()
+            );
 
             return Limit::perMinute(5)->by($throttleKey);
         });

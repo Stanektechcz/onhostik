@@ -20,6 +20,18 @@ class BlogPost extends Model
         'published_at' => 'datetime',
     ];
 
+    /** Route model binding uses slug. */
+    public function getRouteKeyName(): string
+    {
+        return 'slug';
+    }
+
+    /** Alias: views reference featured_image, DB stores it as image. */
+    public function getFeaturedImageAttribute(): ?string
+    {
+        return isset($this->attributes['image']) ? $this->attributes['image'] : null;
+    }
+
     public function author(): BelongsTo
     {
         return $this->belongsTo(User::class, 'author_id');

@@ -6,6 +6,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class KbArticle extends Model
 {
@@ -18,8 +19,26 @@ class KbArticle extends Model
         'is_published' => 'boolean',
     ];
 
+    /** Route model binding uses slug for URL-friendly routes. */
+    public function getRouteKeyName(): string
+    {
+        return 'slug';
+    }
+
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('is_published', true);
+    }
+
+    /** @return HasMany<KbArticleVote, $this> */
+    public function votes(): HasMany
+    {
+        return $this->hasMany(KbArticleVote::class);
+    }
+
+    /** @return HasMany<KbArticleReview, $this> */
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(KbArticleReview::class);
     }
 }
