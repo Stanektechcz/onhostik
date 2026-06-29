@@ -38,14 +38,17 @@
             {{-- Right: bookmarks grid --}}
             <div class="col-span-9 xl:col-span-12 xl-80 box-col-9e">
                 <div class="grid grid-cols-12 card-gap">
-                    @foreach([
-                        ['Dashboard','Dashboard systému','{{ route(\'admin.dashboard\') }}','Přehled systému','primary'],
-                        ['Zákazníci','Správa zákazníků','{{ route(\'admin.customers.index\') }}','CRM'],
-                        ['Fakturace','Přehled faktur','{{ route(\'admin.invoices.index\') }}','Finance','success'],
-                        ['Produkty','Správa tarifů','{{ route(\'admin.products.index\') }}','Produkty','warning'],
-                        ['Servery','Správa serverů','{{ route(\'admin.servers.index\') }}','Infrastruktura','danger'],
-                        ['Audit log','Log aktivit','{{ route(\'admin.logs.audit\') }}','Bezpečnost','secondary'],
-                    ] as [$title, $desc, $url, $collection, $color])
+                    @php
+                    $bookmarkLinks = [
+                        ['Dashboard',    'Dashboard systému',  route('admin.dashboard'),          'Přehled systému', 'primary'],
+                        ['Zákazníci',    'Správa zákazníků',   route('admin.customers.index'),     'CRM',             'info'],
+                        ['Fakturace',    'Přehled faktur',     route('admin.invoices.index'),      'Finance',         'success'],
+                        ['Produkty',     'Správa tarifů',      route('admin.products.index'),      'Produkty',        'warning'],
+                        ['Servery',      'Správa serverů',     route('admin.servers.index'),       'Infrastruktura',  'danger'],
+                        ['Audit log',    'Log aktivit',        route('admin.logs.audit'),          'Bezpečnost',      'secondary'],
+                    ];
+                    @endphp
+                    @foreach($bookmarkLinks as [$title, $desc, $bmUrl, $collection, $color])
                     <div class="col-span-4 xl:col-span-6 sm:col-span-12">
                         <div class="card bookmark-card card-with-border h-full">
                             <div class="card-body">
@@ -54,13 +57,13 @@
                                         <i data-feather="link" style="width:24px;height:24px;color:rgba(var(--theme-default),1);"></i>
                                     </div>
                                     <h6>{{ $title }}</h6>
-                                    <a href="{{ url('/admin') }}" class="details-website f-12 f-light d-block mb-2">{{ url('/admin') }}</a>
+                                    <a href="{{ $bmUrl }}" class="details-website f-12 f-light d-block mb-2">{{ parse_url($bmUrl, PHP_URL_PATH) }}</a>
                                     <p class="f-light f-12 mb-2">{{ $desc }}</p>
-                                    <span class="badge badge-light-{{ $color ?? 'primary' }}">{{ $collection }}</span>
+                                    <span class="badge badge-light-{{ $color }}">{{ $collection }}</span>
                                 </div>
                                 <div class="hover-block">
                                     <ul class="list-unstyled d-flex gap-2 justify-content-center mt-3">
-                                        <li><a href="{{ url('/admin') }}" class="square-white"><i data-feather="external-link" style="width:14px;height:14px;"></i></a></li>
+                                        <li><a href="{{ $bmUrl }}" class="square-white"><i data-feather="external-link" style="width:14px;height:14px;"></i></a></li>
                                         <li><a href="#" class="square-white"><i data-feather="share-2" style="width:14px;height:14px;"></i></a></li>
                                         <li><a href="#" class="square-white trash-3"><i data-feather="trash-2" style="width:14px;height:14px;"></i></a></li>
                                     </ul>

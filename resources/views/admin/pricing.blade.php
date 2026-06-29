@@ -29,7 +29,7 @@
                         <div class="grid grid-cols-12 card-gap">
                             @forelse($plans ?? [] as $plan)
                             @php
-                                $price = $plan->priceFor('CZK');
+                                $price = $plan->priceFor(\App\Domains\Shared\Enums\Currency::CZK);
                                 $priceVal = $price ? intdiv($price->getMinorAmount()->toInt(), 100) : 0;
                             @endphp
                             <div class="col-span-3 xxl:col-span-6 md:col-span-12">

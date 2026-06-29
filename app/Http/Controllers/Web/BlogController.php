@@ -16,19 +16,27 @@ class BlogController extends Controller
         $locale     = app()->getLocale();
         $category   = $request->string('kategorie')->toString();
 
+        $localeFilter = fn ($q) => $q->where('locale', $locale)->orWhereNull('locale');
+
         $posts = BlogPost::published()
-            ->where(fn ($q) => $q->where('locale', $locale)->orWhereNull('locale'))
+            ->where($localeFilter)
             ->when($category !== '', fn ($q) => $q->where('category', $category))
             ->latest('published_at')
             ->paginate(9);
 
+        $recent = BlogPost::published()
+            ->where($localeFilter)
+            ->latest('published_at')
+            ->take(4)
+            ->get();
+
         $categories = BlogPost::published()
-            ->where(fn ($q) => $q->where('locale', $locale)->orWhereNull('locale'))
+            ->where($localeFilter)
             ->distinct()
             ->pluck('category')
             ->filter();
 
-        return view('front.blog.index', compact('posts', 'categories'));
+        return view('front.blog.index', compact('posts', 'recent', 'categories'));
     }
 
     public function show(string $slug): View
