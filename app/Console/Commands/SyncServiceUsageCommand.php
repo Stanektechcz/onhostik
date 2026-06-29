@@ -43,7 +43,7 @@ class SyncServiceUsageCommand extends Command
                         $usage = $this->mockUsage($service);
                     } else {
                         $client = new AapanelClient($integration);
-                        $usage  = $client->getSiteUsage($service->external_id ?? '');
+                        $usage  = $client->getUsage($service->external_id ?? '');
                     }
 
                     $service->update(['usage_snapshot' => array_merge($usage, [

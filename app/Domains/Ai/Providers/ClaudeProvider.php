@@ -33,7 +33,7 @@ final class ClaudeProvider implements AiProviderInterface
     public function __construct(string $apiKey)
     {
         $this->apiKey = $apiKey;
-        $this->model  = config('ai.claude_model', 'claude-haiku-4-5-20251001');
+        $this->model  = (string) config('ai.claude_model', 'claude-haiku-4-5-20251001');
     }
 
     public function name(): string
@@ -44,7 +44,8 @@ final class ClaudeProvider implements AiProviderInterface
     /** @param array<string, mixed> $context */
     public function chat(string $prompt, array $context = []): AiResponse
     {
-        $systemPrompt = $this->buildSystemPrompt($context['topic'] ?? 'general');
+        $topic = is_string($context['topic'] ?? null) ? (string) $context['topic'] : 'general';
+        $systemPrompt = $this->buildSystemPrompt($topic);
         return $this->call($systemPrompt, $prompt);
     }
 

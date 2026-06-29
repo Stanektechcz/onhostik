@@ -63,9 +63,10 @@ class DnsController extends Controller
         }
 
         try {
-            $client = new WedosWapiClient($integration);
-            $info   = $client->getDomainInfo($fqdn);
-            return $info['dns_rows'] ?? $this->mockRecords($fqdn);
+            $client   = new WedosWapiClient($integration);
+            $info     = $client->getDomainInfo($fqdn);
+            $dnsRows  = $info['dns_rows'] ?? null;
+            return is_array($dnsRows) ? array_values($dnsRows) : $this->mockRecords($fqdn);
         } catch (\Throwable) {
             return $this->mockRecords($fqdn);
         }
