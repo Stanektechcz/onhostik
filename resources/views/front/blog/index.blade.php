@@ -101,7 +101,7 @@
                         </ul>
                     </div>
 
-                    @if($recent->isNotEmpty())
+                    @if(isset($recent) && $recent->isNotEmpty())
                         <div class="sec-main sec-bg1 bg-colorstyle p-4">
                             <h5 class="mergecolor mb-3">Nejnovější příspěvky</h5>
                             <ul class="list-unstyled">

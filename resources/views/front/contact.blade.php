@@ -5,7 +5,7 @@
 
 @section('content')
     {{-- ============ HERO ============ --}}
-    <div class="top-header total-grad-inverse">
+    <div class="top-header">
         <div class="total-grad-inverse"></div>
         <div class="container">
             <div class="row">
