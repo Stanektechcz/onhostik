@@ -75,8 +75,8 @@
                                     <span class="badge badge-light-success">
                                         <i data-feather="shield" style="width:12px;height:12px;"></i> Aktivní
                                     </span>
-                                @elseif($twoFactorEnabled && !$twoFactorConfirmed)
-                                    <span class="badge badge-light-warning">Čeká na potvrzení</span>
+                                @elseif($hasTwoFactorSecret && !$twoFactorConfirmed)
+                                    <span class="badge badge-light-warning">Čeká na potvrzení kódu</span>
                                 @else
                                     <span class="badge badge-light-secondary">Neaktivní</span>
                                 @endif
@@ -89,8 +89,8 @@
                             (Google Authenticator, Authy, Microsoft Authenticator).
                         </p>
 
-                        @if(!$twoFactorEnabled)
-                        {{-- NOT ENABLED: Show enable button --}}
+                        @if(!$hasTwoFactorSecret)
+                        {{-- NOT STARTED: Show enable button --}}
                         <div class="d-flex align-items-start gap-3 p-3 border rounded mb-3" style="background:rgba(var(--light-background),.4);">
                             <i data-feather="shield-off" style="width:32px;height:32px;opacity:.4;flex-shrink:0;"></i>
                             <div>
@@ -106,8 +106,8 @@
                             </button>
                         </form>
 
-                        @elseif($twoFactorEnabled && !$twoFactorConfirmed)
-                        {{-- SETUP IN PROGRESS: Show QR code --}}
+                        @elseif($hasTwoFactorSecret && !$twoFactorConfirmed)
+                        {{-- SETUP IN PROGRESS: secret exists, not confirmed yet — show QR --}}
                         <div class="alert alert-light-warning mb-3">
                             <i data-feather="alert-triangle" style="width:14px;height:14px;"></i>
                             Naskenujte QR kód a zadejte kód pro potvrzení.
@@ -124,7 +124,10 @@
                                 <p class="f-light f-11 mt-2 mb-0">Naskenujte v autentifikační aplikaci</p>
                             </div>
                             <div class="col-span-7 xl:col-span-12">
-                                <form method="POST" action="{{ url('/user/confirmed-two-factor-authentication') }}" class="custom-input">
+                                {{-- Confirm TOTP code --}}
+                                <form id="confirm-2fa-form" method="POST"
+                                      action="{{ url('/user/confirmed-two-factor-authentication') }}"
+                                      class="custom-input">
                                     @csrf
                                     <label class="form-label">Ověřovací kód z aplikace *</label>
                                     <input class="form-control mb-3" type="text" name="code"
@@ -136,14 +139,20 @@
                                             <i data-feather="check" style="width:14px;height:14px;"></i>
                                             Potvrdit 2FA
                                         </button>
-                                        <form method="DELETE" action="{{ url('/user/two-factor-authentication') }}" style="display:inline;">
-                                            @csrf @method('DELETE')
-                                            <button type="submit" class="btn btn-outline-danger btn-sm">Zrušit</button>
-                                        </form>
+                                        {{-- Cannot nest <form> inside <form> — use a separate form below --}}
+                                        <button type="button" class="btn btn-outline-danger btn-sm"
+                                                onclick="document.getElementById('cancel-2fa-form').submit()">
+                                            Zrušit nastavení
+                                        </button>
                                     </div>
                                 </form>
                             </div>
                         </div>
+                        {{-- Cancel 2FA setup — separate form, outside grid context --}}
+                        <form id="cancel-2fa-form" method="POST"
+                              action="{{ url('/user/two-factor-authentication') }}" style="display:none;">
+                            @csrf @method('DELETE')
+                        </form>
 
                         @else
                         {{-- ENABLED AND CONFIRMED --}}
@@ -297,6 +306,7 @@
 @push('scripts')
 <script>
 @if($showingQrCode ?? false)
+/* showingQrCode = hasTwoFactorSecret && !twoFactorConfirmed */
 // Load QR code SVG from Fortify
 fetch('/user/two-factor-qr-code')
     .then(r => r.json())

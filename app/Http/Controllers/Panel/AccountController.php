@@ -79,14 +79,23 @@ class AccountController extends Controller
     public function security(Request $request): View
     {
         $user = $request->user();
-        $twoFactorEnabled = $user?->hasEnabledTwoFactorAuthentication() ?? false;
-        $twoFactorConfirmed = $user?->two_factor_confirmed_at !== null;
-        $showingQrCode = $twoFactorEnabled && !$twoFactorConfirmed;
-        $recoveryCodes = [];
 
+        /* two_factor_secret set = setup started (even before confirmation) */
+        $hasTwoFactorSecret  = !is_null($user?->two_factor_secret);
+        $twoFactorConfirmed  = !is_null($user?->two_factor_confirmed_at);
+        /* hasEnabledTwoFactorAuthentication() requires confirmed_at when confirm:true */
+        $twoFactorEnabled    = $user?->hasEnabledTwoFactorAuthentication() ?? false;
+
+        /* Show QR code when secret exists but user hasn't confirmed yet */
+        $showingQrCode = $hasTwoFactorSecret && !$twoFactorConfirmed;
+
+        $recoveryCodes = [];
         if ($twoFactorEnabled && $twoFactorConfirmed) {
             try {
-                $recoveryCodes = json_decode(decrypt($user->two_factor_recovery_codes), true) ?? [];
+                $recoveryCodes = json_decode(
+                    decrypt((string) $user->two_factor_recovery_codes),
+                    true,
+                ) ?? [];
             } catch (\Throwable) {
                 $recoveryCodes = [];
             }
@@ -97,6 +106,7 @@ class AccountController extends Controller
             'twoFactorEnabled',
             'twoFactorConfirmed',
             'showingQrCode',
+            'hasTwoFactorSecret',
             'recoveryCodes',
         ));
     }
