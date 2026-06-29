@@ -99,10 +99,17 @@
                         @endif
                     </div>
 
-                    {{-- DNS note --}}
-                    <div class="alert alert-light-info d-flex gap-2 align-items-start mt-3 mb-0 py-2 px-3 f-12">
-                        <i data-feather="info" style="width:14px;height:14px;margin-top:2px;flex-shrink:0" class="font-info"></i>
-                        <span>{{ __('panel.domains.dns_placeholder') }}</span>
+                    {{-- DNS Management --}}
+                    <div class="border-top pt-3 mt-1 d-flex align-items-center justify-content-between">
+                        <div>
+                            <p class="f-w-500 mb-1">{{ __('panel.domains.dns_records') }}</p>
+                            <p class="f-light f-12 mb-0">{{ __('panel.domains.dns_description') }}</p>
+                        </div>
+                        <a href="{{ route('panel.domains.dns', $domain) }}"
+                           class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1">
+                            <i data-feather="globe" style="width:13px;height:13px"></i>
+                            {{ __('panel.dns.manage') }}
+                        </a>
                     </div>
                 </x-panel.card>
             </div>

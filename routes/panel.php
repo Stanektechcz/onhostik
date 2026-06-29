@@ -28,6 +28,8 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
 
     Route::get('/domeny', [Panel\DomainController::class, 'index'])->name('domains.index');
     Route::get('/domeny/{domain}', [Panel\DomainController::class, 'show'])->name('domains.show');
+    Route::get('/domeny/{domain}/dns', [Panel\DnsController::class, 'show'])->name('domains.dns');
+    Route::post('/domeny/{domain}/dns', [Panel\DnsController::class, 'store'])->name('domains.dns.store');
 
     Route::get('/objednavky', [Panel\OrderController::class, 'index'])->name('orders.index');
     Route::get('/objednavky/nova', [Panel\OrderController::class, 'create'])->name('orders.create');

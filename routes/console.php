@@ -6,6 +6,7 @@ use App\Console\Commands\ApproveEligibleCommissionsCommand;
 use App\Console\Commands\CreateRenewalInvoicesCommand;
 use App\Console\Commands\MarkOverdueInvoicesCommand;
 use App\Console\Commands\SuspendOverdueServicesCommand;
+use App\Console\Commands\SyncServiceUsageCommand;
 use Illuminate\Support\Facades\Schedule;
 
 /*
@@ -39,5 +40,12 @@ Schedule::command(SuspendOverdueServicesCommand::class)
 // Runs after dunning jobs so refund status is already set correctly.
 Schedule::command(ApproveEligibleCommissionsCommand::class)
     ->dailyAt('02:00')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Sync live usage stats (disk/bandwidth) from aaPanel for active services.
+// Runs every 15 minutes; mock mode returns simulated data.
+Schedule::command(SyncServiceUsageCommand::class)
+    ->everyFifteenMinutes()
     ->withoutOverlapping()
     ->runInBackground();

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Domains\Provisioning\Jobs;
 
+use App\Domains\Integrations\Clients\ProxmoxClient;
+use App\Domains\Integrations\Models\IntegrationSetting;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Enums\TaskStatus;
 use App\Domains\Provisioning\Models\ProvisioningTask;
@@ -113,13 +115,105 @@ final class CheckProxmoxTaskStatusJob implements ShouldQueue
 
     private function handleReal(Service $service, ProvisioningTask $task, ?string $upid): void
     {
-        // TODO: Implement real Proxmox UPID task status polling.
-        // 1. GET /nodes/{node}/tasks/{encoded_upid}/status
-        // 2. If status === 'stopped' and exitstatus === 'OK' → handleMock to complete
-        // 3. If status === 'stopped' and exitstatus !== 'OK' → mark task as Failed
-        // 4. If status === 'running' → release job back to queue (retry via backoff)
-        //
-        // For now, fall back to mock completion to avoid blocking in production.
-        $this->handleMock($service, $task, $upid);
+        if (empty($upid)) {
+            // No UPID — fall back to mock completion.
+            $this->handleMock($service, $task, $upid);
+            return;
+        }
+
+        $integration = IntegrationSetting::where('provider', 'proxmox')
+            ->where('is_active', true)
+            ->first();
+
+        if ($integration === null) {
+            $this->handleMock($service, $task, $upid);
+            return;
+        }
+
+        try {
+            $client = new ProxmoxClient($integration);
+            $node   = $integration->credentials['node'] ?? 'pve';
+
+            // Proxmox UPID encoding: spaces in UPID need URL encoding.
+            $encodedUpid = rawurlencode($upid);
+            $status = $this->proxmoxTaskStatus($client, $node, $encodedUpid);
+
+            if ($status === null) {
+                // API unreachable — retry via backoff.
+                $this->release($this->backoff);
+                return;
+            }
+
+            if ($status['status'] === 'running') {
+                // Still running — re-queue.
+                $this->release($this->backoff);
+                return;
+            }
+
+            // Task stopped.
+            if (($status['exitstatus'] ?? '') === 'OK') {
+                // Success — complete as in mock flow.
+                $vmid = $task->result['vmid'] ?? null;
+                $externalId = "PVE-{$node}-" . strtoupper(substr(md5($upid), 0, 8));
+
+                $service->update([
+                    'external_id' => $externalId,
+                    'status'      => ServiceStatus::Active,
+                ]);
+                $service->server?->increment('current_services');
+
+                $task->update([
+                    'status'      => TaskStatus::Success,
+                    'result'      => array_merge($task->result ?? [], [
+                        'external_id'  => $externalId,
+                        'upid'         => $upid,
+                        'exitstatus'   => 'OK',
+                        'mock'         => false,
+                    ]),
+                    'finished_at' => now(),
+                ]);
+
+                app(ServiceActivationHooks::class)->handle($service);
+            } else {
+                // Task failed.
+                $exitStatus = $status['exitstatus'] ?? 'unknown';
+                $task->update([
+                    'status'       => TaskStatus::Failed,
+                    'error_message'=> "Proxmox task failed: {$exitStatus}",
+                    'result'       => array_merge($task->result ?? [], [
+                        'upid'       => $upid,
+                        'exitstatus' => $exitStatus,
+                    ]),
+                    'finished_at'  => now(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            // Network/auth error — retry.
+            report($e);
+            $this->release($this->backoff);
+        }
+    }
+
+    /** @return array<string, mixed>|null */
+    private function proxmoxTaskStatus(ProxmoxClient $client, string $node, string $encodedUpid): ?array
+    {
+        try {
+            $response = \Illuminate\Support\Facades\Http::withOptions(['verify' => false])
+                ->timeout(10)
+                ->get("{$this->proxmoxBaseUrl($client)}/api2/json/nodes/{$node}/tasks/{$encodedUpid}/status");
+
+            if ($response->successful()) {
+                return $response->json('data') ?? null;
+            }
+        } catch (\Throwable) {}
+
+        return null;
+    }
+
+    private function proxmoxBaseUrl(ProxmoxClient $client): string
+    {
+        // Extract base URL from client via reflection or config
+        $integration = IntegrationSetting::where('provider', 'proxmox')->first();
+        return rtrim($integration?->credentials['base_url'] ?? 'https://proxmox.localhost:8006', '/');
     }
 }
