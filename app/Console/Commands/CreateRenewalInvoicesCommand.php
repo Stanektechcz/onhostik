@@ -7,6 +7,7 @@ namespace App\Console\Commands;
 use App\Domains\Billing\Actions\IssueRenewalInvoiceAction;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Models\Service;
+use App\Notifications\RenewalReminderNotification;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Config;
 
@@ -50,6 +51,20 @@ class CreateRenewalInvoicesCommand extends Command
 
                 if ($invoice->wasRecentlyCreated) {
                     $issued++;
+
+                    /* Send renewal reminder email for newly issued invoices. */
+                    try {
+                        $user = $service->customer?->user;
+                        if ($user !== null) {
+                            $user->notify(new RenewalReminderNotification(
+                                service:  $service,
+                                invoice:  $invoice,
+                                daysLeft: $daysBefore,
+                            ));
+                        }
+                    } catch (\Throwable $e) {
+                        report($e); // non-fatal — invoice was issued
+                    }
                 }
             });
 

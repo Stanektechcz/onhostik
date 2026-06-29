@@ -174,6 +174,7 @@
             <x-panel.sidebar-link :href="route('admin.products.index')" icon="box" label="Produkty a tarify" />
             <x-panel.sidebar-link :href="route('admin.pricing')" icon="tag" label="Ceník" />
             <x-panel.sidebar-link :href="route('admin.reviews')" icon="star" label="Recenze" />
+            <x-panel.sidebar-link :href="route('admin.discount-codes.index')" icon="tag" label="Slevové kódy" />
         </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="hard-drive" label="Infrastruktura"

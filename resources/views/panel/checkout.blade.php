@@ -130,6 +130,20 @@
                                         </div>
                                     </div>
                                     @endif
+                                    {{-- Discount code --}}
+                                    <div class="col-span-12">
+                                        <label class="form-label">Slevový kód <small class="f-light">(volitelné)</small></label>
+                                        <div class="input-group">
+                                            <input class="form-control" type="text" id="discount-input"
+                                                   placeholder="PROMO2026" style="text-transform:uppercase;"
+                                                   maxlength="32">
+                                            <button class="btn btn-outline-primary" type="button" onclick="applyDiscount()">
+                                                Použít
+                                            </button>
+                                        </div>
+                                        <div id="discount-msg" class="mt-1 f-12"></div>
+                                    </div>
+
                                     <div class="col-span-12">
                                         <label class="form-label">Doména (volitelné)</label>
                                         <input class="form-control" type="text" id="domain-input" name="domain_preview"
@@ -299,6 +313,7 @@
         @csrf
         <input type="hidden" name="pricing_plan_id" value="{{ $plan->id }}">
         <input type="hidden" name="domain" id="final-domain" value="">
+        <input type="hidden" name="discount_code" id="final-discount-code" value="">
         @if($mockMode)
         <input type="hidden" name="simulate_failure" value="0">
         @endif
@@ -310,6 +325,37 @@
 
 @push('scripts')
 <script>
+/* Discount code AJAX validation */
+function applyDiscount() {
+    var code = document.getElementById('discount-input').value.trim().toUpperCase();
+    var msg  = document.getElementById('discount-msg');
+    if (!code) { msg.innerHTML = ''; return; }
+
+    fetch('{{ route('panel.discount.validate') }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+            'Accept': 'application/json',
+        },
+        body: JSON.stringify({code: code})
+    })
+    .then(function(r) { return r.json().then(function(d) { return {ok:r.ok, data:d}; }); })
+    .then(function(result) {
+        var d = result.data;
+        if (result.ok && d.valid) {
+            document.getElementById('final-discount-code').value = d.code;
+            msg.innerHTML = '<span class="text-success"><i class="fas fa-check-circle me-1"></i>' + d.message + '</span>';
+        } else {
+            document.getElementById('final-discount-code').value = '';
+            msg.innerHTML = '<span class="text-danger"><i class="fas fa-times-circle me-1"></i>' + (d.message || 'Neplatný kód') + '</span>';
+        }
+    })
+    .catch(function() {
+        msg.innerHTML = '<span class="text-danger">Chyba při ověřování kódu.</span>';
+    });
+}
+
 (function() {
     var currentStep = 1;
     var totalSteps  = 4;

@@ -7,6 +7,7 @@ namespace App\Domains\Provisioning\Services;
 use App\Domains\Backups\Models\BackupPolicy;
 use App\Domains\Monitoring\Services\MonitoringResolver;
 use App\Domains\Provisioning\Models\Service;
+use App\Notifications\ServiceActivatedNotification;
 use Throwable;
 
 /**
@@ -50,6 +51,14 @@ final class ServiceActivationHooks
             }
         } catch (Throwable $e) {
             report($e);
+        }
+
+        /* Notify customer that their service is live. */
+        try {
+            $user = $service->customer?->user;
+            $user?->notify(new ServiceActivatedNotification($service));
+        } catch (Throwable $e) {
+            report($e); // non-fatal — provisioning succeeded regardless
         }
     }
 }

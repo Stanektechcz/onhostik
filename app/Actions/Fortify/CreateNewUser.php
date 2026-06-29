@@ -7,6 +7,7 @@ namespace App\Actions\Fortify;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Partner\Services\ReferralTracker;
 use App\Models\User;
+use App\Notifications\WelcomeUserNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Fortify\Contracts\CreatesNewUsers;
@@ -63,6 +64,11 @@ class CreateNewUser implements CreatesNewUsers
                 // Never break registration over referral errors
             }
         }
+
+        /* Welcome email — non-fatal, never breaks registration. */
+        try {
+            $user->notify(new WelcomeUserNotification($user));
+        } catch (\Throwable) {}
 
         return $user;
     }

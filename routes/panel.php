@@ -35,6 +35,7 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::get('/objednavky/{order}', [Panel\OrderController::class, 'show'])->name('orders.show');
 
     Route::get('/pokladna', [Panel\CheckoutController::class, 'index'])->name('checkout.index');
+    Route::post('/sleva/validovat', [Panel\DiscountCodeController::class, 'validate'])->name('discount.validate');
 
     Route::get('/kosik', [Panel\CartController::class, 'index'])->name('cart.index');
     Route::post('/kosik/pridat/{plan}', [Panel\CartController::class, 'add'])->name('cart.add');
@@ -190,6 +191,12 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
 
     /* ── Pricing ── */
     Route::get('/cenik', [Admin\PageController::class, 'pricing'])->name('pricing');
+
+    /* ── Discount codes ── */
+    Route::get('/slevy', [Admin\DiscountCodeController::class, 'index'])->name('discount-codes.index');
+    Route::post('/slevy', [Admin\DiscountCodeController::class, 'store'])->name('discount-codes.store');
+    Route::post('/slevy/{code}/toggle', [Admin\DiscountCodeController::class, 'toggle'])->name('discount-codes.toggle');
+    Route::delete('/slevy/{code}', [Admin\DiscountCodeController::class, 'destroy'])->name('discount-codes.destroy');
 
     /* ── Reviews ── */
     Route::get('/recenze', [Admin\PageController::class, 'reviews'])->name('reviews');
