@@ -5,7 +5,8 @@
 
 @section('content')
     {{-- ============ HERO ============ --}}
-    <div class="top-header overlay">
+    <div class="top-header total-grad-inverse">
+        <div class="total-grad-inverse"></div>
         <div class="container">
             <div class="row">
                 <div class="col-sm-12 col-md-12">
@@ -23,6 +24,33 @@
             </div>
         </div>
     </div>
+
+    {{-- ============ OFFICE LOCATIONS (Antler contact.html) ============ --}}
+    <section class="services pt-4 sec-normal bg-seccolorstyle">
+        <div class="container">
+            <div class="service-wrap">
+                <div class="row">
+                    @foreach([
+                        ['Brno — Sídlo',     'Molákova 2145/5, 627 00 Brno-Líšeň', 'Česká republika',    'https://maps.google.com/?q=Molakova+2145/5+Brno', 'icon-pin'],
+                        ['Podpora online',   'podpora@onhost.cz',                    'Ticketová podpora 24/7', 'mailto:podpora@onhost.cz',                      'icon-mail'],
+                        ['Fakturace',        'info@onhost.cz',                       'IČ: 08094616',       'mailto:info@onhost.cz',                             'icon-wallet'],
+                    ] as [$city, $address, $info, $href, $icon])
+                    <div class="col-sm-12 col-md-6 col-lg-4 mb-4">
+                        <div class="service-section noshadow bg-colorstyle text-center">
+                            <i class="{{ $icon }} f-40 font-primary mb-3 d-block"></i>
+                            <div class="title mergecolor">{{ $city }}</div>
+                            <p class="subtitle seccolor mb-1">{{ $address }}</p>
+                            <p class="seccolor f-14">{{ $info }}</p>
+                            <a href="{{ $href }}" class="btn btn-default-grad-purple-fill btn-sm" target="_blank">
+                                Otevřít
+                            </a>
+                        </div>
+                    </div>
+                    @endforeach
+                </div>
+            </div>
+        </div>
+    </section>
 
     {{-- ============ CONTACT CHANNELS ============ --}}
     <section class="services sec-normal motpath sec-bg4">

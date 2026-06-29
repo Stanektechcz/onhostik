@@ -1,4 +1,4 @@
-@extends('layouts.front')
+﻿@extends('layouts.front')
 
 @section('title', $post->title . ' — OnHost Blog')
 @section('meta_description', $post->excerpt ?? Str::limit(strip_tags($post->body ?? ''), 160))
@@ -6,7 +6,8 @@
 @section('content')
 
     {{-- HERO --}}
-    <div class="top-header overlay">
+    <div class="top-header">
+        <div class="total-grad-inverse"></div>
         <div class="container">
             <div class="row">
                 <div class="col-sm-12 col-md-12">
@@ -27,18 +28,47 @@
     </div>
 
     {{-- ARTICLE --}}
-    <section class="services blog sec-normal pt-80 pb-5 bg-colorstyle">
+    <section class="shopping blog sec-normal pt-80 pb-80 sec-bg2 motpath bg-seccolorstyle">
         <div class="container">
             <div class="row">
 
                 {{-- Content --}}
                 <div class="col-md-8">
-                    <div class="sec-main sec-bg1 bg-colorstyle p-5">
+                    <div class="sec-main sec-bg1 bg-colorstyle noshadow">
+                        {{-- Article meta: date + social share --}}
+                        <div class="row text-blog py-3 px-4 border-bottom">
+                            <div class="col-sm-12 col-md-6 p-0">
+                                <div class="timer d-flex align-items-center seccolor">
+                                    <i class="icon-calendar"></i>
+                                    <span class="ps-2 pe-4">{{ $post->published_at?->format('d. M Y') }}</span>
+                                    @if($post->author)
+                                        <i class="icon-man"></i>
+                                        <span class="ps-2">{{ $post->author->name }}</span>
+                                    @endif
+                                </div>
+                            </div>
+                            <div class="col-sm-12 col-md-6 p-0">
+                                <div class="social-icon d-flex gap-2">
+                                    <a href="https://www.facebook.com/sharer/sharer.php?u={{ urlencode(request()->url()) }}" target="_blank" title="Facebook">
+                                        <i class="fab fa-facebook-f bg-seccolorstyle noshadow"></i>
+                                    </a>
+                                    <a href="https://twitter.com/intent/tweet?url={{ urlencode(request()->url()) }}&text={{ urlencode($post->title) }}" target="_blank" title="Twitter">
+                                        <i class="fab fa-x-twitter bg-seccolorstyle noshadow"></i>
+                                    </a>
+                                    <a href="https://www.linkedin.com/shareArticle?url={{ urlencode(request()->url()) }}" target="_blank" title="LinkedIn">
+                                        <i class="fab fa-linkedin-in bg-seccolorstyle noshadow"></i>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="p-5">
                         @if($post->excerpt)
                             <p class="lead seccolor border-bottom pb-4 mb-4">{{ $post->excerpt }}</p>
                         @endif
                         <div class="blog-content mergecolor">
                             {!! $post->body !!}
+                        </div>
                         </div>
                     </div>
 

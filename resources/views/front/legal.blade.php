@@ -1,10 +1,11 @@
-@extends('layouts.front')
+﻿@extends('layouts.front')
 
 @section('title', __('front.pages.legal.title'))
 @section('meta_description', 'Obchodní podmínky služeb Onhost.cz — webhosting, domény, VPS a související služby.')
 
 @section('content')
-    <div class="top-header overlay">
+    <div class="top-header">
+        <div class="total-grad-inverse"></div>
         <div class="container">
             <div class="row">
                 <div class="col-sm-12 col-md-12">

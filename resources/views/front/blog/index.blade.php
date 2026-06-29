@@ -38,6 +38,25 @@
                             <div class="row">
                                 @foreach($posts as $post)
                                     <div class="col-md-12 col-lg-12 col-xl-6 mb-5">
+                                        {{-- Antler action-content overlay --}}
+                                        <div class="action-content">
+                                            <div class="action rounded-bottom">
+                                                <div class="metatag">
+                                                    <div class="kudos">
+                                                        <a href="{{ route('front.blog.show', $post->slug) }}" title="Číst">
+                                                            <i class="icon-favorite ps-0"></i>
+                                                        </a>
+                                                    </div>
+                                                    <div class="rating">
+                                                        <i class="fas fa-star c-yellow"></i>
+                                                        <i class="fas fa-star c-yellow"></i>
+                                                        <i class="fas fa-star c-yellow"></i>
+                                                        <i class="fas fa-star c-yellow"></i>
+                                                        <i class="fas fa-star c-yellow"></i>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                         <div class="service-section m-0 bg-seccolorstyle noshadow">
                                             <div class="plans badge feat bg-dark">{{ $post->category }}</div>
                                             <div class="title mt-0 mergecolor">
@@ -46,11 +65,11 @@
                                             <p class="subtitle seccolor">{{ $post->excerpt }}</p>
                                             <hr>
                                             <div class="small d-flex align-items-center seccolor">
-                                                <i class="fas fa-calendar-alt me-2"></i>
-                                                {{ $post->published_at?->format('d.m.Y') }}
+                                                <i class="icon-calendar text-dark seccolor"></i>
+                                                <span class="ps-2 pe-4">{{ $post->published_at?->format('d.m.Y') }}</span>
                                                 @if($post->author)
-                                                    <span class="mx-2">·</span>
-                                                    <i class="fas fa-user me-1"></i>{{ $post->author->name }}
+                                                    <i class="icon-man text-dark seccolor"></i>
+                                                    <span class="ps-2">{{ $post->author->name }}</span>
                                                 @endif
                                                 <a href="{{ route('front.blog.show', $post->slug) }}" class="btn btn-default-yellow-fill ms-auto f-12 py-1 px-3">Číst dál</a>
                                             </div>

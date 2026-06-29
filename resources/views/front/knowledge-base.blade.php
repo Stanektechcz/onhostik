@@ -5,7 +5,8 @@
 
 @section('content')
     {{-- ============ HERO ============ --}}
-    <div class="top-header overlay">
+    <div class="top-header">
+        <div class="total-grad-inverse"></div>
         <div class="container">
             <div class="row">
                 <div class="col-sm-12 col-md-12">
@@ -92,6 +93,45 @@
             </div>
         </div>
     </section>
+
+    {{-- ============ POPULAR & NEWEST ARTICLES (Antler knowledgebase-list sec-main knowledge) ============ --}}
+    @if(isset($categories) && $categories->isNotEmpty())
+    @php
+        $allArticles = $categories->flatten();
+        $newest = $allArticles->sortByDesc('created_at')->take(4);
+    @endphp
+    @if($newest->isNotEmpty())
+    <section class="services sec-normal pt-0 pb-80 bg-colorstyle">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="sec-main sec-bg1 bg-colorstyle noshadow">
+                        <div class="heading active mergecolor">Nejnovější články</div>
+                        <div class="line active mb-4"></div>
+                        <div class="row">
+                            @foreach($newest as $article)
+                            <div class="col-sm-12 col-md-6 col-lg-3 mb-3">
+                                <div class="sec-bg4 bg-seccolorstyle noshadow p-3 h-100">
+                                    <a href="{{ route('front.kb.show', $article->slug) }}" class="mergecolor">
+                                        <i class="far fa-file-alt purple me-2"></i>
+                                        <span class="f-14">{{ $article->title }}</span>
+                                    </a>
+                                    @if($article->category)
+                                    <div class="mt-1">
+                                        <span class="badge bg-purple text-white f-11">{{ $article->category }}</span>
+                                    </div>
+                                    @endif
+                                </div>
+                            </div>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    @endif
+    @endif
 
     {{-- ============ HELP ============ --}}
     <section class="services help sec-bg2 pt-4 pb-80 bg-colorstyle">

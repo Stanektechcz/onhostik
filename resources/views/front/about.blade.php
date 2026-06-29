@@ -9,7 +9,8 @@
 
 @section('content')
     {{-- ============ HERO ============ --}}
-    <div class="top-header overlay">
+    <div class="top-header">
+        <div class="total-grad-inverse"></div>
         <div class="container">
             <div class="row">
                 <div class="col-sm-12 col-md-12">
@@ -28,6 +29,31 @@
             </div>
         </div>
     </div>
+
+    {{-- ============ CLIENT STATS (Antler about.html — pricing special sec-uping) ============ --}}
+    <section class="pricing special sec-uping pb-5 bg-colorstyle specialposition">
+        <div class="container">
+            <div class="randomline"><div class="bigline"></div><div class="smallline"></div></div>
+            <div class="row">
+                @foreach([
+                    ['99,9 %',  'Garantovaná dostupnost SLA',  '&', 'icon-cloud'],
+                    ['< 1 min', 'Aktivace nové služby',         '',  'icon-timer'],
+                    ['< 1 hod', 'Reakce podpory na urgent',    '',  'icon-headphone'],
+                    ['100 %',   'Energeticky efektivní DC',    '',  'icon-like'],
+                ] as [$num, $label, $sep, $icon])
+                <div class="col-sm-6 col-md-3 mb-4">
+                    <div class="top-content bg-seccolorstyle topradius">
+                        <i class="{{ $icon }} f-40 purple d-block mb-2"></i>
+                        <div class="list-info bg-purple">
+                            <div class="value mergecolor"><b>{{ $num }}</b></div>
+                        </div>
+                        <div class="title seccolor mt-2">{{ $label }}</div>
+                    </div>
+                </div>
+                @endforeach
+            </div>
+        </div>
+    </section>
 
     {{-- ============ ABOUT CONTENT ============ --}}
     <section class="services sec-normal motpath sec-bg4">
@@ -142,6 +168,48 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {{-- ============ TEAM SECTION (Antler about.html) ============ --}}
+    <section class="services sec-normal sec-bg2 pt-80 pb-80 bg-seccolorstyle">
+        <div class="container">
+            <div class="service-wrap">
+                <div class="row">
+                    <div class="col-sm-12 text-center mb-5">
+                        <h2 class="mergecolor">Náš tým</h2>
+                        <p class="seccolor">Lidé za OnHost — experti na hosting, infrastrukturu a zákaznický zážitek.</p>
+                    </div>
+                    @foreach([
+                        ['Adrian Staněk',   'Founder & CEO',         'Výkon a transparentnost — hosting, jaký by měl být.', 'https://www.linkedin.com/'],
+                        ['Technický tým',   'Infrastructure',        'Servery, monitoring a síť — 24/7 bez kompromisů.',   '#'],
+                        ['Zákaznická péče', 'Customer Success',      'Pomáháme vám uspět — od prvního hostingu dál.',      '#'],
+                    ] as [$name, $role, $bio, $linkedin])
+                    <div class="col-sm-12 col-md-6 col-lg-4 mb-4">
+                        <div class="wrapper bg-colorstyle noshadow text-center p-4">
+                            <div class="img-section mb-3">
+                                <div style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,#7366ff,#6051fe);display:inline-flex;align-items:center;justify-content:center;">
+                                    <i class="icon-man f-30 text-white"></i>
+                                </div>
+                            </div>
+                            <div class="team-info">
+                                <div class="title mergecolor">{{ $name }}</div>
+                                <p class="subtitle seccolor f-14 mb-2">{{ $role }}</p>
+                                <p class="seccolor f-13">{{ $bio }}</p>
+                            </div>
+                            <div class="soc-icons-wrap d-flex gap-2 justify-content-center mt-2">
+                                <a href="{{ $linkedin }}" target="_blank" title="LinkedIn" class="bg-seccolorstyle noshadow d-flex align-items-center justify-content-center" style="width:36px;height:36px;border-radius:50%;">
+                                    <i class="fab fa-linkedin-in seccolor"></i>
+                                </a>
+                                <a href="mailto:info@onhost.cz" title="Email" class="bg-seccolorstyle noshadow d-flex align-items-center justify-content-center" style="width:36px;height:36px;border-radius:50%;">
+                                    <i class="icon-emailopen seccolor"></i>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    @endforeach
                 </div>
             </div>
         </div>
