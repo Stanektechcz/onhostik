@@ -44,6 +44,7 @@ return [
         'admin_integrations' => 'Integrace',
         'admin_system'       => 'Stav systému',
         'admin_wallets'      => 'Peněženky',
+        'admin_metrics'      => 'Obchodní metriky',
     ],
     'common' => [
         'placeholder' => 'Tento modul připravujeme — dorazí v některé z dalších fází vývoje.',
@@ -260,6 +261,14 @@ return [
         'upgrade_placeholder' => 'Změnit tarif (připravujeme)',
         'cancel_placeholder'  => 'Zrušit službu (připravujeme)',
         'starter_templates'   => 'Šablony webu (připravujeme)',
+        'change_plan'         => 'Změnit tarif',
+        'current_plan'        => 'Aktuální tarif',
+        'available_plans'     => 'Dostupné tarify',
+        'no_other_plans'      => 'Žádné jiné tarify nejsou k dispozici.',
+        'plan_change_note'    => 'Po výběru tarifu budete přesměrováni na objednávku. Nová služba bude aktivována po zaplacení.',
+        'plan_change_redirect'=> 'Přesměrováváme na objednávku tarifu :plan.',
+        'upgrade'             => 'Upgrade',
+        'downgrade'           => 'Downgrade',
     ],
     'domains' => [
         'domain'        => 'Doména',
@@ -375,5 +384,8 @@ return [
         'refund_reason_prompt'    => 'Zadejte důvod vrácení platby:',
         'refund_reason_required'  => 'Důvod vrácení je povinný (alespoň 3 znaky).',
         'monitoring_mock_note'    => 'Zobrazená data jsou interní simulace (MOCK), ne reálné externí monitorování dostupnosti/SLA.',
+    ],
+    'metrics' => [
+        'title' => 'Obchodní metriky',
     ],
 ];

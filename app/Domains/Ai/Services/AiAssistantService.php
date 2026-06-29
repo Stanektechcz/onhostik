@@ -10,7 +10,9 @@ use App\Domains\Ai\Enums\ApprovalStatus;
 use App\Domains\Ai\Models\AiActionApproval;
 use App\Domains\Ai\Models\AiRun;
 use App\Domains\Ai\Models\AiUsageLog;
+use App\Domains\Ai\Providers\ClaudeProvider;
 use App\Domains\Ai\Providers\MockAiProvider;
+use App\Domains\Integrations\Models\IntegrationSetting;
 use App\Models\User;
 use InvalidArgumentException;
 
@@ -134,7 +136,17 @@ final class AiAssistantService
 
     private function provider(): AiProviderInterface
     {
-        // Real providers stay behind the env gate (and have no client yet).
+        if (config('ai.allow_real_calls', false)) {
+            $integration = IntegrationSetting::where('provider', 'claude')
+                ->where('is_active', true)
+                ->first();
+
+            $claude = ClaudeProvider::fromIntegration($integration);
+            if ($claude !== null) {
+                return $claude;
+            }
+        }
+
         return app(MockAiProvider::class);
     }
 

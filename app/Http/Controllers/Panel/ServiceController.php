@@ -9,9 +9,11 @@ use App\Domains\Backups\Jobs\RunBackupJob;
 use App\Domains\Backups\Models\BackupJob;
 use App\Domains\Backups\Models\BackupPolicy;
 use App\Domains\Monitoring\Models\Monitor;
+use App\Domains\Products\Models\PricingPlan;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Enums\TaskStatus;
 use App\Domains\Provisioning\Models\Service;
+use App\Domains\Shared\Enums\Currency;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -91,6 +93,60 @@ class ServiceController extends Controller
         }
 
         return back()->with('status', __('panel.services.backup_requested'));
+    }
+
+    /** Show available upgrade/downgrade plans for a service. */
+    public function changePlan(Request $request, Service $service): View
+    {
+        $this->authorize('view', $service);
+
+        abort_if($service->product === null, 404, 'Product not attached.');
+
+        $customer = $request->user()->customer;
+        $currency = $customer !== null ? ($customer->preferred_currency ?? Currency::default()) : Currency::default();
+
+        // Current plan is the one that created this service (via orderItem → pricingPlan)
+        $currentPlanId = $service->orderItem?->pricing_plan_id;
+
+        $availablePlans = PricingPlan::query()
+            ->where('product_id', $service->product_id)
+            ->where('is_active', true)
+            ->where('id', '!=', $currentPlanId)
+            ->orderBy('sort_order')
+            ->get()
+            ->filter(fn (PricingPlan $p) => $p->supportsCurrency($currency))
+            ->values();
+
+        return view('panel.services.change-plan', compact('service', 'availablePlans', 'currency', 'currentPlanId'));
+    }
+
+    /** Record the plan-change intent; creates a new order for the target plan. */
+    public function applyChangePlan(Request $request, Service $service): RedirectResponse
+    {
+        $this->authorize('view', $service);
+
+        $validated = $request->validate([
+            'plan_id' => ['required', 'integer', 'exists:pricing_plans,id'],
+        ]);
+
+        $plan = PricingPlan::findOrFail($validated['plan_id']);
+
+        abort_unless($plan->product_id === $service->product_id, 422, 'Plan does not belong to the same product.');
+
+        // Log the intent (actual provisioning driver change happens post-payment)
+        activity('billing')
+            ->performedOn($service)
+            ->withProperties([
+                'from_plan_id' => $service->orderItem?->pricing_plan_id,
+                'to_plan_id'   => $plan->id,
+                'plan_name'    => $plan->name,
+            ])
+            ->log('service.plan_change_requested');
+
+        return redirect()
+            ->route('front.order', $plan)
+            ->with('service_change_id', $service->id)
+            ->with('info', __('panel.services.plan_change_redirect', ['plan' => $plan->name]));
     }
 
     /** Mock WordPress one-click install — records a task, no real install. */

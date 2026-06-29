@@ -33,9 +33,14 @@ return [
         'rights'      => 'Všechna práva vyhrazena',
     ],
     'pricing' => [
-        'most_popular' => 'nejoblíbenější',
-        'order_now'    => 'Objednat',
-        'vat_note'     => 'Ceny jsou uvedeny bez DPH.',
+        'most_popular'    => 'nejoblíbenější',
+        'order_now'       => 'Objednat',
+        'vat_note'        => 'Ceny jsou uvedeny bez DPH.',
+        'billing_monthly' => 'Měsíčně',
+        'billing_annual'  => 'Ročně',
+        'billing_save'    => 'Ušetřete :pct %',
+        'month'           => 'měs.',
+        'year'            => 'rok',
     ],
     'order' => [
         'plan_summary' => 'Souhrn tarifu',

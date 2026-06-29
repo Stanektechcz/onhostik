@@ -197,6 +197,67 @@
                     </x-panel.card>
                 @endif
 
+                {{-- aaPanel Live Usage --}}
+                @php
+                    $usage = $service->usage_snapshot ?? [];
+                    $diskUsed  = $usage['disk_used_mb']      ?? 0;
+                    $diskQuota = $usage['disk_quota_mb']      ?? 0;
+                    $bwUsed    = $usage['bandwidth_used_mb']  ?? 0;
+                    $bwQuota   = $usage['bandwidth_quota_mb'] ?? 0;
+                    $diskPct   = $diskQuota  > 0 ? min(round($diskUsed  / $diskQuota  * 100), 100) : 0;
+                    $bwPct     = $bwQuota    > 0 ? min(round($bwUsed    / $bwQuota    * 100), 100) : 0;
+                @endphp
+                @if(!empty($usage))
+                    <x-panel.card title="Využití prostředků">
+                        @if(!empty($usage['mock']))
+                            <p class="f-12 f-light mb-2 d-flex align-items-center gap-1">
+                                <i data-feather="info" style="width:12px;height:12px;"></i>
+                                Demo data — synchronizace probíhá každých 15 min.
+                            </p>
+                        @endif
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="f-light f-12">Disk</span>
+                                <span class="f-12 f-w-500">
+                                    {{ number_format($diskUsed / 1024, 1) }} / {{ number_format($diskQuota / 1024, 1) }} GB
+                                </span>
+                            </div>
+                            <div class="progress" style="height:7px">
+                                <div class="progress-bar bg-{{ $diskPct >= 90 ? 'danger' : ($diskPct >= 70 ? 'warning' : 'success') }}"
+                                     role="progressbar" style="width:{{ $diskPct }}%"></div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="f-light f-12">Přenos</span>
+                                <span class="f-12 f-w-500">
+                                    {{ number_format($bwUsed / 1024, 1) }} / {{ number_format($bwQuota / 1024, 1) }} GB
+                                </span>
+                            </div>
+                            <div class="progress" style="height:7px">
+                                <div class="progress-bar bg-{{ $bwPct >= 90 ? 'danger' : ($bwPct >= 70 ? 'warning' : 'info') }}"
+                                     role="progressbar" style="width:{{ $bwPct }}%"></div>
+                            </div>
+                        </div>
+                        <div class="d-flex gap-3 f-12">
+                            @if(isset($usage['db_count']))
+                                <span class="f-light">Databáze: <strong>{{ $usage['db_count'] }}</strong></span>
+                            @endif
+                            @if(isset($usage['email_count']))
+                                <span class="f-light">E-maily: <strong>{{ $usage['email_count'] }}</strong></span>
+                            @endif
+                            @if(isset($usage['php_processes']))
+                                <span class="f-light">PHP proc: <strong>{{ $usage['php_processes'] }}</strong></span>
+                            @endif
+                        </div>
+                        @if(!empty($usage['synced_at']))
+                            <p class="f-light f-11 mt-2 mb-0">
+                                Synced: {{ \Illuminate\Support\Carbon::parse($usage['synced_at'])->diffForHumans() }}
+                            </p>
+                        @endif
+                    </x-panel.card>
+                @endif
+
                 {{-- Actions --}}
                 <x-panel.card title="Akce">
                     <div class="d-flex flex-wrap gap-2">
@@ -211,7 +272,15 @@
                             </form>
                         @endif
                         <button type="button" class="btn btn-outline-secondary btn-sm" disabled>{{ __('panel.services.renew_placeholder') }}</button>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" disabled>{{ __('panel.services.upgrade_placeholder') }}</button>
+                        @if($service->status === \App\Domains\Provisioning\Enums\ServiceStatus::Active && $service->product)
+                            <a href="{{ route('panel.services.change-plan', $service) }}"
+                               class="btn btn-outline-primary btn-sm">
+                                <i data-feather="arrow-up" style="width:13px;height:13px"></i>
+                                {{ __('panel.services.change_plan') }}
+                            </a>
+                        @else
+                            <button type="button" class="btn btn-outline-secondary btn-sm" disabled>{{ __('panel.services.upgrade_placeholder') }}</button>
+                        @endif
                         <button type="button" class="btn btn-outline-secondary btn-sm" disabled>{{ __('panel.services.cancel_placeholder') }}</button>
                     </div>
                     <p class="f-light f-12 mb-0 mt-2">{{ __('panel.services.credentials') }}: {{ __('panel.services.credentials_note') }}</p>

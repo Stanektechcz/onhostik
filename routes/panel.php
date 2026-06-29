@@ -25,6 +25,8 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::get('/sluzby/{service}', [Panel\ServiceController::class, 'show'])->name('services.show');
     Route::post('/sluzby/{service}/zaloha', [Panel\ServiceController::class, 'requestBackup'])->name('services.backup');
     Route::post('/sluzby/{service}/wordpress', [Panel\ServiceController::class, 'installWordpress'])->name('services.wordpress');
+    Route::get('/sluzby/{service}/zmenit-plan', [Panel\ServiceController::class, 'changePlan'])->name('services.change-plan');
+    Route::post('/sluzby/{service}/zmenit-plan', [Panel\ServiceController::class, 'applyChangePlan'])->name('services.apply-change-plan');
 
     Route::get('/domeny', [Panel\DomainController::class, 'index'])->name('domains.index');
     Route::get('/domeny/{domain}', [Panel\DomainController::class, 'show'])->name('domains.show');
@@ -171,6 +173,8 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/ai', [Admin\AiController::class, 'index'])->name('ai.index');
     Route::post('/ai', [Admin\AiController::class, 'run'])->name('ai.run');
     Route::post('/ai/schvaleni/{approval}', [Admin\AiController::class, 'review'])->name('ai.review');
+
+    Route::get('/metriky', [Admin\MetricsController::class, 'index'])->name('metrics.index');
 
     Route::get('/system', [Admin\SystemHealthController::class, 'index'])->name('system.index');
 

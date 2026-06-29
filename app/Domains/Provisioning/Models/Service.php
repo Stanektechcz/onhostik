@@ -55,6 +55,7 @@ class Service extends Model
         'suspended_at',
         'terminated_at',
         'suspension_reason',
+        'usage_snapshot',
     ];
 
     protected function casts(): array
@@ -66,6 +67,7 @@ class Service extends Model
             'next_due_date'       => 'date',
             'suspended_at'        => 'datetime',
             'terminated_at'       => 'datetime',
+            'usage_snapshot'      => 'array',
         ];
     }
 

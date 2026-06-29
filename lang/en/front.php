@@ -33,9 +33,14 @@ return [
         'rights'      => 'All rights reserved',
     ],
     'pricing' => [
-        'most_popular' => 'most popular',
-        'order_now'    => 'Order Now',
-        'vat_note'     => 'Prices are listed excluding VAT.',
+        'most_popular'    => 'most popular',
+        'order_now'       => 'Order Now',
+        'vat_note'        => 'Prices are listed excluding VAT.',
+        'billing_monthly' => 'Monthly',
+        'billing_annual'  => 'Annual',
+        'billing_save'    => 'Save :pct%',
+        'month'           => 'mo',
+        'year'            => 'yr',
     ],
     'order' => [
         'plan_summary' => 'Plan summary',

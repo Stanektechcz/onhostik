@@ -73,9 +73,41 @@ $(function() { $('[data-bs-toggle="tooltip"]').tooltip(); });
                 <div class="smallline"></div>
             </div>
             @if($product !== null)
-                <div class="row justify-content-center">
-                    @foreach($plans as $plan)
-                        <div class="col-sm-12 col-md-6 col-lg-4">
+                @php
+                    use App\Domains\Products\Enums\BillingCycle;
+                    use App\Domains\Shared\Support\MoneyFormatter;
+                    $monthlyPlans = $plans->filter(fn($p) => $p->billing_cycle === BillingCycle::Monthly);
+                    $annualPlans  = $plans->filter(fn($p) => $p->billing_cycle === BillingCycle::Annually);
+                    $hasAnnual    = $annualPlans->isNotEmpty();
+                    // Calc avg savings % for annual vs monthly (per matching plan name)
+                    $savePercent  = 0;
+                    if ($hasAnnual && $monthlyPlans->isNotEmpty()) {
+                        $savings = [];
+                        foreach ($annualPlans as $ap) {
+                            $mp = $monthlyPlans->firstWhere('name', $ap->name);
+                            if ($mp && $mp->supportsCurrency($currency) && $ap->supportsCurrency($currency)) {
+                                $mMonthly = $mp->priceFor($currency)->getAmount()->toFloat();
+                                $aMonthly = $ap->priceFor($currency)->getAmount()->toFloat() / 12;
+                                if ($mMonthly > 0) {
+                                    $savings[] = round(($mMonthly - $aMonthly) / $mMonthly * 100);
+                                }
+                            }
+                        }
+                        $savePercent = !empty($savings) ? (int) round(array_sum($savings) / count($savings)) : 0;
+                    }
+                    // When no monthly plans exist, show all plans without toggle
+                    $displayPlans = $monthlyPlans->isNotEmpty() ? $monthlyPlans : $plans;
+                @endphp
+
+                @if($hasAnnual)
+                    <x-front.billing-toggle :has-annual="$hasAnnual" :save-percent="$savePercent" />
+                @endif
+
+                <div class="row justify-content-center" data-billing-wrapper data-billing="monthly">
+                    {{-- Monthly plans --}}
+                    @foreach($monthlyPlans as $plan)
+                        @if($plan->supportsCurrency($currency))
+                        <div class="col-sm-12 col-md-6 col-lg-4 plan-monthly">
                             <div class="wrapper price-container text-start noshadow">
                                 @if($plan->is_featured)
                                     <div class="plans badge feat bg-purple">{{ __('front.pricing.most_popular') }}</div>
@@ -87,8 +119,8 @@ $(function() { $('[data-bs-toggle="tooltip"]').tooltip(); });
                                     @endif
                                     <div class="price-content">
                                         <div class="price mergecolor">
-                                            {{ \App\Domains\Shared\Support\MoneyFormatter::format($plan->priceFor($currency)) }}
-                                            <span class="period mergecolor">/ {{ $plan->billing_cycle->label() }}</span>
+                                            {{ MoneyFormatter::format($plan->priceFor($currency)) }}
+                                            <span class="period mergecolor">/ {{ __('front.pricing.month') }}</span>
                                         </div>
                                     </div>
                                     <a href="{{ route('front.order', $plan) }}" class="btn btn-default-yellow-fill">{{ __('front.pricing.order_now') }}</a>
@@ -103,7 +135,93 @@ $(function() { $('[data-bs-toggle="tooltip"]').tooltip(); });
                                 </ul>
                             </div>
                         </div>
+                        @endif
                     @endforeach
+
+                    {{-- Annual plans --}}
+                    @foreach($annualPlans as $plan)
+                        @if($plan->supportsCurrency($currency))
+                        @php
+                            $mp = $monthlyPlans->firstWhere('name', $plan->name);
+                            $annualSave = 0;
+                            if ($mp && $mp->supportsCurrency($currency)) {
+                                $mAmt = $mp->priceFor($currency)->getAmount()->toFloat();
+                                $aAmt = $plan->priceFor($currency)->getAmount()->toFloat() / 12;
+                                $annualSave = $mAmt > 0 ? (int) round(($mAmt - $aAmt) / $mAmt * 100) : 0;
+                            }
+                        @endphp
+                        <div class="col-sm-12 col-md-6 col-lg-4 plan-annual">
+                            <div class="wrapper price-container text-start noshadow">
+                                @if($plan->is_featured)
+                                    <div class="plans badge feat bg-purple">{{ __('front.pricing.most_popular') }}</div>
+                                @endif
+                                @if($annualSave > 0)
+                                    <div class="plans badge bg-success" style="top:48px">-{{ $annualSave }} %</div>
+                                @endif
+                                <div class="top-content bg-seccolorstyle topradius">
+                                    <div class="title">{{ $plan->name }}</div>
+                                    @if($plan->tagline)
+                                        <div class="fromer seccolor">{{ $plan->tagline }}</div>
+                                    @endif
+                                    <div class="price-content">
+                                        <div class="price mergecolor">
+                                            {{ MoneyFormatter::format($plan->priceFor($currency)->dividedBy(12, \RoundingMode::HALF_UP)) }}
+                                            <span class="period mergecolor">/ {{ __('front.pricing.month') }}</span>
+                                        </div>
+                                        <div class="f-12 seccolor mt-1">
+                                            {{ MoneyFormatter::format($plan->priceFor($currency)) }} / {{ __('front.pricing.year') }}
+                                        </div>
+                                    </div>
+                                    <a href="{{ route('front.order', $plan) }}" class="btn btn-default-yellow-fill">{{ __('front.pricing.order_now') }}</a>
+                                </div>
+                                <ul class="list-info bg-purple">
+                                    @foreach($plan->resources ?? [] as $key => $value)
+                                        <li>
+                                            <i class="{{ config("resources.icons.$key", 'icon-drives') }}"></i>
+                                            <div>{{ __("front.resources.$key") }}<br><span>{{ $value }}</span></div>
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            </div>
+                        </div>
+                        @endif
+                    @endforeach
+
+                    {{-- Fallback: plans that are neither monthly nor annual --}}
+                    @if($monthlyPlans->isEmpty() && $annualPlans->isEmpty())
+                        @foreach($plans as $plan)
+                            @if($plan->supportsCurrency($currency))
+                            <div class="col-sm-12 col-md-6 col-lg-4">
+                                <div class="wrapper price-container text-start noshadow">
+                                    @if($plan->is_featured)
+                                        <div class="plans badge feat bg-purple">{{ __('front.pricing.most_popular') }}</div>
+                                    @endif
+                                    <div class="top-content bg-seccolorstyle topradius">
+                                        <div class="title">{{ $plan->name }}</div>
+                                        @if($plan->tagline)
+                                            <div class="fromer seccolor">{{ $plan->tagline }}</div>
+                                        @endif
+                                        <div class="price-content">
+                                            <div class="price mergecolor">
+                                                {{ MoneyFormatter::format($plan->priceFor($currency)) }}
+                                                <span class="period mergecolor">/ {{ $plan->billing_cycle->label() }}</span>
+                                            </div>
+                                        </div>
+                                        <a href="{{ route('front.order', $plan) }}" class="btn btn-default-yellow-fill">{{ __('front.pricing.order_now') }}</a>
+                                    </div>
+                                    <ul class="list-info bg-purple">
+                                        @foreach($plan->resources ?? [] as $key => $value)
+                                            <li>
+                                                <i class="{{ config("resources.icons.$key", 'icon-drives') }}"></i>
+                                                <div>{{ __("front.resources.$key") }}<br><span>{{ $value }}</span></div>
+                                            </li>
+                                        @endforeach
+                                    </ul>
+                                </div>
+                            </div>
+                            @endif
+                        @endforeach
+                    @endif
                 </div>
                 <p class="seccolor f-14 mt-4 text-center">{{ __('front.pricing.vat_note') }}</p>
             @else

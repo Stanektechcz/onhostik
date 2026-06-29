@@ -227,7 +227,8 @@
         </li>
 
         <x-panel.sidebar-submenu icon="sliders" label="System a nastaveni"
-            :active="$p('admin.integrations') || $p('admin.settings') || $p('admin.system') || $p('admin.logs') || $p('admin.sitemap') || $p('admin.sample-page')">
+            :active="$p('admin.integrations') || $p('admin.settings') || $p('admin.system') || $p('admin.logs') || $p('admin.sitemap') || $p('admin.sample-page') || $p('admin.metrics')">
+            <x-panel.sidebar-link :href="route('admin.metrics.index')" icon="bar-chart-2" label="Obchodní metriky" />
             <x-panel.sidebar-link :href="route('admin.integrations.index')" icon="link" label="Integrace" />
             <x-panel.sidebar-link :href="route('admin.settings.index')" icon="settings" label="Nastavení" />
             <x-panel.sidebar-link :href="route('admin.system.index')" icon="activity" label="System health" />

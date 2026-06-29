@@ -44,6 +44,7 @@ return [
         'admin_integrations' => 'Integrations',
         'admin_system'       => 'System Health',
         'admin_wallets'      => 'Wallets',
+        'admin_metrics'      => 'Business Metrics',
     ],
     'common' => [
         'placeholder' => 'This module is under construction — it will arrive in an upcoming development phase.',
@@ -260,6 +261,14 @@ return [
         'upgrade_placeholder' => 'Change plan (coming soon)',
         'cancel_placeholder'  => 'Cancel service (coming soon)',
         'starter_templates'   => 'Website templates (coming soon)',
+        'change_plan'         => 'Change Plan',
+        'current_plan'        => 'Current Plan',
+        'available_plans'     => 'Available Plans',
+        'no_other_plans'      => 'No other plans available.',
+        'plan_change_note'    => 'After selecting a plan you will be redirected to checkout. The new service will be activated after payment.',
+        'plan_change_redirect'=> 'Redirecting to order for plan :plan.',
+        'upgrade'             => 'Upgrade',
+        'downgrade'           => 'Downgrade',
     ],
     'domains' => [
         'domain'        => 'Domain',
@@ -375,5 +384,8 @@ return [
         'refund_reason_prompt'    => 'Enter the reason for this refund:',
         'refund_reason_required'  => 'A refund reason is required (at least 3 characters).',
         'monitoring_mock_note'    => 'The data shown is an internal simulation (MOCK), not real external uptime/SLA monitoring.',
+    ],
+    'metrics' => [
+        'title' => 'Business Metrics',
     ],
 ];
