@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php($breadcrumbTitle = $ticket->subject)
 @php($breadcrumbItems = [__('panel.nav.support') => route('panel.support.index'), $ticket->subject => ''])
@@ -9,8 +9,8 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        <div class="row">
-            <div class="col-xl-8">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-8 xl:col-span-12">
                 {{-- Conversation timeline --}}
                 <div class="card">
                     <div class="card-header card-no-border d-flex justify-content-between align-items-center">
@@ -88,7 +88,7 @@
             </div>
 
             {{-- Ticket info sidebar --}}
-            <div class="col-xl-4">
+            <div class="col-span-4 xl:col-span-12">
                 <x-panel.card :title="__('panel.common.status')">
                     <table class="table table-borderless mb-0">
                         <tr>

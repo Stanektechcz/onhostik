@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = __('panel.nav.credits');
@@ -11,8 +11,8 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        <div class="row">
-            <div class="col-md-4">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-4 md:col-span-6 sm:col-span-12">
                 <x-panel.stat-widget
                     :label="__('panel.billing.balance')"
                     :value="\App\Domains\Shared\Support\MoneyFormatter::format($balance)"
@@ -20,17 +20,17 @@
                     color="primary"
                 />
             </div>
-            <div class="col-md-8">
+            <div class="col-span-8 md:col-span-12">
                 <x-panel.card :title="__('panel.billing.topup_title')" :subtitle="__('panel.billing.topup_hint')">
                     <form method="POST" action="{{ route('panel.billing.credits.topup') }}" class="row g-2 align-items-end">
                         @csrf
-                        <div class="col-sm-6">
+                        <div class="col-span-6 sm:col-span-12">
                             <label class="form-label f-12 f-light" for="topup-amount">{{ __('panel.billing.topup_amount') }}</label>
                             <input id="topup-amount" type="number" name="amount" class="form-control"
                                    min="100" max="50000" step="1" value="{{ old('amount', 500) }}" required>
                             @error('amount')<div class="text-danger f-12">{{ $message }}</div>@enderror
                         </div>
-                        <div class="col-sm-6">
+                        <div class="col-span-6 sm:col-span-12">
                             <button type="submit" class="btn btn-primary">{{ __('panel.billing.topup_submit') }}</button>
                         </div>
                     </form>

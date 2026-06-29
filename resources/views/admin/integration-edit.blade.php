@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php($breadcrumbTitle = $integration->label)
 @php($breadcrumbItems = [__('panel.nav.admin_integrations') => route('admin.integrations.index'), $integration->label => ''])
@@ -13,8 +13,8 @@
             <div class="alert alert-light-danger" role="alert">{{ session('integration_error') }}</div>
         @endif
 
-        <div class="row">
-            <div class="col-xl-7">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-7 xl:col-span-12">
                 <x-panel.card :title="$integration->label" :subtitle="__('panel.admin.credentials_hint')">
                     <form method="POST" action="{{ route('admin.integrations.update', $integration) }}">
                         @csrf
@@ -49,7 +49,7 @@
                 </x-panel.card>
             </div>
 
-            <div class="col-xl-5">
+            <div class="col-span-5 xl:col-span-12">
                 <x-panel.card :title="__('panel.admin.health')">
                     <p class="mb-1"><span class="f-light">{{ __('panel.admin.last_success') }}:</span> {{ $integration->last_success_at?->format('d.m.Y H:i') ?? '—' }}</p>
                     <p class="mb-1"><span class="f-light">{{ __('panel.admin.last_error') }}:</span> {{ $integration->last_error_at?->format('d.m.Y H:i') ?? '—' }}</p>

@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php($breadcrumbTitle = $article->exists ? 'Upravit článek' : 'Nový článek')
 @php($breadcrumbItems = ['Znalostní báze' => route('admin.kb.index'), $breadcrumbTitle => ''])
@@ -9,8 +9,8 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        <div class="row">
-            <div class="col-xl-8">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="$article->exists ? 'Upravit: ' . $article->title : 'Nový článek KB'">
                     <form method="POST"
                           action="{{ $article->exists ? route('admin.kb.update', $article) : route('admin.kb.store') }}">
@@ -18,23 +18,23 @@
                         @if($article->exists) @method('PUT') @endif
 
                         <div class="row g-3">
-                            <div class="col-md-7">
+                            <div class="col-span-7 md:col-span-12">
                                 <label class="form-label f-w-500">Název *</label>
                                 <input type="text" name="title" class="form-control @error('title') is-invalid @enderror"
                                        value="{{ old('title', $article->title) }}" required>
                                 @error('title') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-span-3 md:col-span-6 sm:col-span-12">
                                 <label class="form-label f-w-500">Kategorie</label>
                                 <input type="text" name="category" class="form-control"
                                        value="{{ old('category', $article->category) }}" placeholder="dns, email, ssl…">
                             </div>
-                            <div class="col-md-2">
+                            <div class="col-span-2 md:col-span-4 sm:col-span-12">
                                 <label class="form-label f-w-500">Pořadí</label>
                                 <input type="number" name="sort_order" class="form-control"
                                        value="{{ old('sort_order', $article->sort_order ?? 0) }}" min="0">
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-span-3 md:col-span-6 sm:col-span-12">
                                 <label class="form-label f-w-500">Jazyk obsahu</label>
                                 <select name="locale" class="form-select">
                                     <option value="cs" @selected(old('locale', $article->locale ?? 'cs') === 'cs')>
@@ -45,11 +45,11 @@
                                     </option>
                                 </select>
                             </div>
-                            <div class="col-md-12">
+                            <div class="col-span-12">
                                 <label class="form-label f-w-500">Perex</label>
                                 <textarea name="excerpt" rows="2" class="form-control">{{ old('excerpt', $article->excerpt) }}</textarea>
                             </div>
-                            <div class="col-md-12">
+                            <div class="col-span-12">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                     <label class="form-label f-w-500 mb-0">Obsah (HTML)</label>
                                     <button type="button" class="btn btn-outline-secondary btn-sm"
@@ -61,7 +61,7 @@
                                           style="font-family:monospace;font-size:13px">{{ old('body', $article->body) }}</textarea>
                                 <div id="body-preview" class="border rounded p-3 mt-2 prose-content" style="display:none; min-height:200px;"></div>
                             </div>
-                            <div class="col-md-12">
+                            <div class="col-span-12">
                                 <div class="form-check">
                                     <input type="hidden" name="is_published" value="0">
                                     <input type="checkbox" name="is_published" value="1" class="form-check-input" id="is_published"
@@ -87,7 +87,7 @@
                 </x-panel.card>
             </div>
 
-            <div class="col-xl-4">
+            <div class="col-span-4 xl:col-span-12">
                 @if($article->exists)
                     <x-panel.card title="Informace">
                         <table class="table table-borderless mb-0">

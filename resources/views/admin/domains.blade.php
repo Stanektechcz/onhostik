@@ -12,20 +12,20 @@
         <x-panel.flash />
 
         {{-- KPI row --}}
-        <div class="row">
-            <div class="col-sm-6 col-xl-3">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <x-panel.stat-widget
                     :label="__('panel.nav.admin_domains') . ' celkem'"
                     :value="$totalCount"
                     icon="globe" color="primary" />
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <x-panel.stat-widget
                     label="Registrováno (WEDOS ID)"
                     :value="$activeCount"
                     icon="check-circle" color="success" />
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $expiringCount > 0 ? 'warning' : 'secondary' }}">
                         <span class="f-light">Vyprší do 30 dní</span>
@@ -36,7 +36,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $expiredCount > 0 ? 'danger' : 'secondary' }}">
                         <span class="f-light">Vypršelé domény</span>

@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php($breadcrumbTitle = $post->exists ? 'Upravit příspěvek' : 'Nový příspěvek')
 @php($breadcrumbItems = ['Blog' => route('admin.blog.index'), $breadcrumbTitle => ''])
@@ -9,8 +9,8 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        <div class="row">
-            <div class="col-xl-8">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="$post->exists ? 'Upravit: ' . $post->title : 'Nový příspěvek'">
                     <form method="POST" action="{{ $post->exists ? route('admin.blog.update', $post) : route('admin.blog.store') }}"
                           id="blog-form">
@@ -18,22 +18,22 @@
                         @if($post->exists) @method('PUT') @endif
 
                         <div class="row g-3">
-                            <div class="col-md-8">
+                            <div class="col-span-8 md:col-span-12">
                                 <label class="form-label f-w-500">Název *</label>
                                 <input type="text" name="title" class="form-control @error('title') is-invalid @enderror"
                                        value="{{ old('title', $post->title) }}" required>
                                 @error('title') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-span-4 md:col-span-6 sm:col-span-12">
                                 <label class="form-label f-w-500">Kategorie</label>
                                 <input type="text" name="category" class="form-control"
                                        value="{{ old('category', $post->category) }}" placeholder="news, tutorialy…">
                             </div>
-                            <div class="col-md-12">
+                            <div class="col-span-12">
                                 <label class="form-label f-w-500">Perex (krátký popis)</label>
                                 <textarea name="excerpt" rows="2" class="form-control">{{ old('excerpt', $post->excerpt) }}</textarea>
                             </div>
-                            <div class="col-md-12">
+                            <div class="col-span-12">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                     <label class="form-label f-w-500 mb-0">Obsah (HTML)</label>
                                     <button type="button" class="btn btn-outline-secondary btn-sm"
@@ -45,7 +45,7 @@
                                           style="font-family:monospace;font-size:13px">{{ old('body', $post->body) }}</textarea>
                                 <div id="body-preview" class="border rounded p-3 mt-2 prose-content" style="display:none; min-height: 200px;"></div>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-span-4 md:col-span-6 sm:col-span-12">
                                 <label class="form-label f-w-500">Jazyk obsahu</label>
                                 <select name="locale" class="form-select">
                                     <option value="cs" @selected(old('locale', $post->locale ?? 'cs') === 'cs')>
@@ -56,12 +56,12 @@
                                     </option>
                                 </select>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-span-4 md:col-span-6 sm:col-span-12">
                                 <label class="form-label f-w-500">Datum publikace</label>
                                 <input type="datetime-local" name="published_at" class="form-control"
                                        value="{{ old('published_at', $post->published_at?->format('Y-m-d\TH:i')) }}">
                             </div>
-                            <div class="col-md-4 d-flex align-items-end pb-2">
+                            <div class="col-span-4 md:col-span-6 sm:col-span-12 d-flex align-items-end pb-2">
                                 <div class="form-check">
                                     <input type="hidden" name="is_published" value="0">
                                     <input type="checkbox" name="is_published" value="1" class="form-check-input" id="is_published"
@@ -87,7 +87,7 @@
             </div>
 
             {{-- Sidebar --}}
-            <div class="col-xl-4">
+            <div class="col-span-4 xl:col-span-12">
                 @if($post->exists)
                     <x-panel.card title="Informace">
                         <table class="table table-borderless mb-0">

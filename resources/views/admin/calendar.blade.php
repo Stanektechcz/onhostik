@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = 'Kalendář';
@@ -79,8 +79,8 @@
                 <div class="mb-3"><label class="form-label">Název události</label><input type="text" class="form-control" id="event-name"></div>
                 <div class="mb-3"><label class="form-label">Popis</label><textarea class="form-control" rows="2" id="event-desc"></textarea></div>
                 <div class="row g-3">
-                    <div class="col-6"><label class="form-label">Datum od</label><input type="date" class="form-control" id="event-start"></div>
-                    <div class="col-6"><label class="form-label">Datum do</label><input type="date" class="form-control" id="event-end"></div>
+                    <div class="col-span-6 sm:col-span-12"><label class="form-label">Datum od</label><input type="date" class="form-control" id="event-start"></div>
+                    <div class="col-span-6 sm:col-span-12"><label class="form-label">Datum do</label><input type="date" class="form-control" id="event-end"></div>
                 </div>
                 <div class="mt-3">
                     <label class="form-label">Barva</label>

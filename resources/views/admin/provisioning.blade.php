@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = __('panel.nav.admin_provisioning');
@@ -12,8 +12,8 @@
         <x-panel.flash />
 
         {{-- KPI row --}}
-        <div class="row">
-            <div class="col-sm-6 col-xl-3">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $failedCount > 0 ? 'danger' : 'success' }}">
                         <span class="f-light">Selhané úkoly</span>
@@ -24,7 +24,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $pendingCount > 0 ? 'warning' : 'secondary' }}">
                         <span class="f-light">Čekající / probíhající</span>
@@ -35,7 +35,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $reviewCount > 0 ? 'warning' : 'secondary' }}">
                         <span class="f-light">Vyžaduje review</span>
@@ -46,7 +46,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body success">
                         <span class="f-light">Dokončeno (celkem)</span>

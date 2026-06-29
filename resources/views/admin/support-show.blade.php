@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = $ticket->subject;
@@ -11,9 +11,9 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        <div class="row">
+        <div class="grid grid-cols-12 card-gap">
             {{-- Left: messages + reply form --}}
-            <div class="col-xl-8">
+            <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="$ticket->subject" :subtitle="$ticket->customer?->email">
                     @forelse($ticket->messages as $message)
                         @php
@@ -62,7 +62,7 @@
             </div>
 
             {{-- Right: info + actions + timeline --}}
-            <div class="col-xl-4">
+            <div class="col-span-4 xl:col-span-12">
                 {{-- Customer info --}}
                 <x-panel.card :title="__('panel.common.customer')">
                     <div class="d-flex justify-content-between align-items-center mb-1">

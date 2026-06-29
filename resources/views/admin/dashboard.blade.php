@@ -2,6 +2,7 @@
 
 @php
     $breadcrumbTitle = __('panel.nav.admin_dashboard');
+    $breadcrumbItems = [];
     use App\Domains\Shared\Support\MoneyFormatter;
     use Brick\Money\Money;
     $revenueFormatted   = MoneyFormatter::format(Money::ofMinor($revenueCzkMinor, 'CZK'));

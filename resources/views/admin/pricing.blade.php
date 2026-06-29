@@ -51,7 +51,7 @@
                                     </ul>
                                     <div class="pricingtable-signup">
                                         <a class="btn btn-primary text-white"
-                                           href="{{ route('admin.products.edit', $plan->product) }}">Upravit</a>
+                                           href="{{ $plan->product ? route('admin.products.edit', $plan->product) : '#' }}">Upravit</a>
                                     </div>
                                 </div>
                             </div>

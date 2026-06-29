@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = __('panel.admin.credit_transactions');
@@ -14,10 +14,10 @@
         <x-panel.card :title="__('panel.admin.credit_transactions')">
             {{-- Filters --}}
             <form method="GET" class="row g-2 mb-3">
-                <div class="col-sm-5 col-md-4">
+                <div class="col-span-4 sm:col-span-12">
                     <input type="text" name="q" class="form-control" placeholder="{{ __('panel.common.search') }} (e-mail / firma)" value="{{ $search }}">
                 </div>
-                <div class="col-sm-3 col-md-2">
+                <div class="col-span-2 sm:col-span-6">
                     <select name="type" class="form-select">
                         <option value="">{{ __('panel.admin.all') }}</option>
                         @foreach($types as $type)

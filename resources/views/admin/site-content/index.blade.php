@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = 'Obsah webu';
@@ -18,7 +18,7 @@
                 <x-panel.card :title="ucfirst($group)">
                     <div class="row g-3">
                         @foreach($items as $item)
-                            <div class="{{ $item->type === 'textarea' || $item->type === 'html' ? 'col-md-12' : 'col-md-6' }}">
+                            <div class="{{ $item->type === 'textarea' || $item->type === 'html' ? 'col-span-12' : 'col-span-6 md:col-span-12' }}">
                                 <label class="form-label f-w-500">
                                     {{ $item->label }}
                                     <small class="text-muted ms-1 f-w-400">({{ $item->key }})</small>

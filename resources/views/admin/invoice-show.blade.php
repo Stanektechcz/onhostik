@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php($breadcrumbTitle = $invoice->number)
 @php($breadcrumbItems = [__('panel.nav.admin_invoices') => route('admin.invoices.index'), $invoice->number => ''])
@@ -9,9 +9,9 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        <div class="row">
+        <div class="grid grid-cols-12 card-gap">
             {{-- Main: line items + actions --}}
-            <div class="col-xl-8">
+            <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="$invoice->type->label() . ' ' . $invoice->number">
                     {{-- Meta strip --}}
                     <div class="d-flex flex-wrap gap-3 mb-3 align-items-center">
@@ -55,7 +55,7 @@
 
                     {{-- Totals --}}
                     <div class="row justify-content-end mt-3">
-                        <div class="col-md-4">
+                        <div class="col-span-4 md:col-span-6 sm:col-span-12">
                             <table class="table table-borderless mb-0">
                                 <tr>
                                     <td class="f-light">{{ __('panel.orders.subtotal') }}</td>
@@ -132,7 +132,7 @@
             </div>
 
             {{-- Sidebar: customer + order links --}}
-            <div class="col-xl-4">
+            <div class="col-span-4 xl:col-span-12">
                 {{-- Customer --}}
                 @if($invoice->customer)
                     <x-panel.card :title="__('panel.common.customer')">

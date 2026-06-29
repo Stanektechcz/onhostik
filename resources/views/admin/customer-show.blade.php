@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php($breadcrumbTitle = $customer->user?->name ?? $customer->email)
 @php($breadcrumbItems = [__('panel.nav.admin_customers') => route('admin.customers.index'), ($customer->user?->name ?? $customer->email) => ''])
@@ -44,26 +44,26 @@
         @endif
 
         {{-- KPI row --}}
-        <div class="row">
-            <div class="col-sm-6 col-xl-3">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <x-panel.stat-widget
                     :label="__('panel.billing.balance')"
                     :value="\App\Domains\Shared\Support\MoneyFormatter::format($balance)"
                     icon="credit-card" color="primary" />
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <x-panel.stat-widget
                     :label="__('panel.nav.admin_services')"
                     :value="$services->count()"
                     icon="server" color="success" />
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <x-panel.stat-widget
                     :label="__('panel.nav.admin_invoices')"
                     :value="$invoices->count()"
                     icon="file-text" color="warning" />
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <x-panel.stat-widget
                     :label="__('panel.nav.admin_support')"
                     :value="$tickets->count()"
@@ -71,8 +71,8 @@
             </div>
         </div>
 
-        <div class="row">
-            <div class="col-xl-4">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-4 xl:col-span-12">
                 {{-- Customer info --}}
                 <x-panel.card :title="$customer->user?->name ?? $customer->email" :subtitle="$customer->email">
                     <table class="table table-borderless mb-0">
@@ -146,7 +146,7 @@
                 @endif
             </div>
 
-            <div class="col-xl-8">
+            <div class="col-span-8 xl:col-span-12">
                 {{-- Credit ledger --}}
                 <x-panel.card :title="__('panel.billing.history')">
                     <x-panel.data-table :headers="[__('panel.common.date'), __('panel.billing.type'), __('panel.billing.description'), __('panel.billing.amount'), __('panel.billing.balance_after')]">
@@ -164,8 +164,8 @@
                     </x-panel.data-table>
                 </x-panel.card>
 
-                <div class="row">
-                    <div class="col-md-6">
+                <div class="grid grid-cols-12 card-gap">
+                    <div class="col-span-6 md:col-span-12">
                         {{-- Services --}}
                         <x-panel.card :title="__('panel.nav.admin_services')">
                             <x-panel.data-table :headers="[__('panel.services.label'), __('panel.common.status')]">
@@ -184,7 +184,7 @@
                             </x-panel.data-table>
                         </x-panel.card>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-span-6 md:col-span-12">
                         {{-- Orders --}}
                         <x-panel.card :title="__('panel.nav.admin_orders')">
                             <x-panel.data-table :headers="['#', __('panel.common.status'), __('panel.common.total')]">
@@ -202,8 +202,8 @@
                     </div>
                 </div>
 
-                <div class="row">
-                    <div class="col-md-6">
+                <div class="grid grid-cols-12 card-gap">
+                    <div class="col-span-6 md:col-span-12">
                         {{-- Invoices --}}
                         <x-panel.card :title="__('panel.nav.admin_invoices')">
                             <x-panel.data-table :headers="[__('panel.billing.number'), __('panel.common.status'), __('panel.common.total')]">
@@ -219,7 +219,7 @@
                             </x-panel.data-table>
                         </x-panel.card>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-span-6 md:col-span-12">
                         {{-- Support tickets --}}
                         <x-panel.card :title="__('panel.nav.admin_support')">
                             <x-panel.data-table :headers="[__('panel.support.subject'), __('panel.common.status')]">

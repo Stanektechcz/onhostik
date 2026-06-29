@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = __('panel.nav.ai');
@@ -11,8 +11,8 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        <div class="row">
-            <div class="col-xl-5">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-5 xl:col-span-12">
                 <x-panel.card :title="__('panel.nav.ai')" :subtitle="__('panel.ai.mock_note')">
                     <form method="POST" action="{{ route('panel.ai.run') }}">
                         @csrf
@@ -38,7 +38,7 @@
                 </x-panel.card>
             </div>
 
-            <div class="col-xl-7">
+            <div class="col-span-7 xl:col-span-12">
                 <x-panel.card :title="__('panel.ai.history')">
                     @if($runs->isEmpty())
                         <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>

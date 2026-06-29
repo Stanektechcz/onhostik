@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php($breadcrumbTitle = '#' . $order->id)
 @php($breadcrumbItems = [__('panel.nav.admin_orders') => route('admin.orders.index'), '#' . $order->id => ''])
@@ -9,9 +9,9 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        <div class="row">
+        <div class="grid grid-cols-12 card-gap">
             {{-- Main content --}}
-            <div class="col-xl-8">
+            <div class="col-span-8 xl:col-span-12">
                 {{-- Order items --}}
                 <x-panel.card title="Položky objednávky">
                     <x-panel.data-table :headers="['Popis', 'Plán', 'Množství', 'DPH', 'Celkem', 'Provisioning']">
@@ -34,7 +34,7 @@
                     </x-panel.data-table>
 
                     <div class="row justify-content-end mt-3">
-                        <div class="col-md-4">
+                        <div class="col-span-4 md:col-span-6 sm:col-span-12">
                             <table class="table table-borderless mb-0">
                                 <tr>
                                     <td class="f-light">{{ __('panel.orders.subtotal') }}</td>
@@ -104,7 +104,7 @@
             </div>
 
             {{-- Sidebar --}}
-            <div class="col-xl-4">
+            <div class="col-span-4 xl:col-span-12">
                 {{-- Status --}}
                 <x-panel.card :title="__('panel.common.status')">
                     <div class="mb-2">

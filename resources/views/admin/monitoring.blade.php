@@ -11,8 +11,8 @@
     <div class="container-fluid">
 
         {{-- KPI row --}}
-        <div class="row">
-            <div class="col-sm-6 col-xl-3">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $downCount > 0 ? 'danger' : 'success' }}">
                         <span class="f-light">{{ __('panel.admin.down_monitors') }}</span>
@@ -24,7 +24,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $openIncidents > 0 ? 'warning' : 'success' }}">
                         <span class="f-light">Otevřené incidenty</span>
@@ -35,7 +35,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $sslExpiring > 0 ? 'warning' : 'success' }}">
                         <span class="f-light">SSL expiruje do 30 dní</span>
@@ -46,7 +46,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $avgUptime >= 99 ? 'success' : ($avgUptime >= 95 ? 'warning' : 'danger') }}">
                         <span class="f-light">Prům. dostupnost</span>
@@ -59,9 +59,9 @@
             </div>
         </div>
 
-        <div class="row">
+        <div class="grid grid-cols-12 card-gap">
             {{-- Monitors table --}}
-            <div class="col-xl-8">
+            <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="__('panel.admin.monitors')">
                     <p class="f-12 f-light mb-3">
                         <i data-feather="alert-triangle" style="width:12px;height:12px;"></i>
@@ -158,7 +158,7 @@
             </div>
 
             {{-- Incidents timeline --}}
-            <div class="col-xl-4">
+            <div class="col-span-4 xl:col-span-12">
                 <x-panel.card title="Incidenty">
                     @if($incidents->isEmpty())
                         <p class="f-light mb-0">{{ __('panel.dashboard.no_incident') }}</p>

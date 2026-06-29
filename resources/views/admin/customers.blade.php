@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = __('panel.nav.admin_customers');
@@ -11,26 +11,26 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        <div class="row">
-            <div class="col-sm-6 col-xl-3">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <x-panel.stat-widget
                     :label="__('panel.nav.admin_customers') . ' celkem'"
                     :value="$totalCount"
                     icon="users" color="primary" />
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <x-panel.stat-widget
                     :label="__('panel.account.company')"
                     :value="$companyCount"
                     icon="briefcase" color="info" />
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <x-panel.stat-widget
                     :label="__('panel.account.person')"
                     :value="$personCount"
                     icon="user" color="secondary" />
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <x-panel.stat-widget
                     label="S aktivní službou"
                     :value="$withServiceCount"

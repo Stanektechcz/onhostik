@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = $service->label;
@@ -13,7 +13,7 @@
 
         {{-- KPI strip --}}
         <div class="row mb-1">
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
@@ -30,7 +30,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
@@ -47,7 +47,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
@@ -64,7 +64,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
@@ -112,8 +112,8 @@
             </div>
         @endif
 
-        <div class="row">
-            <div class="col-xl-4">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-4 xl:col-span-12">
                 {{-- Service info --}}
                 <x-panel.card :title="$service->label" :subtitle="$service->product?->name">
                     <table class="table table-borderless mb-0">
@@ -152,7 +152,7 @@
                         @endphp
                         <div class="row g-2">
                             @if(isset($res['cpu']))
-                                <div class="col-6">
+                                <div class="col-span-6 sm:col-span-12">
                                     <div class="border rounded p-2 text-center">
                                         <i data-feather="cpu" class="font-primary mb-1" style="width:18px;height:18px"></i>
                                         <div class="f-w-600">{{ $res['cpu'] }} vCPU</div>
@@ -161,7 +161,7 @@
                                 </div>
                             @endif
                             @if(isset($res['ram_mb']))
-                                <div class="col-6">
+                                <div class="col-span-6 sm:col-span-12">
                                     <div class="border rounded p-2 text-center">
                                         <i data-feather="database" class="font-success mb-1" style="width:18px;height:18px"></i>
                                         <div class="f-w-600">{{ round($res['ram_mb'] / 1024, 1) }} GB</div>
@@ -170,7 +170,7 @@
                                 </div>
                             @endif
                             @if(isset($res['disk_mb']))
-                                <div class="col-6">
+                                <div class="col-span-6 sm:col-span-12">
                                     <div class="border rounded p-2 text-center">
                                         <i data-feather="hard-drive" class="font-warning mb-1" style="width:18px;height:18px"></i>
                                         <div class="f-w-600">{{ round($res['disk_mb'] / 1024, 1) }} GB</div>
@@ -179,7 +179,7 @@
                                 </div>
                             @endif
                             @if(isset($res['bandwidth_gb']))
-                                <div class="col-6">
+                                <div class="col-span-6 sm:col-span-12">
                                     <div class="border rounded p-2 text-center">
                                         <i data-feather="wifi" class="font-info mb-1" style="width:18px;height:18px"></i>
                                         <div class="f-w-600">{{ $res['bandwidth_gb'] }} GB</div>
@@ -218,7 +218,7 @@
                 </x-panel.card>
             </div>
 
-            <div class="col-xl-8">
+            <div class="col-span-8 xl:col-span-12">
                 {{-- Monitoring --}}
                 <x-panel.card :title="__('panel.services.monitoring')">
                     @if($monitor === null)
@@ -239,7 +239,7 @@
                             </p>
                         @endif
                         <div class="row align-items-center mb-3">
-                            <div class="col-md-6">
+                            <div class="col-span-6 md:col-span-12">
                                 <div class="d-flex justify-content-between mb-1">
                                     <span class="f-light f-12">Uptime (30 dní)</span>
                                     <span class="f-w-600 f-12">{{ $uptime }} %</span>
@@ -254,11 +254,11 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-span-3 md:col-span-6 sm:col-span-12">
                                 <p class="f-light f-12 mb-1">{{ __('panel.services.last_check') }}</p>
                                 <p class="mb-0 f-12">{{ $monitor->last_check_at?->diffForHumans() ?? '—' }}</p>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-span-3 md:col-span-6 sm:col-span-12">
                                 <p class="f-light f-12 mb-1">SSL platnost</p>
                                 <p class="mb-0 f-12 {{ $sslDays !== null && $sslDays < 30 ? 'text-danger' : '' }}">
                                     {{ $monitor->ssl_expires_at?->format('d.m.Y') ?? '—' }}

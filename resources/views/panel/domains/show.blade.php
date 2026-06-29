@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = $domain->fqdn();
@@ -20,11 +20,11 @@
             }
         @endphp
 
-        <div class="row">
-            <div class="col-xl-8">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="$domain->fqdn()">
                     <div class="row g-3 mb-4">
-                        <div class="col-sm-3">
+                        <div class="col-span-3 sm:col-span-6">
                             <p class="f-light f-12 mb-1">{{ __('panel.common.status') }}</p>
                             @if($domain->wedos_domain_id !== null)
                                 <span class="badge badge-light-success">{{ __('panel.domains.registered') }}</span>
@@ -32,15 +32,15 @@
                                 <span class="badge badge-light-warning">{{ __('panel.domains.pending') }}</span>
                             @endif
                         </div>
-                        <div class="col-sm-3">
+                        <div class="col-span-3 sm:col-span-6">
                             <p class="f-light f-12 mb-1">{{ __('panel.domains.registrar') }}</p>
                             <p class="mb-0 f-w-500 text-uppercase">{{ $domain->registrar ?? '—' }}</p>
                         </div>
-                        <div class="col-sm-3">
+                        <div class="col-span-3 sm:col-span-6">
                             <p class="f-light f-12 mb-1">{{ __('panel.domains.registered_at') }}</p>
                             <p class="mb-0">{{ $domain->registered_at?->format('d.m.Y') ?? '—' }}</p>
                         </div>
-                        <div class="col-sm-3">
+                        <div class="col-span-3 sm:col-span-6">
                             <p class="f-light f-12 mb-1">{{ __('panel.domains.expires_at') }}</p>
                             <p class="mb-0 {{ $expiryClass }}">
                                 {{ $domain->expires_at?->format('d.m.Y') ?? '—' }}
@@ -54,7 +54,7 @@
                     </div>
 
                     <div class="row g-3 mb-4">
-                        <div class="col-sm-4">
+                        <div class="col-span-4 sm:col-span-12">
                             <p class="f-light f-12 mb-1">{{ __('panel.domains.auto_renew') }}</p>
                             @if($domain->auto_renew)
                                 <span class="badge badge-light-success">ON</span>
@@ -62,7 +62,7 @@
                                 <span class="badge badge-light-secondary">OFF</span>
                             @endif
                         </div>
-                        <div class="col-sm-4">
+                        <div class="col-span-4 sm:col-span-12">
                             <p class="f-light f-12 mb-1">{{ __('panel.domains.service') }}</p>
                             <p class="mb-0">
                                 @if($domain->service)
@@ -75,7 +75,7 @@
                             </p>
                         </div>
                         @if($domain->wedos_domain_id)
-                            <div class="col-sm-4">
+                            <div class="col-span-4 sm:col-span-12">
                                 <p class="f-light f-12 mb-1">WEDOS ID</p>
                                 <p class="mb-0 f-12 font-monospace">{{ $domain->wedos_domain_id }}</p>
                             </div>
@@ -107,7 +107,7 @@
                 </x-panel.card>
             </div>
 
-            <div class="col-xl-4">
+            <div class="col-span-4 xl:col-span-12">
                 {{-- Transfer auth code --}}
                 <x-panel.card :title="__('panel.domains.transfer')">
                     <p class="f-light f-12 mb-3">{{ __('panel.domains.transfer_note') }}</p>

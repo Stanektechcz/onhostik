@@ -11,8 +11,8 @@
     <div class="container-fluid">
 
         {{-- KPI row --}}
-        <div class="row">
-            <div class="col-sm-6 col-xl-3">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $failedCount > 0 ? 'danger' : 'success' }}">
                         <span class="f-light">{{ __('panel.admin.failed_backups') }}</span>
@@ -23,7 +23,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $runningCount > 0 ? 'info' : 'secondary' }}">
                         <span class="f-light">Probíhající zálohy</span>
@@ -34,7 +34,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body primary">
                         <span class="f-light">Aktivní politiky</span>
@@ -45,7 +45,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body success">
                         <span class="f-light">Celková velikost záloh</span>
@@ -64,9 +64,9 @@
             </div>
         </div>
 
-        <div class="row">
+        <div class="grid grid-cols-12 card-gap">
             {{-- Backup jobs --}}
-            <div class="col-xl-8">
+            <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="__('panel.admin.backup_jobs')">
                     @if($jobs->isEmpty())
                         <div class="text-center py-4">
@@ -120,7 +120,7 @@
             </div>
 
             {{-- Backup policies --}}
-            <div class="col-xl-4">
+            <div class="col-span-4 xl:col-span-12">
                 <x-panel.card :title="__('panel.admin.policies')">
                     @if($policies->isEmpty())
                         <div class="text-center py-4">

@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = __('panel.nav.admin_servers');
@@ -13,7 +13,7 @@
         @error('server')<div class="alert alert-light-danger">{{ $message }}</div>@enderror
 
         <div class="row mb-3">
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
@@ -28,7 +28,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
@@ -43,7 +43,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
@@ -58,7 +58,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">

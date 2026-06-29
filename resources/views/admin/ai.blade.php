@@ -11,9 +11,9 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        <div class="row">
+        <div class="grid grid-cols-12 card-gap">
             {{-- Left: run form + pending approvals --}}
-            <div class="col-xl-5">
+            <div class="col-span-5 xl:col-span-12">
                 <x-panel.card :title="__('panel.nav.admin_ai')" :subtitle="__('panel.ai.mock_note')">
                     <form method="POST" action="{{ route('admin.ai.run') }}">
                         @csrf
@@ -102,7 +102,7 @@
             </div>
 
             {{-- Right: runs timeline + templates + usage --}}
-            <div class="col-xl-7">
+            <div class="col-span-7 xl:col-span-12">
                 <x-panel.card :title="__('panel.admin.runs')">
                     @if($runs->isEmpty())
                         <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
@@ -139,8 +139,8 @@
                     @endif
                 </x-panel.card>
 
-                <div class="row">
-                    <div class="col-md-6">
+                <div class="grid grid-cols-12 card-gap">
+                    <div class="col-span-6 md:col-span-12">
                         <x-panel.card :title="__('panel.admin.templates')">
                             @if($templates->isEmpty())
                                 <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
@@ -154,7 +154,7 @@
                             @endif
                         </x-panel.card>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-span-6 md:col-span-12">
                         <x-panel.card :title="__('panel.admin.usage_log')">
                             @if($usage->isEmpty())
                                 <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>

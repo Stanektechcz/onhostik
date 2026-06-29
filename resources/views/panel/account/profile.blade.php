@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = __('panel.nav.profile');
@@ -11,8 +11,8 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        <div class="row">
-            <div class="col-xl-5">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-5 xl:col-span-12">
                 <x-panel.card :title="__('panel.nav.profile')">
                     <table class="table table-borderless mb-0">
                         <tr>
@@ -86,7 +86,7 @@
                 </x-panel.card>
             </div>
 
-            <div class="col-xl-7">
+            <div class="col-span-7 xl:col-span-12">
                 <x-panel.card :title="__('panel.nav.security')">
                     <p class="f-light mb-3">{{ __('panel.account.security_note') }}</p>
                     <div class="d-flex gap-2 flex-wrap">
@@ -105,7 +105,7 @@
 
                 <x-panel.card title="Rychlé akce">
                     <div class="row g-2">
-                        <div class="col-sm-6">
+                        <div class="col-span-6 sm:col-span-12">
                             <a href="{{ route('panel.billing.invoices') }}" class="card card-no-border border p-3 d-block text-decoration-none">
                                 <div class="d-flex align-items-center gap-2">
                                     <i data-feather="file-text" class="font-primary" style="width:18px;height:18px"></i>
@@ -116,7 +116,7 @@
                                 </div>
                             </a>
                         </div>
-                        <div class="col-sm-6">
+                        <div class="col-span-6 sm:col-span-12">
                             <a href="{{ route('panel.billing.credits') }}" class="card card-no-border border p-3 d-block text-decoration-none">
                                 <div class="d-flex align-items-center gap-2">
                                     <i data-feather="dollar-sign" class="font-success" style="width:18px;height:18px"></i>
@@ -127,7 +127,7 @@
                                 </div>
                             </a>
                         </div>
-                        <div class="col-sm-6">
+                        <div class="col-span-6 sm:col-span-12">
                             <a href="{{ route('panel.support.index') }}" class="card card-no-border border p-3 d-block text-decoration-none">
                                 <div class="d-flex align-items-center gap-2">
                                     <i data-feather="life-buoy" class="font-warning" style="width:18px;height:18px"></i>
@@ -138,7 +138,7 @@
                                 </div>
                             </a>
                         </div>
-                        <div class="col-sm-6">
+                        <div class="col-span-6 sm:col-span-12">
                             <a href="{{ route('panel.services.index') }}" class="card card-no-border border p-3 d-block text-decoration-none">
                                 <div class="d-flex align-items-center gap-2">
                                     <i data-feather="server" class="font-info" style="width:18px;height:18px"></i>

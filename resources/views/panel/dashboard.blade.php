@@ -2,6 +2,7 @@
 
 @php
     $breadcrumbTitle = __('panel.nav.dashboard');
+    $breadcrumbItems = [];
     use App\Domains\Shared\Support\MoneyFormatter;
     $creditFormatted = MoneyFormatter::format($creditBalance);
     $payTrendUp      = $payTrend >= 0;

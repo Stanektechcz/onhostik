@@ -17,7 +17,7 @@
         @endphp
 
         <div class="row mb-3">
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
@@ -37,7 +37,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
@@ -52,7 +52,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
@@ -69,7 +69,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
@@ -86,8 +86,8 @@
             </div>
         </div>
 
-        <div class="row">
-            <div class="col-xl-6">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-6 xl:col-span-12">
                 <x-panel.card :title="__('panel.admin.system_checks')">
                     <div class="activity-log">
                         <div class="basic-timeline">
@@ -114,7 +114,7 @@
                     </div>
                 </x-panel.card>
             </div>
-            <div class="col-xl-6">
+            <div class="col-span-6 xl:col-span-12">
                 <x-panel.card :title="__('panel.admin.provider_health')">
                     <x-panel.data-table :headers="[__('panel.admin.provider'), __('panel.admin.health'), 'Flags']">
                         @foreach($providers as $provider)
@@ -143,8 +143,8 @@
             </div>
         </div>
 
-        <div class="row">
-            <div class="col-12">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-12">
                 <x-panel.card title="Runtime informace">
                     <div class="d-flex gap-4 flex-wrap f-12">
                         <span><span class="f-light">PHP:</span> <strong>{{ PHP_VERSION }}</strong></span>

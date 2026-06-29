@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = __('panel.admin.wallets');
@@ -13,7 +13,7 @@
 
         {{-- KPI strip --}}
         <div class="row mb-1">
-            <div class="col-sm-6 col-xl-4">
+            <div class="col-span-6 sm:col-span-12 md:col-span-4">
                 <x-panel.stat-widget
                     :label="__('panel.admin.wallets')"
                     :value="$customers->total()"
@@ -21,7 +21,7 @@
                     color="primary"
                 />
             </div>
-            <div class="col-sm-6 col-xl-4">
+            <div class="col-span-6 sm:col-span-12 md:col-span-4">
                 <x-panel.stat-widget
                     :label="__('panel.billing.balance')"
                     :value="\App\Domains\Shared\Support\MoneyFormatter::formatMinor($totalBalance, 'CZK')"
@@ -34,7 +34,7 @@
         <x-panel.card :title="__('panel.admin.wallets')">
             {{-- Search --}}
             <form method="GET" class="row g-2 mb-3">
-                <div class="col-sm-6 col-md-4">
+                <div class="col-span-4 sm:col-span-6">
                     <input type="text" name="q" class="form-control" placeholder="{{ __('panel.common.search') }}" value="{{ $search }}">
                 </div>
                 <div class="col-auto">

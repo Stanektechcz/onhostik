@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = $service->label ?? 'Služba #' . $service->id;
@@ -13,8 +13,8 @@
         @error('service')<div class="alert alert-light-danger">{{ $message }}</div>@enderror
 
         {{-- Top KPI row --}}
-        <div class="row">
-            <div class="col-sm-6 col-xl-3">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ match($service->status) { \App\Domains\Provisioning\Enums\ServiceStatus::Active => 'primary', \App\Domains\Provisioning\Enums\ServiceStatus::Suspended => 'warning', default => 'secondary' } }}">
                         <span class="f-light">{{ __('panel.common.status') }}</span>
@@ -27,7 +27,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body secondary">
                         <span class="f-light">Driver</span>
@@ -40,7 +40,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $service->external_id ? 'success' : 'warning' }}">
                         <span class="f-light">External ID</span>
@@ -53,7 +53,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $service->next_due_date?->isPast() ? 'danger' : 'primary' }}">
                         <span class="f-light">Další platba</span>
@@ -68,9 +68,9 @@
             </div>
         </div>
 
-        <div class="row">
+        <div class="grid grid-cols-12 card-gap">
             {{-- Left column: info + actions --}}
-            <div class="col-xl-4">
+            <div class="col-span-4 xl:col-span-12">
                 {{-- Service info card --}}
                 <x-panel.card :title="__('panel.nav.admin_services')" :subtitle="$service->label">
                     <table class="table table-borderless mb-0">
@@ -197,7 +197,7 @@
             </div>
 
             {{-- Right column: provisioning tasks timeline + audit --}}
-            <div class="col-xl-8">
+            <div class="col-span-8 xl:col-span-12">
                 {{-- Provisioning tasks --}}
                 <x-panel.card title="Provisioning úkoly">
                     @if($service->provisioningTasks->isEmpty())

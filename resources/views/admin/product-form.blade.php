@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $isNew = $product === null;
@@ -13,29 +13,29 @@
         <x-panel.flash />
 
         {{-- Product info form --}}
-        <div class="row">
-            <div class="col-xl-8">
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="$breadcrumbTitle">
                     <form method="POST" action="{{ $isNew ? route('admin.products.store') : route('admin.products.update', $product) }}">
                         @csrf
                         @if(!$isNew) @method('PUT') @endif
 
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
+                        <div class="grid grid-cols-12 card-gap">
+                            <div class="col-span-6 md:col-span-12 mb-3">
                                 <label class="form-label" for="p-slug">Slug (URL)</label>
                                 <input id="p-slug" type="text" name="slug" class="form-control @error('slug') is-invalid @enderror"
                                        value="{{ old('slug', $product?->slug) }}" required maxlength="80" placeholder="webhosting">
                                 @error('slug')<div class="invalid-feedback">{{ $message }}</div>@enderror
                             </div>
-                            <div class="col-md-6 mb-3">
+                            <div class="col-span-6 md:col-span-12 mb-3">
                                 <label class="form-label" for="p-sort">Pořadí</label>
                                 <input id="p-sort" type="number" name="sort_order" class="form-control"
                                        value="{{ old('sort_order', $product?->sort_order ?? 0) }}" min="0">
                             </div>
                         </div>
 
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
+                        <div class="grid grid-cols-12 card-gap">
+                            <div class="col-span-6 md:col-span-12 mb-3">
                                 <label class="form-label" for="p-type">Typ produktu</label>
                                 <select id="p-type" name="type" class="form-select @error('type') is-invalid @enderror" required>
                                     @foreach($types as $type)
@@ -44,7 +44,7 @@
                                 </select>
                                 @error('type')<div class="invalid-feedback">{{ $message }}</div>@enderror
                             </div>
-                            <div class="col-md-6 mb-3">
+                            <div class="col-span-6 md:col-span-12 mb-3">
                                 <label class="form-label" for="p-driver">Provisioning driver</label>
                                 <select id="p-driver" name="provisioning_driver" class="form-select">
                                     <option value="">— žádný —</option>
@@ -55,26 +55,26 @@
                             </div>
                         </div>
 
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
+                        <div class="grid grid-cols-12 card-gap">
+                            <div class="col-span-6 md:col-span-12 mb-3">
                                 <label class="form-label" for="p-name-cs">Název (CS) *</label>
                                 <input id="p-name-cs" type="text" name="name_cs" class="form-control @error('name_cs') is-invalid @enderror"
                                        value="{{ old('name_cs', $product?->getTranslation('name', 'cs', false)) }}" required maxlength="100">
                                 @error('name_cs')<div class="invalid-feedback">{{ $message }}</div>@enderror
                             </div>
-                            <div class="col-md-6 mb-3">
+                            <div class="col-span-6 md:col-span-12 mb-3">
                                 <label class="form-label" for="p-name-en">Název (EN)</label>
                                 <input id="p-name-en" type="text" name="name_en" class="form-control"
                                        value="{{ old('name_en', $product?->getTranslation('name', 'en', false)) }}" maxlength="100">
                             </div>
                         </div>
 
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
+                        <div class="grid grid-cols-12 card-gap">
+                            <div class="col-span-6 md:col-span-12 mb-3">
                                 <label class="form-label" for="p-desc-cs">Popis (CS)</label>
                                 <textarea id="p-desc-cs" name="description_cs" class="form-control" rows="3">{{ old('description_cs', $product?->getTranslation('description', 'cs', false)) }}</textarea>
                             </div>
-                            <div class="col-md-6 mb-3">
+                            <div class="col-span-6 md:col-span-12 mb-3">
                                 <label class="form-label" for="p-desc-en">Popis (EN)</label>
                                 <textarea id="p-desc-en" name="description_en" class="form-control" rows="3">{{ old('description_en', $product?->getTranslation('description', 'en', false)) }}</textarea>
                             </div>
@@ -149,19 +149,19 @@
             <x-panel.card title="Přidat nový plán">
                 <form method="POST" action="{{ route('admin.products.plans.add', $product) }}">
                     @csrf
-                    <div class="row">
-                        <div class="col-md-3 mb-3">
+                    <div class="grid grid-cols-12 card-gap">
+                        <div class="col-span-3 md:col-span-6 sm:col-span-12 mb-3">
                             <label class="form-label" for="np-name">Název plánu *</label>
                             <input id="np-name" type="text" name="name_cs" class="form-control @error('name_cs') is-invalid @enderror"
                                    required maxlength="100" placeholder="Starter">
                             @error('name_cs')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
-                        <div class="col-md-3 mb-3">
+                        <div class="col-span-3 md:col-span-6 sm:col-span-12 mb-3">
                             <label class="form-label" for="np-tagline">Tagline</label>
                             <input id="np-tagline" type="text" name="tagline_cs" class="form-control" maxlength="200"
                                    placeholder="Ideální pro začátky">
                         </div>
-                        <div class="col-md-2 mb-3">
+                        <div class="col-span-2 md:col-span-3 sm:col-span-6 mb-3">
                             <label class="form-label" for="np-cycle">Cyklus</label>
                             <select id="np-cycle" name="billing_cycle" class="form-select" required>
                                 @foreach($cycles as $cycle)
@@ -169,11 +169,11 @@
                                 @endforeach
                             </select>
                         </div>
-                        <div class="col-md-2 mb-3">
+                        <div class="col-span-2 md:col-span-3 sm:col-span-6 mb-3">
                             <label class="form-label" for="np-czk">CZK / měs.</label>
                             <input id="np-czk" type="number" step="0.01" min="0" name="price_czk" class="form-control" placeholder="99.00">
                         </div>
-                        <div class="col-md-2 mb-3">
+                        <div class="col-span-2 md:col-span-3 sm:col-span-6 mb-3">
                             <label class="form-label" for="np-eur">EUR / měs.</label>
                             <input id="np-eur" type="number" step="0.01" min="0" name="price_eur" class="form-control" placeholder="3.99">
                         </div>

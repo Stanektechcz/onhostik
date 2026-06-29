@@ -1,4 +1,4 @@
-@extends('layouts.panel')
+﻿@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = __('panel.nav.admin_settings');
@@ -22,49 +22,49 @@
                 </p>
 
                 <div class="row g-3">
-                    <div class="col-md-6">
+                    <div class="col-span-6 md:col-span-12">
                         <label class="form-label f-w-500">Název společnosti</label>
                         <input type="text" name="company_name" class="form-control"
                                value="{{ $stored['company_name'] ?? config('billing.supplier.name') }}"
                                placeholder="Onhost.cz s.r.o.">
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-span-3 md:col-span-6 sm:col-span-12">
                         <label class="form-label f-w-500">IČ</label>
                         <input type="text" name="company_ic" class="form-control"
                                value="{{ $stored['company_ic'] ?? config('billing.supplier.ic') }}"
                                placeholder="12345678">
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-span-3 md:col-span-6 sm:col-span-12">
                         <label class="form-label f-w-500">DIČ</label>
                         <input type="text" name="company_dic" class="form-control"
                                value="{{ $stored['company_dic'] ?? config('billing.supplier.dic') }}"
                                placeholder="CZ12345678">
                     </div>
-                    <div class="col-md-5">
+                    <div class="col-span-5 md:col-span-12">
                         <label class="form-label f-w-500">Ulice a č.p.</label>
                         <input type="text" name="company_street" class="form-control"
                                value="{{ $stored['company_street'] ?? config('billing.supplier.street') }}"
                                placeholder="Příkladná 1">
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-span-4 md:col-span-6 sm:col-span-12">
                         <label class="form-label f-w-500">Město</label>
                         <input type="text" name="company_city" class="form-control"
                                value="{{ $stored['company_city'] ?? config('billing.supplier.city') }}"
                                placeholder="Praha">
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-span-3 md:col-span-6 sm:col-span-12">
                         <label class="form-label f-w-500">PSČ</label>
                         <input type="text" name="company_zip" class="form-control"
                                value="{{ $stored['company_zip'] ?? config('billing.supplier.zip') }}"
                                placeholder="110 00">
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-span-6 md:col-span-12">
                         <label class="form-label f-w-500">Bankovní účet CZK (IBAN / číslo)</label>
                         <input type="text" name="bank_czk" class="form-control"
                                value="{{ $stored['bank_czk'] ?? config('billing.supplier.bank_account_czk') }}"
                                placeholder="CZ65 0800 0000 0012 3456 7890">
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-span-6 md:col-span-12">
                         <label class="form-label f-w-500">Bankovní účet EUR (IBAN)</label>
                         <input type="text" name="bank_eur" class="form-control"
                                value="{{ $stored['bank_eur'] ?? config('billing.supplier.bank_account_eur') }}"
@@ -76,19 +76,19 @@
             {{-- ── Kontaktní e-maily ─────────────────────────────────────── --}}
             <x-panel.card title="Kontaktní e-maily">
                 <div class="row g-3">
-                    <div class="col-md-4">
+                    <div class="col-span-4 md:col-span-6 sm:col-span-12">
                         <label class="form-label f-w-500">E-mail podpory</label>
                         <input type="email" name="support_email" class="form-control"
                                value="{{ $stored['support_email'] ?? 'podpora@onhost.cz' }}"
                                placeholder="podpora@onhost.cz">
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-span-4 md:col-span-6 sm:col-span-12">
                         <label class="form-label f-w-500">E-mail fakturace</label>
                         <input type="email" name="billing_email" class="form-control"
                                value="{{ $stored['billing_email'] ?? 'fakturace@onhost.cz' }}"
                                placeholder="fakturace@onhost.cz">
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-span-4 md:col-span-6 sm:col-span-12">
                         <label class="form-label f-w-500">Obchodní e-mail</label>
                         <input type="email" name="sales_email" class="form-control"
                                value="{{ $stored['sales_email'] ?? 'obchod@onhost.cz' }}"
@@ -100,7 +100,7 @@
             {{-- ── Web nastavení ─────────────────────────────────────────── --}}
             <x-panel.card title="Nastavení webu">
                 <div class="row g-3">
-                    <div class="col-md-8">
+                    <div class="col-span-8 md:col-span-12">
                         <label class="form-label f-w-500">Novinový ticker (horní lišta)</label>
                         <input type="text" name="news_ticker" class="form-control"
                                value="{{ $stored['news_ticker'] ?? config('front.news_ticker', '') }}"
