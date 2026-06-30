@@ -266,6 +266,7 @@ return [
         'usage'             => 'Využití',
         'usage_note'        => 'Mock data — reálné statistiky dorazí s ostrým aaPanel driverem.',
         'renew_placeholder'   => 'Prodloužit (připravujeme)',
+        'pay_renewal'         => 'Zaplatit obnovu',
         'upgrade_placeholder' => 'Změnit tarif (připravujeme)',
         'cancel_placeholder'        => 'Zrušit službu (připravujeme)',
         'cancel_not_allowed'        => 'Žádost o zrušení lze podat pouze pro aktivní nebo pozastavenou službu.',

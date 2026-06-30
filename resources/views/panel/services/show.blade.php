@@ -271,7 +271,16 @@
                                 </button>
                             </form>
                         @endif
-                        <button type="button" class="btn btn-outline-secondary btn-sm" disabled>{{ __('panel.services.renew_placeholder') }}</button>
+                        @if($renewalInvoice)
+                            <a href="{{ route('panel.billing.invoices.show', $renewalInvoice) }}"
+                               class="btn btn-{{ $renewalInvoice->status->value === 'overdue' ? 'danger' : 'warning' }} btn-sm">
+                                <i data-feather="refresh-cw" style="width:13px;height:13px"></i>
+                                {{ __('panel.services.pay_renewal') }}
+                                @if($renewalInvoice->status->value === 'overdue')
+                                    <span class="badge badge-light-warning ms-1">{{ __('panel.billing.overdue') }}</span>
+                                @endif
+                            </a>
+                        @endif
                         @if($service->status === \App\Domains\Provisioning\Enums\ServiceStatus::Active && $service->product)
                             <a href="{{ route('panel.services.change-plan', $service) }}"
                                class="btn btn-outline-primary btn-sm">

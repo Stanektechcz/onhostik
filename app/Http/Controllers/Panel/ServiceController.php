@@ -48,15 +48,25 @@ class ServiceController extends Controller
     {
         $this->authorize('view', $service);
 
+        $renewalInvoice = \App\Domains\Billing\Models\Invoice::query()
+            ->where('renewal_service_id', $service->id)
+            ->whereIn('status', [
+                \App\Domains\Billing\Enums\InvoiceStatus::Sent,
+                \App\Domains\Billing\Enums\InvoiceStatus::Overdue,
+            ])
+            ->latest('id')
+            ->first();
+
         return view('panel.services.show', [
             'service' => $service->load([
                 'product',
                 'domainRegistration',
                 'provisioningTasks' => fn ($query) => $query->latest('id'),
             ]),
-            'monitor'    => Monitor::query()->where('service_id', $service->id)->first(),
-            'backupJobs' => BackupJob::query()->where('service_id', $service->id)->latest('id')->limit(5)->get(),
-            'mockMode'   => (bool) config('provisioning.mock_mode', true),
+            'monitor'        => Monitor::query()->where('service_id', $service->id)->first(),
+            'backupJobs'     => BackupJob::query()->where('service_id', $service->id)->latest('id')->limit(5)->get(),
+            'renewalInvoice' => $renewalInvoice,
+            'mockMode'       => (bool) config('provisioning.mock_mode', true),
         ]);
     }
 
