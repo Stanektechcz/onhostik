@@ -175,7 +175,11 @@ return [
         'reply'        => 'Odpovědět',
         'staff'        => 'Podpora OnHost',
         'you'          => 'Vy',
-        'closed_note'  => 'Ticket je uzavřen. Pro nový dotaz otevřete prosím nový ticket.',
+        'closed_note'    => 'Ticket je uzavřen. Pro nový dotaz otevřete prosím nový ticket.',
+        'closed'         => 'Ticket byl uzavřen.',
+        'already_closed' => 'Ticket je již uzavřen.',
+        'close_ticket'   => 'Uzavřít ticket',
+        'close_confirm'  => 'Opravdu chcete uzavřít tento ticket?',
     ],
     'ai' => [
         'completed'    => 'AI asistent odpověděl (mock režim).',

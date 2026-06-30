@@ -69,11 +69,23 @@
                                                   placeholder="{{ __('panel.support.reply') }}…"></textarea>
                                         @error('message')<div class="text-danger f-12 mt-1">{{ $message }}</div>@enderror
                                     </div>
-                                    <button type="submit" class="btn btn-primary">
-                                        <i data-feather="send" style="width:14px;height:14px"></i>
-                                        {{ __('panel.support.reply') }}
-                                    </button>
+                                    <div class="d-flex gap-2">
+                                        <button type="submit" class="btn btn-primary">
+                                            <i data-feather="send" style="width:14px;height:14px"></i>
+                                            {{ __('panel.support.reply') }}
+                                        </button>
+                                    </div>
                                 </form>
+                                <div class="mt-3">
+                                    <form method="POST" action="{{ route('panel.support.close', $ticket) }}"
+                                          onsubmit="return confirm('{{ __('panel.support.close_confirm') }}')">
+                                        @csrf
+                                        <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                            <i data-feather="x" style="width:13px;height:13px"></i>
+                                            {{ __('panel.support.close_ticket') }}
+                                        </button>
+                                    </form>
+                                </div>
                             </div>
                         @else
                             <div class="border-top pt-3 mt-2">

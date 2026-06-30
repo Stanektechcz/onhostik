@@ -83,6 +83,7 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/podpora', [Panel\SupportController::class, 'store'])->name('support.store');
     Route::get('/podpora/{ticket}', [Panel\SupportController::class, 'show'])->name('support.show');
     Route::post('/podpora/{ticket}/odpoved', [Panel\SupportController::class, 'reply'])->name('support.reply');
+    Route::post('/podpora/{ticket}/uzavrit', [Panel\SupportController::class, 'close'])->name('support.close');
 
     Route::get('/ai', [Panel\AiController::class, 'index'])->name('ai.index');
     Route::post('/ai', [Panel\AiController::class, 'run'])->name('ai.run');
