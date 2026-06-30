@@ -11,6 +11,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Mail;
 
 class PageController extends Controller
 {
@@ -147,12 +148,27 @@ class PageController extends Controller
 
     public function contactSend(Request $request): RedirectResponse
     {
-        $request->validate([
+        $data = $request->validate([
             'name'    => ['required', 'string', 'max:120'],
             'email'   => ['required', 'email', 'max:180'],
             'subject' => ['required', 'string', 'max:200'],
             'message' => ['required', 'string', 'max:5000'],
         ]);
+
+        $adminEmail = config('mail.admin_address', config('mail.from.address', 'info@onhost.cz'));
+
+        try {
+            Mail::raw(
+                "Jméno: {$data['name']}\nE-mail: {$data['email']}\nPředmět: {$data['subject']}\n\n{$data['message']}",
+                function ($msg) use ($data, $adminEmail): void {
+                    $msg->to($adminEmail)
+                        ->replyTo($data['email'], $data['name'])
+                        ->subject("[Kontakt] {$data['subject']}");
+                }
+            );
+        } catch (\Throwable) {
+            // Never block the form on mail failure
+        }
 
         return redirect()->route('front.contact')
             ->with('contact_success', true);

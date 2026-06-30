@@ -14,6 +14,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class InvoiceController extends Controller
 {
@@ -73,6 +74,66 @@ class InvoiceController extends Controller
         }
 
         return back()->with('status', __('panel.admin.invoice_marked_paid'));
+    }
+
+    /** Stream invoices as CSV for accounting/export. */
+    public function export(Request $request): StreamedResponse
+    {
+        $status    = $request->string('status')->toString();
+        $dateFrom  = $request->string('from')->toString();
+        $dateTo    = $request->string('to')->toString();
+
+        $query = Invoice::query()
+            ->with('customer')
+            ->when($status !== '', fn ($q) => $q->where('status', $status))
+            ->when($dateFrom !== '', fn ($q) => $q->whereDate('issue_date', '>=', $dateFrom))
+            ->when($dateTo !== '', fn ($q) => $q->whereDate('issue_date', '<=', $dateTo))
+            ->orderBy('id');
+
+        $filename = 'faktury-' . now()->format('Y-m-d') . '.csv';
+
+        return response()->streamDownload(function () use ($query): void {
+            $out = fopen('php://output', 'w');
+            if ($out === false) {
+                return;
+            }
+
+            fprintf($out, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
+
+            fputcsv($out, [
+                'Číslo faktury', 'Typ', 'Status', 'Datum vystavení', 'Splatnost',
+                'Datum platby', 'Zákazník', 'E-mail', 'IČO', 'DIČ',
+                'Základ', 'DPH', 'Celkem', 'Měna',
+            ], ';');
+
+            $query->chunk(200, function ($invoices) use ($out): void {
+                foreach ($invoices as $invoice) {
+                    $currency = $invoice->total->getCurrency()->getCurrencyCode();
+                    $minor    = 100;
+                    fputcsv($out, [
+                        $invoice->number,
+                        $invoice->type->label(),
+                        $invoice->status->label(),
+                        $invoice->issue_date?->format('d.m.Y') ?? '',
+                        $invoice->due_date?->format('d.m.Y') ?? '',
+                        $invoice->paid_at?->format('d.m.Y') ?? '',
+                        $invoice->customer->company_name ?: ($invoice->snapshot_name ?: ''),
+                        $invoice->customer->email,
+                        $invoice->customer->registration_number ?: '',
+                        $invoice->customer->vat_number ?: '',
+                        number_format($invoice->subtotal->getMinorAmount()->toInt() / $minor, 2, ',', ''),
+                        number_format($invoice->tax_amount->getMinorAmount()->toInt() / $minor, 2, ',', ''),
+                        number_format($invoice->total->getMinorAmount()->toInt() / $minor, 2, ',', ''),
+                        $currency,
+                    ], ';');
+                }
+            });
+
+            fclose($out);
+        }, $filename, [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ]);
     }
 
     /** Admin cancel — marks an open invoice as cancelled with audit log. */
