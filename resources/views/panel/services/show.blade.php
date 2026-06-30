@@ -281,7 +281,18 @@
                         @else
                             <button type="button" class="btn btn-outline-secondary btn-sm" disabled>{{ __('panel.services.upgrade_placeholder') }}</button>
                         @endif
-                        <button type="button" class="btn btn-outline-secondary btn-sm" disabled>{{ __('panel.services.cancel_placeholder') }}</button>
+                        @if(in_array($service->status->value, ['active', 'suspended']))
+                            <form method="POST" action="{{ route('panel.services.request-cancel', $service) }}"
+                                  onsubmit="return confirm('{{ __('panel.services.cancel_confirm') }}')">
+                                @csrf
+                                <button type="submit" class="btn btn-outline-danger btn-sm">
+                                    <i data-feather="x-circle" style="width:13px;height:13px"></i>
+                                    {{ __('panel.services.request_cancellation') }}
+                                </button>
+                            </form>
+                        @else
+                            <button type="button" class="btn btn-outline-secondary btn-sm" disabled>{{ __('panel.services.cancel_placeholder') }}</button>
+                        @endif
                     </div>
                     <p class="f-light f-12 mb-0 mt-2">{{ __('panel.services.credentials') }}: {{ __('panel.services.credentials_note') }}</p>
                 </x-panel.card>

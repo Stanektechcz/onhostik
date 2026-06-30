@@ -14,6 +14,8 @@ use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Enums\TaskStatus;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Shared\Enums\Currency;
+use App\Domains\Support\Enums\TicketPriority;
+use App\Domains\Support\Services\TicketService;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -147,6 +149,38 @@ class ServiceController extends Controller
             ->route('front.order', $plan)
             ->with('service_change_id', $service->id)
             ->with('info', __('panel.services.plan_change_redirect', ['plan' => $plan->name]));
+    }
+
+    /** Customer requests service cancellation — opens a support ticket for admin review. */
+    public function requestCancellation(Request $request, Service $service, TicketService $tickets): RedirectResponse
+    {
+        $this->authorize('view', $service);
+
+        if (! in_array($service->status, [ServiceStatus::Active, ServiceStatus::Suspended], true)) {
+            return back()->withErrors(['cancel' => __('panel.services.cancel_not_allowed')]);
+        }
+
+        $user     = $request->user();
+        $customer = $user?->customer;
+
+        abort_if($user === null || $customer === null, 403);
+
+        $subject = __('panel.services.cancel_ticket_subject', ['label' => $service->label]);
+        $body    = __('panel.services.cancel_ticket_body', [
+            'label'    => $service->label,
+            'product'  => $service->product->name ?: '—',
+            'due_date' => $service->next_due_date?->format('d.m.Y') ?? '—',
+        ]);
+
+        $ticket = $tickets->open($customer, $user, $subject, $body, TicketPriority::Normal, 'billing');
+
+        activity('panel')
+            ->performedOn($service)
+            ->causedBy($user)
+            ->withProperties(['ticket_id' => $ticket->id])
+            ->log('service.cancellation_requested');
+
+        return back()->with('status', __('panel.services.cancel_requested', ['ticket' => $ticket->id]));
     }
 
     /** Mock WordPress one-click install — records a task, no real install. */
