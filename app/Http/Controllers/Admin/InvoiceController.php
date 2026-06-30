@@ -10,6 +10,7 @@ use App\Domains\Billing\Enums\InvoiceStatus;
 use App\Domains\Billing\Exceptions\IncompleteBillingDetailsException;
 use App\Domains\Billing\Models\Invoice;
 use App\Http\Controllers\Controller;
+use App\Notifications\InvoiceIssuedNotification;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -62,6 +63,19 @@ class InvoiceController extends Controller
         $pdf = Pdf::loadView('pdf.invoice', ['invoice' => $invoice->load('items')]);
 
         return $pdf->download($invoice->number . '.pdf');
+    }
+
+    public function resendEmail(Invoice $invoice): RedirectResponse
+    {
+        $user = $invoice->customer?->user;
+
+        if ($user === null) {
+            return back()->withErrors(['invoice' => __('panel.admin.resend_no_user')]);
+        }
+
+        $user->notify(new InvoiceIssuedNotification($invoice->load('items')));
+
+        return back()->with('status', __('panel.admin.resend_email_sent'));
     }
 
     public function show(Invoice $invoice): View

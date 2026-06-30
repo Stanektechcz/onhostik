@@ -80,6 +80,15 @@
                             <i data-feather="download" style="width:13px;height:13px"></i>
                             {{ __('panel.billing.print') }} PDF
                         </a>
+                        @if($invoice->customer?->user !== null)
+                            <form method="POST" action="{{ route('admin.invoices.resend-email', $invoice) }}">
+                                @csrf
+                                <button type="submit" class="btn btn-outline-info btn-sm">
+                                    <i data-feather="send" style="width:13px;height:13px"></i>
+                                    {{ __('panel.admin.resend_email') }}
+                                </button>
+                            </form>
+                        @endif
                         @if($mockMode && $invoice->status->isOpen())
                             <form method="POST" action="{{ route('admin.invoices.mark-paid', $invoice) }}">
                                 @csrf
