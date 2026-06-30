@@ -75,6 +75,11 @@
 
                     {{-- Actions --}}
                     <div class="border-top pt-3 mt-3 d-flex flex-wrap gap-2">
+                        <a href="{{ route('admin.invoices.pdf', $invoice) }}" target="_blank"
+                           class="btn btn-outline-secondary btn-sm">
+                            <i data-feather="download" style="width:13px;height:13px"></i>
+                            {{ __('panel.billing.print') }} PDF
+                        </a>
                         @if($mockMode && $invoice->status->isOpen())
                             <form method="POST" action="{{ route('admin.invoices.mark-paid', $invoice) }}">
                                 @csrf

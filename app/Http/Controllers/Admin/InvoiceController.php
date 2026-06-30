@@ -10,9 +10,11 @@ use App\Domains\Billing\Enums\InvoiceStatus;
 use App\Domains\Billing\Exceptions\IncompleteBillingDetailsException;
 use App\Domains\Billing\Models\Invoice;
 use App\Http\Controllers\Controller;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -53,6 +55,13 @@ class InvoiceController extends Controller
             'countPaid'     => (int) ($counts[InvoiceStatus::Paid->value] ?? 0),
             'countDraft'    => (int) ($counts[InvoiceStatus::Draft->value] ?? 0),
         ]);
+    }
+
+    public function downloadPdf(Invoice $invoice): Response
+    {
+        $pdf = Pdf::loadView('pdf.invoice', ['invoice' => $invoice->load('items')]);
+
+        return $pdf->download($invoice->number . '.pdf');
     }
 
     public function show(Invoice $invoice): View
