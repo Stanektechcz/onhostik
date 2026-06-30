@@ -203,6 +203,7 @@ return [
     ],
     'account' => [
         'billing_saved'  => 'Fakturační údaje byly uloženy.',
+        'profile_saved'  => 'Profil byl úspěšně uložen.',
         'type'           => 'Typ zákazníka',
         'person'         => 'Fyzická osoba',
         'company'        => 'Firma',

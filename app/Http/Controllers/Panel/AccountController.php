@@ -22,6 +22,22 @@ class AccountController extends Controller
         return view('panel.account.profile', compact('user', 'customer'));
     }
 
+    public function updateProfile(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        abort_if($user === null, 403);
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:100'],
+        ]);
+
+        $user->update(['name' => $validated['name']]);
+
+        activity()->causedBy($user)->log('profile_name_changed');
+
+        return back()->with('status', __('panel.account.profile_saved'));
+    }
+
     public function billing(Request $request): View
     {
         $customer = $this->customer($request);

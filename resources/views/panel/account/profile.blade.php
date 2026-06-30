@@ -54,6 +54,23 @@
                             </tr>
                         @endif
                     </table>
+
+                    <form method="POST" action="{{ route('panel.account.profile.update') }}" class="border-top pt-3 mt-3">
+                        @csrf
+                        @method('PUT')
+                        <div class="mb-2">
+                            <label class="form-label f-12 f-light" for="prof-name">{{ __('panel.account.name') }}</label>
+                            <input id="prof-name" type="text" name="name"
+                                   value="{{ old('name', $user?->name) }}"
+                                   class="form-control form-control-sm @error('name') is-invalid @enderror"
+                                   required maxlength="100">
+                            @error('name')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary btn-sm">
+                            <i data-feather="save" style="width:13px;height:13px"></i>
+                            {{ __('panel.common.save') }}
+                        </button>
+                    </form>
                 </x-panel.card>
 
                 <x-panel.card :title="__('panel.nav.billing_details')">

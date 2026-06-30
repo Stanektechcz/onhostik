@@ -64,6 +64,7 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/fakturace/kredit/dobit', [Panel\BillingController::class, 'topUp'])->name('billing.credits.topup');
 
     Route::get('/ucet/profil', [Panel\AccountController::class, 'profile'])->name('account.profile');
+    Route::put('/ucet/profil', [Panel\AccountController::class, 'updateProfile'])->name('account.profile.update');
     Route::get('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'billing'])->name('account.billing');
     Route::put('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'updateBilling'])->name('account.billing.update');
     Route::get('/ucet/zabezpeceni', [Panel\AccountController::class, 'security'])->name('account.security');
