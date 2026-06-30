@@ -237,6 +237,24 @@
                         </form>
                     </x-panel.card>
                 @endif
+
+                {{-- Manual renewal invoice --}}
+                @if($service->next_due_date !== null)
+                    <x-panel.card title="{{ __('panel.admin.manual_renewal') }}">
+                        <p class="f-light f-12 mb-2">
+                            {{ __('panel.admin.manual_renewal_hint') }}
+                        </p>
+                        @error('service')<div class="alert alert-danger py-1 px-2 mb-2 f-12">{{ $message }}</div>@enderror
+                        <form method="POST" action="{{ route('admin.services.manual-renewal', $service) }}"
+                              onsubmit="return confirm('{{ __('panel.admin.manual_renewal_confirm') }}')">
+                            @csrf
+                            <button type="submit" class="btn btn-outline-success btn-sm">
+                                <i data-feather="file-plus" style="width:13px;height:13px"></i>
+                                {{ __('panel.admin.manual_renewal_issue') }}
+                            </button>
+                        </form>
+                    </x-panel.card>
+                @endif
             </div>
 
             {{-- Right column: provisioning tasks timeline + audit --}}

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domains\Billing\Actions\IssueRenewalInvoiceAction;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Jobs\ChangeServiceStateJob;
 use App\Domains\Provisioning\Models\Service;
@@ -231,5 +232,27 @@ class ServiceController extends Controller
             ->log('service.due_date_adjusted');
 
         return back()->with('status', __('panel.admin.service_due_date_updated'));
+    }
+
+    public function manualRenewal(Service $service, IssueRenewalInvoiceAction $action): RedirectResponse
+    {
+        if ($service->next_due_date === null) {
+            return back()->withErrors(['service' => __('panel.admin.service_no_due_date')]);
+        }
+
+        $invoice = $action->execute($service);
+
+        if ($invoice === null) {
+            return back()->withErrors(['service' => __('panel.admin.service_renewal_failed')]);
+        }
+
+        activity('billing')
+            ->performedOn($service)
+            ->withProperties(['invoice_id' => $invoice->id, 'invoice_number' => $invoice->number])
+            ->log('service.renewal_invoice_issued');
+
+        return redirect()
+            ->route('admin.invoices.show', $invoice)
+            ->with('status', __('panel.admin.service_renewal_issued', ['number' => $invoice->number]));
     }
 }
