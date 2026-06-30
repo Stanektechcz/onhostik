@@ -23,7 +23,7 @@
         <div class="grid grid-cols-12 card-gap">
             <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="$domain->fqdn()">
-                    <div class="row g-3 mb-4">
+                    <div class="grid grid-cols-12 gap-3 mb-4">
                         <div class="col-span-3 sm:col-span-6">
                             <p class="f-light f-12 mb-1">{{ __('panel.common.status') }}</p>
                             @if($domain->wedos_domain_id !== null)
@@ -53,7 +53,7 @@
                         </div>
                     </div>
 
-                    <div class="row g-3 mb-4">
+                    <div class="grid grid-cols-12 gap-3 mb-4">
                         <div class="col-span-4 sm:col-span-12">
                             <p class="f-light f-12 mb-1">{{ __('panel.domains.auto_renew') }}</p>
                             @if($domain->auto_renew)

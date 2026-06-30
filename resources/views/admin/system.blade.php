@@ -16,7 +16,7 @@
             $errorProviders   = collect($providers)->filter(fn ($p) => $p['health'] === 'error')->count();
         @endphp
 
-        <div class="row mb-3">
+        <div class="grid grid-cols-12 gap-3 mb-3">
             <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="small-widget">
                     <div class="card card-no-border">

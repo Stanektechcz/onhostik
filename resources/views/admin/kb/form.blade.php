@@ -17,7 +17,7 @@
                         @csrf
                         @if($article->exists) @method('PUT') @endif
 
-                        <div class="row g-3">
+                        <div class="grid grid-cols-12 gap-3">
                             <div class="col-span-7 md:col-span-12">
                                 <label class="form-label f-w-500">Název *</label>
                                 <input type="text" name="title" class="form-control @error('title') is-invalid @enderror"

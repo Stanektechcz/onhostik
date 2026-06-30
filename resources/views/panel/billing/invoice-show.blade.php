@@ -33,7 +33,7 @@
                 <div class="alert alert-light-success" role="alert">{{ __('panel.billing.tax_document_note') }}</div>
             @endif
 
-            <div class="row mb-3">
+            <div class="grid grid-cols-12 gap-3 mb-3">
                 <div class="col-span-3 md:col-span-6 sm:col-span-12">
                     <p class="f-light f-12 mb-1">{{ __('panel.common.status') }}</p>
                     <x-panel.status-badge :status="$invoice->status" />
@@ -52,7 +52,7 @@
                 </div>
             </div>
 
-            <div class="row mb-3">
+            <div class="grid grid-cols-12 gap-3 mb-3">
                 <div class="col-span-6 md:col-span-12">
                     <h6 class="f-light f-12">{{ __('panel.billing.subscriber') }}</h6>
                     <p class="mb-0 f-w-600">{{ $invoice->snapshot_name }}</p>
@@ -81,8 +81,8 @@
                 @endforeach
             </x-panel.data-table>
 
-            <div class="row justify-content-end mt-3">
-                <div class="col-span-4 md:col-span-6 sm:col-span-12">
+            <div class="d-flex justify-content-end mt-3">
+                <div>
                     <table class="table table-borderless mb-0">
                         <tr><td class="f-light">{{ __('panel.orders.subtotal') }}</td><td class="text-end"><x-panel.money :money="$invoice->subtotal" /></td></tr>
                         <tr><td class="f-light">{{ __('panel.orders.vat') }}</td><td class="text-end"><x-panel.money :money="$invoice->tax_amount" /></td></tr>

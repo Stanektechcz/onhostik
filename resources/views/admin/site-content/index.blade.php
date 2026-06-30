@@ -16,7 +16,7 @@
 
             @forelse($groups as $group => $items)
                 <x-panel.card :title="ucfirst($group)">
-                    <div class="row g-3">
+                    <div class="grid grid-cols-12 gap-3">
                         @foreach($items as $item)
                             <div class="{{ $item->type === 'textarea' || $item->type === 'html' ? 'col-span-12' : 'col-span-6 md:col-span-12' }}">
                                 <label class="form-label f-w-500">

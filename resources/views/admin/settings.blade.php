@@ -21,7 +21,7 @@
                     Hodnoty načtené z prostředí jsou předvyplněné jako výchozí.
                 </p>
 
-                <div class="row g-3">
+                <div class="grid grid-cols-12 gap-3">
                     <div class="col-span-6 md:col-span-12">
                         <label class="form-label f-w-500">Název společnosti</label>
                         <input type="text" name="company_name" class="form-control"
@@ -75,7 +75,7 @@
 
             {{-- ── Kontaktní e-maily ─────────────────────────────────────── --}}
             <x-panel.card title="Kontaktní e-maily">
-                <div class="row g-3">
+                <div class="grid grid-cols-12 gap-3">
                     <div class="col-span-4 md:col-span-6 sm:col-span-12">
                         <label class="form-label f-w-500">E-mail podpory</label>
                         <input type="email" name="support_email" class="form-control"
@@ -99,7 +99,7 @@
 
             {{-- ── Web nastavení ─────────────────────────────────────────── --}}
             <x-panel.card title="Nastavení webu">
-                <div class="row g-3">
+                <div class="grid grid-cols-12 gap-3">
                     <div class="col-span-8 md:col-span-12">
                         <label class="form-label f-w-500">Novinový ticker (horní lišta)</label>
                         <input type="text" name="news_ticker" class="form-control"

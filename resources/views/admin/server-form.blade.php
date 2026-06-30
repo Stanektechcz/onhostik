@@ -12,7 +12,7 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        <div class="row justify-content-center">
+        <div class="grid grid-cols-12 card-gap">
             <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="$breadcrumbTitle">
                     <form method="POST" action="{{ $isNew ? route('admin.servers.store') : route('admin.servers.update', $server) }}">

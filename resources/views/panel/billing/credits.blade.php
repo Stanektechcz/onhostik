@@ -22,7 +22,7 @@
             </div>
             <div class="col-span-8 md:col-span-12">
                 <x-panel.card :title="__('panel.billing.topup_title')" :subtitle="__('panel.billing.topup_hint')">
-                    <form method="POST" action="{{ route('panel.billing.credits.topup') }}" class="row g-2 align-items-end">
+                    <form method="POST" action="{{ route('panel.billing.credits.topup') }}" class="grid grid-cols-12 gap-2 items-end">
                         @csrf
                         <div class="col-span-6 sm:col-span-12">
                             <label class="form-label f-12 f-light" for="topup-amount">{{ __('panel.billing.topup_amount') }}</label>

@@ -104,7 +104,7 @@
                 </x-panel.card>
 
                 <x-panel.card title="Rychlé akce">
-                    <div class="row g-2">
+                    <div class="grid grid-cols-12 gap-2">
                         <div class="col-span-6 sm:col-span-12">
                             <a href="{{ route('panel.billing.invoices') }}" class="card card-no-border border p-3 d-block text-decoration-none">
                                 <div class="d-flex align-items-center gap-2">

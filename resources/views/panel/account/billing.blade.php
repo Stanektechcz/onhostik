@@ -12,7 +12,7 @@
         <x-panel.flash />
 
         <x-panel.card :title="__('panel.nav.billing_details')" :subtitle="__('panel.account.tax_doc_note')">
-            <form method="POST" action="{{ route('panel.account.billing.update') }}" class="row g-3">
+            <form method="POST" action="{{ route('panel.account.billing.update') }}" class="grid grid-cols-12 gap-3">
                 @csrf
                 @method('PUT')
 

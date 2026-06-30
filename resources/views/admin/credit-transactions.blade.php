@@ -13,7 +13,7 @@
 
         <x-panel.card :title="__('panel.admin.credit_transactions')">
             {{-- Filters --}}
-            <form method="GET" class="row g-2 mb-3">
+            <form method="GET" class="grid grid-cols-12 gap-2 mb-3">
                 <div class="col-span-4 sm:col-span-12">
                     <input type="text" name="q" class="form-control" placeholder="{{ __('panel.common.search') }} (e-mail / firma)" value="{{ $search }}">
                 </div>

@@ -54,8 +54,8 @@
                     </x-panel.data-table>
 
                     {{-- Totals --}}
-                    <div class="row justify-content-end mt-3">
-                        <div class="col-span-4 md:col-span-6 sm:col-span-12">
+                    <div class="d-flex justify-content-end mt-3">
+                        <div>
                             <table class="table table-borderless mb-0">
                                 <tr>
                                     <td class="f-light">{{ __('panel.orders.subtotal') }}</td>
