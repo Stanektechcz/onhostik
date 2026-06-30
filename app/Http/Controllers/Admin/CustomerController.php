@@ -158,4 +158,15 @@ class CustomerController extends Controller
 
         return back()->with('status', __('panel.admin.credit_adjusted'));
     }
+
+    public function updateNotes(Request $request, Customer $customer): RedirectResponse
+    {
+        $validated = $request->validate([
+            'admin_notes' => ['nullable', 'string', 'max:5000'],
+        ]);
+
+        $customer->update(['admin_notes' => $validated['admin_notes']]);
+
+        return back()->with('status', __('panel.admin.notes_saved'));
+    }
 }

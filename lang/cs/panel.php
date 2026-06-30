@@ -339,6 +339,7 @@ return [
         'default'           => 'Výchozí',
         'properties'        => 'Detaily',
         'credit_adjusted'         => 'Kreditní korekce byla provedena a zapsána do ledgeru.',
+        'notes_saved'             => 'Poznámky k zákazníkovi byly uloženy.',
         'plan_updated'            => 'Tarif byl uložen.',
         'invoice_marked_paid'     => 'Faktura byla označena jako zaplacená (mock platba, plný platební flow).',
         'resend_email'            => 'Znovu odeslat e-mail',

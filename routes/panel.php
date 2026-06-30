@@ -121,6 +121,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/zakaznici/export', [Admin\CustomerController::class, 'export'])->name('customers.export');
     Route::get('/zakaznici/{customer}', [Admin\CustomerController::class, 'show'])->name('customers.show');
     Route::post('/zakaznici/{customer}/kredit', [Admin\CustomerController::class, 'adjustCredit'])->name('customers.credit');
+    Route::put('/zakaznici/{customer}/poznamky', [Admin\CustomerController::class, 'updateNotes'])->name('customers.notes');
 
     Route::get('/objednavky', [Admin\OrderController::class, 'index'])->name('orders.index');
     Route::get('/objednavky/export', [Admin\OrderController::class, 'export'])->name('orders.export');

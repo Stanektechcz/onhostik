@@ -133,6 +133,23 @@
                     </form>
                 </x-panel.card>
 
+                {{-- Admin notes --}}
+                <x-panel.card title="Interní poznámky">
+                    <form method="POST" action="{{ route('admin.customers.notes', $customer) }}">
+                        @csrf
+                        @method('PUT')
+                        <textarea name="admin_notes" rows="4"
+                                  class="form-control form-control-sm f-12 font-monospace mb-2"
+                                  placeholder="Interní poznámky — nevidí zákazník…"
+                                  maxlength="5000">{{ old('admin_notes', $customer->admin_notes) }}</textarea>
+                        @error('admin_notes')<div class="text-danger f-12 mb-2">{{ $message }}</div>@enderror
+                        <button type="submit" class="btn btn-outline-primary btn-sm">
+                            <i data-feather="save" style="width:13px;height:13px"></i>
+                            {{ __('panel.common.save') }}
+                        </button>
+                    </form>
+                </x-panel.card>
+
                 {{-- Domains --}}
                 @if($domains->isNotEmpty())
                     <x-panel.card :title="__('panel.nav.admin_domains')">

@@ -53,6 +53,7 @@ class Customer extends Model
         'preferred_locale',
         'country_code',
         'vat_validated_at',
+        'admin_notes',
     ];
 
     protected function casts(): array
