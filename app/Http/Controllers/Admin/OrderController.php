@@ -16,8 +16,10 @@ class OrderController extends Controller
 {
     public function index(Request $request): View
     {
-        $status = $request->string('status')->toString();
-        $search = $request->string('q')->toString();
+        $status   = $request->string('status')->toString();
+        $search   = $request->string('q')->toString();
+        $dateFrom = $request->string('from')->toString();
+        $dateTo   = $request->string('to')->toString();
 
         $counts = Order::query()->selectRaw('status, COUNT(*) as cnt')->groupBy('status')->pluck('cnt', 'status');
 
@@ -29,11 +31,15 @@ class OrderController extends Controller
                     $q->whereHas('customer', fn ($c) => $c->where('email', 'like', "%{$search}%")
                         ->orWhere('company_name', 'like', "%{$search}%"));
                 })
+                ->when($dateFrom !== '', fn ($q) => $q->whereDate('created_at', '>=', $dateFrom))
+                ->when($dateTo !== '', fn ($q) => $q->whereDate('created_at', '<=', $dateTo))
                 ->latest('id')
                 ->paginate(25)
                 ->withQueryString(),
             'filter'           => $status,
             'search'           => $search,
+            'dateFrom'         => $dateFrom,
+            'dateTo'           => $dateTo,
             'countActive'      => (int) ($counts[OrderStatus::Active->value] ?? 0),
             'countPending'     => (int) ($counts[OrderStatus::Pending->value] ?? 0),
             'countProcessing'  => (int) ($counts[OrderStatus::Processing->value] ?? 0),

@@ -92,6 +92,17 @@ class DashboardController extends Controller
         $saleReportOrders  = $orderCountsData->values();
         $saleReportRefunds = $months->keys()->map(fn ($m) => (int) ($failedPerMonth[$m] ?? 0))->values();
 
+        // ── Today at a glance ────────────────────────────────────────────────
+        $todayStart        = now()->startOfDay();
+        $todayOrders       = Order::query()->where('created_at', '>=', $todayStart)->count();
+        $todayRevenueCzk   = (int) Payment::query()
+            ->where('status', PaymentStatus::Completed->value)
+            ->where('currency', 'CZK')
+            ->where('created_at', '>=', $todayStart)
+            ->sum('amount');
+        $todayCustomers    = Customer::query()->where('created_at', '>=', $todayStart)->count();
+        $todayInvoices     = Invoice::query()->where('created_at', '>=', $todayStart)->count();
+
         // ── KPIs ─────────────────────────────────────────────────────────────
         $customerCount     = Customer::count();
         $customerLastMonth = Customer::where('created_at', '>=', now()->subMonth()->startOfMonth())->count();
@@ -119,6 +130,11 @@ class DashboardController extends Controller
             ->get();
 
         return view('admin.dashboard', [
+            // Today at a glance
+            'todayOrders'       => $todayOrders,
+            'todayRevenueCzk'   => $todayRevenueCzk,
+            'todayCustomers'    => $todayCustomers,
+            'todayInvoices'     => $todayInvoices,
             // KPI counters
             'revenueCzkMinor'   => $revenueMinor,
             'revTrendPct'       => $revTrendPct,

@@ -20,8 +20,10 @@ class InvoiceController extends Controller
 {
     public function index(Request $request): View
     {
-        $status = $request->string('status')->toString();
-        $search = $request->string('q')->toString();
+        $status   = $request->string('status')->toString();
+        $search   = $request->string('q')->toString();
+        $dateFrom = $request->string('from')->toString();
+        $dateTo   = $request->string('to')->toString();
 
         $counts = Invoice::query()->selectRaw('status, COUNT(*) as cnt')->groupBy('status')->pluck('cnt', 'status');
 
@@ -37,11 +39,15 @@ class InvoiceController extends Controller
                               ->orWhere('company_name', 'like', "%{$search}%"));
                     });
                 })
+                ->when($dateFrom !== '', fn ($q) => $q->whereDate('issue_date', '>=', $dateFrom))
+                ->when($dateTo !== '', fn ($q) => $q->whereDate('issue_date', '<=', $dateTo))
                 ->latest('id')
                 ->paginate(25)
                 ->withQueryString(),
             'filter'        => $status,
             'search'        => $search,
+            'dateFrom'      => $dateFrom,
+            'dateTo'        => $dateTo,
             'countSent'     => (int) ($counts[InvoiceStatus::Sent->value] ?? 0),
             'countOverdue'  => (int) ($counts[InvoiceStatus::Overdue->value] ?? 0),
             'countPaid'     => (int) ($counts[InvoiceStatus::Paid->value] ?? 0),

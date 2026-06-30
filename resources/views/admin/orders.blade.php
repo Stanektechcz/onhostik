@@ -33,20 +33,24 @@
 
         <x-panel.card :title="__('panel.nav.admin_orders')">
             <form method="GET" action="{{ route('admin.orders.index') }}" class="d-flex gap-2 mb-3 flex-wrap align-items-center">
-                <select name="status" class="form-select" style="max-width: 200px;">
+                <select name="status" class="form-select" style="max-width: 180px;">
                     <option value="">{{ __('panel.admin.all') }}</option>
                     @foreach(\App\Domains\Billing\Enums\OrderStatus::cases() as $s)
                         <option value="{{ $s->value }}" @selected($filter === $s->value)>{{ $s->label() }}</option>
                     @endforeach
                 </select>
-                <input type="text" name="q" class="form-control" style="max-width: 260px;"
+                <input type="text" name="q" class="form-control" style="max-width: 200px;"
                        placeholder="E-mail, firma…" value="{{ $search ?? '' }}">
+                <input type="date" name="from" class="form-control" style="max-width: 145px;"
+                       value="{{ $dateFrom ?? '' }}" title="Od">
+                <input type="date" name="to" class="form-control" style="max-width: 145px;"
+                       value="{{ $dateTo ?? '' }}" title="Do">
                 <button type="submit" class="btn btn-outline-primary btn-sm">{{ __('panel.admin.filter') }}</button>
-                @if($filter || ($search ?? ''))
+                @if($filter || ($search ?? '') || ($dateFrom ?? '') || ($dateTo ?? ''))
                     <a href="{{ route('admin.orders.index') }}" class="btn btn-outline-secondary btn-sm">×</a>
                 @endif
                 <span class="f-light f-12 ms-auto">{{ $orders->total() }} objednávek</span>
-                <a href="{{ route('admin.orders.export', array_filter(['status' => $filter, 'from' => request('from'), 'to' => request('to')])) }}"
+                <a href="{{ route('admin.orders.export', array_filter(['status' => $filter, 'from' => $dateFrom ?? '', 'to' => $dateTo ?? ''])) }}"
                    class="btn btn-outline-success btn-sm ms-2" title="Export do CSV">
                     <i data-feather="download" style="width:13px;height:13px;"></i> CSV
                 </a>

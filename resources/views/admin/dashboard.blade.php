@@ -175,6 +175,52 @@
     </div>
 
     {{-- ╔══════════════════════════════════════════════════════════════════╗
+         ║  2b. Today at a glance                          col-span-3     ║
+         ╚══════════════════════════════════════════════════════════════════╝ --}}
+    <div class="col-span-3 xxl:col-span-4 xl:col-span-6 sm:col-span-12 box-col-4 ord-md-1 box-ord-1 ord-xl-5 box-ord-5 ord-custom-1">
+      <div class="card">
+        <div class="card-header card-no-border pb-0">
+          <div class="header-top">
+            <h5>Dnes</h5>
+            <span class="f-light f-11">{{ now()->format('d. m. Y') }}</span>
+          </div>
+        </div>
+        <div class="card-body pt-2">
+          <ul class="flex flex-col gap-2">
+            <li class="d-flex justify-content-between align-items-center py-1 border-bottom">
+              <span class="f-light f-13 d-flex align-items-center gap-2">
+                <i data-feather="shopping-bag" style="width:14px;height:14px;" class="txt-primary"></i>
+                Nové objednávky
+              </span>
+              <span class="badge badge-light-primary f-13 f-w-600">{{ $todayOrders }}</span>
+            </li>
+            <li class="d-flex justify-content-between align-items-center py-1 border-bottom">
+              <span class="f-light f-13 d-flex align-items-center gap-2">
+                <i data-feather="credit-card" style="width:14px;height:14px;" class="txt-success"></i>
+                Příjmy (CZK)
+              </span>
+              <span class="badge badge-light-success f-13 f-w-600">{{ number_format($todayRevenueCzk / 100, 0, ',', ' ') }} Kč</span>
+            </li>
+            <li class="d-flex justify-content-between align-items-center py-1 border-bottom">
+              <span class="f-light f-13 d-flex align-items-center gap-2">
+                <i data-feather="user-plus" style="width:14px;height:14px;" class="txt-info"></i>
+                Noví zákazníci
+              </span>
+              <span class="badge badge-light-info f-13 f-w-600">{{ $todayCustomers }}</span>
+            </li>
+            <li class="d-flex justify-content-between align-items-center py-1">
+              <span class="f-light f-13 d-flex align-items-center gap-2">
+                <i data-feather="file-text" style="width:14px;height:14px;" class="txt-warning"></i>
+                Vystavené faktury
+              </span>
+              <span class="badge badge-light-warning f-13 f-w-600">{{ $todayInvoices }}</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  3. Visitor / Orders chart                      col-span-3     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
     <div class="col-span-3 xxl:col-span-4 xl:col-span-6 sm:col-span-12 box-col-4 ord-md-1 box-ord-1 ord-xl-5 box-ord-5 ord-custom-1">
