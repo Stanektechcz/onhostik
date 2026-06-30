@@ -16,7 +16,19 @@ class InvoiceIssuedNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return ['mail', 'database'];
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(object $notifiable): array
+    {
+        return [
+            'icon'  => 'file-text',
+            'color' => 'primary',
+            'title' => "Faktura {$this->invoice->number}",
+            'body'  => 'Nová faktura k uhrazení: ' . \App\Domains\Shared\Support\MoneyFormatter::format($this->invoice->total),
+            'url'   => route('panel.billing.invoices.show', $this->invoice),
+        ];
     }
 
     public function toMail(object $notifiable): MailMessage

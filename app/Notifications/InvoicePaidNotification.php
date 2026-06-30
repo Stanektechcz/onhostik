@@ -16,7 +16,19 @@ class InvoicePaidNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return ['mail', 'database'];
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(object $notifiable): array
+    {
+        return [
+            'icon'    => 'check-circle',
+            'color'   => 'success',
+            'title'   => "Platba přijata — {$this->invoice->number}",
+            'body'    => 'Faktura uhrazena. Vaše služby budou aktivovány automaticky.',
+            'url'     => route('panel.billing.invoices.show', $this->invoice),
+        ];
     }
 
     public function toMail(object $notifiable): MailMessage

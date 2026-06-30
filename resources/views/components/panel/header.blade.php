@@ -48,6 +48,28 @@
                     </div>
                 </li>
 
+                {{-- Notification bell --}}
+                <li class="onhover-dropdown" id="notif-bell-li">
+                    <div class="notification-box" id="notif-bell" style="cursor:pointer;position:relative;">
+                        <i data-feather="bell" style="width:20px;height:20px;"></i>
+                        <span class="badge badge-danger rounded-circle" id="notif-count" style="display:none;font-size:9px;min-width:16px;height:16px;line-height:16px;padding:0 3px;position:absolute;top:-6px;right:-6px;"></span>
+                    </div>
+                    <ul class="notification-dropdown onhover-show-div" style="width:360px;max-height:480px;overflow-y:auto;">
+                        <li>
+                            <h6 class="f-18 mb-0 dropdown-title">Notifikace</h6>
+                            <span class="f-light f-12 float-end" id="notif-unread-label"></span>
+                        </li>
+                        <li id="notif-items-container">
+                            <div class="text-center py-3 f-light f-12">Načítání…</div>
+                        </li>
+                        <li class="text-center">
+                            <button class="btn btn-primary btn-xs text-white" id="notif-mark-all-btn" onclick="markAllNotifRead()">
+                                Označit vše jako přečtené
+                            </button>
+                        </li>
+                    </ul>
+                </li>
+
                 {{-- Dark mode toggle (Cuba built-in) --}}
                 <li>
                     <div class="mode">

@@ -19,7 +19,19 @@ class TicketRepliedNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return ['mail', 'database'];
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(object $notifiable): array
+    {
+        return [
+            'icon'  => 'message-circle',
+            'color' => 'info',
+            'title' => "Odpověď na ticket — {$this->ticket->subject}",
+            'body'  => mb_substr($this->reply->message, 0, 120),
+            'url'   => route('panel.support.show', $this->ticket),
+        ];
     }
 
     public function toMail(object $notifiable): MailMessage

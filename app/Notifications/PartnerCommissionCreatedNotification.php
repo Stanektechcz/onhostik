@@ -15,7 +15,21 @@ class PartnerCommissionCreatedNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return ['mail', 'database'];
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(object $notifiable): array
+    {
+        $amount = number_format($this->commission->amount / 100, 0, ',', ' ') . ' ' . $this->commission->currency;
+
+        return [
+            'icon'  => 'gift',
+            'color' => 'primary',
+            'title' => "Nová provize {$amount}",
+            'body'  => 'Partner provize čeká na schválení.',
+            'url'   => route('partner.commissions'),
+        ];
     }
 
     public function toMail(object $notifiable): MailMessage

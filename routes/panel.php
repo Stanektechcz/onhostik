@@ -84,6 +84,10 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
 
     Route::get('/ai', [Panel\AiController::class, 'index'])->name('ai.index');
     Route::post('/ai', [Panel\AiController::class, 'run'])->name('ai.run');
+
+    Route::get('/notifikace', [Panel\NotificationController::class, 'index'])->name('notifications.index');
+    Route::post('/notifikace/{id}/precist', [Panel\NotificationController::class, 'markRead'])->name('notifications.read');
+    Route::post('/notifikace/precist-vse', [Panel\NotificationController::class, 'markAllRead'])->name('notifications.read-all');
 });
 
 /*

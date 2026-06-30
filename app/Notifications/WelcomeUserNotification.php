@@ -15,7 +15,19 @@ class WelcomeUserNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return ['mail', 'database'];
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(object $notifiable): array
+    {
+        return [
+            'icon'  => 'user-check',
+            'color' => 'success',
+            'title' => 'Vítejte na Onhost.cz!',
+            'body'  => 'Váš účet byl úspěšně vytvořen. Prozkoumejte dostupné služby.',
+            'url'   => route('panel.dashboard'),
+        ];
     }
 
     public function toMail(object $notifiable): MailMessage

@@ -135,5 +135,92 @@
 @livewireScripts
 @stack('scripts')
 <script src="{{ asset('panel/js/script.js') }}"></script>
+<script>
+/* ── In-panel notification bell ─────────────────────────────────── */
+(function() {
+    var FETCH_URL    = '{{ route('panel.notifications.index') }}';
+    var READ_ALL_URL = '{{ route('panel.notifications.read-all') }}';
+    var READ_URL_TPL = '{{ route('panel.notifications.read', ['id' => 'NOTIF_ID_PLACEHOLDER']) }}';
+    var CSRF         = document.querySelector('meta[name="csrf-token"]').content;
+
+    var iconMap = {
+        'check-circle': '✓', 'file-text': '📄', 'alert-triangle': '⚠',
+        'clock': '⏰', 'server': '🖥', 'message-circle': '💬',
+    };
+    var colorMap = {
+        success: '#54ba4a', primary: '#7366FF', warning: '#f39c12',
+        danger: '#dc3545', info: '#0dcaf0',
+    };
+
+    function loadNotifications() {
+        fetch(FETCH_URL, { headers: { Accept: 'application/json' } })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var count = data.unread_count;
+                var badge = document.getElementById('notif-count');
+                if (badge) {
+                    badge.textContent = count > 9 ? '9+' : count;
+                    badge.style.display = count > 0 ? '' : 'none';
+                }
+                var label = document.getElementById('notif-unread-label');
+                if (label) label.textContent = count > 0 ? count + ' nepřečtených' : '';
+
+                var container = document.getElementById('notif-items-container');
+                if (!container) return;
+
+                if (!data.notifications || data.notifications.length === 0) {
+                    container.innerHTML = '<div class="text-center py-3 f-light f-12">Žádné notifikace</div>';
+                    return;
+                }
+
+                var html = '';
+                data.notifications.forEach(function(n) {
+                    var d = n.data || {};
+                    var icon = iconMap[d.icon] || '•';
+                    var color = colorMap[d.color] || '#7366FF';
+                    var readClass = n.read ? '' : 'f-w-600';
+                    var bg = n.read ? '' : 'background:rgba(115,102,255,.04);';
+                    html += '<div class="media notification-item" style="padding:10px 14px;border-bottom:1px solid rgba(82,82,108,.1);cursor:pointer;' + bg + '"' +
+                        ' data-id="' + n.id + '" data-url="' + (d.url || '#') + '" onclick="handleNotifClick(this)">' +
+                        '<div class="flex-shrink-0 me-3 d-flex align-items-center justify-content-center rounded-circle"' +
+                        ' style="width:36px;height:36px;background:' + color + '22;font-size:15px;">' + icon + '</div>' +
+                        '<div class="media-body">' +
+                        '<p class="mb-0 ' + readClass + ' f-13">' + (d.title || '') + '</p>' +
+                        '<p class="mb-0 f-light f-12" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;">' + (d.body || '') + '</p>' +
+                        '<p class="mb-0 f-light" style="font-size:10px;">' + n.created_at + '</p>' +
+                        '</div></div>';
+                });
+                container.innerHTML = html;
+            })
+            .catch(function() {});
+    }
+
+    window.handleNotifClick = function(el) {
+        var id  = el.getAttribute('data-id');
+        var url = el.getAttribute('data-url');
+        fetch(READ_URL_TPL.replace('NOTIF_ID_PLACEHOLDER', id), {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': CSRF, Accept: 'application/json' },
+        }).then(function() { if (url && url !== '#') window.location.href = url; });
+    };
+
+    window.markAllNotifRead = function() {
+        fetch(READ_ALL_URL, {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': CSRF, Accept: 'application/json' },
+        }).then(function() { loadNotifications(); });
+    };
+
+    /* Load on open */
+    var bellLi = document.getElementById('notif-bell-li');
+    if (bellLi) {
+        bellLi.addEventListener('mouseenter', function() { loadNotifications(); });
+    }
+
+    /* Poll every 60 s for count update */
+    loadNotifications();
+    setInterval(loadNotifications, 60000);
+})();
+</script>
 </body>
 </html>

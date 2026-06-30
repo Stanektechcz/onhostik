@@ -15,7 +15,19 @@ class ServiceActivatedNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return ['mail', 'database'];
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(object $notifiable): array
+    {
+        return [
+            'icon'  => 'server',
+            'color' => 'success',
+            'title' => "Služba aktivována — {$this->service->label}",
+            'body'  => 'Vaše hostingová služba je připravena k použití.',
+            'url'   => route('panel.services.show', $this->service),
+        ];
     }
 
     public function toMail(object $notifiable): MailMessage

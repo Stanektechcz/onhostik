@@ -21,7 +21,19 @@ class RenewalReminderNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return ['mail', 'database'];
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(object $notifiable): array
+    {
+        return [
+            'icon'  => $this->daysLeft <= 3 ? 'alert-triangle' : 'clock',
+            'color' => $this->daysLeft <= 3 ? 'danger' : 'warning',
+            'title' => "Obnova za {$this->daysLeft}d — {$this->service->label}",
+            'body'  => 'Faktura ' . $this->invoice->number . ' čeká na uhrazení.',
+            'url'   => route('panel.billing.invoices.show', $this->invoice),
+        ];
     }
 
     public function toMail(object $notifiable): MailMessage
