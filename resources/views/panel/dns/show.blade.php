@@ -105,14 +105,14 @@
                             @enderror
                         </div>
 
-                        <div class="row g-2 mb-3">
-                            <div class="col-6">
+                        <div class="grid grid-cols-12 gap-2 mb-3">
+                            <div class="col-span-6">
                                 <label class="form-label f-12 f-light">TTL</label>
                                 <input type="number" name="ttl" value="{{ old('ttl', 3600) }}"
                                        class="form-control form-control-sm @error('ttl') is-invalid @enderror"
                                        min="60" max="86400">
                             </div>
-                            <div class="col-6">
+                            <div class="col-span-6">
                                 <label class="form-label f-12 f-light">{{ __('panel.dns.col_prio') }}</label>
                                 <input type="number" name="prio" value="{{ old('prio', 0) }}"
                                        class="form-control form-control-sm @error('prio') is-invalid @enderror"
