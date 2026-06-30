@@ -214,6 +214,29 @@
                         </button>
                     </form>
                 </x-panel.card>
+
+                {{-- Due date adjustment --}}
+                @if($service->next_due_date !== null)
+                    <x-panel.card title="Datum splatnosti">
+                        <p class="f-light f-12 mb-2">Aktuálně: <strong>{{ $service->next_due_date->format('d.m.Y') }}</strong></p>
+                        <form method="POST" action="{{ route('admin.services.adjust-due-date', $service) }}">
+                            @csrf
+                            @method('PUT')
+                            <div class="mb-2">
+                                <input type="date" name="next_due_date"
+                                       value="{{ old('next_due_date', $service->next_due_date->format('Y-m-d')) }}"
+                                       class="form-control form-control-sm @error('next_due_date') is-invalid @enderror"
+                                       min="{{ now()->addDay()->format('Y-m-d') }}"
+                                       required>
+                                @error('next_due_date')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                            </div>
+                            <button type="submit" class="btn btn-outline-warning btn-sm">
+                                <i data-feather="calendar" style="width:13px;height:13px"></i>
+                                {{ __('panel.admin.adjust_due_date') }}
+                            </button>
+                        </form>
+                    </x-panel.card>
+                @endif
             </div>
 
             {{-- Right column: provisioning tasks timeline + audit --}}

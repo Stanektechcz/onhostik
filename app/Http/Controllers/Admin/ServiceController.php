@@ -11,6 +11,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Spatie\Activitylog\Models\Activity;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -210,5 +211,25 @@ class ServiceController extends Controller
             ->log('service.label_updated');
 
         return back()->with('status', __('panel.admin.service_label_updated'));
+    }
+
+    public function adjustDueDate(Request $request, Service $service): RedirectResponse
+    {
+        $validated = $request->validate([
+            'next_due_date' => ['required', 'date', 'after:today'],
+        ]);
+
+        $old = $service->next_due_date?->toDateString();
+        $new = Carbon::parse($validated['next_due_date'])->toDateString();
+
+        $service->update(['next_due_date' => $new]);
+
+        activity('service')
+            ->performedOn($service)
+            ->causedBy($request->user())
+            ->withProperties(['old_due_date' => $old, 'new_due_date' => $new])
+            ->log('service.due_date_adjusted');
+
+        return back()->with('status', __('panel.admin.service_due_date_updated'));
     }
 }

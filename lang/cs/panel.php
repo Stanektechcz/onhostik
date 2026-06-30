@@ -355,6 +355,8 @@ return [
         'bulk_reminder_sent'          => 'Upomínky odeslány: :count zákazníků (:skipped přeskočeno — bez účtu).',
         'tax_document_issued'     => 'Daňový doklad byl vystaven.',
         'service_label_updated'   => 'Název služby byl uložen.',
+        'service_due_date_updated' => 'Datum splatnosti bylo upraveno.',
+        'adjust_due_date'         => 'Nastavit datum splatnosti',
         'service_suspend_queued'  => 'Pozastavení služby bylo zařazeno do fronty.',
         'service_unsuspend_queued' => 'Obnovení služby bylo zařazeno do fronty.',
         'ticket_replied'          => 'Odpověď byla odeslána zákazníkovi.',

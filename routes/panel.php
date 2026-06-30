@@ -162,6 +162,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::post('/sluzby/{service}/pozastavit', [Admin\ServiceController::class, 'suspend'])->name('services.suspend');
     Route::post('/sluzby/{service}/obnovit', [Admin\ServiceController::class, 'unsuspend'])->name('services.unsuspend');
     Route::put('/sluzby/{service}/popis', [Admin\ServiceController::class, 'updateLabel'])->name('services.update-label');
+    Route::put('/sluzby/{service}/splatnost', [Admin\ServiceController::class, 'adjustDueDate'])->name('services.adjust-due-date');
 
     Route::get('/domeny', [Admin\DomainController::class, 'index'])->name('domains.index');
     Route::get('/domeny/export', [Admin\DomainController::class, 'export'])->name('domains.export');
