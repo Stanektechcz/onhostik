@@ -193,4 +193,22 @@ class ServiceController extends Controller
 
         return back()->with('status', __('panel.admin.service_unsuspend_queued'));
     }
+
+    public function updateLabel(Request $request, Service $service): RedirectResponse
+    {
+        $validated = $request->validate([
+            'label' => ['required', 'string', 'max:150'],
+        ]);
+
+        $old = $service->label;
+        $service->update(['label' => $validated['label']]);
+
+        activity('service')
+            ->performedOn($service)
+            ->causedBy($request->user())
+            ->withProperties(['old_label' => $old, 'new_label' => $validated['label']])
+            ->log('service.label_updated');
+
+        return back()->with('status', __('panel.admin.service_label_updated'));
+    }
 }

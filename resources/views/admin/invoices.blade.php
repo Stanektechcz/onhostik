@@ -62,6 +62,16 @@
                    class="btn btn-outline-success btn-sm ms-2" title="Export do CSV">
                     <i data-feather="download" style="width:13px;height:13px;"></i> CSV
                 </a>
+                @if($countOverdue > 0)
+                    <form method="POST" action="{{ route('admin.invoices.bulk-payment-reminder') }}" class="ms-1"
+                          onsubmit="return confirm('{{ __('panel.admin.bulk_reminder_confirm', ['count' => $countOverdue]) }}')">
+                        @csrf
+                        <button type="submit" class="btn btn-warning btn-sm">
+                            <i data-feather="alert-triangle" style="width:13px;height:13px;"></i>
+                            {{ __('panel.admin.bulk_reminder') }} ({{ $countOverdue }})
+                        </button>
+                    </form>
+                @endif
             </form>
 
             @if($invoices->isEmpty())

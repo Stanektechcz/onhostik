@@ -104,6 +104,36 @@ class InvoiceController extends Controller
         return back()->with('status', __('panel.admin.payment_reminder_sent'));
     }
 
+    public function sendBulkPaymentReminders(Request $request): RedirectResponse
+    {
+        $sent   = 0;
+        $skipped = 0;
+
+        Invoice::query()
+            ->where('status', InvoiceStatus::Overdue)
+            ->with(['customer.user', 'items'])
+            ->chunk(50, function ($invoices) use (&$sent, &$skipped): void {
+                foreach ($invoices as $invoice) {
+                    $user = $invoice->customer?->user;
+                    if ($user === null) {
+                        $skipped++;
+                        continue;
+                    }
+
+                    $daysOverdue = $invoice->due_date ? (int) $invoice->due_date->diffInDays(now()) : 0;
+                    $user->notify(new PaymentOverdueNotification($invoice, $daysOverdue));
+                    $sent++;
+                }
+            });
+
+        activity('invoice')
+            ->causedBy($request->user())
+            ->withProperties(['sent' => $sent, 'skipped' => $skipped])
+            ->log('invoice.bulk_payment_reminders_sent');
+
+        return back()->with('status', __('panel.admin.bulk_reminder_sent', ['count' => $sent, 'skipped' => $skipped]));
+    }
+
     public function show(Invoice $invoice): View
     {
         return view('admin.invoice-show', [

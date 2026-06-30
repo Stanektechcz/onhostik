@@ -130,6 +130,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
 
     Route::get('/faktury', [Admin\InvoiceController::class, 'index'])->name('invoices.index');
     Route::get('/faktury/export', [Admin\InvoiceController::class, 'export'])->name('invoices.export');
+    Route::post('/faktury/hromadna-upominka', [Admin\InvoiceController::class, 'sendBulkPaymentReminders'])->name('invoices.bulk-payment-reminder');
     Route::get('/faktury/{invoice}', [Admin\InvoiceController::class, 'show'])->name('invoices.show');
     Route::get('/faktury/{invoice}/pdf', [Admin\InvoiceController::class, 'downloadPdf'])->name('invoices.pdf');
     Route::post('/faktury/{invoice}/oznacit-zaplacenou', [Admin\InvoiceController::class, 'markPaid'])->name('invoices.mark-paid');
@@ -160,6 +161,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/sluzby/{service}', [Admin\ServiceController::class, 'show'])->name('services.show');
     Route::post('/sluzby/{service}/pozastavit', [Admin\ServiceController::class, 'suspend'])->name('services.suspend');
     Route::post('/sluzby/{service}/obnovit', [Admin\ServiceController::class, 'unsuspend'])->name('services.unsuspend');
+    Route::put('/sluzby/{service}/popis', [Admin\ServiceController::class, 'updateLabel'])->name('services.update-label');
 
     Route::get('/domeny', [Admin\DomainController::class, 'index'])->name('domains.index');
     Route::get('/domeny/export', [Admin\DomainController::class, 'export'])->name('domains.export');

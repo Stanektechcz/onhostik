@@ -194,6 +194,26 @@
                         @endif
                     </div>
                 </x-panel.card>
+
+                {{-- Label edit --}}
+                <x-panel.card title="Název služby">
+                    <form method="POST" action="{{ route('admin.services.update-label', $service) }}">
+                        @csrf
+                        @method('PUT')
+                        <div class="mb-2">
+                            <input type="text" name="label"
+                                   value="{{ old('label', $service->label) }}"
+                                   class="form-control form-control-sm @error('label') is-invalid @enderror"
+                                   required maxlength="150"
+                                   placeholder="Název zobrazený zákazníkovi">
+                            @error('label')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary btn-sm">
+                            <i data-feather="save" style="width:13px;height:13px"></i>
+                            {{ __('panel.common.save') }}
+                        </button>
+                    </form>
+                </x-panel.card>
             </div>
 
             {{-- Right column: provisioning tasks timeline + audit --}}
