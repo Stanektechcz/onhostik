@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->string('code', 32)->unique();
             $table->string('type')->default('percent'); // percent | fixed
-            $table->unsignedDecimal('value', 8, 2); // % or minor units
+            $table->decimal('value', 8, 2)->unsigned(); // % or minor units
             $table->string('currency', 3)->nullable(); // for fixed type
             $table->unsignedInteger('max_uses')->nullable(); // null = unlimited
             $table->unsignedInteger('used_count')->default(0);
@@ -40,7 +40,7 @@ return new class extends Migration
 
         Schema::table('orders', function (Blueprint $table): void {
             $table->foreignId('discount_code_id')->nullable()->after('customer_id')->constrained('discount_codes')->nullOnDelete();
-            $table->unsignedDecimal('discount_amount', 10, 2)->default(0)->after('discount_code_id');
+            $table->decimal('discount_amount', 10, 2)->unsigned()->default(0)->after('discount_code_id');
         });
     }
 

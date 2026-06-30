@@ -46,6 +46,10 @@
                     <a href="{{ route('admin.orders.index') }}" class="btn btn-outline-secondary btn-sm">×</a>
                 @endif
                 <span class="f-light f-12 ms-auto">{{ $orders->total() }} objednávek</span>
+                <a href="{{ route('admin.orders.export', array_filter(['status' => $filter, 'from' => request('from'), 'to' => request('to')])) }}"
+                   class="btn btn-outline-success btn-sm ms-2" title="Export do CSV">
+                    <i data-feather="download" style="width:13px;height:13px;"></i> CSV
+                </a>
             </form>
 
             @if($orders->isEmpty())

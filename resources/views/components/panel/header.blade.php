@@ -62,10 +62,13 @@
                         <li id="notif-items-container">
                             <div class="text-center py-3 f-light f-12">Načítání…</div>
                         </li>
-                        <li class="text-center">
+                        <li class="text-center d-flex gap-2 justify-content-center py-1">
                             <button class="btn btn-primary btn-xs text-white" id="notif-mark-all-btn" onclick="markAllNotifRead()">
-                                Označit vše jako přečtené
+                                Označit vše přečtené
                             </button>
+                            <a href="{{ route('panel.notifications.index') }}" class="btn btn-outline-primary btn-xs">
+                                Všechny notifikace
+                            </a>
                         </li>
                     </ul>
                 </li>

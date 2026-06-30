@@ -13,6 +13,7 @@ use Brick\Money\Money;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CustomerController extends Controller
 {
@@ -39,6 +40,64 @@ class CustomerController extends Controller
             'companyCount'   => Customer::where('type', 'company')->count(),
             'personCount'    => Customer::where('type', 'person')->count(),
             'withServiceCount' => Customer::has('services')->count(),
+        ]);
+    }
+
+    /** Stream customers as CSV. */
+    public function export(Request $request): StreamedResponse
+    {
+        $search = $request->string('q')->toString();
+        $type   = $request->string('type')->toString();
+
+        $query = Customer::query()
+            ->with('user')
+            ->withCount(['orders', 'services'])
+            ->when($search !== '', function ($q) use ($search): void {
+                $q->where(function ($sq) use ($search): void {
+                    $sq->where('email', 'like', "%{$search}%")
+                       ->orWhere('company_name', 'like', "%{$search}%");
+                });
+            })
+            ->when($type !== '', fn ($q) => $q->where('type', $type))
+            ->orderBy('id');
+
+        $filename = 'zakaznici-' . now()->format('Y-m-d') . '.csv';
+
+        return response()->streamDownload(function () use ($query): void {
+            $out = fopen('php://output', 'w');
+            if ($out === false) {
+                return;
+            }
+
+            fprintf($out, "\xEF\xBB\xBF");
+
+            fputcsv($out, [
+                'ID', 'Typ', 'Jméno / Firma', 'E-mail', 'IČO', 'DIČ',
+                'Země', 'Měna', 'Objednávky', 'Služby', 'Registrace',
+            ], ';');
+
+            $query->chunk(200, function ($customers) use ($out): void {
+                foreach ($customers as $customer) {
+                    fputcsv($out, [
+                        $customer->id,
+                        $customer->type === 'company' ? 'firma' : 'osoba',
+                        $customer->company_name ?: ($customer->user?->name ?: ''),
+                        $customer->email,
+                        $customer->registration_number ?: '',
+                        $customer->vat_number ?: '',
+                        $customer->country_code ?: '',
+                        $customer->preferred_currency->value,
+                        $customer->orders_count,
+                        $customer->services_count,
+                        $customer->created_at?->format('d.m.Y') ?? '',
+                    ], ';');
+                }
+            });
+
+            fclose($out);
+        }, $filename, [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
         ]);
     }
 

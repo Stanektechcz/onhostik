@@ -74,10 +74,8 @@ $(function() { $('[data-bs-toggle="tooltip"]').tooltip(); });
             </div>
             @if($product !== null)
                 @php
-                    use App\Domains\Products\Enums\BillingCycle;
-                    use App\Domains\Shared\Support\MoneyFormatter;
-                    $monthlyPlans = $plans->filter(fn($p) => $p->billing_cycle === BillingCycle::Monthly);
-                    $annualPlans  = $plans->filter(fn($p) => $p->billing_cycle === BillingCycle::Annually);
+                    $monthlyPlans = $plans->filter(fn($p) => $p->billing_cycle === \App\Domains\Products\Enums\BillingCycle::Monthly);
+                    $annualPlans  = $plans->filter(fn($p) => $p->billing_cycle === \App\Domains\Products\Enums\BillingCycle::Annually);
                     $hasAnnual    = $annualPlans->isNotEmpty();
                     // Calc avg savings % for annual vs monthly (per matching plan name)
                     $savePercent  = 0;
@@ -119,7 +117,7 @@ $(function() { $('[data-bs-toggle="tooltip"]').tooltip(); });
                                     @endif
                                     <div class="price-content">
                                         <div class="price mergecolor">
-                                            {{ MoneyFormatter::format($plan->priceFor($currency)) }}
+                                            {{ \App\Domains\Shared\Support\MoneyFormatter::format($plan->priceFor($currency)) }}
                                             <span class="period mergecolor">/ {{ __('front.pricing.month') }}</span>
                                         </div>
                                     </div>
@@ -165,11 +163,11 @@ $(function() { $('[data-bs-toggle="tooltip"]').tooltip(); });
                                     @endif
                                     <div class="price-content">
                                         <div class="price mergecolor">
-                                            {{ MoneyFormatter::format($plan->priceFor($currency)->dividedBy(12, \RoundingMode::HALF_UP)) }}
+                                            {{ \App\Domains\Shared\Support\MoneyFormatter::format($plan->priceFor($currency)->dividedBy(12, \RoundingMode::HALF_UP)) }}
                                             <span class="period mergecolor">/ {{ __('front.pricing.month') }}</span>
                                         </div>
                                         <div class="f-12 seccolor mt-1">
-                                            {{ MoneyFormatter::format($plan->priceFor($currency)) }} / {{ __('front.pricing.year') }}
+                                            {{ \App\Domains\Shared\Support\MoneyFormatter::format($plan->priceFor($currency)) }} / {{ __('front.pricing.year') }}
                                         </div>
                                     </div>
                                     <a href="{{ route('front.order', $plan) }}" class="btn btn-default-yellow-fill">{{ __('front.pricing.order_now') }}</a>
@@ -203,7 +201,7 @@ $(function() { $('[data-bs-toggle="tooltip"]').tooltip(); });
                                         @endif
                                         <div class="price-content">
                                             <div class="price mergecolor">
-                                                {{ MoneyFormatter::format($plan->priceFor($currency)) }}
+                                                {{ \App\Domains\Shared\Support\MoneyFormatter::format($plan->priceFor($currency)) }}
                                                 <span class="period mergecolor">/ {{ $plan->billing_cycle->label() }}</span>
                                             </div>
                                         </div>

@@ -45,6 +45,7 @@ return [
         'admin_system'       => 'Stav systému',
         'admin_wallets'      => 'Peněženky',
         'admin_metrics'      => 'Obchodní metriky',
+        'notifications'      => 'Notifikace',
     ],
     'common' => [
         'placeholder' => 'Tento modul připravujeme — dorazí v některé z dalších fází vývoje.',
@@ -387,5 +388,12 @@ return [
     ],
     'metrics' => [
         'title' => 'Obchodní metriky',
+    ],
+    'notifications' => [
+        'unread'          => 'Nepřečtené',
+        'mark_all_read'   => 'Označit vše jako přečtené',
+        'mark_read'       => 'Označit jako přečtené',
+        'new'             => 'Nová',
+        'no_notifications' => 'Žádné notifikace. Vše sledujeme za vás.',
     ],
 ];
