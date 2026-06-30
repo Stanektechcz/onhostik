@@ -8,6 +8,7 @@ use App\Domains\Partner\Enums\CommissionStatus;
 use App\Domains\Partner\Enums\ReferralStatus;
 use App\Domains\Partner\Models\PartnerProfile;
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -96,11 +97,11 @@ class DashboardController extends Controller
             ->whereMonth('created_at', now()->month)
             ->whereYear('created_at', now()->year)
             ->sum('amount');
-        $monthlyTarget = max($monthlyCommission * 2, 100000); // placeholder
-        $monthlyTargetPct = $monthlyTarget > 0 ? round(($monthlyCommission / $monthlyTarget) * 100, 1) : 0;
+        $monthlyTarget    = max($monthlyCommission * 2, 100000); // placeholder
+        $monthlyTargetPct = round(($monthlyCommission / $monthlyTarget) * 100, 1);
 
         return view('partner.dashboard', [
-            'partnerName'          => $user?->name ?? 'Partner',
+            'partnerName'          => $user->name ?: 'Partner',
             'profile'              => $profile,
             'commissionEarned'     => $commissionEarned,
             'commissionPending'    => $commissionPending,
@@ -123,10 +124,10 @@ class DashboardController extends Controller
     }
 
     /** @param \Illuminate\Support\Collection $chartLabels */
-    private function stubData(mixed $user, mixed $chartLabels, mixed $emptySeries): array
+    private function stubData(User $user, mixed $chartLabels, mixed $emptySeries): array
     {
         return [
-            'partnerName'          => $user?->name ?? 'Partner',
+            'partnerName'          => $user->name ?: 'Partner',
             'profile'              => null,
             'commissionEarned'     => 0,
             'commissionPending'    => 0,

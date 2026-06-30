@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Brick\Math\RoundingMode;
 use Brick\Money\Money;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -64,7 +65,7 @@ class DiscountCode extends Model
     {
         if ($this->type === 'percent') {
             $factor = (float) $this->value / 100;
-            return $price->multipliedBy($factor, \RoundingMode::HALF_UP);
+            return $price->multipliedBy($factor, RoundingMode::HALF_UP);
         }
 
         // Fixed discount in specified currency

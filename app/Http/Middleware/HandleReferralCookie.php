@@ -7,6 +7,7 @@ namespace App\Http\Middleware;
 use App\Domains\Partner\Services\ReferralTracker;
 use Closure;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -25,21 +26,20 @@ class HandleReferralCookie
         if ($code !== null) {
             $this->tracker->handleVisit($request, $code);
 
-            /** @var Response $response */
             $response = $next($request);
 
             // Refresh cookie on every qualifying request to extend TTL
-            $response->cookie(
-                config('partner.cookie_name'),
+            $response->headers->setCookie(new Cookie(
+                (string) config('partner.cookie_name'),
                 $code,
-                config('partner.cookie_days') * 24 * 60, // minutes
+                time() + (int) config('partner.cookie_days') * 86400,
                 '/',
                 null,
-                secure: $request->isSecure(),
-                httpOnly: true,
-                raw: false,
-                sameSite: 'Lax',
-            );
+                $request->isSecure(),
+                true,
+                false,
+                'lax',
+            ));
 
             return $response;
         }

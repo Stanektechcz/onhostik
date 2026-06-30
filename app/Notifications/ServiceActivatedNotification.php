@@ -32,8 +32,8 @@ class ServiceActivatedNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        $service = $this->service;
-        $plan    = $service->pricingPlan;
+        $service = $this->service->loadMissing('orderItem.pricingPlan.product');
+        $plan    = $service->orderItem?->pricingPlan;
         $product = $plan?->product;
 
         return (new MailMessage)

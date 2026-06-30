@@ -17,6 +17,8 @@ use Illuminate\Support\Facades\Crypt;
  *
  * API credentials are encrypted at rest (Laravel Crypt, AES-256).
  * Plaintext secrets are NEVER stored, logged or returned via API.
+ *
+ * @property-read array<string,string> $api_credentials  Decrypted credential map (via Attribute accessor)
  */
 class Server extends Model
 {

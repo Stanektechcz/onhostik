@@ -55,7 +55,7 @@ class KbVoteController extends Controller
         KbArticleReview::create([
             'kb_article_id' => $article->id,
             'user_id'       => $request->user()?->id,
-            'author_name'   => $validated['author_name'] ?? $request->user()?->name ?? 'Anonymní',
+            'author_name'   => $validated['author_name'] ?? $request->user()->name ?? 'Anonymní',
             'content'       => $validated['content'],
             'is_visible'    => false,
         ]);

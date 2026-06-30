@@ -29,13 +29,13 @@ class WishlistController extends Controller
                 return null;
             }
             $price    = $plan->priceFor($customer->preferred_currency);
-            $priceVal = $price ? intdiv($price->getMinorAmount()->toInt(), 100) : 0;
+            $priceVal = intdiv($price->getMinorAmount()->toInt(), 100);
             return [
                 'plan'     => $plan,
                 'price'    => $priceVal,
-                'currency' => $price?->getCurrency()->getCurrencyCode() ?? 'CZK',
-                'prodName' => $plan->product?->name ?? '',
-                'fullName' => trim(($plan->product?->name ?? '') . ' ' . $plan->name),
+                'currency' => $price->getCurrency()->getCurrencyCode(),
+                'prodName' => $plan->product->name ?: '',
+                'fullName' => trim($plan->product->name . ' ' . $plan->name),
             ];
         })->filter()->values();
 

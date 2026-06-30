@@ -27,12 +27,12 @@ class CartController extends Controller
                 return null;
             }
             $price    = $plan->priceFor($customer->preferred_currency);
-            $priceVal = $price ? intdiv($price->getMinorAmount()->toInt(), 100) : 0;
+            $priceVal = intdiv($price->getMinorAmount()->toInt(), 100);
             return [
                 'plan'     => $plan,
                 'qty'      => (int) ($cart[$id] ?? 1),
                 'price'    => $priceVal,
-                'currency' => $price?->getCurrency()->getCurrencyCode() ?? 'CZK',
+                'currency' => $price->getCurrency()->getCurrencyCode(),
                 'subtotal' => $priceVal * (int) ($cart[$id] ?? 1),
             ];
         })->filter()->values();

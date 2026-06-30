@@ -51,7 +51,7 @@ class HostingController extends Controller
 
         return view('front.managed-hosting', [
             'product'  => $product,
-            'plans'    => $product?->pricingPlans ?? collect(),
+            'plans'    => $product !== null ? $product->pricingPlans : collect(),
             'currency' => $this->displayCurrency($request),
         ]);
     }
@@ -66,7 +66,7 @@ class HostingController extends Controller
 
         return view('front.gamehosting', [
             'product'  => $product,
-            'plans'    => $product?->pricingPlans ?? collect(),
+            'plans'    => $product !== null ? $product->pricingPlans : collect(),
             'currency' => $this->displayCurrency($request),
         ]);
     }
@@ -81,7 +81,7 @@ class HostingController extends Controller
 
         return view('front.vps', [
             'product'  => $product,
-            'plans'    => $product?->pricingPlans ?? collect(),
+            'plans'    => $product !== null ? $product->pricingPlans : collect(),
             'currency' => $this->displayCurrency($request),
         ]);
     }
@@ -96,7 +96,7 @@ class HostingController extends Controller
 
         return view('front.mailhosting', [
             'product'  => $product,
-            'plans'    => $product?->pricingPlans ?? collect(),
+            'plans'    => $product !== null ? $product->pricingPlans : collect(),
             'currency' => $this->displayCurrency($request),
         ]);
     }
@@ -109,6 +109,7 @@ class HostingController extends Controller
     /** Logged-in customers see their billing currency; guests see CZK. */
     private function displayCurrency(Request $request): Currency
     {
-        return $request->user()?->customer?->preferred_currency ?? Currency::default();
+        $customer = $request->user()?->customer;
+        return $customer !== null ? $customer->preferred_currency : Currency::default();
     }
 }

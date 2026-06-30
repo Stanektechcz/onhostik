@@ -18,7 +18,7 @@ class DiscountCodeController extends Controller
         $codes = DiscountCode::with('createdBy')
             ->when($request->string('q'), fn ($q, $s) => $q->where('code', 'like', "%{$s}%")
                 ->orWhere('description', 'like', "%{$s}%"))
-            ->when($request->string('status') === 'active', fn ($q) => $q->valid())
+            ->when($request->input('status') === 'active', fn ($q) => $q->valid())
             ->latest()
             ->paginate(20)
             ->withQueryString();

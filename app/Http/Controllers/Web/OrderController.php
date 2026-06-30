@@ -23,7 +23,8 @@ class OrderController extends Controller
         // ships) must 404 here, not just disappear from the picker UI.
         abort_if(! $plan->is_active || ! $plan->product?->is_active, 404);
 
-        $currency = $request->user()?->customer?->preferred_currency ?? Currency::default();
+        $customer = $request->user()?->customer;
+        $currency = $customer !== null ? $customer->preferred_currency : Currency::default();
 
         return view('front.order', [
             'plan'     => $plan->load('product'),

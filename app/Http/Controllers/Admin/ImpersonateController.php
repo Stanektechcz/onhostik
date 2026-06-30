@@ -21,7 +21,7 @@ class ImpersonateController extends Controller
         }
 
         /* Never impersonate another admin — only customers */
-        if ($user->hasRole('admin') && !$admin->id === $user->id) {
+        if ($user->hasRole('admin')) {
             return back()->withErrors(['impersonate' => 'Nelze se přihlásit za jiného admina.']);
         }
 

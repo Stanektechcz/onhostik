@@ -74,7 +74,7 @@ class ProxmoxMockDriver implements ProvisioningDriverInterface
     public function terminate(Service $service): ProvisioningResult
     {
         return ProvisioningResult::ok(
-            externalId: null,
+            externalId: 'mock-terminated-' . $service->id,
             metadata: ['mock' => true, 'operation' => 'terminate'],
         );
     }

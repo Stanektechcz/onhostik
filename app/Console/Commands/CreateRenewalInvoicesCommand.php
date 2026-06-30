@@ -40,7 +40,7 @@ class CreateRenewalInvoicesCommand extends Command
             ->where('status', ServiceStatus::Active)
             ->whereDate('next_due_date', $targetDate)
             ->with('orderItem.pricingPlan.product', 'orderItem.order', 'customer.user')
-            ->each(function (Service $service) use ($action, &$issued, &$skipped): void {
+            ->each(function (Service $service) use ($action, &$issued, &$skipped, $daysBefore): void {
                 $invoice = $action->execute($service);
 
                 if ($invoice === null) {

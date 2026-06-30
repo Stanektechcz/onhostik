@@ -18,9 +18,10 @@ class SetLocale
 
     public function handle(Request $request, Closure $next): Response
     {
-        $locale = $request->session()->get('locale')    // 1. session (locale.switch)
-            ?? $request->user()?->locale                 // 2. user profile (null-safe)
-            ?? config('app.locale', 'cs');               // 3. config default
+        $user   = $request->user();
+        $locale = $request->session()->get('locale')          // 1. session (locale.switch)
+            ?? ($user !== null ? $user->locale : null)        // 2. user profile
+            ?? config('app.locale', 'cs');                    // 3. config default
 
         if (in_array($locale, self::SUPPORTED, true)) {
             app()->setLocale($locale);

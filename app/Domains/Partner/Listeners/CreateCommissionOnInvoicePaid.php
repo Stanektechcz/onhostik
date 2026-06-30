@@ -45,13 +45,8 @@ final class CreateCommissionOnInvoicePaid
             return;
         }
 
-        $customerId = $invoice->customer_id;
-        if ($customerId === null) {
-            return;
-        }
-
         // Find the referral for this customer
-        $referral = PartnerReferral::where('referred_customer_id', $customerId)
+        $referral = PartnerReferral::where('referred_customer_id', $invoice->customer_id)
             ->with('partnerProfile')
             ->first();
 
@@ -108,7 +103,7 @@ final class CreateCommissionOnInvoicePaid
             ]);
 
             // Mark referral as converted (idempotent)
-            $this->tracker->markConverted($customerId);
+            $this->tracker->markConverted($invoice->customer_id);
 
             // Notify partner via email — never block on notification failure
             try {

@@ -72,15 +72,7 @@ final class DriverResolver
         }
 
         // AAPanel fallback in mock_mode (forDriver has no Server context).
-        if ($driver === ProvisioningDriver::AAPanel) {
-            return app(AapanelMockDriver::class);
-        }
-
-        throw new ProvisioningException(
-            "No driver for {$driver->value}.",
-            driver: $driver->value,
-            retryable: false,
-        );
+        return app(AapanelMockDriver::class);
     }
 
     public function registrar(): DomainRegistrarInterface

@@ -20,10 +20,12 @@ class HomeController extends Controller
             ->with(['pricingPlans' => fn ($query) => $query->where('is_active', true)])
             ->first();
 
+        $customer = $request->user()?->customer;
+
         return view('front.home', [
             'product'  => $product,
             'plans'    => $product->pricingPlans ?? collect(),
-            'currency' => $request->user()?->customer?->preferred_currency ?? Currency::default(),
+            'currency' => $customer !== null ? $customer->preferred_currency : Currency::default(),
         ]);
     }
 }

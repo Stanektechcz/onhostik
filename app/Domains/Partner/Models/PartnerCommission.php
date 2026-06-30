@@ -17,6 +17,9 @@ use Spatie\Activitylog\Traits\LogsActivity;
 /**
  * @property CommissionStatus $status
  * @property int $amount  minor units (haléře)
+ * @property \Illuminate\Support\Carbon|null $eligible_at
+ * @property \Illuminate\Support\Carbon|null $approved_at
+ * @property \Illuminate\Support\Carbon|null $paid_at
  */
 class PartnerCommission extends Model
 {

@@ -55,7 +55,7 @@ class ServerController extends Controller
         activity('provisioning')
             ->performedOn($server)
             ->causedBy($request->user())
-            ->withProperties(['driver' => $server->driver->value])
+            ->withProperties(['driver' => $validated['driver']])
             ->log('server.created');
 
         return redirect()->route('admin.servers.index')->with('status', __('panel.admin.server_saved'));
@@ -93,7 +93,7 @@ class ServerController extends Controller
         activity('provisioning')
             ->performedOn($server)
             ->causedBy($request->user())
-            ->withProperties(['driver' => $server->driver->value])
+            ->withProperties(['driver' => $validated['driver']])
             ->log('server.updated');
 
         return redirect()->route('admin.servers.index')->with('status', __('panel.admin.server_saved'));
