@@ -171,6 +171,8 @@ return [
         'priority'     => 'Priorita',
         'status'       => 'Stav',
         'last_reply'   => 'Poslední odpověď',
+        'assignee'     => 'Přiřazeno',
+        'unassigned'   => 'Nepřiřazeno',
         'none'         => 'Zatím žádné tickety.',
         'reply'        => 'Odpovědět',
         'staff'        => 'Podpora OnHost',

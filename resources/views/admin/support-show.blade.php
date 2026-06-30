@@ -77,6 +77,17 @@
                     @endif
                 </x-panel.card>
 
+                {{-- Assigned to --}}
+                @if($ticket->assignee)
+                    <x-panel.card>
+                        <div class="d-flex align-items-center gap-2">
+                            <i data-feather="user-check" class="font-success" style="width:14px;height:14px"></i>
+                            <span class="f-12 f-light">{{ __('panel.support.assignee') }}:</span>
+                            <span class="f-w-600 f-13">{{ $ticket->assignee->name }}</span>
+                        </div>
+                    </x-panel.card>
+                @endif
+
                 {{-- Status & priority controls --}}
                 <x-panel.card :title="__('panel.common.status')">
                     @error('approval')<div class="text-danger f-12 mb-2">{{ $message }}</div>@enderror
@@ -96,6 +107,15 @@
                             <select id="t-priority" name="priority" class="form-select">
                                 @foreach(\App\Domains\Support\Enums\TicketPriority::cases() as $priority)
                                     <option value="{{ $priority->value }}" @selected($ticket->priority === $priority)>{{ $priority->label() }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label f-12 f-light" for="t-assignee">{{ __('panel.support.assignee') }}</label>
+                            <select id="t-assignee" name="assigned_to" class="form-select">
+                                <option value="">— {{ __('panel.support.unassigned') }} —</option>
+                                @foreach($staffUsers as $staff)
+                                    <option value="{{ $staff->id }}" @selected($ticket->assigned_to === $staff->id)>{{ $staff->name }}</option>
                                 @endforeach
                             </select>
                         </div>

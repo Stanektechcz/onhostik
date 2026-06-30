@@ -66,6 +66,7 @@
                     __('panel.common.customer'),
                     __('panel.common.status'),
                     __('panel.support.priority'),
+                    __('panel.support.assignee'),
                     __('panel.support.last_reply'),
                     '',
                 ]">
@@ -88,6 +89,7 @@
                             <td class="f-light f-12">{{ $ticket->customer?->user?->name ?? $ticket->customer?->email ?? '—' }}</td>
                             <td><x-panel.status-badge :status="$ticket->status" /></td>
                             <td><span class="badge badge-light-{{ $priorityColor }}">{{ $ticket->priority->label() }}</span></td>
+                            <td class="f-light f-12">{{ $ticket->assignee?->name ?? '—' }}</td>
                             <td class="f-light f-12">{{ $ticket->last_reply_at?->diffForHumans() ?? '—' }}</td>
                             <td>
                                 <a href="{{ route('admin.support.show', $ticket) }}" class="btn btn-outline-primary btn-xs">

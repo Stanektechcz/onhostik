@@ -9,6 +9,7 @@ use App\Domains\Support\Enums\TicketStatus;
 use App\Domains\Support\Models\SupportTicket;
 use App\Domains\Support\Services\TicketService;
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -52,7 +53,8 @@ class SupportController extends Controller
     public function show(SupportTicket $ticket): View
     {
         return view('admin.support-show', [
-            'ticket' => $ticket->load(['customer.user', 'messages.author', 'events.user']),
+            'ticket'     => $ticket->load(['customer.user', 'messages.author', 'events.user', 'assignee']),
+            'staffUsers' => User::role('admin')->orderBy('name')->get(['id', 'name']),
         ]);
     }
 
@@ -70,12 +72,13 @@ class SupportController extends Controller
         return back()->with('status', __('panel.admin.ticket_replied'));
     }
 
-    /** Status + priority transitions, each audited via TicketService. */
+    /** Status + priority + assignee transitions, each audited via TicketService. */
     public function update(Request $request, SupportTicket $ticket, TicketService $tickets): RedirectResponse
     {
         $validated = $request->validate([
-            'status'   => ['nullable', Rule::enum(TicketStatus::class)],
-            'priority' => ['nullable', Rule::enum(TicketPriority::class)],
+            'status'      => ['nullable', Rule::enum(TicketStatus::class)],
+            'priority'    => ['nullable', Rule::enum(TicketPriority::class)],
+            'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
         ]);
 
         $admin = $request->user();
@@ -87,6 +90,18 @@ class SupportController extends Controller
 
         if (isset($validated['priority'])) {
             $tickets->changePriority($ticket, $admin, TicketPriority::from((string) $validated['priority']));
+        }
+
+        if (array_key_exists('assigned_to', $validated)) {
+            $newAssignee = $validated['assigned_to'] ? (int) $validated['assigned_to'] : null;
+            if ($ticket->assigned_to !== $newAssignee) {
+                $ticket->update(['assigned_to' => $newAssignee]);
+                activity('support')
+                    ->performedOn($ticket)
+                    ->causedBy($admin)
+                    ->withProperties(['assigned_to' => $newAssignee])
+                    ->log('ticket.assigned');
+            }
         }
 
         return back()->with('status', __('panel.admin.ticket_updated'));
