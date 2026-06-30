@@ -25,4 +25,9 @@ class DomainRegistrationPolicy
         return $user->customer !== null
             && $user->customer->id === $domain->service?->customer_id;
     }
+
+    public function update(User $user, DomainRegistration $domain): bool
+    {
+        return $this->view($user, $domain);
+    }
 }

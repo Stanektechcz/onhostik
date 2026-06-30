@@ -292,6 +292,10 @@ return [
         'auth_code_unavailable'  => 'Auth kód není k dispozici. Kontaktujte podporu.',
         'auto_renew_on'          => 'Doména bude automaticky prodloužena před expirací.',
         'auto_renew_off'         => 'Doména nebude automaticky prodloužena — je nutná ruční obnova.',
+        'auto_renew_enable'      => 'Zapnout auto-obnovu',
+        'auto_renew_disable'     => 'Vypnout auto-obnovu',
+        'auto_renew_enabled'     => 'Automatické prodloužení domény bylo zapnuto.',
+        'auto_renew_disabled'    => 'Automatické prodloužení domény bylo vypnuto.',
     ],
     'dns' => [
         'title'       => 'DNS záznamy',

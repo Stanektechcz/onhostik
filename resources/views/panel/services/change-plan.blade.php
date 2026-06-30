@@ -66,7 +66,7 @@
                         <span>{{ __('panel.services.plan_change_note') }}</span>
                     </div>
 
-                    <div class="row g-3">
+                    <div class="grid grid-cols-12 gap-3">
                         @foreach($availablePlans as $plan)
                             @php
                                 $price = $plan->priceFor($currency);
@@ -79,7 +79,7 @@
                                 $upgradeLabel = $isUpgrade ? 'primary' : 'warning';
                                 $upgradeText  = $isUpgrade ? __('panel.services.upgrade') : __('panel.services.downgrade');
                             @endphp
-                            <div class="col-md-6">
+                            <div class="col-span-6 md:col-span-12">
                                 <div class="border rounded p-3 h-100">
                                     <div class="d-flex justify-content-between align-items-start mb-2">
                                         <div>

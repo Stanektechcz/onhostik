@@ -30,6 +30,7 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
 
     Route::get('/domeny', [Panel\DomainController::class, 'index'])->name('domains.index');
     Route::get('/domeny/{domain}', [Panel\DomainController::class, 'show'])->name('domains.show');
+    Route::post('/domeny/{domain}/auto-renew', [Panel\DomainController::class, 'toggleAutoRenew'])->name('domains.auto-renew');
     Route::get('/domeny/{domain}/dns', [Panel\DnsController::class, 'show'])->name('domains.dns');
     Route::post('/domeny/{domain}/dns', [Panel\DnsController::class, 'store'])->name('domains.dns.store');
 

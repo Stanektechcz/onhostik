@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Panel;
 use App\Domains\Provisioning\Models\DomainRegistration;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
 class DomainController extends Controller
@@ -33,5 +34,18 @@ class DomainController extends Controller
         return view('panel.domains.show', [
             'domain' => $domain->load('service.provisioningTasks'),
         ]);
+    }
+
+    public function toggleAutoRenew(DomainRegistration $domain): RedirectResponse
+    {
+        $this->authorize('update', $domain);
+
+        $domain->update(['auto_renew' => ! $domain->auto_renew]);
+
+        $msg = $domain->auto_renew
+            ? __('panel.domains.auto_renew_enabled')
+            : __('panel.domains.auto_renew_disabled');
+
+        return back()->with('status', $msg);
     }
 }

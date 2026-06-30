@@ -134,20 +134,25 @@
                     @endif
                 </x-panel.card>
 
-                {{-- Auto-renew note --}}
+                {{-- Auto-renew toggle --}}
                 <x-panel.card :title="__('panel.domains.auto_renew')">
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        @if($domain->auto_renew)
-                            <span class="badge badge-light-success">ON</span>
-                            <span class="f-12 f-light">{{ __('panel.domains.auto_renew_on') }}</span>
-                        @else
-                            <span class="badge badge-light-secondary">OFF</span>
-                            <span class="f-12 f-light">{{ __('panel.domains.auto_renew_off') }}</span>
-                        @endif
-                    </div>
-                    <div class="alert alert-light-warning d-flex gap-2 align-items-start py-2 px-3 f-12 mb-0">
-                        <i data-feather="clock" style="width:14px;height:14px;margin-top:2px;flex-shrink:0" class="font-warning"></i>
-                        <span>{{ __('panel.domains.auto_renew_placeholder') }}</span>
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center gap-2">
+                            @if($domain->auto_renew)
+                                <span class="badge badge-light-success">ON</span>
+                                <span class="f-12 f-light">{{ __('panel.domains.auto_renew_on') }}</span>
+                            @else
+                                <span class="badge badge-light-secondary">OFF</span>
+                                <span class="f-12 f-light">{{ __('panel.domains.auto_renew_off') }}</span>
+                            @endif
+                        </div>
+                        <form method="POST" action="{{ route('panel.domains.auto-renew', $domain) }}">
+                            @csrf
+                            <button type="submit" class="btn btn-outline-{{ $domain->auto_renew ? 'warning' : 'success' }} btn-sm">
+                                <i data-feather="{{ $domain->auto_renew ? 'toggle-right' : 'toggle-left' }}" style="width:14px;height:14px;"></i>
+                                {{ $domain->auto_renew ? __('panel.domains.auto_renew_disable') : __('panel.domains.auto_renew_enable') }}
+                            </button>
+                        </form>
                     </div>
                 </x-panel.card>
 
