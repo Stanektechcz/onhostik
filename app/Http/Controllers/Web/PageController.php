@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web;
 
+use App\Domains\Support\Services\TicketService;
 use App\Http\Controllers\Controller;
 use App\Models\BlogPost;
 use App\Models\KbArticle;
@@ -146,7 +147,7 @@ class PageController extends Controller
         return response($content, 200, ['Content-Type' => 'application/xml']);
     }
 
-    public function contactSend(Request $request): RedirectResponse
+    public function contactSend(Request $request, TicketService $tickets): RedirectResponse
     {
         $data = $request->validate([
             'name'    => ['required', 'string', 'max:120'],
@@ -155,6 +156,24 @@ class PageController extends Controller
             'message' => ['required', 'string', 'max:5000'],
         ]);
 
+        $user     = $request->user();
+        $customer = $user?->customer;
+
+        if ($user !== null && $customer !== null) {
+            // Logged-in customer → create a real support ticket
+            $ticket = $tickets->open(
+                customer: $customer,
+                author: $user,
+                subject: $data['subject'],
+                message: $data['message'],
+                department: 'sales',
+            );
+
+            return redirect()->route('panel.support.show', $ticket)
+                ->with('status', 'Váš dotaz byl přijat jako ticket #' . $ticket->id . '.');
+        }
+
+        // Guest visitor → send plain e-mail to admin
         $adminEmail = config('mail.admin_address', config('mail.from.address', 'info@onhost.cz'));
 
         try {
