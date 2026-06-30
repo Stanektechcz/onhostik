@@ -11,6 +11,7 @@ use App\Domains\Billing\Exceptions\IncompleteBillingDetailsException;
 use App\Domains\Billing\Models\Invoice;
 use App\Http\Controllers\Controller;
 use App\Notifications\InvoiceIssuedNotification;
+use App\Notifications\PaymentOverdueNotification;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -76,6 +77,31 @@ class InvoiceController extends Controller
         $user->notify(new InvoiceIssuedNotification($invoice->load('items')));
 
         return back()->with('status', __('panel.admin.resend_email_sent'));
+    }
+
+    public function sendPaymentReminder(Invoice $invoice, Request $request): RedirectResponse
+    {
+        if ($invoice->status !== InvoiceStatus::Overdue) {
+            return back()->withErrors(['invoice' => __('panel.admin.payment_reminder_not_overdue')]);
+        }
+
+        $user = $invoice->customer?->user;
+        if ($user === null) {
+            return back()->withErrors(['invoice' => __('panel.admin.resend_no_user')]);
+        }
+
+        $daysOverdue = $invoice->due_date ? (int) $invoice->due_date->diffInDays(now()) : 0;
+
+        $user->notify(new PaymentOverdueNotification($invoice->load('items'), $daysOverdue));
+
+        $admin = $request->user();
+        activity('invoice')
+            ->performedOn($invoice)
+            ->causedBy($admin)
+            ->withProperties(['days_overdue' => $daysOverdue])
+            ->log('invoice.payment_reminder_sent');
+
+        return back()->with('status', __('panel.admin.payment_reminder_sent'));
     }
 
     public function show(Invoice $invoice): View

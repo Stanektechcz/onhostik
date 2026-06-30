@@ -89,6 +89,16 @@
                                 </button>
                             </form>
                         @endif
+                        @if($invoice->status === \App\Domains\Billing\Enums\InvoiceStatus::Overdue && $invoice->customer?->user !== null)
+                            <form method="POST" action="{{ route('admin.invoices.payment-reminder', $invoice) }}"
+                                  onsubmit="return confirm('{{ __('panel.admin.payment_reminder_confirm') }}')">
+                                @csrf
+                                <button type="submit" class="btn btn-warning btn-sm">
+                                    <i data-feather="alert-triangle" style="width:13px;height:13px"></i>
+                                    {{ __('panel.admin.payment_reminder') }}
+                                </button>
+                            </form>
+                        @endif
                         @if($mockMode && $invoice->status->isOpen())
                             <form method="POST" action="{{ route('admin.invoices.mark-paid', $invoice) }}">
                                 @csrf

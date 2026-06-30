@@ -135,6 +135,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::post('/faktury/{invoice}/danovy-doklad', [Admin\InvoiceController::class, 'issueTaxDocument'])->name('invoices.tax-document');
     Route::post('/faktury/{invoice}/zrusit', [Admin\InvoiceController::class, 'cancel'])->name('invoices.cancel');
     Route::post('/faktury/{invoice}/odeslat-email', [Admin\InvoiceController::class, 'resendEmail'])->name('invoices.resend-email');
+    Route::post('/faktury/{invoice}/upominka-platby', [Admin\InvoiceController::class, 'sendPaymentReminder'])->name('invoices.payment-reminder');
 
     Route::get('/platby', [Admin\PaymentController::class, 'index'])->name('payments.index');
     Route::get('/platby/export', [Admin\PaymentController::class, 'export'])->name('payments.export');
