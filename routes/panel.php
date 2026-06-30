@@ -157,6 +157,9 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::post('/sluzby/{service}/obnovit', [Admin\ServiceController::class, 'unsuspend'])->name('services.unsuspend');
 
     Route::get('/domeny', [Admin\DomainController::class, 'index'])->name('domains.index');
+    Route::get('/domeny/export', [Admin\DomainController::class, 'export'])->name('domains.export');
+    Route::get('/domeny/{domain}', [Admin\DomainController::class, 'show'])->name('domains.show');
+    Route::post('/domeny/{domain}/auto-renew', [Admin\DomainController::class, 'toggleAutoRenew'])->name('domains.toggle-auto-renew');
 
     Route::get('/servery', [Admin\ServerController::class, 'index'])->name('servers.index');
     Route::get('/servery/novy', [Admin\ServerController::class, 'create'])->name('servers.create');

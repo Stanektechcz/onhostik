@@ -63,7 +63,12 @@
                 @if($search || $expiryFilter)
                     <a href="{{ route('admin.domains.index') }}" class="btn btn-outline-secondary btn-sm">×</a>
                 @endif
-                <span class="f-light f-12 ms-auto">{{ $domains->total() }} domén</span>
+                <a href="{{ route('admin.domains.export', array_filter(['q' => $search, 'expiry' => $expiryFilter])) }}"
+                   class="btn btn-outline-success btn-sm ms-auto">
+                    <i data-feather="download" style="width:13px;height:13px"></i>
+                    CSV
+                </a>
+                <span class="f-light f-12">{{ $domains->total() }} domén</span>
             </form>
 
             @if($domains->isEmpty())
@@ -83,6 +88,7 @@
                                 <th>Auto-renew</th>
                                 <th>NS servery</th>
                                 <th>WEDOS ID</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -137,6 +143,12 @@
                                         @endif
                                     </td>
                                     <td class="f-light f-12">{{ $domain->wedos_domain_id ?? '—' }}</td>
+                                    <td>
+                                        <a href="{{ route('admin.domains.show', $domain) }}"
+                                           class="btn btn-outline-primary btn-xs">
+                                            {{ __('panel.common.detail') }}
+                                        </a>
+                                    </td>
                                 </tr>
                             @endforeach
                         </tbody>

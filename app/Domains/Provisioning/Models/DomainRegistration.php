@@ -8,8 +8,16 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
 
+/**
+ * @property-read int $id
+ * @property Carbon|null $registered_at
+ * @property Carbon|null $expires_at
+ * @property bool $auto_renew
+ * @property list<string>|null $nameservers
+ */
 class DomainRegistration extends Model
 {
     use HasFactory;
