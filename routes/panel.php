@@ -131,6 +131,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::post('/faktury/{invoice}/zrusit', [Admin\InvoiceController::class, 'cancel'])->name('invoices.cancel');
 
     Route::get('/platby', [Admin\PaymentController::class, 'index'])->name('payments.index');
+    Route::get('/platby/export', [Admin\PaymentController::class, 'export'])->name('payments.export');
     Route::post('/platby/{payment}/vraceni', [Admin\PaymentController::class, 'refund'])->name('payments.refund');
 
     Route::get('/kredit', [Admin\CreditController::class, 'index'])->name('credits.index');
@@ -147,6 +148,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::delete('/plany/{plan}', [Admin\ProductController::class, 'deletePlan'])->name('products.plans.delete');
 
     Route::get('/sluzby', [Admin\ServiceController::class, 'index'])->name('services.index');
+    Route::get('/sluzby/export', [Admin\ServiceController::class, 'export'])->name('services.export');
     Route::get('/sluzby/{service}', [Admin\ServiceController::class, 'show'])->name('services.show');
     Route::post('/sluzby/{service}/pozastavit', [Admin\ServiceController::class, 'suspend'])->name('services.suspend');
     Route::post('/sluzby/{service}/obnovit', [Admin\ServiceController::class, 'unsuspend'])->name('services.unsuspend');

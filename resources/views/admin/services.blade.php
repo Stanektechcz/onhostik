@@ -95,6 +95,10 @@
                     <a href="{{ route('admin.services.index') }}" class="btn btn-outline-secondary btn-sm">×</a>
                 @endif
                 <span class="f-light f-12 ms-auto">{{ $services->total() }} služeb</span>
+                <a href="{{ route('admin.services.export', array_filter(['status' => $filter, 'q' => $search, 'due' => $dueFilter])) }}"
+                   class="btn btn-outline-success btn-sm ms-2" title="Export do CSV">
+                    <i data-feather="download" style="width:13px;height:13px;"></i> CSV
+                </a>
             </form>
 
             @if($services->isEmpty())

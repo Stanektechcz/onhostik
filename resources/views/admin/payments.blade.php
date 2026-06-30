@@ -30,6 +30,10 @@
                     <a href="{{ route('admin.payments.index') }}" class="btn btn-outline-secondary btn-sm">×</a>
                 @endif
                 <span class="f-light f-12 ms-auto">{{ $payments->total() }} plateb</span>
+                <a href="{{ route('admin.payments.export', array_filter(['status' => $statusFilter ?? '', 'date_from' => $dateFrom ?? '', 'date_to' => $dateTo ?? '', 'q' => $search ?? ''])) }}"
+                   class="btn btn-outline-success btn-sm ms-2" title="Export do CSV">
+                    <i data-feather="download" style="width:13px;height:13px;"></i> CSV
+                </a>
             </form>
 
             <p class="f-12 f-light mb-3">

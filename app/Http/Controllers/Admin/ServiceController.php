@@ -12,9 +12,76 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Spatie\Activitylog\Models\Activity;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ServiceController extends Controller
 {
+    /** Stream services as CSV. */
+    public function export(Request $request): StreamedResponse
+    {
+        $status    = $request->string('status')->toString();
+        $search    = $request->string('q')->toString();
+        $dueFilter = $request->string('due')->toString();
+
+        $query = Service::query()
+            ->with(['customer', 'product', 'server', 'domainRegistration'])
+            ->when($status !== '', fn ($q) => $q->where('status', $status))
+            ->when($dueFilter === 'soon', fn ($q) => $q
+                ->whereNotNull('next_due_date')
+                ->whereDate('next_due_date', '<=', now()->addDays(30))
+                ->whereDate('next_due_date', '>=', now()))
+            ->when($dueFilter === 'overdue', fn ($q) => $q
+                ->whereNotNull('next_due_date')
+                ->whereDate('next_due_date', '<', now()))
+            ->when($search !== '', function ($q) use ($search): void {
+                $q->where(function ($inner) use ($search): void {
+                    $inner->where('label', 'like', "%{$search}%")
+                        ->orWhere('external_id', 'like', "%{$search}%")
+                        ->orWhereHas('customer', fn ($c) => $c->where('email', 'like', "%{$search}%"));
+                });
+            })
+            ->orderBy('id');
+
+        $filename = 'sluzby-' . now()->format('Y-m-d') . '.csv';
+
+        return response()->streamDownload(function () use ($query): void {
+            $out = fopen('php://output', 'w');
+            if ($out === false) {
+                return;
+            }
+
+            fprintf($out, "\xEF\xBB\xBF");
+
+            fputcsv($out, [
+                'ID', 'Label', 'Status', 'Zákazník', 'E-mail',
+                'Produkt', 'Server', 'Ext. ID', 'Doména', 'Příští platba', 'Vytvořeno',
+            ], ';');
+
+            $query->chunk(200, function ($services) use ($out): void {
+                foreach ($services as $service) {
+                    fputcsv($out, [
+                        $service->id,
+                        $service->label,
+                        $service->status->label(),
+                        $service->customer?->company_name ?: ($service->customer->email ?: ''),
+                        $service->customer->email ?: '',
+                        $service->product->name ?: '',
+                        $service->server->name ?: '',
+                        $service->external_id ?? '',
+                        $service->domainRegistration?->fqdn() ?? '',
+                        $service->next_due_date?->format('d.m.Y') ?? '',
+                        $service->created_at?->format('d.m.Y') ?? '',
+                    ], ';');
+                }
+            });
+
+            fclose($out);
+        }, $filename, [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ]);
+    }
+
     public function index(Request $request): View
     {
         $status = $request->string('status')->toString();

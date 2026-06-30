@@ -13,6 +13,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PaymentController extends Controller
 {
@@ -41,6 +42,69 @@ class PaymentController extends Controller
         }
 
         return back()->with('status', __('panel.admin.payment_refunded'));
+    }
+
+    /** Stream payments as CSV for accounting/export. */
+    public function export(Request $request): StreamedResponse
+    {
+        $status   = $request->string('status')->toString();
+        $dateFrom = $request->string('date_from')->toString();
+        $dateTo   = $request->string('date_to')->toString();
+        $search   = $request->string('q')->toString();
+
+        $query = Payment::query()
+            ->with(['customer', 'invoice'])
+            ->when($status !== '', fn ($q) => $q->where('status', $status))
+            ->when($dateFrom !== '', fn ($q) => $q->whereDate('created_at', '>=', $dateFrom))
+            ->when($dateTo !== '', fn ($q) => $q->whereDate('created_at', '<=', $dateTo))
+            ->when($search !== '', function ($q) use ($search): void {
+                $q->where(function ($inner) use ($search): void {
+                    $inner->whereHas('customer', fn ($c) => $c->where('email', 'like', "%{$search}%")
+                        ->orWhere('company_name', 'like', "%{$search}%"))
+                      ->orWhereHas('invoice', fn ($i) => $i->where('number', 'like', "%{$search}%"));
+                });
+            })
+            ->orderBy('id');
+
+        $filename = 'platby-' . now()->format('Y-m-d') . '.csv';
+
+        return response()->streamDownload(function () use ($query): void {
+            $out = fopen('php://output', 'w');
+            if ($out === false) {
+                return;
+            }
+
+            fprintf($out, "\xEF\xBB\xBF");
+
+            fputcsv($out, [
+                'ID', 'Status', 'Metoda', 'Zákazník', 'E-mail', 'IČO',
+                'Faktura', 'Celkem', 'Měna', 'Comgate ID', 'Datum',
+            ], ';');
+
+            $query->chunk(200, function ($payments) use ($out): void {
+                foreach ($payments as $payment) {
+                    $currency = $payment->amount->getCurrency()->getCurrencyCode();
+                    fputcsv($out, [
+                        $payment->id,
+                        $payment->status->label(),
+                        $payment->method->label(),
+                        $payment->customer?->company_name ?: ($payment->customer->email ?: ''),
+                        $payment->customer->email ?: '',
+                        $payment->customer?->registration_number ?: '',
+                        $payment->invoice->number ?: '',
+                        number_format($payment->amount->getMinorAmount()->toInt() / 100, 2, ',', ''),
+                        $currency,
+                        $payment->gateway_transaction_id ?? '',
+                        ($payment->processed_at ?? $payment->created_at)?->format('d.m.Y H:i') ?? '',
+                    ], ';');
+                }
+            });
+
+            fclose($out);
+        }, $filename, [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ]);
     }
 
     public function index(Request $request): View
