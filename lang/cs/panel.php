@@ -205,7 +205,8 @@ return [
     ],
     'account' => [
         'billing_saved'  => 'Fakturační údaje byly uloženy.',
-        'profile_saved'  => 'Profil byl úspěšně uložen.',
+        'profile_saved'      => 'Profil byl úspěšně uložen.',
+        'deletion_requested' => 'Žádost o smazání účtu byla přijata. Budeme Vás kontaktovat do 30 dnů.',
         'type'           => 'Typ zákazníka',
         'person'         => 'Fyzická osoba',
         'company'        => 'Firma',

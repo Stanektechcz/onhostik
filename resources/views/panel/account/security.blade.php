@@ -296,6 +296,34 @@
                     </div>
                 </div>
 
+                {{-- Danger zone: account deletion --}}
+                <div class="card border-danger">
+                    <div class="card-header card-no-border">
+                        <h5 class="txt-danger">Nebezpečná zóna</h5>
+                    </div>
+                    <div class="card-body pt-0">
+                        <p class="f-light f-12 mb-3">
+                            Žádost o smazání účtu odešle interní požadavek našemu týmu. Účet bude smazán do 30 dnů
+                            po vyrovnání případných závazků. Dle GDPR máte právo na výmaz.
+                        </p>
+                        @error('deletion')
+                            <div class="alert alert-danger py-1 px-2 mb-2 f-12">{{ $message }}</div>
+                        @enderror
+                        <form method="POST" action="{{ route('panel.account.delete-request') }}"
+                              onsubmit="return confirm('Opravdu chcete požádat o smazání účtu? Tuto akci nelze vzít zpět.')">
+                            @csrf
+                            <div class="mb-2">
+                                <input type="text" name="reason" class="form-control form-control-sm"
+                                       placeholder="Důvod (volitelné)" maxlength="255">
+                            </div>
+                            <button type="submit" class="btn btn-outline-danger btn-sm">
+                                <i data-feather="trash-2" style="width:13px;height:13px;"></i>
+                                Požádat o smazání účtu
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
             </div>
 
         </div>

@@ -8,6 +8,7 @@ use App\Domains\Support\Services\TicketService;
 use App\Http\Controllers\Controller;
 use App\Models\BlogPost;
 use App\Models\KbArticle;
+use App\Models\Subscriber;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -191,5 +192,31 @@ class PageController extends Controller
 
         return redirect()->route('front.contact')
             ->with('contact_success', true);
+    }
+
+    public function newsletterSubscribe(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'email'  => ['required', 'email', 'max:180'],
+            'locale' => ['nullable', 'string', 'in:cs,en'],
+        ]);
+
+        $email = strtolower($data['email']);
+
+        $existing = Subscriber::where('email', $email)->first();
+
+        if ($existing === null) {
+            Subscriber::create([
+                'email'        => $email,
+                'locale'       => $data['locale'] ?? app()->getLocale(),
+                'source'       => 'website',
+                'confirmed_at' => now(),
+                'is_active'    => true,
+            ]);
+        } elseif (! $existing->is_active) {
+            $existing->update(['is_active' => true, 'unsubscribed_at' => null]);
+        }
+
+        return back()->with('newsletter_success', true);
     }
 }

@@ -46,6 +46,7 @@ Route::get('/objednavka/{plan}', [OrderController::class, 'start'])->name('front
 
 Route::get('/kontakt', [PageController::class, 'contact'])->name('front.contact');
 Route::post('/kontakt', [PageController::class, 'contactSend'])->name('front.contact.send');
+Route::post('/newsletter/prihlasku', [PageController::class, 'newsletterSubscribe'])->name('front.newsletter.subscribe')->middleware('throttle:5,1');
 Route::get('/o-nas', [PageController::class, 'about'])->name('front.about');
 Route::get('/faq', [PageController::class, 'faq'])->name('front.faq');
 Route::get('/obchodni-podminky', [PageController::class, 'legal'])->name('front.legal');

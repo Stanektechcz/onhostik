@@ -225,4 +225,33 @@
             </div>
         </div>
     </section>
+
+    {{-- Newsletter subscribe section --}}
+    <section class="pt-100 pb-100 bg-seccolorstyle">
+        <div class="container">
+            <div class="row justify-content-center text-center">
+                <div class="col-md-8 col-lg-6">
+                    <h3 class="mergecolor mb-2">Odběr novinek</h3>
+                    <p class="seccolor mb-4">Buďte první, kdo se dozví o nových produktech, výhodách a technických novinkách.</p>
+                    @if(session('newsletter_success'))
+                        <div class="alert alert-success">Děkujeme za přihlášení k odběru!</div>
+                    @else
+                        <form method="POST" action="{{ route('front.newsletter.subscribe') }}" class="d-flex gap-2 justify-content-center flex-wrap">
+                            @csrf
+                            <input type="email" name="email" class="form-control @error('email') is-invalid @enderror"
+                                   style="max-width:320px;" placeholder="Váš e-mail" required>
+                            <input type="hidden" name="locale" value="{{ app()->getLocale() }}">
+                            @error('email')
+                                <div class="invalid-feedback d-block">{{ $message }}</div>
+                            @enderror
+                            <button type="submit" class="btn btn-default-gradiant btn-sm text-white px-4">
+                                Přihlásit k odběru
+                            </button>
+                        </form>
+                        <p class="seccolor f-11 mt-2">Odhlásit se lze kdykoliv. Žádný spam.</p>
+                    @endif
+                </div>
+            </div>
+        </div>
+    </section>
 @endsection

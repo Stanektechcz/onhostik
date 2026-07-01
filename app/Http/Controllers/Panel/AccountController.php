@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Panel;
 
 use App\Domains\Customer\Models\Customer;
+use App\Domains\Support\Enums\TicketPriority;
+use App\Domains\Support\Services\TicketService;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -145,6 +147,38 @@ class AccountController extends Controller
         activity()->causedBy($user)->log('password_changed');
 
         return back()->with('status', 'Heslo bylo úspěšně změněno.');
+    }
+
+    public function requestDeletion(Request $request, TicketService $tickets): RedirectResponse
+    {
+        $user     = $request->user();
+        $customer = $user?->customer;
+
+        abort_if($user === null || $customer === null, 403);
+
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $reason = $validated['reason'] ?? 'Zákazník neuvedl důvod.';
+
+        $ticket = $tickets->open(
+            $customer,
+            $user,
+            'Žádost o smazání účtu — GDPR čl. 17',
+            "Zákazník žádá o smazání účtu a všech osobních údajů.\n\nDůvod: {$reason}\n\nE-mail: {$user->email}",
+            TicketPriority::High,
+            'billing',
+        );
+
+        activity()
+            ->causedBy($user)
+            ->withProperties(['ticket_id' => $ticket->id, 'reason' => $reason])
+            ->log('account.deletion_requested');
+
+        return redirect()
+            ->route('panel.support.show', $ticket)
+            ->with('status', __('panel.account.deletion_requested'));
     }
 
     private function customer(Request $request): Customer
