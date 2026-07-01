@@ -43,6 +43,8 @@ class User extends Authenticatable
         'password',
         'is_active',
         'locale',
+        'last_login_at',
+        'last_login_ip',
         'two_factor_secret',
         'two_factor_recovery_codes',
         'two_factor_confirmed_at',

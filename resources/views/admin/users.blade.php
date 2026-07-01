@@ -62,6 +62,7 @@
                                             <th><span class="f-light font-semibold">E-mail</span></th>
                                             <th><span class="f-light font-semibold">Role</span></th>
                                             <th><span class="f-light font-semibold">Registrace</span></th>
+                                            <th><span class="f-light font-semibold">Poslední přihlášení</span></th>
                                             <th><span class="f-light font-semibold">Stav</span></th>
                                             <th><span class="f-light font-semibold">Akce</span></th>
                                         </tr>
@@ -91,6 +92,15 @@
                                                 @endif
                                             </td>
                                             <td class="f-12">{{ $user->created_at?->format('d.m.Y') }}</td>
+                                            <td class="f-12">
+                                                @if($user->last_login_at)
+                                                    <span title="{{ $user->last_login_at->format('d.m.Y H:i') }} {{ $user->last_login_ip }}">
+                                                        {{ $user->last_login_at->diffForHumans() }}
+                                                    </span>
+                                                @else
+                                                    <span class="f-light">—</span>
+                                                @endif
+                                            </td>
                                             <td>
                                                 @if($user->is_active ?? true)
                                                     <span class="badge badge-light-success">Aktivní</span>
@@ -113,7 +123,7 @@
                                         </tr>
                                         @empty
                                         <tr>
-                                            <td colspan="7" class="text-center py-4 f-light">Žádní uživatelé.</td>
+                                            <td colspan="8" class="text-center py-4 f-light">Žádní uživatelé.</td>
                                         </tr>
                                         @endforelse
                                     </tbody>
