@@ -238,6 +238,35 @@ class InvoiceController extends Controller
         return back()->with('status', __('panel.admin.invoice_cancelled'));
     }
 
+    /** Batch mark multiple invoices as paid (admin shortcut for offline payments). */
+    public function batchMarkPaid(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'ids'   => ['required', 'array', 'min:1', 'max:100'],
+            'ids.*' => ['integer', 'exists:invoices,id'],
+        ]);
+
+        $marked = 0;
+        Invoice::whereIn('id', $validated['ids'])
+            ->whereIn('status', [InvoiceStatus::Sent->value, InvoiceStatus::Overdue->value])
+            ->each(function (Invoice $invoice) use ($request, &$marked): void {
+                $invoice->update([
+                    'status'  => InvoiceStatus::Paid,
+                    'paid_at' => now(),
+                ]);
+
+                activity('billing')
+                    ->performedOn($invoice)
+                    ->causedBy($request->user())
+                    ->withProperties(['batch' => true, 'previous_status' => InvoiceStatus::Sent->value])
+                    ->log('invoice.batch_marked_paid');
+
+                $marked++;
+            });
+
+        return back()->with('status', "Označeno jako zaplacené: {$marked} faktur.");
+    }
+
     /** Manual tax-document issuance after the customer completes billing details. */
     public function issueTaxDocument(Invoice $invoice, IssueTaxDocumentAction $action): RedirectResponse
     {

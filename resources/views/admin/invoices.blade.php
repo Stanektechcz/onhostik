@@ -81,53 +81,104 @@
                     <p class="f-light f-12 mb-0">Žádné faktury neodpovídají zvoleným filtrům.</p>
                 </div>
             @else
-                <x-panel.data-table :headers="[
-                    __('panel.billing.number'),
-                    __('panel.billing.type'),
-                    __('panel.common.customer'),
-                    __('panel.billing.issue_date'),
-                    __('panel.billing.due_date'),
-                    __('panel.common.status'),
-                    __('panel.common.total'),
-                    '',
-                ]">
-                    @foreach($invoices as $invoice)
-                        @php($isOverdue = $invoice->status->value === 'overdue')
-                        <tr>
-                            <td>
-                                <a href="{{ route('admin.invoices.show', $invoice) }}" class="f-w-600">
-                                    {{ $invoice->number }}
-                                </a>
-                            </td>
-                            <td class="f-12">{{ $invoice->type->label() }}</td>
-                            <td>
-                                @if($invoice->customer)
-                                    <a href="{{ route('admin.customers.show', $invoice->customer) }}" class="f-light">
-                                        {{ $invoice->customer->company_name ?? $invoice->customer->email }}
+                <form id="batch-invoices-form" method="POST" action="{{ route('admin.invoices.batch-mark-paid') }}">
+                    @csrf
+                    <div class="d-flex align-items-center gap-2 mb-2 p-2 bg-light rounded" id="batch-toolbar" style="display:none!important;">
+                        <input type="checkbox" id="select-all-invoices" class="form-check-input mt-0" title="Vybrat vše">
+                        <span id="selected-count" class="f-12 f-light">0 vybráno</span>
+                        <button type="submit" class="btn btn-success btn-sm ms-2"
+                                onclick="return confirm('Označit vybrané faktury jako zaplacené?')"
+                                id="batch-paid-btn" disabled>
+                            <i data-feather="check-circle" style="width:13px;height:13px;"></i>
+                            Označit jako zaplacené
+                        </button>
+                    </div>
+                    <x-panel.data-table :headers="[
+                        '',
+                        __('panel.billing.number'),
+                        __('panel.billing.type'),
+                        __('panel.common.customer'),
+                        __('panel.billing.issue_date'),
+                        __('panel.billing.due_date'),
+                        __('panel.common.status'),
+                        __('panel.common.total'),
+                        '',
+                    ]">
+                        @foreach($invoices as $invoice)
+                            @php($isOverdue = $invoice->status->value === 'overdue')
+                            @php($isPayable = in_array($invoice->status->value, ['sent', 'overdue']))
+                            <tr>
+                                <td style="width:32px;">
+                                    @if($isPayable)
+                                        <input type="checkbox" name="ids[]" value="{{ $invoice->id }}"
+                                               class="form-check-input batch-checkbox mt-0">
+                                    @endif
+                                </td>
+                                <td>
+                                    <a href="{{ route('admin.invoices.show', $invoice) }}" class="f-w-600">
+                                        {{ $invoice->number }}
                                     </a>
-                                @else
-                                    <span class="f-light">—</span>
-                                @endif
-                            </td>
-                            <td class="f-12">{{ $invoice->issue_date?->format('d.m.Y') ?? '—' }}</td>
-                            <td class="f-12 {{ $isOverdue ? 'txt-danger f-w-600' : '' }}">
-                                {{ $invoice->due_date?->format('d.m.Y') ?? '—' }}
-                                @if($isOverdue)
-                                    <i data-feather="alert-circle" style="width:11px;height:11px" class="txt-danger ms-1"></i>
-                                @endif
-                            </td>
-                            <td><x-panel.status-badge :status="$invoice->status" /></td>
-                            <td><x-panel.money :money="$invoice->total" /></td>
-                            <td>
-                                <a href="{{ route('admin.invoices.show', $invoice) }}" class="btn btn-outline-primary btn-xs">
-                                    {{ __('panel.common.detail') }}
-                                </a>
-                            </td>
-                        </tr>
-                    @endforeach
-                </x-panel.data-table>
+                                </td>
+                                <td class="f-12">{{ $invoice->type->label() }}</td>
+                                <td>
+                                    @if($invoice->customer)
+                                        <a href="{{ route('admin.customers.show', $invoice->customer) }}" class="f-light">
+                                            {{ $invoice->customer->company_name ?? $invoice->customer->email }}
+                                        </a>
+                                    @else
+                                        <span class="f-light">—</span>
+                                    @endif
+                                </td>
+                                <td class="f-12">{{ $invoice->issue_date?->format('d.m.Y') ?? '—' }}</td>
+                                <td class="f-12 {{ $isOverdue ? 'txt-danger f-w-600' : '' }}">
+                                    {{ $invoice->due_date?->format('d.m.Y') ?? '—' }}
+                                    @if($isOverdue)
+                                        <i data-feather="alert-circle" style="width:11px;height:11px" class="txt-danger ms-1"></i>
+                                    @endif
+                                </td>
+                                <td><x-panel.status-badge :status="$invoice->status" /></td>
+                                <td><x-panel.money :money="$invoice->total" /></td>
+                                <td>
+                                    <a href="{{ route('admin.invoices.show', $invoice) }}" class="btn btn-outline-primary btn-xs">
+                                        {{ __('panel.common.detail') }}
+                                    </a>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </x-panel.data-table>
+                </form>
                 {{ $invoices->withQueryString()->links() }}
             @endif
         </x-panel.card>
     </div>
 @endsection
+
+@push('scripts')
+<script>
+(function() {
+    const toolbar   = document.getElementById('batch-toolbar');
+    const selectAll = document.getElementById('select-all-invoices');
+    const countEl   = document.getElementById('selected-count');
+    const btn       = document.getElementById('batch-paid-btn');
+    const boxes     = () => document.querySelectorAll('.batch-checkbox');
+
+    function refresh() {
+        const checked = [...boxes()].filter(b => b.checked).length;
+        countEl.textContent = checked + ' vybráno';
+        btn.disabled = checked === 0;
+        toolbar.style.removeProperty('display');
+    }
+
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            boxes().forEach(b => { b.checked = this.checked; });
+            refresh();
+        });
+    }
+
+    document.addEventListener('change', function(e) {
+        if (e.target.classList.contains('batch-checkbox')) refresh();
+    });
+})();
+</script>
+@endpush

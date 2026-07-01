@@ -19,6 +19,46 @@
 
 @section('content')
 <div class="container default-dashboard">
+
+  {{-- ── Urgent alert strip ──────────────────────────────────────────────── --}}
+  @php
+    $criticalRenewals = $upcomingRenewals->filter(fn($s) => (int) now()->diffInDays($s->next_due_date, false) <= 3);
+  @endphp
+  @if($overdueInvoices > 0 || $criticalRenewals->isNotEmpty())
+    <div class="grid grid-cols-12 mb-2" style="gap:8px;">
+      @if($overdueInvoices > 0)
+        <div class="col-span-12">
+          <div class="alert alert-danger d-flex align-items-center gap-2 py-2 px-3 mb-0" role="alert">
+            <i data-feather="alert-octagon" style="width:16px;height:16px;flex-shrink:0;"></i>
+            <span class="f-14">
+              <strong>{{ $overdueInvoices }} {{ $overdueInvoices === 1 ? 'faktura je' : ($overdueInvoices < 5 ? 'faktury jsou' : 'faktur je') }} po splatnosti.</strong>
+              Uhraďte je prosím co nejdříve, abyste předešli pozastavení služeb.
+            </span>
+            <a href="{{ route('panel.billing.invoices', ['status' => 'overdue']) }}" class="btn btn-danger btn-sm ms-auto">
+              Uhradit faktury
+            </a>
+          </div>
+        </div>
+      @endif
+      @foreach($criticalRenewals as $svc)
+        <div class="col-span-12">
+          <div class="alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mb-0" role="alert">
+            <i data-feather="clock" style="width:16px;height:16px;flex-shrink:0;"></i>
+            <span class="f-14">
+              <strong>{{ $svc->label }}</strong> —
+              @php $dl = (int) now()->diffInDays($svc->next_due_date, false); @endphp
+              {{ $dl === 0 ? 'vyprší dnes' : ($dl === 1 ? 'vyprší zítra' : "vyprší za {$dl} dny") }}.
+              Ujistěte se, že máte aktivní platební metodu nebo kredit.
+            </span>
+            <a href="{{ route('panel.services.show', $svc) }}" class="btn btn-warning btn-sm ms-auto">
+              Detail služby
+            </a>
+          </div>
+        </div>
+      @endforeach
+    </div>
+  @endif
+
   <div class="grid grid-cols-12 card-gap widget-grid">
 
     {{-- ╔══════════════════════════════════════════════════════════════════╗

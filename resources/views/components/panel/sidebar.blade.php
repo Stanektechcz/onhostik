@@ -156,7 +156,7 @@
             <x-panel.sidebar-link :href="route('admin.users.index')" icon="user" label="Uživatelé" />
             <x-panel.sidebar-link :href="route('admin.user-cards')" icon="grid" label="Kartový pohled" />
             <x-panel.sidebar-link :href="route('admin.roles-permission')" icon="shield" label="Role a oprávnění" />
-            <x-panel.sidebar-link :href="route('admin.subscribers')" icon="mail" label="Odběratelé" />
+            <x-panel.sidebar-link :href="route('admin.subscribers.index')" icon="mail" label="Odběratelé" />
             <x-panel.sidebar-link :href="route('admin.contacts')" icon="book-open" label="Kontakty" />
         </x-panel.sidebar-submenu>
 

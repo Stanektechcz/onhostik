@@ -131,6 +131,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/faktury', [Admin\InvoiceController::class, 'index'])->name('invoices.index');
     Route::get('/faktury/export', [Admin\InvoiceController::class, 'export'])->name('invoices.export');
     Route::post('/faktury/hromadna-upominka', [Admin\InvoiceController::class, 'sendBulkPaymentReminders'])->name('invoices.bulk-payment-reminder');
+    Route::post('/faktury/hromadne-zaplaceni', [Admin\InvoiceController::class, 'batchMarkPaid'])->name('invoices.batch-mark-paid');
     Route::get('/faktury/{invoice}', [Admin\InvoiceController::class, 'show'])->name('invoices.show');
     Route::get('/faktury/{invoice}/pdf', [Admin\InvoiceController::class, 'downloadPdf'])->name('invoices.pdf');
     Route::post('/faktury/{invoice}/oznacit-zaplacenou', [Admin\InvoiceController::class, 'markPaid'])->name('invoices.mark-paid');
@@ -259,7 +260,11 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/soubory', [Admin\PageController::class, 'fileManager'])->name('file-manager');
 
     /* ── Subscribers ── */
-    Route::get('/odberevatele', [Admin\PageController::class, 'subscribers'])->name('subscribers');
+    Route::get('/odberevatele', [Admin\SubscriberController::class, 'index'])->name('subscribers.index');
+    Route::get('/odberevatele/export', [Admin\SubscriberController::class, 'export'])->name('subscribers.export');
+    Route::post('/odberevatele', [Admin\SubscriberController::class, 'store'])->name('subscribers.store');
+    Route::post('/odberevatele/{subscriber}/toggle', [Admin\SubscriberController::class, 'toggle'])->name('subscribers.toggle');
+    Route::delete('/odberevatele/{subscriber}', [Admin\SubscriberController::class, 'destroy'])->name('subscribers.destroy');
 
     /* ── Sitemap ── */
     Route::get('/mapa-webu', [Admin\PageController::class, 'sitemap'])->name('sitemap');
