@@ -23,6 +23,23 @@
         </div>
         @endif
 
+        {{-- Newsletter subscription shortcut --}}
+        @php($subscriberExists = $customer->user ? \App\Models\Subscriber::where('email', $customer->email)->exists() : false)
+        @if($customer->user && !$subscriberExists)
+            <div class="alert alert-light-info d-flex align-items-center gap-3 mb-3 py-2">
+                <i data-feather="mail" style="width:16px;height:16px;"></i>
+                <span class="f-14 f-light">Zákazník není přihlášen k odběru newsletteru.</span>
+                <form method="POST" action="{{ route('admin.subscribers.store') }}" class="ms-auto">
+                    @csrf
+                    <input type="hidden" name="email" value="{{ $customer->email }}">
+                    <input type="hidden" name="name" value="{{ $customer->user?->name }}">
+                    <button type="submit" class="btn btn-outline-info btn-xs">
+                        <i data-feather="plus" style="width:11px;height:11px;"></i> Přidat k newsletteru
+                    </button>
+                </form>
+            </div>
+        @endif
+
         {{-- Partner profile shortcut --}}
         @php($customerPartner = $customer->user ? \App\Domains\Partner\Models\PartnerProfile::where('user_id', $customer->user_id)->first() : null)
         @if($customerPartner)

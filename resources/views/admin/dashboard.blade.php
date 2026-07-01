@@ -19,6 +19,40 @@
 
 @section('content')
 <div class="container default-dashboard">
+
+  {{-- ── Admin urgent alerts ─────────────────────────────────────────────── --}}
+  @if($overdueInvoices > 0 || $failedTasks > 0 || $aiApprovals > 0)
+    <div class="grid grid-cols-12 mb-2" style="gap:6px;">
+      @if($overdueInvoices > 0)
+        <div class="col-span-12 md:col-span-6">
+          <div class="alert alert-danger d-flex align-items-center gap-2 py-2 px-3 mb-0">
+            <i data-feather="alert-octagon" style="width:15px;height:15px;flex-shrink:0;"></i>
+            <span class="f-13"><strong>{{ $overdueInvoices }} faktur po splatnosti</strong></span>
+            <a href="{{ route('admin.invoices.index', ['status' => 'overdue']) }}" class="btn btn-danger btn-sm ms-auto">Zobrazit</a>
+          </div>
+        </div>
+      @endif
+      @if($failedTasks > 0)
+        <div class="col-span-12 md:col-span-6">
+          <div class="alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mb-0">
+            <i data-feather="alert-triangle" style="width:15px;height:15px;flex-shrink:0;"></i>
+            <span class="f-13"><strong>{{ $failedTasks }} selhání provisioningu</strong></span>
+            <a href="{{ route('admin.provisioning.index') }}" class="btn btn-warning btn-sm ms-auto">Zobrazit</a>
+          </div>
+        </div>
+      @endif
+      @if($aiApprovals > 0)
+        <div class="col-span-12 md:col-span-6">
+          <div class="alert alert-info d-flex align-items-center gap-2 py-2 px-3 mb-0">
+            <i data-feather="cpu" style="width:15px;height:15px;flex-shrink:0;"></i>
+            <span class="f-13"><strong>{{ $aiApprovals }} AI akcí čeká na schválení</strong></span>
+            <a href="{{ route('admin.ai.index') }}" class="btn btn-primary btn-sm ms-auto">Schválit</a>
+          </div>
+        </div>
+      @endif
+    </div>
+  @endif
+
   <div class="grid grid-cols-12 card-gap widget-grid">
 
     {{-- ╔══════════════════════════════════════════════════════════════════╗

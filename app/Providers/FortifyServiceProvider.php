@@ -29,6 +29,25 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::updateUserPasswordsUsing(UpdateUserPassword::class);
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
 
+        // Block login for deactivated accounts (suspended/banned by admin).
+        Fortify::authenticateUsing(function (Request $request): ?\App\Models\User {
+            $user = \App\Models\User::where('email', $request->email)->first();
+
+            if ($user === null) {
+                return null;
+            }
+
+            if (! $user->is_active) {
+                return null; // Treat as wrong credentials — do not leak account existence
+            }
+
+            if (! \Illuminate\Support\Facades\Hash::check($request->password, $user->password)) {
+                return null;
+            }
+
+            return $user;
+        });
+
         /*
         |--------------------------------------------------------------------
         | Auth views — rendered in the Antler front layout.
