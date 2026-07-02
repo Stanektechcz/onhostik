@@ -33,6 +33,17 @@ use Illuminate\Database\Eloquent\Model;
  */
 final class GameServerPreset extends Model
 {
+    /** @var array<string, mixed> */
+    protected $attributes = [
+        'is_active'          => true,
+        'sort_order'         => 0,
+        'default_swap_mb'    => 0,
+        'default_io_weight'  => 500,
+        'default_cpu_limit'  => 100,
+        'default_memory_mb'  => 1024,
+        'default_disk_mb'    => 10240,
+    ];
+
     protected $fillable = [
         'name',
         'game_slug',

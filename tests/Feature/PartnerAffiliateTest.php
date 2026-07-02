@@ -233,3 +233,53 @@ it('partner sub-pages return 200 for a partner with profile', function (string $
 it('admin partners index returns 200', function (): void {
     $this->actingAs(adminUser())->get(route('admin.partners.index'))->assertOk();
 });
+
+// ────────────────────────────────────────────────────────────────────────
+// UTM parameter tracking
+// ────────────────────────────────────────────────────────────────────────
+
+it('visit with UTM params stores them on the referral record', function (): void {
+    $partner = makePartner();
+    $profile = PartnerProfile::where('user_id', $partner->id)->first();
+
+    $this->get('/?ref=' . $profile->referral_code
+        . '&utm_source=google'
+        . '&utm_medium=cpc'
+        . '&utm_campaign=summer2026'
+        . '&utm_term=webhosting'
+        . '&utm_content=banner-a'
+    );
+
+    $referral = PartnerReferral::where('partner_profile_id', $profile->id)->firstOrFail();
+
+    expect($referral->utm_source)->toBe('google')
+        ->and($referral->utm_medium)->toBe('cpc')
+        ->and($referral->utm_campaign)->toBe('summer2026')
+        ->and($referral->utm_term)->toBe('webhosting')
+        ->and($referral->utm_content)->toBe('banner-a');
+});
+
+it('visit without UTM params leaves UTM fields null', function (): void {
+    $partner = makePartner();
+    $profile = PartnerProfile::where('user_id', $partner->id)->first();
+
+    $this->get('/?ref=' . $profile->referral_code);
+
+    $referral = PartnerReferral::where('partner_profile_id', $profile->id)->firstOrFail();
+
+    expect($referral->utm_source)->toBeNull()
+        ->and($referral->utm_medium)->toBeNull()
+        ->and($referral->utm_campaign)->toBeNull();
+});
+
+it('UTM campaign is capped at 200 characters', function (): void {
+    $partner  = makePartner();
+    $profile  = PartnerProfile::where('user_id', $partner->id)->first();
+    $longSlug = str_repeat('a', 300);
+
+    $this->get('/?ref=' . $profile->referral_code . '&utm_campaign=' . $longSlug);
+
+    $referral = PartnerReferral::where('partner_profile_id', $profile->id)->firstOrFail();
+
+    expect(mb_strlen($referral->utm_campaign ?? ''))->toBeLessThanOrEqual(200);
+});

@@ -66,10 +66,9 @@ final class IssueCreditNoteAction
         $number = $this->numbers->next(InvoiceSeries::CreditNote);
 
         $creditNote = DB::transaction(function () use ($source, $customer, $number, $reason): Invoice {
-            $address = $customer->billingAddress();
-            $name    = $customer->company_name ?? $customer->user->name ?? '';
-
-            // Amounts are negated to represent the reversal
+            // Billing snapshot is copied from the source invoice — credit notes
+            // must reflect the address at the time of the original invoice, and
+            // also ensures the NOT NULL snapshot columns are always populated.
             $creditNote = Invoice::create([
                 'customer_id'        => $customer->id,
                 'order_id'           => $source->order_id,
@@ -94,14 +93,14 @@ final class IssueCreditNoteAction
                     . ($reason !== null ? " Důvod: {$reason}" : '')
                     . ' Částka bude připsána na kredit zákazníka.'
                 ),
-                'snapshot_name'                => $name,
-                'snapshot_company'             => $customer->company_name,
-                'snapshot_street'              => $address?->street,
-                'snapshot_city'                => $address?->city,
-                'snapshot_zip'                 => $address?->zip,
-                'snapshot_country_code'        => $customer->country_code,
-                'snapshot_vat_number'          => $customer->vat_number,
-                'snapshot_registration_number' => $customer->registration_number,
+                'snapshot_name'                => $source->snapshot_name,
+                'snapshot_company'             => $source->snapshot_company,
+                'snapshot_street'              => $source->snapshot_street,
+                'snapshot_city'                => $source->snapshot_city,
+                'snapshot_zip'                 => $source->snapshot_zip,
+                'snapshot_country_code'        => $source->snapshot_country_code,
+                'snapshot_vat_number'          => $source->snapshot_vat_number,
+                'snapshot_registration_number' => $source->snapshot_registration_number,
             ]);
 
             // Mirror line items with negated amounts
