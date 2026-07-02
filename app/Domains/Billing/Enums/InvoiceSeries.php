@@ -14,6 +14,7 @@ enum InvoiceSeries: string
     case Czech         = 'CZ';
     case Eu            = 'EU';
     case International = 'INT';
+    case CreditNote    = 'CN';
 
     public function label(): string
     {
@@ -21,6 +22,7 @@ enum InvoiceSeries: string
             self::Czech         => 'Tuzemsko (CZK)',
             self::Eu            => 'EU (EUR)',
             self::International => 'Mimo EU (EUR/USD)',
+            self::CreditNote    => 'Dobropis',
         };
     }
 

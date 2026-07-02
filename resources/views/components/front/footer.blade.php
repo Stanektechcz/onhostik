@@ -39,6 +39,7 @@
                 <div class="col-sm-6 col-md-3">
                     <div class="heading">{{ __('front.footer.company') }}</div>
                     <ul class="footer-menu">
+                        <li class="menu-item"><a href="{{ route('front.status') }}">Stav služeb</a></li>
                         <li class="menu-item"><a href="{{ route('front.about') }}">{{ __('front.footer.about') }}</a></li>
                         <li class="menu-item"><a href="{{ route('front.legal') }}">{{ __('front.footer.legal') }}</a></li>
                         <li class="menu-item"><a href="{{ route('front.gdpr') }}">GDPR</a></li>

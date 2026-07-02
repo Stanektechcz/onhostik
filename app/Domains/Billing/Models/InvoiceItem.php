@@ -8,6 +8,10 @@ use App\Domains\Shared\Casts\MoneyCast;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property \Brick\Money\Money|null $unit_price
+ * @property \Brick\Money\Money|null $total
+ */
 class InvoiceItem extends Model
 {
     public const UPDATED_AT = null;

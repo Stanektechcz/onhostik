@@ -142,6 +142,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/faktury/{invoice}/pdf', [Admin\InvoiceController::class, 'downloadPdf'])->name('invoices.pdf');
     Route::post('/faktury/{invoice}/oznacit-zaplacenou', [Admin\InvoiceController::class, 'markPaid'])->name('invoices.mark-paid');
     Route::post('/faktury/{invoice}/danovy-doklad', [Admin\InvoiceController::class, 'issueTaxDocument'])->name('invoices.tax-document');
+    Route::post('/faktury/{invoice}/dobropis', [Admin\InvoiceController::class, 'issueCreditNote'])->name('invoices.credit-note');
     Route::post('/faktury/{invoice}/zrusit', [Admin\InvoiceController::class, 'cancel'])->name('invoices.cancel');
     Route::post('/faktury/{invoice}/odeslat-email', [Admin\InvoiceController::class, 'resendEmail'])->name('invoices.resend-email');
     Route::post('/faktury/{invoice}/upominka-platby', [Admin\InvoiceController::class, 'sendPaymentReminder'])->name('invoices.payment-reminder');
@@ -186,6 +187,14 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::put('/servery/{server}', [Admin\ServerController::class, 'update'])->name('servers.update');
     Route::delete('/servery/{server}', [Admin\ServerController::class, 'destroy'])->name('servers.destroy');
     Route::post('/servery/{server}/test', [Admin\ServerController::class, 'test'])->name('servers.test');
+
+    /* ── Game server presets (Pterodactyl) ── */
+    Route::get('/game-presety', [Admin\GameServerPresetController::class, 'index'])->name('game-presets.index');
+    Route::get('/game-presety/novy', [Admin\GameServerPresetController::class, 'create'])->name('game-presets.create');
+    Route::post('/game-presety', [Admin\GameServerPresetController::class, 'store'])->name('game-presets.store');
+    Route::get('/game-presety/{gamePreset}/upravit', [Admin\GameServerPresetController::class, 'edit'])->name('game-presets.edit');
+    Route::put('/game-presety/{gamePreset}', [Admin\GameServerPresetController::class, 'update'])->name('game-presets.update');
+    Route::delete('/game-presety/{gamePreset}', [Admin\GameServerPresetController::class, 'destroy'])->name('game-presets.destroy');
 
     Route::get('/provisioning', [Admin\ProvisioningController::class, 'index'])->name('provisioning.index');
     Route::post('/provisioning/{task}/retry', [Admin\ProvisioningController::class, 'retry'])->name('provisioning.retry');

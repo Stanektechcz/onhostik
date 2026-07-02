@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domains\Billing\Actions\IssueCreditNoteAction;
 use App\Domains\Billing\Actions\IssueTaxDocumentAction;
 use App\Domains\Billing\Actions\ProcessMockPaymentAction;
 use App\Domains\Billing\Enums\InvoiceStatus;
@@ -136,10 +137,16 @@ class InvoiceController extends Controller
 
     public function show(Invoice $invoice): View
     {
+        $childInvoices = Invoice::query()
+            ->where('parent_invoice_id', $invoice->id)
+            ->where('status', '!=', \App\Domains\Billing\Enums\InvoiceStatus::Cancelled->value)
+            ->get();
+
         return view('admin.invoice-show', [
-            'invoice' => $invoice->load(['items', 'payments', 'order', 'customer.user', 'customer.addresses', 'parentInvoice', 'renewalService']),
-            'taxDocument' => Invoice::query()->where('parent_invoice_id', $invoice->id)->first(),
-            'mockMode'    => (bool) config('provisioning.mock_mode', true),
+            'invoice'    => $invoice->load(['items', 'payments', 'order', 'customer.user', 'customer.addresses', 'parentInvoice', 'renewalService']),
+            'taxDocument'=> $childInvoices->first(fn ($i) => $i->type === \App\Domains\Billing\Enums\InvoiceType::Invoice),
+            'creditNote' => $childInvoices->first(fn ($i) => $i->type === \App\Domains\Billing\Enums\InvoiceType::CreditNote),
+            'mockMode'   => (bool) config('provisioning.mock_mode', true),
         ]);
     }
 
@@ -279,5 +286,22 @@ class InvoiceController extends Controller
         return redirect()
             ->route('admin.invoices.show', $taxDocument)
             ->with('status', __('panel.admin.tax_document_issued'));
+    }
+
+    public function issueCreditNote(Invoice $invoice, IssueCreditNoteAction $action, Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        try {
+            $creditNote = $action->execute($invoice, $validated['reason'] ?? null);
+        } catch (InvalidArgumentException $e) {
+            return back()->withErrors(['invoice' => $e->getMessage()]);
+        }
+
+        return redirect()
+            ->route('admin.invoices.show', $creditNote)
+            ->with('status', 'Dobropis ' . $creditNote->number . ' byl vystaven a kredit připsán zákazníkovi.');
     }
 }

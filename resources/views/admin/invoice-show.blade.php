@@ -133,6 +133,19 @@
                                 {{ __('panel.billing.tax_document') }}: {{ $taxDocument->number }}
                             </a>
                         @endif
+                        @if($invoice->type === \App\Domains\Billing\Enums\InvoiceType::Invoice && $invoice->status === \App\Domains\Billing\Enums\InvoiceStatus::Paid && ($creditNote ?? null) === null)
+                            <button type="button" class="btn btn-outline-warning btn-sm"
+                                    data-bs-toggle="modal" data-bs-target="#creditNoteModal">
+                                <i data-feather="rotate-ccw" style="width:13px;height:13px"></i>
+                                Dobropis
+                            </button>
+                        @endif
+                        @if(($creditNote ?? null) !== null)
+                            <a href="{{ route('admin.invoices.show', $creditNote) }}" class="btn btn-outline-warning btn-sm">
+                                <i data-feather="rotate-ccw" style="width:13px;height:13px"></i>
+                                Dobropis: {{ $creditNote->number }}
+                            </a>
+                        @endif
                     </div>
                     @error('invoice')<div class="text-danger f-12 mt-2">{{ $message }}</div>@enderror
                 </x-panel.card>
@@ -202,4 +215,39 @@
             </div>
         </div>
     </div>
+
+    {{-- Credit note confirmation modal --}}
+    @if($invoice->type === \App\Domains\Billing\Enums\InvoiceType::Invoice && $invoice->status === \App\Domains\Billing\Enums\InvoiceStatus::Paid && ($creditNote ?? null) === null)
+        <div class="modal fade" id="creditNoteModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content bg-colorstyle">
+                    <div class="modal-header">
+                        <h5 class="modal-title mergecolor">Vystavit dobropis k {{ $invoice->number }}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <form method="POST" action="{{ route('admin.invoices.credit-note', $invoice) }}">
+                        @csrf
+                        <div class="modal-body">
+                            <p class="seccolor f-14">Dobropis stornuje fakturu <strong>{{ $invoice->number }}</strong>
+                                (celkem <x-panel.money :money="$invoice->total" />) a automaticky přičte tuto částku
+                                zákazníkovi jako kredit.</p>
+                            <div class="mb-3">
+                                <label class="form-label f-12">Důvod (nepovinné)</label>
+                                <input type="text" name="reason" class="form-control form-control-sm"
+                                       placeholder="Např. Reklamace, Zrušení objednávky..." maxlength="255">
+                            </div>
+                            <div class="alert alert-warning f-12 mb-0">
+                                <i data-feather="alert-triangle" style="width:13px;height:13px"></i>
+                                Tato akce je nevratná. Kredit bude zákazníkovi připsán okamžitě.
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Zrušit</button>
+                            <button type="submit" class="btn btn-warning btn-sm">Vystavit dobropis</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    @endif
 @endsection

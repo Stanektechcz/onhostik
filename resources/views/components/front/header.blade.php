@@ -136,6 +136,9 @@
                                     <li class="menu-item">
                                         <a href="{{ route('front.about') }}" class="mergecolor" title="{{ __('front.nav.about') }}">{{ __('front.nav.about') }}</a>
                                     </li>
+                                    <li class="menu-item">
+                                        <a href="{{ route('front.status') }}" class="mergecolor" title="Stav služeb">Stav služeb</a>
+                                    </li>
                                 </ul>
                             </div>
 

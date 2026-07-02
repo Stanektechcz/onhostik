@@ -48,6 +48,11 @@ class ReferralTracker
                     'user_agent_hash'    => $uaHash,
                     'source_url'         => $this->safeUrl($request->headers->get('referer')),
                     'landing_url'        => $this->safeUrl($request->fullUrl()),
+                    'utm_source'         => $this->utmParam($request, 'utm_source'),
+                    'utm_medium'         => $this->utmParam($request, 'utm_medium'),
+                    'utm_campaign'       => $this->utmParam($request, 'utm_campaign'),
+                    'utm_term'           => $this->utmParam($request, 'utm_term'),
+                    'utm_content'        => $this->utmParam($request, 'utm_content'),
                     'first_seen_at'      => now(),
                     'status'             => ReferralStatus::Visitor,
                 ]);
@@ -152,5 +157,14 @@ class ReferralTracker
         }
         // Truncate to 2048 chars — no sensitive params
         return mb_substr(strtok($url, '?'), 0, 2048) ?: null;
+    }
+
+    private function utmParam(Request $request, string $param): ?string
+    {
+        $value = $request->query($param);
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+        return mb_substr($value, 0, 200);
     }
 }

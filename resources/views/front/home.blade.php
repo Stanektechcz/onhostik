@@ -430,6 +430,189 @@ echo '<script type="application/ld+json">' . $orgSchema . '</script>';
         </div>
     </section>
 
+    {{-- ============ PRICING CALCULATOR ============ --}}
+    <section id="kalkulator" class="sec-normal sec-bg1 bg-colorstyle pt-80 pb-80">
+        <div class="container">
+            <div class="row justify-content-center">
+                <div class="col-sm-12 text-center">
+                    <h2 class="section-heading mergecolor" data-aos="fade-up">Kalkulátor ceny hostingu</h2>
+                    <p class="section-subheading seccolor" data-aos="fade-up">Vyberte typ a velikost — okamžitě uvidíte, co zaplatíte.</p>
+                </div>
+            </div>
+            <div class="row justify-content-center mt-4">
+                <div class="col-sm-12 col-lg-10">
+                    <div class="card bg-seccolorstyle border-0 p-4 p-md-5">
+                        {{-- Type tabs --}}
+                        <div class="d-flex flex-wrap gap-2 mb-4 justify-content-center" id="calc-type-tabs">
+                            @foreach([
+                                ['id' => 'web',  'label' => 'Webhosting',    'icon' => 'icon-drives'],
+                                ['id' => 'mail', 'label' => 'Mailhosting',   'icon' => 'icon-emailopen'],
+                                ['id' => 'vps',  'label' => 'VPS',           'icon' => 'icon-speed'],
+                                ['id' => 'game', 'label' => 'Game server',   'icon' => 'ico-globe'],
+                            ] as $tab)
+                                <button class="btn btn-outline-secondary calc-type-btn {{ $loop->first ? 'active btn-purple-outline-active' : '' }}"
+                                        data-type="{{ $tab['id'] }}">
+                                    <i class="{{ $tab['icon'] }} f-16 me-1"></i>{{ $tab['label'] }}
+                                </button>
+                            @endforeach
+                        </div>
+
+                        {{-- Period toggle --}}
+                        <div class="d-flex align-items-center justify-content-center gap-3 mb-4">
+                            <span class="mergecolor f-14">Měsíčně</span>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" id="calc-annual" role="switch">
+                                <label class="form-check-label mergecolor f-14" for="calc-annual">
+                                    Ročně <span class="badge bg-success ms-1">–17 %</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        {{-- Plan slider --}}
+                        <div class="mb-4 px-md-3" id="calc-slider-wrap">
+                            <label class="form-label mergecolor f-14 mb-1">Plán: <strong id="calc-plan-name">Starter</strong></label>
+                            <input type="range" class="form-range" id="calc-slider" min="0" max="3" step="1" value="0">
+                            <div class="d-flex justify-content-between f-12 seccolor mt-1" id="calc-plan-labels">
+                                <span>Starter</span><span>Basic</span><span>Pro</span><span>Business</span>
+                            </div>
+                        </div>
+
+                        {{-- Result card --}}
+                        <div class="row align-items-center justify-content-center mt-2 g-3">
+                            <div class="col-sm-12 col-md-6">
+                                <div class="bg-colorstyle rounded p-4 text-center">
+                                    <div class="f-12 seccolor mb-1" id="calc-period-label">Měsíčně</div>
+                                    <div class="mergecolor" style="font-size:2.5rem;font-weight:700;" id="calc-price">49 Kč</div>
+                                    <div class="f-12 seccolor mt-1">bez DPH / měsíc</div>
+                                    <div class="f-12 text-success mt-2 fw-semibold" id="calc-savings" style="display:none;"></div>
+                                </div>
+                            </div>
+                            <div class="col-sm-12 col-md-6">
+                                <ul class="list-unstyled mb-0" id="calc-features">
+                                    <li class="mb-2 f-14"><i class="fas fa-check text-success me-2"></i><span id="cf-disk">10 GB NVMe</span></li>
+                                    <li class="mb-2 f-14"><i class="fas fa-check text-success me-2"></i><span id="cf-extra1">Neomezená emailová schránka</span></li>
+                                    <li class="mb-2 f-14"><i class="fas fa-check text-success me-2"></i><span id="cf-extra2">SSL zdarma (Let's Encrypt)</span></li>
+                                    <li class="mb-2 f-14"><i class="fas fa-check text-success me-2"></i><span id="cf-extra3">AI asistent</span></li>
+                                </ul>
+                                <a href="{{ route('front.webhosting') }}" id="calc-cta-link"
+                                   class="btn btn-default-yellow-fill w-100 mt-3">Objednat</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    @push('scripts')
+    <script>
+    (function () {
+        var PLANS = {
+            web: {
+                route: '{{ route("front.webhosting") }}',
+                plans: [
+                    { name: 'Starter', price: 49,  annual: 39,  disk: '10 GB NVMe',   e1: 'Neomezené e-maily',   e2: 'SSL zdarma',           e3: 'AI asistent' },
+                    { name: 'Basic',   price: 99,  annual: 83,  disk: '30 GB NVMe',   e1: 'Neomezené e-maily',   e2: 'SSL zdarma',           e3: 'Denní zálohy' },
+                    { name: 'Pro',     price: 199, annual: 166, disk: '100 GB NVMe',  e1: 'Neomezené e-maily',   e2: 'Staging prostředí',    e3: 'Priority podpora' },
+                    { name: 'Business',price: 499, annual: 416, disk: '500 GB NVMe',  e1: 'Dedikované zdroje',   e2: 'CDN',                  e3: 'SLA 99,9 %' },
+                ],
+            },
+            mail: {
+                route: '{{ route("front.mailhosting") }}',
+                plans: [
+                    { name: 'Mini',    price: 49,  annual: 39,  disk: '5 GB / schránka',  e1: '5 schránek',         e2: 'Antispam',             e3: 'Webmail' },
+                    { name: 'Standard',price: 99,  annual: 83,  disk: '15 GB / schránka', e1: '20 schránek',        e2: 'Antispam + DKIM',      e3: 'Archivace 30 dní' },
+                    { name: 'Pro',     price: 199, annual: 166, disk: '50 GB / schránka', e1: '100 schránek',       e2: 'DKIM + DMARC + SPF',   e3: 'Archivace 90 dní' },
+                    { name: 'Enterprise',price:499,annual: 416, disk: '100 GB / schránka',e1: 'Neomezené schránky', e2: 'Audit log',            e3: 'eDiscovery' },
+                ],
+            },
+            vps: {
+                route: '{{ route("front.vps") }}',
+                plans: [
+                    { name: 'VPS-1',   price: 149, annual: 125, disk: '20 GB NVMe',   e1: '1 vCPU / 1 GB RAM',  e2: 'KVM virtualizace',     e3: 'IPv4 + IPv6' },
+                    { name: 'VPS-2',   price: 249, annual: 208, disk: '50 GB NVMe',   e1: '2 vCPU / 2 GB RAM',  e2: 'Snapshot zálohy',      e3: 'DDoS ochrana' },
+                    { name: 'VPS-4',   price: 449, annual: 375, disk: '100 GB NVMe',  e1: '4 vCPU / 4 GB RAM',  e2: 'Snapshot zálohy',      e3: 'Monitoring' },
+                    { name: 'VPS-8',   price: 849, annual: 708, disk: '200 GB NVMe',  e1: '8 vCPU / 8 GB RAM',  e2: 'Denní zálohy',         e3: 'SLA 99,95 %' },
+                ],
+            },
+            game: {
+                route: '{{ route("front.gamehosting") }}',
+                plans: [
+                    { name: 'Starter', price: 99,  annual: 83,  disk: '10 GB',        e1: '2 GB RAM',            e2: 'Minecraft, CS2…',      e3: 'Pterodactyl panel' },
+                    { name: 'Basic',   price: 199, annual: 166, disk: '30 GB',        e1: '4 GB RAM',            e2: 'ARK, Valheim…',        e3: 'DDoS ochrana' },
+                    { name: 'Pro',     price: 349, annual: 291, disk: '60 GB SSD',    e1: '8 GB RAM',            e2: 'Modové sady',          e3: 'Auto-restart' },
+                    { name: 'Max',     price: 599, annual: 499, disk: '120 GB SSD',   e1: '16 GB RAM',           e2: 'Dedikované jádro',     e3: 'Priority podpora' },
+                ],
+            },
+        };
+
+        var currentType  = 'web';
+        var currentPlan  = 0;
+        var isAnnual     = false;
+
+        var btnTabs    = document.querySelectorAll('.calc-type-btn');
+        var slider     = document.getElementById('calc-slider');
+        var annualToggle = document.getElementById('calc-annual');
+
+        function update() {
+            var data = PLANS[currentType];
+            var plan = data.plans[currentPlan];
+            var price = isAnnual ? plan.annual : plan.price;
+            var savings = plan.price - plan.annual;
+
+            document.getElementById('calc-plan-name').textContent = plan.name;
+            document.getElementById('calc-price').textContent = price + ' Kč';
+            document.getElementById('calc-period-label').textContent = isAnnual ? 'Ročně (platba předem)' : 'Měsíčně';
+            document.getElementById('cf-disk').textContent = plan.disk;
+            document.getElementById('cf-extra1').textContent = plan.e1;
+            document.getElementById('cf-extra2').textContent = plan.e2;
+            document.getElementById('cf-extra3').textContent = plan.e3;
+            document.getElementById('calc-cta-link').href = data.route;
+
+            var savEl = document.getElementById('calc-savings');
+            if (isAnnual && savings > 0) {
+                savEl.textContent = 'Ušetříte ' + (savings * 12) + ' Kč/rok oproti měsíčnímu platbě';
+                savEl.style.display = '';
+            } else {
+                savEl.style.display = 'none';
+            }
+
+            // Update slider labels
+            var labels = document.getElementById('calc-plan-labels');
+            labels.innerHTML = data.plans.map(function(p) {
+                return '<span>' + p.name + '</span>';
+            }).join('');
+        }
+
+        btnTabs.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                btnTabs.forEach(function (b) { b.classList.remove('active', 'btn-purple-outline-active'); });
+                btn.classList.add('active', 'btn-purple-outline-active');
+                currentType = btn.dataset.type;
+                currentPlan = 0;
+                slider.value = 0;
+                update();
+            });
+        });
+
+        slider.addEventListener('input', function () {
+            currentPlan = parseInt(this.value, 10);
+            update();
+        });
+
+        annualToggle.addEventListener('change', function () {
+            isAnnual = this.checked;
+            update();
+        });
+
+        update();
+    })();
+    </script>
+    <style>
+    .btn-purple-outline-active { border-color: #7b4ce0; color: #7b4ce0; background: rgba(123,76,224,.07); }
+    </style>
+    @endpush
+
     {{-- ============ FINAL CTA ============ --}}
     <section class="services bg-colorstyle pb-150">
         <div class="container">
