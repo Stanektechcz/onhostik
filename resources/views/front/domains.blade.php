@@ -41,6 +41,138 @@
         </div>
     </div>
 
+    {{-- ============ BULK DOMAIN CHECK ============ --}}
+    <section id="bulk-check" class="sec-normal sec-bg2 bg-colorstyle pt-60 pb-60">
+        <div class="container">
+            <div class="row justify-content-center">
+                <div class="col-sm-12 col-lg-10 text-center">
+                    <h2 class="section-heading mergecolor">Hromadná dostupnost domén</h2>
+                    <p class="section-subheading seccolor">Zadejte název a vyberte koncovky — zkontrolujeme dostupnost najednou.</p>
+                </div>
+            </div>
+            <div class="row justify-content-center mt-4">
+                <div class="col-sm-12 col-lg-8">
+                    <div class="card bg-seccolorstyle border-0 p-4">
+                        <div class="input-group mb-3">
+                            <input type="text" id="bulk-domain-name"
+                                   class="form-control form-control-lg"
+                                   placeholder="mojedomena (bez koncovky)"
+                                   maxlength="63"
+                                   pattern="[a-zA-Z0-9][a-zA-Z0-9\-]*">
+                            <button id="bulk-check-btn" class="btn btn-default-purple-fill btn-lg" type="button">
+                                Zkontrolovat
+                            </button>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2 mb-3" id="tld-checkboxes">
+                            @foreach(['.cz', '.com', '.eu', '.sk', '.net', '.org', '.io', '.dev', '.shop', '.info'] as $tld)
+                                <div class="form-check form-check-inline me-0">
+                                    <input class="form-check-input tld-checkbox" type="checkbox"
+                                           id="tld{{ $tld }}" value="{{ $tld }}"
+                                           {{ in_array($tld, ['.cz', '.com', '.eu', '.sk']) ? 'checked' : '' }}>
+                                    <label class="form-check-label mergecolor fw-semibold" for="tld{{ $tld }}">{{ $tld }}</label>
+                                </div>
+                            @endforeach
+                        </div>
+                        <div id="bulk-results" class="mt-2" style="display:none;">
+                            <div class="table-responsive">
+                                <table class="table table-sm" id="bulk-results-table">
+                                    <tbody id="bulk-results-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div id="bulk-loading" class="text-center py-3" style="display:none;">
+                            <div class="spinner-border text-purple" role="status">
+                                <span class="visually-hidden">Kontroluji...</span>
+                            </div>
+                        </div>
+                        <div id="bulk-error" class="alert alert-danger mt-2" style="display:none;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    @push('scripts')
+    <script>
+    (function () {
+        const btn      = document.getElementById('bulk-check-btn');
+        const nameInput= document.getElementById('bulk-domain-name');
+        const results  = document.getElementById('bulk-results');
+        const tbody    = document.getElementById('bulk-results-body');
+        const loading  = document.getElementById('bulk-loading');
+        const errBox   = document.getElementById('bulk-error');
+
+        btn.addEventListener('click', async function () {
+            const name = nameInput.value.trim().toLowerCase().replace(/^https?:\/\//, '').split('.')[0];
+            const tlds = Array.from(document.querySelectorAll('.tld-checkbox:checked')).map(c => c.value);
+
+            errBox.style.display  = 'none';
+            results.style.display = 'none';
+            tbody.innerHTML       = '';
+
+            if (!name) { showError('Zadejte název domény.'); return; }
+            if (tlds.length === 0) { showError('Vyberte alespoň jednu koncovku.'); return; }
+
+            loading.style.display = 'block';
+            btn.disabled          = true;
+
+            try {
+                const resp = await fetch('{{ route('front.domains.bulk') }}', {
+                    method:  'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'Accept':       'application/json',
+                    },
+                    body: JSON.stringify({ name, tlds }),
+                });
+
+                const data = await resp.json();
+
+                if (!resp.ok) {
+                    showError(data.message ?? 'Chyba při kontrole domén.');
+                    return;
+                }
+
+                data.results.forEach(function (row) {
+                    const tr   = document.createElement('tr');
+                    let badge;
+                    if (row.available === true) {
+                        badge = '<span class="badge bg-success">Dostupná</span>';
+                    } else if (row.available === false) {
+                        badge = '<span class="badge bg-danger">Nedostupná</span>';
+                    } else {
+                        badge = '<span class="badge bg-secondary">Nelze ověřit</span>';
+                    }
+                    let action = '';
+                    if (row.available === true) {
+                        action = '<a href="{{ route('panel.orders.create') }}" class="btn btn-default-yellow-fill btn-sm py-0 px-2">Registrovat</a>';
+                    }
+                    tr.innerHTML = '<td class="mergecolor fw-semibold">' + row.fqdn + '</td>'
+                                 + '<td>' + badge + '</td>'
+                                 + '<td class="text-end">' + action + '</td>';
+                    tbody.appendChild(tr);
+                });
+
+                results.style.display = 'block';
+            } catch (e) {
+                showError('Nepodařilo se připojit k serveru. Zkuste to znovu.');
+            } finally {
+                loading.style.display = 'none';
+                btn.disabled          = false;
+            }
+        });
+
+        function showError(msg) {
+            errBox.textContent    = msg;
+            errBox.style.display  = 'block';
+            loading.style.display = 'none';
+            btn.disabled          = false;
+        }
+    })();
+    </script>
+    @endpush
+
     {{-- ============ DOMAIN PRICING TABLE ============ --}}
     <section id="specs" class="sec-normal sec-bg1 bg-colorstyle pb-80">
         <div class="best-plans pricing">

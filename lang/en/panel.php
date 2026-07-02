@@ -197,7 +197,9 @@ return [
         ],
     ],
     'account' => [
-        'billing_saved'  => 'Billing details saved.',
+        'billing_saved'      => 'Billing details saved.',
+        'vat_invalid'        => 'The VAT number could not be verified — it appears to be invalid. Your details were saved, but VAT exemption may not apply.',
+        'vat_unavailable'    => 'EU VAT validation (VIES) is temporarily unavailable. Your details were saved; we will verify the VAT number when the service is restored.',
         'type'           => 'Customer type',
         'person'         => 'Individual',
         'company'        => 'Company',

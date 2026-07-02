@@ -70,6 +70,7 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::get('/ucet/profil', [Panel\AccountController::class, 'profile'])->name('account.profile');
     Route::put('/ucet/profil', [Panel\AccountController::class, 'updateProfile'])->name('account.profile.update');
     Route::post('/ucet/smazat', [Panel\AccountController::class, 'requestDeletion'])->name('account.delete-request');
+    Route::get('/ucet/export-dat', [Panel\AccountController::class, 'exportData'])->name('account.data-export');
     Route::get('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'billing'])->name('account.billing');
     Route::put('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'updateBilling'])->name('account.billing.update');
     Route::get('/ucet/zabezpeceni', [Panel\AccountController::class, 'security'])->name('account.security');
@@ -212,6 +213,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/system', [Admin\SystemHealthController::class, 'index'])->name('system.index');
 
     Route::get('/audit', [Admin\AuditLogController::class, 'index'])->name('logs.audit');
+    Route::get('/audit/export', [Admin\AuditLogController::class, 'export'])->name('logs.audit.export');
 
     /* ── User management ── */
     /* ── Impersonation ── */

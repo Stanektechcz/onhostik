@@ -235,6 +235,7 @@
             <x-panel.sidebar-link :href="route('admin.integrations.index')" icon="link" label="Integrace" />
             <x-panel.sidebar-link :href="route('admin.settings.index')" icon="settings" label="Nastavení" />
             <x-panel.sidebar-link :href="route('admin.system.index')" icon="activity" label="System health" />
+            <x-panel.sidebar-link href="/horizon" icon="cpu" label="Horizon (queue)" />
             <x-panel.sidebar-link :href="route('admin.logs.audit')" icon="shield" label="Audit log" />
             <x-panel.sidebar-link :href="route('admin.sitemap')" icon="map" label="Mapa webu" />
             <x-panel.sidebar-link :href="route('admin.sample-page')" icon="file-plus" label="Ukázková stránka" />

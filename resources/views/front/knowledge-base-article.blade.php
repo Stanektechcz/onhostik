@@ -3,6 +3,23 @@
 @section('title', $article->title . ' — Znalostní báze OnHost')
 @section('meta_description', $article->excerpt ?? Str::limit(strip_tags($article->body ?? ''), 160))
 
+@push('jsonld')
+@php
+echo '<script type="application/ld+json">' . json_encode([
+    '@context'    => 'https://schema.org',
+    '@type'       => 'Article',
+    'headline'    => $article->title,
+    'description' => $article->excerpt ?? Str::limit(strip_tags($article->body ?? ''), 160),
+    'datePublished' => $article->created_at?->toIso8601String(),
+    'dateModified'  => $article->updated_at?->toIso8601String(),
+    'url'           => route('front.kb.show', $article->slug),
+    'inLanguage'    => 'cs',
+    'publisher'     => ['@type' => 'Organization', 'name' => 'Onhost.cz', 'url' => url('/')],
+    'mainEntityOfPage' => ['@type' => 'WebPage', '@id' => route('front.kb.show', $article->slug)],
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . '</script>';
+@endphp
+@endpush
+
 @section('content')
 
     {{-- HERO --}}

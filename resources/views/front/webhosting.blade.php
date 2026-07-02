@@ -2,6 +2,27 @@
 
 @section('title', __('front.pages.webhosting.title'))
 
+@push('jsonld')
+@php
+echo '<script type="application/ld+json">' . json_encode([
+    '@context'    => 'https://schema.org',
+    '@type'       => 'Product',
+    'name'        => 'Webhosting — Onhost.cz',
+    'description' => 'Sdílený NVMe webhosting s SSL zdarma, e-mailem, PHP 8.3 a AI asistentem. Provozujeme v ČR.',
+    'brand'       => ['@type' => 'Brand', 'name' => 'Onhost.cz'],
+    'url'         => route('front.webhosting'),
+    'offers'      => [
+        '@type'         => 'AggregateOffer',
+        'priceCurrency' => 'CZK',
+        'lowPrice'      => '49',
+        'highPrice'     => '499',
+        'offerCount'    => '3',
+        'availability'  => 'https://schema.org/InStock',
+    ],
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . '</script>';
+@endphp
+@endpush
+
 @push('scripts')
 <script>
 function moveScroll() {

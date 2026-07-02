@@ -28,10 +28,10 @@ final class ChangeServiceStateJob implements ShouldQueue
 
     public function __construct(
         public int $serviceId,
-        public string $operation, // suspend | unsuspend
+        public string $operation, // suspend | unsuspend | terminate
         public ?string $reason = null,
     ) {
-        if (!in_array($operation, ['suspend', 'unsuspend'], true)) {
+        if (!in_array($operation, ['suspend', 'unsuspend', 'terminate'], true)) {
             throw new InvalidArgumentException("Unsupported operation [{$operation}].");
         }
 
@@ -47,7 +47,11 @@ final class ChangeServiceStateJob implements ShouldQueue
         }
 
         // Idempotency: already in the requested state.
-        $target = $this->operation === 'suspend' ? ServiceStatus::Suspended : ServiceStatus::Active;
+        $target = match($this->operation) {
+            'suspend'   => ServiceStatus::Suspended,
+            'terminate' => ServiceStatus::Terminated,
+            default     => ServiceStatus::Active,
+        };
 
         if ($service->status === $target) {
             return;
@@ -63,19 +67,25 @@ final class ChangeServiceStateJob implements ShouldQueue
         ]);
 
         $driver = $drivers->forService($service);
-        $result = $this->operation === 'suspend' ? $driver->suspend($service) : $driver->unsuspend($service);
+        $result = match($this->operation) {
+            'suspend'   => $driver->suspend($service),
+            'terminate' => $driver->terminate($service),
+            default     => $driver->unsuspend($service),
+        };
 
         if ($result->success) {
-            $service->update($this->operation === 'suspend'
-                ? ['status' => ServiceStatus::Suspended, 'suspended_at' => now(), 'suspension_reason' => $this->reason]
-                : ['status' => ServiceStatus::Active, 'suspended_at' => null, 'suspension_reason' => null]);
+            $service->update(match($this->operation) {
+                'suspend'   => ['status' => ServiceStatus::Suspended, 'suspended_at' => now(), 'suspension_reason' => $this->reason],
+                'terminate' => ['status' => ServiceStatus::Terminated, 'terminated_at' => now()],
+                default     => ['status' => ServiceStatus::Active, 'suspended_at' => null, 'suspension_reason' => null],
+            });
 
             $task->update(['status' => TaskStatus::Success, 'result' => $result->metadata, 'finished_at' => now()]);
 
             activity('provisioning')
                 ->performedOn($service)
                 ->withProperties(['operation' => $this->operation, 'task_id' => $task->id, 'mock' => true])
-                ->log("service.{$this->operation}ed");
+                ->log("service.{$this->operation}d");
 
             // Notify customer on suspension (non-fatal)
             if ($this->operation === 'suspend') {

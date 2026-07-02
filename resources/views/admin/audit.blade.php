@@ -24,7 +24,14 @@
                 @if($filter || request('q'))
                     <a href="{{ route('admin.logs.audit') }}" class="btn btn-outline-secondary btn-sm">×</a>
                 @endif
-                <span class="f-light f-12 ms-auto">{{ $activities->total() }} záznamů</span>
+                <div class="ms-auto d-flex align-items-center gap-2">
+                    <span class="f-light f-12">{{ $activities->total() }} záznamů</span>
+                    <a href="{{ route('admin.logs.audit.export') . '?' . http_build_query(array_filter(['log' => $filter ?? '', 'from' => request('from'), 'to' => request('to')])) }}"
+                       class="btn btn-outline-secondary btn-sm">
+                        <i data-feather="download" style="width:12px;height:12px"></i>
+                        CSV
+                    </a>
+                </div>
             </form>
 
             @if($activities->isEmpty())

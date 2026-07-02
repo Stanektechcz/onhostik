@@ -3,6 +3,40 @@
 @section('title', __('front.pages.home.title'))
 @section('meta_description', 'Webhosting, domény a cloud hosting v ČR. Rychlé NVMe servery, SSL zdarma, denní zálohy a AI asistent. Moderní hosting s férovými cenami.')
 
+@push('jsonld')
+@php
+$websiteSchema = json_encode([
+    '@context' => 'https://schema.org',
+    '@type'    => 'WebSite',
+    'name'     => 'Onhost.cz',
+    'url'      => url('/'),
+    'description' => 'Webhosting, domény a cloud hosting v ČR — NVMe SSD, SSL zdarma, AI asistent, denní zálohy.',
+    'inLanguage'  => 'cs',
+    'potentialAction' => [
+        '@type'       => 'SearchAction',
+        'target'      => ['@type' => 'EntryPoint', 'urlTemplate' => url('/znalostni-baze') . '?q={search_term_string}'],
+        'query-input' => 'required name=search_term_string',
+    ],
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+$orgSchema = json_encode([
+    '@context' => 'https://schema.org',
+    '@type'    => 'Organization',
+    'name'     => 'Onhost.cz',
+    'url'      => url('/'),
+    'logo'     => asset('front/img/logo.png'),
+    'contactPoint' => [
+        '@type'             => 'ContactPoint',
+        'contactType'       => 'customer support',
+        'availableLanguage' => ['Czech', 'English'],
+        'url'               => route('front.support'),
+    ],
+    'sameAs' => [],
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+echo '<script type="application/ld+json">' . $websiteSchema . '</script>';
+echo '<script type="application/ld+json">' . $orgSchema . '</script>';
+@endphp
+@endpush
+
 @section('content')
     {{-- ============ ANNOUNCEMENT BAR (editable via /admin/obsah) ============ --}}
     @php($announcementActive = \App\Models\SiteContent::get('homepage.announcement.active', '0'))

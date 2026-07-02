@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -49,6 +51,7 @@ class OnhostDoctorCommand extends Command
         $this->sectionDatabase($strict);
         $this->sectionStorage($strict);
         $this->sectionQueue($strict);
+        $this->sectionRedis($strict);
         $this->sectionMail($strict);
         $this->sectionComgate($strict);
         $this->sectionProvisioning($strict);
@@ -211,6 +214,43 @@ class OnhostDoctorCommand extends Command
         } else {
             $this->warn_check('SESSION_SECURE_COOKIE', (bool) $secureCookie, $secureCookie ? 'true' : 'null/false (set true for HTTPS)');
         }
+    }
+
+    private function sectionRedis(bool $strict): void
+    {
+        $this->section('Redis / Cache / Broadcast');
+
+        $cacheDriver = (string) config('cache.default', 'database');
+        if ($strict) {
+            $this->check('CACHE_STORE=redis', $cacheDriver === 'redis', "driver='{$cacheDriver}'", critical: false);
+        } else {
+            $this->warn_check('CACHE_STORE', in_array($cacheDriver, ['redis', 'database'], true), "driver='{$cacheDriver}' (redis recommended in production)");
+        }
+
+        $queueDefault = (string) config('queue.default', 'sync');
+        $usesRedis = in_array($queueDefault, ['redis', 'beanstalkd'], true);
+
+        if (in_array($queueDefault, ['redis'], true)) {
+            try {
+                Redis::ping();
+                $this->check('Redis connection', true, 'pong');
+            } catch (Throwable $e) {
+                $this->check('Redis connection', false, mb_substr($e->getMessage(), 0, 80), critical: $strict);
+            }
+        } else {
+            $this->warn_check('Redis', false, "queue.default='{$queueDefault}' — Redis not used, skipping ping");
+        }
+
+        $broadcast = (string) config('broadcasting.default', 'null');
+        $this->warn_check('BROADCAST_CONNECTION', $broadcast !== 'null' && $broadcast !== 'log', "'{$broadcast}' (use reverb or pusher in production)");
+
+        if ($broadcast === 'reverb') {
+            $reverbKey = (string) config('reverb.apps.apps.0.key', '');
+            $this->check('REVERB_APP_KEY', $reverbKey !== '', $reverbKey !== '' ? 'configured' : 'REVERB_APP_KEY not set', critical: false);
+        }
+
+        $horizonEnabled = class_exists(\Laravel\Horizon\Horizon::class);
+        $this->check('Horizon installed', $horizonEnabled, $horizonEnabled ? 'available' : 'composer require laravel/horizon');
     }
 
     private function sectionMail(bool $strict): void

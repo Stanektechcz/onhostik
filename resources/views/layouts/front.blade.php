@@ -25,6 +25,7 @@
     <link href="{{ asset('front/css/vendors.min.css') }}" rel="stylesheet">
     <link href="{{ asset('front/css/theme.min.css') }}" rel="stylesheet">
     @stack('styles')
+    @stack('jsonld')
 
     <script src="{{ asset('front/js/jquery.min.js') }}"></script>
     <script src="{{ asset('front/js/gdpr-cookie.min.js') }}"></script>

@@ -168,6 +168,14 @@
                         </div>
                     </div>
                 </x-panel.card>
+
+                <x-panel.card title="Soukromí a data (GDPR)">
+                    <p class="f-light f-12 mb-3">Stáhněte export všech osobních údajů vedených k vašemu účtu (čl. 20 GDPR — přenositelnost dat).</p>
+                    <a href="{{ route('panel.account.data-export') }}" class="btn btn-outline-secondary btn-sm">
+                        <i data-feather="download" style="width:13px;height:13px"></i>
+                        Stáhnout data (ZIP)
+                    </a>
+                </x-panel.card>
             </div>
         </div>
     </div>

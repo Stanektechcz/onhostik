@@ -10,6 +10,7 @@
         "guzzlehttp/guzzle": "^7.9",
         "laravel/fortify": "^1.25",
         "laravel/framework": "^12.0",
+        "laravel/horizon": "^5.47",
         "laravel/pulse": "^1.3",
         "laravel/reverb": "^1.4",
         "laravel/sanctum": "^4.0",

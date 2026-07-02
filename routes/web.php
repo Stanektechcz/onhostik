@@ -10,6 +10,7 @@ use App\Http\Controllers\Web\KbController;
 use App\Http\Controllers\Web\LocaleController;
 use App\Http\Controllers\Web\OrderController;
 use App\Http\Controllers\Web\PageController;
+use App\Http\Controllers\Web\StatusController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -41,6 +42,9 @@ Route::get('/domeny', [DomainController::class, 'index'])->name('front.domains')
 Route::post('/domeny/overit', [DomainController::class, 'check'])
     ->middleware('throttle:domain-check')
     ->name('front.domains.check');
+Route::post('/domeny/bulk', [DomainController::class, 'bulkCheck'])
+    ->middleware('throttle:domain-check')
+    ->name('front.domains.bulk');
 
 Route::get('/objednavka/{plan}', [OrderController::class, 'start'])->name('front.order');
 
@@ -72,3 +76,4 @@ Route::get('/znalostni-baze/{slug}', [KbController::class, 'show'])->name('front
 Route::get('/lang/{locale}', LocaleController::class)->name('locale.switch');
 
 Route::get('/sitemap.xml', [PageController::class, 'sitemap'])->name('front.sitemap');
+Route::get('/stav', StatusController::class)->name('front.status');

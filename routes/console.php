@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Console\Commands\ApproveEligibleCommissionsCommand;
+use App\Console\Commands\DetectChurnSignalsCommand;
 use App\Console\Commands\CreateRenewalInvoicesCommand;
 use App\Console\Commands\MarkOverdueInvoicesCommand;
 use App\Console\Commands\ProcessDomainRenewalsCommand;
@@ -12,6 +13,7 @@ use App\Console\Commands\SendPaymentOverdueRemindersCommand;
 use App\Console\Commands\SendRenewalRemindersCommand;
 use App\Console\Commands\SuspendOverdueServicesCommand;
 use App\Console\Commands\SyncServiceUsageCommand;
+use App\Console\Commands\TerminateOverdueServicesCommand;
 use Illuminate\Support\Facades\Schedule;
 
 /*
@@ -38,6 +40,12 @@ Schedule::command(MarkOverdueInvoicesCommand::class)
 // (billing.suspension_grace_days, default 7 days).
 Schedule::command(SuspendOverdueServicesCommand::class)
     ->dailyAt('01:15')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Detect churn signals: no-login, no-payment. Logs to activity log for CRM review.
+Schedule::command(DetectChurnSignalsCommand::class)
+    ->weeklyOn(1, '06:00') // Monday at 06:00
     ->withoutOverlapping()
     ->runInBackground();
 
@@ -83,5 +91,12 @@ Schedule::command(SendDomainExpiringRemindersCommand::class)
 // Auto-renew domains expiring within 7 days (auto_renew=true only).
 Schedule::command(ProcessDomainRenewalsCommand::class)
     ->dailyAt('03:00')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Terminate suspended services whose invoice is overdue beyond 30 days.
+// Runs after suspend job, at a safe hour (minimal traffic).
+Schedule::command(TerminateOverdueServicesCommand::class)
+    ->dailyAt('01:30')
     ->withoutOverlapping()
     ->runInBackground();

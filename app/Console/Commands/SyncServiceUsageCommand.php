@@ -8,7 +8,9 @@ use App\Domains\Integrations\Clients\AapanelClient;
 use App\Domains\Integrations\Models\IntegrationSetting;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Models\Service;
+use App\Notifications\DiskUsageHighNotification;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Syncs live usage stats (disk, bandwidth, PHP processes) from aaPanel
@@ -50,6 +52,8 @@ class SyncServiceUsageCommand extends Command
                         'synced_at' => now()->toIso8601String(),
                     ])]);
 
+                    $this->checkDiskAlert($service, $usage);
+
                     $synced++;
                 } catch (\Throwable $e) {
                     report($e);
@@ -60,6 +64,35 @@ class SyncServiceUsageCommand extends Command
         $this->info("Synced usage for {$synced} services, {$skipped} errors.");
 
         return self::SUCCESS;
+    }
+
+    /** @param array<string, mixed> $usage */
+    private function checkDiskAlert(Service $service, array $usage): void
+    {
+        $usedMb  = (int) ($usage['disk_used_mb']  ?? 0);
+        $limitMb = (int) ($usage['disk_quota_mb'] ?? 0);
+
+        if ($limitMb === 0 || $usedMb === 0) {
+            return;
+        }
+
+        $pct = $usedMb / $limitMb * 100;
+
+        if ($pct < 80) {
+            return;
+        }
+
+        // Alert at most once per 24h per service
+        $cacheKey = "disk_alert:{$service->id}";
+        if (Cache::has($cacheKey)) {
+            return;
+        }
+
+        Cache::put($cacheKey, true, now()->addDay());
+
+        try {
+            $service->customer?->user?->notify(new DiskUsageHighNotification($service, $usedMb, $limitMb));
+        } catch (\Throwable) {}
     }
 
     /** @return array<string, mixed> */

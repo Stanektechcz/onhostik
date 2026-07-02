@@ -204,7 +204,9 @@ return [
         ],
     ],
     'account' => [
-        'billing_saved'  => 'Fakturační údaje byly uloženy.',
+        'billing_saved'      => 'Fakturační údaje byly uloženy.',
+        'vat_invalid'        => 'DIČ se nepodařilo ověřit — zdá se být neplatné. Údaje byly uloženy, ale osvobození od DPH nemusí platit.',
+        'vat_unavailable'    => 'Ověření DIČ v systému VIES je dočasně nedostupné. Údaje byly uloženy; DIČ ověříme, jakmile bude služba dostupná.',
         'profile_saved'      => 'Profil byl úspěšně uložen.',
         'deletion_requested' => 'Žádost o smazání účtu byla přijata. Budeme Vás kontaktovat do 30 dnů.',
         'type'           => 'Typ zákazníka',
