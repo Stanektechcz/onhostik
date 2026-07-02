@@ -45,3 +45,6 @@ desktop.ini
 /.nova
 /.zed
 *.swp
+
+# Claude Code worktrees
+/.claude/worktrees
