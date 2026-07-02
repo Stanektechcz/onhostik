@@ -46,19 +46,14 @@ class PageController extends Controller
 
     public function kanban(): View
     {
-        return view('admin.kanban');
-    }
+        $tasks = \App\Models\AdminTask::with(['creator', 'assignee'])->orderBy('priority', 'desc')->get();
 
-    public function tasks(): View
-    {
-        $taskStats = ['total' => 6, 'done' => 2, 'inprogress' => 1, 'pending' => 3];
-
-        return view('admin.tasks', compact('taskStats'));
-    }
-
-    public function calendar(): View
-    {
-        return view('admin.calendar');
+        return view('admin.kanban', [
+            'pending'    => $tasks->where('status', 'pending')->values(),
+            'inprogress' => $tasks->where('status', 'inprogress')->values(),
+            'done'       => $tasks->where('status', 'done')->values(),
+            'admins'     => User::whereHas('roles', fn ($q) => $q->where('name', 'admin'))->get(),
+        ]);
     }
 
     public function todo(): View
