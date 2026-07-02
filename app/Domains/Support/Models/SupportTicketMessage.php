@@ -14,13 +14,15 @@ class SupportTicketMessage extends Model
         'support_ticket_id',
         'user_id',
         'is_staff',
+        'is_internal',
         'message',
     ];
 
     protected function casts(): array
     {
         return [
-            'is_staff' => 'boolean',
+            'is_staff'    => 'boolean',
+            'is_internal' => 'boolean',
         ];
     }
 

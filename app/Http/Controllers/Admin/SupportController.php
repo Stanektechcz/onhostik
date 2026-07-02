@@ -61,15 +61,39 @@ class SupportController extends Controller
     public function reply(Request $request, SupportTicket $ticket, TicketService $tickets): RedirectResponse
     {
         $validated = $request->validate([
-            'message' => ['required', 'string', 'min:2', 'max:5000'],
+            'message'     => ['required', 'string', 'min:2', 'max:5000'],
+            'is_internal' => ['boolean'],
         ]);
 
         $admin = $request->user();
         abort_if($admin === null, 403);
 
+        if ($request->boolean('is_internal')) {
+            $tickets->addInternalNote($ticket, $admin, $validated['message']);
+
+            return back()->with('status', 'Interní poznámka přidána.');
+        }
+
         $tickets->reply($ticket, $admin, $validated['message'], isStaff: true);
 
         return back()->with('status', __('panel.admin.ticket_replied'));
+    }
+
+    public function setSla(Request $request, SupportTicket $ticket, TicketService $tickets): RedirectResponse
+    {
+        $validated = $request->validate([
+            'sla_deadline' => ['nullable', 'date'],
+        ]);
+
+        $admin = $request->user();
+        abort_if($admin === null, 403);
+
+        $deadline = $validated['sla_deadline'] ? new \DateTime($validated['sla_deadline']) : null;
+        $tickets->setSlaDeadline($ticket, $admin, $deadline);
+
+        return back()->with('status', $deadline
+            ? 'SLA termín nastaven na ' . $deadline->format('d.m.Y H:i') . '.'
+            : 'SLA termín odstraněn.');
     }
 
     /** Status + priority + assignee transitions, each audited via TicketService. */

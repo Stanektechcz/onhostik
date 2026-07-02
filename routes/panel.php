@@ -63,6 +63,10 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::get('/fakturace/kredit', [Panel\BillingController::class, 'credits'])->name('billing.credits');
     Route::post('/fakturace/kredit/dobit', [Panel\BillingController::class, 'topUp'])->name('billing.credits.topup');
 
+    Route::get('/ucet/api-tokeny', [Panel\ApiTokenController::class, 'index'])->name('account.api-tokens');
+    Route::post('/ucet/api-tokeny', [Panel\ApiTokenController::class, 'store'])->name('account.api-tokens.store');
+    Route::delete('/ucet/api-tokeny/{token}', [Panel\ApiTokenController::class, 'destroy'])->name('account.api-tokens.destroy');
+
     Route::get('/ucet/profil', [Panel\AccountController::class, 'profile'])->name('account.profile');
     Route::put('/ucet/profil', [Panel\AccountController::class, 'updateProfile'])->name('account.profile.update');
     Route::post('/ucet/smazat', [Panel\AccountController::class, 'requestDeletion'])->name('account.delete-request');
@@ -197,6 +201,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/podpora/{ticket}', [Admin\SupportController::class, 'show'])->name('support.show');
     Route::post('/podpora/{ticket}/odpoved', [Admin\SupportController::class, 'reply'])->name('support.reply');
     Route::put('/podpora/{ticket}', [Admin\SupportController::class, 'update'])->name('support.update');
+    Route::post('/podpora/{ticket}/sla', [Admin\SupportController::class, 'setSla'])->name('support.sla');
 
     Route::get('/ai', [Admin\AiController::class, 'index'])->name('ai.index');
     Route::post('/ai', [Admin\AiController::class, 'run'])->name('ai.run');

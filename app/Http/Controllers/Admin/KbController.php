@@ -130,6 +130,7 @@ class KbController extends Controller
         return back()->with('status', 'Recenze byla smazána.');
     }
 
+    /** @return array<string, mixed> */
     private function validated(Request $request): array
     {
         return $request->validate([

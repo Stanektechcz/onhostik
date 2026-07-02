@@ -98,6 +98,46 @@ final class TicketService
         return $reply;
     }
 
+    public function addInternalNote(SupportTicket $ticket, User $staff, string $note): SupportTicketMessage
+    {
+        $message = $ticket->messages()->create([
+            'user_id'     => $staff->id,
+            'is_staff'    => true,
+            'is_internal' => true,
+            'message'     => $note,
+        ]);
+
+        $ticket->events()->create([
+            'user_id' => $staff->id,
+            'event'   => 'internal_note',
+            'payload' => ['length' => mb_strlen($note)],
+        ]);
+
+        activity('support')
+            ->performedOn($ticket)
+            ->causedBy($staff)
+            ->log('support.internal_note_added');
+
+        return $message;
+    }
+
+    public function setSlaDeadline(SupportTicket $ticket, User $actor, ?\DateTimeInterface $deadline): void
+    {
+        $ticket->update(['sla_deadline' => $deadline]);
+
+        $ticket->events()->create([
+            'user_id' => $actor->id,
+            'event'   => 'sla_set',
+            'payload' => ['deadline' => $deadline?->format('Y-m-d H:i')],
+        ]);
+
+        activity('support')
+            ->performedOn($ticket)
+            ->causedBy($actor)
+            ->withProperties(['sla_deadline' => $deadline?->format('Y-m-d H:i')])
+            ->log('support.sla_set');
+    }
+
     public function changeStatus(SupportTicket $ticket, User $actor, TicketStatus $status): void
     {
         if ($ticket->status === $status) {

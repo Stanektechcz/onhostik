@@ -36,6 +36,7 @@ class SupportTicket extends Model
         'related_id',
         'last_reply_at',
         'closed_at',
+        'sla_deadline',
     ];
 
     protected function casts(): array

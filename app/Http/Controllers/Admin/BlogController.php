@@ -94,6 +94,7 @@ class BlogController extends Controller
             ->with('status', 'Příspěvek byl smazán.');
     }
 
+    /** @return array<string, mixed> */
     private function validated(Request $request, ?int $ignoreId = null): array
     {
         return $request->validate([

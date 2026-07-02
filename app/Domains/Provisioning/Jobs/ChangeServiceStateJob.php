@@ -8,6 +8,7 @@ use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Enums\TaskStatus;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Provisioning\Services\DriverResolver;
+use App\Notifications\ServiceSuspendedNotification;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -75,6 +76,15 @@ final class ChangeServiceStateJob implements ShouldQueue
                 ->performedOn($service)
                 ->withProperties(['operation' => $this->operation, 'task_id' => $task->id, 'mock' => true])
                 ->log("service.{$this->operation}ed");
+
+            // Notify customer on suspension (non-fatal)
+            if ($this->operation === 'suspend') {
+                try {
+                    $service->customer?->user?->notify(
+                        new ServiceSuspendedNotification($service, $this->reason ?? 'overdue_invoice')
+                    );
+                } catch (\Throwable) {}
+            }
 
             return;
         }
