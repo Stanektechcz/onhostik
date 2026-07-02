@@ -7,8 +7,10 @@ namespace App\Providers;
 use App\Domains\Billing\Events\InvoicePaid;
 use App\Domains\Billing\Listeners\HandleInvoicePaid;
 use App\Domains\Partner\Listeners\CreateCommissionOnInvoicePaid;
+use App\Listeners\BroadcastNotificationReceived;
 use App\Listeners\RecordUserLogin;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Notifications\Events\NotificationSent;
 use App\Domains\Billing\Services\Gateways\ComgateGateway;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Order;
@@ -57,6 +59,7 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(InvoicePaid::class, HandleInvoicePaid::class);
         Event::listen(InvoicePaid::class, CreateCommissionOnInvoicePaid::class);
         Event::listen(Login::class, RecordUserLogin::class);
+        Event::listen(NotificationSent::class, BroadcastNotificationReceived::class);
     }
 
     /**

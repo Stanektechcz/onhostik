@@ -135,6 +135,8 @@
 @livewireScripts
 @stack('scripts')
 <script src="{{ asset('panel/js/script.js') }}"></script>
+<script src="{{ asset('panel/js/pusher.min.js') }}"></script>
+<script src="{{ asset('panel/js/echo.iife.js') }}"></script>
 <script>
 /* ── In-panel notification bell ─────────────────────────────────── */
 (function() {
@@ -152,46 +154,54 @@
         danger: '#dc3545', info: '#0dcaf0',
     };
 
+    var wsConnected = false;
+    var pollInterval = null;
+
+    function updateBadge(count) {
+        var badge = document.getElementById('notif-count');
+        if (badge) {
+            badge.textContent = count > 9 ? '9+' : count;
+            badge.style.display = count > 0 ? '' : 'none';
+        }
+        var label = document.getElementById('notif-unread-label');
+        if (label) label.textContent = count > 0 ? count + ' nepřečtených' : '';
+    }
+
+    function renderNotifications(data) {
+        updateBadge(data.unread_count);
+
+        var container = document.getElementById('notif-items-container');
+        if (!container) return;
+
+        if (!data.notifications || data.notifications.length === 0) {
+            container.innerHTML = '<div class="text-center py-3 f-light f-12">Žádné notifikace</div>';
+            return;
+        }
+
+        var html = '';
+        data.notifications.forEach(function(n) {
+            var d = n.data || {};
+            var icon = iconMap[d.icon] || '•';
+            var color = colorMap[d.color] || '#7366FF';
+            var readClass = n.read ? '' : 'f-w-600';
+            var bg = n.read ? '' : 'background:rgba(115,102,255,.04);';
+            html += '<div class="media notification-item" style="padding:10px 14px;border-bottom:1px solid rgba(82,82,108,.1);cursor:pointer;' + bg + '"' +
+                ' data-id="' + n.id + '" data-url="' + (d.url || '#') + '" onclick="handleNotifClick(this)">' +
+                '<div class="flex-shrink-0 me-3 d-flex align-items-center justify-content-center rounded-circle"' +
+                ' style="width:36px;height:36px;background:' + color + '22;font-size:15px;">' + icon + '</div>' +
+                '<div class="media-body">' +
+                '<p class="mb-0 ' + readClass + ' f-13">' + (d.title || '') + '</p>' +
+                '<p class="mb-0 f-light f-12" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;">' + (d.body || '') + '</p>' +
+                '<p class="mb-0 f-light" style="font-size:10px;">' + n.created_at + '</p>' +
+                '</div></div>';
+        });
+        container.innerHTML = html;
+    }
+
     function loadNotifications() {
         fetch(FETCH_URL, { headers: { Accept: 'application/json' } })
             .then(function(r) { return r.json(); })
-            .then(function(data) {
-                var count = data.unread_count;
-                var badge = document.getElementById('notif-count');
-                if (badge) {
-                    badge.textContent = count > 9 ? '9+' : count;
-                    badge.style.display = count > 0 ? '' : 'none';
-                }
-                var label = document.getElementById('notif-unread-label');
-                if (label) label.textContent = count > 0 ? count + ' nepřečtených' : '';
-
-                var container = document.getElementById('notif-items-container');
-                if (!container) return;
-
-                if (!data.notifications || data.notifications.length === 0) {
-                    container.innerHTML = '<div class="text-center py-3 f-light f-12">Žádné notifikace</div>';
-                    return;
-                }
-
-                var html = '';
-                data.notifications.forEach(function(n) {
-                    var d = n.data || {};
-                    var icon = iconMap[d.icon] || '•';
-                    var color = colorMap[d.color] || '#7366FF';
-                    var readClass = n.read ? '' : 'f-w-600';
-                    var bg = n.read ? '' : 'background:rgba(115,102,255,.04);';
-                    html += '<div class="media notification-item" style="padding:10px 14px;border-bottom:1px solid rgba(82,82,108,.1);cursor:pointer;' + bg + '"' +
-                        ' data-id="' + n.id + '" data-url="' + (d.url || '#') + '" onclick="handleNotifClick(this)">' +
-                        '<div class="flex-shrink-0 me-3 d-flex align-items-center justify-content-center rounded-circle"' +
-                        ' style="width:36px;height:36px;background:' + color + '22;font-size:15px;">' + icon + '</div>' +
-                        '<div class="media-body">' +
-                        '<p class="mb-0 ' + readClass + ' f-13">' + (d.title || '') + '</p>' +
-                        '<p class="mb-0 f-light f-12" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;">' + (d.body || '') + '</p>' +
-                        '<p class="mb-0 f-light" style="font-size:10px;">' + n.created_at + '</p>' +
-                        '</div></div>';
-                });
-                container.innerHTML = html;
-            })
+            .then(renderNotifications)
             .catch(function() {});
     }
 
@@ -211,15 +221,68 @@
         }).then(function() { loadNotifications(); });
     };
 
-    /* Load on open */
+    /* Load on bell open */
     var bellLi = document.getElementById('notif-bell-li');
     if (bellLi) {
         bellLi.addEventListener('mouseenter', function() { loadNotifications(); });
     }
 
-    /* Poll every 60 s for count update */
+    /* Initial load */
     loadNotifications();
-    setInterval(loadNotifications, 60000);
+
+    /* ── WebSocket push via Laravel Reverb ─────────────────────── */
+    @auth
+    (function() {
+        var REVERB_KEY    = '{{ config("reverb.apps.apps.0.key", "") }}';
+        var REVERB_HOST   = '{{ config("reverb.apps.apps.0.options.host", "localhost") }}';
+        var REVERB_PORT   = {{ (int) config("reverb.apps.apps.0.options.port", 8080) }};
+        var REVERB_SCHEME = '{{ config("reverb.apps.apps.0.options.scheme", "http") }}';
+
+        if (!REVERB_KEY || typeof window.Echo === 'undefined' || typeof Pusher === 'undefined') {
+            /* Reverb not configured — fall back to 60s polling */
+            pollInterval = setInterval(loadNotifications, 60000);
+            return;
+        }
+
+        try {
+            var echo = new Echo({
+                broadcaster: 'reverb',
+                key: REVERB_KEY,
+                wsHost: REVERB_HOST,
+                wsPort: REVERB_PORT,
+                wssPort: REVERB_PORT,
+                forceTLS: REVERB_SCHEME === 'https',
+                enabledTransports: ['ws', 'wss'],
+                authEndpoint: '/broadcasting/auth',
+                auth: { headers: { 'X-CSRF-TOKEN': CSRF } },
+            });
+
+            echo.connector.pusher.connection.bind('connected', function() {
+                wsConnected = true;
+                /* WebSocket active — cancel polling */
+                if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+            });
+
+            echo.connector.pusher.connection.bind('disconnected', function() {
+                wsConnected = false;
+                /* Reconnect fallback — resume 60s polling */
+                if (!pollInterval) { pollInterval = setInterval(loadNotifications, 60000); }
+            });
+
+            echo.private('user.{{ auth()->id() }}')
+                .listen('.notification.received', function(e) {
+                    updateBadge(e.unread_count);
+                    /* Refresh full list so dropdown is fresh on next open */
+                    loadNotifications();
+                });
+        } catch (err) {
+            /* Any Echo init failure → safe fallback to polling */
+            pollInterval = setInterval(loadNotifications, 60000);
+        }
+    })();
+    @else
+    /* Unauthenticated — no WebSocket needed */
+    @endauth
 })();
 </script>
 </body>
