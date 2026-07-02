@@ -172,6 +172,127 @@ it('admin can set SLA deadline on a ticket', function (): void {
     expect($ticket->fresh()->sla_deadline)->not->toBeNull();
 });
 
+// ── API v1: domains ──────────────────────────────────────────────────────────
+
+it('api domains returns customer domains', function (): void {
+    $user    = customerUser();
+    $token   = $user->createToken('api-domains')->plainTextToken;
+    $product = \App\Domains\Products\Models\Product::first();
+
+    $service = \App\Domains\Provisioning\Models\Service::create([
+        'customer_id'         => $user->customer->id,
+        'product_id'          => $product->id,
+        'status'              => \App\Domains\Provisioning\Enums\ServiceStatus::Active,
+        'label'               => 'test-domain',
+        'provisioning_driver' => \App\Domains\Provisioning\Enums\ProvisioningDriver::AAPanel,
+    ]);
+
+    \App\Domains\Provisioning\Models\DomainRegistration::create([
+        'service_id'  => $service->id,
+        'domain'      => 'mujdomen',
+        'tld'         => 'cz',
+        'registrar'   => 'wedos',
+        'auto_renew'  => true,
+    ]);
+
+    $response = $this->withToken($token)
+        ->getJson('/api/v1/domains')
+        ->assertOk()
+        ->assertJsonStructure(['data']);
+
+    $domains = collect($response->json('data'));
+    expect($domains->pluck('domain'))->toContain('mujdomen.cz');
+});
+
+it('api domains does not leak other customer domains', function (): void {
+    $user1   = customerUser();
+    $user2   = customerUser();
+    $token   = $user1->createToken('api-domains')->plainTextToken;
+    $product = \App\Domains\Products\Models\Product::first();
+
+    $service = \App\Domains\Provisioning\Models\Service::create([
+        'customer_id'         => $user2->customer->id,
+        'product_id'          => $product->id,
+        'status'              => \App\Domains\Provisioning\Enums\ServiceStatus::Active,
+        'label'               => 'other-domain',
+        'provisioning_driver' => \App\Domains\Provisioning\Enums\ProvisioningDriver::AAPanel,
+    ]);
+
+    \App\Domains\Provisioning\Models\DomainRegistration::create([
+        'service_id'  => $service->id,
+        'domain'      => 'cizidomena',
+        'tld'         => 'cz',
+        'registrar'   => 'wedos',
+        'auto_renew'  => true,
+    ]);
+
+    $response = $this->withToken($token)
+        ->getJson('/api/v1/domains')
+        ->assertOk();
+
+    $domains = collect($response->json('data'))->pluck('domain')->toArray();
+    expect($domains)->not->toContain('cizidomena.cz');
+});
+
+// ── API v1: credit balance ────────────────────────────────────────────────────
+
+it('api billing/credit returns the credit balance', function (): void {
+    $user  = customerUser();
+    $token = $user->createToken('api-credit')->plainTextToken;
+
+    $response = $this->withToken($token)
+        ->getJson('/api/v1/billing/credit')
+        ->assertOk()
+        ->assertJsonStructure(['data' => ['amount', 'currency', 'formatted']]);
+
+    expect($response->json('data.amount'))->toBeInt()
+        ->and($response->json('data.currency'))->toBe('CZK');
+});
+
+// ── API v1: support tickets ───────────────────────────────────────────────────
+
+it('api support/tickets returns the customer tickets list', function (): void {
+    $user  = customerUser();
+    $token = $user->createToken('api-tickets')->plainTextToken;
+
+    \App\Domains\Support\Models\SupportTicket::create([
+        'customer_id'   => $user->customer->id,
+        'subject'       => 'API testovací tiket',
+        'status'        => 'open',
+        'priority'      => 'normal',
+        'last_reply_at' => now(),
+    ]);
+
+    $response = $this->withToken($token)
+        ->getJson('/api/v1/support/tickets')
+        ->assertOk()
+        ->assertJsonStructure(['data']);
+
+    $subjects = collect($response->json('data'))->pluck('subject')->toArray();
+    expect($subjects)->toContain('API testovací tiket');
+});
+
+it('api support/tickets does not return other customer tickets', function (): void {
+    $user1 = customerUser();
+    $user2 = customerUser();
+    $token = $user1->createToken('api-tickets')->plainTextToken;
+
+    \App\Domains\Support\Models\SupportTicket::create([
+        'customer_id'   => $user2->customer->id,
+        'subject'       => 'Cizí tiket',
+        'status'        => 'open',
+        'priority'      => 'normal',
+        'last_reply_at' => now(),
+    ]);
+
+    $response = $this->withToken($token)
+        ->getJson('/api/v1/support/tickets')
+        ->assertOk();
+
+    $subjects = collect($response->json('data'))->pluck('subject')->toArray();
+    expect($subjects)->not->toContain('Cizí tiket');
+});
+
 it('admin can add internal note not visible in regular reply', function (): void {
     $admin  = adminUser();
     $user   = customerUser();
