@@ -5,16 +5,20 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
 /**
+ * @use HasFactory<\Database\Factories\SubscriberFactory>
  * @property bool $is_active
  * @property \Illuminate\Support\Carbon|null $confirmed_at
  * @property \Illuminate\Support\Carbon|null $unsubscribed_at
  */
 class Subscriber extends Model
 {
+    /** @use HasFactory<\Database\Factories\SubscriberFactory> */
+    use HasFactory;
     protected $fillable = [
         'email', 'name', 'locale', 'is_active', 'source',
         'confirmed_at', 'unsubscribed_at', 'unsubscribe_token',

@@ -274,6 +274,17 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::post('/odberevatele/{subscriber}/toggle', [Admin\SubscriberController::class, 'toggle'])->name('subscribers.toggle');
     Route::delete('/odberevatele/{subscriber}', [Admin\SubscriberController::class, 'destroy'])->name('subscribers.destroy');
 
+    /* ── Newsletter ── */
+    Route::get('/newsletter', [Admin\NewsletterCampaignController::class, 'index'])->name('newsletter.index');
+    Route::get('/newsletter/nova', [Admin\NewsletterCampaignController::class, 'create'])->name('newsletter.create');
+    Route::post('/newsletter', [Admin\NewsletterCampaignController::class, 'store'])->name('newsletter.store');
+    Route::get('/newsletter/{campaign}', [Admin\NewsletterCampaignController::class, 'show'])->name('newsletter.show');
+    Route::get('/newsletter/{campaign}/upravit', [Admin\NewsletterCampaignController::class, 'edit'])->name('newsletter.edit');
+    Route::put('/newsletter/{campaign}', [Admin\NewsletterCampaignController::class, 'update'])->name('newsletter.update');
+    Route::delete('/newsletter/{campaign}', [Admin\NewsletterCampaignController::class, 'destroy'])->name('newsletter.destroy');
+    Route::post('/newsletter/{campaign}/odeslat', [Admin\NewsletterCampaignController::class, 'send'])->name('newsletter.send');
+    Route::post('/newsletter/{campaign}/odeslano', [Admin\NewsletterCampaignController::class, 'markSent'])->name('newsletter.mark-sent');
+
     /* ── Sitemap ── */
     Route::get('/mapa-webu', [Admin\PageController::class, 'sitemap'])->name('sitemap');
 
