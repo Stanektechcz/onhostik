@@ -91,8 +91,9 @@ final class ProxmoxClient
 
         $this->authenticate();
         $response = $this->get("/nodes/{$this->node}/qemu");
+        $vms = is_array($response['data'] ?? null) ? $response['data'] : [];
 
-        return collect($response['data'] ?? [])->map(function (array $vm): array {
+        return collect($vms)->map(function (array $vm): array {
             return [
                 'id'     => $vm['vmid'] ?? 0,
                 'name'   => $vm['name'] ?? "vm-{$vm['vmid']}",
@@ -124,6 +125,7 @@ final class ProxmoxClient
         return $r->successful();
     }
 
+    /** @return array<string, mixed> */
     public function getNodeStatus(): array
     {
         if ($this->mockMode) {
@@ -156,6 +158,7 @@ final class ProxmoxClient
         return false;
     }
 
+    /** @return array<string, mixed> */
     private function get(string $path): array
     {
         $response = Http::withOptions(['verify' => false])

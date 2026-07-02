@@ -31,16 +31,22 @@ class DiscountCode extends Model
         return 'code';
     }
 
+    /** @return BelongsTo<User, $this> */
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
     }
 
+    /** @return HasMany<DiscountCodeUsage, $this> */
     public function usages(): HasMany
     {
         return $this->hasMany(DiscountCodeUsage::class);
     }
 
+    /**
+     * @param  Builder<DiscountCode>  $query
+     * @return Builder<DiscountCode>
+     */
     public function scopeValid(Builder $query): Builder
     {
         return $query

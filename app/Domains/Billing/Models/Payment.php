@@ -11,7 +11,6 @@ use App\Domains\Shared\Casts\MoneyCast;
 use App\Domains\Shared\Enums\Currency;
 use App\Domains\Shared\Traits\HasUuid;
 use Brick\Money\Money;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -33,7 +32,6 @@ use Spatie\Activitylog\Traits\LogsActivity;
  */
 class Payment extends Model
 {
-    use HasFactory;
     use HasUuid;
     use LogsActivity;
 

@@ -11,15 +11,23 @@ use Spatie\LaravelData\Data;
  */
 final class ProvisioningResult extends Data
 {
+    /**
+     * @param array<string, mixed> $credentials  sanitized before logging!
+     * @param array<string, mixed> $metadata
+     */
     public function __construct(
         public readonly bool $success,
         public readonly ?string $externalId = null,
-        public readonly array $credentials = [],   // sanitized before logging!
+        public readonly array $credentials = [],
         public readonly array $metadata = [],
         public readonly ?string $errorMessage = null,
         public readonly ?string $externalRequestId = null,
     ) {}
 
+    /**
+     * @param array<string, mixed> $credentials
+     * @param array<string, mixed> $metadata
+     */
     public static function ok(string $externalId, array $credentials = [], array $metadata = []): self
     {
         return new self(
@@ -48,6 +56,10 @@ final class ProvisioningResult extends Data
     /**
      * Pending result — task has been submitted but not yet completed.
      * The externalId is null; the polling job will set it once the task succeeds.
+     */
+    /**
+     * @param array<string, mixed> $credentials
+     * @param array<string, mixed> $metadata
      */
     public static function pending(?string $externalId = null, array $credentials = [], array $metadata = []): self
     {

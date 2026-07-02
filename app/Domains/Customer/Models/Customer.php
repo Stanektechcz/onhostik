@@ -36,6 +36,7 @@ use Spatie\Activitylog\Traits\LogsActivity;
  */
 class Customer extends Model
 {
+    /** @use HasFactory<\Database\Factories\CustomerFactory> */
     use HasFactory;
     use HasUuid;
     use LogsActivity;

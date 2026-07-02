@@ -8,6 +8,7 @@ use Spatie\LaravelData\Data;
 
 final class UsageStats extends Data
 {
+    /** @param array<string, mixed> $extra */
     public function __construct(
         public readonly ?int $diskUsedMb = null,
         public readonly ?int $diskLimitMb = null,

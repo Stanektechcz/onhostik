@@ -80,6 +80,7 @@ class CreditTransaction extends Model
         return $this->belongsTo(Customer::class);
     }
 
+    /** @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, $this> */
     public function reference(): MorphTo
     {
         return $this->morphTo();

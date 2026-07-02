@@ -7,7 +7,6 @@ namespace App\Domains\Partner\Models;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Partner\Enums\ReferralStatus;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -17,8 +16,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class PartnerReferral extends Model
 {
-    use HasFactory;
-
     protected $fillable = [
         'partner_profile_id',
         'referred_user_id',

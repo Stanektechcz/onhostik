@@ -7,7 +7,6 @@ namespace App\Domains\Partner\Models;
 use App\Domains\Partner\Enums\PartnerStatus;
 use App\Domains\Shared\Traits\HasUuid;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -21,7 +20,6 @@ use Spatie\Activitylog\Traits\LogsActivity;
  */
 class PartnerProfile extends Model
 {
-    use HasFactory;
     use HasUuid;
     use LogsActivity;
 
@@ -79,6 +77,7 @@ class PartnerProfile extends Model
 
     // ────────────────────────────────── helpers
 
+    /** @return array<string, mixed>|null */
     public function getPayoutDetails(): ?array
     {
         if ($this->payout_details_encrypted === null) {
@@ -92,6 +91,7 @@ class PartnerProfile extends Model
         }
     }
 
+    /** @param array<string, mixed>|null $details */
     public function setPayoutDetails(?array $details): void
     {
         $this->payout_details_encrypted = $details !== null

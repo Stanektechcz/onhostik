@@ -329,7 +329,10 @@ final class AapanelProductionDriver implements ProvisioningDriverInterface
         return null;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @param  array<string, mixed>  $body
+     * @return array<string, mixed>
+     */
     private function post(string $path, array $body): array
     {
         $requestTime  = time();

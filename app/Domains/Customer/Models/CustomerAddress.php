@@ -4,14 +4,11 @@ declare(strict_types=1);
 
 namespace App\Domains\Customer\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class CustomerAddress extends Model
 {
-    use HasFactory;
-
     protected $fillable = [
         'customer_id',
         'type',          // billing | technical
@@ -29,6 +26,7 @@ class CustomerAddress extends Model
         ];
     }
 
+    /** @return BelongsTo<Customer, $this> */
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);

@@ -90,6 +90,7 @@ final class CreditLedger
         return Money::ofMinor($minor, $customer->preferred_currency->value);
     }
 
+    /** @return LengthAwarePaginator<int, CreditTransaction> */
     public function getHistory(Customer $customer, int $perPage = 25): LengthAwarePaginator
     {
         return CreditTransaction::where('customer_id', $customer->id)

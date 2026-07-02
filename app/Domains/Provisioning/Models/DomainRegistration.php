@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Domains\Provisioning\Models;
 
 use Illuminate\Database\Eloquent\Casts\Attribute;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -20,8 +19,6 @@ use Illuminate\Support\Facades\Crypt;
  */
 class DomainRegistration extends Model
 {
-    use HasFactory;
-
     protected $fillable = [
         'service_id',
         'domain',
@@ -47,6 +44,7 @@ class DomainRegistration extends Model
 
     protected $hidden = ['auth_code'];
 
+    /** @return Attribute<string|null, string|null> */
     protected function authCode(): Attribute
     {
         return Attribute::make(

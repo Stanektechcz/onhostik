@@ -123,7 +123,11 @@ class DashboardController extends Controller
         ]);
     }
 
-    /** @param \Illuminate\Support\Collection $chartLabels */
+    /**
+     * @param \Illuminate\Support\Collection<int, string> $chartLabels
+     * @param \Illuminate\Support\Collection<int, mixed> $emptySeries
+     * @return array<string, mixed>
+     */
     private function stubData(User $user, mixed $chartLabels, mixed $emptySeries): array
     {
         return [

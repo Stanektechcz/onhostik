@@ -20,6 +20,7 @@ use App\Domains\Provisioning\Models\Service;
  */
 class ProxmoxMockDriver implements ProvisioningDriverInterface
 {
+    /** @param array<string, mixed> $config */
     public function create(Service $service, array $config = []): ProvisioningResult
     {
         // Idempotency: already provisioned.
@@ -79,6 +80,7 @@ class ProxmoxMockDriver implements ProvisioningDriverInterface
         );
     }
 
+    /** @param array<string, mixed> $newResources */
     public function changePackage(Service $service, array $newResources): ProvisioningResult
     {
         return ProvisioningResult::ok(

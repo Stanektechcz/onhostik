@@ -75,7 +75,11 @@ final class ComgateGateway
         ];
     }
 
-    /** Query payment status by transaction id (used for webhook verification). */
+    /**
+     * Query payment status by transaction id (used for webhook verification).
+     *
+     * @return array<string, mixed>
+     */
     public function getStatus(string $transId): array
     {
         $response = $this->client()->post('/status', [
@@ -112,7 +116,11 @@ final class ComgateGateway
             ->withBasicAuth($this->merchantId, $this->secret);
     }
 
-    /** Comgate answers in application/x-www-form-urlencoded format. */
+    /**
+     * Comgate answers in application/x-www-form-urlencoded format.
+     *
+     * @return array<string, mixed>
+     */
     private function parseResponse(string $body): array
     {
         parse_str($body, $data);

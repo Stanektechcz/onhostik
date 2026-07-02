@@ -7,7 +7,6 @@ namespace App\Domains\Provisioning\Models;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Shared\Traits\HasUuid;
 use Illuminate\Database\Eloquent\Casts\Attribute;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Crypt;
@@ -22,7 +21,6 @@ use Illuminate\Support\Facades\Crypt;
  */
 class Server extends Model
 {
-    use HasFactory;
     use HasUuid;
 
     protected $fillable = [
@@ -56,6 +54,7 @@ class Server extends Model
 
     // ---------------------------------------------------------------- encryption
 
+    /** @return Attribute<array<string, string>, array<string, string>> */
     protected function apiCredentials(): Attribute
     {
         return Attribute::make(
@@ -66,6 +65,7 @@ class Server extends Model
 
     // ---------------------------------------------------------------- relations
 
+    /** @return HasMany<Service, $this> */
     public function services(): HasMany
     {
         return $this->hasMany(Service::class);
@@ -79,7 +79,11 @@ class Server extends Model
             || $this->current_services < $this->max_services;
     }
 
-    public function scopeActive($query): mixed
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<Server>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<Server>
+     */
+    public function scopeActive(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
     {
         return $query->where('status', 'active');
     }

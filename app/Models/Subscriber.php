@@ -35,11 +35,19 @@ class Subscriber extends Model
         });
     }
 
+    /**
+     * @param  Builder<Subscriber>  $query
+     * @return Builder<Subscriber>
+     */
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true)->whereNull('unsubscribed_at');
     }
 
+    /**
+     * @param  Builder<Subscriber>  $query
+     * @return Builder<Subscriber>
+     */
     public function scopeConfirmed(Builder $query): Builder
     {
         return $query->whereNotNull('confirmed_at');

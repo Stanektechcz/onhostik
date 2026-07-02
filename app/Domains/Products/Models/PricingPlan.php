@@ -28,9 +28,11 @@ use Spatie\Translatable\HasTranslations;
  */
 class PricingPlan extends Model
 {
+    /** @use HasFactory<\Database\Factories\PricingPlanFactory> */
     use HasFactory;
     use HasTranslations;
 
+    /** @var array<int, string> */
     public array $translatable = ['name', 'tagline'];
 
     protected $fillable = [

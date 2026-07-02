@@ -79,7 +79,9 @@ final class PterodactylClient
 
         $response = $this->appRequest('GET', '/api/application/servers', ['per_page' => 25, 'page' => $page]);
 
-        return collect($response->json('data', []))->map(function (array $item): array {
+        $items = is_array($response->json('data')) ? $response->json('data') : [];
+
+        return collect($items)->map(function (array $item): array {
             $attr = $item['attributes'] ?? [];
             return [
                 'id'     => $item['attributes']['id'] ?? 0,
@@ -90,6 +92,7 @@ final class PterodactylClient
         })->all();
     }
 
+    /** @return array<string, mixed> */
     public function getServer(int $serverId): array
     {
         if ($this->mockMode) {
@@ -99,6 +102,10 @@ final class PterodactylClient
         return $this->appRequest('GET', "/api/application/servers/{$serverId}")->json('attributes', []);
     }
 
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
     public function createServer(array $data): array
     {
         if ($this->mockMode) {
@@ -141,6 +148,7 @@ final class PterodactylClient
         return $this->appRequest('POST', "/api/application/servers/{$serverId}/unsuspend")->successful();
     }
 
+    /** @param array<string, mixed> $data */
     private function appRequest(string $method, string $path, array $data = []): Response
     {
         $http = Http::withHeaders([

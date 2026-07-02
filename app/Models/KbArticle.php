@@ -25,6 +25,10 @@ class KbArticle extends Model
         return 'slug';
     }
 
+    /**
+     * @param  Builder<KbArticle>  $query
+     * @return Builder<KbArticle>
+     */
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('is_published', true);

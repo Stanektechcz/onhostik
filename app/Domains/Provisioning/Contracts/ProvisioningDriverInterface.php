@@ -20,7 +20,11 @@ use App\Domains\Provisioning\Models\Service;
  */
 interface ProvisioningDriverInterface
 {
-    /** Create the service on the remote backend. Must be idempotent. */
+    /**
+     * Create the service on the remote backend. Must be idempotent.
+     *
+     * @param array<string, mixed> $config
+     */
     public function create(Service $service, array $config = []): ProvisioningResult;
 
     /** Suspend the service (non-destructive, reversible). */
@@ -32,7 +36,11 @@ interface ProvisioningDriverInterface
     /** Permanently terminate. Caller is responsible for retention policy checks. */
     public function terminate(Service $service): ProvisioningResult;
 
-    /** Up/downgrade resources to match a new plan's resource config. */
+    /**
+     * Up/downgrade resources to match a new plan's resource config.
+     *
+     * @param array<string, mixed> $newResources
+     */
     public function changePackage(Service $service, array $newResources): ProvisioningResult;
 
     /** Fetch current usage statistics. */

@@ -32,6 +32,7 @@ final class ProcessComgateWebhookAction
         private readonly ComgateGateway $gateway,
     ) {}
 
+    /** @param array<string, mixed> $payload */
     public function execute(array $payload, string $sourceIp): void
     {
         $log = PaymentWebhookLog::create([
@@ -113,6 +114,10 @@ final class ProcessComgateWebhookAction
         }
     }
 
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
     private function sanitize(array $data): array
     {
         unset($data['secret'], $data['password'], $data['merchant']);

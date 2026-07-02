@@ -6,7 +6,6 @@ namespace App\Domains\Provisioning\Models;
 
 use App\Domains\Provisioning\Enums\TaskStatus;
 use App\Domains\Shared\Traits\HasUuid;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -23,7 +22,6 @@ use Illuminate\Support\Carbon;
  */
 class ProvisioningTask extends Model
 {
-    use HasFactory;
     use HasUuid;
 
     protected $fillable = [

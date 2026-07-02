@@ -20,6 +20,7 @@ use Spatie\Translatable\HasTranslations;
  */
 class Product extends Model
 {
+    /** @use HasFactory<\Database\Factories\ProductFactory> */
     use HasFactory;
     use HasTranslations;
 
@@ -53,7 +54,11 @@ class Product extends Model
         return $this->hasMany(PricingPlan::class)->orderBy('sort_order');
     }
 
-    public function scopeActive($query): mixed
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<Product>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<Product>
+     */
+    public function scopeActive(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
     {
         return $query->where('is_active', true);
     }

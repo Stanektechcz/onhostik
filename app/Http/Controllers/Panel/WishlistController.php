@@ -15,7 +15,7 @@ class WishlistController extends Controller
 {
     public function index(Request $request): View
     {
-        $wishlist = session('panel_wishlist', []);
+        $wishlist = is_array(session('panel_wishlist')) ? session('panel_wishlist') : [];
         $customer = $this->customer($request);
         $plans    = PricingPlan::whereIn('id', $wishlist)
             ->where('is_active', true)
@@ -44,7 +44,7 @@ class WishlistController extends Controller
 
     public function add(Request $request, int $plan): RedirectResponse
     {
-        $wishlist = session('panel_wishlist', []);
+        $wishlist = is_array(session('panel_wishlist')) ? session('panel_wishlist') : [];
         if (! in_array($plan, $wishlist, true)) {
             $wishlist[] = $plan;
             session(['panel_wishlist' => $wishlist]);

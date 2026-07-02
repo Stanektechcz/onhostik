@@ -21,6 +21,8 @@ use InvalidArgumentException;
  *   {
  *       return ['total' => MoneyCast::class . ':currency'];
  *   }
+ *
+ * @implements CastsAttributes<?Money, mixed>
  */
 final class MoneyCast implements CastsAttributes
 {
@@ -42,6 +44,7 @@ final class MoneyCast implements CastsAttributes
         return Money::ofMinor((int) $value, $currency);
     }
 
+    /** @return array<string, mixed> */
     public function set(Model $model, string $key, mixed $value, array $attributes): array
     {
         if ($value === null) {

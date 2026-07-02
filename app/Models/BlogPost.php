@@ -32,11 +32,16 @@ class BlogPost extends Model
         return isset($this->attributes['image']) ? $this->attributes['image'] : null;
     }
 
+    /** @return BelongsTo<User, $this> */
     public function author(): BelongsTo
     {
         return $this->belongsTo(User::class, 'author_id');
     }
 
+    /**
+     * @param  Builder<BlogPost>  $query
+     * @return Builder<BlogPost>
+     */
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('is_published', true)
