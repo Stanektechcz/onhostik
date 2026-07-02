@@ -17,17 +17,23 @@
                 <x-panel.card :title="$ticket->subject" :subtitle="$ticket->customer?->email">
                     @forelse($ticket->messages as $message)
                         @php
-                            $dotColor = $message->is_staff ? 'success' : 'primary';
+                            $isInternal = (bool) ($message->is_internal ?? false);
+                            $dotColor   = $isInternal ? 'warning' : ($message->is_staff ? 'success' : 'primary');
+                            $bgClass    = $isInternal ? 'bg-light-warning' : ($message->is_staff ? 'bg-light-success' : 'bg-light-primary');
                         @endphp
                         <div class="d-flex gap-3 mb-3">
                             <div class="flex-shrink-0 pt-1">
                                 <div class="activity-dot-{{ $dotColor }}" style="margin-top:4px"></div>
                             </div>
                             <div class="flex-grow-1">
-                                <div class="rounded p-3 {{ $message->is_staff ? 'bg-light-success' : 'bg-light-primary' }}">
+                                <div class="rounded p-3 {{ $bgClass }}" style="{{ $isInternal ? 'border-left:3px solid #f39c12;' : '' }}">
                                     <div class="d-flex justify-content-between align-items-center mb-2">
                                         <span class="f-w-600 f-13">
-                                            @if($message->is_staff)
+                                            @if($isInternal)
+                                                <i data-feather="lock" class="font-warning" style="width:12px;height:12px"></i>
+                                                Interní poznámka
+                                                <span class="badge badge-light-warning f-10 ms-1">INTERNÍ</span>
+                                            @elseif($message->is_staff)
                                                 <i data-feather="shield" class="font-success" style="width:12px;height:12px"></i>
                                                 {{ __('panel.support.staff') }}
                                             @else
@@ -53,9 +59,20 @@
                                       rows="4" required minlength="2"></textarea>
                             @error('message')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
+                        <div class="mb-3 form-check">
+                            <input class="form-check-input" type="checkbox" name="is_internal" id="reply-internal" value="1">
+                            <label class="form-check-label f-12 f-light" for="reply-internal">
+                                <i data-feather="lock" style="width:12px;height:12px;"></i>
+                                Interní poznámka (zákazník nevidí)
+                            </label>
+                        </div>
                         <button type="submit" class="btn btn-primary">
                             <i data-feather="send" style="width:14px;height:14px"></i>
                             {{ __('panel.support.reply') }}
+                        </button>
+                        <button type="submit" name="is_internal" value="1" class="btn btn-outline-warning ms-2">
+                            <i data-feather="lock" style="width:14px;height:14px"></i>
+                            Přidat interní poznámku
                         </button>
                     </form>
                 </x-panel.card>
@@ -127,6 +144,15 @@
                             <span>Otevřeno:</span>
                             <span>{{ $ticket->created_at?->format('d.m.Y H:i') }}</span>
                         </div>
+                        @if($ticket->sla_deadline)
+                            <div class="d-flex justify-content-between mt-1">
+                                <span>SLA deadline:</span>
+                                <span class="{{ $ticket->sla_deadline->isPast() ? 'txt-danger f-w-600' : 'txt-warning' }}">
+                                    {{ $ticket->sla_deadline->format('d.m.Y H:i') }}
+                                    ({{ $ticket->sla_deadline->diffForHumans() }})
+                                </span>
+                            </div>
+                        @endif
                         @if($ticket->closed_at)
                             <div class="d-flex justify-content-between mt-1">
                                 <span>Uzavřeno:</span>
@@ -140,6 +166,32 @@
                             </div>
                         @endif
                     </div>
+                </x-panel.card>
+
+                {{-- SLA deadline setter --}}
+                <x-panel.card title="SLA deadline">
+                    @if($ticket->sla_deadline)
+                        <div class="d-flex align-items-center gap-2 mb-3">
+                            <i data-feather="clock" class="{{ $ticket->sla_deadline->isPast() ? 'font-danger' : 'font-warning' }}" style="width:14px;height:14px;flex-shrink:0;"></i>
+                            <span class="f-12">
+                                {{ $ticket->sla_deadline->format('d.m.Y H:i') }}
+                                <br><span class="f-light f-11">{{ $ticket->sla_deadline->diffForHumans() }}</span>
+                            </span>
+                        </div>
+                    @else
+                        <p class="f-12 f-light mb-2">SLA deadline není nastaven.</p>
+                    @endif
+                    <form method="POST" action="{{ route('admin.support.sla', $ticket) }}">
+                        @csrf
+                        <div class="mb-2">
+                            <input type="datetime-local" name="sla_deadline" class="form-control form-control-sm"
+                                   value="{{ $ticket->sla_deadline?->format('Y-m-d\TH:i') }}">
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-outline-warning">
+                            <i data-feather="clock" style="width:12px;height:12px;"></i>
+                            {{ $ticket->sla_deadline ? 'Aktualizovat SLA' : 'Nastavit SLA' }}
+                        </button>
+                    </form>
                 </x-panel.card>
 
                 {{-- Events timeline --}}

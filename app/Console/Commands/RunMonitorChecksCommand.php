@@ -199,7 +199,8 @@ class RunMonitorChecksCommand extends Command
             activity('monitoring')
                 ->performedOn($monitor)
                 ->withProperties(['incident_id' => $openIncident->id, 'downtime_minutes' =>
-                    $openIncident->started_at?->diffInMinutes(now())])
+                    $openIncident->started_at !== null ? $openIncident->started_at->diffInMinutes(now()) : null])
+
                 ->log('monitoring.incident_resolved');
         }
     }

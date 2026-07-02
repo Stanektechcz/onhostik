@@ -7,6 +7,14 @@ namespace App\Domains\Monitoring\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property int $id
+ * @property int $monitor_id
+ * @property string|null $severity
+ * @property string|null $reason
+ * @property \Illuminate\Support\Carbon|null $started_at
+ * @property \Illuminate\Support\Carbon|null $resolved_at
+ */
 class MonitorIncident extends Model
 {
     protected $fillable = [

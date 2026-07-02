@@ -105,12 +105,12 @@ final class PterodactylProductionDriver implements ProvisioningDriverInterface
         $username = 'onhost_' . Str::lower(preg_replace('/[^a-z0-9]/i', '', $serverName) ?? $service->id);
         $password = Str::password(20);
         $customer = $service->customer;
-        $email    = $customer?->email ?? ($username . '@noreply.onhost.cz');
+        $email    = $customer !== null ? $customer->email : ($username . '@noreply.onhost.cz');
 
         $userResult = $this->client->createUser([
             'username'   => substr($username, 0, 32),
             'email'      => $email,
-            'first_name' => $customer?->company_name ?? 'OnHost',
+            'first_name' => $customer !== null ? ($customer->company_name ?? 'OnHost') : 'OnHost',
             'last_name'  => 'Customer',
             'password'   => $password,
         ]);
@@ -278,7 +278,7 @@ final class PterodactylProductionDriver implements ProvisioningDriverInterface
     {
         try {
             $result = $this->client->connectionTest();
-            return (bool) ($result['ok'] ?? false);
+            return (bool) $result['ok'];
         } catch (\Throwable) {
             return false;
         }
@@ -308,7 +308,7 @@ final class PterodactylProductionDriver implements ProvisioningDriverInterface
         $allocations = $this->client->listAllocations($nodeId);
 
         foreach ($allocations as $alloc) {
-            if (! ($alloc['assigned'] ?? true)) {
+            if (! $alloc['assigned']) {
                 return (int) $alloc['id'];
             }
         }

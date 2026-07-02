@@ -98,10 +98,12 @@
         </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="user" label="Muj ucet"
-            :active="$p('panel.account')">
+            :active="$p('panel.account') || $p('panel.notifications')">
             <x-panel.sidebar-link :href="route('panel.account.profile')" icon="user" label="Profil" />
             <x-panel.sidebar-link :href="route('panel.account.billing')" icon="dollar-sign" label="Fakturační údaje" />
             <x-panel.sidebar-link :href="route('panel.account.security')" icon="lock" label="Zabezpečení" />
+            <x-panel.sidebar-link :href="route('panel.account.api-tokens')" icon="key" label="API tokeny" />
+            <x-panel.sidebar-link :href="route('panel.notifications.index')" icon="bell" label="Notifikace" />
         </x-panel.sidebar-submenu>
 
 {{-- ══════════════════════════════════════════════════════
@@ -151,12 +153,11 @@
         </li>
 
         <x-panel.sidebar-submenu icon="users" label="CRM — Uzivatele"
-            :active="$p('admin.customers') || $p('admin.users') || $p('admin.roles') || $p('admin.subscribers') || $p('admin.contacts')">
+            :active="$p('admin.customers') || $p('admin.users') || $p('admin.roles') || $p('admin.contacts')">
             <x-panel.sidebar-link :href="route('admin.customers.index')" icon="users" label="Zákazníci" />
             <x-panel.sidebar-link :href="route('admin.users.index')" icon="user" label="Uživatelé" />
             <x-panel.sidebar-link :href="route('admin.user-cards')" icon="grid" label="Kartový pohled" />
             <x-panel.sidebar-link :href="route('admin.roles-permission')" icon="shield" label="Role a oprávnění" />
-            <x-panel.sidebar-link :href="route('admin.subscribers.index')" icon="mail" label="Odběratelé" />
             <x-panel.sidebar-link :href="route('admin.contacts')" icon="book-open" label="Kontakty" />
         </x-panel.sidebar-submenu>
 
@@ -201,9 +202,11 @@
         </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="message-square" label="Komunikace"
-            :active="$p('admin.support') || $p('admin.mailbox')">
+            :active="$p('admin.support') || $p('admin.mailbox') || $p('admin.newsletter') || $p('admin.subscribers')">
             <x-panel.sidebar-link :href="route('admin.support.index')" icon="life-buoy" label="Podpora — Tickety" />
             <x-panel.sidebar-link :href="route('admin.mailbox')" icon="inbox" label="Pošta" />
+            <x-panel.sidebar-link :href="route('admin.newsletter.index')" icon="mail" label="Newsletter kampaně" />
+            <x-panel.sidebar-link :href="route('admin.subscribers.index')" icon="users" label="Odběratelé" />
             <x-panel.sidebar-link :href="route('admin.ai.index')" icon="zap" label="AI asistent" />
         </x-panel.sidebar-submenu>
 

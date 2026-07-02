@@ -41,13 +41,19 @@ class NewsletterCampaign extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
-    /** @param Builder<self> $query */
+    /**
+     * @param  Builder<self> $query
+     * @return Builder<self>
+     */
     public function scopeDraft(Builder $query): Builder
     {
         return $query->where('status', 'draft');
     }
 
-    /** @param Builder<self> $query */
+    /**
+     * @param  Builder<self> $query
+     * @return Builder<self>
+     */
     public function scopeSent(Builder $query): Builder
     {
         return $query->where('status', 'sent');
