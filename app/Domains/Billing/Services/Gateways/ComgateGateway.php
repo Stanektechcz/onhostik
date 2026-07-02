@@ -44,6 +44,10 @@ final class ComgateGateway
      */
     public function createPayment(Invoice $invoice, string $returnUrl): array
     {
+        if ($this->merchantId === '' || $this->secret === '') {
+            throw new RuntimeException('Comgate credentials not configured (merchant_id or secret is empty).');
+        }
+
         $total = $invoice->total;
 
         $response = $this->client()->post('/create', [
