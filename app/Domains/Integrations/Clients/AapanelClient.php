@@ -132,6 +132,102 @@ final class AapanelClient
         return $this->realRequest('/system?action=GetNetWork', []);
     }
 
+    /**
+     * List all sites (paginated).
+     *
+     * @return array<string, mixed>
+     */
+    public function listSites(int $page = 1, int $perPage = 20, string $search = ''): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'data' => [
+                ['id' => 1, 'name' => 'example.com', 'status' => 'run'],
+                ['id' => 2, 'name' => 'demo.cz',     'status' => 'stop'],
+            ]];
+        }
+
+        $this->assertRealCallAllowed($this->setting, self::GATE, 'listSites', self::REQUIRED);
+
+        return $this->realRequest('/data?action=getData&table=sites', [
+            'limit'  => $perPage,
+            'p'      => $page,
+            'search' => $search,
+            'type'   => 0,
+        ]);
+    }
+
+    /**
+     * Get detailed info for a single site.
+     *
+     * @return array<string, mixed>
+     */
+    public function getSiteInfo(string $siteName): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'name' => $siteName, 'status' => 'run', 'path' => "/www/wwwroot/{$siteName}"];
+        }
+
+        $this->assertRealCallAllowed($this->setting, self::GATE, 'getSiteInfo', self::REQUIRED);
+
+        return $this->realRequest('/data?action=getBySearch&table=sites', ['search' => $siteName]);
+    }
+
+    /**
+     * Set disk quota for a site (in MB, 0 = unlimited).
+     *
+     * @return array<string, mixed>
+     */
+    public function setDiskQuota(string $siteId, int $quotaMb): array
+    {
+        return $this->dryRunOr('setDiskQuota', ['site' => $siteId, 'quota' => $quotaMb], '/site?action=SetQuota');
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteFtpAccount(string $username): array
+    {
+        return $this->dryRunOr('deleteFtpAccount', ['username' => $username], '/ftp?action=DeleteUser');
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteDatabase(string $name): array
+    {
+        return $this->dryRunOr('deleteDatabase', ['name' => $name], '/database?action=DeleteDatabase');
+    }
+
+    /**
+     * Get site error/access logs (last N lines).
+     *
+     * @return array<string, mixed>
+     */
+    public function getSiteLogs(string $siteName, string $type = 'error', int $lines = 100): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'logs' => "[mock] No real logs in dry-run mode."];
+        }
+
+        $this->assertRealCallAllowed($this->setting, self::GATE, 'getSiteLogs', self::REQUIRED);
+
+        $logPath = $type === 'error'
+            ? "/www/wwwlogs/{$siteName}.error.log"
+            : "/www/wwwlogs/{$siteName}.log";
+
+        return $this->realRequest('/files?action=GetFileBody', [
+            'path'  => $logPath,
+            'limit' => $lines,
+        ]);
+    }
+
+    /**
+     * Bind additional domains to a site.
+     *
+     * @param  list<string>  $domains
+     * @return array<string, mixed>
+     */
+    public function setDomainBindings(string $siteId, string $siteName, array $domains): array
+    {
+        return $this->dryRunOr('setDomainBindings', ['site' => $siteId, 'domains' => $domains], '/site?action=AddDomain');
+    }
+
     // ---------------------------------------------------------------- internals
 
     /**

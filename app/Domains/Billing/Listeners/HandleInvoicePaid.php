@@ -156,10 +156,11 @@ final class HandleInvoicePaid
             /** @var array<string, mixed> $config */
             $config = $item->config ?? [];
 
-            // AAPanel (webhosting/mailhosting) and Proxmox (VPS) both have
-            // working drivers and provision through the same job. Pterodactyl
-            // (gamehosting) is intentionally excluded — no driver exists yet.
-            if (in_array($service->provisioning_driver, [ProvisioningDriver::AAPanel, ProvisioningDriver::Proxmox], true)) {
+            if (in_array($service->provisioning_driver, [
+                ProvisioningDriver::AAPanel,
+                ProvisioningDriver::Proxmox,
+                ProvisioningDriver::Pterodactyl,
+            ], true)) {
                 ProvisionHostingServiceJob::dispatch($service->id);
             }
 

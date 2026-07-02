@@ -101,6 +101,44 @@ final class WedosWapiClient
         return $this->dryRunOr('getDomainInfo', ['name' => $fqdn], 'domain-info');
     }
 
+    /** @return array<string, mixed> */
+    public function renewDomain(string $fqdn, int $years = 1): array
+    {
+        return $this->dryRunOr('renewDomain', ['name' => $fqdn, 'period' => $years], 'domain-renew');
+    }
+
+    /**
+     * List all domains in the account.
+     *
+     * @return array<string, mixed>
+     */
+    public function listDomains(): array
+    {
+        return $this->dryRunOr('listDomains', [], 'domain-list');
+    }
+
+    /**
+     * Get all DNS records for a domain.
+     *
+     * @return array<string, mixed>
+     */
+    public function getDnsRecords(string $fqdn): array
+    {
+        return $this->dryRunOr('getDnsRecords', ['domain' => $fqdn], 'dns-rows-list');
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteDnsRecord(string $fqdn, int $rowId): array
+    {
+        return $this->dryRunOr('deleteDnsRecord', ['domain' => $fqdn, 'row_id' => $rowId], 'dns-row-delete');
+    }
+
+    /** @return array<string, mixed> */
+    public function setAutoRenew(string $fqdn, bool $autoRenew): array
+    {
+        return $this->dryRunOr('setAutoRenew', ['name' => $fqdn, 'autorenew' => $autoRenew ? 1 : 0], 'domain-autorenew');
+    }
+
     // ---------------------------------------------------------------- internals
 
     /**

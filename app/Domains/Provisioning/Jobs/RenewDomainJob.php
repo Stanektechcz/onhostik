@@ -80,8 +80,8 @@ final class RenewDomainJob implements ShouldQueue
         }
 
         try {
-            $registrar = $drivers->registrar($domain->service);
-            $result    = $registrar->renewDomain($domain, 1);
+            $registrar = $drivers->registrar();
+            $result    = $registrar->renewDomain($domain->fqdn(), 1);
 
             if ($result->success) {
                 $domain->update([

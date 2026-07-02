@@ -135,6 +135,107 @@ final class ProxmoxClient
         return $this->get("/nodes/{$this->node}/status")['data'] ?? [];
     }
 
+    /** @return array<string, mixed> */
+    public function getVMStatus(int $vmid): array
+    {
+        if ($this->mockMode) {
+            return ['vmid' => $vmid, 'status' => 'running', 'cpu' => 0.05, 'mem' => 512_000_000];
+        }
+        $this->authenticate();
+        return $this->get("/nodes/{$this->node}/qemu/{$vmid}/status/current")['data'] ?? [];
+    }
+
+    /** @return array<string, mixed> */
+    public function getVMConfig(int $vmid): array
+    {
+        if ($this->mockMode) {
+            return ['vmid' => $vmid, 'cores' => 1, 'memory' => 1024, 'name' => "mock-vm-{$vmid}"];
+        }
+        $this->authenticate();
+        return $this->get("/nodes/{$this->node}/qemu/{$vmid}/config")['data'] ?? [];
+    }
+
+    /** @param array<string, mixed> $config */
+    public function setVMConfig(int $vmid, array $config): bool
+    {
+        if ($this->mockMode) return true;
+        $this->authenticate();
+        $r = Http::withOptions(['verify' => false])
+            ->withHeaders($this->authHeaders())
+            ->post("{$this->baseUrl}/api2/json/nodes/{$this->node}/qemu/{$vmid}/config", $config);
+        return $r->successful();
+    }
+
+    public function rebootVM(int $vmid): bool
+    {
+        if ($this->mockMode) return true;
+        $this->authenticate();
+        $r = Http::withOptions(['verify' => false])
+            ->withHeaders($this->authHeaders())
+            ->post("{$this->baseUrl}/api2/json/nodes/{$this->node}/qemu/{$vmid}/status/reboot");
+        return $r->successful();
+    }
+
+    public function snapshotVM(int $vmid, string $snapname, string $description = ''): bool
+    {
+        if ($this->mockMode) return true;
+        $this->authenticate();
+        $r = Http::withOptions(['verify' => false])
+            ->withHeaders($this->authHeaders())
+            ->post("{$this->baseUrl}/api2/json/nodes/{$this->node}/qemu/{$vmid}/snapshot", [
+                'snapname'    => $snapname,
+                'description' => $description,
+            ]);
+        return $r->successful();
+    }
+
+    /** @return array<int, array{id: int|string, name: string, status: string, type: string}> */
+    public function listContainers(): array
+    {
+        if ($this->mockMode) {
+            return [['id' => 200, 'name' => 'MOCK-ct-200', 'status' => 'running', 'type' => 'lxc']];
+        }
+        $this->authenticate();
+        $response = $this->get("/nodes/{$this->node}/lxc");
+        $cts = is_array($response['data'] ?? null) ? $response['data'] : [];
+        return collect($cts)->map(fn (array $ct) => [
+            'id'     => $ct['vmid'] ?? 0,
+            'name'   => $ct['name'] ?? "ct-{$ct['vmid']}",
+            'status' => $ct['status'] ?? 'unknown',
+            'type'   => 'lxc',
+        ])->all();
+    }
+
+    public function startContainer(int $vmid): bool
+    {
+        if ($this->mockMode) return true;
+        $this->authenticate();
+        $r = Http::withOptions(['verify' => false])
+            ->withHeaders($this->authHeaders())
+            ->post("{$this->baseUrl}/api2/json/nodes/{$this->node}/lxc/{$vmid}/status/start");
+        return $r->successful();
+    }
+
+    public function stopContainer(int $vmid): bool
+    {
+        if ($this->mockMode) return true;
+        $this->authenticate();
+        $r = Http::withOptions(['verify' => false])
+            ->withHeaders($this->authHeaders())
+            ->post("{$this->baseUrl}/api2/json/nodes/{$this->node}/lxc/{$vmid}/status/stop");
+        return $r->successful();
+    }
+
+    /** @return array<string, mixed> */
+    public function getClusterStatus(): array
+    {
+        if ($this->mockMode) {
+            return ['nodes' => [['name' => 'pve', 'online' => true, 'type' => 'node']]];
+        }
+        $this->authenticate();
+        return $this->get('/cluster/status')['data'] ?? [];
+    }
+
     private function authenticate(): bool
     {
         if ($this->ticket) return true;

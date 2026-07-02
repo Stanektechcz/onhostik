@@ -10,6 +10,7 @@ use App\Domains\Provisioning\Drivers\AapanelMockDriver;
 use App\Domains\Provisioning\Drivers\AapanelProductionDriver;
 use App\Domains\Provisioning\Drivers\ProxmoxDriver;
 use App\Domains\Provisioning\Drivers\ProxmoxMockDriver;
+use App\Domains\Provisioning\Drivers\PterodactylProductionDriver;
 use App\Domains\Provisioning\Drivers\WedosMockRegistrar;
 use App\Domains\Provisioning\Drivers\WedosProductionRegistrar;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
@@ -55,13 +56,13 @@ final class DriverResolver
             );
         }
 
-        // Pterodactyl is still a reserved slot.
+        // Pterodactyl: use mock in mock_mode, real driver otherwise.
         if ($driver === ProvisioningDriver::Pterodactyl) {
-            throw new ProvisioningException(
-                'Pterodactyl driver is not implemented yet.',
-                driver: 'pterodactyl',
-                retryable: false,
-            );
+            if ($this->mockMode()) {
+                return app(AapanelMockDriver::class); // generic mock suffices for game servers
+            }
+
+            return app(PterodactylProductionDriver::class);
         }
 
         // Proxmox: use mock driver in mock_mode, real driver in production.
