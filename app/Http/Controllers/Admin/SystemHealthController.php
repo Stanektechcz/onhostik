@@ -130,6 +130,17 @@ class SystemHealthController extends Controller
             'detail' => $wapiUser !== '' ? 'credentials configured' : 'WAPI_USER not set',
         ];
 
+        // ── Stripe ───────────────────────────────────────────────
+        $stripeKey     = (string) config('stripe.api_key', '');
+        $stripeWebhook = (string) config('stripe.webhook_secret', '');
+        $checks[] = [
+            'name'   => 'Stripe',
+            'ok'     => $stripeKey !== '',
+            'detail' => $stripeKey !== ''
+                ? 'api_key_set: true | webhook_secret_set: ' . ($stripeWebhook !== '' ? 'true' : 'false')
+                : 'STRIPE_SECRET_KEY not configured (Stripe payments disabled)',
+        ];
+
         return $checks;
     }
 }

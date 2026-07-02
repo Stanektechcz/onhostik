@@ -92,6 +92,10 @@ it('serves admin pages to admins', function (string $uri): void {
     '/admin/obsah',
     '/admin/blog',
     '/admin/znalostni-baze',
+    '/admin/newsletter',
+    '/admin/slevy',
+    '/admin/game-presety',
+    '/admin/webhook-logy',
 ]);
 
 it('forbids admin pages to customers', function (string $uri): void {
