@@ -5,10 +5,12 @@
     $breadcrumbItems = ['Úkoly' => ''];
 @endphp
 
-@section('title', 'Úkoly')
+@section('title', 'Správa úkolů')
 
 @section('content')
 <div class="container-fluid">
+    <x-panel.flash />
+
     <div class="container main-tasks">
         <div class="email-wrap bookmark-wrap">
             <div class="grid grid-cols-12 card-gap">
@@ -18,47 +20,54 @@
                     <div class="email-app-sidebar left-bookmark task-sidebar">
                         <div class="mb-3">
                             <div style="width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,rgba(var(--theme-default),.2),rgba(var(--theme-default),.05));display:flex;align-items:center;justify-content:center;margin:0 auto 8px;">
-                                <i data-feather="user" style="width:28px;height:28px;color:rgba(var(--theme-default),1);"></i>
+                                <i data-feather="check-square" style="width:28px;height:28px;color:rgba(var(--theme-default),1);"></i>
                             </div>
-                            <h6 class="text-center">Admin OnHost</h6>
-                            <p class="f-light f-12 text-center">admin@onhost.cz</p>
                         </div>
                         <hr>
                         <div class="mb-3">
-                            <label class="form-label f-12 f-light">Stav</label>
-                            <select class="form-select form-select-sm">
-                                <option>Vše</option>
-                                <option>Dokončené</option>
-                                <option>Čekající</option>
-                                <option>Probíhající</option>
-                            </select>
+                            <label class="form-label f-12 f-light">Filtr stavu</label>
+                            <div class="d-flex flex-column gap-1">
+                                <a href="{{ route('admin.tasks') }}" class="btn btn-sm {{ $status === '' ? 'btn-primary text-white' : 'btn-outline-secondary' }}">Vše ({{ $taskStats['total'] }})</a>
+                                <a href="{{ route('admin.tasks', ['status' => 'pending']) }}" class="btn btn-sm {{ $status === 'pending' ? 'btn-warning text-white' : 'btn-outline-warning' }}">
+                                    Čekající ({{ $taskStats['pending'] }})
+                                </a>
+                                <a href="{{ route('admin.tasks', ['status' => 'inprogress']) }}" class="btn btn-sm {{ $status === 'inprogress' ? 'btn-primary text-white' : 'btn-outline-primary' }}">
+                                    Probíhá ({{ $taskStats['inprogress'] }})
+                                </a>
+                                <a href="{{ route('admin.tasks', ['status' => 'done']) }}" class="btn btn-sm {{ $status === 'done' ? 'btn-success text-white' : 'btn-outline-success' }}">
+                                    Dokončeno ({{ $taskStats['done'] }})
+                                </a>
+                            </div>
                         </div>
+                        <hr>
                         <div class="mb-3">
-                            <label class="form-label f-12 f-light">Důležitost</label>
-                            <select class="form-select form-select-sm">
-                                <option>Vše</option>
-                                <option>Vysoká</option>
-                                <option>Střední</option>
-                                <option>Nízká</option>
-                            </select>
+                            <label class="form-label f-12 f-light">Filtr priority</label>
+                            <div class="d-flex flex-column gap-1">
+                                <a href="{{ route('admin.tasks', ['priority' => 'high'] + ($status ? ['status' => $status] : [])) }}"
+                                   class="btn btn-sm {{ $priority === 'high' ? 'btn-danger text-white' : 'btn-outline-danger' }}">Vysoká</a>
+                                <a href="{{ route('admin.tasks', ['priority' => 'medium'] + ($status ? ['status' => $status] : [])) }}"
+                                   class="btn btn-sm {{ $priority === 'medium' ? 'btn-warning text-white' : 'btn-outline-warning' }}">Střední</a>
+                                <a href="{{ route('admin.tasks', ['priority' => 'low'] + ($status ? ['status' => $status] : [])) }}"
+                                   class="btn btn-sm {{ $priority === 'low' ? 'btn-secondary text-white' : 'btn-outline-secondary' }}">Nízká</a>
+                            </div>
                         </div>
                         <hr>
                         <div class="task-stats">
                             <div class="d-flex justify-content-between mb-2">
                                 <span class="f-light f-12">Celkem úkolů</span>
-                                <span class="f-w-600">{{ $taskStats['total'] ?? 0 }}</span>
+                                <span class="f-w-600">{{ $taskStats['total'] }}</span>
                             </div>
                             <div class="d-flex justify-content-between mb-2">
                                 <span class="f-light f-12">Dokončeno</span>
-                                <span class="badge badge-light-success">{{ $taskStats['done'] ?? 0 }}</span>
+                                <span class="badge badge-light-success">{{ $taskStats['done'] }}</span>
                             </div>
                             <div class="d-flex justify-content-between mb-2">
                                 <span class="f-light f-12">Probíhá</span>
-                                <span class="badge badge-light-warning">{{ $taskStats['inprogress'] ?? 0 }}</span>
+                                <span class="badge badge-light-warning">{{ $taskStats['inprogress'] }}</span>
                             </div>
                             <div class="d-flex justify-content-between">
                                 <span class="f-light f-12">Čekající</span>
-                                <span class="badge badge-light-danger">{{ $taskStats['pending'] ?? 0 }}</span>
+                                <span class="badge badge-light-danger">{{ $taskStats['pending'] }}</span>
                             </div>
                         </div>
                     </div>
@@ -86,49 +95,127 @@
                                             <tr>
                                                 <th><span class="f-light font-semibold">Úkol</span></th>
                                                 <th><span class="f-light font-semibold">Termín</span></th>
+                                                <th><span class="f-light font-semibold">Přiřazen</span></th>
                                                 <th><span class="f-light font-semibold">Stav</span></th>
                                                 <th><span class="f-light font-semibold">Priorita</span></th>
                                                 <th><span class="f-light font-semibold">Akce</span></th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            @foreach([
-                                                ['Kontrola SSL certifikátů', '30.6.2026', 'pending', 'high'],
-                                                ['Aktualizace serverů na PHP 8.3', '15.7.2026', 'inprogress', 'medium'],
-                                                ['Záloha databází zákazníků', '1.7.2026', 'pending', 'high'],
-                                                ['Implementace 2FA pro admin', '10.7.2026', 'inprogress', 'medium'],
-                                                ['Audit partnerských provizí', '5.7.2026', 'done', 'low'],
-                                                ['Příprava ceníku Q3/2026', '20.7.2026', 'pending', 'low'],
-                                            ] as [$title, $due, $status, $priority])
-                                            <tr class="inbox-data">
-                                                <td class="f-w-500">{{ $title }}</td>
-                                                <td class="f-12 f-light">{{ $due }}</td>
+                                            @forelse($tasks as $task)
+                                            <tr class="inbox-data {{ $task->isDone() ? 'opacity-50' : '' }}">
                                                 <td>
-                                                    @if($status === 'done')
-                                                        <span class="badge badge-light-success">Dokončeno</span>
-                                                    @elseif($status === 'inprogress')
-                                                        <span class="badge badge-light-primary">Probíhá</span>
-                                                    @else
-                                                        <span class="badge badge-light-warning">Čeká</span>
+                                                    <div class="f-w-500 {{ $task->isDone() ? 'text-decoration-line-through' : '' }}">{{ $task->title }}</div>
+                                                    @if($task->description)
+                                                        <div class="f-light f-12 mt-1">{{ Str::limit($task->description, 80) }}</div>
                                                     @endif
                                                 </td>
-                                                <td>
-                                                    @if($priority === 'high')
-                                                        <span class="badge badge-light-danger">Vysoká</span>
-                                                    @elseif($priority === 'medium')
-                                                        <span class="badge badge-light-warning">Střední</span>
+                                                <td class="f-12">
+                                                    @if($task->due_date)
+                                                        <span class="{{ $task->isOverdue() ? 'text-danger f-w-600' : 'f-light' }}">
+                                                            {{ $task->due_date->format('d.m.Y') }}
+                                                            @if($task->isOverdue()) <i data-feather="alert-triangle" style="width:12px;height:12px;"></i> @endif
+                                                        </span>
                                                     @else
-                                                        <span class="badge badge-light-secondary">Nízká</span>
+                                                        <span class="f-light">—</span>
                                                     @endif
+                                                </td>
+                                                <td class="f-12">
+                                                    {{ $task->assignee?->name ?? '—' }}
+                                                </td>
+                                                <td>
+                                                    <form method="POST" action="{{ route('admin.tasks.toggle', $task) }}" class="d-inline">
+                                                        @csrf
+                                                        <button type="submit" class="badge badge-light-{{ $task->statusColor() }} border-0"
+                                                                style="cursor:pointer;" title="Kliknutím změnit stav">
+                                                            {{ $task->statusLabel() }}
+                                                        </button>
+                                                    </form>
+                                                </td>
+                                                <td>
+                                                    <span class="badge badge-light-{{ $task->priorityColor() }}">
+                                                        {{ $task->priorityLabel() }}
+                                                    </span>
                                                 </td>
                                                 <td>
                                                     <div class="common-align gap-2 justify-start">
-                                                        <a class="square-white" href="#"><i data-feather="edit-2" style="width:13px;height:13px;"></i></a>
-                                                        <a class="square-white trash-3" href="#"><svg><use href="{{ asset('panel/assets/svg/icon-sprite.svg#trash1') }}"></use></svg></a>
+                                                        <button class="square-white" type="button"
+                                                                data-bs-toggle="modal"
+                                                                data-bs-target="#editTaskModal{{ $task->id }}"
+                                                                title="Upravit">
+                                                            <i data-feather="edit-2" style="width:14px;height:14px;"></i>
+                                                        </button>
+                                                        <form method="POST" action="{{ route('admin.tasks.destroy', $task) }}" class="d-inline"
+                                                              onsubmit="return confirm('Smazat úkol?')">
+                                                            @csrf @method('DELETE')
+                                                            <button type="submit" class="square-white trash-3" title="Smazat">
+                                                                <svg><use href="{{ asset('panel/assets/svg/icon-sprite.svg#trash1') }}"></use></svg>
+                                                            </button>
+                                                        </form>
                                                     </div>
                                                 </td>
                                             </tr>
-                                            @endforeach
+
+                                            {{-- Edit modal per task --}}
+                                            <div class="modal fade" id="editTaskModal{{ $task->id }}" tabindex="-1" aria-hidden="true">
+                                                <div class="modal-dialog modal-dialog-centered">
+                                                    <div class="modal-content">
+                                                        <div class="modal-header">
+                                                            <h5 class="modal-title">Upravit úkol</h5>
+                                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                        </div>
+                                                        <form method="POST" action="{{ route('admin.tasks.update', $task) }}">
+                                                            @csrf @method('PUT')
+                                                            <div class="modal-body custom-input">
+                                                                <div class="mb-3"><label class="form-label">Název</label>
+                                                                    <input type="text" name="title" class="form-control" value="{{ $task->title }}" required></div>
+                                                                <div class="mb-3"><label class="form-label">Popis</label>
+                                                                    <textarea name="description" class="form-control" rows="3">{{ $task->description }}</textarea></div>
+                                                                <div class="grid grid-cols-12 gap-3">
+                                                                    <div class="col-span-6 sm:col-span-12">
+                                                                        <label class="form-label">Termín</label>
+                                                                        <input type="date" name="due_date" class="form-control" value="{{ $task->due_date?->format('Y-m-d') }}">
+                                                                    </div>
+                                                                    <div class="col-span-6 sm:col-span-12">
+                                                                        <label class="form-label">Priorita</label>
+                                                                        <select name="priority" class="form-select">
+                                                                            <option value="low" @selected($task->priority === 'low')>Nízká</option>
+                                                                            <option value="medium" @selected($task->priority === 'medium')>Střední</option>
+                                                                            <option value="high" @selected($task->priority === 'high')>Vysoká</option>
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="mt-3">
+                                                                    <label class="form-label">Stav</label>
+                                                                    <select name="status" class="form-select">
+                                                                        <option value="pending" @selected($task->status === 'pending')>Čeká</option>
+                                                                        <option value="inprogress" @selected($task->status === 'inprogress')>Probíhá</option>
+                                                                        <option value="done" @selected($task->status === 'done')>Dokončeno</option>
+                                                                    </select>
+                                                                </div>
+                                                                <div class="mt-3">
+                                                                    <label class="form-label">Přiřadit adminovi</label>
+                                                                    <select name="assigned_to" class="form-select">
+                                                                        <option value="">— nepřiřazeno —</option>
+                                                                        @foreach($admins as $admin)
+                                                                            <option value="{{ $admin->id }}" @selected($task->assigned_to === $admin->id)>{{ $admin->name }}</option>
+                                                                        @endforeach
+                                                                    </select>
+                                                                </div>
+                                                            </div>
+                                                            <div class="modal-footer">
+                                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zrušit</button>
+                                                                <button type="submit" class="btn btn-primary text-white">Uložit</button>
+                                                            </div>
+                                                        </form>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            @empty
+                                            <tr>
+                                                <td colspan="6" class="text-center py-4 f-light">Žádné úkoly.</td>
+                                            </tr>
+                                            @endforelse
                                         </tbody>
                                     </table>
                                 </div>
@@ -142,6 +229,7 @@
     </div>
 </div>
 
+{{-- New task modal --}}
 <div class="modal fade" id="newTaskModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -149,19 +237,42 @@
                 <h5 class="modal-title">Nový úkol</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body custom-input">
-                <div class="mb-3"><label class="form-label">Název</label><input type="text" class="form-control"></div>
-                <div class="mb-3"><label class="form-label">Termín</label><input type="date" class="form-control"></div>
-                <div class="mb-3">
-                    <label class="form-label">Priorita</label>
-                    <select class="form-select"><option>Nízká</option><option>Střední</option><option>Vysoká</option></select>
+            <form method="POST" action="{{ route('admin.tasks.store') }}">
+                @csrf
+                <div class="modal-body custom-input">
+                    <div class="mb-3"><label class="form-label">Název *</label>
+                        <input type="text" name="title" class="form-control" required placeholder="Název úkolu"></div>
+                    <div class="mb-3"><label class="form-label">Popis</label>
+                        <textarea name="description" class="form-control" rows="3" placeholder="Volitelný popis…"></textarea></div>
+                    <div class="grid grid-cols-12 gap-3">
+                        <div class="col-span-6 sm:col-span-12">
+                            <label class="form-label">Termín</label>
+                            <input type="date" name="due_date" class="form-control" min="{{ now()->format('Y-m-d') }}">
+                        </div>
+                        <div class="col-span-6 sm:col-span-12">
+                            <label class="form-label">Priorita</label>
+                            <select name="priority" class="form-select">
+                                <option value="low">Nízká</option>
+                                <option value="medium" selected>Střední</option>
+                                <option value="high">Vysoká</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <label class="form-label">Přiřadit adminovi</label>
+                        <select name="assigned_to" class="form-select">
+                            <option value="">— nepřiřazeno —</option>
+                            @foreach($admins as $admin)
+                                <option value="{{ $admin->id }}">{{ $admin->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
                 </div>
-                <div class="mb-3"><label class="form-label">Popis</label><textarea class="form-control" rows="3"></textarea></div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zrušit</button>
-                <button type="button" class="btn btn-primary text-white" data-bs-dismiss="modal">Přidat</button>
-            </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zrušit</button>
+                    <button type="submit" class="btn btn-primary text-white">Přidat úkol</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>

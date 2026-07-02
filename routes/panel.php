@@ -160,6 +160,8 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
 
     Route::get('/sluzby', [Admin\ServiceController::class, 'index'])->name('services.index');
     Route::get('/sluzby/export', [Admin\ServiceController::class, 'export'])->name('services.export');
+    Route::post('/sluzby/hromadne-pozastavit', [Admin\ServiceController::class, 'batchSuspend'])->name('services.batch-suspend');
+    Route::post('/sluzby/hromadne-reaktivovat', [Admin\ServiceController::class, 'batchUnsuspend'])->name('services.batch-unsuspend');
     Route::get('/sluzby/{service}', [Admin\ServiceController::class, 'show'])->name('services.show');
     Route::post('/sluzby/{service}/pozastavit', [Admin\ServiceController::class, 'suspend'])->name('services.suspend');
     Route::post('/sluzby/{service}/obnovit', [Admin\ServiceController::class, 'unsuspend'])->name('services.unsuspend');
@@ -240,10 +242,15 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/kanban', [Admin\PageController::class, 'kanban'])->name('kanban');
 
     /* ── Tasks ── */
-    Route::get('/ukoly', [Admin\PageController::class, 'tasks'])->name('tasks');
+    Route::get('/ukoly', [Admin\TaskController::class, 'index'])->name('tasks');
+    Route::post('/ukoly', [Admin\TaskController::class, 'store'])->name('tasks.store');
+    Route::put('/ukoly/{task}', [Admin\TaskController::class, 'update'])->name('tasks.update');
+    Route::post('/ukoly/{task}/status', [Admin\TaskController::class, 'toggleStatus'])->name('tasks.toggle');
+    Route::delete('/ukoly/{task}', [Admin\TaskController::class, 'destroy'])->name('tasks.destroy');
 
     /* ── Calendar ── */
-    Route::get('/kalendar', [Admin\PageController::class, 'calendar'])->name('calendar');
+    Route::get('/kalendar', [Admin\CalendarController::class, 'index'])->name('calendar');
+    Route::get('/kalendar/events', [Admin\CalendarController::class, 'events'])->name('calendar.events');
 
     /* ── Todo ── */
     Route::get('/todo', [Admin\PageController::class, 'todo'])->name('todo');

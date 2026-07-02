@@ -255,4 +255,51 @@ class ServiceController extends Controller
             ->route('admin.invoices.show', $invoice)
             ->with('status', __('panel.admin.service_renewal_issued', ['number' => $invoice->number]));
     }
+
+    public function batchSuspend(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'ids'    => ['required', 'array', 'min:1', 'max:50'],
+            'ids.*'  => ['integer', 'exists:services,id'],
+            'reason' => ['required', 'string', 'min:3', 'max:255'],
+        ]);
+
+        $queued = 0;
+        Service::whereIn('id', $validated['ids'])
+            ->where('status', ServiceStatus::Active->value)
+            ->each(function (Service $service) use ($validated, $request, &$queued): void {
+                ChangeServiceStateJob::dispatch($service->id, 'suspend', $validated['reason']);
+                activity('provisioning')
+                    ->performedOn($service)
+                    ->causedBy($request->user())
+                    ->withProperties(['operation' => 'batch_suspend', 'reason' => $validated['reason']])
+                    ->log('service.batch_suspend_requested');
+                $queued++;
+            });
+
+        return back()->with('status', "Hromadné pozastavení odesláno: {$queued} služeb.");
+    }
+
+    public function batchUnsuspend(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'ids'   => ['required', 'array', 'min:1', 'max:50'],
+            'ids.*' => ['integer', 'exists:services,id'],
+        ]);
+
+        $queued = 0;
+        Service::whereIn('id', $validated['ids'])
+            ->where('status', ServiceStatus::Suspended->value)
+            ->each(function (Service $service) use ($request, &$queued): void {
+                ChangeServiceStateJob::dispatch($service->id, 'unsuspend');
+                activity('provisioning')
+                    ->performedOn($service)
+                    ->causedBy($request->user())
+                    ->withProperties(['operation' => 'batch_unsuspend'])
+                    ->log('service.batch_unsuspend_requested');
+                $queued++;
+            });
+
+        return back()->with('status', "Hromadná reaktivace odesláno: {$queued} služeb.");
+    }
 }
