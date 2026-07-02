@@ -102,6 +102,15 @@
                                 {{ __('panel.billing.pay_comgate') }}
                             </button>
                         </form>
+                        @if($stripeConfigured)
+                            <form method="POST" action="{{ route('panel.billing.invoices.pay-stripe', $invoice) }}">
+                                @csrf
+                                <button type="submit" class="btn btn-outline-primary">
+                                    <svg viewBox="0 0 28 28" width="14" height="14" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;margin-right:4px"><path fill="currentColor" d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.272.975 15.507 0 12.543 0 5.45 0 1.23 3.656 1.23 8.56c0 4.514 2.826 6.555 7.374 8.213 2.304.842 3.155 1.547 3.155 2.543 0 1.012-.895 1.562-2.503 1.562-1.88 0-4.693-.756-6.607-1.819l-.91 5.531a19.394 19.394 0 0 0 7.442 1.434c7.277 0 11.629-3.538 11.629-8.64 0-4.674-2.76-6.68-7.834-8.474z"/></svg>
+                                    {{ __('panel.billing.pay_stripe') }}
+                                </button>
+                            </form>
+                        @endif
                         @if($invoice->purpose !== 'credit_topup')
                             <form method="POST" action="{{ route('panel.billing.invoices.pay-credit', $invoice) }}">
                                 @csrf

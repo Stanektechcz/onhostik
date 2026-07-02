@@ -7,6 +7,7 @@ namespace App\Domains\Billing\Enums;
 enum PaymentMethod: string
 {
     case Comgate      = 'comgate';
+    case Stripe       = 'stripe';
     case BankTransfer = 'bank_transfer';
     case Credit       = 'credit';        // zálohový účet
 
@@ -14,6 +15,7 @@ enum PaymentMethod: string
     {
         return match ($this) {
             self::Comgate      => 'Platební brána (Comgate)',
+            self::Stripe       => 'Platební karta (Stripe)',
             self::BankTransfer => 'Bankovní převod',
             self::Credit       => 'Kredit (zálohový účet)',
         };

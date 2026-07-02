@@ -143,6 +143,10 @@ return [
         'comgate_cancelled'   => 'Payment was cancelled. You can try again below.',
         'comgate_pending'     => 'Payment is pending — we will notify you by email.',
         'comgate_error'       => 'Could not reach the payment gateway. Please try again shortly.',
+        'pay_stripe'          => 'Pay by card (Stripe)',
+        'stripe_processing'   => 'Payment is processing — we will confirm by email.',
+        'stripe_cancelled'    => 'Payment was cancelled. You can try again.',
+        'stripe_error'        => 'Could not connect to Stripe. Please try again shortly.',
     ],
     'dashboard' => [
         'active_services' => 'Active services',

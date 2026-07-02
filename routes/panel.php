@@ -59,6 +59,8 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/fakturace/faktury/{invoice}/zaplatit/kredit', [Panel\BillingController::class, 'payCredit'])->name('billing.invoices.pay-credit');
     Route::post('/fakturace/faktury/{invoice}/zaplatit/comgate', [Panel\BillingController::class, 'payComgate'])->name('billing.invoices.pay-comgate');
     Route::get('/fakturace/faktury/{invoice}/zaplatit/comgate/navrat', [Panel\BillingController::class, 'comgateReturn'])->name('billing.invoices.comgate-return');
+    Route::post('/fakturace/faktury/{invoice}/zaplatit/stripe', [Panel\BillingController::class, 'payStripe'])->name('billing.invoices.pay-stripe');
+    Route::get('/fakturace/faktury/{invoice}/zaplatit/stripe/navrat', [Panel\BillingController::class, 'stripeReturn'])->name('billing.invoices.stripe-return');
     Route::get('/fakturace/platby', [Panel\BillingController::class, 'payments'])->name('billing.payments');
     Route::get('/fakturace/kredit', [Panel\BillingController::class, 'credits'])->name('billing.credits');
     Route::post('/fakturace/kredit/dobit', [Panel\BillingController::class, 'topUp'])->name('billing.credits.topup');

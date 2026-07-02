@@ -144,6 +144,10 @@ return [
         'comgate_cancelled'   => 'Platba byla zrušena. Chcete-li zkusit znovu, klikněte níže.',
         'comgate_pending'     => 'Platba čeká na zpracování — vyrozumíme vás e-mailem.',
         'comgate_error'       => 'Platební bránu se nepodařilo kontaktovat. Zkuste to prosím za chvíli.',
+        'pay_stripe'          => 'Zaplatit kartou (Stripe)',
+        'stripe_processing'   => 'Platba se zpracovává — potvrdíme vám ji e-mailem.',
+        'stripe_cancelled'    => 'Platba byla zrušena. Můžete to zkusit znovu.',
+        'stripe_error'        => 'Nepodařilo se navázat spojení se Stripe. Zkuste to prosím za chvíli.',
     ],
     'dashboard' => [
         'active_services' => 'Aktivní služby',

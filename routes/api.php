@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Webhook\ComgateWebhookController;
+use App\Http\Controllers\Webhook\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::post('/webhooks/comgate', ComgateWebhookController::class)->name('webhooks.comgate');
+Route::post('/webhooks/stripe',  StripeWebhookController::class)->name('webhooks.stripe');
 
 /*
 |--------------------------------------------------------------------------
