@@ -9,6 +9,7 @@ use App\Domains\Billing\Services\CreditLedger;
 use App\Domains\Integrations\Models\IntegrationSetting;
 use App\Domains\Products\Models\PricingPlan;
 use App\Domains\Provisioning\Enums\ServiceStatus;
+use App\Domains\Provisioning\Models\GameServerPreset;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Support\Services\TicketService;
 use Database\Seeders\IntegrationSeeder;
@@ -207,4 +208,215 @@ it('parks high-risk AI actions for approval and audits the decision', function (
         ->assertSessionHasErrors('approval');
 
     expect($approval->fresh()->status)->toBe(ApprovalStatus::Approved);
+});
+
+// ── Game preset CRUD ──────────────────────────────────────────────────────────
+
+it('admin can create a game preset', function (): void {
+    $admin = adminUser();
+
+    $this->actingAs($admin)
+        ->post(route('admin.game-presets.store'), [
+            'name'              => 'Minecraft Java',
+            'game_slug'         => 'minecraft-java',
+            'description'       => 'Populární sandbox hra',
+            'nest_id'           => 1,
+            'egg_id'            => 2,
+            'default_memory_mb' => 2048,
+            'default_disk_mb'   => 10240,
+            'default_cpu_limit' => 200,
+            'is_active'         => '1',
+            'sort_order'        => 10,
+        ])
+        ->assertRedirect(route('admin.game-presets.index'));
+
+    expect(GameServerPreset::where('game_slug', 'minecraft-java')->exists())->toBeTrue();
+});
+
+it('game preset slug must be unique', function (): void {
+    $admin = adminUser();
+    GameServerPreset::create([
+        'name'              => 'CS2',
+        'game_slug'         => 'cs2',
+        'nest_id'           => 1,
+        'egg_id'            => 3,
+        'default_memory_mb' => 2048,
+        'default_disk_mb'   => 10240,
+        'default_cpu_limit' => 100,
+    ]);
+
+    $this->actingAs($admin)
+        ->post(route('admin.game-presets.store'), [
+            'name'              => 'CS2 Duplicate',
+            'game_slug'         => 'cs2',
+            'nest_id'           => 1,
+            'egg_id'            => 3,
+            'default_memory_mb' => 2048,
+            'default_disk_mb'   => 10240,
+            'default_cpu_limit' => 100,
+        ])
+        ->assertSessionHasErrors('game_slug');
+});
+
+it('admin can update a game preset', function (): void {
+    $admin  = adminUser();
+    $preset = GameServerPreset::create([
+        'name'              => 'Old Name',
+        'game_slug'         => 'ark-survival',
+        'nest_id'           => 1,
+        'egg_id'            => 4,
+        'default_memory_mb' => 4096,
+        'default_disk_mb'   => 20480,
+        'default_cpu_limit' => 300,
+    ]);
+
+    $this->actingAs($admin)
+        ->put(route('admin.game-presets.update', $preset), [
+            'name'              => 'ARK: Survival Evolved',
+            'game_slug'         => 'ark-survival',
+            'nest_id'           => 1,
+            'egg_id'            => 4,
+            'default_memory_mb' => 8192,
+            'default_disk_mb'   => 20480,
+            'default_cpu_limit' => 300,
+        ])
+        ->assertRedirect(route('admin.game-presets.edit', $preset));
+
+    expect($preset->fresh()->name)->toBe('ARK: Survival Evolved')
+        ->and($preset->fresh()->default_memory_mb)->toBe(8192);
+});
+
+it('admin can delete a game preset', function (): void {
+    $admin  = adminUser();
+    $preset = GameServerPreset::create([
+        'name'              => 'Valheim',
+        'game_slug'         => 'valheim',
+        'nest_id'           => 1,
+        'egg_id'            => 5,
+        'default_memory_mb' => 4096,
+        'default_disk_mb'   => 20480,
+        'default_cpu_limit' => 100,
+    ]);
+
+    $this->actingAs($admin)
+        ->delete(route('admin.game-presets.destroy', $preset))
+        ->assertRedirect(route('admin.game-presets.index'));
+
+    expect(GameServerPreset::find($preset->id))->toBeNull();
+});
+
+it('customer cannot access game preset admin routes', function (): void {
+    $customer = customerUser();
+
+    $this->actingAs($customer)
+        ->get(route('admin.game-presets.index'))
+        ->assertForbidden();
+});
+
+// ── Admin subscriber management ───────────────────────────────────────────────
+
+it('admin can toggle subscriber active status', function (): void {
+    $admin = adminUser();
+
+    $subscriber = \App\Models\Subscriber::create([
+        'email'        => 'toggler@example.com',
+        'locale'       => 'cs',
+        'source'       => 'website',
+        'is_active'    => true,
+        'confirmed_at' => now(),
+    ]);
+
+    $this->actingAs($admin)
+        ->post(route('admin.subscribers.toggle', $subscriber))
+        ->assertRedirect();
+
+    expect($subscriber->fresh()->is_active)->toBeFalse()
+        ->and($subscriber->fresh()->unsubscribed_at)->not->toBeNull();
+
+    $this->actingAs($admin)
+        ->post(route('admin.subscribers.toggle', $subscriber))
+        ->assertRedirect();
+
+    expect($subscriber->fresh()->is_active)->toBeTrue()
+        ->and($subscriber->fresh()->unsubscribed_at)->toBeNull();
+});
+
+it('admin can delete a subscriber', function (): void {
+    $admin = adminUser();
+
+    $subscriber = \App\Models\Subscriber::create([
+        'email'     => 'delete-me@example.com',
+        'locale'    => 'cs',
+        'source'    => 'website',
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($admin)
+        ->delete(route('admin.subscribers.destroy', $subscriber))
+        ->assertRedirect();
+
+    expect(\App\Models\Subscriber::where('email', 'delete-me@example.com')->exists())->toBeFalse();
+});
+
+it('admin can export subscribers as CSV', function (): void {
+    $admin = adminUser();
+
+    \App\Models\Subscriber::create([
+        'email'        => 'csv-test@example.com',
+        'locale'       => 'cs',
+        'source'       => 'website',
+        'is_active'    => true,
+        'confirmed_at' => now(),
+    ]);
+
+    $response = $this->actingAs($admin)
+        ->get(route('admin.subscribers.export'))
+        ->assertOk();
+
+    expect($response->headers->get('Content-Type'))->toContain('text/csv');
+    expect($response->streamedContent())->toContain('csv-test@example.com');
+});
+
+it('customer cannot access subscriber admin routes', function (): void {
+    $this->actingAs(customerUser())
+        ->get(route('admin.subscribers.index'))
+        ->assertForbidden();
+});
+
+// ── Admin customer notes ──────────────────────────────────────────────────────
+
+it('admin can save customer notes', function (): void {
+    $admin    = adminUser();
+    $customer = customerUser()->customer;
+
+    $this->actingAs($admin)
+        ->put(route('admin.customers.notes', $customer), [
+            'admin_notes' => 'VIP zákazník, platí vždy včas.',
+        ])
+        ->assertRedirect();
+
+    expect($customer->fresh()->admin_notes)->toBe('VIP zákazník, platí vždy včas.');
+});
+
+it('admin can clear customer notes', function (): void {
+    $admin    = adminUser();
+    $customer = customerUser()->customer;
+    $customer->update(['admin_notes' => 'Old note']);
+
+    $this->actingAs($admin)
+        ->put(route('admin.customers.notes', $customer), ['admin_notes' => ''])
+        ->assertRedirect();
+
+    expect($customer->fresh()->admin_notes)->toBeNull();
+});
+
+it('customer cannot update their own admin notes', function (): void {
+    $user     = customerUser();
+    $customer = $user->customer;
+
+    $this->actingAs($user)
+        ->put(route('admin.customers.notes', $customer), [
+            'admin_notes' => 'Self-promoted to VIP.',
+        ])
+        ->assertForbidden();
 });

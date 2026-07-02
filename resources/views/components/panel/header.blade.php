@@ -3,8 +3,8 @@
         <div class="header-logo-wrapper hidden col-auto p-0 lg:block">
             <div class="logo-wrapper">
                 <a href="{{ route('panel.dashboard') }}">
-                    <img class="max-w-full h-auto for-light" src="{{ asset('panel/images/logo/logo.png') }}" alt="Onhost.cz">
-                    <img class="max-w-full h-auto for-dark" src="{{ asset('panel/images/logo/logo_dark.png') }}" alt="Onhost.cz">
+                    <img class="max-w-full h-auto for-light" src="{{ asset('panel/images/logo/logo-onhost.svg') }}" alt="Onhost.cz" height="36">
+                    <img class="max-w-full h-auto for-dark" src="{{ asset('panel/images/logo/logo-onhost-white.svg') }}" alt="Onhost.cz" height="36">
                 </a>
             </div>
             <div class="toggle-sidebar"><i class="status_toggle middle sidebar-toggle" data-feather="align-center"></i></div>

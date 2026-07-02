@@ -184,11 +184,15 @@ class AccountController extends Controller
 
         $reason = $validated['reason'] ?? 'Zákazník neuvedl důvod.';
 
+        // Store the request timestamp so the automated GDPR erasure command
+        // can anonymise the account after the 30-day grace period.
+        $user->update(['deletion_requested_at' => now()]);
+
         $ticket = $tickets->open(
             $customer,
             $user,
             'Žádost o smazání účtu — GDPR čl. 17',
-            "Zákazník žádá o smazání účtu a všech osobních údajů.\n\nDůvod: {$reason}\n\nE-mail: {$user->email}",
+            "Zákazník žádá o smazání účtu a všech osobních údajů.\n\nDůvod: {$reason}\n\nE-mail: {$user->email}\n\nAutomatická anonymizace proběhne po 30 dnech (php artisan gdpr:erase-requested).",
             TicketPriority::High,
             'billing',
         );

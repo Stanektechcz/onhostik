@@ -61,6 +61,8 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::get('/fakturace/faktury/{invoice}/zaplatit/comgate/navrat', [Panel\BillingController::class, 'comgateReturn'])->name('billing.invoices.comgate-return');
     Route::post('/fakturace/faktury/{invoice}/zaplatit/stripe', [Panel\BillingController::class, 'payStripe'])->name('billing.invoices.pay-stripe');
     Route::get('/fakturace/faktury/{invoice}/zaplatit/stripe/navrat', [Panel\BillingController::class, 'stripeReturn'])->name('billing.invoices.stripe-return');
+    Route::post('/fakturace/faktury/{invoice}/zaplatit/gopay', [Panel\BillingController::class, 'payGopay'])->name('billing.invoices.pay-gopay');
+    Route::get('/fakturace/faktury/{invoice}/zaplatit/gopay/navrat', [Panel\BillingController::class, 'gopayReturn'])->name('billing.invoices.gopay-return');
     Route::get('/fakturace/platby', [Panel\BillingController::class, 'payments'])->name('billing.payments');
     Route::get('/fakturace/kredit', [Panel\BillingController::class, 'credits'])->name('billing.credits');
     Route::post('/fakturace/kredit/dobit', [Panel\BillingController::class, 'topUp'])->name('billing.credits.topup');
@@ -92,6 +94,7 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/podpora', [Panel\SupportController::class, 'store'])->name('support.store');
     Route::get('/podpora/{ticket}', [Panel\SupportController::class, 'show'])->name('support.show');
     Route::post('/podpora/{ticket}/odpoved', [Panel\SupportController::class, 'reply'])->name('support.reply');
+    Route::post('/podpora/{ticket}/ai-navrh', [Panel\SupportController::class, 'aiSuggest'])->name('support.ai-suggest');
     Route::post('/podpora/{ticket}/uzavrit', [Panel\SupportController::class, 'close'])->name('support.close');
 
     Route::get('/ai', [Panel\AiController::class, 'index'])->name('ai.index');
@@ -100,6 +103,11 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::get('/notifikace', [Panel\NotificationController::class, 'index'])->name('notifications.index');
     Route::post('/notifikace/{id}/precist', [Panel\NotificationController::class, 'markRead'])->name('notifications.read');
     Route::post('/notifikace/precist-vse', [Panel\NotificationController::class, 'markAllRead'])->name('notifications.read-all');
+});
+
+// Impersonation stop — auth only (must work even while impersonating as customer)
+Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function (): void {
+    Route::get('/impersonate/stop', [Admin\ImpersonateController::class, 'stop'])->name('impersonate.stop');
 });
 
 /*
@@ -231,7 +239,6 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     /* ── User management ── */
     /* ── Impersonation ── */
     Route::get('/impersonate/{user}/start', [Admin\ImpersonateController::class, 'start'])->name('impersonate.start');
-    Route::get('/impersonate/stop', [Admin\ImpersonateController::class, 'stop'])->name('impersonate.stop');
 
     Route::get('/uzivatele', [Admin\UserController::class, 'index'])->name('users.index');
     Route::get('/uzivatele/karty', [Admin\UserController::class, 'cards'])->name('user-cards');

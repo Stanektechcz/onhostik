@@ -111,6 +111,15 @@
                                 </button>
                             </form>
                         @endif
+                        @if($gopayConfigured)
+                            <form method="POST" action="{{ route('panel.billing.invoices.pay-gopay', $invoice) }}">
+                                @csrf
+                                <button type="submit" class="btn btn-outline-primary">
+                                    <i data-feather="globe" style="width:14px;height:14px"></i>
+                                    {{ __('panel.billing.pay_gopay') }}
+                                </button>
+                            </form>
+                        @endif
                         @if($invoice->purpose !== 'credit_topup')
                             <form method="POST" action="{{ route('panel.billing.invoices.pay-credit', $invoice) }}">
                                 @csrf

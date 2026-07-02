@@ -14,6 +14,7 @@ use Illuminate\Support\Carbon;
 /**
  * @property MonitorStatus $status
  * @property Carbon|null $last_check_at
+ * @property Carbon|null $ssl_expires_at
  */
 class Monitor extends Model
 {

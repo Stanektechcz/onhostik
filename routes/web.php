@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Web\AffiliateController;
 use App\Http\Controllers\Web\BlogController;
 use App\Http\Controllers\Web\DomainController;
 use App\Http\Controllers\Web\HomeController;
@@ -35,6 +36,9 @@ Route::get('/funkce/ai-asistent', [PageController::class, 'aiFeature'])->name('f
 Route::get('/funkce/monitoring', [PageController::class, 'monitoringFeature'])->name('front.features.monitoring');
 Route::get('/funkce/zalohy', [PageController::class, 'backupsFeature'])->name('front.features.backups');
 Route::get('/website-builder', [PageController::class, 'builder'])->name('front.builder');
+Route::post('/website-builder/waitlist', [PageController::class, 'builderWaitlist'])
+    ->middleware('throttle:10,1')
+    ->name('front.builder.waitlist');
 Route::get('/podpora', [PageController::class, 'support'])->name('front.support');
 Route::get('/znalostni-baze', [KbController::class, 'index'])->name('front.kb');
 
@@ -77,3 +81,5 @@ Route::get('/lang/{locale}', LocaleController::class)->name('locale.switch');
 
 Route::get('/sitemap.xml', [PageController::class, 'sitemap'])->name('front.sitemap');
 Route::get('/stav', StatusController::class)->name('front.status');
+
+Route::get('/ref/{code}', AffiliateController::class)->name('front.affiliate');

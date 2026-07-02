@@ -4,15 +4,20 @@ declare(strict_types=1);
 
 use App\Domains\Ai\Models\AiRun;
 use App\Domains\Ai\Models\AiUsageLog;
+use App\Domains\Backups\Models\BackupJob;
 use App\Domains\Billing\Actions\ProcessMockPaymentAction;
 use App\Domains\Billing\Events\InvoicePaid;
 use App\Domains\Billing\Listeners\HandleInvoicePaid;
 use App\Domains\Billing\Models\CreditTransaction;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Services\CreditLedger;
+use App\Domains\Provisioning\Enums\ProvisioningDriver;
+use App\Domains\Provisioning\Enums\ServiceStatus;
+use App\Domains\Provisioning\Models\Service;
 use App\Domains\Support\Models\SupportTicket;
 use Database\Seeders\MockServerSeeder;
 use Database\Seeders\ProductCatalogSeeder;
+use Illuminate\Support\Facades\Queue;
 use Spatie\Activitylog\Models\Activity;
 
 beforeEach(function (): void {
@@ -120,6 +125,131 @@ it('runs the mock AI assistant and records the trail', function (): void {
         ->and($run->messages()->count())->toBe(2)
         ->and(AiUsageLog::query()->count())->toBe(1)
         ->and(Activity::query()->where('description', 'ai.run_completed')->exists())->toBeTrue();
+});
+
+// ── Service actions (backup, cancellation, plan change) ───────────────────────
+
+it('customer can request a mock backup', function (): void {
+    Queue::fake();
+
+    $user      = customerUser();
+    $productId = \App\Domains\Products\Models\Product::value('id');
+
+    $service = Service::create([
+        'customer_id'         => $user->customer->id,
+        'product_id'          => $productId,
+        'status'              => ServiceStatus::Active,
+        'label'               => 'backup-test-service',
+        'provisioning_driver' => ProvisioningDriver::AAPanel,
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('panel.services.backup', $service))
+        ->assertRedirect();
+
+    expect(BackupJob::where('service_id', $service->id)->exists())->toBeTrue();
+});
+
+it('customer cannot request backup for inactive service', function (): void {
+    $user      = customerUser();
+    $productId = \App\Domains\Products\Models\Product::value('id');
+
+    $service = Service::create([
+        'customer_id'         => $user->customer->id,
+        'product_id'          => $productId,
+        'status'              => ServiceStatus::Suspended,
+        'label'               => 'suspended-service',
+        'provisioning_driver' => ProvisioningDriver::AAPanel,
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('panel.services.backup', $service))
+        ->assertSessionHasErrors('backup');
+});
+
+it('customer can request service cancellation via support ticket', function (): void {
+    $user      = customerUser();
+    $productId = \App\Domains\Products\Models\Product::value('id');
+
+    $service = Service::create([
+        'customer_id'         => $user->customer->id,
+        'product_id'          => $productId,
+        'status'              => ServiceStatus::Active,
+        'label'               => 'cancel-me-service',
+        'provisioning_driver' => ProvisioningDriver::AAPanel,
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('panel.services.request-cancel', $service))
+        ->assertRedirect();
+
+    // A cancellation support ticket should be created
+    expect(SupportTicket::where('customer_id', $user->customer->id)
+        ->where('department', 'billing')
+        ->exists())->toBeTrue();
+});
+
+it('customer cannot cancel a terminated service', function (): void {
+    $user      = customerUser();
+    $productId = \App\Domains\Products\Models\Product::value('id');
+
+    $service = Service::create([
+        'customer_id'         => $user->customer->id,
+        'product_id'          => $productId,
+        'status'              => ServiceStatus::Terminated,
+        'label'               => 'terminated-service',
+        'provisioning_driver' => ProvisioningDriver::AAPanel,
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('panel.services.request-cancel', $service))
+        ->assertSessionHasErrors('cancel');
+});
+
+it('customer cannot perform service actions on another customer\'s service', function (): void {
+    $owner    = customerUser();
+    $intruder = customerUser();
+    $productId = \App\Domains\Products\Models\Product::value('id');
+
+    $service = Service::create([
+        'customer_id'         => $owner->customer->id,
+        'product_id'          => $productId,
+        'status'              => ServiceStatus::Active,
+        'label'               => 'private-service',
+        'provisioning_driver' => ProvisioningDriver::AAPanel,
+    ]);
+
+    $this->actingAs($intruder)
+        ->post(route('panel.services.backup', $service))
+        ->assertForbidden();
+
+    $this->actingAs($intruder)
+        ->post(route('panel.services.request-cancel', $service))
+        ->assertForbidden();
+});
+
+it('customer can download GDPR data export as ZIP', function (): void {
+    $user = customerUser();
+
+    $response = $this->actingAs($user)
+        ->get(route('panel.account.data-export'))
+        ->assertOk();
+
+    expect($response->headers->get('Content-Type'))->toContain('application/zip');
+    expect($response->headers->get('Content-Disposition'))->toContain('onhost_data_export_');
+
+    // ZIP should contain profile.json with user email
+    $zip = new ZipArchive();
+    $tmpFile = tempnam(sys_get_temp_dir(), 'test_export') . '.zip';
+    file_put_contents($tmpFile, $response->getContent());
+    $zip->open($tmpFile);
+    $profileJson = $zip->getFromName('profile.json');
+    $zip->close();
+    @unlink($tmpFile);
+
+    expect($profileJson)->not->toBeFalse();
+    $profile = json_decode($profileJson, true);
+    expect($profile['email'])->toBe($user->email);
 });
 
 it('saves billing details for the tax document flow', function (): void {

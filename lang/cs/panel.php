@@ -148,6 +148,10 @@ return [
         'stripe_processing'   => 'Platba se zpracovává — potvrdíme vám ji e-mailem.',
         'stripe_cancelled'    => 'Platba byla zrušena. Můžete to zkusit znovu.',
         'stripe_error'        => 'Nepodařilo se navázat spojení se Stripe. Zkuste to prosím za chvíli.',
+        'pay_gopay'           => 'Zaplatit přes GoPay',
+        'gopay_processing'    => 'Platba se zpracovává — potvrdíme vám ji e-mailem.',
+        'gopay_cancelled'     => 'Platba byla zrušena. Můžete to zkusit znovu.',
+        'gopay_error'         => 'Nepodařilo se navázat spojení s GoPay. Zkuste to prosím za chvíli.',
     ],
     'dashboard' => [
         'active_services' => 'Aktivní služby',

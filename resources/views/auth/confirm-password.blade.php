@@ -10,8 +10,8 @@
                     <div>
                         <div class="text-center mb-3">
                             <a href="{{ url('/') }}">
-                                <img class="for-light" src="{{ asset('panel/images/logo/logo.png') }}"
-                                     alt="OnHost" style="max-width:130px;">
+                                <img class="for-light" src="{{ asset('panel/images/logo/logo-onhost.svg') }}" alt="OnHost" style="max-width:130px;">
+                                <img class="for-dark" src="{{ asset('panel/images/logo/logo-onhost-white.svg') }}" alt="OnHost" style="max-width:130px;">
                             </a>
                         </div>
                         <div class="login-main">

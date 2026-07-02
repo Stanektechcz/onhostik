@@ -47,6 +47,18 @@ return [
             'report' => false,
         ],
 
+        'backup-s3' => [
+            'driver'                  => 's3',
+            'key'                     => env('S3_BACKUP_KEY'),
+            'secret'                  => env('S3_BACKUP_SECRET'),
+            'region'                  => env('S3_BACKUP_REGION', 'eu-central-1'),
+            'bucket'                  => env('S3_BACKUP_BUCKET'),
+            'endpoint'                => env('S3_BACKUP_ENDPOINT'),
+            'use_path_style_endpoint' => env('S3_BACKUP_PATH_STYLE', true),
+            'throw'                   => true,
+            'report'                  => true,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

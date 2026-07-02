@@ -11,7 +11,10 @@ use App\Domains\Customer\Models\Customer;
 use App\Domains\Products\Models\PricingPlan;
 use App\Domains\Provisioning\Enums\TaskStatus;
 use App\Domains\Provisioning\Services\DriverResolver;
+use App\Models\DiscountCode;
+use App\Models\DiscountCodeUsage;
 use Brick\Math\RoundingMode;
+use Brick\Money\Money;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -49,6 +52,14 @@ final class CreateOrderAction
         $domain = is_string($config['domain'] ?? null) ? mb_strtolower(trim($config['domain'])) : null;
         $registerDomain = $domain !== null && ($config['register_domain'] ?? false) === true;
 
+        // Resolve discount code if supplied
+        $discountCode = null;
+        if (is_string($config['discount_code'] ?? null) && $config['discount_code'] !== '') {
+            $discountCode = DiscountCode::valid()
+                ->where('code', strtoupper($config['discount_code']))
+                ->first();
+        }
+
         // Defense in depth — controllers validate availability for UX, the
         // action re-validates so no unavailable domain can enter an order.
         if ($registerDomain) {
@@ -64,28 +75,43 @@ final class CreateOrderAction
         $scenario = $this->vatResolver->resolveScenario($customer);
         $vatRate  = $this->vatResolver->resolveRate($customer);
 
-        $unitPrice = $plan->priceFor($currency);
-        $subtotal  = $unitPrice; // quantity is always 1 in the Phase 2 flow
-        $tax       = $subtotal->multipliedBy($vatRate / 100, RoundingMode::HALF_UP);
-        $total     = $subtotal->plus($tax);
+        $unitPrice      = $plan->priceFor($currency);
+        $subtotal       = $unitPrice;
+        $discountAmount = $discountCode !== null
+            ? $discountCode->calculateDiscount($subtotal)
+            : Money::zero($currency->value);
+        $discountedNet  = $subtotal->minus($discountAmount);
+        $tax            = $discountedNet->multipliedBy($vatRate / 100, RoundingMode::HALF_UP);
+        $total          = $discountedNet->plus($tax);
 
         $periodFrom = now()->startOfDay();
         $periodTo   = $periodFrom->copy()->addMonths($plan->billing_cycle->months());
 
         $order = DB::transaction(function () use (
             $customer, $plan, $scenario, $vatRate, $currency,
-            $unitPrice, $subtotal, $tax, $total, $periodFrom, $periodTo,
-            $domain, $registerDomain, $config,
+            $unitPrice, $subtotal, $discountAmount, $discountCode, $tax, $total,
+            $periodFrom, $periodTo, $domain, $registerDomain, $config,
         ): Order {
             $order = Order::create([
-                'customer_id'  => $customer->id,
-                'status'       => OrderStatus::Pending,
-                'currency'     => $currency,
-                'subtotal'     => $subtotal,
-                'tax_amount'   => $tax,
-                'total'        => $total,
-                'vat_scenario' => $scenario->value,
+                'customer_id'      => $customer->id,
+                'status'           => OrderStatus::Pending,
+                'currency'         => $currency,
+                'subtotal'         => $subtotal,
+                'tax_amount'       => $tax,
+                'total'            => $total,
+                'discount_code_id' => $discountCode?->id,
+                'discount_amount'  => $discountAmount,
+                'vat_scenario'     => $scenario->value,
             ]);
+
+            if ($discountCode !== null) {
+                DiscountCodeUsage::create([
+                    'discount_code_id' => $discountCode->id,
+                    'customer_id'      => $customer->id,
+                    'order_id'         => $order->id,
+                ]);
+                $discountCode->increment('used_count');
+            }
 
             $productName = $plan->product->name ?? 'Hosting';
 

@@ -271,8 +271,9 @@
                         <p class="f-light mb-0">Žádní referraly</p>
                     </div>
                 @else
-                    <x-panel.data-table :headers="['Zákazník/e-mail', 'Stav', 'První návštěva', 'Registrace', 'Konverze']">
+                    <x-panel.data-table :headers="['Zákazník/e-mail', 'Stav', 'UTM zdroj', 'První návštěva', 'Registrace', 'Konverze', '']">
                         @foreach($referrals as $ref)
+                            @php $hasUtm = $ref->utm_source || $ref->utm_medium || $ref->utm_campaign; @endphp
                             <tr>
                                 <td>
                                     @if($ref->referredUser)
@@ -283,10 +284,58 @@
                                     @endif
                                 </td>
                                 <td><x-panel.status-badge :status="$ref->status" /></td>
+                                <td class="f-12">
+                                    @if($ref->utm_source)
+                                        <span class="badge badge-light-primary">{{ $ref->utm_source }}</span>
+                                        @if($ref->utm_medium)
+                                            <span class="badge badge-light-secondary ms-1">{{ $ref->utm_medium }}</span>
+                                        @endif
+                                    @else
+                                        <span class="text-muted">—</span>
+                                    @endif
+                                </td>
                                 <td class="f-12">{{ $ref->first_seen_at?->format('d.m.Y') }}</td>
                                 <td class="f-12">{{ $ref->registered_at?->format('d.m.Y') ?? '—' }}</td>
                                 <td class="f-12">{{ $ref->converted_at?->format('d.m.Y') ?? '—' }}</td>
+                                <td>
+                                    @if($hasUtm || $ref->utm_campaign || $ref->source_url || $ref->landing_url)
+                                        <button class="btn btn-light btn-xs py-0 px-1" type="button"
+                                                data-bs-toggle="collapse"
+                                                data-bs-target="#ref-detail-{{ $ref->id }}">
+                                            <i data-feather="chevron-down" style="width:12px;height:12px;"></i>
+                                        </button>
+                                    @endif
+                                </td>
                             </tr>
+                            @if($hasUtm || $ref->utm_campaign || $ref->source_url || $ref->landing_url)
+                            <tr class="collapse" id="ref-detail-{{ $ref->id }}">
+                                <td colspan="7" class="bg-light py-2 px-3">
+                                    <div class="d-flex flex-wrap gap-3 f-12">
+                                        @if($ref->utm_source)
+                                            <div><span class="f-light">utm_source:</span> <code>{{ $ref->utm_source }}</code></div>
+                                        @endif
+                                        @if($ref->utm_medium)
+                                            <div><span class="f-light">utm_medium:</span> <code>{{ $ref->utm_medium }}</code></div>
+                                        @endif
+                                        @if($ref->utm_campaign)
+                                            <div><span class="f-light">utm_campaign:</span> <code>{{ $ref->utm_campaign }}</code></div>
+                                        @endif
+                                        @if($ref->utm_term)
+                                            <div><span class="f-light">utm_term:</span> <code>{{ $ref->utm_term }}</code></div>
+                                        @endif
+                                        @if($ref->utm_content)
+                                            <div><span class="f-light">utm_content:</span> <code>{{ $ref->utm_content }}</code></div>
+                                        @endif
+                                        @if($ref->source_url)
+                                            <div><span class="f-light">Zdroj:</span> <span class="text-truncate" style="max-width:300px;display:inline-block;vertical-align:bottom;" title="{{ $ref->source_url }}">{{ $ref->source_url }}</span></div>
+                                        @endif
+                                        @if($ref->landing_url)
+                                            <div><span class="f-light">Landing:</span> <span class="text-truncate" style="max-width:300px;display:inline-block;vertical-align:bottom;" title="{{ $ref->landing_url }}">{{ $ref->landing_url }}</span></div>
+                                        @endif
+                                    </div>
+                                </td>
+                            </tr>
+                            @endif
                         @endforeach
                     </x-panel.data-table>
                     {{ $referrals->withQueryString()->links() }}

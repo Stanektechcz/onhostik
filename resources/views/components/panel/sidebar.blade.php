@@ -15,8 +15,8 @@
 <div>
     <div class="logo-wrapper">
         <a href="{{ $canAdmin ? route('admin.dashboard') : route('panel.dashboard') }}">
-            <img class="max-w-full h-auto for-light" src="{{ asset('panel/images/logo/logo.png') }}" alt="OnHost.cz">
-            <img class="max-w-full h-auto for-dark" src="{{ asset('panel/images/logo/logo_dark.png') }}" alt="OnHost.cz">
+            <img class="max-w-full h-auto for-light" src="{{ asset('panel/images/logo/logo-onhost.svg') }}" alt="OnHost.cz" height="36">
+            <img class="max-w-full h-auto for-dark" src="{{ asset('panel/images/logo/logo-onhost-white.svg') }}" alt="OnHost.cz" height="36">
         </a>
         <div class="toggle-sidebar"><i class="status_toggle middle sidebar-toggle" data-feather="align-center"></i></div>
     </div>

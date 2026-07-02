@@ -6,7 +6,8 @@
         <div class="login-main">
             <div class="restricted-account text-center">
                 <a href="{{ url('/') }}">
-                    <img src="{{ asset('panel/images/logo/logo.png') }}" alt="OnHost" class="for-light" style="max-width:140px;">
+                    <img src="{{ asset('panel/images/logo/logo-onhost.svg') }}" alt="OnHost" class="for-light" style="max-width:140px;">
+                    <img src="{{ asset('panel/images/logo/logo-onhost-white.svg') }}" alt="OnHost" class="for-dark" style="max-width:140px;">
                 </a>
                 <div class="my-4">
                     <i data-feather="lock" style="width:64px;height:64px;color:rgba(var(--theme-default),1);"></i>

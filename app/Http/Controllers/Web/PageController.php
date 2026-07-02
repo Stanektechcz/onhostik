@@ -77,6 +77,32 @@ class PageController extends Controller
         return view('front.builder');
     }
 
+    public function builderWaitlist(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'email'  => ['required', 'email', 'max:180'],
+            'locale' => ['nullable', 'string', 'in:cs,en'],
+        ]);
+
+        $email = strtolower($data['email']);
+
+        $existing = Subscriber::where('email', $email)->first();
+
+        if ($existing === null) {
+            Subscriber::create([
+                'email'        => $email,
+                'locale'       => $data['locale'] ?? app()->getLocale(),
+                'source'       => 'builder_waitlist',
+                'confirmed_at' => now(),
+                'is_active'    => true,
+            ]);
+        } elseif (! $existing->is_active) {
+            $existing->update(['is_active' => true, 'unsubscribed_at' => null, 'source' => 'builder_waitlist']);
+        }
+
+        return back()->with('waitlist_success', true);
+    }
+
     public function support(): View
     {
         return view('front.support');

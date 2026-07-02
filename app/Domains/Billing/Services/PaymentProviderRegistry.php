@@ -10,8 +10,8 @@ use App\Domains\Integrations\Models\IntegrationSetting;
  * Read-model of payment provider readiness for the admin panel.
  *
  * Phase 3 reality: the MOCK gateway is the only one that completes
- * payments in dev. Comgate and Stripe are wired (gateway client +
- * idempotent webhook processor) but stay in test mode. GoPay is a placeholder.
+ * payments in dev. Comgate, Stripe, and GoPay are wired (gateway clients +
+ * idempotent webhook processors) but stay in test mode.
  */
 final class PaymentProviderRegistry
 {
@@ -44,7 +44,7 @@ final class PaymentProviderRegistry
                 'ready'  => true,
             ],
             $describe('comgate', 'prepared — client + idempotent webhook wired, test mode only'),
-            $describe('gopay', 'placeholder — no client yet'),
+            $describe('gopay', 'prepared — client + idempotent webhook wired, test mode only'),
             $describe('stripe', 'prepared — Stripe Checkout Sessions wired, test mode only'),
         ];
     }

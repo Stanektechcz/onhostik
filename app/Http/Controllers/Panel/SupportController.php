@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Panel;
 
 use App\Domains\Customer\Models\Customer;
+use App\Domains\Ai\Services\AiAssistantService;
 use App\Domains\Support\Enums\TicketPriority;
 use App\Domains\Support\Enums\TicketStatus;
 use App\Domains\Support\Models\SupportTicket;
 use App\Domains\Support\Services\TicketService;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -91,6 +93,34 @@ class SupportController extends Controller
         return redirect()
             ->route('panel.support.index')
             ->with('status', __('panel.support.closed'));
+    }
+
+    /**
+     * POST /panel/podpora/{ticket}/ai-navrh
+     * Returns an AI-drafted reply suggestion for the ticket (JSON).
+     * Requires the AI feature to be active (AI_ALLOW_REAL_CALLS=true + Claude integration).
+     */
+    public function aiSuggest(SupportTicket $ticket, AiAssistantService $assistant): JsonResponse
+    {
+        $this->authorize('view', $ticket);
+
+        $user = request()->user();
+        abort_if($user === null, 403);
+
+        try {
+            $lastMessage = $ticket->messages()->latest('id')->value('content') ?? $ticket->subject;
+
+            $run = $assistant->run($user, 'support_draft', [
+                'text'    => $lastMessage,
+                'subject' => $ticket->subject,
+            ]);
+
+            $reply = $run->messages()->where('role', 'assistant')->latest('id')->value('content') ?? '';
+
+            return response()->json(['suggestion' => $reply]);
+        } catch (\Throwable $e) {
+            return response()->json(['error' => 'AI návrh není k dispozici: ' . $e->getMessage()], 503);
+        }
     }
 
     private function customer(Request $request): Customer

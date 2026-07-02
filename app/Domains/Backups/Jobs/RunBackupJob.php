@@ -7,6 +7,7 @@ namespace App\Domains\Backups\Jobs;
 use App\Domains\Backups\Enums\BackupJobStatus;
 use App\Domains\Backups\Models\BackupJob;
 use App\Domains\Backups\Providers\LocalMockBackupProvider;
+use App\Domains\Backups\Providers\S3CompatibleBackupProvider;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -15,14 +16,11 @@ use Illuminate\Support\Facades\Config;
 use Throwable;
 
 /**
- * Executes one backup job via the (mock) provider.
- * Idempotent: a job row already in a final state is never re-run.
+ * Executes one backup job via the appropriate provider:
+ *   - PROVISIONING_MOCK_MODE=true  → LocalMockBackupProvider (in-memory simulation)
+ *   - PROVISIONING_MOCK_MODE=false → S3CompatibleBackupProvider (real S3 upload)
  *
- * Launch-safe behaviour: if PROVISIONING_MOCK_MODE is off and no real
- * backup provider is configured, this ends the job in a clean Failed
- * state with an explanatory error_message — it never lets an unhandled
- * exception escape to the queue's failed_jobs table while leaving the
- * BackupJob row stuck at Pending with no explanation.
+ * Idempotent: a job row already in a final state is never re-run.
  */
 final class RunBackupJob implements ShouldQueue
 {
@@ -44,26 +42,15 @@ final class RunBackupJob implements ShouldQueue
             return;
         }
 
-        if (config('provisioning.mock_mode', true) !== true) {
-            $job->update([
-                'status'        => BackupJobStatus::Failed,
-                'started_at'    => now(),
-                'finished_at'   => now(),
-                'error_message' => 'Backup provider not configured — contact administrator.',
-            ]);
-
-            activity('backup')
-                ->performedOn($job)
-                ->withProperties(['service_id' => $job->service_id, 'reason' => 'provider_not_configured'])
-                ->log('backup.provider_not_configured');
-
-            return;
-        }
+        $isMock   = config('provisioning.mock_mode', true) === true;
+        $provider = $isMock
+            ? app(LocalMockBackupProvider::class)
+            : app(S3CompatibleBackupProvider::class);
 
         $job->update(['status' => BackupJobStatus::Running, 'started_at' => now()]);
 
         try {
-            $file = app(LocalMockBackupProvider::class)->createBackup($job);
+            $file = $provider->createBackup($job);
 
             $job->update([
                 'status'      => BackupJobStatus::Success,
@@ -75,7 +62,7 @@ final class RunBackupJob implements ShouldQueue
 
             activity('backup')
                 ->performedOn($job)
-                ->withProperties(['service_id' => $job->service_id, 'size_mb' => $file->size_mb, 'mock' => true])
+                ->withProperties(['service_id' => $job->service_id, 'size_mb' => $file->size_mb, 'mock' => $isMock])
                 ->log('backup.completed');
         } catch (Throwable $e) {
             $job->update([

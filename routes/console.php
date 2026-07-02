@@ -2,7 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Console\Commands\AcmeSslRenewCommand;
 use App\Console\Commands\ApproveEligibleCommissionsCommand;
+use App\Console\Commands\ProcessGdprErasureRequestsCommand;
+use App\Console\Commands\RunScheduledBackupsCommand;
+use App\Console\Commands\AutoPayInvoicesFromCreditCommand;
 use App\Console\Commands\DetectChurnSignalsCommand;
 use App\Console\Commands\CreateRenewalInvoicesCommand;
 use App\Console\Commands\MarkOverdueInvoicesCommand;
@@ -33,6 +37,13 @@ Schedule::command(CreateRenewalInvoicesCommand::class)
 // before the suspension job evaluates the grace period).
 Schedule::command(MarkOverdueInvoicesCommand::class)
     ->dailyAt('01:00')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Try to settle open invoices from customers' credit balance.
+// Runs after mark-overdue so overdue invoices are also candidates.
+Schedule::command(AutoPayInvoicesFromCreditCommand::class)
+    ->dailyAt('01:05')
     ->withoutOverlapping()
     ->runInBackground();
 
@@ -98,5 +109,24 @@ Schedule::command(ProcessDomainRenewalsCommand::class)
 // Runs after suspend job, at a safe hour (minimal traffic).
 Schedule::command(TerminateOverdueServicesCommand::class)
     ->dailyAt('01:30')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Dispatch backup jobs for all active BackupPolicy rows that are due.
+// Individual RunBackupJob handles provider routing; mock mode is safe by default.
+Schedule::command(RunScheduledBackupsCommand::class)
+    ->dailyAt('03:30')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// GDPR Art. 17 — anonymise accounts that requested deletion > 30 days ago.
+Schedule::command(ProcessGdprErasureRequestsCommand::class)
+    ->dailyAt('04:00')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// SSL/ACME — renew certificates expiring within 14 days.
+Schedule::command(AcmeSslRenewCommand::class)
+    ->cron('0 4 * * 1,4') // Monday + Thursday at 04:15
     ->withoutOverlapping()
     ->runInBackground();

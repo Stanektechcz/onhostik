@@ -22,6 +22,7 @@ use App\Notifications\DomainExpiringNotification;
 use App\Notifications\MonitorDownNotification;
 use App\Notifications\PaymentOverdueNotification;
 use App\Notifications\ServiceSuspendedNotification;
+use App\Notifications\ServiceTerminatedNotification;
 use Database\Seeders\IntegrationSeeder;
 use Database\Seeders\MockServerSeeder;
 use Database\Seeders\ProductCatalogSeeder;
@@ -71,6 +72,47 @@ it('ServiceSuspendedNotification renders mail correctly', function (): void {
 
     expect($mail->subject)->toContain('muj-web.cz');
     expect($notification->toArray($user)['color'])->toBe('danger');
+});
+
+// ── ServiceTerminatedNotification ────────────────────────────────────────────
+
+it('ChangeServiceStateJob sends ServiceTerminatedNotification on terminate', function (): void {
+    Notification::fake();
+
+    $user      = customerUser();
+    $productId = \App\Domains\Products\Models\Product::value('id');
+
+    $service = Service::create([
+        'customer_id'         => $user->customer->id,
+        'product_id'          => $productId,
+        'status'              => ServiceStatus::Active,
+        'label'               => 'test-terminate-notify',
+        'provisioning_driver' => ProvisioningDriver::AAPanel,
+    ]);
+
+    ChangeServiceStateJob::dispatchSync($service->id, 'terminate', 'overdue_invoice');
+
+    Notification::assertSentTo($user, ServiceTerminatedNotification::class);
+});
+
+it('ServiceTerminatedNotification renders mail correctly', function (): void {
+    $user      = customerUser();
+    $productId = \App\Domains\Products\Models\Product::value('id');
+
+    $service = Service::create([
+        'customer_id'         => $user->customer->id,
+        'product_id'          => $productId,
+        'status'              => ServiceStatus::Active,
+        'label'               => 'muj-zruseny-web.cz',
+        'provisioning_driver' => ProvisioningDriver::AAPanel,
+    ]);
+
+    $notification = new ServiceTerminatedNotification($service, 'overdue_invoice');
+    $mail = $notification->toMail($user);
+
+    expect($mail->subject)->toContain('muj-zruseny-web.cz');
+    expect($notification->toArray($user)['color'])->toBe('danger');
+    expect($notification->toArray($user)['icon'])->toBe('x-octagon');
 });
 
 // ── PaymentOverdueNotification trigger ───────────────────────────────────────

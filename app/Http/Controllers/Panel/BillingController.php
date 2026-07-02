@@ -14,6 +14,7 @@ use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Payment;
 use App\Domains\Billing\Services\CreditLedger;
 use App\Domains\Billing\Services\Gateways\ComgateGateway;
+use App\Domains\Billing\Services\Gateways\GopayGateway;
 use App\Domains\Billing\Services\Gateways\StripeGateway;
 use App\Domains\Customer\Models\Customer;
 use App\Http\Controllers\Controller;
@@ -64,6 +65,7 @@ class BillingController extends Controller
             'creditBalance'    => $ledger->getBalance($this->customer($request)),
             'mockMode'         => (bool) config('provisioning.mock_mode', true),
             'stripeConfigured' => StripeGateway::fromConfig()->isConfigured(),
+            'gopayConfigured'  => GopayGateway::fromConfig()->isConfigured(),
             'bankCzk'          => $bankSettings['bank_czk'] ?? config('billing.supplier.bank_account_czk'),
             'bankEur'          => $bankSettings['bank_eur'] ?? config('billing.supplier.bank_account_eur'),
         ]);
@@ -183,6 +185,53 @@ class BillingController extends Controller
         return redirect()
             ->route('panel.billing.invoices.show', $invoice)
             ->with($flashKey, $flashValue);
+    }
+
+    /** Initiate a GoPay payment and redirect the customer to GoPay's hosted page. */
+    public function payGopay(Request $request, Invoice $invoice): RedirectResponse
+    {
+        $this->authorize('pay', $invoice);
+
+        $returnUrl = route('panel.billing.invoices.gopay-return', $invoice);
+        $notifyUrl = route('webhooks.gopay');
+
+        try {
+            $result = GopayGateway::fromConfig()->createPayment(
+                $invoice->loadMissing('customer'),
+                $returnUrl,
+                $notifyUrl,
+            );
+        } catch (RuntimeException $e) {
+            return back()->withErrors(['payment' => __('panel.billing.gopay_error')]);
+        }
+
+        Payment::create([
+            'customer_id'            => $invoice->customer_id,
+            'invoice_id'             => $invoice->id,
+            'method'                 => PaymentMethod::GoPay,
+            'status'                 => PaymentStatus::Pending,
+            'amount'                 => $invoice->total,
+            'gateway_transaction_id' => $result['paymentId'],
+            'gateway_response'       => ['payment_id' => $result['paymentId']],
+        ]);
+
+        return redirect()->away($result['gwUrl']);
+    }
+
+    /** Handle the browser return from GoPay (paid / cancelled / pending). */
+    public function gopayReturn(Invoice $invoice, Request $request): RedirectResponse
+    {
+        $status = $request->query('state', 'PAYMENT_METHOD_CHOSEN');
+
+        if ($status === 'CANCELED') {
+            return redirect()
+                ->route('panel.billing.invoices.show', $invoice)
+                ->with('payment_failed', __('panel.billing.gopay_cancelled'));
+        }
+
+        return redirect()
+            ->route('panel.billing.invoices.show', $invoice)
+            ->with('status', __('panel.billing.gopay_processing'));
     }
 
     /** Initiate a Stripe Checkout Session and redirect the customer to Stripe's hosted page. */

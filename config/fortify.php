@@ -69,15 +69,14 @@ return [
     |--------------------------------------------------------------------------
     | Features
     |--------------------------------------------------------------------------
-    | Email verification and two-factor are intentionally NOT enabled yet —
-    | the architecture is ready (see docs/architecture.md), they will be
-    | switched on in a later hardening phase.
+    | Email verification is enabled. New registrations receive a verification
+    | link before accessing billing and provisioning routes.
     */
 
     'features' => [
         Features::registration(),
         Features::resetPasswords(),
-        // Features::emailVerification(),
+        Features::emailVerification(),
         Features::updateProfileInformation(),
         Features::updatePasswords(),
         Features::twoFactorAuthentication([

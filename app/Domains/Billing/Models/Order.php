@@ -23,6 +23,8 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property Money $subtotal
  * @property Money $tax_amount
  * @property Money $total
+ * @property Money|null $discount_amount
+ * @property int|null $discount_code_id
  * @property Carbon|null $paid_at
  * @property Carbon|null $cancelled_at
  */
@@ -38,6 +40,8 @@ class Order extends Model
         'subtotal',
         'tax_amount',
         'total',
+        'discount_code_id',
+        'discount_amount',
         'vat_scenario',
         'paid_at',
         'cancelled_at',
@@ -51,9 +55,10 @@ class Order extends Model
             'currency'     => Currency::class,
             'subtotal'     => MoneyCast::class . ':currency',
             'tax_amount'   => MoneyCast::class . ':currency',
-            'total'        => MoneyCast::class . ':currency',
-            'paid_at'      => 'datetime',
-            'cancelled_at' => 'datetime',
+            'total'           => MoneyCast::class . ':currency',
+            'discount_amount' => MoneyCast::class . ':currency',
+            'paid_at'         => 'datetime',
+            'cancelled_at'    => 'datetime',
         ];
     }
 

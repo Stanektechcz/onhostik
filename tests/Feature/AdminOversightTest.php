@@ -70,3 +70,44 @@ it('rejects retrying a task that is not retryable', function (): void {
         ->assertRedirect()
         ->assertSessionHasErrors('retry');
 });
+
+// ── Admin impersonation ───────────────────────────────────────────────────────
+
+it('admin can impersonate a customer and return to admin', function (): void {
+    $admin    = adminUser();
+    $customer = customerUser();
+
+    // Start impersonation
+    $this->actingAs($admin)
+        ->get(route('admin.impersonate.start', $customer))
+        ->assertRedirect(route('panel.dashboard'));
+
+    // Now acting as the customer — should see the panel
+    $this->get(route('panel.dashboard'))->assertOk();
+
+    // Stop impersonation
+    $this->get(route('admin.impersonate.stop'))
+        ->assertRedirect(route('admin.customers.index'));
+
+    // Back to admin — panel pages still accessible
+    $this->get(route('admin.customers.index'))->assertOk();
+});
+
+it('admin cannot impersonate another admin', function (): void {
+    $admin1 = adminUser();
+    $admin2 = adminUser();
+
+    $this->actingAs($admin1)
+        ->get(route('admin.impersonate.start', $admin2))
+        ->assertRedirect()
+        ->assertSessionHasErrors('impersonate');
+});
+
+it('admin cannot impersonate themselves', function (): void {
+    $admin = adminUser();
+
+    $this->actingAs($admin)
+        ->get(route('admin.impersonate.start', $admin))
+        ->assertRedirect()
+        ->assertSessionHasErrors('impersonate');
+});

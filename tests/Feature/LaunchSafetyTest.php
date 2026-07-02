@@ -49,7 +49,7 @@ it('RunBackupJob fails safely (no uncaught exception) when no real provider is c
         ->and($job->finished_at)->not->toBeNull();
 
     expect(Activity::where('log_name', 'backup')
-        ->where('description', 'backup.provider_not_configured')
+        ->where('description', 'backup.failed')
         ->where('subject_id', $job->id)
         ->exists())->toBeTrue();
 });

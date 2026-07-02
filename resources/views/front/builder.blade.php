@@ -120,4 +120,34 @@
             </div>
         </div>
     </section>
+
+    {{-- ============ WAITLIST ============ --}}
+    <section class="sec-normal sec-bg1 bg-colorstyle">
+        <div class="container">
+            <div class="row justify-content-center">
+                <div class="col-md-8 col-lg-6 text-center">
+                    <h2 class="mergecolor mb-2">Buďte mezi prvními</h2>
+                    <p class="seccolor mb-4">Zanechte svůj e-mail a my vás upozorníme, jakmile builder spustíme.</p>
+
+                    @if(session('waitlist_success'))
+                        <div class="alert alert-success">
+                            Skvělé! Zapsali jsme vás na čekací listinu. Dáme vědět co nejdřív.
+                        </div>
+                    @else
+                        <form method="POST" action="{{ route('front.builder.waitlist') }}" class="d-flex gap-2 justify-content-center flex-wrap">
+                            @csrf
+                            <input type="email" name="email" class="form-control w-auto flex-grow-1" style="max-width:320px;"
+                                   placeholder="vas@email.cz" required value="{{ old('email') }}">
+                            <button type="submit" class="btn btn-default-yellow-fill">
+                                Chci být informován
+                            </button>
+                        </form>
+                        @error('email')
+                            <p class="text-danger f-12 mt-2">{{ $message }}</p>
+                        @enderror
+                    @endif
+                </div>
+            </div>
+        </div>
+    </section>
 @endsection

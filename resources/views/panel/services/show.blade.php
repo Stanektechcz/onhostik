@@ -354,7 +354,7 @@
                                 </p>
                             </div>
                         </div>
-                        <div class="d-flex gap-2 align-items-center">
+                        <div class="d-flex gap-2 align-items-center mb-3">
                             <x-panel.status-badge :status="$monitor->status" />
                             @if($monitor->status->value === 'down')
                                 <span class="f-12 text-danger">
@@ -363,6 +363,35 @@
                                 </span>
                             @endif
                         </div>
+
+                        {{-- Incident timeline --}}
+                        @if($incidents->isNotEmpty())
+                            <h6 class="f-12 f-light mb-2 border-top pt-3">Incidenty (posledních 10)</h6>
+                            <ul class="list-unstyled mb-0">
+                                @foreach($incidents as $incident)
+                                    <li class="d-flex align-items-start gap-2 mb-2">
+                                        <span class="badge badge-light-{{ $incident->isOpen() ? 'danger' : 'secondary' }} mt-1 f-10">
+                                            {{ $incident->isOpen() ? 'Probíhá' : 'Vyřešeno' }}
+                                        </span>
+                                        <div>
+                                            <p class="mb-0 f-12">{{ $incident->reason ?? 'Výpadek' }}</p>
+                                            <p class="mb-0 f-10 f-light">
+                                                {{ $incident->started_at?->format('d.m.Y H:i') }}
+                                                @if($incident->resolved_at)
+                                                    → {{ $incident->resolved_at->format('d.m.Y H:i') }}
+                                                    ({{ $incident->started_at?->diffForHumans($incident->resolved_at, true) }})
+                                                @endif
+                                            </p>
+                                        </div>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @else
+                            <p class="f-12 f-light mb-0 border-top pt-3">
+                                <i data-feather="check-circle" style="width:13px;height:13px" class="text-success"></i>
+                                Žádné incidenty za posledních 30 dní.
+                            </p>
+                        @endif
                     @endif
                 </x-panel.card>
 
