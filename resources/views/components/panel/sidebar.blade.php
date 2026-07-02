@@ -162,12 +162,13 @@
         </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="shopping-cart" label="Obchod a platby"
-            :active="$p('admin.orders') || $p('admin.invoices') || $p('admin.payments') || $p('admin.credits')">
+            :active="$p('admin.orders') || $p('admin.invoices') || $p('admin.payments') || $p('admin.credits') || $p('admin.webhook-logs')">
             <x-panel.sidebar-link :href="route('admin.orders.index')" icon="package" label="Objednávky" />
             <x-panel.sidebar-link :href="route('admin.invoices.index')" icon="file-text" label="Faktury" />
             <x-panel.sidebar-link :href="route('admin.payments.index')" icon="credit-card" label="Platby" />
             <x-panel.sidebar-link :href="route('admin.credits.index')" icon="dollar-sign" label="Kredit" />
             <x-panel.sidebar-link :href="route('admin.credits.transactions')" icon="list" label="Kreditní transakce" />
+            <x-panel.sidebar-link :href="route('admin.webhook-logs.index')" icon="radio" label="Webhook logy" />
         </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="box" label="Produkty a cenik"

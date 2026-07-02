@@ -153,6 +153,8 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::get('/platby/export', [Admin\PaymentController::class, 'export'])->name('payments.export');
     Route::post('/platby/{payment}/vraceni', [Admin\PaymentController::class, 'refund'])->name('payments.refund');
 
+    Route::get('/webhook-logy', [Admin\WebhookLogController::class, 'index'])->name('webhook-logs.index');
+
     Route::get('/kredit', [Admin\CreditController::class, 'index'])->name('credits.index');
     Route::get('/kredit/transakce', [Admin\CreditController::class, 'transactions'])->name('credits.transactions');
 
