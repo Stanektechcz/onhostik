@@ -10,8 +10,8 @@ it('registers a new user with a customer billing profile', function (): void {
     $response = $this->post('/register', [
         'name'                  => 'Jan Novák',
         'email'                 => 'jan@example.com',
-        'password'              => 'secret-password-123',
-        'password_confirmation' => 'secret-password-123',
+        'password'              => 'Secret-password-123',
+        'password_confirmation' => 'Secret-password-123',
     ]);
 
     $response->assertRedirect('/panel');
@@ -72,7 +72,7 @@ it('keeps admin area closed to customers', function (): void {
 
 it('opens admin area to admins', function (): void {
     Role::findOrCreate('admin', 'web');
-    $admin = User::factory()->create();
+    $admin = User::factory()->create(['two_factor_confirmed_at' => now()]);
     $admin->assignRole('admin');
 
     $this->actingAs($admin)->get('/admin')->assertOk();

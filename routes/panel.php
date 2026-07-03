@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Admin;
 use App\Http\Controllers\Panel;
 use App\Http\Controllers\Partner;
+use App\Http\Controllers\Reseller;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\BlogController as AdminBlogController;
 use App\Http\Controllers\Admin\KbController as AdminKbController;
@@ -79,6 +80,8 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::put('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'updateBilling'])->name('account.billing.update');
     Route::get('/ucet/zabezpeceni', [Panel\AccountController::class, 'security'])->name('account.security');
     Route::put('/ucet/zmena-hesla', [Panel\AccountController::class, 'updatePassword'])->name('account.password.update');
+    Route::get('/ucet/notifikace', [Panel\AccountController::class, 'notificationPreferences'])->name('account.notification-preferences');
+    Route::put('/ucet/notifikace', [Panel\AccountController::class, 'updateNotificationPreferences'])->name('account.notification-preferences.update');
 
     Route::get('/faq', [Panel\FaqController::class, 'index'])->name('faq.index');
 
@@ -103,6 +106,9 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::get('/notifikace', [Panel\NotificationController::class, 'index'])->name('notifications.index');
     Route::post('/notifikace/{id}/precist', [Panel\NotificationController::class, 'markRead'])->name('notifications.read');
     Route::post('/notifikace/precist-vse', [Panel\NotificationController::class, 'markAllRead'])->name('notifications.read-all');
+
+    Route::get('/reseller-program', [Panel\ResellerController::class, 'index'])->name('reseller-program');
+    Route::post('/reseller-program', [Panel\ResellerController::class, 'store'])->name('reseller-program.apply');
 });
 
 // Impersonation stop — auth only (must work even while impersonating as customer)
@@ -127,11 +133,23 @@ Route::middleware(['auth', 'can:access-partner'])->prefix('partner')->name('part
 
 /*
 |--------------------------------------------------------------------------
+| Reseller portal — auth + access-reseller permission
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware(['auth', 'can:access-reseller'])->prefix('reseller')->name('reseller.')->group(function (): void {
+    Route::get('/', [Reseller\DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/zakaznici', [Reseller\CustomerController::class, 'index'])->name('customers.index');
+    Route::get('/zakaznici/{customer}', [Reseller\CustomerController::class, 'show'])->name('customers.show');
+});
+
+/*
+|--------------------------------------------------------------------------
 | Admin (Cuba template, layouts.panel) — auth + access-admin gate
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')->group(function (): void {
+Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('admin')->name('admin.')->group(function (): void {
     Route::get('/', [Admin\DashboardController::class, 'index'])->name('dashboard');
 
     Route::get('/zakaznici', [Admin\CustomerController::class, 'index'])->name('customers.index');
@@ -212,6 +230,7 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
     Route::post('/provisioning/{task}/retry', [Admin\ProvisioningController::class, 'retry'])->name('provisioning.retry');
 
     Route::get('/monitoring', [Admin\MonitoringController::class, 'index'])->name('monitoring.index');
+    Route::get('/sla', [Admin\SlaController::class, 'index'])->name('sla.index');
     Route::get('/zalohy', [Admin\BackupController::class, 'index'])->name('backups.index');
 
     Route::get('/integrace', [Admin\IntegrationController::class, 'index'])->name('integrations.index');
@@ -364,5 +383,15 @@ Route::middleware(['auth', 'can:access-admin'])->prefix('admin')->name('admin.')
         Route::post('/{partner:uuid}/vyplata', [Admin\PartnerController::class, 'createPayout'])->name('payouts.create');
         Route::post('/{partner:uuid}/vyplata/{payout}/zaplatit', [Admin\PartnerController::class, 'markPayoutPaid'])->name('payouts.paid');
         Route::post('/{partner:uuid}/vyplata/{payout}/zrusit', [Admin\PartnerController::class, 'cancelPayout'])->name('payouts.cancel');
+    });
+
+    Route::prefix('reselleri')->name('resellers.')->group(function (): void {
+        Route::get('/', [Admin\ResellerController::class, 'index'])->name('index');
+        Route::get('/{reseller}', [Admin\ResellerController::class, 'show'])->name('show');
+        Route::post('/{reseller}/schvalit', [Admin\ResellerController::class, 'approve'])->name('approve');
+        Route::post('/{reseller}/zamitnout', [Admin\ResellerController::class, 'reject'])->name('reject');
+        Route::post('/{reseller}/pozastavit', [Admin\ResellerController::class, 'suspend'])->name('suspend');
+        Route::post('/{reseller}/odebrat-pristup', [Admin\ResellerController::class, 'revoke'])->name('revoke');
+        Route::put('/{reseller}/markup', [Admin\ResellerController::class, 'updateMarkup'])->name('markup');
     });
 });

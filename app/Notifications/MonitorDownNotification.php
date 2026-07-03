@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Notifications;
 
 use App\Domains\Monitoring\Models\Monitor;
+use App\Models\User;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
@@ -18,7 +19,17 @@ class MonitorDownNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail', 'database'];
+        if (! $notifiable instanceof User) {
+            return ['mail', 'database'];
+        }
+        $channels = [];
+        if ($notifiable->wantsNotification('monitor', 'mail')) {
+            $channels[] = 'mail';
+        }
+        if ($notifiable->wantsNotification('monitor', 'database')) {
+            $channels[] = 'database';
+        }
+        return $channels === [] ? ['database'] : $channels;
     }
 
     /** @return array<string, mixed> */

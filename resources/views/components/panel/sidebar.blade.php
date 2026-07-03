@@ -6,8 +6,9 @@
 ──────────────────────────────────────────────────────── --}}
 @php
     $p = fn(string $name) => request()->routeIs($name . '*');
-    $canAdmin       = auth()->user()?->can('access-admin');
-    $canPartner     = auth()->user()?->can('access-partner');
+    $canAdmin        = auth()->user()?->can('access-admin');
+    $canPartner      = auth()->user()?->can('access-partner');
+    $canReseller     = auth()->user()?->can('access-reseller');
     $isImpersonating = session()->has('_impersonated_by');
 @endphp
 
@@ -102,9 +103,22 @@
             <x-panel.sidebar-link :href="route('panel.account.profile')" icon="user" label="Profil" />
             <x-panel.sidebar-link :href="route('panel.account.billing')" icon="dollar-sign" label="Fakturační údaje" />
             <x-panel.sidebar-link :href="route('panel.account.security')" icon="lock" label="Zabezpečení" />
-            <x-panel.sidebar-link :href="route('panel.account.api-tokens')" icon="key" label="API tokeny" />
+            <x-panel.sidebar-link :href="route('panel.account.api-tokens')" icon="hash" label="API tokeny" />
             <x-panel.sidebar-link :href="route('panel.notifications.index')" icon="bell" label="Notifikace" />
         </x-panel.sidebar-submenu>
+
+{{-- ══════════════════════════════════════════════════════
+     RESELLER PROGRAM (application — visible to all users)
+══════════════════════════════════════════════════════ --}}
+        @if(!$canReseller)
+        <li class="sidebar-list">
+            <i class="fa-solid fa-thumbtack"></i>
+            <a class="sidebar-link sidebar-title link-nav {{ $p('panel.reseller-program') ? 'active' : '' }}"
+               href="{{ route('panel.reseller-program') }}">
+                <i data-feather="briefcase"></i><span>Reseller program</span>
+            </a>
+        </li>
+        @endif
 
 {{-- ══════════════════════════════════════════════════════
      PARTNER
@@ -136,6 +150,21 @@
             <x-panel.sidebar-link :href="route('partner.assets')" icon="image" label="Materiály a bannery" />
             <x-panel.sidebar-link :href="route('partner.profile')" icon="settings" label="Nastavení profilu" />
         </x-panel.sidebar-submenu>
+        @endif
+
+{{-- ══════════════════════════════════════════════════════
+     RESELLER
+══════════════════════════════════════════════════════ --}}
+        @if($canReseller)
+        <li class="sidebar-main-title"><div><h6>Reseller</h6></div></li>
+
+        <li class="sidebar-list">
+            <i class="fa-solid fa-thumbtack"></i>
+            <a class="sidebar-link sidebar-title link-nav {{ $p('reseller.dashboard') ? 'active' : '' }}"
+               href="{{ route('reseller.dashboard') }}">
+                <i data-feather="briefcase"></i><span>Reseller Dashboard</span>
+            </a>
+        </li>
         @endif
 
 {{-- ══════════════════════════════════════════════════════
@@ -201,6 +230,11 @@
             :active="$p('admin.partners') || $p('admin.partner-program')">
             <x-panel.sidebar-link :href="route('admin.partners.index')" icon="users" label="Partneři" />
             <x-panel.sidebar-link :href="route('admin.partner-program.settings')" icon="settings" label="Nastavení programu" />
+        </x-panel.sidebar-submenu>
+
+        <x-panel.sidebar-submenu icon="users" label="Reseller program"
+            :active="$p('admin.resellers')">
+            <x-panel.sidebar-link :href="route('admin.resellers.index')" icon="briefcase" label="Reseller účty" />
         </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="message-square" label="Komunikace"

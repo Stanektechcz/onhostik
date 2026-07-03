@@ -64,7 +64,7 @@ it('redirects guests away from panel pages', function (string $uri): void {
 
 it('serves admin pages to admins', function (string $uri): void {
     Role::findOrCreate('admin', 'web');
-    $admin = User::factory()->create();
+    $admin = User::factory()->create(['two_factor_confirmed_at' => now()]);
     $admin->assignRole('admin');
 
     $this->actingAs($admin)->get($uri)->assertOk();
@@ -96,6 +96,7 @@ it('serves admin pages to admins', function (string $uri): void {
     '/admin/slevy',
     '/admin/game-presety',
     '/admin/webhook-logy',
+    '/admin/reselleri',
 ]);
 
 it('forbids admin pages to customers', function (string $uri): void {
@@ -110,6 +111,20 @@ it('forbids admin pages to customers', function (string $uri): void {
     '/admin/zakaznici',
     '/admin/nastaveni',
 ]);
+
+it('serves reseller dashboard to users with access-reseller permission', function (): void {
+    $user = User::factory()->create();
+    \Spatie\Permission\Models\Permission::findOrCreate('access-reseller', 'web');
+    $user->givePermissionTo('access-reseller');
+
+    $this->actingAs($user)->get('/reseller')->assertOk();
+});
+
+it('forbids reseller dashboard to users without access-reseller permission', function (): void {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)->get('/reseller')->assertForbidden();
+});
 
 it('accepts and logs comgate webhooks without processing them', function (): void {
     $response = $this->post('/api/webhooks/comgate', [

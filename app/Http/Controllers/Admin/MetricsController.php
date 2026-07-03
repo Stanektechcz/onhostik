@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Domains\Billing\Enums\InvoiceStatus;
+use App\Domains\Billing\Enums\OrderStatus;
 use App\Domains\Billing\Enums\PaymentStatus;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Payment;
 use App\Domains\Customer\Models\Customer;
+use App\Domains\Products\Enums\ProductType;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Models\Service;
 use App\Http\Controllers\Controller;
@@ -107,20 +109,70 @@ class MetricsController extends Controller
         // ── New customers last 30 days ─────────────────────────────────────────
         $newCustomers30 = Customer::where('created_at', '>=', now()->subDays(30))->count();
 
+        // ── Revenue by product type ───────────────────────────────────────────
+        // Sum of order_items.total for active (paid) orders, joined through pricing_plans → products
+        $revenueByTypeRaw = DB::table('order_items')
+            ->join('pricing_plans', 'order_items.pricing_plan_id', '=', 'pricing_plans.id')
+            ->join('products', 'pricing_plans.product_id', '=', 'products.id')
+            ->join('orders', 'order_items.order_id', '=', 'orders.id')
+            ->where('orders.status', OrderStatus::Active->value)
+            ->select('products.type', DB::raw('SUM(order_items.total) as revenue'))
+            ->groupBy('products.type')
+            ->pluck('revenue', 'type');
+
+        $revenueByType = collect(ProductType::cases())->mapWithKeys(
+            fn (ProductType $t) => [$t->label() => round((int) ($revenueByTypeRaw[$t->value] ?? 0) / 100, 2)]
+        );
+
+        // ── New vs returning customers this month ─────────────────────────────
+        // New = customer created this month who paid an invoice
+        // Returning = customer from previous months who paid an invoice this month
+        $paidCustomerIdsThisMonth = DB::table('invoices')
+            ->where('status', InvoiceStatus::Paid->value)
+            ->whereYear('paid_at', now()->year)
+            ->whereMonth('paid_at', now()->month)
+            ->distinct()
+            ->pluck('customer_id');
+
+        $newBuyersThisMonth = Customer::whereIn('id', $paidCustomerIdsThisMonth)
+            ->whereYear('created_at', now()->year)
+            ->whereMonth('created_at', now()->month)
+            ->count();
+
+        $returningBuyersThisMonth = $paidCustomerIdsThisMonth->count() - $newBuyersThisMonth;
+
+        // ── Top 5 products by active service count ────────────────────────────
+        $topProducts = DB::table('services')
+            ->join('products', 'services.product_id', '=', 'products.id')
+            ->where('services.status', ServiceStatus::Active->value)
+            ->select('products.type', DB::raw('COUNT(*) as service_count'))
+            ->groupBy('products.type')
+            ->orderByDesc('service_count')
+            ->limit(5)
+            ->get()
+            ->map(fn ($row) => [
+                'label' => ProductType::tryFrom($row->type)?->label() ?? $row->type,
+                'count' => (int) $row->service_count,
+            ]);
+
         return view('admin.metrics', [
-            'mrrCzk'          => round($mrrMinor / 100, 2),
-            'mrrGrowthPct'    => $mrrGrowthPct,
-            'arrCzk'          => round($arrMinor / 100, 2),
-            'churnRatePct'    => $churnRatePct,
-            'churnedThisMonth'=> $churnedThisMonth,
-            'ltvCzk'          => $ltvCzk,
-            'totalCustomers'  => $totalCustomers,
-            'newCustomers30'  => $newCustomers30,
-            'activeServices'  => $activeServices,
-            'outstandingCzk'  => round($outstandingMinor / 100, 2),
-            'chartLabels'     => $chartLabels,
-            'chartRevenue'    => $chartRevenue,
-            'customerGrowth'  => $customerGrowth,
+            'mrrCzk'                  => round($mrrMinor / 100, 2),
+            'mrrGrowthPct'            => $mrrGrowthPct,
+            'arrCzk'                  => round($arrMinor / 100, 2),
+            'churnRatePct'            => $churnRatePct,
+            'churnedThisMonth'        => $churnedThisMonth,
+            'ltvCzk'                  => $ltvCzk,
+            'totalCustomers'          => $totalCustomers,
+            'newCustomers30'          => $newCustomers30,
+            'activeServices'          => $activeServices,
+            'outstandingCzk'          => round($outstandingMinor / 100, 2),
+            'chartLabels'             => $chartLabels,
+            'chartRevenue'            => $chartRevenue,
+            'customerGrowth'          => $customerGrowth,
+            'revenueByType'           => $revenueByType,
+            'newBuyersThisMonth'      => $newBuyersThisMonth,
+            'returningBuyersThisMonth'=> max(0, $returningBuyersThisMonth),
+            'topProducts'             => $topProducts,
         ]);
     }
 }

@@ -8,6 +8,8 @@ use App\Domains\Backups\Enums\BackupJobStatus;
 use App\Domains\Backups\Models\BackupJob;
 use App\Domains\Backups\Providers\LocalMockBackupProvider;
 use App\Domains\Backups\Providers\S3CompatibleBackupProvider;
+use App\Models\User;
+use App\Notifications\BackupFailedNotification;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -75,6 +77,18 @@ final class RunBackupJob implements ShouldQueue
                 ->performedOn($job)
                 ->withProperties(['service_id' => $job->service_id, 'error' => mb_substr($e->getMessage(), 0, 200)])
                 ->log('backup.failed');
+
+            $notification = new BackupFailedNotification($job);
+
+            // Notify admins
+            User::whereHas('roles', fn ($q) => $q->where('name', 'admin'))
+                ->each(fn (User $admin) => $admin->notify($notification));
+
+            // Notify the service owner
+            $owner = $job->service?->customer->user ?? null;
+            if ($owner instanceof User) {
+                $owner->notify(new BackupFailedNotification($job));
+            }
         }
     }
 }

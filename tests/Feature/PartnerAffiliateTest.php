@@ -103,8 +103,8 @@ it('registration with referral session links referral to new user', function ():
     $newUser = app(CreateNewUser::class)->create([
         'name'                  => 'Ref Customer',
         'email'                 => 'refcustomer@example.com',
-        'password'              => 'password',
-        'password_confirmation' => 'password',
+        'password'              => 'Password1!',
+        'password_confirmation' => 'Password1!',
     ]);
 
     $referral = PartnerReferral::where('referred_user_id', $newUser->id)->first();

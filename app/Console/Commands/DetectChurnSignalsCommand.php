@@ -6,9 +6,9 @@ namespace App\Console\Commands;
 
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Provisioning\Enums\ServiceStatus;
+use App\Models\User;
+use App\Notifications\ChurnRiskDetectedNotification;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
-use Spatie\Activitylog\Models\Activity;
 
 /**
  * Detects customers who may be at churn risk and logs them to the
@@ -17,19 +17,20 @@ use Spatie\Activitylog\Models\Activity;
  * Churn signals checked:
  *   1. Active service + no login in 45+ days
  *   2. No open support ticket + no payment in 60+ days
- *   3. Service with disk usage < 5% for 30+ days (not using what they pay for)
  *
  * All signals are idempotent (cached 7 days per customer) so they never
- * fire more than once per week per customer.
+ * fire more than once per week per customer. If any signals are detected,
+ * an aggregate ChurnRiskDetectedNotification is dispatched to admins.
  */
 class DetectChurnSignalsCommand extends Command
 {
     protected $signature   = 'crm:detect-churn';
-    protected $description = 'Detect customers at churn risk and log them for admin review';
+    protected $description = 'Detect customers at churn risk and notify admins';
 
     public function handle(): int
     {
-        $detected = 0;
+        /** @var array<int, array<string, string>> $risks */
+        $risks = [];
 
         // Signal 1: active services but no login in 45 days
         Customer::query()
@@ -37,7 +38,7 @@ class DetectChurnSignalsCommand extends Command
             ->whereHas('user', fn ($q) => $q->where('last_login_at', '<', now()->subDays(45))
                 ->orWhereNull('last_login_at'))
             ->with('user')
-            ->chunk(100, function ($customers) use (&$detected): void {
+            ->chunk(100, function ($customers) use (&$risks): void {
                 foreach ($customers as $customer) {
                     if ($this->shouldSkip($customer, 'no_login')) {
                         continue;
@@ -54,7 +55,13 @@ class DetectChurnSignalsCommand extends Command
                         ->log('churn.signal_detected');
 
                     cache()->put("churn_skip:{$customer->id}:no_login", true, now()->addWeek());
-                    $detected++;
+
+                    $risks[] = [
+                        'customer_id' => (string) $customer->id,
+                        'email'       => (string) $customer->email,
+                        'signal'      => 'no_login_45d',
+                        'detail'      => 'last_login: ' . (optional($customer->user?->last_login_at)->toDateString() ?? 'never'),
+                    ];
                 }
             });
 
@@ -62,7 +69,7 @@ class DetectChurnSignalsCommand extends Command
         Customer::query()
             ->whereHas('services', fn ($q) => $q->where('status', ServiceStatus::Active->value))
             ->whereDoesntHave('payments', fn ($q) => $q->where('created_at', '>=', now()->subDays(60)))
-            ->chunk(100, function ($customers) use (&$detected): void {
+            ->chunk(100, function ($customers) use (&$risks): void {
                 foreach ($customers as $customer) {
                     if ($this->shouldSkip($customer, 'no_payment')) {
                         continue;
@@ -78,11 +85,26 @@ class DetectChurnSignalsCommand extends Command
                         ->log('churn.signal_detected');
 
                     cache()->put("churn_skip:{$customer->id}:no_payment", true, now()->addWeek());
-                    $detected++;
+
+                    $risks[] = [
+                        'customer_id' => (string) $customer->id,
+                        'email'       => (string) $customer->email,
+                        'signal'      => 'no_payment_60d',
+                        'detail'      => 'no payment in 60d',
+                    ];
                 }
             });
 
-        $this->info("Detected {$detected} churn signal(s). Review in: /admin/audit?log=churn");
+        $count = count($risks);
+
+        if ($count > 0) {
+            $notification = new ChurnRiskDetectedNotification($risks, $count);
+
+            User::whereHas('roles', fn ($q) => $q->where('name', 'admin'))
+                ->each(fn (User $admin) => $admin->notify($notification));
+        }
+
+        $this->info("Detected {$count} churn signal(s). Review in: /admin/audit?log=churn");
 
         return self::SUCCESS;
     }

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Panel;
 
+use App\Http\Controllers\Api\V1\TokenController;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
@@ -22,7 +22,9 @@ class ApiTokenController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:80'],
+            'name'        => ['required', 'string', 'max:80'],
+            'abilities'   => ['sometimes', 'array'],
+            'abilities.*' => ['string', 'in:' . implode(',', TokenController::ALLOWED_ABILITIES)],
         ]);
 
         $user = $request->user();
@@ -32,7 +34,12 @@ class ApiTokenController extends Controller
             return back()->withErrors(['name' => 'Maximální počet tokenů (5) byl dosažen.']);
         }
 
-        $plainToken = $user->createToken($validated['name'], ['read'])->plainTextToken;
+        $abilities = $validated['abilities'] ?? ['read'];
+        if (! in_array('read', $abilities, true)) {
+            $abilities[] = 'read';
+        }
+
+        $plainToken = $user->createToken($validated['name'], $abilities)->plainTextToken;
 
         return back()->with('new_token', $plainToken)
                      ->with('status', 'API token byl vytvořen. Zkopírujte ho — nebude znovu zobrazen.');

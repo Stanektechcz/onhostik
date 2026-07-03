@@ -79,7 +79,7 @@
 <script src="{{ asset('panel/js/config.js') }}"></script>
 <script src="{{ asset('panel/js/sidebar-menu.js') }}"></script>
 <script src="{{ asset('panel/js/sidebar-pin.js') }}"></script>
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 /* ── Fix Cuba sidebar-menu.js TypeError when no active link in sidebar ──
    jQuery's .offset() on an empty selection returns undefined in jQuery 3.x,
    causing "Cannot read properties of undefined (reading 'top')".
@@ -132,12 +132,12 @@
     }
 })();
 </script>
-@livewireScripts
+@livewireScripts(['nonce' => $cspNonce ?? ''])
 @stack('scripts')
 <script src="{{ asset('panel/js/script.js') }}"></script>
 <script src="{{ asset('panel/js/pusher.min.js') }}"></script>
 <script src="{{ asset('panel/js/echo.iife.js') }}"></script>
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 /* ── In-panel notification bell ─────────────────────────────────── */
 (function() {
     var FETCH_URL    = '{{ route('panel.notifications.index') }}';

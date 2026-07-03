@@ -93,6 +93,21 @@ class PricingPlan extends Model
         return Money::ofMinor($minor, $currency->value);
     }
 
+    /**
+     * Returns the plan price with a reseller markup applied.
+     * If markup is 0 or negative, returns the base price unchanged.
+     */
+    public function priceWithMarkup(Currency $currency, float $markupPercent): Money
+    {
+        $base = $this->priceFor($currency);
+
+        if ($markupPercent <= 0.0) {
+            return $base;
+        }
+
+        return $base->multipliedBy(1 + $markupPercent / 100, \Brick\Math\RoundingMode::HALF_UP);
+    }
+
     public function setupFeeFor(Currency $currency): Money
     {
         $minor = match ($currency) {

@@ -21,6 +21,8 @@ use Spatie\Permission\Traits\HasRoles;
 /**
  * Authentication identity. Billing identity lives on the related
  * Customer model (1:1) — see App\Domains\Customer\Models\Customer.
+ *
+ * @property array<string, list<string>>|null $notification_preferences
  */
 class User extends Authenticatable
 {
@@ -43,11 +45,14 @@ class User extends Authenticatable
         'password',
         'is_active',
         'locale',
+        'notification_preferences',
         'last_login_at',
         'last_login_ip',
         'two_factor_secret',
         'two_factor_recovery_codes',
         'two_factor_confirmed_at',
+        'deletion_requested_at',
+        'remember_token',
     ];
 
     protected $hidden = [
@@ -60,12 +65,28 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'email_verified_at'      => 'datetime',
-            'password'               => 'hashed',
-            'is_active'              => 'boolean',
-            'last_login_at'          => 'datetime',
-            'two_factor_confirmed_at'=> 'datetime',
+            'email_verified_at'          => 'datetime',
+            'password'                   => 'hashed',
+            'is_active'                  => 'boolean',
+            'notification_preferences'   => 'array',
+            'last_login_at'              => 'datetime',
+            'two_factor_confirmed_at'    => 'datetime',
         ];
+    }
+
+    /**
+     * Check whether the user has opted out of a specific notification type
+     * on a given channel.
+     *
+     * Usage in Notification::via(): use $this->notificationKey() and check here.
+     * @param 'mail'|'database' $channel
+     */
+    public function wantsNotification(string $key, string $channel = 'mail'): bool
+    {
+        $prefs  = $this->notification_preferences ?? [];
+        $optOut = $prefs[$channel] ?? [];
+
+        return ! in_array($key, (array) $optOut, true);
     }
 
     public function getActivitylogOptions(): LogOptions

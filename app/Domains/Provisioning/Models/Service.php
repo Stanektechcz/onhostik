@@ -10,6 +10,7 @@ use App\Domains\Products\Models\Product;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Shared\Traits\HasUuid;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -35,6 +36,8 @@ use Spatie\Activitylog\Traits\LogsActivity;
  */
 class Service extends Model
 {
+    /** @use HasFactory<\Database\Factories\ServiceFactory> */
+    use HasFactory;
     use HasUuid;
     use LogsActivity;
     use SoftDeletes;

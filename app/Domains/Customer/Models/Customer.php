@@ -9,6 +9,7 @@ use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Order;
 use App\Domains\Billing\Models\Payment;
 use App\Domains\Provisioning\Models\Service;
+use App\Domains\Reseller\Models\ResellerProfile;
 use App\Domains\Shared\Enums\Currency;
 use App\Domains\Shared\Enums\Locale;
 use App\Domains\Shared\Traits\HasUuid;
@@ -44,6 +45,7 @@ class Customer extends Model
 
     protected $fillable = [
         'user_id',
+        'reseller_id',
         'type',
         'email',
         'phone',
@@ -81,6 +83,12 @@ class Customer extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** @return BelongsTo<ResellerProfile, $this> */
+    public function reseller(): BelongsTo
+    {
+        return $this->belongsTo(ResellerProfile::class, 'reseller_id');
     }
 
     /** @return HasMany<CustomerAddress, $this> */

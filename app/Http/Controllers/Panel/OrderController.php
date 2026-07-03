@@ -10,6 +10,7 @@ use App\Domains\Billing\Models\Order;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Products\Models\PricingPlan;
 use App\Domains\Provisioning\Services\DriverResolver;
+use App\Domains\Reseller\Models\ResellerProfile;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -91,10 +92,16 @@ class OrderController extends Controller
             }
         }
 
+        // Apply reseller markup if the ordering user is an approved reseller
+        $resellerProfile = $request->user()?->can('access-reseller')
+            ? ResellerProfile::where('user_id', $request->user()->id)->where('status', 'active')->first()
+            : null;
+
         try {
             $order = $createOrder->execute($customer, $plan, [
-                'domain'          => $domain,
-                'register_domain' => $registerDomain,
+                'domain'           => $domain,
+                'register_domain'  => $registerDomain,
+                'markup_percent'   => $resellerProfile ? (float) $resellerProfile->markup_percent : 0.0,
                 // Only honoured in mock mode — never forwarded otherwise.
                 'simulate_failure' => (bool) config('provisioning.mock_mode', true) && $request->boolean('simulate_failure'),
             ]);

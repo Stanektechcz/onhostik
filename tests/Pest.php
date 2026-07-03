@@ -40,7 +40,7 @@ function adminUser(): User
 {
     Role::findOrCreate('admin', 'web');
 
-    $user = User::factory()->create();
+    $user = User::factory()->create(['two_factor_confirmed_at' => now()]);
     $user->assignRole('admin');
 
     return $user;

@@ -8,6 +8,7 @@ use App\Domains\Customer\Models\Customer;
 use App\Domains\Support\Enums\TicketPriority;
 use App\Domains\Support\Services\TicketService;
 use App\Http\Controllers\Controller;
+use App\Rules\StrongPassword;
 use App\Services\ViesVatValidator;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -141,6 +142,8 @@ class AccountController extends Controller
             }
         }
 
+        $tokens = $user?->tokens()->latest()->get() ?? collect();
+
         return view('panel.account.security', compact(
             'user',
             'twoFactorEnabled',
@@ -148,6 +151,7 @@ class AccountController extends Controller
             'showingQrCode',
             'hasTwoFactorSecret',
             'recoveryCodes',
+            'tokens',
         ));
     }
 
@@ -155,7 +159,7 @@ class AccountController extends Controller
     {
         $validated = $request->validate([
             'current_password' => ['required', 'string'],
-            'password'         => ['required', 'string', 'min:8', 'confirmed'],
+            'password'         => ['required', 'string', 'min:8', new StrongPassword(), 'confirmed'],
         ]);
 
         $user = $request->user();
@@ -169,6 +173,41 @@ class AccountController extends Controller
         activity()->causedBy($user)->log('password_changed');
 
         return back()->with('status', 'Heslo bylo úspěšně změněno.');
+    }
+
+    public function notificationPreferences(Request $request): View
+    {
+        $user = $request->user();
+        abort_if($user === null, 403);
+
+        $channels = ['mail', 'database'];
+        $types    = ['renewal', 'invoice', 'payment', 'support', 'backup', 'monitor'];
+        $prefs    = $user->notification_preferences ?? [];
+
+        return view('panel.account.notification-preferences', compact('user', 'channels', 'types', 'prefs'));
+    }
+
+    public function updateNotificationPreferences(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        abort_if($user === null, 403);
+
+        $channels = ['mail', 'database'];
+        $types    = ['renewal', 'invoice', 'payment', 'support', 'backup', 'monitor'];
+
+        // Build opt-out map: if a checkbox is missing from POST it is unchecked → user wants to opt out
+        $prefs = [];
+        foreach ($channels as $channel) {
+            $submitted = $request->input($channel, []);
+            $optOut    = array_values(array_diff($types, (array) $submitted));
+            $prefs[$channel] = $optOut;
+        }
+
+        $user->update(['notification_preferences' => $prefs]);
+
+        activity()->causedBy($user)->log('notification_preferences_updated');
+
+        return back()->with('status', 'Předvolby notifikací byly uloženy.');
     }
 
     public function requestDeletion(Request $request, TicketService $tickets): RedirectResponse

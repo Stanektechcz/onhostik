@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\HandleReferralCookie;
+use App\Http\Middleware\RequireAdminTwoFactor;
 use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\SetLocale;
 use Illuminate\Foundation\Application;
@@ -25,6 +26,10 @@ $app = Application::configure(basePath: dirname(__DIR__))
             SetLocale::class,
             HandleReferralCookie::class,
             SecurityHeaders::class,
+        ]);
+
+        $middleware->alias([
+            'require-admin-2fa' => RequireAdminTwoFactor::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

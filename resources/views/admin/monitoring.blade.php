@@ -1,4 +1,4 @@
-﻿@extends('layouts.panel')
+@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = __('panel.nav.admin_monitoring');
@@ -59,10 +59,72 @@
             </div>
         </div>
 
+        {{-- Uptime breakdown + SLA link --}}
+        <div class="grid grid-cols-12 card-gap">
+            <div class="col-span-12">
+                <div class="card">
+                    <div class="card-body py-3">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                            <div class="d-flex flex-wrap gap-3 f-12">
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="badge badge-light-success">≥ 99,9 %</span>
+                                    <span class="f-light">Výborná: <strong>{{ $uptimeGroups['excellent'] }}</strong></span>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="badge badge-light-warning">99 – 99,9 %</span>
+                                    <span class="f-light">Dobrá: <strong>{{ $uptimeGroups['good'] }}</strong></span>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="badge badge-light-danger">&lt; 99 %</span>
+                                    <span class="f-light">Kritická: <strong>{{ $uptimeGroups['poor'] }}</strong></span>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="badge badge-light-secondary">—</span>
+                                    <span class="f-light">Neznámá: <strong>{{ $uptimeGroups['unknown'] }}</strong></span>
+                                </div>
+                            </div>
+                            <a href="{{ route('admin.sla.index') }}" class="btn btn-outline-primary btn-sm">
+                                <i data-feather="bar-chart-2" style="width:13px;height:13px;"></i> SLA přehled
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="grid grid-cols-12 card-gap">
             {{-- Monitors table --}}
             <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="__('panel.admin.monitors')">
+                    {{-- Filters --}}
+                    <form method="GET" action="{{ route('admin.monitoring.index') }}" class="row g-2 mb-3">
+                        <div class="col-auto">
+                            <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                                <option value="">Všechny stavy</option>
+                                @foreach(\App\Domains\Monitoring\Enums\MonitorStatus::cases() as $s)
+                                    <option value="{{ $s->value }}" {{ $filterStatus === $s->value ? 'selected' : '' }}>
+                                        {{ $s->label() }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <select name="type" class="form-select form-select-sm" onchange="this.form.submit()">
+                                <option value="">Všechny typy</option>
+                                @foreach($monitorTypes as $t)
+                                    <option value="{{ $t }}" {{ $filterType === $t ? 'selected' : '' }}>{{ $t }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        @if($filterStatus || $filterType)
+                        <div class="col-auto">
+                            <a href="{{ route('admin.monitoring.index') }}" class="btn btn-sm btn-outline-secondary">
+                                Zrušit filtry
+                            </a>
+                        </div>
+                        @endif
+                    </form>
+
                     <p class="f-12 f-light mb-3">
                         <i data-feather="alert-triangle" style="width:12px;height:12px;"></i>
                         {{ __('panel.admin.monitoring_mock_note') }}
@@ -89,7 +151,7 @@
                                     @foreach($monitors as $monitor)
                                         @php
                                             $uptimePct   = (float) ($monitor->uptime_percent ?? 0);
-                                            $uptimeColor = $uptimePct >= 99 ? 'success' : ($uptimePct >= 95 ? 'warning' : 'danger');
+                                            $uptimeColor = $uptimePct >= 99.9 ? 'success' : ($uptimePct >= 99 ? 'warning' : ($uptimePct > 0 ? 'danger' : 'secondary'));
                                             $sslDays     = $monitor->ssl_expires_at ? now()->diffInDays($monitor->ssl_expires_at, false) : null;
                                             $sslColor    = $sslDays === null ? 'secondary' : ($sslDays <= 7 ? 'danger' : ($sslDays <= 30 ? 'warning' : 'success'));
                                         @endphp

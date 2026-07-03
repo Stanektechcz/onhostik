@@ -6,6 +6,7 @@ namespace App\Notifications;
 
 use App\Domains\Support\Models\SupportTicket;
 use App\Domains\Support\Models\SupportTicketMessage;
+use App\Models\User;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
@@ -19,7 +20,17 @@ class TicketRepliedNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail', 'database'];
+        if (! $notifiable instanceof User) {
+            return ['mail', 'database'];
+        }
+        $channels = [];
+        if ($notifiable->wantsNotification('support', 'mail')) {
+            $channels[] = 'mail';
+        }
+        if ($notifiable->wantsNotification('support', 'database')) {
+            $channels[] = 'database';
+        }
+        return $channels === [] ? ['database'] : $channels;
     }
 
     /** @return array<string, mixed> */

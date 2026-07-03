@@ -58,7 +58,7 @@
                                 </div>
                             </div>
                             <button type="submit" class="btn btn-primary text-white">
-                                <i data-feather="key" style="width:14px;height:14px;"></i>
+                                <i data-feather="lock" style="width:14px;height:14px;"></i>
                                 Změnit heslo
                             </button>
                         </form>
@@ -292,7 +292,64 @@
                             <a href="{{ route('panel.account.billing') }}" class="btn btn-outline-secondary btn-sm text-start">
                                 <i data-feather="file-text" style="width:13px;height:13px;"></i> Fakturační údaje
                             </a>
+                            <a href="{{ route('panel.account.notification-preferences') }}" class="btn btn-outline-secondary btn-sm text-start">
+                                <i data-feather="bell" style="width:13px;height:13px;"></i> Předvolby notifikací
+                            </a>
                         </div>
+                    </div>
+                </div>
+
+                {{-- Active API tokens --}}
+                <div class="card">
+                    <div class="card-header card-no-border">
+                        <div class="header-top">
+                            <h5>Aktivní API tokeny</h5>
+                            <div class="card-header-right-icon">
+                                <a href="{{ route('panel.account.api-tokens') }}" class="btn btn-outline-primary btn-sm">
+                                    <i data-feather="plus" style="width:12px;height:12px;"></i> Spravovat
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body pt-0">
+                        @if($tokens->isEmpty())
+                            <p class="f-light f-12 mb-0">Žádné aktivní API tokeny.</p>
+                        @else
+                            <div class="table-responsive">
+                                <table class="table table-sm table-borderless mb-0">
+                                    <tbody>
+                                        @foreach($tokens as $token)
+                                            <tr>
+                                                <td class="ps-0 py-2">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <i data-feather="hash" style="width:13px;height:13px;opacity:.5;"></i>
+                                                        <span class="f-13 f-w-500">{{ $token->name }}</span>
+                                                    </div>
+                                                    <div class="f-light f-11 mt-1">
+                                                        @if($token->last_used_at)
+                                                            Naposledy použit: {{ $token->last_used_at->diffForHumans() }}
+                                                        @else
+                                                            Dosud nepoužit
+                                                        @endif
+                                                        &bull; Vytvořen: {{ $token->created_at->format('d.m.Y') }}
+                                                    </div>
+                                                </td>
+                                                <td class="pe-0 py-2 text-end" style="white-space:nowrap;">
+                                                    <form method="POST"
+                                                          action="{{ route('panel.account.api-tokens.destroy', $token->id) }}"
+                                                          onsubmit="return confirm('Opravdu chcete odvolat token \'{{ addslashes($token->name) }}\'?')">
+                                                        @csrf @method('DELETE')
+                                                        <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1">
+                                                            <i data-feather="trash-2" style="width:12px;height:12px;"></i>
+                                                        </button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
                     </div>
                 </div>
 
@@ -302,25 +359,40 @@
                         <h5 class="txt-danger">Nebezpečná zóna</h5>
                     </div>
                     <div class="card-body pt-0">
-                        <p class="f-light f-12 mb-3">
-                            Žádost o smazání účtu odešle interní požadavek našemu týmu. Účet bude smazán do 30 dnů
-                            po vyrovnání případných závazků. Dle GDPR máte právo na výmaz.
-                        </p>
-                        @error('deletion')
-                            <div class="alert alert-danger py-1 px-2 mb-2 f-12">{{ $message }}</div>
-                        @enderror
-                        <form method="POST" action="{{ route('panel.account.delete-request') }}"
-                              onsubmit="return confirm('Opravdu chcete požádat o smazání účtu? Tuto akci nelze vzít zpět.')">
-                            @csrf
-                            <div class="mb-2">
-                                <input type="text" name="reason" class="form-control form-control-sm"
-                                       placeholder="Důvod (volitelné)" maxlength="255">
+                        @if(auth()->user()?->deletion_requested_at)
+                            <div class="alert alert-light-warning d-flex align-items-start gap-2 mb-0">
+                                <i data-feather="clock" style="width:15px;height:15px;flex-shrink:0;margin-top:2px;"></i>
+                                <div>
+                                    <strong class="d-block f-12">Smazání čeká na vyřízení</strong>
+                                    <span class="f-light f-12">
+                                        Žádost o smazání účtu byla přijata
+                                        {{ auth()->user()->deletion_requested_at->diffForHumans() }}
+                                        ({{ auth()->user()->deletion_requested_at->format('d. m. Y') }}).
+                                        Účet bude smazán nejpozději do 30 dnů.
+                                    </span>
+                                </div>
                             </div>
-                            <button type="submit" class="btn btn-outline-danger btn-sm">
-                                <i data-feather="trash-2" style="width:13px;height:13px;"></i>
-                                Požádat o smazání účtu
-                            </button>
-                        </form>
+                        @else
+                            <p class="f-light f-12 mb-3">
+                                Žádost o smazání účtu odešle interní požadavek našemu týmu. Účet bude smazán do 30 dnů
+                                po vyrovnání případných závazků. Dle GDPR máte právo na výmaz.
+                            </p>
+                            @error('deletion')
+                                <div class="alert alert-danger py-1 px-2 mb-2 f-12">{{ $message }}</div>
+                            @enderror
+                            <form method="POST" action="{{ route('panel.account.delete-request') }}"
+                                  onsubmit="return confirm('Opravdu chcete požádat o smazání účtu? Tuto akci nelze vzít zpět.')">
+                                @csrf
+                                <div class="mb-2">
+                                    <input type="text" name="reason" class="form-control form-control-sm"
+                                           placeholder="Důvod (volitelné)" maxlength="255">
+                                </div>
+                                <button type="submit" class="btn btn-outline-danger btn-sm">
+                                    <i data-feather="trash-2" style="width:13px;height:13px;"></i>
+                                    Požádat o smazání účtu
+                                </button>
+                            </form>
+                        @endif
                     </div>
                 </div>
 

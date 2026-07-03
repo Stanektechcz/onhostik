@@ -225,7 +225,7 @@
                                                 </div>
                                                 <p class="f-light f-12 mb-0">Objednávka bude aktivována po přijetí platby.</p>
                                             </div>
-                                            <i data-feather="landmark" style="width:32px;height:32px;opacity:.4;"></i>
+                                            <i data-feather="dollar-sign" style="width:32px;height:32px;opacity:.4;"></i>
                                         </div>
                                     </div>
                                 </div>

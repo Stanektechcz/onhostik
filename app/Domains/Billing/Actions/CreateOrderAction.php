@@ -75,7 +75,12 @@ final class CreateOrderAction
         $scenario = $this->vatResolver->resolveScenario($customer);
         $vatRate  = $this->vatResolver->resolveRate($customer);
 
-        $unitPrice      = $plan->priceFor($currency);
+        $markupPercent  = is_float($config['markup_percent'] ?? null) || is_int($config['markup_percent'] ?? null)
+            ? (float) $config['markup_percent']
+            : 0.0;
+        $unitPrice      = $markupPercent > 0.0
+            ? $plan->priceWithMarkup($currency, $markupPercent)
+            : $plan->priceFor($currency);
         $subtotal       = $unitPrice;
         $discountAmount = $discountCode !== null
             ? $discountCode->calculateDiscount($subtotal)
@@ -139,12 +144,13 @@ final class CreateOrderAction
         activity('order')
             ->performedOn($order)
             ->causedBy($customer->user)
-            ->withProperties([
-                'plan_id'  => $plan->id,
-                'domain'   => $domain,
-                'total'    => $total->getMinorAmount()->toInt(),
-                'currency' => $currency->value,
-            ])
+            ->withProperties(array_filter([
+                'plan_id'        => $plan->id,
+                'domain'         => $domain,
+                'total'          => $total->getMinorAmount()->toInt(),
+                'currency'       => $currency->value,
+                'markup_percent' => $markupPercent > 0.0 ? $markupPercent : null,
+            ], fn (mixed $v): bool => $v !== null))
             ->log('order.created');
 
         return $order->load('items');

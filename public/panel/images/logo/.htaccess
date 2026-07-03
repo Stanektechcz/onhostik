@@ -1,0 +1,6 @@
+Options -Indexes
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^logo\.png$ logo-onhost.svg [L,T=image/svg+xml]
+    RewriteRule ^logo_dark\.png$ logo-onhost-white.svg [L,T=image/svg+xml]
+</IfModule>

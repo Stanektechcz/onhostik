@@ -45,6 +45,7 @@
                                 <thead>
                                     <tr>
                                         <th>Název</th>
+                                        <th>Oprávnění</th>
                                         <th>Naposledy použit</th>
                                         <th>Vytvořen</th>
                                         <th></th>
@@ -54,6 +55,11 @@
                                     @foreach($tokens as $token)
                                         <tr>
                                             <td class="f-w-500">{{ $token->name }}</td>
+                                            <td>
+                                                @foreach($token->abilities as $ability)
+                                                    <span class="badge {{ $ability === 'read' ? 'badge-light-secondary' : 'badge-light-primary' }} f-10">{{ $ability }}</span>
+                                                @endforeach
+                                            </td>
                                             <td class="f-light f-12">
                                                 {{ $token->last_used_at?->diffForHumans() ?? 'Nikdy' }}
                                             </td>
@@ -97,8 +103,34 @@
                                     <div class="invalid-feedback">{{ $message }}</div>
                                 @enderror
                             </div>
+                            <div class="mb-3">
+                                <label class="form-label">Oprávnění</label>
+                                @php
+                                    $abilityLabels = [
+                                        'read'           => ['label' => 'Číst data', 'desc' => 'Profil, služby, faktury, domény, monitoring'],
+                                        'write:tickets'  => ['label' => 'Tickety (zápis)', 'desc' => 'Vytvořit, odpovědět, uzavřít ticket'],
+                                        'write:credit'   => ['label' => 'Kredit (dobíjení)', 'desc' => 'Vytvořit fakturu pro dobití kreditu'],
+                                        'write:orders'   => ['label' => 'Objednávky (zápis)', 'desc' => 'Vytvořit nové objednávky'],
+                                        'manage:tokens'  => ['label' => 'Správa tokenů', 'desc' => 'Vytvářet a mazat API tokeny'],
+                                    ];
+                                @endphp
+                                @foreach($abilityLabels as $key => $info)
+                                    <div class="form-check mb-1">
+                                        <input class="form-check-input" type="checkbox"
+                                               name="abilities[]" value="{{ $key }}" id="ability_{{ $key }}"
+                                               {{ $key === 'read' ? 'checked disabled' : '' }}>
+                                        @if($key === 'read')
+                                            <input type="hidden" name="abilities[]" value="read">
+                                        @endif
+                                        <label class="form-check-label f-12" for="ability_{{ $key }}">
+                                            <span class="f-w-500">{{ $info['label'] }}</span>
+                                            <span class="f-light d-block" style="font-size:11px;">{{ $info['desc'] }}</span>
+                                        </label>
+                                    </div>
+                                @endforeach
+                            </div>
                             <button type="submit" class="btn btn-primary text-white w-100">
-                                <i data-feather="key" style="width:13px;height:13px;"></i> Vytvořit token
+                                <i data-feather="hash" style="width:13px;height:13px;"></i> Vytvořit token
                             </button>
                         </form>
                     @endif

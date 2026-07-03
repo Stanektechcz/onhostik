@@ -6,6 +6,7 @@ namespace App\Notifications;
 
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Shared\Support\MoneyFormatter;
+use App\Models\User;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
@@ -19,7 +20,17 @@ class PaymentOverdueNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail', 'database'];
+        if (! $notifiable instanceof User) {
+            return ['mail', 'database'];
+        }
+        $channels = [];
+        if ($notifiable->wantsNotification('payment', 'mail')) {
+            $channels[] = 'mail';
+        }
+        if ($notifiable->wantsNotification('payment', 'database')) {
+            $channels[] = 'database';
+        }
+        return $channels === [] ? ['database'] : $channels;
     }
 
     /** @return array<string, mixed> */

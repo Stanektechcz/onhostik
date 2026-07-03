@@ -6,6 +6,7 @@ namespace App\Domains\Monitoring\Models;
 
 use App\Domains\Monitoring\Enums\MonitorStatus;
 use App\Domains\Provisioning\Models\Service;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -18,6 +19,9 @@ use Illuminate\Support\Carbon;
  */
 class Monitor extends Model
 {
+    /** @use HasFactory<\Database\Factories\MonitorFactory> */
+    use HasFactory;
+
     protected $fillable = [
         'service_id',
         'name',

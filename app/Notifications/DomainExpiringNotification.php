@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Notifications;
 
 use App\Domains\Provisioning\Models\DomainRegistration;
+use App\Models\User;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
@@ -18,7 +19,17 @@ class DomainExpiringNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail', 'database'];
+        if (! $notifiable instanceof User) {
+            return ['mail', 'database'];
+        }
+        $channels = [];
+        if ($notifiable->wantsNotification('renewal', 'mail')) {
+            $channels[] = 'mail';
+        }
+        if ($notifiable->wantsNotification('renewal', 'database')) {
+            $channels[] = 'database';
+        }
+        return $channels === [] ? ['database'] : $channels;
     }
 
     /** @return array<string, mixed> */

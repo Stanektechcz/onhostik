@@ -18,15 +18,26 @@ use Symfony\Component\HttpFoundation\Response;
  *   - Referrer-Policy: strict-origin-when-cross-origin
  *   - Permissions-Policy: camera=(), microphone=(), geolocation=()
  *   - Strict-Transport-Security (HSTS) — production only (https)
- *   - Content-Security-Policy — report-only by default (not enforced yet)
+ *   - Content-Security-Policy — enforced when SECURITY_CSP_ENFORCE=true
  *
- * CSP is intentionally in report-only mode until a full nonce / hash
- * audit of inline scripts is done. Toggle via SECURITY_CSP_ENFORCE=true.
+ * CSP uses a per-request nonce for inline scripts so 'unsafe-inline' is
+ * removed from script-src. Style-src keeps 'unsafe-inline' (CSS inline
+ * styles from JS plugins are common and carry very low XSS risk).
+ *
+ * The nonce is shared to Blade as $cspNonce and stored on the request
+ * attributes as 'csp_nonce' so non-Blade controllers can also use it.
+ *
+ * Enable enforce mode via: SECURITY_CSP_ENFORCE=true in .env
  */
 class SecurityHeaders
 {
     public function handle(Request $request, Closure $next): Response
     {
+        // Generate a fresh nonce for this request
+        $nonce = base64_encode(random_bytes(16));
+        $request->attributes->set('csp_nonce', $nonce);
+        view()->share('cspNonce', $nonce);
+
         /** @var Response $response */
         $response = $next($request);
 
@@ -48,7 +59,7 @@ class SecurityHeaders
         }
 
         // CSP — enforce if env flag set, otherwise report-only
-        $csp = $this->buildCsp($request);
+        $csp = $this->buildCsp($request, $nonce);
         $cspHeader = (bool) config('app.security_csp_enforce', false)
             ? 'Content-Security-Policy'
             : 'Content-Security-Policy-Report-Only';
@@ -58,16 +69,27 @@ class SecurityHeaders
         return $response;
     }
 
-    private function buildCsp(Request $request): string
+    private function buildCsp(Request $request, string $nonce): string
     {
         $self     = "'self'";
-        $appUrl   = (string) config('app.url', '');
         $reverbWs = $this->reverbWsOrigin();
+
+        // script-src: nonce + strict-dynamic (allows scripts loaded by nonce-tagged
+        // scripts, which covers Livewire, Echo, jQuery plugins, etc.)
+        // 'unsafe-inline' is intentionally NOT included — nonce supersedes it in
+        // browsers that understand CSP3.
+        $scriptSrc = implode(' ', [
+            $self,
+            "'nonce-{$nonce}'",
+            "'strict-dynamic'",
+            // CDN for Swagger UI (only needed on /api/docs)
+            'https://unpkg.com',
+        ]);
 
         return implode('; ', [
             "default-src {$self}",
-            "script-src {$self} 'unsafe-inline' https://fonts.googleapis.com",
-            "style-src {$self} 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com",
+            "script-src {$scriptSrc}",
+            "style-src {$self} 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com",
             "font-src {$self} https://fonts.gstatic.com data:",
             "img-src {$self} data: https:",
             "connect-src {$self}" . ($reverbWs !== '' ? " {$reverbWs}" : ''),
@@ -79,9 +101,9 @@ class SecurityHeaders
 
     private function reverbWsOrigin(): string
     {
-        $host   = (string) config('reverb.apps.apps.0.options.host', '');
-        $port   = (int) config('reverb.apps.apps.0.options.port', 8080);
-        $scheme = (string) config('reverb.apps.apps.0.options.scheme', 'http');
+        $host     = (string) config('reverb.apps.apps.0.options.host', '');
+        $port     = (int) config('reverb.apps.apps.0.options.port', 8080);
+        $scheme   = (string) config('reverb.apps.apps.0.options.scheme', 'http');
         $wsScheme = $scheme === 'https' ? 'wss' : 'ws';
 
         return $host !== '' ? "{$wsScheme}://{$host}:{$port}" : '';

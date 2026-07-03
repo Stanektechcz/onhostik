@@ -97,7 +97,7 @@ class DashboardController extends Controller
             ->whereMonth('created_at', now()->month)
             ->whereYear('created_at', now()->year)
             ->sum('amount');
-        $monthlyTarget    = max($monthlyCommission * 2, 100000); // placeholder
+        $monthlyTarget    = (int) config('partner.monthly_target_minor', 1_000_000);
         $monthlyTargetPct = round(($monthlyCommission / $monthlyTarget) * 100, 1);
 
         return view('partner.dashboard', [

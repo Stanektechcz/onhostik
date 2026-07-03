@@ -47,4 +47,10 @@ return [
      | 'credit_topup' and 'renewal' are excluded by default.
      */
     'commissionable_purposes' => ['order'],
+
+    /*
+     | Monthly revenue target for the partner dashboard progress bar.
+     | Stored in minor units (haléře) — 1 000 000 = 10 000 CZK.
+     */
+    'monthly_target_minor' => (int) env('PARTNER_MONTHLY_TARGET_MINOR', 1_000_000),
 ];
