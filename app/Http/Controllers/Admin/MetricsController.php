@@ -104,7 +104,7 @@ class MetricsController extends Controller
         $outstandingMinor = (int) Invoice::whereIn('status', [
             InvoiceStatus::Sent->value,
             InvoiceStatus::Overdue->value,
-        ])->sum('total_czk');
+        ])->sum('total');
 
         // ── New customers last 30 days ─────────────────────────────────────────
         $newCustomers30 = Customer::where('created_at', '>=', now()->subDays(30))->count();
