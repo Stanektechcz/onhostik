@@ -62,6 +62,7 @@ return [
         'inactive'    => 'Inactive',
         'search'      => 'Search',
         'reset'       => 'Reset',
+        'save'        => 'Save',
     ],
     'orders' => [
         'number'             => 'Number',

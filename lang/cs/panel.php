@@ -63,6 +63,7 @@ return [
         'inactive'    => 'Neaktivní',
         'search'      => 'Hledat',
         'reset'       => 'Resetovat',
+        'save'        => 'Uložit',
     ],
     'orders' => [
         'number'             => 'Číslo',
