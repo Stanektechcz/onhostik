@@ -406,22 +406,35 @@
 @push('scripts')
 <script>
 @if($showingQrCode ?? false)
-/* showingQrCode = hasTwoFactorSecret && !twoFactorConfirmed */
-// Load QR code SVG from Fortify
-fetch('/user/two-factor-qr-code')
-    .then(r => r.json())
-    .then(data => {
+(function() {
+    var csrf = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+    fetch('/user/two-factor-qr-code', {
+        headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf }
+    })
+    .then(function(r) {
+        if (r.status === 423) { throw { confirmRequired: true }; }
+        if (!r.ok) { throw new Error('HTTP ' + r.status); }
+        return r.json();
+    })
+    .then(function(data) {
         var container = document.getElementById('qr-code-container');
-        var loading = document.getElementById('qr-loading');
-        if (container && data.svg) {
+        var loading   = document.getElementById('qr-loading');
+        if (container && data && data.svg) {
             loading.remove();
             container.insertAdjacentHTML('beforeend', data.svg);
         }
     })
-    .catch(function() {
+    .catch(function(err) {
         var l = document.getElementById('qr-loading');
-        if (l) l.innerHTML = '<p class="f-light f-12 text-danger">QR kód nelze načíst.</p>';
+        if (!l) return;
+        if (err && err.confirmRequired) {
+            l.innerHTML = '<div class="text-center py-2"><p class="f-light f-12 text-warning mb-2">Pro zobrazení QR kódu potvrďte heslo.</p>'
+                        + '<a href="/user/confirm-password" class="btn btn-sm btn-outline-primary">Potvrdit heslo</a></div>';
+        } else {
+            l.innerHTML = '<p class="f-light f-12 text-danger mb-0">QR kód nelze načíst.</p>';
+        }
     });
+})();
 @endif
 </script>
 @endpush
