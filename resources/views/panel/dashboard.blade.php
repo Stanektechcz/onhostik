@@ -20,6 +20,8 @@
 @section('content')
 <div class="container default-dashboard">
 
+  @include('panel.partials.onboarding-checklist')
+
   {{-- ── Urgent alert strip ──────────────────────────────────────────────── --}}
   @php
     $criticalRenewals = $upcomingRenewals->filter(fn($s) => (int) now()->diffInDays($s->next_due_date, false) <= 3);

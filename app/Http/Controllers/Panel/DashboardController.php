@@ -8,6 +8,7 @@ use App\Domains\Billing\Enums\InvoiceStatus;
 use App\Domains\Billing\Enums\PaymentStatus;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Services\CreditLedger;
+use App\Domains\Customer\Services\OnboardingService;
 use App\Domains\Monitoring\Models\MonitorIncident;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Models\DomainRegistration;
@@ -20,7 +21,7 @@ use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
-    public function index(Request $request, CreditLedger $ledger): View
+    public function index(Request $request, CreditLedger $ledger, OnboardingService $onboarding): View
     {
         $customer = $request->user()?->customer;
 
@@ -159,6 +160,10 @@ class DashboardController extends Controller
             'ordersThisMonth'  => $orderCountsData->last() ?? 0,
             // incident
             'latestIncident'   => $latestIncident,
+            // onboarding checklist
+            'onboardingSteps'    => $onboarding->steps($customer),
+            'onboardingPercent'  => $onboarding->percent($customer),
+            'showOnboarding'     => $customer->onboarding_completed_at === null && ! $onboarding->isComplete($customer),
         ]);
     }
 }

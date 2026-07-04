@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\Fortify;
 
+use App\Domains\Customer\Actions\EnrollInDripSequenceAction;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Partner\Services\ReferralTracker;
 use App\Models\User;
@@ -68,6 +69,14 @@ class CreateNewUser implements CreatesNewUsers
         /* Welcome email — non-fatal, never breaks registration. */
         try {
             $user->notify(new WelcomeUserNotification($user));
+        } catch (\Throwable) {}
+
+        /* Drip sequence enrollment for signup trigger — non-fatal. */
+        try {
+            $freshCustomer = $user->fresh('customer')?->customer;
+            if ($freshCustomer !== null) {
+                app(EnrollInDripSequenceAction::class)->execute($freshCustomer, 'signup');
+            }
         } catch (\Throwable) {}
 
         return $user;

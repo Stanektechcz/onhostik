@@ -21,6 +21,7 @@ use App\Http\Controllers\Admin\SiteContentController;
 
 Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function (): void {
     Route::get('/', [Panel\DashboardController::class, 'index'])->name('dashboard');
+    Route::post('/onboarding/dismiss', [Panel\OnboardingController::class, 'dismiss'])->name('onboarding.dismiss');
 
     Route::get('/sluzby', [Panel\ServiceController::class, 'index'])->name('services.index');
     Route::get('/sluzby/{service}', [Panel\ServiceController::class, 'show'])->name('services.show');
