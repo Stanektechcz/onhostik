@@ -18,6 +18,7 @@ use App\Domains\Support\Enums\TicketPriority;
 use App\Domains\Support\Services\TicketService;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
@@ -132,6 +133,55 @@ class ServiceController extends Controller
             ->values();
 
         return view('panel.services.change-plan', compact('service', 'availablePlans', 'currency', 'currentPlanId'));
+    }
+
+    /** Returns a JSON billing preview for switching to a different plan. */
+    public function changePlanPreview(Request $request, Service $service): JsonResponse
+    {
+        $this->authorize('view', $service);
+
+        $validated = $request->validate([
+            'plan_id' => ['required', 'integer', 'exists:pricing_plans,id'],
+        ]);
+
+        $customer = $request->user()->customer;
+        $currency = $customer !== null ? ($customer->preferred_currency ?? Currency::default()) : Currency::default();
+
+        $newPlan = PricingPlan::findOrFail($validated['plan_id']);
+        abort_unless($newPlan->product_id === $service->product_id, 422, 'Plan belongs to a different product.');
+
+        $currentPlanId = $service->orderItem?->pricing_plan_id;
+        $currentPlan   = $currentPlanId ? PricingPlan::find($currentPlanId) : null;
+
+        $newMonths = max(1, $newPlan->billing_cycle->months());
+        $curMonths = $currentPlan ? max(1, $currentPlan->billing_cycle->months()) : 1;
+
+        $newDailyRate = $newPlan->supportsCurrency($currency)
+            ? $newPlan->priceFor($currency)->getAmount()->toFloat() / ($newMonths * 30)
+            : 0.0;
+
+        $curDailyRate = ($currentPlan && $currentPlan->supportsCurrency($currency))
+            ? $currentPlan->priceFor($currency)->getAmount()->toFloat() / ($curMonths * 30)
+            : 0.0;
+
+        $daysRemaining  = $service->next_due_date ? max(0, (int) now()->diffInDays($service->next_due_date, false)) : 0;
+        $proratedAmount = max(0.0, round(($newDailyRate - $curDailyRate) * $daysRemaining, 2));
+
+        $newPrice = $newPlan->supportsCurrency($currency)
+            ? $newPlan->priceFor($currency)->getAmount()->toFloat()
+            : 0.0;
+        $curPrice = ($currentPlan && $currentPlan->supportsCurrency($currency))
+            ? $currentPlan->priceFor($currency)->getAmount()->toFloat()
+            : 0.0;
+
+        return response()->json([
+            'current_plan_price' => round($curPrice, 2),
+            'new_plan_price'     => round($newPrice, 2),
+            'prorated_days'      => $daysRemaining,
+            'prorated_amount'    => $proratedAmount,
+            'currency'           => $currency->value,
+            'is_upgrade'         => $newPrice > $curPrice,
+        ]);
     }
 
     /** Record the plan-change intent; creates a new order for the target plan. */

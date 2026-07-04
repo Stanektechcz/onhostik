@@ -66,6 +66,14 @@
                         <span>{{ __('panel.services.plan_change_note') }}</span>
                     </div>
 
+                    {{-- Billing preview box --}}
+                    <div id="billing-preview" class="alert alert-light-info f-12 d-none mb-3" role="alert">
+                        <div class="d-flex gap-2 align-items-start">
+                            <i data-feather="info" style="width:14px;height:14px;margin-top:2px;flex-shrink:0" class="font-info"></i>
+                            <div id="billing-preview-text"></div>
+                        </div>
+                    </div>
+
                     <div class="grid grid-cols-12 gap-3">
                         @foreach($availablePlans as $plan)
                             @php
@@ -80,7 +88,9 @@
                                 $upgradeText  = $isUpgrade ? __('panel.services.upgrade') : __('panel.services.downgrade');
                             @endphp
                             <div class="col-span-6 md:col-span-12">
-                                <div class="border rounded p-3 h-100">
+                                <div class="border rounded p-3 h-100 plan-card"
+                                     data-plan-id="{{ $plan->id }}"
+                                     data-preview-url="{{ route('panel.services.change-plan-preview', $service) }}">
                                     <div class="d-flex justify-content-between align-items-start mb-2">
                                         <div>
                                             <span class="f-w-600">{{ $plan->name }}</span>
@@ -114,6 +124,35 @@
                             </div>
                         @endforeach
                     </div>
+
+                    @push('scripts')
+                    <script>
+                    document.querySelectorAll('.plan-card').forEach(function(card) {
+                        card.addEventListener('mouseenter', function() {
+                            var planId  = this.dataset.planId;
+                            var url     = this.dataset.previewUrl + '?plan_id=' + planId;
+                            var preview = document.getElementById('billing-preview');
+                            var text    = document.getElementById('billing-preview-text');
+
+                            fetch(url, {
+                                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                            })
+                            .then(function(r) { return r.json(); })
+                            .then(function(d) {
+                                var dir    = d.is_upgrade ? '▲' : '▼';
+                                var action = d.is_upgrade ? 'Upgrade' : 'Downgrade';
+                                var msg    = action + ' ' + dir + ' — nová cena: <strong>' + d.new_plan_price.toFixed(2) + ' ' + d.currency + '</strong> / cyklus';
+                                if (d.prorated_days > 0 && d.prorated_amount > 0) {
+                                    msg += ' &mdash; dnes doplatíte <strong>' + d.prorated_amount.toFixed(2) + ' ' + d.currency + '</strong> (poměrná část za zbývajících ' + d.prorated_days + ' dní)';
+                                }
+                                text.innerHTML = msg;
+                                preview.classList.remove('d-none');
+                            })
+                            .catch(function() { preview.classList.add('d-none'); });
+                        });
+                    });
+                    </script>
+                    @endpush
                 @endif
             </x-panel.card>
         </div>

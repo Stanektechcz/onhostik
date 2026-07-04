@@ -48,4 +48,33 @@ class DomainController extends Controller
 
         return back()->with('status', $msg);
     }
+
+    public function updateNameservers(Request $request, DomainRegistration $domain): RedirectResponse
+    {
+        $this->authorize('update', $domain);
+
+        $validated = $request->validate([
+            'nameservers'   => ['required', 'array', 'min:1', 'max:4'],
+            'nameservers.*' => [
+                'required',
+                'string',
+                'max:253',
+                'regex:/^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$/',
+            ],
+        ]);
+
+        $nameservers = array_values(
+            array_filter($validated['nameservers'], fn (string $ns) => $ns !== '')
+        );
+
+        $domain->update(['nameservers' => $nameservers]);
+
+        activity('domain')
+            ->performedOn($domain)
+            ->causedBy($request->user())
+            ->withProperties(['nameservers' => $nameservers])
+            ->log('domain.nameservers_updated');
+
+        return back()->with('status', __('panel.domains.nameservers_updated'));
+    }
 }

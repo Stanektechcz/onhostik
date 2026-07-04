@@ -84,9 +84,17 @@
 
                     {{-- Nameservers --}}
                     <div class="border-top pt-3 mt-1">
-                        <p class="f-light f-12 mb-2">{{ __('panel.domains.nameservers') }}</p>
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <p class="f-light f-12 mb-0">{{ __('panel.domains.nameservers') }}</p>
+                            <button type="button" class="btn btn-xs btn-outline-secondary"
+                                    data-bs-toggle="collapse" data-bs-target="#ns-edit-form">
+                                <i data-feather="edit-2" style="width:11px;height:11px"></i>
+                                {{ __('panel.domains.nameservers_update') }}
+                            </button>
+                        </div>
+
                         @if(!empty($domain->nameservers))
-                            <ul class="list-unstyled mb-0">
+                            <ul class="list-unstyled mb-2">
                                 @foreach($domain->nameservers as $ns)
                                     <li class="mb-1 d-flex align-items-center gap-2">
                                         <i data-feather="server" class="font-secondary" style="width:12px;height:12px;flex-shrink:0"></i>
@@ -95,8 +103,36 @@
                                 @endforeach
                             </ul>
                         @else
-                            <p class="f-light f-12 mb-0">—</p>
+                            <p class="f-light f-12 mb-2">—</p>
                         @endif
+
+                        <div class="collapse" id="ns-edit-form">
+                            <form method="POST" action="{{ route('panel.domains.nameservers', $domain) }}"
+                                  class="border rounded p-3 bg-light mt-2">
+                                @csrf
+                                @method('PUT')
+                                @php $existingNs = $domain->nameservers ?? ['', '', '', '']; @endphp
+                                @for($i = 0; $i < 4; $i++)
+                                    <div class="mb-2">
+                                        <label class="form-label f-11 f-light mb-1">NS{{ $i + 1 }}</label>
+                                        <input type="text"
+                                               name="nameservers[]"
+                                               class="form-control form-control-sm font-monospace @error('nameservers.' . $i) is-invalid @enderror"
+                                               value="{{ old('nameservers.' . $i, $existingNs[$i] ?? '') }}"
+                                               placeholder="{{ __('panel.domains.nameservers_placeholder') }}"
+                                               {{ $i === 0 ? 'required' : '' }}>
+                                        @error('nameservers.' . $i)
+                                            <div class="invalid-feedback f-11">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                @endfor
+                                <p class="f-11 f-light mb-3">{{ __('panel.domains.nameservers_note') }}</p>
+                                <button type="submit" class="btn btn-primary btn-sm">
+                                    <i data-feather="save" style="width:12px;height:12px"></i>
+                                    {{ __('panel.domains.nameservers_update') }}
+                                </button>
+                            </form>
+                        </div>
                     </div>
 
                     {{-- DNS Management --}}

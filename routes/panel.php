@@ -27,12 +27,14 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/sluzby/{service}/zaloha', [Panel\ServiceController::class, 'requestBackup'])->name('services.backup');
     Route::post('/sluzby/{service}/wordpress', [Panel\ServiceController::class, 'installWordpress'])->name('services.wordpress');
     Route::get('/sluzby/{service}/zmenit-plan', [Panel\ServiceController::class, 'changePlan'])->name('services.change-plan');
+    Route::get('/sluzby/{service}/zmenit-plan/nahled', [Panel\ServiceController::class, 'changePlanPreview'])->name('services.change-plan-preview');
     Route::post('/sluzby/{service}/zmenit-plan', [Panel\ServiceController::class, 'applyChangePlan'])->name('services.apply-change-plan');
     Route::post('/sluzby/{service}/zrusit', [Panel\ServiceController::class, 'requestCancellation'])->name('services.request-cancel');
 
     Route::get('/domeny', [Panel\DomainController::class, 'index'])->name('domains.index');
     Route::get('/domeny/{domain}', [Panel\DomainController::class, 'show'])->name('domains.show');
     Route::post('/domeny/{domain}/auto-renew', [Panel\DomainController::class, 'toggleAutoRenew'])->name('domains.auto-renew');
+    Route::put('/domeny/{domain}/nameservery', [Panel\DomainController::class, 'updateNameservers'])->name('domains.nameservers');
     Route::get('/domeny/{domain}/dns', [Panel\DnsController::class, 'show'])->name('domains.dns');
     Route::post('/domeny/{domain}/dns', [Panel\DnsController::class, 'store'])->name('domains.dns.store');
 
