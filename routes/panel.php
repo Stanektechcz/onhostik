@@ -248,6 +248,7 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     });
 
     Route::get('/monitoring', [Admin\MonitoringController::class, 'index'])->name('monitoring.index');
+    Route::put('/monitoring/{monitor}/prahy', [Admin\MonitoringController::class, 'updateThresholds'])->name('monitoring.thresholds');
     Route::get('/sla', [Admin\SlaController::class, 'index'])->name('sla.index');
     Route::get('/zalohy', [Admin\BackupController::class, 'index'])->name('backups.index');
 

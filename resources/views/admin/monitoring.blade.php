@@ -37,12 +37,12 @@
             </div>
             <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
-                    <div class="card-body {{ $sslExpiring > 0 ? 'warning' : 'success' }}">
-                        <span class="f-light">SSL expiruje do 30 dní</span>
+                    <div class="card-body {{ $openAlertCount > 0 ? 'warning' : 'success' }}">
+                        <span class="f-light">Aktivní alerty</span>
                         <div class="d-flex align-items-end gap-1">
-                            <h4>{{ $sslExpiring }}</h4>
+                            <h4>{{ $openAlertCount }}</h4>
                         </div>
-                        <div class="bg-gradient"><i data-feather="shield"></i></div>
+                        <div class="bg-gradient"><i data-feather="bell"></i></div>
                     </div>
                 </div>
             </div>
@@ -145,6 +145,7 @@
                                         <th>Dostupnost</th>
                                         <th>SSL expiry</th>
                                         <th>Poslední check</th>
+                                        <th class="text-end">Prahy</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -154,6 +155,7 @@
                                             $uptimeColor = $uptimePct >= 99.9 ? 'success' : ($uptimePct >= 99 ? 'warning' : ($uptimePct > 0 ? 'danger' : 'secondary'));
                                             $sslDays     = $monitor->ssl_expires_at ? now()->diffInDays($monitor->ssl_expires_at, false) : null;
                                             $sslColor    = $sslDays === null ? 'secondary' : ($sslDays <= 7 ? 'danger' : ($sslDays <= 30 ? 'warning' : 'success'));
+                                            $hasThresholds = $monitor->response_time_threshold_ms || $monitor->uptime_threshold_percent;
                                         @endphp
                                         <tr>
                                             <td>
@@ -209,6 +211,58 @@
                                             <td class="f-light f-12">
                                                 {{ $monitor->last_check_at?->diffForHumans() ?? '—' }}
                                             </td>
+                                            <td class="text-end">
+                                                <button type="button"
+                                                        class="btn btn-xs btn-outline-{{ $hasThresholds ? 'primary' : 'secondary' }}"
+                                                        data-bs-toggle="modal"
+                                                        data-bs-target="#threshold-modal-{{ $monitor->id }}"
+                                                        title="Nastavit prahy alertů">
+                                                    <i data-feather="{{ $hasThresholds ? 'bell' : 'bell-off' }}" style="width:11px;height:11px"></i>
+                                                </button>
+
+                                                {{-- Threshold modal --}}
+                                                <div class="modal fade" id="threshold-modal-{{ $monitor->id }}" tabindex="-1" aria-hidden="true">
+                                                    <div class="modal-dialog modal-sm">
+                                                        <div class="modal-content">
+                                                            <form method="POST" action="{{ route('admin.monitoring.thresholds', $monitor) }}">
+                                                                @csrf
+                                                                @method('PUT')
+                                                                <div class="modal-header">
+                                                                    <h6 class="modal-title f-13">Prahy alertů — {{ $monitor->name }}</h6>
+                                                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                                </div>
+                                                                <div class="modal-body">
+                                                                    <div class="mb-3">
+                                                                        <label class="form-label f-12">Max. odezva (ms)</label>
+                                                                        <input type="number" name="response_time_threshold_ms"
+                                                                               class="form-control form-control-sm"
+                                                                               value="{{ $monitor->response_time_threshold_ms }}"
+                                                                               min="1" max="60000" placeholder="prázdné = vypnuto">
+                                                                    </div>
+                                                                    <div class="mb-3">
+                                                                        <label class="form-label f-12">Min. dostupnost (%)</label>
+                                                                        <input type="number" name="uptime_threshold_percent"
+                                                                               class="form-control form-control-sm"
+                                                                               value="{{ $monitor->uptime_threshold_percent }}"
+                                                                               min="0" max="100" step="0.01" placeholder="prázdné = vypnuto">
+                                                                    </div>
+                                                                    <div class="mb-0">
+                                                                        <label class="form-label f-12">SSL varování (dní před expirací)</label>
+                                                                        <input type="number" name="ssl_warn_days"
+                                                                               class="form-control form-control-sm"
+                                                                               value="{{ $monitor->ssl_warn_days ?? 30 }}"
+                                                                               min="1" max="365" required>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="modal-footer">
+                                                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Zrušit</button>
+                                                                    <button type="submit" class="btn btn-sm btn-primary">Uložit prahy</button>
+                                                                </div>
+                                                            </form>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </td>
                                         </tr>
                                     @endforeach
                                 </tbody>
@@ -219,8 +273,40 @@
                 </x-panel.card>
             </div>
 
-            {{-- Incidents timeline --}}
+            {{-- Open alerts + Incidents timeline --}}
             <div class="col-span-4 xl:col-span-12">
+
+                @if($openAlerts->isNotEmpty())
+                <x-panel.card title="Aktivní alerty">
+                    <div class="table-responsive mb-0">
+                        <table class="table table-sm f-12 mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Monitor</th>
+                                    <th>Typ</th>
+                                    <th>Aktuální</th>
+                                    <th>Práh</th>
+                                    <th>Od</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($openAlerts as $alert)
+                                <tr>
+                                    <td class="f-w-500">{{ $alert->monitor?->name ?? '—' }}</td>
+                                    <td>
+                                        <span class="badge badge-light-warning f-10">{{ $alert->typeLabel() }}</span>
+                                    </td>
+                                    <td class="font-monospace">{{ $alert->current_value }}</td>
+                                    <td class="font-monospace f-light">{{ $alert->threshold_value }}</td>
+                                    <td class="f-light">{{ $alert->triggered_at->diffForHumans() }}</td>
+                                </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </x-panel.card>
+                @endif
+
                 <x-panel.card title="Incidenty">
                     @if($incidents->isEmpty())
                         <p class="f-light mb-0">{{ __('panel.dashboard.no_incident') }}</p>
