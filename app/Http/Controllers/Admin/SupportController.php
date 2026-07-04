@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domains\Support\Actions\GenerateKbFromTicketAction;
 use App\Domains\Support\Enums\TicketPriority;
 use App\Domains\Support\Enums\TicketStatus;
 use App\Domains\Support\Models\SupportTicket;
@@ -129,5 +130,21 @@ class SupportController extends Controller
         }
 
         return back()->with('status', __('panel.admin.ticket_updated'));
+    }
+
+    public function generateKbDraft(SupportTicket $ticket, GenerateKbFromTicketAction $action, Request $request): RedirectResponse
+    {
+        $admin = $request->user();
+        abort_if($admin === null, 403);
+
+        $article = $action->handle($ticket, $admin);
+
+        if ($article === null) {
+            return back()->with('error', 'KB článek nelze vygenerovat — ticket nemá žádné zprávy.');
+        }
+
+        return redirect()
+            ->route('admin.kb.edit', $article)
+            ->with('status', 'KB článek byl vytvořen jako návrh. Zkontrolujte a publikujte.');
     }
 }

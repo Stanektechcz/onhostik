@@ -105,6 +105,73 @@
                     </x-panel.card>
                 @endif
 
+                {{-- AI Analysis --}}
+                @if($ticket->ai_analysed_at)
+                    <x-panel.card title="AI analýza">
+                        @php
+                            $sentimentColor = match($ticket->ai_sentiment) {
+                                'positive' => 'success',
+                                'negative' => 'danger',
+                                default    => 'secondary',
+                            };
+                            $classColor = match($ticket->ai_classification) {
+                                'billing'   => 'warning',
+                                'technical' => 'primary',
+                                'account'   => 'info',
+                                'sales'     => 'success',
+                                default     => 'secondary',
+                            };
+                        @endphp
+
+                        <div class="d-flex flex-wrap gap-2 mb-3">
+                            @if($ticket->ai_classification)
+                                <span class="badge badge-light-{{ $classColor }}">
+                                    <i data-feather="tag" style="width:10px;height:10px;margin-right:3px;"></i>
+                                    {{ ucfirst($ticket->ai_classification) }}
+                                </span>
+                            @endif
+                            @if($ticket->ai_sentiment)
+                                <span class="badge badge-light-{{ $sentimentColor }}">
+                                    <i data-feather="activity" style="width:10px;height:10px;margin-right:3px;"></i>
+                                    {{ match($ticket->ai_sentiment) {
+                                        'positive' => 'Pozitivní',
+                                        'negative' => 'Negativní',
+                                        default    => 'Neutrální',
+                                    } }}
+                                </span>
+                            @endif
+                        </div>
+
+                        @if($ticket->ai_draft)
+                            <p class="f-11 f-light mb-2">Navržená odpověď AI:</p>
+                            <div class="rounded p-2 bg-light-primary f-12" style="white-space:pre-line;max-height:140px;overflow-y:auto;font-size:11px;">{{ $ticket->ai_draft }}</div>
+                            <button type="button" class="btn btn-sm btn-outline-primary mt-2 f-12"
+                                    onclick="document.getElementById('admin-reply').value = {{ Js::from($ticket->ai_draft) }}; document.getElementById('admin-reply').scrollIntoView({behavior:'smooth'});">
+                                <i data-feather="copy" style="width:12px;height:12px;"></i>
+                                Použít jako odpověď
+                            </button>
+                        @endif
+
+                        <div class="mt-2 d-flex align-items-center justify-content-between">
+                            <span class="f-11 f-light">Analysováno {{ $ticket->ai_analysed_at->diffForHumans() }}</span>
+                            <form method="POST" action="{{ route('admin.support.kb-draft', $ticket) }}" class="d-inline">
+                                @csrf
+                                <button type="submit" class="btn btn-sm btn-outline-secondary f-11">
+                                    <i data-feather="book-open" style="width:10px;height:10px;"></i>
+                                    KB návrh
+                                </button>
+                            </form>
+                        </div>
+                    </x-panel.card>
+                @else
+                    <x-panel.card title="AI analýza">
+                        <p class="f-12 f-light mb-0">
+                            <i data-feather="cpu" style="width:12px;height:12px;"></i>
+                            Analýza probíhá na pozadí…
+                        </p>
+                    </x-panel.card>
+                @endif
+
                 {{-- Status & priority controls --}}
                 <x-panel.card :title="__('panel.common.status')">
                     @error('approval')<div class="text-danger f-12 mb-2">{{ $message }}</div>@enderror

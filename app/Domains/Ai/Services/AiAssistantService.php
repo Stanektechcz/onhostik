@@ -13,6 +13,7 @@ use App\Domains\Ai\Models\AiUsageLog;
 use App\Domains\Ai\Providers\ClaudeProvider;
 use App\Domains\Ai\Providers\MockAiProvider;
 use App\Domains\Integrations\Models\IntegrationSetting;
+use App\Domains\Support\Models\SupportTicket;
 use App\Models\User;
 use InvalidArgumentException;
 
@@ -176,6 +177,29 @@ final class AiAssistantService
     }
 
     /**
+     * Classify + sentiment + draft a reply for a support ticket, then persist the results.
+     * Called by AnalyzeTicketWithAiJob — no AiRun is logged; the ticket fields are the audit trail.
+     */
+    public function analyzeTicket(SupportTicket $ticket, User $user): void
+    {
+        $provider = $this->provider();
+
+        $firstMessage = (string) ($ticket->messages()->oldest()->value('message') ?? '');
+        $text         = "{$ticket->subject}\n\n{$firstMessage}";
+
+        $classifyResp  = $provider->classify($text, ['billing', 'technical', 'account', 'sales', 'general']);
+        $sentimentResp = $provider->classify($text, ['positive', 'neutral', 'negative']);
+        $draftResp     = $provider->draftSupportReply($text);
+
+        $ticket->update([
+            'ai_classification' => $this->extractLabel($classifyResp->content),
+            'ai_sentiment'      => $this->extractLabel($sentimentResp->content),
+            'ai_draft'          => $draftResp->content,
+            'ai_analysed_at'    => now(),
+        ]);
+    }
+
+    /**
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
@@ -184,5 +208,22 @@ final class AiAssistantService
         unset($data['password'], $data['secret'], $data['api_key'], $data['token']);
 
         return $data;
+    }
+
+    private function extractLabel(string $content): string
+    {
+        $content = trim($content);
+
+        // Mock format: "[MOCK AI] Klasifikace: billing"
+        if (preg_match('/:\s*([a-z_-]+)\s*$/i', $content, $m)) {
+            return strtolower($m[1]);
+        }
+
+        // Real AI format: just the label word
+        if (preg_match('/^[a-z_-]+$/i', $content)) {
+            return strtolower($content);
+        }
+
+        return '';
     }
 }

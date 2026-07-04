@@ -21,6 +21,11 @@ use Illuminate\Support\Carbon;
  * @property TicketPriority $priority
  * @property Carbon|null $last_reply_at
  * @property Carbon|null $closed_at
+ * @property Carbon|null $sla_deadline
+ * @property string|null $ai_classification
+ * @property string|null $ai_sentiment
+ * @property string|null $ai_draft
+ * @property Carbon|null $ai_analysed_at
  */
 class SupportTicket extends Model
 {
@@ -35,20 +40,26 @@ class SupportTicket extends Model
         'status',
         'priority',
         'department',
-        'related_type',   // optional link: service / domain / order / invoice
+        'related_type',
         'related_id',
         'last_reply_at',
         'closed_at',
         'sla_deadline',
+        'ai_classification',
+        'ai_sentiment',
+        'ai_draft',
+        'ai_analysed_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'status'        => TicketStatus::class,
-            'priority'      => TicketPriority::class,
-            'last_reply_at' => 'datetime',
-            'closed_at'     => 'datetime',
+            'status'         => TicketStatus::class,
+            'priority'       => TicketPriority::class,
+            'last_reply_at'  => 'datetime',
+            'closed_at'      => 'datetime',
+            'sla_deadline'   => 'datetime',
+            'ai_analysed_at' => 'datetime',
         ];
     }
 

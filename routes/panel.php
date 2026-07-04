@@ -102,6 +102,7 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
 
     Route::get('/ai', [Panel\AiController::class, 'index'])->name('ai.index');
     Route::post('/ai', [Panel\AiController::class, 'run'])->name('ai.run');
+    Route::post('/ai/chat', [Panel\AiController::class, 'chat'])->name('ai.chat');
 
     Route::get('/notifikace', [Panel\NotificationController::class, 'index'])->name('notifications.index');
     Route::post('/notifikace/{id}/precist', [Panel\NotificationController::class, 'markRead'])->name('notifications.read');
@@ -243,6 +244,7 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::post('/podpora/{ticket}/odpoved', [Admin\SupportController::class, 'reply'])->name('support.reply');
     Route::put('/podpora/{ticket}', [Admin\SupportController::class, 'update'])->name('support.update');
     Route::post('/podpora/{ticket}/sla', [Admin\SupportController::class, 'setSla'])->name('support.sla');
+    Route::post('/podpora/{ticket}/kb-navrh', [Admin\SupportController::class, 'generateKbDraft'])->name('support.kb-draft');
 
     Route::get('/ai', [Admin\AiController::class, 'index'])->name('ai.index');
     Route::post('/ai', [Admin\AiController::class, 'run'])->name('ai.run');

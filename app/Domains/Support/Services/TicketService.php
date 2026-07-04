@@ -9,6 +9,7 @@ use App\Domains\Support\Enums\TicketPriority;
 use App\Domains\Support\Enums\TicketStatus;
 use App\Domains\Support\Models\SupportTicket;
 use App\Domains\Support\Models\SupportTicketMessage;
+use App\Jobs\AnalyzeTicketWithAiJob;
 use App\Models\User;
 use App\Notifications\TicketRepliedNotification;
 use Illuminate\Support\Facades\DB;
@@ -57,6 +58,8 @@ final class TicketService
             ->causedBy($author)
             ->withProperties(['subject' => $subject, 'priority' => $priority->value])
             ->log('support.ticket_created');
+
+        AnalyzeTicketWithAiJob::dispatch($ticket, $author);
 
         return $ticket;
     }

@@ -285,5 +285,91 @@
     @endauth
 })();
 </script>
+
+@auth
+{{-- ── AI Chatbot Widget ─────────────────────────────────────────────────── --}}
+<style nonce="{{ $cspNonce ?? '' }}">
+#ai-chat-widget{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;}
+#ai-chat-toggle{width:52px;height:52px;border-radius:50%;background:#4680ff;border:none;color:#fff;box-shadow:0 4px 14px rgba(70,128,255,.45);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .15s;}
+#ai-chat-toggle:hover{transform:scale(1.08);}
+#ai-chat-panel{width:320px;background:#fff;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.18);margin-bottom:10px;overflow:hidden;display:flex;flex-direction:column;}
+#ai-chat-header{background:#4680ff;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:13px;}
+#ai-chat-close{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1;padding:0;}
+#ai-chat-messages{height:220px;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;}
+.ai-msg{padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.5;max-width:92%;word-break:break-word;}
+.ai-msg--user{background:#4680ff;color:#fff;align-self:flex-end;border-radius:8px 8px 2px 8px;}
+.ai-msg--bot{background:#f0f2f8;color:#333;align-self:flex-start;border-radius:8px 8px 8px 2px;}
+#ai-chat-form{padding:8px 12px 12px;display:flex;gap:6px;}
+#ai-chat-input{flex:1;border:1px solid #dde1ef;border-radius:8px;padding:7px 10px;font-size:12px;outline:none;transition:border-color .15s;}
+#ai-chat-input:focus{border-color:#4680ff;}
+#ai-chat-send{background:#4680ff;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;}
+#ai-chat-send:disabled{opacity:.55;cursor:default;}
+</style>
+<div id="ai-chat-widget">
+    <div id="ai-chat-panel" class="d-none">
+        <div id="ai-chat-header">
+            <span>⚡ AI Asistent</span>
+            <button id="ai-chat-close" title="Zavřít">×</button>
+        </div>
+        <div id="ai-chat-messages">
+            <div class="ai-msg ai-msg--bot">Dobrý den! Jak vám mohu pomoci?</div>
+        </div>
+        <div id="ai-chat-form">
+            <input id="ai-chat-input" type="text" placeholder="Napište dotaz…" autocomplete="off">
+            <button id="ai-chat-send">→</button>
+        </div>
+    </div>
+    <button id="ai-chat-toggle" title="AI Asistent">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+    </button>
+</div>
+<script nonce="{{ $cspNonce ?? '' }}">
+(function(){
+    var toggle=document.getElementById('ai-chat-toggle'),
+        panel=document.getElementById('ai-chat-panel'),
+        close=document.getElementById('ai-chat-close'),
+        input=document.getElementById('ai-chat-input'),
+        send=document.getElementById('ai-chat-send'),
+        msgs=document.getElementById('ai-chat-messages'),
+        csrf=document.querySelector('meta[name="csrf-token"]')?document.querySelector('meta[name="csrf-token"]').content:'';
+
+    toggle.addEventListener('click',function(){panel.classList.toggle('d-none');if(!panel.classList.contains('d-none'))input.focus();});
+    close.addEventListener('click',function(){panel.classList.add('d-none');});
+
+    function addMsg(text,isUser){
+        var d=document.createElement('div');
+        d.className='ai-msg '+(isUser?'ai-msg--user':'ai-msg--bot');
+        d.textContent=text;
+        msgs.appendChild(d);
+        msgs.scrollTop=msgs.scrollHeight;
+    }
+
+    function sendMsg(){
+        var text=input.value.trim();
+        if(!text||send.disabled)return;
+        addMsg(text,true);
+        input.value='';
+        input.disabled=true;
+        send.disabled=true;
+        addMsg('…',false);
+        fetch('/panel/ai/chat',{
+            method:'POST',
+            headers:{'Content-Type':'application/json','X-CSRF-TOKEN':csrf,'Accept':'application/json'},
+            body:JSON.stringify({message:text})
+        }).then(function(r){return r.json();}).then(function(d){
+            msgs.lastChild.textContent=d.reply||'Omlouváme se, zkuste to znovu.';
+            msgs.scrollTop=msgs.scrollHeight;
+        }).catch(function(){
+            msgs.lastChild.textContent='Chyba komunikace.';
+        }).finally(function(){
+            input.disabled=false;send.disabled=false;input.focus();
+        });
+    }
+
+    send.addEventListener('click',sendMsg);
+    input.addEventListener('keydown',function(e){if(e.key==='Enter')sendMsg();});
+})();
+</script>
+@endauth
 </body>
 </html>
