@@ -386,6 +386,10 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::put('/kurzy/{currency}', [Admin\ExchangeRateController::class, 'update'])->name('exchange-rates.update');
     Route::get('/dac7/export', [Admin\Dac7ReportController::class, 'export'])->name('dac7.export');
 
+    /* ── Financial reports ── */
+    Route::get('/pohledavky-aging', [Admin\FinancialReportController::class, 'aging'])->name('financial-report.aging');
+    Route::get('/pohledavky-aging/export-csv', [Admin\FinancialReportController::class, 'exportRevenueCsv'])->name('financial-report.revenue-csv');
+
     Route::get('/obsah', [SiteContentController::class, 'index'])->name('site-content.index');
     Route::post('/obsah/bulk', [SiteContentController::class, 'bulkUpdate'])->name('site-content.bulk');
     Route::get('/obsah/{siteContent}/upravit', [SiteContentController::class, 'edit'])->name('site-content.edit');
