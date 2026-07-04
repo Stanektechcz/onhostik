@@ -34,6 +34,8 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property Carbon|null $next_due_date
  * @property Carbon|null $suspended_at
  * @property Carbon|null $terminated_at
+ * @property bool $auto_renew
+ * @property string|null $customer_note
  */
 class Service extends Model
 {
@@ -62,6 +64,8 @@ class Service extends Model
         'paused_at',
         'paused_until',
         'usage_snapshot',
+        'auto_renew',
+        'customer_note',
     ];
 
     protected function casts(): array
@@ -77,6 +81,7 @@ class Service extends Model
             'paused_at'            => 'datetime',
             'paused_until'         => 'date',
             'usage_snapshot'       => 'array',
+            'auto_renew'           => 'boolean',
         ];
     }
 

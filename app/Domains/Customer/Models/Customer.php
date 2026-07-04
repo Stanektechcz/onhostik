@@ -9,6 +9,7 @@ use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Order;
 use App\Domains\Billing\Models\Payment;
 use App\Domains\Provisioning\Models\Service;
+use App\Domains\Provisioning\Models\SshKey;
 use App\Domains\Reseller\Models\ResellerProfile;
 use App\Domains\Shared\Enums\Currency;
 use App\Domains\Shared\Enums\Locale;
@@ -143,6 +144,12 @@ class Customer extends Model
     public function supportTickets(): HasMany
     {
         return $this->hasMany(SupportTicket::class);
+    }
+
+    /** @return HasMany<SshKey, $this> */
+    public function sshKeys(): HasMany
+    {
+        return $this->hasMany(SshKey::class);
     }
 
     // ---------------------------------------------------------------- helpers

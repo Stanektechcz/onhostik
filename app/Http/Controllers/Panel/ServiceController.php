@@ -319,6 +319,44 @@ class ServiceController extends Controller
         return back()->with('status', __('panel.services.cancel_at_period_end_set', ['date' => $date]));
     }
 
+    /** Customer note — freetext annotation visible only to the customer. */
+    public function updateNote(Request $request, Service $service): RedirectResponse
+    {
+        $this->authorize('view', $service);
+
+        $validated = $request->validate([
+            'customer_note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $service->update(['customer_note' => $validated['customer_note'] ?? null]);
+
+        activity('service')
+            ->performedOn($service)
+            ->causedBy($request->user())
+            ->log('service.customer_note_updated');
+
+        return back()->with('status', 'Poznámka uložena.');
+    }
+
+    /** Toggle auto-renewal on/off for the service. */
+    public function toggleAutoRenew(Request $request, Service $service): RedirectResponse
+    {
+        $this->authorize('view', $service);
+
+        $newValue = ! $service->auto_renew;
+        $service->update(['auto_renew' => $newValue]);
+
+        activity('service')
+            ->performedOn($service)
+            ->causedBy($request->user())
+            ->withProperties(['auto_renew' => $newValue])
+            ->log('service.auto_renew_toggled');
+
+        return back()->with('status', $newValue
+            ? 'Automatická obnova zapnuta.'
+            : 'Automatická obnova vypnuta.');
+    }
+
     /** Mock WordPress one-click install — records a task, no real install. */
     public function installWordpress(Service $service): RedirectResponse
     {

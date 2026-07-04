@@ -34,6 +34,8 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/sluzby/{service}/pozastavit', [Panel\ServiceController::class, 'pause'])->name('services.pause');
     Route::post('/sluzby/{service}/obnovit', [Panel\ServiceController::class, 'resume'])->name('services.resume');
     Route::post('/sluzby/{service}/zrusit-na-konci', [Panel\ServiceController::class, 'cancelAtPeriodEnd'])->name('services.cancel-at-period-end');
+    Route::put('/sluzby/{service}/poznamka', [Panel\ServiceController::class, 'updateNote'])->name('services.update-note');
+    Route::post('/sluzby/{service}/auto-obnova', [Panel\ServiceController::class, 'toggleAutoRenew'])->name('services.toggle-auto-renew');
 
     Route::get('/domeny', [Panel\DomainController::class, 'index'])->name('domains.index');
     Route::get('/domeny/{domain}', [Panel\DomainController::class, 'show'])->name('domains.show');
@@ -75,6 +77,9 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/fakturace/kredit/dobit', [Panel\BillingController::class, 'topUp'])->name('billing.credits.topup');
 
     Route::get('/ucet/api-tokeny', [Panel\ApiTokenController::class, 'index'])->name('account.api-tokens');
+    Route::get('/ucet/ssh-klice', [Panel\SshKeyController::class, 'index'])->name('account.ssh-keys.index');
+    Route::post('/ucet/ssh-klice', [Panel\SshKeyController::class, 'store'])->name('account.ssh-keys.store');
+    Route::delete('/ucet/ssh-klice/{sshKey}', [Panel\SshKeyController::class, 'destroy'])->name('account.ssh-keys.destroy');
     Route::post('/ucet/api-tokeny', [Panel\ApiTokenController::class, 'store'])->name('account.api-tokens.store');
     Route::delete('/ucet/api-tokeny/{token}', [Panel\ApiTokenController::class, 'destroy'])->name('account.api-tokens.destroy');
 
