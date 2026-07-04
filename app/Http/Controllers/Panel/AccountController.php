@@ -8,6 +8,7 @@ use App\Domains\Customer\Models\Customer;
 use App\Domains\Support\Enums\TicketPriority;
 use App\Domains\Support\Services\TicketService;
 use App\Http\Controllers\Controller;
+use App\Models\SecurityEvent;
 use App\Rules\StrongPassword;
 use App\Services\ViesVatValidator;
 use Illuminate\Contracts\View\View;
@@ -144,6 +145,10 @@ class AccountController extends Controller
 
         $tokens = $user?->tokens()->latest()->get() ?? collect();
 
+        $securityEvents = $user !== null
+            ? SecurityEvent::where('user_id', $user->id)->latest()->limit(20)->get()
+            : collect();
+
         return view('panel.account.security', compact(
             'user',
             'twoFactorEnabled',
@@ -152,6 +157,7 @@ class AccountController extends Controller
             'hasTwoFactorSecret',
             'recoveryCodes',
             'tokens',
+            'securityEvents',
         ));
     }
 

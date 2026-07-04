@@ -10,7 +10,10 @@ use App\Domains\Partner\Listeners\CreateCommissionOnInvoicePaid;
 use App\Listeners\BroadcastNotificationReceived;
 use App\Listeners\NotifyAdminOnFailedJob;
 use App\Listeners\RecordUserLogin;
+use App\Listeners\TrackSecurityEvent;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
 use Illuminate\Notifications\Events\NotificationSent;
 use Illuminate\Queue\Events\JobFailed;
 use App\Domains\Billing\Services\Gateways\ComgateGateway;
@@ -60,7 +63,11 @@ class AppServiceProvider extends ServiceProvider
     {
         Event::listen(InvoicePaid::class, HandleInvoicePaid::class);
         Event::listen(InvoicePaid::class, CreateCommissionOnInvoicePaid::class);
+        // TrackSecurityEvent must run BEFORE RecordUserLogin to see the old last_login_ip
+        Event::listen(Login::class, [TrackSecurityEvent::class, 'handleLogin']);
         Event::listen(Login::class, RecordUserLogin::class);
+        Event::listen(Failed::class, [TrackSecurityEvent::class, 'handleFailed']);
+        Event::listen(Logout::class, [TrackSecurityEvent::class, 'handleLogout']);
         Event::listen(NotificationSent::class, BroadcastNotificationReceived::class);
         Event::listen(JobFailed::class, NotifyAdminOnFailedJob::class);
     }

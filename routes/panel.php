@@ -276,6 +276,8 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::get('/audit', [Admin\AuditLogController::class, 'index'])->name('logs.audit');
     Route::get('/audit/export', [Admin\AuditLogController::class, 'export'])->name('logs.audit.export');
 
+    Route::get('/bezpecnost', [Admin\SecurityController::class, 'index'])->name('security.index');
+
     /* ── User management ── */
     /* ── Impersonation ── */
     Route::get('/impersonate/{user}/start', [Admin\ImpersonateController::class, 'start'])->name('impersonate.start');

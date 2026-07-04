@@ -353,7 +353,45 @@
                     </div>
                 </div>
 
-                {{-- Danger zone: account deletion --}}
+                    {{-- Login activity --}}
+                <div class="card">
+                    <div class="card-header card-no-border">
+                        <div class="header-top">
+                            <h5>Aktivita přihlášení <small class="f-light f-12">(posledních 20)</small></h5>
+                        </div>
+                    </div>
+                    <div class="card-body pt-0">
+                        @if($securityEvents->isEmpty())
+                            <p class="f-light f-12 mb-0">Zatím žádná zaznamenaná aktivita.</p>
+                        @else
+                            <div class="table-responsive">
+                                <table class="table table-sm table-borderless mb-0 f-12">
+                                    <tbody>
+                                        @foreach($securityEvents as $ev)
+                                        <tr>
+                                            <td class="ps-0 py-1" style="width:28px;">
+                                                <span class="badge badge-light-{{ $ev->severityClass() }} p-1">
+                                                    <i data-feather="{{ match($ev->event_type) { 'login','new_ip_login' => 'log-in', 'logout' => 'log-out', default => 'alert-triangle' } }}"
+                                                       style="width:11px;height:11px;"></i>
+                                                </span>
+                                            </td>
+                                            <td class="py-1">
+                                                <span class="f-w-500">{{ $ev->label() }}</span>
+                                                <div class="f-light f-11">IP: {{ $ev->ip_address }}</div>
+                                            </td>
+                                            <td class="pe-0 py-1 text-end f-light" style="white-space:nowrap;">
+                                                {{ $ev->created_at?->diffForHumans() }}
+                                            </td>
+                                        </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+
+            {{-- Danger zone: account deletion --}}
                 <div class="card border-danger">
                     <div class="card-header card-no-border">
                         <h5 class="txt-danger">Nebezpečná zóna</h5>
