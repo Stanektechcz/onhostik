@@ -38,7 +38,11 @@ class TerminateOverdueServicesCommand extends Command
             ->where('status', ServiceStatus::Suspended)
             ->whereHas('orderItem.order.invoices', function ($q) use ($cutoff): void {
                 $q->where('status', InvoiceStatus::Overdue)
-                  ->whereDate('due_date', '<', $cutoff);
+                  ->whereDate('due_date', '<', $cutoff)
+                  ->where(function ($q2): void {
+                      $q2->whereNull('dunning_paused_until')
+                         ->orWhere('dunning_paused_until', '<', now());
+                  });
             })
             ->each(function (Service $service) use (&$dispatched): void {
                 ChangeServiceStateJob::dispatch($service->id, 'terminate', 'overdue_invoice')

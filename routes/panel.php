@@ -231,6 +231,12 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::get('/provisioning/{task}', [Admin\ProvisioningController::class, 'show'])->name('provisioning.show');
     Route::post('/provisioning/{task}/retry', [Admin\ProvisioningController::class, 'retry'])->name('provisioning.retry');
 
+    Route::prefix('dunning')->name('dunning.')->group(function (): void {
+        Route::get('/', [Admin\DunningController::class, 'index'])->name('index');
+        Route::post('/{invoice}/pause', [Admin\DunningController::class, 'pause'])->name('pause');
+        Route::post('/{invoice}/resume', [Admin\DunningController::class, 'resume'])->name('resume');
+    });
+
     Route::prefix('outgoing-webhooky')->name('outgoing-webhooks.')->group(function (): void {
         Route::get('/', [Admin\OutgoingWebhookController::class, 'index'])->name('index');
         Route::get('/novy', [Admin\OutgoingWebhookController::class, 'create'])->name('create');

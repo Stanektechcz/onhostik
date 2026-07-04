@@ -38,6 +38,10 @@ class SuspendOverdueServicesCommand extends Command
             ->where('status', InvoiceStatus::Overdue)
             ->whereNotNull('order_id')
             ->whereDate('due_date', '<', $cutoff)
+            ->where(function ($q): void {
+                $q->whereNull('dunning_paused_until')
+                  ->orWhere('dunning_paused_until', '<', now());
+            })
             ->with('order.items')
             ->each(function (Invoice $invoice) use (&$dispatched): void {
                 $order = $invoice->order;

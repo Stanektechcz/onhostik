@@ -12,6 +12,7 @@ use App\Domains\Shared\Casts\MoneyCast;
 use App\Domains\Shared\Enums\Currency;
 use App\Domains\Shared\Traits\HasUuid;
 use Brick\Money\Money;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -37,9 +38,15 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property Carbon|null $due_date
  * @property Carbon|null $paid_at
  * @property Carbon|null $renewal_applied_at
+ * @property Carbon|null $dunning_paused_until
+ * @property Carbon|null $reminder_1d_sent_at
+ * @property Carbon|null $reminder_3d_sent_at
+ * @property Carbon|null $reminder_7d_sent_at
  */
 class Invoice extends Model
 {
+    /** @use HasFactory<\Database\Factories\InvoiceFactory> */
+    use HasFactory;
     use HasUuid;
     use LogsActivity;
 
@@ -66,6 +73,10 @@ class Invoice extends Model
         'renewal_applied_at', // set once a renewal invoice's payment has extended Service.next_due_date
         'pdf_path',
         'notes',
+        'dunning_paused_until',
+        'reminder_1d_sent_at',
+        'reminder_3d_sent_at',
+        'reminder_7d_sent_at',
         // --- billing snapshot ---
         'snapshot_name',
         'snapshot_company',
@@ -90,8 +101,12 @@ class Invoice extends Model
             'issue_date'          => 'date',
             'taxable_supply_date' => 'date',
             'due_date'            => 'date',
-            'paid_at'             => 'datetime',
-            'renewal_applied_at'  => 'datetime',
+            'paid_at'              => 'datetime',
+            'renewal_applied_at'   => 'datetime',
+            'dunning_paused_until' => 'datetime',
+            'reminder_1d_sent_at'  => 'datetime',
+            'reminder_3d_sent_at'  => 'datetime',
+            'reminder_7d_sent_at'  => 'datetime',
         ];
     }
 
@@ -146,6 +161,11 @@ class Invoice extends Model
     public function isOverdue(): bool
     {
         return $this->status->isOpen() && $this->due_date?->isPast();
+    }
+
+    public function isDunningPaused(): bool
+    {
+        return $this->dunning_paused_until !== null && $this->dunning_paused_until->isFuture();
     }
 
     public function isTaxDocument(): bool
