@@ -263,6 +263,7 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::post('/integrace/{integration}/test', [Admin\IntegrationController::class, 'test'])->name('integrations.test');
 
     Route::get('/podpora', [Admin\SupportController::class, 'index'])->name('support.index');
+    Route::get('/podpora/sla-monitor', [Admin\SupportController::class, 'slaMonitor'])->name('support.sla-monitor');
     Route::get('/podpora/{ticket}', [Admin\SupportController::class, 'show'])->name('support.show');
     Route::post('/podpora/{ticket}/odpoved', [Admin\SupportController::class, 'reply'])->name('support.reply');
     Route::put('/podpora/{ticket}', [Admin\SupportController::class, 'update'])->name('support.update');

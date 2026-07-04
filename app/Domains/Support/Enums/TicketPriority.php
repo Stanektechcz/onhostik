@@ -30,4 +30,26 @@ enum TicketPriority: string
             self::Urgent => 'danger',
         };
     }
+
+    /** SLA response time in hours per priority level. */
+    public function slaHours(): int
+    {
+        return match ($this) {
+            self::Low    => 48,
+            self::Normal => 24,
+            self::High   => 8,
+            self::Urgent => 4,
+        };
+    }
+
+    /** Returns the next higher priority (Urgent stays Urgent). */
+    public function escalated(): self
+    {
+        return match ($this) {
+            self::Low    => self::Normal,
+            self::Normal => self::High,
+            self::High   => self::Urgent,
+            self::Urgent => self::Urgent,
+        };
+    }
 }

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Console\Commands\AcmeSslRenewCommand;
+use App\Console\Commands\EscalateBreachedSlaTicketsCommand;
 use App\Console\Commands\ApproveEligibleCommissionsCommand;
 use App\Console\Commands\ProcessGdprErasureRequestsCommand;
 use App\Console\Commands\RunScheduledBackupsCommand;
@@ -128,5 +129,12 @@ Schedule::command(ProcessGdprErasureRequestsCommand::class)
 // SSL/ACME — renew certificates expiring within 14 days.
 Schedule::command(AcmeSslRenewCommand::class)
     ->cron('0 4 * * 1,4') // Monday + Thursday at 04:15
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Escalate SLA-breached support tickets and notify admins.
+// Runs hourly so breach detection lag is at most 60 minutes.
+Schedule::command(EscalateBreachedSlaTicketsCommand::class)
+    ->hourly()
     ->withoutOverlapping()
     ->runInBackground();

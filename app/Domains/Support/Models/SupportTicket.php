@@ -26,6 +26,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $ai_sentiment
  * @property string|null $ai_draft
  * @property Carbon|null $ai_analysed_at
+ * @property Carbon|null $sla_breach_notified_at
  */
 class SupportTicket extends Model
 {
@@ -49,6 +50,7 @@ class SupportTicket extends Model
         'ai_sentiment',
         'ai_draft',
         'ai_analysed_at',
+        'sla_breach_notified_at',
     ];
 
     protected function casts(): array
@@ -59,7 +61,8 @@ class SupportTicket extends Model
             'last_reply_at'  => 'datetime',
             'closed_at'      => 'datetime',
             'sla_deadline'   => 'datetime',
-            'ai_analysed_at' => 'datetime',
+            'ai_analysed_at'          => 'datetime',
+            'sla_breach_notified_at'  => 'datetime',
         ];
     }
 

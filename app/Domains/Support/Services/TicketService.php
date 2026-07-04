@@ -36,6 +36,7 @@ final class TicketService
                 'priority'      => $priority,
                 'department'    => $department,
                 'last_reply_at' => now(),
+                'sla_deadline'  => now()->addHours($priority->slaHours()),
             ]);
 
             $ticket->messages()->create([

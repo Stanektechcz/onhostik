@@ -132,6 +132,31 @@ class SupportController extends Controller
         return back()->with('status', __('panel.admin.ticket_updated'));
     }
 
+    /** SLA monitor — breached tickets and tickets at risk within 2 hours. */
+    public function slaMonitor(): View
+    {
+        $breached = SupportTicket::query()
+            ->whereNotIn('status', [TicketStatus::Closed->value])
+            ->whereNotNull('sla_breach_notified_at')
+            ->with(['customer.user', 'assignee'])
+            ->orderByDesc('sla_breach_notified_at')
+            ->limit(200)
+            ->get();
+
+        $atRisk = SupportTicket::query()
+            ->whereNotIn('status', [TicketStatus::Closed->value])
+            ->whereBetween('sla_deadline', [now(), now()->addHours(2)])
+            ->whereNull('sla_breach_notified_at')
+            ->with(['customer.user', 'assignee'])
+            ->orderBy('sla_deadline')
+            ->get();
+
+        return view('admin.support.sla-monitor', [
+            'breached' => $breached,
+            'atRisk'   => $atRisk,
+        ]);
+    }
+
     public function generateKbDraft(SupportTicket $ticket, GenerateKbFromTicketAction $action, Request $request): RedirectResponse
     {
         $admin = $request->user();
