@@ -4,16 +4,20 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Domains\Customer\Models\Customer;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
+ * @property int|null $customer_id
  * @property list<string> $events
  * @property bool $is_active
  */
 class OutgoingWebhook extends Model
 {
     protected $fillable = [
+        'customer_id',
         'name',
         'url',
         'secret',
@@ -27,6 +31,12 @@ class OutgoingWebhook extends Model
             'events'    => 'array',
             'is_active' => 'boolean',
         ];
+    }
+
+    /** @return BelongsTo<Customer, $this> */
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class);
     }
 
     /** @return HasMany<WebhookDelivery, $this> */

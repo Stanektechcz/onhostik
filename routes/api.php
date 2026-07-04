@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1;
+use App\Http\Controllers\Api\V2;
 use App\Http\Controllers\Webhook\ComgateWebhookController;
 use App\Http\Controllers\Webhook\GopayWebhookController;
 use App\Http\Controllers\Webhook\StripeWebhookController;
@@ -63,4 +64,26 @@ Route::middleware(['auth:sanctum', 'throttle:60,1'])->prefix('v1')->name('api.v1
     // API tokens
     Route::post('/tokens',           [V1\TokenController::class, 'store'])->name('tokens.store');
     Route::delete('/tokens/{token}', [V1\TokenController::class, 'destroy'])->name('tokens.destroy');
+});
+
+/*
+|--------------------------------------------------------------------------
+| REST API v2 — Sanctum PAT (enhanced)
+|--------------------------------------------------------------------------
+| Same Sanctum authentication as v1 but with:
+|  - 2× rate limit (120 req/min)
+|  - Services with embedded monitor data
+|  - Customer-facing webhook subscription management
+*/
+
+Route::middleware(['auth:sanctum', 'throttle:120,1'])->prefix('v2')->name('api.v2.')->group(function (): void {
+    // Enhanced services with monitor data
+    Route::get('/services',           [V2\ServiceController::class, 'index'])->name('services.index');
+    Route::get('/services/{service}', [V2\ServiceController::class, 'show'])->name('services.show');
+
+    // Webhook subscriptions
+    Route::get('/webhooks',                                [V2\WebhookController::class, 'index'])->name('webhooks.index');
+    Route::post('/webhooks',                               [V2\WebhookController::class, 'store'])->name('webhooks.store');
+    Route::delete('/webhooks/{webhook}',                   [V2\WebhookController::class, 'destroy'])->name('webhooks.destroy');
+    Route::get('/webhooks/{webhook}/deliveries',           [V2\WebhookController::class, 'deliveries'])->name('webhooks.deliveries');
 });

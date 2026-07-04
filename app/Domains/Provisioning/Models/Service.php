@@ -6,6 +6,7 @@ namespace App\Domains\Provisioning\Models;
 
 use App\Domains\Billing\Models\OrderItem;
 use App\Domains\Customer\Models\Customer;
+use App\Domains\Monitoring\Models\Monitor;
 use App\Domains\Products\Models\Product;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Provisioning\Enums\ServiceStatus;
@@ -116,6 +117,12 @@ class Service extends Model
     public function domainRegistration(): HasOne
     {
         return $this->hasOne(DomainRegistration::class);
+    }
+
+    /** @return HasMany<Monitor, $this> */
+    public function monitors(): HasMany
+    {
+        return $this->hasMany(Monitor::class);
     }
 
     // ---------------------------------------------------------------- helpers
