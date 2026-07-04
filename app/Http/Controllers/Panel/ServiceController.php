@@ -8,6 +8,9 @@ use App\Domains\Backups\Enums\BackupJobStatus;
 use App\Domains\Backups\Jobs\RunBackupJob;
 use App\Domains\Backups\Models\BackupJob;
 use App\Domains\Backups\Models\BackupPolicy;
+use App\Domains\Billing\Actions\CancelSubscriptionAction;
+use App\Domains\Billing\Actions\PauseSubscriptionAction;
+use App\Domains\Billing\Actions\ResumeSubscriptionAction;
 use App\Domains\Monitoring\Models\Monitor;
 use App\Domains\Products\Models\PricingPlan;
 use App\Domains\Provisioning\Enums\ServiceStatus;
@@ -21,6 +24,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
 
 class ServiceController extends Controller
 {
@@ -243,6 +247,76 @@ class ServiceController extends Controller
             ->log('service.cancellation_requested');
 
         return back()->with('status', __('panel.services.cancel_requested', ['ticket' => $ticket->id]));
+    }
+
+    /** Customer pauses their active service for 1–90 days. */
+    public function pause(Request $request, Service $service, PauseSubscriptionAction $action): RedirectResponse
+    {
+        $this->authorize('view', $service);
+
+        $validated = $request->validate([
+            'paused_days' => ['required', 'integer', 'min:1', 'max:90'],
+            'reason'      => ['nullable', 'string', 'max:500'],
+        ]);
+
+        if ($service->status !== ServiceStatus::Active) {
+            return back()->withErrors(['pause' => __('panel.services.pause_not_active')]);
+        }
+
+        try {
+            $action->execute($service, (int) $validated['paused_days'], $validated['reason'] ?? '');
+        } catch (InvalidArgumentException $e) {
+            return back()->withErrors(['pause' => $e->getMessage()]);
+        }
+
+        $until = now()->addDays((int) $validated['paused_days'])->format('d.m.Y');
+
+        return back()->with('status', __('panel.services.paused', [
+            'days'  => $validated['paused_days'],
+            'until' => $until,
+        ]));
+    }
+
+    /** Customer resumes a paused service. */
+    public function resume(Request $request, Service $service, ResumeSubscriptionAction $action): RedirectResponse
+    {
+        $this->authorize('view', $service);
+
+        if (!$service->isPaused()) {
+            return back()->withErrors(['resume' => __('panel.services.not_paused')]);
+        }
+
+        try {
+            $action->execute($service);
+        } catch (InvalidArgumentException $e) {
+            return back()->withErrors(['resume' => $e->getMessage()]);
+        }
+
+        return back()->with('status', __('panel.services.resumed'));
+    }
+
+    /** Customer marks service for cancellation at end of billing period. */
+    public function cancelAtPeriodEnd(Request $request, Service $service, CancelSubscriptionAction $action): RedirectResponse
+    {
+        $this->authorize('view', $service);
+
+        if (!in_array($service->status, [ServiceStatus::Active, ServiceStatus::Suspended], true)) {
+            return back()->withErrors(['cancel' => __('panel.services.cancel_not_allowed')]);
+        }
+
+        if ($service->isCancelledAtPeriodEnd()) {
+            return back()->with('status', __('panel.services.already_cancel_scheduled'));
+        }
+
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $action->execute($service, $validated['reason'] ?? '');
+
+        $date = $service->next_due_date?->format('d.m.Y') ?? '—';
+
+        return back()->with('status', __('panel.services.cancel_at_period_end_set', ['date' => $date]));
     }
 
     /** Mock WordPress one-click install — records a task, no real install. */

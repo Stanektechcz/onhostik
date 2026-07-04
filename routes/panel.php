@@ -30,6 +30,9 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::get('/sluzby/{service}/zmenit-plan/nahled', [Panel\ServiceController::class, 'changePlanPreview'])->name('services.change-plan-preview');
     Route::post('/sluzby/{service}/zmenit-plan', [Panel\ServiceController::class, 'applyChangePlan'])->name('services.apply-change-plan');
     Route::post('/sluzby/{service}/zrusit', [Panel\ServiceController::class, 'requestCancellation'])->name('services.request-cancel');
+    Route::post('/sluzby/{service}/pozastavit', [Panel\ServiceController::class, 'pause'])->name('services.pause');
+    Route::post('/sluzby/{service}/obnovit', [Panel\ServiceController::class, 'resume'])->name('services.resume');
+    Route::post('/sluzby/{service}/zrusit-na-konci', [Panel\ServiceController::class, 'cancelAtPeriodEnd'])->name('services.cancel-at-period-end');
 
     Route::get('/domeny', [Panel\DomainController::class, 'index'])->name('domains.index');
     Route::get('/domeny/{domain}', [Panel\DomainController::class, 'show'])->name('domains.show');

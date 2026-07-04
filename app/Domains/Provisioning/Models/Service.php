@@ -57,19 +57,26 @@ class Service extends Model
         'suspended_at',
         'terminated_at',
         'suspension_reason',
+        'cancel_at_period_end',
+        'cancellation_reason',
+        'paused_at',
+        'paused_until',
         'usage_snapshot',
     ];
 
     protected function casts(): array
     {
         return [
-            'provisioning_driver' => ProvisioningDriver::class,
-            'status'              => ServiceStatus::class,
-            'resources'           => 'array',
-            'next_due_date'       => 'date',
-            'suspended_at'        => 'datetime',
-            'terminated_at'       => 'datetime',
-            'usage_snapshot'      => 'array',
+            'provisioning_driver'  => ProvisioningDriver::class,
+            'status'               => ServiceStatus::class,
+            'resources'            => 'array',
+            'next_due_date'        => 'date',
+            'suspended_at'         => 'datetime',
+            'terminated_at'        => 'datetime',
+            'cancel_at_period_end' => 'boolean',
+            'paused_at'            => 'datetime',
+            'paused_until'         => 'date',
+            'usage_snapshot'       => 'array',
         ];
     }
 
@@ -130,5 +137,15 @@ class Service extends Model
     public function isProvisioned(): bool
     {
         return $this->external_id !== null;
+    }
+
+    public function isPaused(): bool
+    {
+        return $this->paused_at !== null && $this->status === ServiceStatus::Suspended;
+    }
+
+    public function isCancelledAtPeriodEnd(): bool
+    {
+        return $this->cancel_at_period_end === true;
     }
 }
