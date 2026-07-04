@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domains\Customer\Models\Customer;
 use App\Http\Controllers\Controller;
+use App\Jobs\SendCampaignToCustomerJob;
 use App\Jobs\SendNewsletterJob;
 use App\Models\NewsletterCampaign;
 use App\Models\Subscriber;
@@ -37,15 +39,17 @@ class NewsletterCampaignController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'subject'   => ['required', 'string', 'max:255'],
-            'body_html' => ['required', 'string'],
-            'body_text' => ['nullable', 'string'],
+            'subject'         => ['required', 'string', 'max:255'],
+            'body_html'       => ['required', 'string'],
+            'body_text'       => ['nullable', 'string'],
+            'target_audience' => ['nullable', 'string', 'in:all_subscribers,customers_all,customers_vip,customers_healthy,customers_at_risk,customers_churned'],
         ]);
 
         $campaign = NewsletterCampaign::create([
             ...$validated,
-            'status'     => 'draft',
-            'created_by' => $request->user()?->id,
+            'status'          => 'draft',
+            'target_audience' => $validated['target_audience'] ?? 'all_subscribers',
+            'created_by'      => $request->user()?->id,
         ]);
 
         return redirect()
@@ -100,6 +104,12 @@ class NewsletterCampaignController extends Controller
     {
         abort_if(! $campaign->isDraft(), 403, 'Kampaň již byla odeslána nebo probíhá.');
 
+        $audience = $campaign->target_audience ?? 'all_subscribers';
+
+        if (in_array($audience, NewsletterCampaign::CUSTOMER_AUDIENCES, true)) {
+            return $this->sendToCustomers($campaign, $audience);
+        }
+
         $subscribers = Subscriber::active()->confirmed()->get();
 
         if ($subscribers->isEmpty()) {
@@ -120,6 +130,37 @@ class NewsletterCampaignController extends Controller
         return redirect()
             ->route('admin.newsletter.show', $campaign)
             ->with('status', "Odesílání zahájeno: {$subscribers->count()} e-mailů zařazeno do fronty.");
+    }
+
+    private function sendToCustomers(NewsletterCampaign $campaign, string $audience): RedirectResponse
+    {
+        $query = Customer::query()->whereNotNull('email');
+
+        if ($audience !== 'customers_all') {
+            $segment = str_replace('customers_', '', $audience);
+            $query->where('segment', $segment);
+        }
+
+        $customers = $query->get(['id', 'email', 'company_name']);
+
+        if ($customers->isEmpty()) {
+            return back()->with('error', 'Žádní zákazníci ve vybraném segmentu.');
+        }
+
+        $campaign->update([
+            'status'           => 'sending',
+            'recipients_count' => $customers->count(),
+            'sent_count'       => 0,
+            'sent_at'          => now(),
+        ]);
+
+        foreach ($customers as $customer) {
+            SendCampaignToCustomerJob::dispatch($campaign->id, $customer->email, (string) $customer->company_name);
+        }
+
+        return redirect()
+            ->route('admin.newsletter.show', $campaign)
+            ->with('status', "Odesílání zákazníkům zahájeno: {$customers->count()} e-mailů zařazeno do fronty.");
     }
 
     public function markSent(NewsletterCampaign $campaign): RedirectResponse

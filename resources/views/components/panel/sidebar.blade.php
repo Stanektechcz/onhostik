@@ -239,11 +239,12 @@
         </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="message-square" label="Komunikace"
-            :active="$p('admin.support') || $p('admin.mailbox') || $p('admin.newsletter') || $p('admin.subscribers')">
+            :active="$p('admin.support') || $p('admin.mailbox') || $p('admin.newsletter') || $p('admin.subscribers') || $p('admin.drip')">
             <x-panel.sidebar-link :href="route('admin.support.index')" icon="life-buoy" label="Podpora — Tickety" />
             <x-panel.sidebar-link :href="route('admin.mailbox')" icon="inbox" label="Pošta" />
             <x-panel.sidebar-link :href="route('admin.newsletter.index')" icon="mail" label="Newsletter kampaně" />
             <x-panel.sidebar-link :href="route('admin.subscribers.index')" icon="users" label="Odběratelé" />
+            <x-panel.sidebar-link :href="route('admin.drip.index')" icon="send" label="Drip sekvence" />
             <x-panel.sidebar-link :href="route('admin.ai.index')" icon="zap" label="AI asistent" />
         </x-panel.sidebar-submenu>
 

@@ -24,9 +24,15 @@ use Illuminate\Support\Carbon;
  */
 class NewsletterCampaign extends Model
 {
+    /** Audiences targeting customer segments (vs. subscriber list). */
+    public const CUSTOMER_AUDIENCES = [
+        'customers_all', 'customers_vip', 'customers_healthy',
+        'customers_at_risk', 'customers_churned',
+    ];
+
     protected $fillable = [
         'subject', 'body_html', 'body_text', 'status',
-        'recipients_count', 'sent_count', 'created_by', 'sent_at',
+        'target_audience', 'recipients_count', 'sent_count', 'created_by', 'sent_at',
     ];
 
     protected $casts = [

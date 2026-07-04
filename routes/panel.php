@@ -354,6 +354,16 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::post('/newsletter/{campaign}/odeslat', [Admin\NewsletterCampaignController::class, 'send'])->name('newsletter.send');
     Route::post('/newsletter/{campaign}/odeslano', [Admin\NewsletterCampaignController::class, 'markSent'])->name('newsletter.mark-sent');
 
+    /* ── Drip sequences ── */
+    Route::get('/drip', [Admin\DripSequenceController::class, 'index'])->name('drip.index');
+    Route::post('/drip', [Admin\DripSequenceController::class, 'store'])->name('drip.store');
+    Route::get('/drip/{drip}', [Admin\DripSequenceController::class, 'show'])->name('drip.show');
+    Route::delete('/drip/{drip}', [Admin\DripSequenceController::class, 'destroy'])->name('drip.destroy');
+    Route::post('/drip/{drip}/aktivovat', [Admin\DripSequenceController::class, 'toggleActive'])->name('drip.toggle');
+    Route::post('/drip/{drip}/krok', [Admin\DripSequenceController::class, 'storeStep'])->name('drip.step.store');
+    Route::delete('/drip/{drip}/krok/{step}', [Admin\DripSequenceController::class, 'destroyStep'])->name('drip.step.destroy');
+    Route::post('/drip/{drip}/zapsat', [Admin\DripSequenceController::class, 'enroll'])->name('drip.enroll');
+
     /* ── Sitemap ── */
     Route::get('/mapa-webu', [Admin\PageController::class, 'sitemap'])->name('sitemap');
 
