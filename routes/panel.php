@@ -228,7 +228,16 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::delete('/game-presety/{gamePreset}', [Admin\GameServerPresetController::class, 'destroy'])->name('game-presets.destroy');
 
     Route::get('/provisioning', [Admin\ProvisioningController::class, 'index'])->name('provisioning.index');
+    Route::get('/provisioning/{task}', [Admin\ProvisioningController::class, 'show'])->name('provisioning.show');
     Route::post('/provisioning/{task}/retry', [Admin\ProvisioningController::class, 'retry'])->name('provisioning.retry');
+
+    Route::prefix('outgoing-webhooky')->name('outgoing-webhooks.')->group(function (): void {
+        Route::get('/', [Admin\OutgoingWebhookController::class, 'index'])->name('index');
+        Route::get('/novy', [Admin\OutgoingWebhookController::class, 'create'])->name('create');
+        Route::post('/', [Admin\OutgoingWebhookController::class, 'store'])->name('store');
+        Route::delete('/{outgoingWebhook}', [Admin\OutgoingWebhookController::class, 'destroy'])->name('destroy');
+        Route::get('/{outgoingWebhook}/doruceni', [Admin\OutgoingWebhookController::class, 'deliveries'])->name('deliveries');
+    });
 
     Route::get('/monitoring', [Admin\MonitoringController::class, 'index'])->name('monitoring.index');
     Route::get('/sla', [Admin\SlaController::class, 'index'])->name('sla.index');

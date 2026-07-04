@@ -78,4 +78,15 @@ class ProvisioningController extends Controller
 
         return back()->with('status', __('panel.admin.retry_queued'));
     }
+
+    public function show(ProvisioningTask $task): View
+    {
+        return view('admin.provisioning-show', [
+            'task'    => $task->load('service.customer'),
+            'history' => ProvisioningTask::query()
+                ->where('service_id', $task->service_id)
+                ->orderByDesc('id')
+                ->get(),
+        ]);
+    }
 }

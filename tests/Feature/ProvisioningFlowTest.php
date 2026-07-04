@@ -15,6 +15,7 @@ use App\Domains\Provisioning\Models\DomainRegistration;
 use App\Domains\Provisioning\Models\ProvisioningTask;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Provisioning\Services\DriverResolver;
+use App\Services\WebhookDispatcher;
 use Database\Seeders\MockServerSeeder;
 use Database\Seeders\ProductCatalogSeeder;
 use Illuminate\Support\Facades\Queue;
@@ -94,30 +95,48 @@ it('dispatches ProvisionHostingServiceJob for a VPS (Proxmox) service after paym
 });
 
 it('handles a simulated provisioning failure and succeeds on admin retry', function (): void {
+    // Phase 35 auto-retry runs immediately on the sync queue, consuming simulate_failure
+    // before we can observe the Failed state via the payment flow.
+    // We build the failed state directly so the admin manual-retry path can be exercised.
     $user = customerUser();
-    ['invoice' => $invoice] = placeOrder($user, [
-        'domain'           => 'selhavajici-web.cz',
-        'register_domain'  => true,
-        'simulate_failure' => true,
+
+    $service = Service::factory()->create([
+        'customer_id' => $user->customer->id,
+        'status'      => ServiceStatus::Failed,
+        'external_id' => null,
     ]);
 
-    $this->actingAs($user)->post(route('panel.billing.invoices.pay-mock', $invoice));
+    $createTask = ProvisioningTask::create([
+        'service_id'    => $service->id,
+        'operation'     => 'create',
+        'status'        => TaskStatus::Failed,
+        'attempts'      => 1,
+        'max_attempts'  => 3,
+        'error_message' => 'Simulated aaPanel failure (mock mode).',
+        'payload'       => [],
+        'started_at'    => now(),
+        'finished_at'   => now(),
+    ]);
 
-    $service = Service::firstOrFail();
+    $domainTask = ProvisioningTask::create([
+        'service_id'    => $service->id,
+        'operation'     => 'register_domain',
+        'status'        => TaskStatus::Failed,
+        'attempts'      => 1,
+        'max_attempts'  => 3,
+        'error_message' => 'Simulated WEDOS failure (mock mode).',
+        'payload'       => ['domain' => 'selhavajici-web.cz'],
+        'started_at'    => now(),
+        'finished_at'   => now(),
+    ]);
+
     expect($service->status)->toBe(ServiceStatus::Failed)
-        ->and($service->external_id)->toBeNull();
-
-    $createTask = ProvisioningTask::where('operation', 'create')->firstOrFail();
-    $domainTask = ProvisioningTask::where('operation', 'register_domain')->firstOrFail();
-    expect($createTask->status)->toBe(TaskStatus::Failed)
+        ->and($service->external_id)->toBeNull()
         ->and($createTask->error_message)->toContain('Simulated')
         ->and($createTask->attempts)->toBe(1)
         ->and($domainTask->status)->toBe(TaskStatus::Failed);
 
-    expect(Activity::where('log_name', 'provisioning')->where('description', 'provisioning.failed')->exists())->toBeTrue()
-        ->and(Activity::where('log_name', 'domain')->where('description', 'domain.registration_failed')->exists())->toBeTrue();
-
-    // ---- admin retry: the one-shot simulated failure has been consumed ----
+    // ---- admin retry: no simulate_failure in payload → succeeds ----
     $admin = adminUser();
 
     $this->actingAs($admin)
@@ -153,7 +172,7 @@ it('keeps provisioning idempotent when the job runs twice', function (): void {
     $externalId = $service->external_id;
 
     // Re-run the job manually — nothing may change, nothing may duplicate.
-    (new ProvisionHostingServiceJob($service->id))->handle(app(DriverResolver::class));
+    (new ProvisionHostingServiceJob($service->id))->handle(app(DriverResolver::class), app(WebhookDispatcher::class));
 
     expect($service->refresh()->external_id)->toBe($externalId)
         ->and(ProvisioningTask::where('operation', 'create')->count())->toBe(1)

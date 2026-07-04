@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
+use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Enums\TaskStatus;
 use App\Domains\Provisioning\Models\ProvisioningTask;
+use App\Domains\Provisioning\Models\Service;
 use Database\Seeders\MockServerSeeder;
 use Database\Seeders\ProductCatalogSeeder;
 
@@ -29,9 +31,21 @@ it('shows the whole vertical slice across the admin pages', function (): void {
 });
 
 it('filters provisioning tasks by status', function (): void {
-    $user = customerUser();
-    ['invoice' => $invoice] = placeOrder($user, ['simulate_failure' => true]);
-    $this->actingAs($user)->post(route('panel.billing.invoices.pay-mock', $invoice));
+    // Phase 35 auto-retry + sync queue means simulate_failure is consumed immediately
+    // (retried → success). Build the failed task directly to test status filtering.
+    $user    = customerUser();
+    $service = Service::factory()->create(['customer_id' => $user->customer->id, 'status' => ServiceStatus::Failed]);
+    ProvisioningTask::create([
+        'service_id'    => $service->id,
+        'operation'     => 'create',
+        'status'        => TaskStatus::Failed,
+        'attempts'      => 1,
+        'max_attempts'  => 3,
+        'error_message' => 'Simulated aaPanel failure (mock mode).',
+        'payload'       => [],
+        'started_at'    => now(),
+        'finished_at'   => now(),
+    ]);
 
     $admin = adminUser();
 
@@ -47,11 +61,18 @@ it('filters provisioning tasks by status', function (): void {
 });
 
 it('forbids provisioning retry to non-admins', function (): void {
-    $user = customerUser();
-    ['invoice' => $invoice] = placeOrder($user, ['simulate_failure' => true]);
-    $this->actingAs($user)->post(route('panel.billing.invoices.pay-mock', $invoice));
-
-    $task = ProvisioningTask::where('status', TaskStatus::Failed->value)->firstOrFail();
+    $user    = customerUser();
+    $service = Service::factory()->create(['customer_id' => $user->customer->id, 'status' => ServiceStatus::Failed]);
+    $task    = ProvisioningTask::create([
+        'service_id'   => $service->id,
+        'operation'    => 'create',
+        'status'       => TaskStatus::Failed,
+        'attempts'     => 1,
+        'max_attempts' => 3,
+        'payload'      => [],
+        'started_at'   => now(),
+        'finished_at'  => now(),
+    ]);
 
     $this->actingAs($user)
         ->post(route('admin.provisioning.retry', $task))

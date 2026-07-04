@@ -10,6 +10,9 @@ use App\Domains\Provisioning\Models\ProvisioningTask;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Provisioning\Services\DriverResolver;
 use App\Domains\Provisioning\Services\ServiceActivationHooks;
+use App\Models\User;
+use App\Notifications\ProvisioningFailedNotification;
+use App\Services\WebhookDispatcher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -41,7 +44,7 @@ final class ProvisionHostingServiceJob implements ShouldQueue
         $this->onQueue(Config::string('provisioning.queues.high', 'provisioning-high'));
     }
 
-    public function handle(DriverResolver $drivers): void
+    public function handle(DriverResolver $drivers, WebhookDispatcher $webhooks): void
     {
         $service = Service::find($this->serviceId);
 
@@ -119,12 +122,20 @@ final class ProvisionHostingServiceJob implements ShouldQueue
             // Monitoring + default backup policy ride on successful activation.
             app(ServiceActivationHooks::class)->handle($service);
 
+            $webhooks->dispatch('service.provisioned', [
+                'service_id'   => $service->id,
+                'external_id'  => $result->externalId,
+                'service_type' => $service->product?->type?->value,
+            ]);
+
             return;
         }
 
         // ---- failure path -------------------------------------------------
+        $willAutoRetry = $task->attempts < $task->max_attempts;
+
         $task->update([
-            'status'              => TaskStatus::Failed,
+            'status'              => $willAutoRetry ? TaskStatus::Retrying : TaskStatus::Failed,
             'error_message'       => $result->errorMessage,
             'external_request_id' => $result->externalRequestId,
             'finished_at'         => now(),
@@ -138,8 +149,30 @@ final class ProvisionHostingServiceJob implements ShouldQueue
 
         activity('provisioning')
             ->performedOn($service)
-            ->withProperties(['task_id' => $task->id, 'error' => $result->errorMessage, 'mock' => true])
+            ->withProperties(['task_id' => $task->id, 'error' => $result->errorMessage, 'will_auto_retry' => $willAutoRetry])
             ->log('provisioning.failed');
+
+        if ($willAutoRetry) {
+            // Exponential back-off: 30 s, 60 s, 120 s … capped at 15 min.
+            $delaySecs = min(30 * (2 ** ($task->attempts - 1)), 900);
+
+            self::dispatch($service->id)->delay(now()->addSeconds($delaySecs));
+
+            activity('provisioning')
+                ->performedOn($service)
+                ->withProperties(['task_id' => $task->id, 'delay_seconds' => $delaySecs, 'attempt' => $task->attempts])
+                ->log('provisioning.auto_retry_scheduled');
+
+            return;
+        }
+
+        // All retries exhausted → already parked to ManualReview by resolveTask()
+        $webhooks->dispatch('service.failed', [
+            'service_id'   => $service->id,
+            'operation'    => $task->operation,
+            'error'        => $result->errorMessage,
+            'attempts'     => $task->attempts,
+        ]);
     }
 
     private function resolveTask(Service $service): ?ProvisioningTask
@@ -175,6 +208,12 @@ final class ProvisionHostingServiceJob implements ShouldQueue
                     ->performedOn($service)
                     ->withProperties(['task_id' => $task->id, 'reason' => 'max_attempts_exceeded'])
                     ->log('provisioning.manual_review');
+
+                // Notify all admins once — idempotent since status guard prevents repeat.
+                $notification = new ProvisioningFailedNotification($task, $service);
+                User::whereHas('roles', static fn ($q) => $q->where('name', 'admin'))
+                    ->get()
+                    ->each(static fn (User $admin) => $admin->notify($notification));
             }
 
             return null;

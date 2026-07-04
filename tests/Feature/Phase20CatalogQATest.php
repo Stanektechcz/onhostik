@@ -106,7 +106,7 @@ it('VPS provisioning creates pending task via ProxmoxMockDriver', function (): v
     $service = Service::where('customer_id', $customer->id)->latest()->first();
     if ($service && $service->status->value === 'pending') {
         $job = new ProvisionHostingServiceJob($service->id);
-        $job->handle(app(\App\Domains\Provisioning\Services\DriverResolver::class));
+        $job->handle(app(\App\Domains\Provisioning\Services\DriverResolver::class), app(\App\Services\WebhookDispatcher::class));
     }
 
     // Either service is active (aaPanel mock) or pending with task (Proxmox mock)
