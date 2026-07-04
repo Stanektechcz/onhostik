@@ -381,6 +381,11 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::get('/nastaveni', [Admin\SettingsController::class, 'index'])->name('settings.index');
     Route::post('/nastaveni', [Admin\SettingsController::class, 'update'])->name('settings.update');
 
+    /* ── Exchange rates & DAC7 ── */
+    Route::get('/kurzy', [Admin\ExchangeRateController::class, 'index'])->name('exchange-rates.index');
+    Route::put('/kurzy/{currency}', [Admin\ExchangeRateController::class, 'update'])->name('exchange-rates.update');
+    Route::get('/dac7/export', [Admin\Dac7ReportController::class, 'export'])->name('dac7.export');
+
     Route::get('/obsah', [SiteContentController::class, 'index'])->name('site-content.index');
     Route::post('/obsah/bulk', [SiteContentController::class, 'bulkUpdate'])->name('site-content.bulk');
     Route::get('/obsah/{siteContent}/upravit', [SiteContentController::class, 'edit'])->name('site-content.edit');
