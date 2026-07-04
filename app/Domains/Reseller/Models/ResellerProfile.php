@@ -59,6 +59,12 @@ class ResellerProfile extends Model
         return $this->hasMany(Customer::class, 'reseller_id');
     }
 
+    /** @return HasMany<ResellerPricingOverride, $this> */
+    public function pricingOverrides(): HasMany
+    {
+        return $this->hasMany(ResellerPricingOverride::class, 'reseller_id');
+    }
+
     public function isActive(): bool
     {
         return $this->status === 'active';

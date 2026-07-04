@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\DetectResellerDomain;
 use App\Http\Middleware\HandleReferralCookie;
 use App\Http\Middleware\RequireAdminTwoFactor;
 use App\Http\Middleware\SecurityHeaders;
@@ -26,6 +27,7 @@ $app = Application::configure(basePath: dirname(__DIR__))
             SetLocale::class,
             HandleReferralCookie::class,
             SecurityHeaders::class,
+            DetectResellerDomain::class,
         ]);
 
         $middleware->alias([

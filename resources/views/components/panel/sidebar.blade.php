@@ -165,6 +165,12 @@
                 <i data-feather="briefcase"></i><span>Reseller Dashboard</span>
             </a>
         </li>
+
+        <x-panel.sidebar-submenu icon="layers" label="Reseller správa"
+            :active="$p('reseller.customers') || $p('reseller.branding')">
+            <x-panel.sidebar-link :href="route('reseller.customers.index')" icon="users" label="Zákazníci" />
+            <x-panel.sidebar-link :href="route('reseller.branding.show')" icon="feather" label="White-label branding" />
+        </x-panel.sidebar-submenu>
         @endif
 
 {{-- ══════════════════════════════════════════════════════

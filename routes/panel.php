@@ -144,6 +144,8 @@ Route::middleware(['auth', 'can:access-reseller'])->prefix('reseller')->name('re
     Route::get('/', [Reseller\DashboardController::class, 'index'])->name('dashboard');
     Route::get('/zakaznici', [Reseller\CustomerController::class, 'index'])->name('customers.index');
     Route::get('/zakaznici/{customer}', [Reseller\CustomerController::class, 'show'])->name('customers.show');
+    Route::get('/branding', [Reseller\BrandingController::class, 'show'])->name('branding.show');
+    Route::put('/branding', [Reseller\BrandingController::class, 'update'])->name('branding.update');
 });
 
 /*
@@ -426,5 +428,11 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::post('/{reseller}/pozastavit', [Admin\ResellerController::class, 'suspend'])->name('suspend');
         Route::post('/{reseller}/odebrat-pristup', [Admin\ResellerController::class, 'revoke'])->name('revoke');
         Route::put('/{reseller}/markup', [Admin\ResellerController::class, 'updateMarkup'])->name('markup');
+
+        Route::prefix('/{reseller}/cenik')->name('pricing.')->group(function (): void {
+            Route::get('/', [Admin\ResellerPricingController::class, 'index'])->name('index');
+            Route::post('/', [Admin\ResellerPricingController::class, 'store'])->name('store');
+            Route::delete('/{override}', [Admin\ResellerPricingController::class, 'destroy'])->name('destroy');
+        });
     });
 });
