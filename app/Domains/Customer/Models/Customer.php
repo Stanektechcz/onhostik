@@ -34,6 +34,9 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property Currency $preferred_currency
  * @property Locale $preferred_locale
  * @property Carbon|null $vat_validated_at
+ * @property int|null $churn_risk_score
+ * @property string|null $segment
+ * @property Carbon|null $insights_updated_at
  */
 class Customer extends Model
 {
@@ -57,14 +60,18 @@ class Customer extends Model
         'country_code',
         'vat_validated_at',
         'admin_notes',
+        'churn_risk_score',
+        'segment',
+        'insights_updated_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'preferred_currency' => Currency::class,
-            'preferred_locale'   => Locale::class,
-            'vat_validated_at'   => 'datetime',
+            'preferred_currency'  => Currency::class,
+            'preferred_locale'    => Locale::class,
+            'vat_validated_at'    => 'datetime',
+            'insights_updated_at' => 'datetime',
         ];
     }
 

@@ -269,6 +269,7 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::post('/ai/schvaleni/{approval}', [Admin\AiController::class, 'review'])->name('ai.review');
 
     Route::get('/metriky', [Admin\MetricsController::class, 'index'])->name('metrics.index');
+    Route::get('/bi', [Admin\BiController::class, 'index'])->name('bi.index');
 
     Route::get('/system', [Admin\SystemHealthController::class, 'index'])->name('system.index');
 
