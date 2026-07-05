@@ -347,6 +347,7 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::put('/podpora/{ticket}', [Admin\SupportController::class, 'update'])->name('support.update');
     Route::post('/podpora/{ticket}/sla', [Admin\SupportController::class, 'setSla'])->name('support.sla');
     Route::post('/podpora/{ticket}/kb-navrh', [Admin\SupportController::class, 'generateKbDraft'])->name('support.kb-draft');
+    Route::post('/podpora/{ticket}/ai-analyse', [Admin\SupportController::class, 'analyseTicket'])->name('support.ai-analyse');
 
     Route::get('/ai', [Admin\AiController::class, 'index'])->name('ai.index');
     Route::post('/ai', [Admin\AiController::class, 'run'])->name('ai.run');

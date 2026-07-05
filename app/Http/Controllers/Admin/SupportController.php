@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domains\Support\Actions\AnalyseTicketAction;
 use App\Domains\Support\Actions\GenerateKbFromTicketAction;
 use App\Domains\Support\Enums\TicketPriority;
 use App\Domains\Support\Enums\TicketStatus;
@@ -155,6 +156,16 @@ class SupportController extends Controller
             'breached' => $breached,
             'atRisk'   => $atRisk,
         ]);
+    }
+
+    public function analyseTicket(SupportTicket $ticket, AnalyseTicketAction $action, Request $request): RedirectResponse
+    {
+        $admin = $request->user();
+        abort_if($admin === null, 403);
+
+        $action->handle($ticket, $admin);
+
+        return back()->with('status', 'AI analýza tiketu dokončena.');
     }
 
     public function generateKbDraft(SupportTicket $ticket, GenerateKbFromTicketAction $action, Request $request): RedirectResponse

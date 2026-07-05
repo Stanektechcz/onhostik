@@ -128,6 +128,21 @@
                     </table>
                 </x-panel.card>
 
+                @if(isset($kbArticles) && $kbArticles->isNotEmpty())
+                    <x-panel.card title="Doporučené KB články">
+                        <ul class="list-unstyled mb-0">
+                            @foreach($kbArticles as $article)
+                                <li class="mb-1">
+                                    <a href="{{ route('kb.show', $article->slug) }}" class="f-12 text-primary" target="_blank">
+                                        <i data-feather="book-open" style="width:12px;height:12px;margin-right:4px;"></i>
+                                        {{ $article->title }}
+                                    </a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </x-panel.card>
+                @endif
+
                 @if($ticket->events->isNotEmpty())
                     <x-panel.card title="Historie">
                         <div class="activity-log">

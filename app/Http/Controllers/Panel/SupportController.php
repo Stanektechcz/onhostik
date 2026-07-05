@@ -6,11 +6,13 @@ namespace App\Http\Controllers\Panel;
 
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Ai\Services\AiAssistantService;
+use App\Domains\Support\Actions\AnalyseTicketAction;
 use App\Domains\Support\Enums\TicketPriority;
 use App\Domains\Support\Enums\TicketStatus;
 use App\Domains\Support\Models\SupportTicket;
 use App\Domains\Support\Services\TicketService;
 use App\Http\Controllers\Controller;
+use App\Models\KbArticle;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -28,7 +30,7 @@ class SupportController extends Controller
         ]);
     }
 
-    public function store(Request $request, TicketService $tickets): RedirectResponse
+    public function store(Request $request, TicketService $tickets, AnalyseTicketAction $analyser): RedirectResponse
     {
         $validated = $request->validate([
             'subject'  => ['required', 'string', 'min:3', 'max:150'],
@@ -47,6 +49,8 @@ class SupportController extends Controller
             priority: TicketPriority::tryFrom((string) ($validated['priority'] ?? '')) ?? TicketPriority::Normal,
         );
 
+        $analyser->handle($ticket, $user);
+
         return redirect()
             ->route('panel.support.show', $ticket)
             ->with('status', __('panel.support.created'));
@@ -56,8 +60,22 @@ class SupportController extends Controller
     {
         $this->authorize('view', $ticket);
 
+        $kbArticles = KbArticle::query()
+            ->where('is_published', true)
+            ->where(function ($q) use ($ticket): void {
+                $words = collect(explode(' ', $ticket->subject))
+                    ->filter(fn ($w) => mb_strlen($w) > 3)
+                    ->take(5);
+                foreach ($words as $word) {
+                    $q->orWhere('title', 'like', "%{$word}%");
+                }
+            })
+            ->limit(3)
+            ->get(['id', 'title', 'slug']);
+
         return view('panel.support.show', [
-            'ticket' => $ticket->load(['messages.author', 'events']),
+            'ticket'     => $ticket->load(['messages.author', 'events']),
+            'kbArticles' => $kbArticles,
         ]);
     }
 

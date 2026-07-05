@@ -165,10 +165,17 @@
                     </x-panel.card>
                 @else
                     <x-panel.card title="AI analýza">
-                        <p class="f-12 f-light mb-0">
+                        <p class="f-12 f-light mb-2">
                             <i data-feather="cpu" style="width:12px;height:12px;"></i>
-                            Analýza probíhá na pozadí…
+                            Analýza nebyla spuštěna.
                         </p>
+                        <form method="POST" action="{{ route('admin.support.ai-analyse', $ticket) }}">
+                            @csrf
+                            <button type="submit" class="btn btn-sm btn-outline-primary f-11 w-100">
+                                <i data-feather="zap" style="width:10px;height:10px;"></i>
+                                Spustit AI analýzu
+                            </button>
+                        </form>
                     </x-panel.card>
                 @endif
 

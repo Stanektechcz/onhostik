@@ -169,7 +169,7 @@ it('admin support-show shows "pending analysis" when ticket has no AI data yet',
     $this->actingAs($admin)
         ->get(route('admin.support.show', $ticket))
         ->assertOk()
-        ->assertSee('probíhá na pozadí');
+        ->assertSee('Analýza nebyla spuštěna');
 });
 
 // ── GenerateKbFromTicketAction ─────────────────────────────────────────────────
