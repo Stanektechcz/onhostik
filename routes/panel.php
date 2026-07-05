@@ -37,6 +37,10 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::put('/sluzby/{service}/poznamka', [Panel\ServiceController::class, 'updateNote'])->name('services.update-note');
     Route::post('/sluzby/{service}/auto-obnova', [Panel\ServiceController::class, 'toggleAutoRenew'])->name('services.toggle-auto-renew');
 
+    Route::get('/sluzby/{service}/marketplace', [Panel\MarketplaceController::class, 'index'])->name('marketplace.index');
+    Route::post('/sluzby/{service}/marketplace/{app}', [Panel\MarketplaceController::class, 'install'])->name('marketplace.install');
+    Route::delete('/sluzby/{service}/marketplace/{app}', [Panel\MarketplaceController::class, 'remove'])->name('marketplace.remove');
+
     Route::get('/domeny', [Panel\DomainController::class, 'index'])->name('domains.index');
     Route::get('/domeny/{domain}', [Panel\DomainController::class, 'show'])->name('domains.show');
     Route::post('/domeny/{domain}/auto-renew', [Panel\DomainController::class, 'toggleAutoRenew'])->name('domains.auto-renew');
@@ -234,6 +238,14 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
 
     Route::get('/dns', [Admin\DnsController::class, 'index'])->name('dns.index');
     Route::get('/dns/{dnsZone}', [Admin\DnsController::class, 'show'])->name('dns.show');
+
+    Route::prefix('marketplace')->name('marketplace.')->group(function (): void {
+        Route::get('/', [Admin\MarketplaceController::class, 'index'])->name('index');
+        Route::post('/', [Admin\MarketplaceController::class, 'store'])->name('store');
+        Route::put('/{app}', [Admin\MarketplaceController::class, 'update'])->name('update');
+        Route::delete('/{app}', [Admin\MarketplaceController::class, 'destroy'])->name('destroy');
+        Route::post('/{app}/toggle', [Admin\MarketplaceController::class, 'toggle'])->name('toggle');
+    });
 
     Route::get('/servery', [Admin\ServerController::class, 'index'])->name('servers.index');
     Route::get('/servery/novy', [Admin\ServerController::class, 'create'])->name('servers.create');
