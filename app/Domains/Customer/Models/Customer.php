@@ -8,6 +8,7 @@ use App\Domains\Billing\Models\CreditTransaction;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Order;
 use App\Domains\Billing\Models\Payment;
+use App\Domains\Compliance\Models\GdprRequest;
 use App\Domains\Developer\Models\OAuthApplication;
 use App\Domains\Dns\Models\DnsZone;
 use App\Domains\Provisioning\Models\Service;
@@ -164,6 +165,12 @@ class Customer extends Model
     public function oauthApplications(): HasMany
     {
         return $this->hasMany(OAuthApplication::class);
+    }
+
+    /** @return HasMany<GdprRequest, $this> */
+    public function gdprRequests(): HasMany
+    {
+        return $this->hasMany(GdprRequest::class);
     }
 
     // ---------------------------------------------------------------- helpers

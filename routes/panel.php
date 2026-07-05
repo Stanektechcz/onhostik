@@ -41,6 +41,13 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/sluzby/{service}/marketplace/{app}', [Panel\MarketplaceController::class, 'install'])->name('marketplace.install');
     Route::delete('/sluzby/{service}/marketplace/{app}', [Panel\MarketplaceController::class, 'remove'])->name('marketplace.remove');
 
+    Route::prefix('/gdpr')->name('compliance.')->group(function (): void {
+        Route::get('/', [Panel\ComplianceController::class, 'index'])->name('index');
+        Route::post('/export', [Panel\ComplianceController::class, 'requestExport'])->name('export');
+        Route::post('/deletion', [Panel\ComplianceController::class, 'requestDeletion'])->name('deletion');
+        Route::get('/download/{customer}', [Panel\ComplianceController::class, 'downloadExport'])->name('download');
+    });
+
     Route::get('/developer', [Panel\DeveloperPortalController::class, 'index'])->name('developer.index');
     Route::prefix('/developer/oauth')->name('developer.oauth-apps.')->group(function (): void {
         Route::post('/', [Panel\DeveloperPortalController::class, 'storeOAuthApp'])->name('store');
@@ -271,6 +278,12 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::prefix('oauth-apps')->name('oauth-apps.')->group(function (): void {
             Route::delete('/{oauthApp}', [Admin\DeveloperPortalController::class, 'destroy'])->name('destroy');
         });
+    });
+
+    Route::prefix('compliance')->name('compliance.')->group(function (): void {
+        Route::get('/', [Admin\ComplianceController::class, 'index'])->name('index');
+        Route::patch('/{gdprRequest}/approve', [Admin\ComplianceController::class, 'approve'])->name('approve');
+        Route::patch('/{gdprRequest}/reject', [Admin\ComplianceController::class, 'reject'])->name('reject');
     });
 
     Route::get('/servery', [Admin\ServerController::class, 'index'])->name('servers.index');
