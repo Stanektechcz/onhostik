@@ -6,25 +6,28 @@ namespace App\Domains\Partner\Enums;
 
 enum PartnerStatus: string
 {
-    case Active = 'active';
-    case Paused = 'paused';
-    case Banned = 'banned';
+    case Pending = 'pending';
+    case Active  = 'active';
+    case Paused  = 'paused';
+    case Banned  = 'banned';
 
     public function label(): string
     {
         return match ($this) {
-            self::Active => 'Aktivní',
-            self::Paused => 'Pozastavený',
-            self::Banned => 'Zablokovaný',
+            self::Pending => 'Čeká na schválení',
+            self::Active  => 'Aktivní',
+            self::Paused  => 'Pozastavený',
+            self::Banned  => 'Zablokovaný',
         };
     }
 
     public function color(): string
     {
         return match ($this) {
-            self::Active => 'success',
-            self::Paused => 'warning',
-            self::Banned => 'danger',
+            self::Pending => 'info',
+            self::Active  => 'success',
+            self::Paused  => 'warning',
+            self::Banned  => 'danger',
         };
     }
 

@@ -165,6 +165,12 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function ():
 |--------------------------------------------------------------------------
 */
 
+// Partner registration — any authenticated user can apply
+Route::middleware(['auth'])->prefix('partner')->name('partner.')->group(function (): void {
+    Route::get('/prihlaska', [Panel\PartnerRegistrationController::class, 'apply'])->name('apply');
+    Route::post('/prihlaska', [Panel\PartnerRegistrationController::class, 'store'])->name('apply.store');
+});
+
 Route::middleware(['auth', 'can:access-partner'])->prefix('partner')->name('partner.')->group(function (): void {
     Route::get('/', [Partner\DashboardController::class, 'index'])->name('dashboard');
     Route::get('/referraly', [Partner\PartnerController::class, 'referrals'])->name('referrals');
@@ -172,6 +178,7 @@ Route::middleware(['auth', 'can:access-partner'])->prefix('partner')->name('part
     Route::get('/vyplaty', [Partner\PartnerController::class, 'payouts'])->name('payouts');
     Route::get('/materialy', [Partner\PartnerController::class, 'assets'])->name('assets');
     Route::get('/nastaveni', [Partner\PartnerController::class, 'profile'])->name('profile');
+    Route::post('/vyplata/zadost', [Panel\PartnerRegistrationController::class, 'requestPayout'])->name('payout.request');
 });
 
 /*
@@ -499,6 +506,7 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
 
     Route::prefix('partneri')->name('partners.')->group(function (): void {
         Route::get('/', [Admin\PartnerController::class, 'index'])->name('index');
+        Route::get('/cekajici', [Admin\PartnerController::class, 'pending'])->name('pending');
         Route::get('/novy', [Admin\PartnerController::class, 'create'])->name('create');
         Route::post('/', [Admin\PartnerController::class, 'store'])->name('store');
         Route::get('/generate-code', [Admin\PartnerController::class, 'generateCode'])->name('generate-code');
@@ -506,6 +514,8 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::get('/{partner:uuid}/upravit', [Admin\PartnerController::class, 'edit'])->name('edit');
         Route::put('/{partner:uuid}', [Admin\PartnerController::class, 'update'])->name('update');
         Route::post('/{partner:uuid}/status', [Admin\PartnerController::class, 'changeStatus'])->name('status');
+        Route::post('/{partner:uuid}/schvalit', [Admin\PartnerController::class, 'approve'])->name('approve');
+        Route::post('/{partner:uuid}/zamitnout', [Admin\PartnerController::class, 'reject'])->name('reject');
         Route::post('/{partner:uuid}/provize/{commission}/schvalit', [Admin\PartnerController::class, 'approveCommission'])->name('commissions.approve');
         Route::post('/{partner:uuid}/provize/{commission}/zamitnout', [Admin\PartnerController::class, 'rejectCommission'])->name('commissions.reject');
         Route::post('/{partner:uuid}/vyplata', [Admin\PartnerController::class, 'createPayout'])->name('payouts.create');

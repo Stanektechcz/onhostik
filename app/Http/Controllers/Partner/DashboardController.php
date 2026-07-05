@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Partner;
 use App\Domains\Partner\Enums\CommissionStatus;
 use App\Domains\Partner\Enums\ReferralStatus;
 use App\Domains\Partner\Models\PartnerProfile;
+use App\Domains\Partner\Services\PartnerTierService;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Contracts\View\View;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
+    public function __construct(private readonly PartnerTierService $tierService) {}
+
     public function index(Request $request): View
     {
         $user    = $request->user();
@@ -100,9 +103,12 @@ class DashboardController extends Controller
         $monthlyTarget    = (int) config('partner.monthly_target_minor', 1_000_000);
         $monthlyTargetPct = round(($monthlyCommission / $monthlyTarget) * 100, 1);
 
+        $tier = $this->tierService->forProfile($profile);
+
         return view('partner.dashboard', [
             'partnerName'          => $user->name ?: 'Partner',
             'profile'              => $profile,
+            'tier'                 => $tier,
             'commissionEarned'     => $commissionEarned,
             'commissionPending'    => $commissionPending,
             'referredClients'      => $referredClients,
@@ -133,6 +139,7 @@ class DashboardController extends Controller
         return [
             'partnerName'          => $user->name ?: 'Partner',
             'profile'              => null,
+            'tier'                 => ['label' => 'Bronze', 'color' => 'dark', 'rate' => 5.0, 'total_paid_minor' => 0, 'next_tier' => 'Silver', 'next_at_minor' => 1000000],
             'commissionEarned'     => 0,
             'commissionPending'    => 0,
             'referredClients'      => 0,

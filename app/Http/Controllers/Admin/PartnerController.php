@@ -10,6 +10,7 @@ use App\Domains\Partner\Enums\PayoutStatus;
 use App\Domains\Partner\Models\PartnerCommission;
 use App\Domains\Partner\Models\PartnerPayout;
 use App\Domains\Partner\Models\PartnerProfile;
+use App\Domains\Partner\Services\PartnerTierService;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Contracts\View\View;
@@ -21,6 +22,71 @@ use Spatie\Permission\Models\Permission;
 
 class PartnerController extends Controller
 {
+    public function __construct(private readonly PartnerTierService $tierService) {}
+
+    public function pending(): View
+    {
+        $pending = PartnerProfile::with('user')
+            ->where('status', PartnerStatus::Pending->value)
+            ->latest()
+            ->paginate(25);
+
+        return view('admin.partners.pending', [
+            'pending'      => $pending,
+            'pendingCount' => $pending->total(),
+        ]);
+    }
+
+    public function approve(Request $request, PartnerProfile $partner): RedirectResponse
+    {
+        if ($partner->status !== PartnerStatus::Pending) {
+            return back()->withErrors(['partner' => 'Pouze čekající přihlášky lze schválit.']);
+        }
+
+        $partner->update(['status' => PartnerStatus::Active]);
+
+        $user = $partner->user;
+        if ($user !== null) {
+            Permission::findOrCreate('access-partner', 'web');
+            $user->givePermissionTo('access-partner');
+        }
+
+        $this->tierService->maybeUpgrade($partner);
+
+        activity('partner')
+            ->performedOn($partner)
+            ->causedBy($request->user())
+            ->withProperties(['referral_code' => $partner->referral_code])
+            ->log('partner.approved');
+
+        return redirect()
+            ->route('admin.partners.show', $partner)
+            ->with('status', 'Partner profil byl schválen a aktivován.');
+    }
+
+    public function reject(Request $request, PartnerProfile $partner): RedirectResponse
+    {
+        if ($partner->status !== PartnerStatus::Pending) {
+            return back()->withErrors(['partner' => 'Pouze čekající přihlášky lze zamítnout.']);
+        }
+
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $partner->update(['status' => PartnerStatus::Banned]);
+
+        activity('partner')
+            ->performedOn($partner)
+            ->causedBy($request->user())
+            ->withProperties(['reason' => $validated['reason'] ?? ''])
+            ->log('partner.rejected');
+
+        return redirect()
+            ->route('admin.partners.index')
+            ->with('status', 'Přihláška partnera byla zamítnuta.');
+    }
+
     public function index(): View
     {
         $partners = PartnerProfile::with('user')
@@ -61,7 +127,7 @@ class PartnerController extends Controller
         $validated = $request->validate([
             'user_id'                 => ['required', 'exists:users,id', 'unique:partner_profiles,user_id'],
             'referral_code'           => ['required', 'string', 'min:4', 'max:16', 'regex:/^[A-Z0-9]+$/', 'unique:partner_profiles,referral_code'],
-            'status'                  => ['required', 'in:active,paused,banned'],
+            'status'                  => ['required', 'in:pending,active,paused,banned'],
             'commission_rate_percent' => ['required', 'numeric', 'min:0', 'max:100'],
             'payout_method'           => ['nullable', 'string', 'max:100'],
             'payout_details'          => ['nullable', 'string', 'max:1000'],
@@ -109,7 +175,7 @@ class PartnerController extends Controller
     {
         $validated = $request->validate([
             'referral_code'           => ['required', 'string', 'min:4', 'max:16', 'regex:/^[A-Z0-9]+$/', "unique:partner_profiles,referral_code,{$partner->id}"],
-            'status'                  => ['required', 'in:active,paused,banned'],
+            'status'                  => ['required', 'in:pending,active,paused,banned'],
             'commission_rate_percent' => ['required', 'numeric', 'min:0', 'max:100'],
             'payout_method'           => ['nullable', 'string', 'max:100'],
             'payout_details'          => ['nullable', 'string', 'max:1000'],
@@ -365,7 +431,7 @@ class PartnerController extends Controller
     public function changeStatus(Request $request, PartnerProfile $partner): RedirectResponse
     {
         $validated = $request->validate([
-            'status' => ['required', 'in:active,paused,banned'],
+            'status' => ['required', 'in:pending,active,paused,banned'],
         ]);
 
         $prev = $partner->status->value;
