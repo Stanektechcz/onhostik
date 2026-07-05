@@ -41,6 +41,11 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/sluzby/{service}/marketplace/{app}', [Panel\MarketplaceController::class, 'install'])->name('marketplace.install');
     Route::delete('/sluzby/{service}/marketplace/{app}', [Panel\MarketplaceController::class, 'remove'])->name('marketplace.remove');
 
+    Route::get('/sluzby/{service}/waf', [Panel\WafController::class, 'index'])->name('waf.index');
+    Route::post('/sluzby/{service}/waf', [Panel\WafController::class, 'store'])->name('waf.store');
+    Route::delete('/sluzby/{service}/waf/{rule}', [Panel\WafController::class, 'destroy'])->name('waf.destroy');
+    Route::patch('/sluzby/{service}/waf/{rule}', [Panel\WafController::class, 'toggle'])->name('waf.toggle');
+
     Route::get('/domeny', [Panel\DomainController::class, 'index'])->name('domains.index');
     Route::get('/domeny/{domain}', [Panel\DomainController::class, 'show'])->name('domains.show');
     Route::post('/domeny/{domain}/auto-renew', [Panel\DomainController::class, 'toggleAutoRenew'])->name('domains.auto-renew');
@@ -245,6 +250,13 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::put('/{app}', [Admin\MarketplaceController::class, 'update'])->name('update');
         Route::delete('/{app}', [Admin\MarketplaceController::class, 'destroy'])->name('destroy');
         Route::post('/{app}/toggle', [Admin\MarketplaceController::class, 'toggle'])->name('toggle');
+    });
+
+    Route::prefix('waf')->name('waf.')->group(function (): void {
+        Route::get('/', [Admin\WafController::class, 'index'])->name('index');
+        Route::post('/', [Admin\WafController::class, 'store'])->name('store');
+        Route::delete('/{rule}', [Admin\WafController::class, 'destroy'])->name('destroy');
+        Route::patch('/{rule}', [Admin\WafController::class, 'toggle'])->name('toggle');
     });
 
     Route::get('/servery', [Admin\ServerController::class, 'index'])->name('servers.index');
