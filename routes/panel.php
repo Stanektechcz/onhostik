@@ -598,4 +598,13 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
             Route::delete('/{override}', [Admin\ResellerPricingController::class, 'destroy'])->name('destroy');
         });
     });
+
+    // Financial exports
+    Route::prefix('/financni-exporty')->name('exports.')->group(function (): void {
+        Route::get('/',                  [Admin\FinancialExportController::class, 'index'])->name('index');
+        Route::get('/novy',              [Admin\FinancialExportController::class, 'create'])->name('create');
+        Route::post('/',                 [Admin\FinancialExportController::class, 'store'])->name('store');
+        Route::get('/{export}/stazeni',  [Admin\FinancialExportController::class, 'download'])->name('download');
+        Route::delete('/{export}',       [Admin\FinancialExportController::class, 'destroy'])->name('destroy');
+    });
 });
