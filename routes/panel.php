@@ -37,6 +37,11 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::put('/sluzby/{service}/poznamka', [Panel\ServiceController::class, 'updateNote'])->name('services.update-note');
     Route::post('/sluzby/{service}/auto-obnova', [Panel\ServiceController::class, 'toggleAutoRenew'])->name('services.toggle-auto-renew');
 
+    // Service add-ons
+    Route::get('/sluzby/{service}/doplnky',                  [Panel\ServiceAddonController::class, 'index'])->name('services.addons.index');
+    Route::post('/sluzby/{service}/doplnky/aktivovat',       [Panel\ServiceAddonController::class, 'activate'])->name('services.addons.activate');
+    Route::delete('/sluzby/{service}/doplnky/{subscription}',[Panel\ServiceAddonController::class, 'cancel'])->name('services.addons.cancel');
+
     Route::get('/sluzby/{service}/marketplace', [Panel\MarketplaceController::class, 'index'])->name('marketplace.index');
     Route::post('/sluzby/{service}/marketplace/{app}', [Panel\MarketplaceController::class, 'install'])->name('marketplace.install');
     Route::delete('/sluzby/{service}/marketplace/{app}', [Panel\MarketplaceController::class, 'remove'])->name('marketplace.remove');
@@ -257,6 +262,8 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::put('/sluzby/{service}/popis', [Admin\ServiceController::class, 'updateLabel'])->name('services.update-label');
     Route::put('/sluzby/{service}/splatnost', [Admin\ServiceController::class, 'adjustDueDate'])->name('services.adjust-due-date');
     Route::post('/sluzby/{service}/obnova', [Admin\ServiceController::class, 'manualRenewal'])->name('services.manual-renewal');
+
+    Route::resource('/service-addons', Admin\ServiceAddonController::class)->names('service-addons');
 
     Route::get('/domeny', [Admin\DomainController::class, 'index'])->name('domains.index');
     Route::get('/domeny/export', [Admin\DomainController::class, 'export'])->name('domains.export');

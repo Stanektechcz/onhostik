@@ -137,6 +137,12 @@ class Service extends Model
         return $this->hasMany(Monitor::class);
     }
 
+    /** @return HasMany<ServiceAddonSubscription, $this> */
+    public function addonSubscriptions(): HasMany
+    {
+        return $this->hasMany(ServiceAddonSubscription::class);
+    }
+
     // ---------------------------------------------------------------- helpers
 
     public function isProvisioned(): bool
