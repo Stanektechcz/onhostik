@@ -365,6 +365,7 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::get('/metriky', [Admin\MetricsController::class, 'index'])->name('metrics.index');
     Route::get('/bi', [Admin\BiController::class, 'index'])->name('bi.index');
     Route::get('/bi-v2', [Admin\BiV2Controller::class, 'index'])->name('bi-v2.index');
+    Route::get('/api-usage', [Admin\ApiUsageController::class, 'index'])->name('api-usage.index');
 
     Route::get('/system', [Admin\SystemHealthController::class, 'index'])->name('system.index');
 

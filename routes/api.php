@@ -33,7 +33,7 @@ Route::post('/webhooks/gopay',   GopayWebhookController::class)->name('webhooks.
 | Rate limit: 60 requests per minute per token.
 */
 
-Route::middleware(['auth:sanctum', 'throttle:60,1'])->prefix('v1')->name('api.v1.')->group(function (): void {
+Route::middleware(['auth:sanctum', 'throttle:60,1', 'log-api-usage'])->prefix('v1')->name('api.v1.')->group(function (): void {
     // Profile
     Route::get('/profile', [V1\ProfileController::class, 'show'])->name('profile');
 
@@ -76,7 +76,7 @@ Route::middleware(['auth:sanctum', 'throttle:60,1'])->prefix('v1')->name('api.v1
 |  - Customer-facing webhook subscription management
 */
 
-Route::middleware(['auth:sanctum', 'throttle:120,1'])->prefix('v2')->name('api.v2.')->group(function (): void {
+Route::middleware(['auth:sanctum', 'throttle:120,1', 'log-api-usage'])->prefix('v2')->name('api.v2.')->group(function (): void {
     // Enhanced services with monitor data
     Route::get('/services',           [V2\ServiceController::class, 'index'])->name('services.index');
     Route::get('/services/{service}', [V2\ServiceController::class, 'show'])->name('services.show');

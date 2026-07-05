@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\DetectResellerDomain;
 use App\Http\Middleware\HandleReferralCookie;
+use App\Http\Middleware\LogApiUsage;
 use App\Http\Middleware\RequireAdminTwoFactor;
 use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\SetLocale;
@@ -32,6 +33,7 @@ $app = Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'require-admin-2fa' => RequireAdminTwoFactor::class,
+            'log-api-usage'     => LogApiUsage::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
