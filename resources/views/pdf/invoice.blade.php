@@ -1,3 +1,18 @@
+@php
+    // $brand is injected by InvoicePdfService for reseller invoices; empty array = default OnHost branding
+    $brand       ??= [];
+    $supplierName  = $brand['name']         ?? config('billing.supplier.name', 'OnHost');
+    $supplierEmail = $brand['email']        ?? config('mail.from.address', 'info@onhost.cz');
+    $supplierWeb   = $brand['website']      ?? 'onhost.cz';
+    $supplierStreet = $brand['street']      ?? config('billing.supplier.street');
+    $supplierZip   = $brand['zip']          ?? config('billing.supplier.zip');
+    $supplierCity  = $brand['city']         ?? config('billing.supplier.city');
+    $supplierIc    = $brand['ic']           ?? config('billing.supplier.ic');
+    $supplierDic   = $brand['dic']          ?? config('billing.supplier.dic');
+    $supplierBank  = $brand['bank_account'] ?? config('billing.supplier.bank_account_czk');
+    $supplierFooter = $brand['footer_note'] ?? null;
+    $primaryColor  = $brand['primary_color'] ?? '#7366FF';
+@endphp
 <!DOCTYPE html>
 <html lang="cs">
 <head>
@@ -14,20 +29,20 @@
         .wrap { width: 1100px; margin: 0 auto; }
         /* Header */
         .header-row { display: flex; justify-content: space-between; align-items: center; padding: 24px 0 8px; }
-        .logo { font-size: 22px; font-weight: 700; color: #7366FF; }
+        .logo { font-size: 22px; font-weight: 700; color: {{ $primaryColor }}; }
         .contact-pill {
-            background: linear-gradient(291deg, #7366FF 21.2%, #6051FE 83.92%);
+            background: {{ $primaryColor }};
             padding: 14px 36px; border-bottom-left-radius: 60px;
             display: inline-block; color: #fff; font-size: 13px;
         }
         .contact-pill span { margin: 0 12px; }
         /* Billing row */
         .billing-row { display: flex; justify-content: space-between; padding: 18px 0 12px; }
-        .billing-to-label { font-size: 16px; font-weight: 600; color: #7366FF; margin-bottom: 8px; }
+        .billing-to-label { font-size: 16px; font-weight: 600; color: {{ $primaryColor }}; margin-bottom: 8px; }
         .billing-name { font-size: 16px; font-weight: 600; color: #000248; margin-bottom: 6px; }
         .billing-text { font-size: 14px; color: #52526C; opacity: 0.8; margin-bottom: 4px; }
         .invoice-title { font-size: 38px; font-weight: 600; color: #000248; margin: 0 0 10px; }
-        .invoice-label { font-size: 16px; color: #7366FF; font-weight: 600; margin-bottom: 14px; }
+        .invoice-label { font-size: 16px; color: {{ $primaryColor }}; font-weight: 600; margin-bottom: 14px; }
         .invoice-detail { color: #52526C; margin-bottom: 8px; font-size: 14px; }
         /* Info boxes */
         .info-boxes { width: 100%; border-spacing: 4px; margin-bottom: 20px; }
@@ -36,7 +51,7 @@
         .info-box-value { font-size: 15px; font-weight: 600; color: #000248; }
         /* Items table */
         .items { width: 100%; border-spacing: 0; margin-bottom: 0; }
-        .items thead tr { background: #7366FF; }
+        .items thead tr { background: {{ $primaryColor }}; }
         .items th { padding: 14px 14px; text-align: left; color: #fff; font-size: 15px; font-weight: 600; }
         .items th:first-child { border-top-left-radius: 8px; }
         .items th:last-child { border-top-right-radius: 8px; text-align: right; }
@@ -74,15 +89,15 @@
     {{-- ── Header ──────────────────────────────────────── --}}
     <table style="width:100%;margin:0;padding:24px 0 8px;">
         <tr style="vertical-align:middle;">
-            <td><div class="logo">{{ config('billing.supplier.name', 'OnHost') }}</div></td>
+            <td><div class="logo">{{ $supplierName }}</div></td>
             <td style="text-align:right;">
                 <div class="contact-pill">
-                    <span>✉ {{ config('mail.from.address', 'info@onhost.cz') }}</span>
+                    <span>✉ {{ $supplierEmail }}</span>
                     <span style="border-left:1px solid rgba(255,255,255,.3);border-right:1px solid rgba(255,255,255,.3);padding:0 16px;">
-                        🌐 onhost.cz
+                        🌐 {{ $supplierWeb }}
                     </span>
-                    @if(config('billing.supplier.ic'))
-                    <span>IČ: {{ config('billing.supplier.ic') }}</span>
+                    @if($supplierIc)
+                    <span>IČ: {{ $supplierIc }}</span>
                     @endif
                 </div>
             </td>
@@ -113,17 +128,17 @@
                 <div class="invoice-label">
                     {{ $invoice->isTaxDocument() ? 'Daňový doklad' : 'Zálohová faktura' }}
                 </div>
-                <div class="invoice-detail"><strong>Dodavatel:</strong> {{ config('billing.supplier.name') }}</div>
-                @if(config('billing.supplier.street'))
-                <div class="invoice-detail">{{ config('billing.supplier.street') }}, {{ config('billing.supplier.zip') }} {{ config('billing.supplier.city') }}</div>
+                <div class="invoice-detail"><strong>Dodavatel:</strong> {{ $supplierName }}</div>
+                @if($supplierStreet)
+                <div class="invoice-detail">{{ $supplierStreet }}, {{ $supplierZip }} {{ $supplierCity }}</div>
                 @endif
-                @if(config('billing.supplier.ic'))
-                <div class="invoice-detail">IČ: <strong>{{ config('billing.supplier.ic') }}</strong>
-                    @if(config('billing.supplier.dic')) &nbsp; DIČ: <strong>{{ config('billing.supplier.dic') }}</strong>@endif
+                @if($supplierIc)
+                <div class="invoice-detail">IČ: <strong>{{ $supplierIc }}</strong>
+                    @if($supplierDic) &nbsp; DIČ: <strong>{{ $supplierDic }}</strong>@endif
                 </div>
                 @endif
-                @if(config('billing.supplier.bank_account_czk'))
-                <div class="invoice-detail">Účet: <strong>{{ config('billing.supplier.bank_account_czk') }}</strong></div>
+                @if($supplierBank)
+                <div class="invoice-detail">Účet: <strong>{{ $supplierBank }}</strong></div>
                 @endif
             </td>
         </tr>
@@ -224,7 +239,7 @@
         <tr style="vertical-align:bottom;">
             <td>
                 <div style="border-top:1px solid #000248;width:160px;margin-bottom:4px;padding-top:2px;"></div>
-                <div class="signature-name">{{ config('billing.supplier.name') }}</div>
+                <div class="signature-name">{{ $supplierName }}</div>
                 <div class="signature-role">Vystavil</div>
             </td>
             <td style="text-align:right;">
@@ -241,6 +256,10 @@
 
     @if($invoice->notes)
     <p class="note">Poznámka: {{ $invoice->notes }}</p>
+    @endif
+
+    @if($supplierFooter)
+    <p class="note">{{ $supplierFooter }}</p>
     @endif
 
 </div>

@@ -30,10 +30,21 @@ class BrandingController extends Controller
             : abort(403);
 
         $validated = $request->validate([
-            'company_name'  => ['nullable', 'string', 'max:150'],
-            'tagline'       => ['nullable', 'string', 'max:255'],
-            'logo_url'      => ['nullable', 'url', 'max:500'],
-            'primary_color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'company_name'         => ['nullable', 'string', 'max:150'],
+            'tagline'              => ['nullable', 'string', 'max:255'],
+            'logo_url'             => ['nullable', 'url', 'max:500'],
+            'primary_color'        => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            // Invoice-specific branding
+            'invoice_company_name' => ['nullable', 'string', 'max:150'],
+            'invoice_email'        => ['nullable', 'email', 'max:200'],
+            'invoice_website'      => ['nullable', 'string', 'max:200'],
+            'invoice_street'       => ['nullable', 'string', 'max:200'],
+            'invoice_zip'          => ['nullable', 'string', 'max:20'],
+            'invoice_city'         => ['nullable', 'string', 'max:100'],
+            'invoice_ic'           => ['nullable', 'string', 'max:20'],
+            'invoice_dic'          => ['nullable', 'string', 'max:30'],
+            'invoice_bank_account' => ['nullable', 'string', 'max:50'],
+            'invoice_footer_note'  => ['nullable', 'string', 'max:500'],
         ]);
 
         $existing = $profile->branding ?? [];

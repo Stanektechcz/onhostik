@@ -70,6 +70,102 @@
                         <div class="f-11 f-light mt-1">Vlastní doménu nastavuje administrátor.</div>
                     </div>
 
+                    <hr class="my-4">
+                    <h6 class="mb-3 f-w-600">Údaje na fakturách zákazníků</h6>
+                    <p class="f-12 f-light mb-3">Tyto údaje přepíší výchozí údaje dodavatele na PDF fakturách vašich zákazníků. Ponechte prázdné, pokud chcete použít výchozí nastavení.</p>
+
+                    <div class="mb-3">
+                        <label class="form-label">Název společnosti na faktuře</label>
+                        <input class="form-control @error('invoice_company_name') is-invalid @enderror"
+                               type="text" name="invoice_company_name"
+                               value="{{ old('invoice_company_name', $branding['invoice_company_name'] ?? '') }}"
+                               maxlength="150" placeholder="{{ $branding['company_name'] ?? $profile->business_name }}">
+                        @error('invoice_company_name')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label">Kontaktní e-mail</label>
+                            <input class="form-control @error('invoice_email') is-invalid @enderror"
+                                   type="email" name="invoice_email"
+                                   value="{{ old('invoice_email', $branding['invoice_email'] ?? '') }}"
+                                   maxlength="200" placeholder="billing@mujhosting.cz">
+                            @error('invoice_email')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Webová stránka</label>
+                            <input class="form-control @error('invoice_website') is-invalid @enderror"
+                                   type="text" name="invoice_website"
+                                   value="{{ old('invoice_website', $branding['invoice_website'] ?? '') }}"
+                                   maxlength="200" placeholder="mujhosting.cz">
+                            @error('invoice_website')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Ulice a číslo popisné</label>
+                        <input class="form-control @error('invoice_street') is-invalid @enderror"
+                               type="text" name="invoice_street"
+                               value="{{ old('invoice_street', $branding['invoice_street'] ?? '') }}"
+                               maxlength="200" placeholder="Václavské náměstí 1">
+                        @error('invoice_street')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-4">
+                            <label class="form-label">PSČ</label>
+                            <input class="form-control @error('invoice_zip') is-invalid @enderror"
+                                   type="text" name="invoice_zip"
+                                   value="{{ old('invoice_zip', $branding['invoice_zip'] ?? '') }}"
+                                   maxlength="20" placeholder="110 00">
+                            @error('invoice_zip')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                        <div class="col-8">
+                            <label class="form-label">Město</label>
+                            <input class="form-control @error('invoice_city') is-invalid @enderror"
+                                   type="text" name="invoice_city"
+                                   value="{{ old('invoice_city', $branding['invoice_city'] ?? '') }}"
+                                   maxlength="100" placeholder="Praha 1">
+                            @error('invoice_city')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label">IČ</label>
+                            <input class="form-control @error('invoice_ic') is-invalid @enderror"
+                                   type="text" name="invoice_ic"
+                                   value="{{ old('invoice_ic', $branding['invoice_ic'] ?? '') }}"
+                                   maxlength="20" placeholder="12345678">
+                            @error('invoice_ic')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">DIČ</label>
+                            <input class="form-control @error('invoice_dic') is-invalid @enderror"
+                                   type="text" name="invoice_dic"
+                                   value="{{ old('invoice_dic', $branding['invoice_dic'] ?? '') }}"
+                                   maxlength="30" placeholder="CZ12345678">
+                            @error('invoice_dic')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Číslo bankovního účtu</label>
+                        <input class="form-control @error('invoice_bank_account') is-invalid @enderror"
+                               type="text" name="invoice_bank_account"
+                               value="{{ old('invoice_bank_account', $branding['invoice_bank_account'] ?? '') }}"
+                               maxlength="50" placeholder="123456789/0800">
+                        @error('invoice_bank_account')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Poznámka v patičce faktury</label>
+                        <textarea class="form-control @error('invoice_footer_note') is-invalid @enderror"
+                                  name="invoice_footer_note" rows="2"
+                                  maxlength="500" placeholder="Upozornění nebo obchodní podmínky...">{{ old('invoice_footer_note', $branding['invoice_footer_note'] ?? '') }}</textarea>
+                        @error('invoice_footer_note')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    </div>
+
                     <button type="submit" class="btn btn-primary text-white">
                         <i data-feather="save" style="width:14px;height:14px"></i> Uložit branding
                     </button>

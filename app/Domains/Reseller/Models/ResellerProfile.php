@@ -15,11 +15,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * Reseller account — a customer who can resell OnHost products under a markup.
  *
  * Status values: pending, active, suspended, rejected.
- * branding: {logo_url, primary_color, company_name}
+ * branding: {logo_url, primary_color, company_name, invoice_*}
  * allowed_products: null = all products, otherwise array of product_ids
  *
  * @property string $status
  * @property float  $markup_percent
+ * @property array<string, string|null>|null $branding
+ * @property array<int, int>|null            $allowed_products
  */
 class ResellerProfile extends Model
 {
