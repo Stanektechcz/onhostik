@@ -76,6 +76,14 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::get('/fakturace/kredit', [Panel\BillingController::class, 'credits'])->name('billing.credits');
     Route::post('/fakturace/kredit/dobit', [Panel\BillingController::class, 'topUp'])->name('billing.credits.topup');
 
+    Route::get('/dns-manager', [Panel\DnsZoneController::class, 'index'])->name('dns-manager.index');
+    Route::post('/dns-manager', [Panel\DnsZoneController::class, 'store'])->name('dns-manager.store');
+    Route::get('/dns-manager/{dnsZone}', [Panel\DnsZoneController::class, 'show'])->name('dns-manager.show');
+    Route::delete('/dns-manager/{dnsZone}', [Panel\DnsZoneController::class, 'destroy'])->name('dns-manager.destroy');
+    Route::post('/dns-manager/{dnsZone}/zaznamy', [Panel\DnsRecordController::class, 'store'])->name('dns-manager.records.store');
+    Route::put('/dns-manager/{dnsZone}/zaznamy/{dnsRecord}', [Panel\DnsRecordController::class, 'update'])->name('dns-manager.records.update');
+    Route::delete('/dns-manager/{dnsZone}/zaznamy/{dnsRecord}', [Panel\DnsRecordController::class, 'destroy'])->name('dns-manager.records.destroy');
+
     Route::get('/ucet/api-tokeny', [Panel\ApiTokenController::class, 'index'])->name('account.api-tokens');
     Route::get('/ucet/ssh-klice', [Panel\SshKeyController::class, 'index'])->name('account.ssh-keys.index');
     Route::post('/ucet/ssh-klice', [Panel\SshKeyController::class, 'store'])->name('account.ssh-keys.store');
@@ -223,6 +231,9 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::get('/domeny/export', [Admin\DomainController::class, 'export'])->name('domains.export');
     Route::get('/domeny/{domain}', [Admin\DomainController::class, 'show'])->name('domains.show');
     Route::post('/domeny/{domain}/auto-renew', [Admin\DomainController::class, 'toggleAutoRenew'])->name('domains.toggle-auto-renew');
+
+    Route::get('/dns', [Admin\DnsController::class, 'index'])->name('dns.index');
+    Route::get('/dns/{dnsZone}', [Admin\DnsController::class, 'show'])->name('dns.show');
 
     Route::get('/servery', [Admin\ServerController::class, 'index'])->name('servers.index');
     Route::get('/servery/novy', [Admin\ServerController::class, 'create'])->name('servers.create');

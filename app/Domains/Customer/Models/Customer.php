@@ -8,6 +8,7 @@ use App\Domains\Billing\Models\CreditTransaction;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Order;
 use App\Domains\Billing\Models\Payment;
+use App\Domains\Dns\Models\DnsZone;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Provisioning\Models\SshKey;
 use App\Domains\Reseller\Models\ResellerProfile;
@@ -150,6 +151,12 @@ class Customer extends Model
     public function sshKeys(): HasMany
     {
         return $this->hasMany(SshKey::class);
+    }
+
+    /** @return HasMany<DnsZone, $this> */
+    public function dnsZones(): HasMany
+    {
+        return $this->hasMany(DnsZone::class);
     }
 
     // ---------------------------------------------------------------- helpers
