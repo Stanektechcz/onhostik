@@ -374,6 +374,16 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::get('/bi-v2', [Admin\BiV2Controller::class, 'index'])->name('bi-v2.index');
     Route::get('/api-usage', [Admin\ApiUsageController::class, 'index'])->name('api-usage.index');
 
+    // Bulk operations
+    Route::prefix('/hromadne')->name('bulk.')->group(function (): void {
+        Route::get('/',                                  [Admin\BulkController::class, 'index'])->name('index');
+        Route::post('/sluzby/prodlouzit',               [Admin\BulkController::class, 'serviceExtendDueDate'])->name('service-extend');
+        Route::post('/sluzby/ukoncit',                  [Admin\BulkController::class, 'serviceTerminate'])->name('service-terminate');
+        Route::post('/sluzby/export',                   [Admin\BulkController::class, 'serviceExport'])->name('service-export');
+        Route::post('/faktury/storno',                  [Admin\BulkController::class, 'invoiceVoid'])->name('invoice-void');
+        Route::post('/zakaznici/export',                [Admin\BulkController::class, 'customerExport'])->name('customer-export');
+    });
+
     // Automation rules
     Route::prefix('/automatizace')->name('automation.')->group(function (): void {
         Route::get('/',                                           [Admin\AutomationController::class, 'index'])->name('index');
