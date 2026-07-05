@@ -10,6 +10,7 @@ use App\Domains\Monitoring\Models\Monitor;
 use App\Domains\Products\Models\Product;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Provisioning\Enums\ServiceStatus;
+use App\Domains\Provisioning\Models\ServiceMaintenanceWindow;
 use App\Domains\Shared\Traits\HasUuid;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -141,6 +142,12 @@ class Service extends Model
     public function addonSubscriptions(): HasMany
     {
         return $this->hasMany(ServiceAddonSubscription::class);
+    }
+
+    /** @return HasMany<ServiceMaintenanceWindow, $this> */
+    public function maintenanceWindows(): HasMany
+    {
+        return $this->hasMany(ServiceMaintenanceWindow::class);
     }
 
     // ---------------------------------------------------------------- helpers

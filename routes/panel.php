@@ -86,6 +86,7 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::delete('/kosik', [Panel\CartController::class, 'clear'])->name('cart.clear');
 
     Route::get('/vernostni-program', [Panel\LoyaltyController::class, 'index'])->name('loyalty.index');
+    Route::get('/udrzba', [Panel\ServiceMaintenanceController::class, 'index'])->name('maintenance.index');
 
     Route::get('/oblibene', [Panel\WishlistController::class, 'index'])->name('wishlist.index');
     Route::post('/oblibene/pridat/{plan}', [Panel\WishlistController::class, 'add'])->name('wishlist.add');
@@ -384,6 +385,19 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::post('/sluzby/export',                   [Admin\BulkController::class, 'serviceExport'])->name('service-export');
         Route::post('/faktury/storno',                  [Admin\BulkController::class, 'invoiceVoid'])->name('invoice-void');
         Route::post('/zakaznici/export',                [Admin\BulkController::class, 'customerExport'])->name('customer-export');
+    });
+
+    // Service maintenance windows
+    Route::prefix('/udrzba')->name('maintenance.')->group(function (): void {
+        Route::get('/',                          [Admin\ServiceMaintenanceController::class, 'index'])->name('index');
+        Route::get('/nove',                      [Admin\ServiceMaintenanceController::class, 'create'])->name('create');
+        Route::post('/',                         [Admin\ServiceMaintenanceController::class, 'store'])->name('store');
+        Route::get('/{maintenance}/upravit',     [Admin\ServiceMaintenanceController::class, 'edit'])->name('edit');
+        Route::put('/{maintenance}',             [Admin\ServiceMaintenanceController::class, 'update'])->name('update');
+        Route::delete('/{maintenance}',          [Admin\ServiceMaintenanceController::class, 'destroy'])->name('destroy');
+        Route::post('/{maintenance}/zahajit',    [Admin\ServiceMaintenanceController::class, 'start'])->name('start');
+        Route::post('/{maintenance}/dokoncit',   [Admin\ServiceMaintenanceController::class, 'complete'])->name('complete');
+        Route::post('/{maintenance}/zrusit',     [Admin\ServiceMaintenanceController::class, 'cancel'])->name('cancel');
     });
 
     // Loyalty milestones & rewards (admin)
