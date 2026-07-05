@@ -631,6 +631,17 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::delete('/{export}',       [Admin\FinancialExportController::class, 'destroy'])->name('destroy');
     });
 
+    // System Announcements (Phase 72)
+    Route::prefix('/oznameni')->name('announcements.')->group(function (): void {
+        Route::get('/',                             [Admin\SystemAnnouncementController::class, 'index'])->name('index');
+        Route::get('/nove',                         [Admin\SystemAnnouncementController::class, 'create'])->name('create');
+        Route::post('/',                            [Admin\SystemAnnouncementController::class, 'store'])->name('store');
+        Route::get('/{announcement}/upravit',       [Admin\SystemAnnouncementController::class, 'edit'])->name('edit');
+        Route::put('/{announcement}',               [Admin\SystemAnnouncementController::class, 'update'])->name('update');
+        Route::post('/{announcement}/odeslat',      [Admin\SystemAnnouncementController::class, 'publish'])->name('publish');
+        Route::delete('/{announcement}',            [Admin\SystemAnnouncementController::class, 'destroy'])->name('destroy');
+    });
+
     // Service Lifecycle (Phase 71)
     Route::prefix('/zivotni-cyklus')->name('lifecycle.')->group(function (): void {
         Route::get('/',                           [Admin\ServiceLifecycleController::class, 'index'])->name('index');

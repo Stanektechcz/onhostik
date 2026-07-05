@@ -36,10 +36,18 @@ class NotificationController extends Controller
             ]);
         }
 
-        $notifications  = $user->notifications()->latest()->paginate(25);
-        $unreadCount    = $user->unreadNotifications()->count();
+        $query = $user->notifications()->latest();
 
-        return view('panel.notifications.index', compact('notifications', 'unreadCount'));
+        if ($request->filled('type')) {
+            $type = $request->string('type')->toString();
+            $query->where('data->type', $type);
+        }
+
+        $notifications  = $query->paginate(25)->withQueryString();
+        $unreadCount    = $user->unreadNotifications()->count();
+        $activeType     = $request->string('type', '')->toString();
+
+        return view('panel.notifications.index', compact('notifications', 'unreadCount', 'activeType'));
     }
 
     public function markRead(Request $request, string $id): JsonResponse|RedirectResponse
