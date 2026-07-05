@@ -87,6 +87,7 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
 
     Route::get('/vernostni-program', [Panel\LoyaltyController::class, 'index'])->name('loyalty.index');
     Route::get('/udrzba', [Panel\ServiceMaintenanceController::class, 'index'])->name('maintenance.index');
+    Route::get('/referral', [Panel\ReferralController::class, 'index'])->name('referral.index');
 
     Route::get('/oblibene', [Panel\WishlistController::class, 'index'])->name('wishlist.index');
     Route::post('/oblibene/pridat/{plan}', [Panel\WishlistController::class, 'add'])->name('wishlist.add');
@@ -611,6 +612,14 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
             Route::post('/', [Admin\ResellerPricingController::class, 'store'])->name('store');
             Route::delete('/{override}', [Admin\ResellerPricingController::class, 'destroy'])->name('destroy');
         });
+    });
+
+    // Referral program (admin)
+    Route::prefix('/referral-program')->name('referrals.')->group(function (): void {
+        Route::get('/',                           [Admin\ReferralController::class, 'index'])->name('index');
+        Route::post('/{referral}/kvalifikovat',   [Admin\ReferralController::class, 'qualify'])->name('qualify');
+        Route::post('/{referral}/odemnit',        [Admin\ReferralController::class, 'reward'])->name('reward');
+        Route::post('/{referral}/expirovat',      [Admin\ReferralController::class, 'expire'])->name('expire');
     });
 
     // Financial exports

@@ -11,6 +11,7 @@ use App\Domains\Billing\Models\Payment;
 use App\Domains\Compliance\Models\GdprRequest;
 use App\Domains\Developer\Models\OAuthApplication;
 use App\Domains\Dns\Models\DnsZone;
+use App\Domains\Customer\Models\CustomerReferral;
 use App\Domains\Loyalty\Models\CustomerLoyaltyReward;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Provisioning\Models\SshKey;
@@ -72,6 +73,8 @@ class Customer extends Model
         'segment',
         'insights_updated_at',
         'onboarding_completed_at',
+        'referral_code',
+        'referred_by_customer_id',
     ];
 
     protected function casts(): array
@@ -178,6 +181,12 @@ class Customer extends Model
     public function loyaltyRewards(): HasMany
     {
         return $this->hasMany(CustomerLoyaltyReward::class);
+    }
+
+    /** @return HasMany<CustomerReferral, $this> */
+    public function referrals(): HasMany
+    {
+        return $this->hasMany(CustomerReferral::class, 'referrer_id');
     }
 
     // ---------------------------------------------------------------- helpers
