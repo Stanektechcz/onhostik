@@ -67,6 +67,9 @@ class Service extends Model
         'usage_snapshot',
         'auto_renew',
         'customer_note',
+        'sla_tier_id',
+        'sla_monitoring_enabled',
+        'sla_check_url',
     ];
 
     protected function casts(): array

@@ -630,4 +630,23 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::get('/{export}/stazeni',  [Admin\FinancialExportController::class, 'download'])->name('download');
         Route::delete('/{export}',       [Admin\FinancialExportController::class, 'destroy'])->name('destroy');
     });
+
+    // SLA Tiers (Phase 70)
+    Route::prefix('/sla-tiery')->name('sla-tiers.')->group(function (): void {
+        Route::get('/',                    [Admin\SlaTierController::class, 'index'])->name('index');
+        Route::get('/novy',                [Admin\SlaTierController::class, 'create'])->name('create');
+        Route::post('/',                   [Admin\SlaTierController::class, 'store'])->name('store');
+        Route::get('/{slaTier}/upravit',   [Admin\SlaTierController::class, 'edit'])->name('edit');
+        Route::put('/{slaTier}',           [Admin\SlaTierController::class, 'update'])->name('update');
+        Route::delete('/{slaTier}',        [Admin\SlaTierController::class, 'destroy'])->name('destroy');
+    });
+
+    // SLA Incidents (Phase 70)
+    Route::prefix('/sla-incidenty')->name('sla-incidents.')->group(function (): void {
+        Route::get('/',                           [Admin\SlaIncidentController::class, 'index'])->name('index');
+        Route::get('/novy',                       [Admin\SlaIncidentController::class, 'create'])->name('create');
+        Route::post('/',                          [Admin\SlaIncidentController::class, 'store'])->name('store');
+        Route::get('/{slaIncident}',              [Admin\SlaIncidentController::class, 'show'])->name('show');
+        Route::post('/{slaIncident}/aktualizace', [Admin\SlaIncidentController::class, 'addUpdate'])->name('update');
+    });
 });
