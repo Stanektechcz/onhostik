@@ -11,6 +11,7 @@ use App\Domains\Billing\Models\Payment;
 use App\Domains\Compliance\Models\GdprRequest;
 use App\Domains\Developer\Models\OAuthApplication;
 use App\Domains\Dns\Models\DnsZone;
+use App\Domains\Loyalty\Models\CustomerLoyaltyReward;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Provisioning\Models\SshKey;
 use App\Domains\Reseller\Models\ResellerProfile;
@@ -171,6 +172,12 @@ class Customer extends Model
     public function gdprRequests(): HasMany
     {
         return $this->hasMany(GdprRequest::class);
+    }
+
+    /** @return HasMany<CustomerLoyaltyReward, $this> */
+    public function loyaltyRewards(): HasMany
+    {
+        return $this->hasMany(CustomerLoyaltyReward::class);
     }
 
     // ---------------------------------------------------------------- helpers

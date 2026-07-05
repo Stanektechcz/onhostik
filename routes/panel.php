@@ -85,6 +85,8 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::delete('/kosik/odebrat/{plan}', [Panel\CartController::class, 'remove'])->name('cart.remove');
     Route::delete('/kosik', [Panel\CartController::class, 'clear'])->name('cart.clear');
 
+    Route::get('/vernostni-program', [Panel\LoyaltyController::class, 'index'])->name('loyalty.index');
+
     Route::get('/oblibene', [Panel\WishlistController::class, 'index'])->name('wishlist.index');
     Route::post('/oblibene/pridat/{plan}', [Panel\WishlistController::class, 'add'])->name('wishlist.add');
     Route::delete('/oblibene/odebrat/{plan}', [Panel\WishlistController::class, 'remove'])->name('wishlist.remove');
@@ -382,6 +384,17 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::post('/sluzby/export',                   [Admin\BulkController::class, 'serviceExport'])->name('service-export');
         Route::post('/faktury/storno',                  [Admin\BulkController::class, 'invoiceVoid'])->name('invoice-void');
         Route::post('/zakaznici/export',                [Admin\BulkController::class, 'customerExport'])->name('customer-export');
+    });
+
+    // Loyalty milestones & rewards (admin)
+    Route::prefix('/vernostni-program')->name('loyalty.')->group(function (): void {
+        Route::get('/',                              [Admin\LoyaltyController::class, 'index'])->name('index');
+        Route::get('/novy',                          [Admin\LoyaltyController::class, 'create'])->name('create');
+        Route::post('/',                             [Admin\LoyaltyController::class, 'store'])->name('store');
+        Route::get('/{milestone}/upravit',           [Admin\LoyaltyController::class, 'edit'])->name('edit');
+        Route::put('/{milestone}',                   [Admin\LoyaltyController::class, 'update'])->name('update');
+        Route::delete('/{milestone}',                [Admin\LoyaltyController::class, 'destroy'])->name('destroy');
+        Route::post('/zkontrolovat',                 [Admin\LoyaltyController::class, 'checkCustomer'])->name('check');
     });
 
     // Automation rules
