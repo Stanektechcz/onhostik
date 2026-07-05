@@ -41,6 +41,13 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/sluzby/{service}/marketplace/{app}', [Panel\MarketplaceController::class, 'install'])->name('marketplace.install');
     Route::delete('/sluzby/{service}/marketplace/{app}', [Panel\MarketplaceController::class, 'remove'])->name('marketplace.remove');
 
+    Route::get('/developer', [Panel\DeveloperPortalController::class, 'index'])->name('developer.index');
+    Route::prefix('/developer/oauth')->name('developer.oauth-apps.')->group(function (): void {
+        Route::post('/', [Panel\DeveloperPortalController::class, 'storeOAuthApp'])->name('store');
+        Route::patch('/{oauthApp}', [Panel\DeveloperPortalController::class, 'regenSecret'])->name('regen');
+        Route::delete('/{oauthApp}', [Panel\DeveloperPortalController::class, 'destroyOAuthApp'])->name('destroy');
+    });
+
     Route::get('/sluzby/{service}/waf', [Panel\WafController::class, 'index'])->name('waf.index');
     Route::post('/sluzby/{service}/waf', [Panel\WafController::class, 'store'])->name('waf.store');
     Route::delete('/sluzby/{service}/waf/{rule}', [Panel\WafController::class, 'destroy'])->name('waf.destroy');
@@ -257,6 +264,13 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::post('/', [Admin\WafController::class, 'store'])->name('store');
         Route::delete('/{rule}', [Admin\WafController::class, 'destroy'])->name('destroy');
         Route::patch('/{rule}', [Admin\WafController::class, 'toggle'])->name('toggle');
+    });
+
+    Route::prefix('developer')->name('developer.')->group(function (): void {
+        Route::get('/', [Admin\DeveloperPortalController::class, 'index'])->name('index');
+        Route::prefix('oauth-apps')->name('oauth-apps.')->group(function (): void {
+            Route::delete('/{oauthApp}', [Admin\DeveloperPortalController::class, 'destroy'])->name('destroy');
+        });
     });
 
     Route::get('/servery', [Admin\ServerController::class, 'index'])->name('servers.index');

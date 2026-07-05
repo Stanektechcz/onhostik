@@ -8,6 +8,7 @@ use App\Domains\Billing\Models\CreditTransaction;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Order;
 use App\Domains\Billing\Models\Payment;
+use App\Domains\Developer\Models\OAuthApplication;
 use App\Domains\Dns\Models\DnsZone;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Provisioning\Models\SshKey;
@@ -157,6 +158,12 @@ class Customer extends Model
     public function dnsZones(): HasMany
     {
         return $this->hasMany(DnsZone::class);
+    }
+
+    /** @return HasMany<OAuthApplication, $this> */
+    public function oauthApplications(): HasMany
+    {
+        return $this->hasMany(OAuthApplication::class);
     }
 
     // ---------------------------------------------------------------- helpers
