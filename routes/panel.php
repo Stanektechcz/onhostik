@@ -367,6 +367,19 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::get('/bi-v2', [Admin\BiV2Controller::class, 'index'])->name('bi-v2.index');
     Route::get('/api-usage', [Admin\ApiUsageController::class, 'index'])->name('api-usage.index');
 
+    // Automation rules
+    Route::prefix('/automatizace')->name('automation.')->group(function (): void {
+        Route::get('/',                                           [Admin\AutomationController::class, 'index'])->name('index');
+        Route::get('/nova',                                       [Admin\AutomationController::class, 'create'])->name('create');
+        Route::post('/',                                          [Admin\AutomationController::class, 'store'])->name('store');
+        Route::get('/{rule}/upravit',                            [Admin\AutomationController::class, 'edit'])->name('edit');
+        Route::put('/{rule}',                                    [Admin\AutomationController::class, 'update'])->name('update');
+        Route::delete('/{rule}',                                 [Admin\AutomationController::class, 'destroy'])->name('destroy');
+        Route::post('/{rule}/prepnout',                          [Admin\AutomationController::class, 'toggle'])->name('toggle');
+        Route::get('/{rule}/logy',                               [Admin\AutomationController::class, 'logs'])->name('logs');
+        Route::post('/{rule}/test',                              [Admin\AutomationController::class, 'testFire'])->name('test');
+    });
+
     Route::get('/system', [Admin\SystemHealthController::class, 'index'])->name('system.index');
 
     Route::get('/audit', [Admin\AuditLogController::class, 'index'])->name('logs.audit');
