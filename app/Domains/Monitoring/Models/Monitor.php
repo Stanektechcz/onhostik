@@ -14,6 +14,8 @@ use Illuminate\Support\Carbon;
 
 /**
  * @property MonitorStatus $status
+ * @property string $name
+ * @property string|null $label
  * @property Carbon|null $last_check_at
  * @property Carbon|null $ssl_expires_at
  * @property int|null $response_time_threshold_ms
@@ -28,6 +30,7 @@ class Monitor extends Model
     protected $fillable = [
         'service_id',
         'name',
+        'label',
         'type',
         'target',
         'provider',

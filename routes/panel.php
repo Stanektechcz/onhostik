@@ -272,6 +272,16 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::get('/monitoring', [Admin\MonitoringController::class, 'index'])->name('monitoring.index');
     Route::put('/monitoring/{monitor}/prahy', [Admin\MonitoringController::class, 'updateThresholds'])->name('monitoring.thresholds');
     Route::get('/sla', [Admin\SlaController::class, 'index'])->name('sla.index');
+
+    Route::prefix('status-page')->name('status-page.')->group(function (): void {
+        Route::get('/', [Admin\StatusPageController::class, 'index'])->name('index');
+        Route::post('/komponenty', [Admin\StatusPageController::class, 'storeComponent'])->name('components.store');
+        Route::put('/komponenty/{component}', [Admin\StatusPageController::class, 'updateComponent'])->name('components.update');
+        Route::delete('/komponenty/{component}', [Admin\StatusPageController::class, 'destroyComponent'])->name('components.destroy');
+        Route::post('/udrzba', [Admin\StatusPageController::class, 'storeMaintenance'])->name('maintenances.store');
+        Route::put('/udrzba/{maintenance}', [Admin\StatusPageController::class, 'updateMaintenance'])->name('maintenances.update');
+        Route::delete('/udrzba/{maintenance}', [Admin\StatusPageController::class, 'destroyMaintenance'])->name('maintenances.destroy');
+    });
     Route::get('/zalohy', [Admin\BackupController::class, 'index'])->name('backups.index');
 
     Route::get('/integrace', [Admin\IntegrationController::class, 'index'])->name('integrations.index');
