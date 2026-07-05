@@ -540,6 +540,7 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
 
     /* ── Search ── */
     Route::get('/hledani', [Admin\SearchController::class, 'index'])->name('search');
+    Route::get('/hledani/autocomplete', [Admin\SearchController::class, 'autocomplete'])->name('search.autocomplete');
 
     Route::get('/nastaveni', [Admin\SettingsController::class, 'index'])->name('settings.index');
     Route::post('/nastaveni', [Admin\SettingsController::class, 'update'])->name('settings.update');

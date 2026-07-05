@@ -18,7 +18,7 @@
                     <div class="input-group">
                         <span class="input-group-text"><i data-feather="search" style="width:16px;height:16px;"></i></span>
                         <input type="text" class="form-control form-control-lg" name="q"
-                               value="{{ $query }}" placeholder="Hledat zákazníky, faktury, objednávky…" autofocus>
+                               value="{{ $query }}" placeholder="Hledat zákazníky, faktury, služby, tikety…" autofocus>
                         <button type="submit" class="btn btn-primary text-white">Hledat</button>
                     </div>
                 </form>
@@ -94,7 +94,49 @@
                 </div>
                 @endif
 
-                @if($customers->isEmpty() && $orders->isEmpty() && $invoices->isEmpty())
+                {{-- Services --}}
+                @if($services->isNotEmpty())
+                <div class="card mb-3">
+                    <div class="card-header card-no-border">
+                        <h5>Služby <span class="badge badge-light-info ms-2">{{ $services->count() }}</span></h5>
+                    </div>
+                    <div class="card-body pt-0">
+                        @foreach($services as $s)
+                        <div class="info-block d-flex align-items-center gap-3 py-2 border-bottom">
+                            <div class="flex-1">
+                                <a href="{{ route('admin.services.show', $s) }}" class="f-w-600">{{ $s->label ?? "Služba #{$s->id}" }}</a>
+                                <span class="f-light f-12 ms-2">{{ $s->product?->name ?? '—' }}</span>
+                                <p class="f-light f-11 mb-0">{{ $s->customer?->company_name ?? $s->customer?->email ?? '—' }}</p>
+                            </div>
+                            <span class="badge {{ $s->status->badgeClass() }}">{{ $s->status->label() }}</span>
+                            <a href="{{ route('admin.services.show', $s) }}" class="btn btn-outline-primary btn-xs">Detail</a>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                {{-- Tickets --}}
+                @if($tickets->isNotEmpty())
+                <div class="card mb-3">
+                    <div class="card-header card-no-border">
+                        <h5>Tikety <span class="badge badge-light-secondary ms-2">{{ $tickets->count() }}</span></h5>
+                    </div>
+                    <div class="card-body pt-0">
+                        @foreach($tickets as $t)
+                        <div class="info-block d-flex align-items-center gap-3 py-2 border-bottom">
+                            <div class="flex-1">
+                                <a href="{{ route('admin.support.show', $t) }}" class="f-w-600">{{ $t->subject }}</a>
+                                <p class="f-light f-11 mb-0">{{ $t->customer?->user?->email ?? '—' }}</p>
+                            </div>
+                            <a href="{{ route('admin.support.show', $t) }}" class="btn btn-outline-primary btn-xs">Detail</a>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                @if($total === 0)
                 <div class="card">
                     <div class="card-body text-center py-5">
                         <i data-feather="search" style="width:48px;height:48px;" class="text-muted mb-3 d-block mx-auto"></i>
