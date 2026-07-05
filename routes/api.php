@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Api\V2;
 use App\Http\Controllers\Webhook\ComgateWebhookController;
 use App\Http\Controllers\Webhook\GopayWebhookController;
+use App\Http\Controllers\Webhook\InboundWebhookController;
 use App\Http\Controllers\Webhook\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -24,6 +25,9 @@ Route::get('/docs',         [V1\DocsController::class, 'ui'])->name('api.docs');
 Route::post('/webhooks/comgate', ComgateWebhookController::class)->name('webhooks.comgate');
 Route::post('/webhooks/stripe',  StripeWebhookController::class)->name('webhooks.stripe');
 Route::post('/webhooks/gopay',   GopayWebhookController::class)->name('webhooks.gopay');
+
+// Generic inbound webhook bus — source is matched against webhook_endpoints table
+Route::post('/webhook/{source}', [InboundWebhookController::class, 'receive'])->name('webhooks.inbound');
 
 /*
 |--------------------------------------------------------------------------

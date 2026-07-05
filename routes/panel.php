@@ -338,6 +338,20 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::get('/{outgoingWebhook}/doruceni', [Admin\OutgoingWebhookController::class, 'deliveries'])->name('deliveries');
     });
 
+    // Inbound webhooks & endpoints
+    Route::prefix('/prichozi-webhooky')->name('webhooks.inbound.')->group(function (): void {
+        Route::get('/',                              [Admin\WebhookController::class, 'index'])->name('index');
+        Route::get('/{log}',                         [Admin\WebhookController::class, 'show'])->name('show');
+    });
+    Route::prefix('/webhook-endpoints')->name('webhooks.endpoint.')->group(function (): void {
+        Route::get('/novy',                          [Admin\WebhookController::class, 'endpointCreate'])->name('create');
+        Route::post('/',                             [Admin\WebhookController::class, 'endpointStore'])->name('store');
+        Route::get('/{endpoint}/upravit',            [Admin\WebhookController::class, 'endpointEdit'])->name('edit');
+        Route::put('/{endpoint}',                    [Admin\WebhookController::class, 'endpointUpdate'])->name('update');
+        Route::delete('/{endpoint}',                 [Admin\WebhookController::class, 'endpointDestroy'])->name('destroy');
+        Route::post('/{endpoint}/prepnout',          [Admin\WebhookController::class, 'endpointToggle'])->name('toggle');
+    });
+
     Route::get('/monitoring', [Admin\MonitoringController::class, 'index'])->name('monitoring.index');
     Route::put('/monitoring/{monitor}/prahy', [Admin\MonitoringController::class, 'updateThresholds'])->name('monitoring.thresholds');
     Route::get('/sla', [Admin\SlaController::class, 'index'])->name('sla.index');
