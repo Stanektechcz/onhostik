@@ -631,6 +631,14 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::delete('/{export}',       [Admin\FinancialExportController::class, 'destroy'])->name('destroy');
     });
 
+    // Service Lifecycle (Phase 71)
+    Route::prefix('/zivotni-cyklus')->name('lifecycle.')->group(function (): void {
+        Route::get('/',                           [Admin\ServiceLifecycleController::class, 'index'])->name('index');
+        Route::post('/{service}/pozastavit',      [Admin\ServiceLifecycleController::class, 'suspend'])->name('suspend');
+        Route::post('/{service}/obnovit',         [Admin\ServiceLifecycleController::class, 'unsuspend'])->name('unsuspend');
+        Route::post('/{service}/ukoncit',         [Admin\ServiceLifecycleController::class, 'terminate'])->name('terminate');
+    });
+
     // SLA Tiers (Phase 70)
     Route::prefix('/sla-tiery')->name('sla-tiers.')->group(function (): void {
         Route::get('/',                    [Admin\SlaTierController::class, 'index'])->name('index');

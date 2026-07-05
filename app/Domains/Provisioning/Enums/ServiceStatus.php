@@ -34,6 +34,17 @@ enum ServiceStatus: string
         };
     }
 
+    public function badgeClass(): string
+    {
+        return match ($this) {
+            self::Pending    => 'badge bg-warning text-dark',
+            self::Active     => 'badge bg-success',
+            self::Suspended  => 'badge bg-danger',
+            self::Terminated => 'badge bg-secondary',
+            self::Failed     => 'badge bg-danger',
+        };
+    }
+
     public function isOperational(): bool
     {
         return $this === self::Active;
