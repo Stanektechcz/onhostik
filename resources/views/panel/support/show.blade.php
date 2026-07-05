@@ -164,5 +164,44 @@
                 @endif
             </div>
         </div>
+
+        {{-- CSAT Rating (closed tickets only) --}}
+        @if($ticket->status->value === 'closed')
+            <div class="card mt-3">
+                <div class="card-body">
+                    @if($ticket->rating)
+                        <p class="f-14 mb-1"><strong>Vaše hodnocení:</strong>
+                            @for($i = 1; $i <= 5; $i++)
+                                <span style="color:{{ $i <= $ticket->rating->score ? '#f8961e' : '#ccc' }}">★</span>
+                            @endfor
+                            <span class="f-12 f-light ms-2">{{ $ticket->rating->label() }}</span>
+                        </p>
+                        @if($ticket->rating->comment)
+                            <p class="f-13 f-light mb-0">{{ $ticket->rating->comment }}</p>
+                        @endif
+                    @else
+                        <p class="f-14 mb-2"><strong>Jak hodnotíte vyřízení tohoto ticketu?</strong></p>
+                        @if($errors->has('rating'))
+                            <div class="alert alert-danger py-2">{{ $errors->first('rating') }}</div>
+                        @endif
+                        <form action="{{ route('panel.support.rate', $ticket) }}" method="POST">
+                            @csrf
+                            <div class="d-flex gap-3 align-items-center mb-2">
+                                @for($i = 1; $i <= 5; $i++)
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="score" id="score_{{ $i }}" value="{{ $i }}" required>
+                                        <label class="form-check-label" for="score_{{ $i }}">{{ $i }}★</label>
+                                    </div>
+                                @endfor
+                            </div>
+                            <div class="mb-2">
+                                <textarea name="comment" class="form-control form-control-sm" rows="2" placeholder="Volitelný komentář..."></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-sm">Odeslat hodnocení</button>
+                        </form>
+                    @endif
+                </div>
+            </div>
+        @endif
     </div>
 @endsection

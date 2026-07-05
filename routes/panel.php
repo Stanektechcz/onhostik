@@ -141,6 +141,7 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/podpora/{ticket}/odpoved', [Panel\SupportController::class, 'reply'])->name('support.reply');
     Route::post('/podpora/{ticket}/ai-navrh', [Panel\SupportController::class, 'aiSuggest'])->name('support.ai-suggest');
     Route::post('/podpora/{ticket}/uzavrit', [Panel\SupportController::class, 'close'])->name('support.close');
+    Route::post('/podpora/{ticket}/hodnotit', [Panel\SupportController::class, 'rate'])->name('support.rate');
 
     Route::get('/ai', [Panel\AiController::class, 'index'])->name('ai.index');
     Route::post('/ai', [Panel\AiController::class, 'run'])->name('ai.run');
@@ -349,6 +350,7 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
 
     Route::get('/podpora', [Admin\SupportController::class, 'index'])->name('support.index');
     Route::get('/podpora/sla-monitor', [Admin\SupportController::class, 'slaMonitor'])->name('support.sla-monitor');
+    Route::get('/podpora/csat', [Admin\CsatController::class, 'index'])->name('support.csat');
     Route::get('/podpora/{ticket}', [Admin\SupportController::class, 'show'])->name('support.show');
     Route::post('/podpora/{ticket}/odpoved', [Admin\SupportController::class, 'reply'])->name('support.reply');
     Route::put('/podpora/{ticket}', [Admin\SupportController::class, 'update'])->name('support.update');

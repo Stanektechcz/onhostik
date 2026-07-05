@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Carbon;
 
@@ -94,5 +95,11 @@ class SupportTicket extends Model
     public function related(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    /** @return HasOne<TicketRating, $this> */
+    public function rating(): HasOne
+    {
+        return $this->hasOne(TicketRating::class);
     }
 }

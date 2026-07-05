@@ -10,6 +10,7 @@ use App\Domains\Support\Actions\AnalyseTicketAction;
 use App\Domains\Support\Enums\TicketPriority;
 use App\Domains\Support\Enums\TicketStatus;
 use App\Domains\Support\Models\SupportTicket;
+use App\Domains\Support\Models\TicketRating;
 use App\Domains\Support\Services\TicketService;
 use App\Http\Controllers\Controller;
 use App\Models\KbArticle;
@@ -74,7 +75,7 @@ class SupportController extends Controller
             ->get(['id', 'title', 'slug']);
 
         return view('panel.support.show', [
-            'ticket'     => $ticket->load(['messages.author', 'events']),
+            'ticket'     => $ticket->load(['messages.author', 'events', 'rating']),
             'kbArticles' => $kbArticles,
         ]);
     }
@@ -139,6 +140,31 @@ class SupportController extends Controller
         } catch (\Throwable $e) {
             return response()->json(['error' => 'AI návrh není k dispozici: ' . $e->getMessage()], 503);
         }
+    }
+
+    public function rate(Request $request, SupportTicket $ticket): \Illuminate\Http\RedirectResponse
+    {
+        $this->authorize('view', $ticket);
+
+        if ($ticket->status !== TicketStatus::Closed) {
+            return back()->withErrors(['rating' => 'Hodnotit lze pouze uzavřené tickety.']);
+        }
+
+        $validated = $request->validate([
+            'score'   => ['required', 'integer', 'min:1', 'max:5'],
+            'comment' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        TicketRating::updateOrCreate(
+            ['support_ticket_id' => $ticket->id],
+            [
+                'score'    => (int) $validated['score'],
+                'comment'  => $validated['comment'] ?? null,
+                'rated_at' => now(),
+            ]
+        );
+
+        return back()->with('status', 'Děkujeme za vaše hodnocení.');
     }
 
     private function customer(Request $request): Customer
