@@ -1,158 +1,164 @@
 @extends('layouts.panel')
 
+@php($breadcrumbTitle = 'Hromadné operace')
+@php($breadcrumbItems = ['Hromadné operace' => ''])
+
 @section('title', 'Hromadné operace')
 
 @section('content')
-<div class="container-fluid py-4">
-    <h1 class="h4 mb-4">Hromadné operace (Bulk)</h1>
+<div class="container-fluid">
+    <x-panel.flash />
 
     @if(session('status'))
-        <div class="alert alert-success py-2">{{ session('status') }}</div>
+        <div class="alert alert-light-success py-2 mb-3">{{ session('status') }}</div>
     @endif
 
-    <div class="row g-3">
+    <div class="grid grid-cols-12 card-gap">
 
         {{-- Services --}}
-        <div class="col-lg-4">
-            <div class="card h-100">
-                <div class="card-header bg-primary text-white">
-                    <strong>Služby</strong>
-                    <span class="badge bg-light text-dark float-end">{{ number_format($serviceCount) }} celkem</span>
-                </div>
-                <div class="card-body">
+        <div class="col-span-6 md:col-span-12">
+            <x-panel.card title="Služby">
+                <x-slot name="headerRight">
+                    <span class="badge badge-light-primary f-11">{{ number_format($serviceCount) }} celkem</span>
+                </x-slot>
 
-                    <p class="small text-muted">Zadejte ID služeb oddělená čárkami.</p>
+                <p class="f-light f-12 mb-3">Zadejte ID oddělená čárkami. Max: 200 (prodloužení/auto-obnova), 100 (pozastavit/obnovit/ukončit).</p>
 
-                    {{-- Extend due date --}}
-                    <form action="{{ route('admin.bulk.service-extend') }}" method="POST" class="mb-3">
-                        @csrf
-                        <label class="form-label small fw-semibold">Prodloužit splatnost</label>
-                        <input type="text" name="ids[]" id="extend_ids" class="form-control form-control-sm mb-1"
-                               placeholder="ID: 1,2,3" required>
-                        <script>
-                            document.getElementById('extend_ids').addEventListener('change', function() {
-                                var val = this.value.replace(/\s+/g, '');
-                                this.name = 'ids[]';
-                                // Convert comma-separated to multiple inputs handled server-side
-                            });
-                        </script>
-                        <div class="d-flex gap-2 mt-1">
-                            <input type="number" name="days" class="form-control form-control-sm" placeholder="Dní" min="1" max="365" required>
-                            <button class="btn btn-sm btn-outline-primary text-nowrap">Prodloužit</button>
-                        </div>
-                    </form>
+                {{-- Extend due date --}}
+                <form action="{{ route('admin.bulk.service-extend') }}" method="POST" class="mb-3 js-bulk-form">
+                    @csrf
+                    <div class="f-12 f-w-600 mb-1">Prodloužit splatnost</div>
+                    <div class="d-flex gap-2">
+                        <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
+                        <input type="number" name="days" class="form-control form-control-sm" style="width:80px" placeholder="Dní" min="1" max="365" required>
+                        <button class="btn btn-outline-primary btn-sm text-nowrap">Prodloužit</button>
+                    </div>
+                </form>
 
-                    {{-- Terminate --}}
-                    <form action="{{ route('admin.bulk.service-terminate') }}" method="POST" class="mb-3">
-                        @csrf
-                        <label class="form-label small fw-semibold text-danger">Ukončit služby</label>
-                        <input type="text" name="_ids_terminate" class="form-control form-control-sm mb-1"
-                               placeholder="ID oddělená čárkami" required>
-                        <input type="text" name="reason" class="form-control form-control-sm mb-1"
-                               placeholder="Důvod ukončení" required>
-                        <button class="btn btn-sm btn-outline-danger">Ukončit</button>
-                    </form>
+                {{-- Suspend --}}
+                <form action="{{ route('admin.bulk.service-suspend') }}" method="POST" class="mb-3 js-bulk-form">
+                    @csrf
+                    <div class="f-12 f-w-600 mb-1">Pozastavit aktivní služby</div>
+                    <div class="d-flex gap-2">
+                        <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
+                        <input type="text" name="reason" class="form-control form-control-sm flex-1" placeholder="Důvod" required>
+                        <button class="btn btn-outline-warning btn-sm text-nowrap">Pozastavit</button>
+                    </div>
+                </form>
 
-                </div>
-            </div>
+                {{-- Resume --}}
+                <form action="{{ route('admin.bulk.service-resume') }}" method="POST" class="mb-3 js-bulk-form">
+                    @csrf
+                    <div class="f-12 f-w-600 mb-1">Obnovit pozastavené služby</div>
+                    <div class="d-flex gap-2">
+                        <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
+                        <button class="btn btn-outline-success btn-sm text-nowrap">Obnovit</button>
+                    </div>
+                </form>
+
+                {{-- Auto-renew enable --}}
+                <form action="{{ route('admin.bulk.service-auto-renew') }}" method="POST" class="mb-3 js-bulk-form">
+                    @csrf
+                    <input type="hidden" name="auto_renew" value="1">
+                    <div class="f-12 f-w-600 mb-1">Zapnout automatickou obnovu</div>
+                    <div class="d-flex gap-2">
+                        <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
+                        <button class="btn btn-outline-success btn-sm text-nowrap">Zapnout</button>
+                    </div>
+                </form>
+
+                {{-- Auto-renew disable --}}
+                <form action="{{ route('admin.bulk.service-auto-renew') }}" method="POST" class="mb-3 js-bulk-form">
+                    @csrf
+                    <input type="hidden" name="auto_renew" value="0">
+                    <div class="f-12 f-w-600 mb-1">Vypnout automatickou obnovu</div>
+                    <div class="d-flex gap-2">
+                        <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
+                        <button class="btn btn-outline-secondary btn-sm text-nowrap">Vypnout</button>
+                    </div>
+                </form>
+
+                {{-- Terminate --}}
+                <form action="{{ route('admin.bulk.service-terminate') }}" method="POST" class="mb-1 js-bulk-form">
+                    @csrf
+                    <div class="f-12 f-w-600 mb-1 txt-danger">Ukončit služby (nevratné)</div>
+                    <div class="d-flex gap-2">
+                        <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
+                        <input type="text" name="reason" class="form-control form-control-sm flex-1" placeholder="Důvod" required>
+                        <button class="btn btn-outline-danger btn-sm text-nowrap"
+                                onclick="return confirm('Opravdu ukončit vybrané služby?')">Ukončit</button>
+                    </div>
+                </form>
+            </x-panel.card>
         </div>
 
-        {{-- Invoices --}}
-        <div class="col-lg-4">
-            <div class="card h-100">
-                <div class="card-header bg-warning text-dark">
-                    <strong>Faktury</strong>
-                    <span class="badge bg-light text-dark float-end">{{ number_format($invoiceCount) }} celkem</span>
-                </div>
-                <div class="card-body">
-                    <p class="small text-muted">Storno funguje pouze u faktur ve stavu draft nebo pending.</p>
+        {{-- Invoices + Customers --}}
+        <div class="col-span-6 md:col-span-12">
+            <x-panel.card title="Faktury">
+                <x-slot name="headerRight">
+                    <span class="badge badge-light-warning f-11">{{ number_format($invoiceCount) }} celkem</span>
+                </x-slot>
 
-                    <form action="{{ route('admin.bulk.invoice-void') }}" method="POST" class="mb-3">
-                        @csrf
-                        <label class="form-label small fw-semibold">Stornovat faktury</label>
-                        <input type="text" name="_ids_void" class="form-control form-control-sm mb-1"
-                               placeholder="ID oddělená čárkami" required>
-                        <button class="btn btn-sm btn-outline-warning text-dark">Stornovat</button>
-                    </form>
+                <p class="f-light f-12 mb-3">Storno funguje pouze pro faktury ve stavu draft nebo sent.</p>
 
-                    <hr>
-                    <a href="{{ route('admin.invoices.index') }}" class="btn btn-sm btn-outline-secondary w-100">
-                        → Hromadné platby (v seznamu faktur)
-                    </a>
-                </div>
-            </div>
-        </div>
+                <form action="{{ route('admin.bulk.invoice-void') }}" method="POST" class="mb-3 js-bulk-form">
+                    @csrf
+                    <div class="f-12 f-w-600 mb-1">Stornovat faktury</div>
+                    <div class="d-flex gap-2">
+                        <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
+                        <button class="btn btn-outline-warning btn-sm text-nowrap">Stornovat</button>
+                    </div>
+                </form>
 
-        {{-- Customers --}}
-        <div class="col-lg-4">
-            <div class="card h-100">
-                <div class="card-header bg-info text-white">
-                    <strong>Zákazníci</strong>
-                    <span class="badge bg-light text-dark float-end">{{ number_format($customerCount) }} celkem</span>
-                </div>
-                <div class="card-body">
-                    <p class="small text-muted">Export vybraných zákazníků do CSV.</p>
+                <hr class="my-3">
+                <a href="{{ route('admin.invoices.index') }}" class="btn btn-outline-secondary btn-sm">
+                    Hromadné platby → seznam faktur
+                </a>
+            </x-panel.card>
 
-                    <form action="{{ route('admin.bulk.customer-export') }}" method="POST">
-                        @csrf
-                        <label class="form-label small fw-semibold">Export zákazníků (CSV)</label>
-                        <input type="text" name="_ids_customer" class="form-control form-control-sm mb-2"
-                               placeholder="ID oddělená čárkami" required>
-                        <button class="btn btn-sm btn-outline-info">Stáhnout CSV</button>
-                    </form>
-                </div>
-            </div>
+            <x-panel.card title="Zákazníci" class="mt-3">
+                <x-slot name="headerRight">
+                    <span class="badge badge-light-info f-11">{{ number_format($customerCount) }} celkem</span>
+                </x-slot>
+
+                <form action="{{ route('admin.bulk.customer-export') }}" method="POST" class="js-bulk-form">
+                    @csrf
+                    <div class="f-12 f-w-600 mb-1">Export zákazníků (CSV)</div>
+                    <div class="d-flex gap-2">
+                        <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
+                        <button class="btn btn-outline-info btn-sm text-nowrap">Stáhnout CSV</button>
+                    </div>
+                </form>
+            </x-panel.card>
         </div>
 
     </div>
 
-    <div class="mt-4">
-        <p class="text-muted small">
-            <strong>Pozor:</strong> Hromadné operace jsou nevratné (ukončení, storno). Vždy si ověřte ID před odesláním.
-            Maximum 50 služeb pro ukončení, 200 pro prodloužení, 100 pro storno faktur, 500 pro export.
-        </p>
+    <div class="f-light f-11 mt-2">
+        Hromadné operace jako ukončení nebo storno jsou nevratné. Vždy ověřte IDs před odesláním.
     </div>
 </div>
 
-{{-- Client-side CSV parsing: convert comma-separated IDs to array inputs --}}
-<script>
-document.querySelectorAll('form[action*="bulk"]').forEach(function(form) {
+<script nonce="{{ $cspNonce ?? '' }}">
+document.querySelectorAll('.js-bulk-form').forEach(function(form) {
     form.addEventListener('submit', function(e) {
-        const idInput = form.querySelector('input[name^="_ids"]');
+        const idInput = form.querySelector('input[name="_ids"]');
         if (!idInput) return;
 
         e.preventDefault();
-        const ids = idInput.value.split(',').map(s => s.trim()).filter(Boolean);
+        const ids = idInput.value.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
         idInput.remove();
 
-        ids.forEach(id => {
-            const hidden = document.createElement('input');
-            hidden.type = 'hidden';
-            hidden.name = 'ids[]';
-            hidden.value = id;
-            form.appendChild(hidden);
+        ids.forEach(function(id) {
+            const h = document.createElement('input');
+            h.type = 'hidden';
+            h.name = 'ids[]';
+            h.value = id;
+            form.appendChild(h);
         });
 
         form.submit();
     });
-});
-
-// Also handle the service-extend form which already has ids[]
-document.querySelector('form[action*="service-extend"]')?.addEventListener('submit', function(e) {
-    e.preventDefault();
-    const input = this.querySelector('input[id="extend_ids"]');
-    if (!input) { this.submit(); return; }
-
-    const ids = input.value.split(',').map(s => s.trim()).filter(Boolean);
-    input.remove();
-    ids.forEach(id => {
-        const hidden = document.createElement('input');
-        hidden.type = 'hidden';
-        hidden.name = 'ids[]';
-        hidden.value = id;
-        this.appendChild(hidden);
-    });
-    this.submit();
 });
 </script>
 @endsection

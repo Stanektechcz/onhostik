@@ -10,9 +10,13 @@ use App\Domains\Support\Enums\TicketStatus;
 use App\Domains\Support\Models\SupportTicket;
 use App\Domains\Support\Models\SupportTicketMessage;
 use App\Jobs\AnalyzeTicketWithAiJob;
+use App\Models\NpsResponse;
 use App\Models\User;
+use App\Notifications\NpsSurveyNotification;
+use App\Notifications\TicketRatingRequestNotification;
 use App\Notifications\TicketRepliedNotification;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * All support ticket state transitions live here — controllers stay thin
@@ -62,6 +66,8 @@ final class TicketService
 
         AnalyzeTicketWithAiJob::dispatch($ticket, $author);
 
+        $this->fireWebhook('ticket.created', $ticket);
+
         return $ticket;
     }
 
@@ -98,6 +104,8 @@ final class TicketService
         if ($isStaff) {
             $ticket->customer?->user?->notify(new TicketRepliedNotification($ticket, $reply));
         }
+
+        $this->fireWebhook('ticket.replied', $ticket);
 
         return $reply;
     }
@@ -166,6 +174,83 @@ final class TicketService
             ->causedBy($actor)
             ->withProperties(['from' => $previous->value, 'to' => $status->value])
             ->log('support.status_changed');
+
+        $webhookEvent = $status === TicketStatus::Closed ? 'ticket.closed' : 'ticket.status_changed';
+        $this->fireWebhook($webhookEvent, $ticket);
+
+        if ($status === TicketStatus::Closed) {
+            $this->sendNpsSurvey($ticket, $actor);
+            $this->sendRatingRequest($ticket, $actor);
+        }
+    }
+
+    private function sendNpsSurvey(SupportTicket $ticket, User $actor): void
+    {
+        $customer = $ticket->customer;
+
+        if ($customer === null) {
+            return;
+        }
+
+        // Only send to the ticket owner, not to the admin who closed it
+        $user = $customer->user;
+
+        if ($user === null || $user->id === $actor->id) {
+            return;
+        }
+
+        // Avoid duplicate surveys for the same ticket
+        $alreadySent = NpsResponse::query()
+            ->where('ticket_id', $ticket->id)
+            ->exists();
+
+        if ($alreadySent) {
+            return;
+        }
+
+        try {
+            $npsResponse = NpsResponse::create([
+                'customer_id'  => $customer->id,
+                'ticket_id'    => $ticket->id,
+                'survey_token' => \Illuminate\Support\Str::random(48),
+                'notified_at'  => now(),
+            ]);
+
+            $user->notify(new NpsSurveyNotification($npsResponse, $ticket));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    private function sendRatingRequest(SupportTicket $ticket, User $actor): void
+    {
+        $user = $ticket->customer?->user;
+
+        if ($user === null || $user->id === $actor->id) {
+            return;
+        }
+
+        // Skip if already rated
+        if ($ticket->rating !== null) {
+            return;
+        }
+
+        try {
+            $user->notify(new TicketRatingRequestNotification($ticket));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    private function fireWebhook(string $event, SupportTicket $ticket): void
+    {
+        try {
+            /** @var HelpdeskWebhookService $svc */
+            $svc = app(HelpdeskWebhookService::class);
+            $svc->fire($event, $ticket);
+        } catch (\Throwable $e) {
+            Log::warning("Helpdesk webhook fire failed for {$event}: {$e->getMessage()}");
+        }
     }
 
     public function changePriority(SupportTicket $ticket, User $actor, TicketPriority $priority): void

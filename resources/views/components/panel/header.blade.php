@@ -10,6 +10,69 @@
             <div class="toggle-sidebar"><i class="status_toggle middle sidebar-toggle" data-feather="align-center"></i></div>
         </div>
 
+        {{-- Global search (admin only) --}}
+        @can('access-admin')
+        <div class="col-auto d-flex align-items-center px-2" id="admin-global-search-wrap" style="position:relative;min-width:220px;">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text bg-transparent border-end-0"><i data-feather="search" style="width:14px;height:14px;"></i></span>
+                <input type="text" id="admin-global-search" class="form-control border-start-0 ps-0" placeholder="Hledat zákazníky, faktury…" autocomplete="off" style="font-size:13px;">
+            </div>
+            <div id="admin-search-results" class="card shadow" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:9999;max-height:400px;overflow-y:auto;border-radius:8px;"></div>
+        </div>
+
+        <script>
+        (function(){
+            const inp = document.getElementById('admin-global-search');
+            const box = document.getElementById('admin-search-results');
+            if (!inp) return;
+            let timer;
+            const CSRF = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+
+            const typeColors = { customer:'primary', service:'info', invoice:'success', order:'warning', ticket:'secondary' };
+            const typeLabels = { customer:'Zákazník', service:'Služba', invoice:'Faktura', order:'Objednávka', ticket:'Tiketa' };
+
+            inp.addEventListener('input', function() {
+                clearTimeout(timer);
+                const q = this.value.trim();
+                if (q.length < 2) { box.style.display='none'; return; }
+                timer = setTimeout(() => {
+                    fetch(`{{ route('admin.search') }}?q=` + encodeURIComponent(q), {
+                        headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF }
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (!data.results || data.results.length === 0) {
+                            box.innerHTML = '<div class="p-3 text-muted" style="font-size:13px">Žádné výsledky</div>';
+                        } else {
+                            box.innerHTML = data.results.map(r => `
+                                <a href="${r.url}" class="d-flex align-items-center gap-2 px-3 py-2 text-decoration-none text-dark border-bottom" style="font-size:13px">
+                                    <i data-feather="${r.icon}" style="width:14px;height:14px;flex-shrink:0;color:#6c757d;"></i>
+                                    <div class="flex-1 overflow-hidden">
+                                        <div class="fw-semibold text-truncate">${r.title}</div>
+                                        <div class="text-muted" style="font-size:11px">${r.subtitle}</div>
+                                    </div>
+                                    <span class="badge bg-${typeColors[r.type] ?? 'secondary'}" style="font-size:10px;flex-shrink:0">${typeLabels[r.type] ?? r.type}</span>
+                                </a>`).join('');
+                        }
+                        box.style.display = 'block';
+                        if (window.feather) feather.replace();
+                    });
+                }, 250);
+            });
+
+            document.addEventListener('click', function(e) {
+                if (!document.getElementById('admin-global-search-wrap').contains(e.target)) {
+                    box.style.display = 'none';
+                }
+            });
+
+            inp.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') { box.style.display='none'; this.value=''; }
+            });
+        })();
+        </script>
+        @endcan
+
         <div class="nav-right col-span-12 float-right right-header p-0 ms-auto">
             <ul class="nav-menus">
                 {{-- Credit balance quick view --}}

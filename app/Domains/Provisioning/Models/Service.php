@@ -13,8 +13,12 @@ use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Models\ServiceMaintenanceWindow;
 use App\Domains\Shared\Traits\HasUuid;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\ServiceLabel;
+use App\Models\ServicePlanChange;
+use App\Models\ServiceTag;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -37,6 +41,9 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property Carbon|null $terminated_at
  * @property bool $auto_renew
  * @property string|null $customer_note
+ * @property Carbon|null $billing_pause_requested_at
+ * @property \Carbon\Carbon|null $billing_paused_until
+ * @property Carbon|null $quota_breach_alerted_at
  */
 class Service extends Model
 {
@@ -70,6 +77,27 @@ class Service extends Model
         'sla_tier_id',
         'sla_monitoring_enabled',
         'sla_check_url',
+        'cpu_limit_percent',
+        'ram_limit_mb',
+        'disk_limit_gb',
+        'bandwidth_limit_gb',
+        'cpu_usage_percent',
+        'ram_usage_mb',
+        'disk_usage_gb',
+        'bandwidth_usage_gb',
+        'resource_alert_threshold',
+        'last_resource_check_at',
+        'quota_breach_alerted_at',
+        'renewal_reminder_30d_sent_at',
+        'renewal_reminder_14d_sent_at',
+        'renewal_reminder_7d_sent_at',
+        'renewal_reminder_1d_sent_at',
+        'admin_note',
+        'billing_pause_requested_at',
+        'billing_paused_until',
+        'renewal_notice_days',
+        'usage_alert_threshold',
+        'usage_alert_sent_at',
     ];
 
     protected function casts(): array
@@ -85,7 +113,16 @@ class Service extends Model
             'paused_at'            => 'datetime',
             'paused_until'         => 'date',
             'usage_snapshot'       => 'array',
-            'auto_renew'           => 'boolean',
+            'auto_renew'              => 'boolean',
+            'sla_monitoring_enabled'          => 'boolean',
+            'last_resource_check_at'          => 'datetime',
+            'quota_breach_alerted_at'         => 'datetime',
+            'renewal_reminder_30d_sent_at'    => 'datetime',
+            'renewal_reminder_14d_sent_at'    => 'datetime',
+            'renewal_reminder_7d_sent_at'     => 'datetime',
+            'renewal_reminder_1d_sent_at'         => 'datetime',
+            'billing_pause_requested_at'          => 'datetime',
+            'billing_paused_until'                => 'date',
         ];
     }
 
@@ -115,6 +152,18 @@ class Service extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    /** @return BelongsToMany<ServiceTag, $this> */
+    public function tags(): BelongsToMany
+    {
+        return $this->belongsToMany(ServiceTag::class, 'service_tag_assignments');
+    }
+
+    /** @return BelongsToMany<ServiceLabel, $this> */
+    public function labels(): BelongsToMany
+    {
+        return $this->belongsToMany(ServiceLabel::class, 'service_note_labels');
     }
 
     /** @return BelongsTo<Server, $this> */
@@ -151,6 +200,24 @@ class Service extends Model
     public function maintenanceWindows(): HasMany
     {
         return $this->hasMany(ServiceMaintenanceWindow::class);
+    }
+
+    /** @return HasMany<ServiceResourceUsage, $this> */
+    public function resourceUsages(): HasMany
+    {
+        return $this->hasMany(ServiceResourceUsage::class);
+    }
+
+    /** @return HasMany<ServicePlanChange, $this> */
+    public function planChanges(): HasMany
+    {
+        return $this->hasMany(ServicePlanChange::class)->orderByDesc('changed_at');
+    }
+
+    /** @return HasMany<\App\Models\ServiceUptimeCheck, $this> */
+    public function uptimeChecks(): HasMany
+    {
+        return $this->hasMany(\App\Models\ServiceUptimeCheck::class);
     }
 
     // ---------------------------------------------------------------- helpers

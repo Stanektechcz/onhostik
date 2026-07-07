@@ -46,6 +46,8 @@
                                     <tr>
                                         <th>Název</th>
                                         <th>Oprávnění</th>
+                                        <th>Požadavky (7d)</th>
+                                        <th>Celkem / Chyby</th>
                                         <th>Naposledy použit</th>
                                         <th>Vytvořen</th>
                                         <th></th>
@@ -53,12 +55,28 @@
                                 </thead>
                                 <tbody>
                                     @foreach($tokens as $token)
+                                        @php
+                                            $stat     = $stats[$token->id]   ?? null;
+                                            $rec      = $recent[$token->id]  ?? null;
+                                            $total    = (int) ($stat?->total  ?? 0);
+                                            $errCount = (int) ($stat?->errors ?? 0);
+                                            $r7d      = (int) ($rec?->recent_total ?? 0);
+                                        @endphp
                                         <tr>
                                             <td class="f-w-500">{{ $token->name }}</td>
                                             <td>
                                                 @foreach($token->abilities as $ability)
                                                     <span class="badge {{ $ability === 'read' ? 'badge-light-secondary' : 'badge-light-primary' }} f-10">{{ $ability }}</span>
                                                 @endforeach
+                                            </td>
+                                            <td class="f-12">
+                                                <span class="{{ $r7d > 0 ? 'txt-primary f-w-500' : 'f-light' }}">{{ number_format($r7d) }}</span>
+                                            </td>
+                                            <td class="f-12">
+                                                {{ number_format($total) }}
+                                                @if($errCount > 0)
+                                                    / <span class="txt-danger">{{ $errCount }} chyb</span>
+                                                @endif
                                             </td>
                                             <td class="f-light f-12">
                                                 {{ $token->last_used_at?->diffForHumans() ?? 'Nikdy' }}

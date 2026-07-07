@@ -20,6 +20,8 @@ use App\Domains\Shared\Enums\Currency;
 use App\Domains\Support\Enums\TicketPriority;
 use App\Domains\Support\Services\TicketService;
 use App\Http\Controllers\Controller;
+use App\Models\ServiceCancellation;
+use App\Models\ServicePlanChange;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -72,6 +74,7 @@ class ServiceController extends Controller
             'incidents'      => $monitor?->incidents()->orderByDesc('started_at')->limit(10)->get() ?? collect(),
             'sslDays'        => $monitor?->ssl_expires_at?->diffInDays(now()),
             'backupJobs'     => BackupJob::query()->where('service_id', $service->id)->latest('id')->limit(5)->get(),
+            'backupPolicy'   => BackupPolicy::query()->where('service_id', $service->id)->first(),
             'renewalInvoice' => $renewalInvoice,
             'mockMode'       => (bool) config('provisioning.mock_mode', true),
         ]);
@@ -202,10 +205,21 @@ class ServiceController extends Controller
         abort_unless($plan->product_id === $service->product_id, 422, 'Plan does not belong to the same product.');
 
         // Log the intent (actual provisioning driver change happens post-payment)
+        $fromPlanId = $service->orderItem?->pricing_plan_id;
+
+        ServicePlanChange::create([
+            'service_id'         => $service->id,
+            'from_plan_id'       => $fromPlanId,
+            'to_plan_id'         => $plan->id,
+            'changed_by_user_id' => $request->user()?->id,
+            'reason'             => 'customer_request',
+            'changed_at'         => now(),
+        ]);
+
         activity('billing')
             ->performedOn($service)
             ->withProperties([
-                'from_plan_id' => $service->orderItem?->pricing_plan_id,
+                'from_plan_id' => $fromPlanId,
                 'to_plan_id'   => $plan->id,
                 'plan_name'    => $plan->name,
             ])
@@ -231,6 +245,11 @@ class ServiceController extends Controller
 
         abort_if($user === null || $customer === null, 403);
 
+        $validated = $request->validate([
+            'cancellation_reason'   => ['nullable', 'string', 'in:' . implode(',', array_keys(ServiceCancellation::REASONS))],
+            'cancellation_feedback' => ['nullable', 'string', 'max:1000'],
+        ]);
+
         $subject = __('panel.services.cancel_ticket_subject', ['label' => $service->label]);
         $body    = __('panel.services.cancel_ticket_body', [
             'label'    => $service->label,
@@ -239,6 +258,15 @@ class ServiceController extends Controller
         ]);
 
         $ticket = $tickets->open($customer, $user, $subject, $body, TicketPriority::Normal, 'billing');
+
+        if (isset($validated['cancellation_reason'])) {
+            ServiceCancellation::create([
+                'service_id' => $service->id,
+                'user_id'    => $user->id,
+                'reason'     => $validated['cancellation_reason'],
+                'feedback'   => $validated['cancellation_feedback'] ?? null,
+            ]);
+        }
 
         activity('panel')
             ->performedOn($service)
@@ -338,6 +366,26 @@ class ServiceController extends Controller
         return back()->with('status', 'Poznámka uložena.');
     }
 
+    /** Customer renames their service (changes the label). */
+    public function rename(Request $request, Service $service): RedirectResponse
+    {
+        $this->authorize('view', $service);
+
+        $validated = $request->validate([
+            'label' => ['required', 'string', 'min:2', 'max:100'],
+        ]);
+
+        $service->update(['label' => $validated['label']]);
+
+        activity('service')
+            ->performedOn($service)
+            ->causedBy($request->user())
+            ->withProperties(['label' => $validated['label']])
+            ->log('service.renamed');
+
+        return back()->with('status', 'Název služby byl změněn.');
+    }
+
     /** Toggle auto-renewal on/off for the service. */
     public function toggleAutoRenew(Request $request, Service $service): RedirectResponse
     {
@@ -392,5 +440,47 @@ class ServiceController extends Controller
         }
 
         return back()->with('status', __('panel.services.wp_installed'));
+    }
+
+    /** Update the backup schedule configuration for a service. */
+    public function updateBackupSchedule(Request $request, Service $service): RedirectResponse
+    {
+        $this->authorize('view', $service);
+
+        $validated = $request->validate([
+            'frequency'        => ['required', 'in:daily,weekly,monthly'],
+            'scheduled_hour'   => ['required', 'integer', 'min:0', 'max:23'],
+            'scheduled_weekday'=> ['nullable', 'integer', 'min:0', 'max:6'],
+            'retention_days'   => ['required', 'integer', 'min:1', 'max:365'],
+            'notify_on_failure'=> ['nullable', 'boolean'],
+            'is_active'        => ['nullable', 'boolean'],
+        ]);
+
+        $policy = BackupPolicy::query()
+            ->firstOrNew(['service_id' => $service->id]);
+
+        $policy->fill([
+            'service_id'       => $service->id,
+            'frequency'        => $validated['frequency'],
+            'scheduled_hour'   => (int) $validated['scheduled_hour'],
+            'scheduled_weekday'=> isset($validated['scheduled_weekday'])
+                ? (int) $validated['scheduled_weekday']
+                : null,
+            'retention_days'   => (int) $validated['retention_days'],
+            'notify_on_failure'=> (bool) ($validated['notify_on_failure'] ?? true),
+            'is_active'        => (bool) ($validated['is_active'] ?? true),
+        ])->save();
+
+        activity('backup')
+            ->performedOn($service)
+            ->causedBy($request->user())
+            ->withProperties([
+                'frequency'      => $policy->frequency,
+                'scheduled_hour' => $policy->scheduled_hour,
+                'retention_days' => $policy->retention_days,
+            ])
+            ->log('backup.schedule_updated');
+
+        return back()->with('status', 'Plán zálohování byl uložen.');
     }
 }

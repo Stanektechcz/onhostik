@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domains\Backups\Models\BackupPolicy;
 use App\Domains\Billing\Actions\IssueRenewalInvoiceAction;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Jobs\ChangeServiceStateJob;
@@ -142,6 +143,9 @@ class ServiceController extends Controller
             'orderItem.order',
             'provisioningTasks' => fn ($q) => $q->latest('id')->limit(20),
             'domainRegistration',
+            'planChanges.fromPlan',
+            'planChanges.toPlan',
+            'planChanges.changedBy',
         ]);
 
         $audit = Activity::query()
@@ -153,8 +157,10 @@ class ServiceController extends Controller
             ->get();
 
         return view('admin.service-show', [
-            'service' => $service,
-            'audit'   => $audit,
+            'service'      => $service,
+            'audit'        => $audit,
+            'planChanges'  => $service->planChanges,
+            'backupPolicy' => BackupPolicy::query()->where('service_id', $service->id)->first(),
         ]);
     }
 

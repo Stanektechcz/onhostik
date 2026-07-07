@@ -12,6 +12,7 @@ use App\Domains\Shared\Traits\HasUuid;
 use Brick\Money\Money;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use RuntimeException;
 
@@ -30,6 +31,7 @@ use RuntimeException;
  * @property Currency $currency
  * @property Money $amount
  * @property Money $balance_after
+ * @property \Illuminate\Support\Carbon|null $expires_at
  */
 class CreditTransaction extends Model
 {
@@ -47,6 +49,7 @@ class CreditTransaction extends Model
         'reference_type',
         'reference_id',
         'created_by',     // admin user id for manual adjustments
+        'expires_at',
     ];
 
     protected function casts(): array
@@ -56,6 +59,7 @@ class CreditTransaction extends Model
             'currency'      => Currency::class,
             'amount'        => MoneyCast::class . ':currency',
             'balance_after' => MoneyCast::class . ':currency',
+            'expires_at'    => 'datetime',
         ];
     }
 
@@ -84,5 +88,21 @@ class CreditTransaction extends Model
     public function reference(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    /** @return HasMany<CreditExpiryReminder, $this> */
+    public function expiryReminders(): HasMany
+    {
+        return $this->hasMany(CreditExpiryReminder::class);
+    }
+
+    /** Expiry deduction rows whose reference points back to this deposit.
+     * @return HasMany<CreditTransaction, $this>
+     */
+    public function expiryDeductions(): HasMany
+    {
+        return $this->hasMany(self::class, 'reference_id')
+            ->where('reference_type', self::class)
+            ->where('type', CreditTransactionType::Expiry);
     }
 }

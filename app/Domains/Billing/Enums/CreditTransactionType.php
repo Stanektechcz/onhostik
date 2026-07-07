@@ -11,6 +11,7 @@ enum CreditTransactionType: string
     case Refund     = 'refund';
     case Adjustment = 'adjustment';
     case Bonus      = 'bonus';
+    case Expiry     = 'expiry';
 
     public function label(): string
     {
@@ -20,6 +21,7 @@ enum CreditTransactionType: string
             self::Refund     => 'Vrácení',
             self::Adjustment => 'Korekce (admin)',
             self::Bonus      => 'Bonus',
+            self::Expiry     => 'Vypršení',
         };
     }
 
@@ -31,6 +33,7 @@ enum CreditTransactionType: string
             self::Refund     => 'info',
             self::Adjustment => 'warning',
             self::Bonus      => 'primary',
+            self::Expiry     => 'secondary',
         };
     }
 
@@ -39,7 +42,7 @@ enum CreditTransactionType: string
     {
         return match ($this) {
             self::Deposit, self::Refund, self::Bonus => 1,
-            self::Deduction => -1,
+            self::Deduction, self::Expiry => -1,
             self::Adjustment => 0, // sign carried by amount itself
         };
     }

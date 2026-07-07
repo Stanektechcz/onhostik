@@ -28,6 +28,14 @@
         </div>
 
         <x-panel.card :title="__('panel.nav.services')">
+            <x-slot name="headerRight">
+                <a href="{{ route('panel.services.calendar') }}"
+                   class="btn btn-outline-secondary btn-sm"
+                   title="Stáhnout termíny obnov jako iCal">
+                    <i data-feather="calendar" style="width:13px;height:13px;" class="me-1"></i>
+                    Export do kalendáře
+                </a>
+            </x-slot>
             @if($services->isEmpty())
                 <div class="text-center py-5">
                     <i data-feather="server" style="width:48px;height:48px;" class="text-muted mb-3"></i>

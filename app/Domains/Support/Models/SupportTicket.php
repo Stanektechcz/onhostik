@@ -52,6 +52,10 @@ class SupportTicket extends Model
         'ai_draft',
         'ai_analysed_at',
         'sla_breach_notified_at',
+        'escalated_at',
+        'csat_score',
+        'csat_comment',
+        'csat_rated_at',
     ];
 
     protected function casts(): array
@@ -64,6 +68,8 @@ class SupportTicket extends Model
             'sla_deadline'   => 'datetime',
             'ai_analysed_at'          => 'datetime',
             'sla_breach_notified_at'  => 'datetime',
+            'escalated_at'            => 'datetime',
+            'csat_rated_at'           => 'datetime',
         ];
     }
 

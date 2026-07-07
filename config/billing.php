@@ -72,6 +72,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Late fee
+    |--------------------------------------------------------------------------
+    | Set BILLING_LATE_FEE_MINOR > 0 to charge a flat late fee on overdue
+    | invoices. Stored in the invoice's own currency minor units.
+    | Fee is applied once, after BILLING_LATE_FEE_DAYS days past due date.
+    */
+    'late_fee_minor' => (int) env('BILLING_LATE_FEE_MINOR', 0),
+    'late_fee_days'  => (int) env('BILLING_LATE_FEE_DAYS', 7),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Renewal payment failure notification (Phase 111)
+    |--------------------------------------------------------------------------
+    | Days past due_date after which a targeted renewal-failure notification
+    | is sent to the customer and (if count >= threshold) to admins.
+    */
+    'renewal_failure_grace_days'       => (int) env('BILLING_RENEWAL_FAILURE_GRACE_DAYS', 3),
+    'renewal_failure_admin_threshold'  => (int) env('BILLING_RENEWAL_FAILURE_ADMIN_THRESHOLD', 3),
+
+    /*
+    |--------------------------------------------------------------------------
     | Dunning / suspension lifecycle (days relative to due date)
     |--------------------------------------------------------------------------
     */

@@ -36,6 +36,12 @@
                     :value="$withServiceCount"
                     icon="server" color="success" />
             </div>
+            <div class="col-span-6 sm:col-span-12 md:col-span-3">
+                <x-panel.stat-widget
+                    label="S aktivním 2FA"
+                    :value="$with2faCount"
+                    icon="shield" color="warning" />
+            </div>
         </div>
 
         <x-panel.card :title="__('panel.nav.admin_customers')">
@@ -67,6 +73,8 @@
                     'Země / měna',
                     __('panel.nav.admin_orders'),
                     __('panel.nav.admin_services'),
+                    'Zdraví',
+                    '2FA',
                     '',
                 ]">
                     @foreach($customers as $customer)
@@ -87,6 +95,24 @@
                                 <span class="{{ $sc > 0 ? 'badge badge-light-success' : 'f-light' }}">
                                     {{ $sc }}
                                 </span>
+                            </td>
+                            <td>
+                                @if($customer->health_score !== null)
+                                    <span class="badge badge-light-{{ $customer->health_score >= 80 ? 'success' : ($customer->health_score >= 50 ? 'warning' : 'danger') }} f-12">
+                                        {{ $customer->health_score }}
+                                    </span>
+                                @else
+                                    <span class="f-light f-12">—</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if($customer->user?->two_factor_confirmed_at)
+                                    <span class="badge badge-light-success" title="{{ $customer->user->two_factor_confirmed_at->format('d.m.Y') }}">
+                                        <i data-feather="shield" style="width:11px;height:11px;"></i> Aktivní
+                                    </span>
+                                @else
+                                    <span class="badge badge-light-secondary f-light">-</span>
+                                @endif
                             </td>
                             <td>
                                 <a href="{{ route('admin.customers.show', $customer) }}"

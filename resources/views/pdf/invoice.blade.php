@@ -254,6 +254,14 @@
     <p class="note">⚠ Tato zálohová faktura není daňovým dokladem ve smyslu § 31 zákona č. 235/2004 Sb. Daňový doklad bude vystaven po přijetí platby.</p>
     @endunless
 
+    @if($invoice->purchase_order_number)
+    <p class="note">Číslo objednávky (PO): <strong>{{ $invoice->purchase_order_number }}</strong></p>
+    @endif
+
+    @if($invoice->custom_reference)
+    <p class="note">Reference zákazníka: {{ $invoice->custom_reference }}</p>
+    @endif
+
     @if($invoice->notes)
     <p class="note">Poznámka: {{ $invoice->notes }}</p>
     @endif

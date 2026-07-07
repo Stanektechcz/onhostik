@@ -17,6 +17,7 @@ use Spatie\Translatable\HasTranslations;
  * @property ProvisioningDriver|null $provisioning_driver
  * @property bool $is_active
  * @property SalesMode $sales_mode
+ * @property array<string, mixed>|null $resources
  */
 class Product extends Model
 {
@@ -36,6 +37,7 @@ class Product extends Model
         'is_active',
         'sales_mode',
         'sort_order',
+        'resources',
     ];
 
     protected function casts(): array
@@ -45,6 +47,7 @@ class Product extends Model
             'provisioning_driver' => ProvisioningDriver::class,
             'is_active'           => 'boolean',
             'sales_mode'          => SalesMode::class,
+            'resources'           => 'array',
         ];
     }
 

@@ -12,7 +12,7 @@ class KbArticle extends Model
 {
     protected $fillable = [
         'title', 'slug', 'category', 'excerpt', 'body',
-        'is_published', 'sort_order', 'locale',
+        'is_published', 'sort_order', 'locale', 'views_count',
     ];
 
     protected $casts = [
@@ -44,5 +44,11 @@ class KbArticle extends Model
     public function reviews(): HasMany
     {
         return $this->hasMany(KbArticleReview::class);
+    }
+
+    /** @return HasMany<KbArticleComment, $this> */
+    public function comments(): HasMany
+    {
+        return $this->hasMany(KbArticleComment::class, 'kb_article_id');
     }
 }

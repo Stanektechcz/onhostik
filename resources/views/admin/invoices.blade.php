@@ -58,8 +58,11 @@
                     <a href="{{ route('admin.invoices.index') }}" class="btn btn-outline-secondary btn-sm">×</a>
                 @endif
                 <span class="f-light f-12 ms-auto">{{ $invoices->total() }} faktur</span>
+                <a href="{{ route('admin.invoices.adhoc-create') }}" class="btn btn-primary btn-sm ms-2">
+                    <i data-feather="file-plus" style="width:13px;height:13px;"></i> Nová faktura
+                </a>
                 <a href="{{ route('admin.invoices.export', array_filter(['status' => $filter, 'from' => $dateFrom ?? '', 'to' => $dateTo ?? ''])) }}"
-                   class="btn btn-outline-success btn-sm ms-2" title="Export do CSV">
+                   class="btn btn-outline-success btn-sm" title="Export do CSV">
                     <i data-feather="download" style="width:13px;height:13px;"></i> CSV
                 </a>
                 @if($countOverdue > 0)

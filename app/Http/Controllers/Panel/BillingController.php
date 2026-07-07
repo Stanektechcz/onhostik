@@ -327,6 +327,25 @@ class BillingController extends Controller
         return back()->with('status', __('panel.billing.paid_credit'));
     }
 
+    /** Set or update B2B PO number and custom reference on an invoice. */
+    public function updateReference(Request $request, Invoice $invoice): RedirectResponse
+    {
+        $customer = $this->customer($request);
+        abort_if($invoice->customer_id !== $customer->id, 403);
+
+        $validated = $request->validate([
+            'purchase_order_number' => ['nullable', 'string', 'max:100'],
+            'custom_reference'      => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $invoice->update([
+            'purchase_order_number' => $validated['purchase_order_number'] ?: null,
+            'custom_reference'      => $validated['custom_reference'] ?: null,
+        ]);
+
+        return back()->with('status', 'Reference faktury byla uložena.');
+    }
+
     private function customer(Request $request): Customer
     {
         $customer = $request->user()?->customer;

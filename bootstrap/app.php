@@ -32,8 +32,10 @@ $app = Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->alias([
-            'require-admin-2fa' => RequireAdminTwoFactor::class,
-            'log-api-usage'     => LogApiUsage::class,
+            'require-admin-2fa'    => RequireAdminTwoFactor::class,
+            'require-customer-2fa' => \App\Http\Middleware\RequireCustomerTwoFactor::class,
+            'log-api-usage'        => LogApiUsage::class,
+            'admin-ip-allowlist'   => \App\Http\Middleware\CheckAdminIpAllowlist::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

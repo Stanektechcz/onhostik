@@ -18,10 +18,11 @@ beforeEach(function (): void {
 it('admin search page loads without query', function (): void {
     $admin = adminUser();
 
+    // Since Phase 96 the route is a pure JSON API; no query = empty results array.
     $this->actingAs($admin)
         ->get(route('admin.search'))
         ->assertOk()
-        ->assertSee('Hledání');
+        ->assertJson(['results' => []]);
 });
 
 it('admin search returns customer by email', function (): void {
@@ -57,12 +58,13 @@ it('admin search returns service by label', function (): void {
 
 it('admin search returns service by external_id', function (): void {
     $admin   = adminUser();
-    $service = Service::factory()->create(['external_id' => 'EXT-99999']);
+    $service = Service::factory()->create(['external_id' => 'EXT-99999', 'label' => 'test-service']);
 
+    // Since Phase 96 the search is a JSON API; external_id appears in subtitle.
     $this->actingAs($admin)
         ->get(route('admin.search', ['q' => 'EXT-99999']))
         ->assertOk()
-        ->assertSee('EXT-99999');
+        ->assertJsonFragment(['subtitle' => 'Aktivní · EXT-99999']);
 });
 
 it('admin search returns ticket by subject', function (): void {
@@ -83,10 +85,11 @@ it('admin search returns ticket by subject', function (): void {
 it('admin search shows no results message for unknown term', function (): void {
     $admin = adminUser();
 
+    // Since Phase 96 the route is a pure JSON API; empty results = {"results":[]}.
     $this->actingAs($admin)
         ->get(route('admin.search', ['q' => 'xyzzy-no-match-12345']))
         ->assertOk()
-        ->assertSee('Žádné výsledky');
+        ->assertJson(['results' => []]);
 });
 
 // ── Autocomplete endpoint ─────────────────────────────────────────────────────

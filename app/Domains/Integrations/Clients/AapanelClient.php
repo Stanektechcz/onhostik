@@ -50,11 +50,27 @@ final class AapanelClient
             return ['ok' => true, 'dry_run' => true, 'message' => 'Mock/dry-run connection OK (no HTTP sent).'];
         }
 
-        $this->assertRealCallAllowed($this->setting, self::GATE, 'connectionTest', self::REQUIRED);
+        // Connection test is READ-ONLY — bypasses the write gate intentionally.
+        // Only requires credentials present, active, not mock/dry-run.
+        $this->assertReadyForReadCall(self::REQUIRED);
 
         $response = $this->realRequest('/system?action=GetSystemTotal', []);
 
         return ['ok' => true, 'dry_run' => false, 'system' => $response];
+    }
+
+    /** @param list<string> $required */
+    private function assertReadyForReadCall(array $required): void
+    {
+        if (!$this->setting->is_active) {
+            throw new \RuntimeException("[aapanel] connectionTest: provider is inactive.");
+        }
+        $credentials = $this->setting->credentials;
+        foreach ($required as $key) {
+            if (($credentials[$key] ?? '') === '') {
+                throw new \RuntimeException("[aapanel] connectionTest: missing credential [{$key}].");
+            }
+        }
     }
 
     /**

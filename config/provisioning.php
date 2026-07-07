@@ -13,6 +13,9 @@ return [
     */
     'mock_mode' => env('PROVISIONING_MOCK_MODE', true),
 
+    // Hours between repeated quota-breach alerts for the same service.
+    'quota_breach_cooldown_hours' => (int) env('QUOTA_BREACH_COOLDOWN_HOURS', 24),
+
     'wedos' => [
         'user'             => env('WAPI_USER'),
         'password'         => env('WAPI_PASSWORD'),

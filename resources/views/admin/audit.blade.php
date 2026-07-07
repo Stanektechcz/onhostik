@@ -1,4 +1,4 @@
-﻿@extends('layouts.panel')
+@extends('layouts.panel')
 
 @php
     $breadcrumbTitle = __('panel.nav.admin_audit');
@@ -11,26 +11,67 @@
     <div class="container-fluid">
         <x-panel.card :title="__('panel.nav.admin_audit')">
             {{-- Filter bar --}}
-            <form method="GET" action="{{ route('admin.logs.audit') }}" class="mb-4 d-flex gap-2 flex-wrap align-items-center">
-                <select class="form-select" style="max-width: 180px;" name="log">
-                    <option value="">{{ __('panel.admin.all') }}</option>
-                    @foreach(['order', 'invoice', 'payment', 'service', 'provisioning', 'domain', 'customer', 'user', 'credit', 'product', 'integration', 'support'] as $logName)
-                        <option value="{{ $logName }}" @selected($filter === $logName)>{{ $logName }}</option>
-                    @endforeach
-                </select>
-                <input type="text" name="q" class="form-control" style="max-width: 240px;"
-                       placeholder="Hledat popis…" value="{{ request('q') }}">
-                <button type="submit" class="btn btn-outline-primary btn-sm">{{ __('panel.admin.filter') }}</button>
-                @if($filter || request('q'))
-                    <a href="{{ route('admin.logs.audit') }}" class="btn btn-outline-secondary btn-sm">×</a>
-                @endif
-                <div class="ms-auto d-flex align-items-center gap-2">
-                    <span class="f-light f-12">{{ $activities->total() }} záznamů</span>
-                    <a href="{{ route('admin.logs.audit.export') . '?' . http_build_query(array_filter(['log' => $filter ?? '', 'from' => request('from'), 'to' => request('to')])) }}"
-                       class="btn btn-outline-secondary btn-sm">
-                        <i data-feather="download" style="width:12px;height:12px"></i>
-                        CSV
-                    </a>
+            <form method="GET" action="{{ route('admin.logs.audit') }}" class="mb-4">
+                <div class="row g-2 align-items-end">
+                    <div class="col-auto">
+                        <label class="form-label f-12 f-light mb-1">Log</label>
+                        <select class="form-select form-select-sm" name="log">
+                            <option value="">{{ __('panel.admin.all') }}</option>
+                            @foreach(['order','invoice','payment','service','provisioning','domain','customer','user','credit','product','integration','support'] as $logName)
+                                <option value="{{ $logName }}" @selected(($filter ?? '') === $logName)>{{ $logName }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label f-12 f-light mb-1">Popis</label>
+                        <input type="text" name="q" class="form-control form-control-sm" style="width:180px;"
+                               placeholder="Hledat popis…" value="{{ $search ?? '' }}">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label f-12 f-light mb-1">Causer (email)</label>
+                        <input type="text" name="causer" class="form-control form-control-sm" style="width:160px;"
+                               placeholder="admin@…" value="{{ $causerEmail ?? '' }}">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label f-12 f-light mb-1">Typ entity</label>
+                        <input type="text" name="subject_type" class="form-control form-control-sm" style="width:140px;"
+                               placeholder="Order, Invoice…" value="{{ $subjectType ?? '' }}">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label f-12 f-light mb-1">Od</label>
+                        <input type="date" name="from" class="form-control form-control-sm" value="{{ $from ?? '' }}">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label f-12 f-light mb-1">Do</label>
+                        <input type="date" name="to" class="form-control form-control-sm" value="{{ $to ?? '' }}">
+                    </div>
+                    <div class="col-auto">
+                        <button type="submit" class="btn btn-outline-primary btn-sm">{{ __('panel.admin.filter') }}</button>
+                        @if(($filter ?? '') || ($search ?? '') || ($from ?? '') || ($to ?? '') || ($causerEmail ?? '') || ($subjectType ?? ''))
+                            <a href="{{ route('admin.logs.audit') }}" class="btn btn-outline-secondary btn-sm">×</a>
+                        @endif
+                    </div>
+                    <div class="col-auto ms-auto">
+                        <span class="f-light f-12 me-2">{{ $activities->total() }} záznamů</span>
+                        @php
+                            $exportParams = array_filter([
+                                'log'          => $filter ?? '',
+                                'q'            => $search ?? '',
+                                'from'         => $from ?? '',
+                                'to'           => $to ?? '',
+                                'causer'       => $causerEmail ?? '',
+                                'subject_type' => $subjectType ?? '',
+                            ]);
+                        @endphp
+                        <a href="{{ route('admin.logs.audit.export') . '?' . http_build_query($exportParams + ['format' => 'csv']) }}"
+                           class="btn btn-outline-secondary btn-sm">
+                            <i data-feather="download" style="width:12px;height:12px"></i> CSV
+                        </a>
+                        <a href="{{ route('admin.logs.audit.export') . '?' . http_build_query($exportParams + ['format' => 'json']) }}"
+                           class="btn btn-outline-secondary btn-sm ms-1">
+                            <i data-feather="code" style="width:12px;height:12px"></i> JSON
+                        </a>
+                    </div>
                 </div>
             </form>
 
@@ -54,7 +95,7 @@
                                         default => 'primary',
                                     };
                                     $props = $activity->properties->toArray();
-                                    unset($props['attributes'], $props['old']); // hide verbose diff
+                                    unset($props['attributes'], $props['old']);
                                 @endphp
                                 <li>
                                     <div class="timeline-dot-{{ $dotColor }}"></div>
@@ -78,6 +119,9 @@
                                             <span class="f-light">
                                                 <i data-feather="user" style="width:11px;height:11px"></i>
                                                 {{ $activity->causer?->name ?? 'system' }}
+                                                @if($activity->causer?->email)
+                                                    <span class="text-muted">({{ $activity->causer->email }})</span>
+                                                @endif
                                             </span>
                                             @if($activity->subject_id)
                                                 <span class="f-light">

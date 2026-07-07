@@ -25,6 +25,12 @@
                             {{ __('panel.billing.due_date') }}: {{ $invoice->due_date?->format('d.m.Y') }}
                         </span>
                         <span class="badge badge-light-secondary f-12">VS: {{ $invoice->variable_symbol }}</span>
+                        @if($invoice->purchase_order_number)
+                            <span class="badge badge-light-primary f-12">PO: {{ $invoice->purchase_order_number }}</span>
+                        @endif
+                        @if($invoice->custom_reference)
+                            <span class="f-12 text-muted">Ref: {{ $invoice->custom_reference }}</span>
+                        @endif
                         @if($invoice->purpose === 'credit_topup')
                             <span class="badge badge-light-primary">{{ __('panel.billing.purpose_topup') }}</span>
                         @elseif($invoice->purpose === 'renewal')
@@ -69,6 +75,18 @@
                                     <td class="f-w-600">{{ __('panel.common.total') }}</td>
                                     <td class="text-end f-w-600"><x-panel.money :money="$invoice->total" /></td>
                                 </tr>
+                                @if($invoice->late_fee_amount !== null)
+                                <tr>
+                                    <td class="text-warning f-12">
+                                        <i data-feather="alert-circle" style="width:12px;height:12px"></i>
+                                        Upomínkový poplatek
+                                        <small class="text-muted ms-1">({{ $invoice->late_fee_applied_at?->format('d.m.Y') }})</small>
+                                    </td>
+                                    <td class="text-end text-warning f-12">
+                                        +{{ number_format($invoice->late_fee_amount / 100, 0, ',', ' ') }} Kč
+                                    </td>
+                                </tr>
+                                @endif
                             </table>
                         </div>
                     </div>
@@ -98,6 +116,37 @@
                                     {{ __('panel.admin.payment_reminder') }}
                                 </button>
                             </form>
+                        @endif
+                        {{-- Dunning pause / resume --}}
+                        @if($invoice->status->isOpen())
+                            @if($invoice->dunning_paused_until !== null && $invoice->dunning_paused_until->isFuture())
+                                <span class="badge badge-light-warning f-12 align-self-center">
+                                    <i data-feather="pause" style="width:11px;height:11px"></i>
+                                    Upomínání do {{ $invoice->dunning_paused_until->format('d.m.Y') }}
+                                </span>
+                                <form method="POST" action="{{ route('admin.invoices.resume-dunning', $invoice) }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                        <i data-feather="play" style="width:13px;height:13px"></i>
+                                        Obnovit upomínání
+                                    </button>
+                                </form>
+                            @else
+                                <form method="POST" action="{{ route('admin.invoices.pause-dunning', $invoice) }}"
+                                      class="d-flex gap-1 align-items-center">
+                                    @csrf
+                                    <select name="days" class="form-select form-select-sm" style="width:90px">
+                                        <option value="7">7 dní</option>
+                                        <option value="14">14 dní</option>
+                                        <option value="30">30 dní</option>
+                                        <option value="60">60 dní</option>
+                                    </select>
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm text-nowrap">
+                                        <i data-feather="pause" style="width:13px;height:13px"></i>
+                                        Pozastavit upomínání
+                                    </button>
+                                </form>
+                            @endif
                         @endif
                         @if($mockMode && $invoice->status->isOpen())
                             <form method="POST" action="{{ route('admin.invoices.mark-paid', $invoice) }}">

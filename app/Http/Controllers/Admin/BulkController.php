@@ -81,6 +81,71 @@ class BulkController extends Controller
         return back()->with('status', "Ukončení odesláno: {$count} služeb.");
     }
 
+    public function serviceSuspend(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'ids'    => ['required', 'array', 'min:1', 'max:100'],
+            'ids.*'  => ['integer', 'exists:services,id'],
+            'reason' => ['required', 'string', 'min:3', 'max:255'],
+        ]);
+
+        $count = 0;
+        Service::whereIn('id', $validated['ids'])
+            ->where('status', ServiceStatus::Active->value)
+            ->each(function (Service $service) use ($validated, $request, &$count): void {
+                ChangeServiceStateJob::dispatch($service->id, 'suspend', $validated['reason']);
+                activity('provisioning')
+                    ->performedOn($service)
+                    ->causedBy($request->user())
+                    ->withProperties(['operation' => 'bulk_suspend', 'reason' => $validated['reason']])
+                    ->log('service.bulk_suspend_requested');
+                $count++;
+            });
+
+        return back()->with('status', "Pozastavení odesláno: {$count} služeb.");
+    }
+
+    public function serviceResume(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'ids'   => ['required', 'array', 'min:1', 'max:100'],
+            'ids.*' => ['integer', 'exists:services,id'],
+        ]);
+
+        $count = 0;
+        Service::whereIn('id', $validated['ids'])
+            ->where('status', ServiceStatus::Suspended->value)
+            ->each(function (Service $service) use ($request, &$count): void {
+                ChangeServiceStateJob::dispatch($service->id, 'unsuspend', '');
+                activity('provisioning')
+                    ->performedOn($service)
+                    ->causedBy($request->user())
+                    ->withProperties(['operation' => 'bulk_resume'])
+                    ->log('service.bulk_resume_requested');
+                $count++;
+            });
+
+        return back()->with('status', "Obnovení odesláno: {$count} služeb.");
+    }
+
+    public function serviceSetAutoRenew(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'ids'        => ['required', 'array', 'min:1', 'max:200'],
+            'ids.*'      => ['integer', 'exists:services,id'],
+            'auto_renew' => ['required', 'boolean'],
+        ]);
+
+        $autoRenew = (bool) $validated['auto_renew'];
+
+        $count = Service::whereIn('id', $validated['ids'])
+            ->whereNull('terminated_at')
+            ->update(['auto_renew' => $autoRenew]);
+
+        $label = $autoRenew ? 'zapnuta' : 'vypnuta';
+        return back()->with('status', "Automatická obnova {$label} u {$count} služeb.");
+    }
+
     public function serviceExport(Request $request): StreamedResponse
     {
         $validated = $request->validate([

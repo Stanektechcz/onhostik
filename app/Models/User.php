@@ -23,6 +23,9 @@ use Spatie\Permission\Traits\HasRoles;
  * Customer model (1:1) — see App\Domains\Customer\Models\Customer.
  *
  * @property array<string, list<string>>|null $notification_preferences
+ * @property \Illuminate\Support\Carbon|null   $last_login_at
+ * @property \Illuminate\Support\Carbon|null   $two_factor_confirmed_at
+ * @property \Illuminate\Support\Carbon|null   $deletion_requested_at
  */
 class User extends Authenticatable
 {
@@ -53,6 +56,9 @@ class User extends Authenticatable
         'two_factor_confirmed_at',
         'deletion_requested_at',
         'remember_token',
+        'email_suppressed_at',
+        'digest_frequency',
+        'dark_mode',
     ];
 
     protected $hidden = [
@@ -71,6 +77,8 @@ class User extends Authenticatable
             'notification_preferences'   => 'array',
             'last_login_at'              => 'datetime',
             'two_factor_confirmed_at'    => 'datetime',
+            'email_suppressed_at'        => 'datetime',
+            'dark_mode'                  => 'boolean',
         ];
     }
 

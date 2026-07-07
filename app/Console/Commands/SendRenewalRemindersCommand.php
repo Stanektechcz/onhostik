@@ -13,28 +13,35 @@ use Illuminate\Console\Command;
 
 /**
  * Sends renewal reminder emails to customers whose services are due in
- * 14, 7, or 3 days and have an open renewal invoice.
- * Safe to re-run daily — fires once per threshold per service.
+ * 30, 14, 7, or 1 day(s) and have an open renewal invoice.
+ * Safe to re-run daily — fires once per threshold per service per cycle.
  */
 class SendRenewalRemindersCommand extends Command
 {
     protected $signature   = 'billing:send-renewal-reminders';
-    protected $description = 'Send renewal reminder emails at 14d, 7d, and 3d before service expiry';
+    protected $description = 'Send renewal reminder emails at 30d, 14d, 7d, and 1d before service expiry';
+
+    /** @var array<int, string> */
+    private const THRESHOLDS = [
+        30 => 'renewal_reminder_30d_sent_at',
+        14 => 'renewal_reminder_14d_sent_at',
+        7  => 'renewal_reminder_7d_sent_at',
+        1  => 'renewal_reminder_1d_sent_at',
+    ];
 
     public function handle(): int
     {
-        $thresholds = [14, 7, 3];
-        $sent       = 0;
+        $sent = 0;
 
-        foreach ($thresholds as $days) {
+        foreach (self::THRESHOLDS as $days => $sentColumn) {
             $targetDate = now()->addDays($days)->toDateString();
 
             Service::query()
                 ->where('status', ServiceStatus::Active)
                 ->whereDate('next_due_date', $targetDate)
+                ->whereNull($sentColumn)
                 ->with(['customer.user'])
-                ->each(function (Service $service) use ($days, &$sent): void {
-                    // Find the open renewal invoice for this service
+                ->each(function (Service $service) use ($days, $sentColumn, &$sent): void {
                     $invoice = Invoice::query()
                         ->where('renewal_service_id', $service->id)
                         ->whereIn('status', [InvoiceStatus::Sent, InvoiceStatus::Overdue])
@@ -53,6 +60,7 @@ class SendRenewalRemindersCommand extends Command
 
                     try {
                         $user->notify(new RenewalReminderNotification($service, $invoice, $days));
+                        $service->update([$sentColumn => now()]);
                         $sent++;
                     } catch (\Throwable $e) {
                         report($e);

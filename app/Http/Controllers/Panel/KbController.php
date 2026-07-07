@@ -10,6 +10,7 @@ use App\Models\KbArticleReview;
 use App\Models\KbArticleVote;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 class KbController extends Controller
@@ -77,6 +78,13 @@ class KbController extends Controller
             ->where('is_visible', true)
             ->latest()
             ->get();
+
+        // Increment view counter once per IP per article per day (cache-guarded)
+        $cacheKey = 'kb_view_' . $article->id . '_' . request()->ip();
+        if (! Cache::has($cacheKey)) {
+            $article->increment('views_count');
+            Cache::put($cacheKey, true, now()->endOfDay());
+        }
 
         return view('panel.kb.show', compact('article', 'related', 'allCategories', 'voteStats', 'userVote', 'reviews'));
     }

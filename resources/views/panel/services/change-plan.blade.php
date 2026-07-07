@@ -66,14 +66,6 @@
                         <span>{{ __('panel.services.plan_change_note') }}</span>
                     </div>
 
-                    {{-- Billing preview box --}}
-                    <div id="billing-preview" class="alert alert-light-info f-12 d-none mb-3" role="alert">
-                        <div class="d-flex gap-2 align-items-start">
-                            <i data-feather="info" style="width:14px;height:14px;margin-top:2px;flex-shrink:0" class="font-info"></i>
-                            <div id="billing-preview-text"></div>
-                        </div>
-                    </div>
-
                     <div class="grid grid-cols-12 gap-3">
                         @foreach($availablePlans as $plan)
                             @php
@@ -88,9 +80,7 @@
                                 $upgradeText  = $isUpgrade ? __('panel.services.upgrade') : __('panel.services.downgrade');
                             @endphp
                             <div class="col-span-6 md:col-span-12">
-                                <div class="border rounded p-3 h-100 plan-card"
-                                     data-plan-id="{{ $plan->id }}"
-                                     data-preview-url="{{ route('panel.services.change-plan-preview', $service) }}">
+                                <div class="border rounded p-3 h-100">
                                     <div class="d-flex justify-content-between align-items-start mb-2">
                                         <div>
                                             <span class="f-w-600">{{ $plan->name }}</span>
@@ -113,13 +103,15 @@
                                         </ul>
                                     @endif
 
-                                    <form method="POST" action="{{ route('panel.services.apply-change-plan', $service) }}">
-                                        @csrf
-                                        <input type="hidden" name="plan_id" value="{{ $plan->id }}">
-                                        <button type="submit" class="btn btn-{{ $upgradeLabel }} btn-sm w-100">
-                                            {{ $upgradeText }} → {{ $plan->name }}
-                                        </button>
-                                    </form>
+                                    <button type="button"
+                                            class="btn btn-{{ $upgradeLabel }} btn-sm w-100 plan-change-btn"
+                                            data-plan-id="{{ $plan->id }}"
+                                            data-plan-name="{{ $plan->name }}"
+                                            data-action-label="{{ $upgradeText }}"
+                                            data-preview-url="{{ route('panel.services.change-plan-preview', $service) }}"
+                                            data-submit-url="{{ route('panel.services.apply-change-plan', $service) }}">
+                                        {{ $upgradeText }} → {{ $plan->name }}
+                                    </button>
                                 </div>
                             </div>
                         @endforeach
@@ -127,28 +119,50 @@
 
                     @push('scripts')
                     <script>
-                    document.querySelectorAll('.plan-card').forEach(function(card) {
-                        card.addEventListener('mouseenter', function() {
-                            var planId  = this.dataset.planId;
-                            var url     = this.dataset.previewUrl + '?plan_id=' + planId;
-                            var preview = document.getElementById('billing-preview');
-                            var text    = document.getElementById('billing-preview-text');
+                    document.querySelectorAll('.plan-change-btn').forEach(function(btn) {
+                        btn.addEventListener('click', function() {
+                            var planId      = this.dataset.planId;
+                            var planName    = this.dataset.planName;
+                            var actionLabel = this.dataset.actionLabel;
+                            var previewUrl  = this.dataset.previewUrl + '?plan_id=' + planId;
+                            var submitUrl   = this.dataset.submitUrl;
 
-                            fetch(url, {
-                                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                            })
-                            .then(function(r) { return r.json(); })
-                            .then(function(d) {
-                                var dir    = d.is_upgrade ? '▲' : '▼';
-                                var action = d.is_upgrade ? 'Upgrade' : 'Downgrade';
-                                var msg    = action + ' ' + dir + ' — nová cena: <strong>' + d.new_plan_price.toFixed(2) + ' ' + d.currency + '</strong> / cyklus';
-                                if (d.prorated_days > 0 && d.prorated_amount > 0) {
-                                    msg += ' &mdash; dnes doplatíte <strong>' + d.prorated_amount.toFixed(2) + ' ' + d.currency + '</strong> (poměrná část za zbývajících ' + d.prorated_days + ' dní)';
-                                }
-                                text.innerHTML = msg;
-                                preview.classList.remove('d-none');
-                            })
-                            .catch(function() { preview.classList.add('d-none'); });
+                            var modal = document.getElementById('planChangeModal');
+                            var title = document.getElementById('pcmTitle');
+                            var body  = document.getElementById('pcmBody');
+                            var form  = document.getElementById('pcmForm');
+
+                            title.textContent = actionLabel + ' na plán ' + planName;
+                            body.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Načítám náhled…</div>';
+                            form.action = submitUrl;
+                            document.getElementById('pcmPlanId').value = planId;
+
+                            var bsModal = new bootstrap.Modal(modal);
+                            bsModal.show();
+
+                            fetch(previewUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                                .then(function(r) { return r.json(); })
+                                .then(function(d) {
+                                    var cur  = d.current_plan_price.toFixed(2) + ' ' + d.currency;
+                                    var next = d.new_plan_price.toFixed(2) + ' ' + d.currency;
+                                    var html = '<table class="table table-sm table-borderless mb-3">'
+                                        + '<tr><td class="f-light">Aktuální cena / cyklus</td><td class="f-w-500">' + cur + '</td></tr>'
+                                        + '<tr><td class="f-light">Nová cena / cyklus</td><td class="f-w-600 ' + (d.is_upgrade ? 'txt-primary' : 'txt-warning') + '">' + next + '</td></tr>'
+                                        + '</table>';
+                                    if (d.prorated_days > 0 && d.prorated_amount > 0) {
+                                        html += '<div class="alert alert-light-' + (d.is_upgrade ? 'info' : 'warning') + ' f-12">'
+                                            + '<i data-feather="info" style="width:13px;height:13px"></i> '
+                                            + 'Poměrná část za zbývajících <strong>' + d.prorated_days + ' dní</strong>: <strong>' + d.prorated_amount.toFixed(2) + ' ' + d.currency + '</strong>'
+                                            + '</div>';
+                                    } else {
+                                        html += '<div class="alert alert-light-success f-12">Žádný příplatek dnes — změna nastoupí od příštího fakturačního cyklu.</div>';
+                                    }
+                                    body.innerHTML = html;
+                                    if (typeof feather !== 'undefined') { feather.replace(); }
+                                })
+                                .catch(function() {
+                                    body.innerHTML = '<p class="text-danger f-12">Nepodařilo se načíst náhled ceny.</p>';
+                                });
                         });
                     });
                     </script>
@@ -157,6 +171,33 @@
             </x-panel.card>
         </div>
 
+    </div>
+</div>
+
+{{-- Plan-change confirmation modal --}}
+<div class="modal fade" id="planChangeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content bg-colorstyle">
+            <div class="modal-header">
+                <h5 class="modal-title mergecolor" id="pcmTitle">Změna plánu</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body seccolor">
+                <div id="pcmBody"></div>
+                <p class="f-12 f-light mb-0">Potvrďte změnu plánu. Přesměrujeme vás na dokončení objednávky.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Zrušit</button>
+                <form id="pcmForm" method="POST" action="">
+                    @csrf
+                    <input type="hidden" name="plan_id" id="pcmPlanId" value="">
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i data-feather="check" style="width:13px;height:13px"></i>
+                        Potvrdit změnu
+                    </button>
+                </form>
+            </div>
+        </div>
     </div>
 </div>
 @endsection

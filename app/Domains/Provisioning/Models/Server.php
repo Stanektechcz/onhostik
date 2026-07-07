@@ -7,6 +7,8 @@ namespace App\Domains\Provisioning\Models;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Shared\Traits\HasUuid;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use Database\Factories\ServerFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Crypt;
@@ -18,10 +20,15 @@ use Illuminate\Support\Facades\Crypt;
  * Plaintext secrets are NEVER stored, logged or returned via API.
  *
  * @property-read array<string,string> $api_credentials  Decrypted credential map (via Attribute accessor)
+ * @property array<string,mixed>|null $capacity_meta
+ * @property int|null $max_services
+ * @property int $current_services
+ * @property-read int $active_services_count
  */
 class Server extends Model
 {
-    use HasUuid;
+    /** @use HasFactory<ServerFactory> */
+    use HasFactory, HasUuid;
 
     protected $fillable = [
         'name',

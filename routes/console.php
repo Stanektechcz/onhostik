@@ -3,6 +3,12 @@
 declare(strict_types=1);
 
 use App\Console\Commands\AcmeSslRenewCommand;
+use App\Console\Commands\ComputeHealthScoresCommand;
+use App\Console\Commands\HandleRenewalPaymentFailuresCommand;
+use App\Console\Commands\ApplyLateFeesCommand;
+use App\Console\Commands\CheckServiceQuotaBreachesCommand;
+use App\Console\Commands\CheckKpiAlertsCommand;
+use App\Console\Commands\SendMaintenanceRemindersCommand;
 use App\Console\Commands\EscalateBreachedSlaTicketsCommand;
 use App\Console\Commands\ApproveEligibleCommissionsCommand;
 use App\Console\Commands\ProcessGdprErasureRequestsCommand;
@@ -15,7 +21,12 @@ use App\Console\Commands\ProcessDomainRenewalsCommand;
 use App\Console\Commands\RunMonitorChecksCommand;
 use App\Console\Commands\SendDomainExpiringRemindersCommand;
 use App\Console\Commands\SendPaymentOverdueRemindersCommand;
+use App\Console\Commands\ExpireCreditCommand;
+use App\Console\Commands\SendCreditExpiryRemindersCommand;
+use App\Console\Commands\SendInvoiceDueRemindersCommand;
 use App\Console\Commands\SendRenewalRemindersCommand;
+use App\Console\Commands\SendServiceSuspensionWarningsCommand;
+use App\Console\Commands\SendWeeklyDigestCommand;
 use App\Console\Commands\SuspendOverdueServicesCommand;
 use App\Console\Commands\SyncServiceUsageCommand;
 use App\Console\Commands\TerminateOverdueServicesCommand;
@@ -82,9 +93,22 @@ Schedule::command(RunMonitorChecksCommand::class)
     ->withoutOverlapping()
     ->runInBackground();
 
+// Send "invoice due tomorrow" reminder 1 day before due date.
+Schedule::command(SendInvoiceDueRemindersCommand::class)
+    ->dailyAt('06:45')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // Send payment-overdue reminder emails at 1d, 3d, and 7d milestones.
 Schedule::command(SendPaymentOverdueRemindersCommand::class)
     ->dailyAt('07:00')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Warn customers that their service will be suspended in N days (before the
+// billing:suspend-overdue job fires). Tracked via suspension_warning_sent_at.
+Schedule::command(SendServiceSuspensionWarningsCommand::class)
+    ->dailyAt('07:05')
     ->withoutOverlapping()
     ->runInBackground();
 
@@ -135,6 +159,61 @@ Schedule::command(AcmeSslRenewCommand::class)
 // Escalate SLA-breached support tickets and notify admins.
 // Runs hourly so breach detection lag is at most 60 minutes.
 Schedule::command(EscalateBreachedSlaTicketsCommand::class)
+    ->hourly()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Send credit expiry reminders at 30d and 7d before expires_at.
+Schedule::command(SendCreditExpiryRemindersCommand::class)
+    ->dailyAt('07:45')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Write Expiry deduction ledger rows for deposits whose expires_at has passed.
+Schedule::command(ExpireCreditCommand::class)
+    ->dailyAt('01:45')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Evaluate KPI thresholds daily and notify admins on breach.
+Schedule::command(CheckKpiAlertsCommand::class)
+    ->dailyAt('08:30')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Send weekly account summary to customers on Monday morning.
+Schedule::command(SendWeeklyDigestCommand::class)
+    ->weeklyOn(1, '08:00') // Monday at 08:00
+    ->withoutOverlapping()
+    ->runInBackground();
+
+
+// Send 24-hour reminders for upcoming maintenance windows.
+Schedule::command(SendMaintenanceRemindersCommand::class)
+    ->hourly()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Apply flat late fee to overdue invoices after the configured grace period.
+Schedule::command(ApplyLateFeesCommand::class)
+    ->dailyAt('07:10')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Recompute customer health scores nightly for CRM dashboards.
+Schedule::command(ComputeHealthScoresCommand::class)
+    ->dailyAt('02:30')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Send targeted renewal-failure notifications after the configured grace period.
+Schedule::command(HandleRenewalPaymentFailuresCommand::class)
+    ->dailyAt('07:20')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Alert admins when services breach resource quota thresholds (after SyncServiceUsage).
+Schedule::command(CheckServiceQuotaBreachesCommand::class)
     ->hourly()
     ->withoutOverlapping()
     ->runInBackground();

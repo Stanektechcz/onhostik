@@ -40,6 +40,7 @@ class CustomerController extends Controller
             'companyCount'   => Customer::where('type', 'company')->count(),
             'personCount'    => Customer::where('type', 'person')->count(),
             'withServiceCount' => Customer::has('services')->count(),
+            'with2faCount'   => Customer::whereHas('user', fn ($q) => $q->whereNotNull('two_factor_confirmed_at'))->count(),
         ]);
     }
 
@@ -104,19 +105,24 @@ class CustomerController extends Controller
     public function show(Customer $customer, CreditLedger $ledger): View
     {
         return view('admin.customer-show', [
-            'customer' => $customer->load(['user', 'addresses']),
-            'orders'   => $customer->orders()->latest('id')->limit(10)->get(),
-            'invoices' => $customer->invoices()->latest('id')->limit(10)->get(),
-            'payments' => $customer->payments()->with('invoice')->latest('id')->limit(10)->get(),
-            'services' => $customer->services()->with('product')->latest('id')->limit(10)->get(),
-            'domains'  => DomainRegistration::query()
+            'customer'      => $customer->load(['user', 'addresses']),
+            'orders'        => $customer->orders()->latest('id')->limit(10)->get(),
+            'invoices'      => $customer->invoices()->latest('id')->limit(10)->get(),
+            'payments'      => $customer->payments()->with('invoice')->latest('id')->limit(10)->get(),
+            'services'      => $customer->services()->with('product')->latest('id')->limit(10)->get(),
+            'domains'       => DomainRegistration::query()
                 ->whereHas('service', fn ($query) => $query->where('customer_id', $customer->id))
                 ->latest('id')
                 ->limit(10)
                 ->get(),
-            'balance' => $ledger->getBalance($customer),
-            'ledger'  => $ledger->getHistory($customer, 10),
-            'tickets' => $customer->supportTickets()->latest('id')->limit(5)->get(),
+            'balance'       => $ledger->getBalance($customer),
+            'ledger'        => $ledger->getHistory($customer, 10),
+            'tickets'       => $customer->supportTickets()->latest('id')->limit(5)->get(),
+            'internalNotes' => \App\Models\CustomerInternalNote::where('customer_id', $customer->id)
+                ->with('admin')
+                ->orderByDesc('is_pinned')
+                ->latest()
+                ->get(),
         ]);
     }
 
@@ -168,5 +174,16 @@ class CustomerController extends Controller
         $customer->update(['admin_notes' => $validated['admin_notes']]);
 
         return back()->with('status', __('panel.admin.notes_saved'));
+    }
+
+    public function updatePreferredContact(Request $request, Customer $customer): RedirectResponse
+    {
+        $validated = $request->validate([
+            'preferred_contact' => ['nullable', 'in:email,phone,ticket,none'],
+        ]);
+
+        $customer->update(['preferred_contact' => $validated['preferred_contact'] ?: null]);
+
+        return back()->with('status', 'Preferovaný kontakt uložen.');
     }
 }

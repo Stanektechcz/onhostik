@@ -87,6 +87,18 @@
                         <tr><td class="f-light">{{ __('panel.orders.subtotal') }}</td><td class="text-end"><x-panel.money :money="$invoice->subtotal" /></td></tr>
                         <tr><td class="f-light">{{ __('panel.orders.vat') }}</td><td class="text-end"><x-panel.money :money="$invoice->tax_amount" /></td></tr>
                         <tr><td class="f-w-600">{{ __('panel.common.total') }}</td><td class="text-end f-w-600"><x-panel.money :money="$invoice->total" /></td></tr>
+                        @if($invoice->late_fee_amount !== null)
+                        <tr>
+                            <td class="text-warning f-12">
+                                <i data-feather="alert-circle" style="width:12px;height:12px"></i>
+                                Upomínkový poplatek
+                                <small class="text-muted ms-1">({{ $invoice->late_fee_applied_at?->format('d.m.Y') }})</small>
+                            </td>
+                            <td class="text-end text-warning f-12">
+                                +{{ number_format($invoice->late_fee_amount / 100, 0, ',', ' ') }} Kč
+                            </td>
+                        </tr>
+                        @endif
                     </table>
                 </div>
             </div>
@@ -194,5 +206,43 @@
                 </x-panel.data-table>
             </x-panel.card>
         @endif
+
+        {{-- B2B reference fields (Phase 101) --}}
+        <x-panel.card title="Vaše reference">
+            @if(session('status') === 'Reference faktury byla uložena.')
+                <div class="alert alert-success py-2 mb-3 f-12">Reference faktury byla uložena.</div>
+            @endif
+            <p class="f-12 text-muted mb-3">
+                Vyplňte číslo objednávky (PO) nebo vlastní referenci — pole se zobrazí na faktuře a v PDF.
+            </p>
+            <form method="POST" action="{{ route('panel.billing.invoices.update-reference', $invoice) }}">
+                @csrf
+                @method('PUT')
+                <div class="row g-3">
+                    <div class="col-md-5">
+                        <label class="form-label f-12 f-w-600">Číslo objednávky (PO)</label>
+                        <input type="text" name="purchase_order_number" maxlength="100"
+                            value="{{ old('purchase_order_number', $invoice->purchase_order_number) }}"
+                            class="form-control form-control-sm @error('purchase_order_number') is-invalid @enderror"
+                            placeholder="Např. PO-2024-0042">
+                        @error('purchase_order_number')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label f-12 f-w-600">Vlastní reference</label>
+                        <input type="text" name="custom_reference" maxlength="255"
+                            value="{{ old('custom_reference', $invoice->custom_reference) }}"
+                            class="form-control form-control-sm @error('custom_reference') is-invalid @enderror"
+                            placeholder="Např. projekt Alfa / účetní středisko">
+                        @error('custom_reference')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary btn-sm w-100">
+                            <i data-feather="save" style="width:13px;height:13px"></i>
+                            Uložit
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </x-panel.card>
     </div>
 @endsection

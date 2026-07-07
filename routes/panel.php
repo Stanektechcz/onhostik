@@ -19,14 +19,21 @@ use App\Http\Controllers\Admin\SiteContentController;
 | header and front components.
 */
 
-Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function (): void {
+Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('panel.')->group(function (): void {
     Route::get('/', [Panel\DashboardController::class, 'index'])->name('dashboard');
     Route::post('/onboarding/dismiss', [Panel\OnboardingController::class, 'dismiss'])->name('onboarding.dismiss');
+    Route::post('/oznameni/{announcement}/skryt', [Panel\AnnouncementDismissController::class, 'dismiss'])->name('announcements.dismiss');
 
     Route::get('/sluzby', [Panel\ServiceController::class, 'index'])->name('services.index');
+    Route::get('/sluzby/kalendar.ics', [Panel\ServiceCalendarController::class, 'download'])->name('services.calendar');
+    Route::get('/sluzby/firewall', [Panel\ServiceFirewallRuleController::class, 'index'])->name('service-firewall-rules.index');
+    Route::post('/sluzby/firewall', [Panel\ServiceFirewallRuleController::class, 'store'])->name('service-firewall-rules.store');
+    Route::delete('/sluzby/firewall/{serviceFirewallRule}', [Panel\ServiceFirewallRuleController::class, 'destroy'])->name('service-firewall-rules.destroy');
     Route::get('/sluzby/{service}', [Panel\ServiceController::class, 'show'])->name('services.show');
     Route::post('/sluzby/{service}/zaloha', [Panel\ServiceController::class, 'requestBackup'])->name('services.backup');
+    Route::put('/sluzby/{service}/zaloha-plan', [Panel\ServiceController::class, 'updateBackupSchedule'])->name('services.backup-schedule');
     Route::post('/sluzby/{service}/wordpress', [Panel\ServiceController::class, 'installWordpress'])->name('services.wordpress');
+    Route::get('/sluzby/{service}/export-pouziti', [Panel\ServiceUsageExportController::class, 'export'])->name('services.usage-export');
     Route::get('/sluzby/{service}/zmenit-plan', [Panel\ServiceController::class, 'changePlan'])->name('services.change-plan');
     Route::get('/sluzby/{service}/zmenit-plan/nahled', [Panel\ServiceController::class, 'changePlanPreview'])->name('services.change-plan-preview');
     Route::post('/sluzby/{service}/zmenit-plan', [Panel\ServiceController::class, 'applyChangePlan'])->name('services.apply-change-plan');
@@ -36,6 +43,7 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/sluzby/{service}/zrusit-na-konci', [Panel\ServiceController::class, 'cancelAtPeriodEnd'])->name('services.cancel-at-period-end');
     Route::put('/sluzby/{service}/poznamka', [Panel\ServiceController::class, 'updateNote'])->name('services.update-note');
     Route::post('/sluzby/{service}/auto-obnova', [Panel\ServiceController::class, 'toggleAutoRenew'])->name('services.toggle-auto-renew');
+    Route::patch('/sluzby/{service}/prejmenovat', [Panel\ServiceController::class, 'rename'])->name('services.rename');
 
     // Service add-ons
     Route::get('/sluzby/{service}/doplnky',                  [Panel\ServiceAddonController::class, 'index'])->name('services.addons.index');
@@ -93,9 +101,15 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::post('/oblibene/pridat/{plan}', [Panel\WishlistController::class, 'add'])->name('wishlist.add');
     Route::delete('/oblibene/odebrat/{plan}', [Panel\WishlistController::class, 'remove'])->name('wishlist.remove');
 
+    Route::post('/fakturace/faktury/stazeni-zip', [Panel\InvoiceBulkDownloadController::class, 'download'])->name('billing.invoices.bulk-zip');
+    Route::get('/fakturace/vykaz', [Panel\BillingStatementController::class, 'index'])->name('billing.statement');
+    Route::get('/fakturace/vykaz/{year}/{month}', [Panel\BillingStatementController::class, 'download'])->name('billing.statement.download')->where(['year' => '[0-9]{4}', 'month' => '[0-9]{1,2}']);
     Route::get('/fakturace/faktury', [Panel\BillingController::class, 'invoices'])->name('billing.invoices');
     Route::get('/fakturace/faktury/{invoice}', [Panel\BillingController::class, 'invoiceShow'])->name('billing.invoices.show');
     Route::get('/fakturace/faktury/{invoice}/tisk', [Panel\BillingController::class, 'invoicePrint'])->name('billing.invoices.print');
+    Route::put('/fakturace/faktury/{invoice}/reference', [Panel\BillingController::class, 'updateReference'])->name('billing.invoices.update-reference');
+    Route::post('/fakturace/faktury/{invoice}/namitka', [Panel\InvoiceDisputeController::class, 'store'])->name('billing.invoices.dispute');
+    Route::post('/fakturace/faktury/{invoice}/splatkovy-plan', [Panel\InvoiceInstallmentController::class, 'store'])->name('billing.invoices.installment');
     Route::post('/fakturace/faktury/{invoice}/zaplatit/mock', [Panel\BillingController::class, 'payMock'])->name('billing.invoices.pay-mock');
     Route::post('/fakturace/faktury/{invoice}/zaplatit/kredit', [Panel\BillingController::class, 'payCredit'])->name('billing.invoices.pay-credit');
     Route::post('/fakturace/faktury/{invoice}/zaplatit/comgate', [Panel\BillingController::class, 'payComgate'])->name('billing.invoices.pay-comgate');
@@ -107,6 +121,8 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::get('/fakturace/platby', [Panel\BillingController::class, 'payments'])->name('billing.payments');
     Route::get('/fakturace/kredit', [Panel\BillingController::class, 'credits'])->name('billing.credits');
     Route::post('/fakturace/kredit/dobit', [Panel\BillingController::class, 'topUp'])->name('billing.credits.topup');
+    Route::get('/fakturace/kredit/auto-dobiti', [Panel\CreditAutoTopupController::class, 'show'])->name('billing.auto-topup.show');
+    Route::put('/fakturace/kredit/auto-dobiti', [Panel\CreditAutoTopupController::class, 'update'])->name('billing.auto-topup.update');
 
     Route::get('/dns-manager', [Panel\DnsZoneController::class, 'index'])->name('dns-manager.index');
     Route::post('/dns-manager', [Panel\DnsZoneController::class, 'store'])->name('dns-manager.store');
@@ -130,6 +146,9 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
     Route::get('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'billing'])->name('account.billing');
     Route::put('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'updateBilling'])->name('account.billing.update');
     Route::get('/ucet/zabezpeceni', [Panel\AccountController::class, 'security'])->name('account.security');
+    Route::get('/ucet/relace', [Panel\SessionController::class, 'index'])->name('account.sessions');
+    Route::delete('/ucet/relace/{sessionId}', [Panel\SessionController::class, 'destroy'])->name('account.sessions.destroy');
+    Route::delete('/ucet/relace', [Panel\SessionController::class, 'destroyOthers'])->name('account.sessions.destroy-others');
     Route::put('/ucet/zmena-hesla', [Panel\AccountController::class, 'updatePassword'])->name('account.password.update');
     Route::get('/ucet/notifikace', [Panel\AccountController::class, 'notificationPreferences'])->name('account.notification-preferences');
     Route::put('/ucet/notifikace', [Panel\AccountController::class, 'updateNotificationPreferences'])->name('account.notification-preferences.update');
@@ -162,7 +181,198 @@ Route::middleware(['auth'])->prefix('panel')->name('panel.')->group(function ():
 
     Route::get('/reseller-program', [Panel\ResellerController::class, 'index'])->name('reseller-program');
     Route::post('/reseller-program', [Panel\ResellerController::class, 'store'])->name('reseller-program.apply');
+
+    /* ── Activity feed (Phase 93) ── */
+    Route::get('/aktivity', [Panel\ActivityFeedController::class, 'index'])->name('activity-feed');
+
+    /* ── Outgoing webhooks (Phase 117) ── */
+    Route::prefix('/webhooky')->name('webhooks.')->group(function (): void {
+        Route::get('/',                              [Panel\WebhookController::class, 'index'])->name('index');
+        Route::post('/',                             [Panel\WebhookController::class, 'store'])->name('store');
+        Route::post('/{webhook}/prepnout',           [Panel\WebhookController::class, 'toggle'])->name('toggle');
+        Route::delete('/{webhook}',                  [Panel\WebhookController::class, 'destroy'])->name('destroy');
+        Route::get('/{webhook}/doruceni',            [Panel\WebhookController::class, 'deliveries'])->name('deliveries');
+    });
+
+    /* ── Phase 158: 2FA Recovery Codes ── */
+    Route::get('/ucet/2fa-zalohy', [Panel\TwoFactorRecoveryController::class, 'show'])->name('account.2fa-recovery.show');
+    Route::post('/ucet/2fa-zalohy/regenerovat', [Panel\TwoFactorRecoveryController::class, 'regenerate'])->name('account.2fa-recovery.regenerate');
+
+    /* ── Phase 160: Service Billing Pause (customer) ── */
+    Route::post('/sluzby/{service}/pozastavit-fakturaci', [Panel\ServiceBillingPauseController::class, 'store'])->name('services.billing-pause.store');
+    Route::delete('/sluzby/{service}/pozastavit-fakturaci', [Panel\ServiceBillingPauseController::class, 'destroy'])->name('services.billing-pause.destroy');
+
+    /* ── Phase 166: Digest Frequency ── */
+    Route::get('/ucet/digest-frekvence', [Panel\DigestFrequencyController::class, 'show'])->name('account.digest-frequency.show');
+    Route::patch('/ucet/digest-frekvence', [Panel\DigestFrequencyController::class, 'update'])->name('account.digest-frequency.update');
+
+    /* ── Phase 168: Customer API Usage Dashboard ── */
+    Route::get('/api/pouziti', [Panel\ApiUsageDashboardController::class, 'index'])->name('api.usage-dashboard');
+
+    /* ── Phase 173: Dark Mode Toggle ── */
+    Route::post('/ucet/dark-mode', [Panel\DarkModeController::class, 'toggle'])->name('account.dark-mode.toggle');
+
+    /* ── Phase 175: Service Resource Usage Alert ── */
+    Route::patch('/sluzby/{service}/prah-upozorneni', [Panel\ServiceUsageAlertController::class, 'update'])->name('services.usage-alert.update');
+
+    /* ── Phase 177: Referral Reward History ── */
+    Route::get('/doporuceni/odmeny', [Panel\ReferralRewardController::class, 'index'])->name('referrals.rewards.index');
+
+    /* ── Phase 179: Login History ── */
+    Route::get('/ucet/historie-prihlaseni', [Panel\LoginHistoryController::class, 'index'])->name('account.login-history');
+
+    /* ── Phase 181: Ticket File Attachments ── */
+    Route::post('/podpora/{ticket}/prilohy', [Panel\TicketAttachmentController::class, 'store'])->name('support.attachments.store');
+    Route::delete('/podpora/prilohy/{attachment}', [Panel\TicketAttachmentController::class, 'destroy'])->name('support.attachments.destroy');
+
+    /* ── Phase 183: Saved Payment Methods ── */
+    Route::get('/platebni-metody', [Panel\SavedPaymentMethodController::class, 'index'])->name('payment-methods.index');
+    Route::post('/platebni-metody', [Panel\SavedPaymentMethodController::class, 'store'])->name('payment-methods.store');
+    Route::patch('/platebni-metody/{method}/vychozi', [Panel\SavedPaymentMethodController::class, 'setDefault'])->name('payment-methods.default');
+    Route::delete('/platebni-metody/{method}', [Panel\SavedPaymentMethodController::class, 'destroy'])->name('payment-methods.destroy');
+
+    /* ── Phase 189: Account Deletion Request ── */
+    Route::get('/ucet/smazat', [Panel\AccountDeletionController::class, 'create'])->name('account.delete.create');
+    Route::post('/ucet/smazat', [Panel\AccountDeletionController::class, 'store'])->name('account.delete.store');
+    Route::post('/ucet/zadost-smazani', [Panel\AccountDeletionController::class, 'store'])->name('account.delete-request');
+
+    /* ── Phase 191: Dashboard Widget Config ── */
+    Route::get('/widgety', [Panel\DashboardWidgetController::class, 'index'])->name('dashboard-widgets.index');
+    Route::post('/widgety', [Panel\DashboardWidgetController::class, 'update'])->name('dashboard-widgets.update');
+
+    /* ── Phase 192: Invoice Dispute History ── */
+    Route::get('/fakturace/namitky', [Panel\InvoiceDisputeController::class, 'index'])->name('invoices.disputes.index');
+
+    /* ── Phase 193: Service Auto-Renewal Preferences ── */
+    Route::patch('/sluzby/{service}/obnoveni', [Panel\ServiceAutoRenewalController::class, 'update'])->name('services.auto-renewal.update');
+
+    /* ── Phase 196: Ticket Rating ── */
+    Route::post('/podpora/{ticket}/hodnoceni', [Panel\TicketRatingController::class, 'store'])->name('support.rating.store');
+
+    /* ── Phase 199: Service Dependency Guard ── */
+    Route::get('/sluzby/{service}/zavislosti', [Panel\ServiceDependencyController::class, 'check'])->name('services.dependency.check');
+
+    /* ── Phase 202: Service Uptime Monitoring (customer) ── */
+    Route::get('/sluzby/{service}/uptime', [Panel\ServiceUptimeController::class, 'show'])->name('services.uptime.show');
+
+    /* ── Phase 204: Customer Webhook Subscriptions ── */
+    Route::get('/webhook-subscriptions', [Panel\WebhookSubscriptionController::class, 'index'])->name('webhook-subscriptions.index');
+    Route::post('/webhook-subscriptions', [Panel\WebhookSubscriptionController::class, 'store'])->name('webhook-subscriptions.store');
+    Route::delete('/webhook-subscriptions/{subscription}', [Panel\WebhookSubscriptionController::class, 'destroy'])->name('webhook-subscriptions.destroy');
+
+    /* ── Phase 205: KB Article Comments ── */
+    Route::post('/znalostni-baze/{article}/komentare', [Panel\KbArticleCommentController::class, 'store'])->name('kb.comments.store');
+
+    /* ── Phase 208: DNS Health Check ── */
+    Route::get('/nastroje/dns', [Panel\DnsHealthCheckController::class, 'check'])->name('tools.dns.check');
+
+    /* ── Phase 209: Plan Change Prorate Calculator ── */
+    Route::get('/sluzby/{service}/prorate', [Panel\PlanChangeProrateController::class, 'calculate'])->name('services.prorate.calculate');
+
+    /* ── Phase 211: GDPR Data Export ── */
+    Route::get('/gdpr-export', [Panel\GdprExportController::class, 'index'])->name('gdpr.export.index');
+    Route::post('/gdpr-export', [Panel\GdprExportController::class, 'store'])->name('gdpr.export.store');
+    Route::get('/gdpr-export/download/{token}', [Panel\GdprExportController::class, 'download'])->name('gdpr.export.download');
+
+    /* ── Phase 212: Email Delivery Tracking ── */
+    Route::get('/e-maily', [Panel\EmailDeliveryController::class, 'index'])->name('email-deliveries.index');
+
+    /* ── Phase 213: Customer Service Notes ── */
+    Route::get('/sluzby/{service}/poznamky', [Panel\ServiceCustomerNoteController::class, 'index'])->name('service-notes.index');
+    Route::post('/sluzby/{service}/poznamky', [Panel\ServiceCustomerNoteController::class, 'store'])->name('service-notes.store');
+    Route::delete('/poznamky/{note}', [Panel\ServiceCustomerNoteController::class, 'destroy'])->name('service-notes.destroy');
+
+    /* ── Phase 215: Service Resource Snapshot History ── */
+    Route::get('/sluzby/{service}/snapshoty', [Panel\ServiceResourceSnapshotController::class, 'show'])->name('service-snapshots.show');
+
+    /* ── Phase 217: Customer Referral Statistics Dashboard ── */
+    Route::get('/referral-statistiky', [Panel\ReferralStatsDashboardController::class, 'index'])->name('referral-stats.index');
+
+    /* ── Phase 219: Unread Notification Badge ── */
+    Route::get('/notifikace/pocet', [Panel\NotificationBadgeController::class, 'count'])->name('notifications.badge.count');
+
+    /* ── Phase 227: Panel Billing Addresses ── */
+    Route::get('/fakturacni-adresy', [Panel\BillingAddressController::class, 'index'])->name('billing-addresses.index');
+    Route::post('/fakturacni-adresy', [Panel\BillingAddressController::class, 'store'])->name('billing-addresses.store');
+    Route::get('/fakturacni-adresy/{billingAddress}/upravit', [Panel\BillingAddressController::class, 'edit'])->name('billing-addresses.edit');
+    Route::patch('/fakturacni-adresy/{billingAddress}', [Panel\BillingAddressController::class, 'update'])->name('billing-addresses.update');
+    Route::delete('/fakturacni-adresy/{billingAddress}', [Panel\BillingAddressController::class, 'destroy'])->name('billing-addresses.destroy');
+
+    /* ── Phase 231: Panel Usage Alert Configuration ── */
+    Route::get('/upozorneni-vyuziti', [Panel\UsageAlertConfigController::class, 'index'])->name('usage-alert-configs.index');
+    Route::post('/upozorneni-vyuziti', [Panel\UsageAlertConfigController::class, 'store'])->name('usage-alert-configs.store');
+    Route::delete('/upozorneni-vyuziti/{usageAlertConfig}', [Panel\UsageAlertConfigController::class, 'destroy'])->name('usage-alert-configs.destroy');
+
+    /* ── Phase 234: Panel Service Pin Management ── */
+    Route::get('/sluzby/{service}/pin', [Panel\ServicePinController::class, 'show'])->name('service-pins.show');
+    Route::post('/sluzby/{service}/pin', [Panel\ServicePinController::class, 'store'])->name('service-pins.store');
+
+    /* ── Phase 235: Panel Snapshot Restore Requests ── */
+    Route::get('/obnoveni-snapshotu', [Panel\SnapshotRestoreRequestController::class, 'index'])->name('snapshot-restore-requests.index');
+    Route::post('/obnoveni-snapshotu', [Panel\SnapshotRestoreRequestController::class, 'store'])->name('snapshot-restore-requests.store');
+
+    /* ── Phase 237: Panel Emergency Contacts ── */
+    Route::get('/nouzoze-kontakty', [Panel\EmergencyContactController::class, 'index'])->name('emergency-contacts.index');
+    Route::post('/nouzoze-kontakty', [Panel\EmergencyContactController::class, 'store'])->name('emergency-contacts.store');
+    Route::delete('/nouzoze-kontakty/{emergencyContact}', [Panel\EmergencyContactController::class, 'destroy'])->name('emergency-contacts.destroy');
+
+    /* ── Phase 238: Panel Voucher Application ── */
+    Route::get('/voucher', [Panel\VoucherApplicationController::class, 'index'])->name('voucher-application.index');
+    Route::post('/voucher', [Panel\VoucherApplicationController::class, 'store'])->name('voucher-application.store');
+
+    /* ── Phase 239: Panel Service Upgrade Requests ── */
+    Route::get('/zadosti-o-upgrade', [Panel\ServiceUpgradeRequestController::class, 'index'])->name('service-upgrade-requests.index');
+    Route::post('/zadosti-o-upgrade', [Panel\ServiceUpgradeRequestController::class, 'store'])->name('service-upgrade-requests.store');
+    Route::get('/zadosti-o-upgrade/{serviceUpgradeRequest}', [Panel\ServiceUpgradeRequestController::class, 'show'])->name('service-upgrade-requests.show');
+
+    /* ── Phase 245: Panel Domain Transfer Requests ── */
+    Route::get('/prevody-domen', [Panel\DomainTransferRequestController::class, 'index'])->name('domain-transfer-requests.index');
+    Route::post('/prevody-domen', [Panel\DomainTransferRequestController::class, 'store'])->name('domain-transfer-requests.store');
+
+    /* ── Phase 246: Panel Service Changelog ── */
+    Route::get('/changelog-sluzby', [Panel\ServiceChangelogController::class, 'index'])->name('service-changelogs.index');
+
+    /* ── Phase 247: Panel Chargeback History ── */
+    Route::get('/chargeback', [Panel\ChargebackController::class, 'index'])->name('chargebacks.index');
+
+    /* ── Phase 248: Panel Price Change Notifications ── */
+    Route::get('/oznameni-zmen-cen', [Panel\PriceChangeNotificationController::class, 'index'])->name('price-change-notifications.index');
+
+    /* ── Phase 251: Panel Payment Retry Status ── */
+    Route::get('/opakovani-plateb', [Panel\PaymentRetryStatusController::class, 'index'])->name('payment-retry-status.index');
+
+    /* ── Phase 253: Panel Service Migration Status ── */
+    Route::get('/migrace-sluzby', [Panel\ServiceMigrationStatusController::class, 'index'])->name('service-migration-status.index');
+
+    /* ── Phase 256: Panel Report Schedules ── */
+    Route::get('/planovane-reporty', [Panel\ReportScheduleController::class, 'index'])->name('report-schedules.index');
+
+    /* ── Phase 263: Panel Customer Communication Log ── */
+    Route::get('/komunikace', [Panel\CustomerCommunicationLogController::class, 'index'])->name('customer-communication-logs.index');
+
+    /* ── Phase 264: Panel Service Health Incidents ── */
+    Route::get('/incidenty', [Panel\ServiceHealthIncidentController::class, 'index'])->name('service-health-incidents.index');
+
+    /* ── Phase 265: Panel Maintenance Windows ── */
+    Route::get('/udrzba', [Panel\MaintenanceWindowController::class, 'index'])->name('maintenance-windows.index');
+
+    /* ── Phase 266: Panel Customer Onboarding Steps ── */
+    Route::get('/onboarding-kroky', [Panel\CustomerOnboardingStepController::class, 'index'])->name('customer-onboarding-steps.index');
+
+    /* ── Phase 267: Panel Reseller Payout Requests ── */
+    Route::get('/vyplata-provize', [Panel\ResellerPayoutRequestController::class, 'index'])->name('reseller-payout-requests.index');
+    Route::post('/vyplata-provize', [Panel\ResellerPayoutRequestController::class, 'store'])->name('reseller-payout-requests.store');
+
+    /* ── Phase 270: Panel Service Backup Logs ── */
+    Route::get('/zalohy', [Panel\ServiceBackupLogController::class, 'index'])->name('service-backup-logs.index');
+
+    /* ── Phase 271: Panel Portal Announcements ── */
+    Route::get('/oznameni-portalu', [Panel\PortalAnnouncementController::class, 'index'])->name('portal-announcements.index');
 });
+
+/* ── NPS Survey (Phase 95) — public, token-authenticated ── */
+Route::get('/nps/{token}', [Panel\NpsSurveyController::class, 'show'])->name('nps.show');
+Route::post('/nps/{token}', [Panel\NpsSurveyController::class, 'submit'])->name('nps.submit');
 
 // Impersonation stop — auth only (must work even while impersonating as customer)
 Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function (): void {
@@ -211,14 +421,41 @@ Route::middleware(['auth', 'can:access-reseller'])->prefix('reseller')->name('re
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('admin')->name('admin.')->group(function (): void {
+Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-allowlist'])->prefix('admin')->name('admin.')->group(function (): void {
     Route::get('/', [Admin\DashboardController::class, 'index'])->name('dashboard');
+
+    /* ── Global search (Phase 96) ── */
+    Route::get('/hledat', Admin\GlobalSearchController::class)->name('search');
 
     Route::get('/zakaznici', [Admin\CustomerController::class, 'index'])->name('customers.index');
     Route::get('/zakaznici/export', [Admin\CustomerController::class, 'export'])->name('customers.export');
+    Route::get('/zakaznici/segmentace', [Admin\CustomerSegmentationController::class, 'index'])->name('customers.segmentation');
+    Route::get('/zakaznici/ltv-report', [Admin\CustomerLtvReportController::class, 'index'])->name('customers.ltv-report');
+    Route::get('/zakaznici/import', [Admin\CustomerImportController::class, 'create'])->name('customers.import');
+    Route::post('/zakaznici/import', [Admin\CustomerImportController::class, 'store'])->name('customers.import.store');
     Route::get('/zakaznici/{customer}', [Admin\CustomerController::class, 'show'])->name('customers.show');
     Route::post('/zakaznici/{customer}/kredit', [Admin\CustomerController::class, 'adjustCredit'])->name('customers.credit');
     Route::put('/zakaznici/{customer}/poznamky', [Admin\CustomerController::class, 'updateNotes'])->name('customers.notes');
+    Route::patch('/zakaznici/{customer}/prefkontakt', [Admin\CustomerController::class, 'updatePreferredContact'])->name('customers.preferred-contact');
+    Route::post('/zakaznici/{customer}/interni-poznamky', [Admin\CustomerInternalNoteController::class, 'store'])->name('customers.internal-notes.store');
+    Route::delete('/zakaznici/{customer}/interni-poznamky/{note}', [Admin\CustomerInternalNoteController::class, 'destroy'])->name('customers.internal-notes.destroy');
+    Route::post('/zakaznici/{customer}/interni-poznamky/{note}/pripnout', [Admin\CustomerInternalNoteController::class, 'pin'])->name('customers.internal-notes.pin');
+    Route::post('/zakaznici/{customer}/stitky', [Admin\CustomerTagController::class, 'assign'])->name('customers.tags.assign');
+    Route::prefix('/zakaznici/{customer}/kontakty')->name('customer-contacts.')->group(function (): void {
+        Route::get('/', [Admin\CustomerContactController::class, 'index'])->name('index');
+        Route::post('/', [Admin\CustomerContactController::class, 'store'])->name('store');
+        Route::put('/{contact}', [Admin\CustomerContactController::class, 'update'])->name('update');
+        Route::delete('/{contact}', [Admin\CustomerContactController::class, 'destroy'])->name('destroy');
+    });
+    Route::delete('/zakaznici/{customer}/stitky/{customerTag}', [Admin\CustomerTagController::class, 'detach'])->name('customer-tags.detach');
+    Route::get('/zakaznici/{customer}/login-historie', [Admin\CustomerLoginHistoryController::class, 'show'])->name('customer-login-history.show');
+
+    Route::prefix('/stitky-zakazniku')->name('customer-tags.')->group(function (): void {
+        Route::get('/', [Admin\CustomerTagController::class, 'index'])->name('index');
+        Route::post('/', [Admin\CustomerTagController::class, 'store'])->name('store');
+        Route::put('/{customerTag}', [Admin\CustomerTagController::class, 'update'])->name('update');
+        Route::delete('/{customerTag}', [Admin\CustomerTagController::class, 'destroy'])->name('destroy');
+    });
 
     Route::get('/objednavky', [Admin\OrderController::class, 'index'])->name('orders.index');
     Route::get('/objednavky/export', [Admin\OrderController::class, 'export'])->name('orders.export');
@@ -226,8 +463,21 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
 
     Route::get('/faktury', [Admin\InvoiceController::class, 'index'])->name('invoices.index');
     Route::get('/faktury/export', [Admin\InvoiceController::class, 'export'])->name('invoices.export');
+    Route::get('/faktury/namitky', [Admin\InvoiceDisputeController::class, 'index'])->name('invoice-disputes.index');
+    Route::patch('/faktury/namitky/{dispute}', [Admin\InvoiceDisputeController::class, 'resolve'])->name('invoice-disputes.resolve');
+    Route::get('/faktury/fronta-neuspesnych-plateb', [Admin\FailedPaymentQueueController::class, 'index'])->name('failed-payment-queue.index');
+    Route::post('/faktury/fronta-neuspesnych-plateb/{invoice}', [Admin\FailedPaymentQueueController::class, 'resend'])->name('failed-payment-queue.resend');
     Route::post('/faktury/hromadna-upominka', [Admin\InvoiceController::class, 'sendBulkPaymentReminders'])->name('invoices.bulk-payment-reminder');
     Route::post('/faktury/hromadne-zaplaceni', [Admin\InvoiceController::class, 'batchMarkPaid'])->name('invoices.batch-mark-paid');
+    Route::get('/faktury/ad-hoc/vytvorit', [Admin\InvoiceController::class, 'adhocCreate'])->name('invoices.adhoc-create');
+    Route::post('/faktury/ad-hoc', [Admin\InvoiceController::class, 'adhocStore'])->name('invoices.adhoc-store');
+    /* ── Phase 154: Invoice Installments (static, BEFORE {invoice} wildcard) ── */
+    Route::get('/faktury/splatkove-plany', [Admin\InvoiceInstallmentController::class, 'index'])->name('invoice-installments.index');
+
+    /* ── Phase 155: Proforma Batch (static, BEFORE {invoice} wildcard) ── */
+    Route::get('/faktury/proformy', [Admin\ProformaBatchController::class, 'index'])->name('proforma-batch.index');
+    Route::patch('/faktury/proformy/{invoice}/konvertovat', [Admin\ProformaBatchController::class, 'convert'])->name('proforma-batch.convert');
+
     Route::get('/faktury/{invoice}', [Admin\InvoiceController::class, 'show'])->name('invoices.show');
     Route::get('/faktury/{invoice}/pdf', [Admin\InvoiceController::class, 'downloadPdf'])->name('invoices.pdf');
     Route::post('/faktury/{invoice}/oznacit-zaplacenou', [Admin\InvoiceController::class, 'markPaid'])->name('invoices.mark-paid');
@@ -236,6 +486,8 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::post('/faktury/{invoice}/zrusit', [Admin\InvoiceController::class, 'cancel'])->name('invoices.cancel');
     Route::post('/faktury/{invoice}/odeslat-email', [Admin\InvoiceController::class, 'resendEmail'])->name('invoices.resend-email');
     Route::post('/faktury/{invoice}/upominka-platby', [Admin\InvoiceController::class, 'sendPaymentReminder'])->name('invoices.payment-reminder');
+    Route::post('/faktury/{invoice}/pozastavit-upominkani', [Admin\InvoiceController::class, 'pauseDunning'])->name('invoices.pause-dunning');
+    Route::post('/faktury/{invoice}/obnovit-upominkani', [Admin\InvoiceController::class, 'resumeDunning'])->name('invoices.resume-dunning');
 
     Route::get('/platby', [Admin\PaymentController::class, 'index'])->name('payments.index');
     Route::get('/platby/export', [Admin\PaymentController::class, 'export'])->name('payments.export');
@@ -257,15 +509,26 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::delete('/plany/{plan}', [Admin\ProductController::class, 'deletePlan'])->name('products.plans.delete');
 
     Route::get('/sluzby', [Admin\ServiceController::class, 'index'])->name('services.index');
+    Route::get('/sluzby/dashboard-obnov', [Admin\ServiceRenewalDashboardController::class, 'index'])->name('services.renewal-dashboard');
     Route::get('/sluzby/export', [Admin\ServiceController::class, 'export'])->name('services.export');
     Route::post('/sluzby/hromadne-pozastavit', [Admin\ServiceController::class, 'batchSuspend'])->name('services.batch-suspend');
     Route::post('/sluzby/hromadne-reaktivovat', [Admin\ServiceController::class, 'batchUnsuspend'])->name('services.batch-unsuspend');
+    Route::get('/sluzby/stitky', [Admin\ServiceTagController::class, 'index'])->name('services.tags.index');
+    Route::post('/sluzby/stitky', [Admin\ServiceTagController::class, 'store'])->name('services.tags.store');
+    Route::delete('/sluzby/stitky/{serviceTag}', [Admin\ServiceTagController::class, 'destroy'])->name('services.tags.destroy');
+    Route::get('/sluzby/{service}/smlouva', [Admin\ServiceContractController::class, 'download'])->name('services.contract');
+
+    /* ── Phase 160: Service Billing Pause index (static, BEFORE {service} wildcard) ── */
+    Route::get('/sluzby/pozastaveni-fakturace', [Admin\ServiceBillingPauseController::class, 'index'])->name('service-billing-pause.index');
+
     Route::get('/sluzby/{service}', [Admin\ServiceController::class, 'show'])->name('services.show');
     Route::post('/sluzby/{service}/pozastavit', [Admin\ServiceController::class, 'suspend'])->name('services.suspend');
     Route::post('/sluzby/{service}/obnovit', [Admin\ServiceController::class, 'unsuspend'])->name('services.unsuspend');
     Route::put('/sluzby/{service}/popis', [Admin\ServiceController::class, 'updateLabel'])->name('services.update-label');
     Route::put('/sluzby/{service}/splatnost', [Admin\ServiceController::class, 'adjustDueDate'])->name('services.adjust-due-date');
     Route::post('/sluzby/{service}/obnova', [Admin\ServiceController::class, 'manualRenewal'])->name('services.manual-renewal');
+    Route::post('/sluzby/{service}/stitky', [Admin\ServiceTagController::class, 'assign'])->name('services.tags.assign');
+    Route::delete('/sluzby/{service}/stitky/{serviceTag}', [Admin\ServiceTagController::class, 'detach'])->name('services.tags.detach');
 
     Route::resource('/service-addons', Admin\ServiceAddonController::class)->names('service-addons');
 
@@ -353,6 +616,13 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::post('/{endpoint}/prepnout',          [Admin\WebhookController::class, 'endpointToggle'])->name('toggle');
     });
 
+    // Service resource limits
+    Route::prefix('/zdroje-sluzeb')->name('service-resources.')->group(function (): void {
+        Route::get('/', [Admin\ServiceResourceController::class, 'index'])->name('index');
+        Route::put('/{service}/limity', [Admin\ServiceResourceController::class, 'updateLimits'])->name('update-limits');
+        Route::post('/{service}/vyuziti', [Admin\ServiceResourceController::class, 'recordUsage'])->name('record-usage');
+    });
+
     Route::get('/monitoring', [Admin\MonitoringController::class, 'index'])->name('monitoring.index');
     Route::put('/monitoring/{monitor}/prahy', [Admin\MonitoringController::class, 'updateThresholds'])->name('monitoring.thresholds');
     Route::get('/sla', [Admin\SlaController::class, 'index'])->name('sla.index');
@@ -376,6 +646,11 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::get('/podpora', [Admin\SupportController::class, 'index'])->name('support.index');
     Route::get('/podpora/sla-monitor', [Admin\SupportController::class, 'slaMonitor'])->name('support.sla-monitor');
     Route::get('/podpora/csat', [Admin\CsatController::class, 'index'])->name('support.csat');
+    Route::get('/podpora/nps', [Admin\NpsController::class, 'index'])->name('support.nps');
+    Route::get('/podpora/makra', [Admin\TicketMacroController::class, 'index'])->name('support.macros.index');
+    Route::post('/podpora/makra', [Admin\TicketMacroController::class, 'store'])->name('support.macros.store');
+    Route::put('/podpora/makra/{macro}', [Admin\TicketMacroController::class, 'update'])->name('support.macros.update');
+    Route::delete('/podpora/makra/{macro}', [Admin\TicketMacroController::class, 'destroy'])->name('support.macros.destroy');
     Route::get('/podpora/{ticket}', [Admin\SupportController::class, 'show'])->name('support.show');
     Route::post('/podpora/{ticket}/odpoved', [Admin\SupportController::class, 'reply'])->name('support.reply');
     Route::put('/podpora/{ticket}', [Admin\SupportController::class, 'update'])->name('support.update');
@@ -387,10 +662,58 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::post('/ai', [Admin\AiController::class, 'run'])->name('ai.run');
     Route::post('/ai/schvaleni/{approval}', [Admin\AiController::class, 'review'])->name('ai.review');
 
+    Route::get('/winback-kampane', [Admin\WinbackCampaignController::class, 'index'])->name('winback-campaigns.index');
+    Route::post('/winback-kampane', [Admin\WinbackCampaignController::class, 'store'])->name('winback-campaigns.store');
+    Route::post('/winback-kampane/{winbackCampaign}/odeslat', [Admin\WinbackCampaignController::class, 'send'])->name('winback-campaigns.send');
+
     Route::get('/metriky', [Admin\MetricsController::class, 'index'])->name('metrics.index');
+    Route::get('/metriky/mrr-trend', [Admin\MrrTrendController::class, 'index'])->name('metrics.mrr-trend');
+    Route::get('/metriky/arpu', [Admin\ArpuController::class, 'index'])->name('metrics.arpu');
+    Route::get('/metriky/aktivni-uzivatele', [Admin\ActiveUsersController::class, 'index'])->name('metrics.active-users');
+
+    // Report builder
+    Route::prefix('/reporty')->name('reports.')->group(function (): void {
+        Route::get('/', [Admin\ReportController::class, 'index'])->name('index');
+        Route::get('/stahnout', [Admin\ReportController::class, 'download'])->name('download');
+    });
     Route::get('/bi', [Admin\BiController::class, 'index'])->name('bi.index');
     Route::get('/bi-v2', [Admin\BiV2Controller::class, 'index'])->name('bi-v2.index');
     Route::get('/api-usage', [Admin\ApiUsageController::class, 'index'])->name('api-usage.index');
+
+    /* ── Onboarding stats (Phase 84) ── */
+    Route::get('/onboarding-stats', [Admin\OnboardingStatsController::class, 'index'])->name('onboarding-stats.index');
+
+    /* ── Upcoming renewals (Phase 85) ── */
+    Route::get('/nadchazejici-obnovy', [Admin\UpcomingRenewalController::class, 'index'])->name('upcoming-renewals.index');
+
+    /* ── Expiring credits (Phase 86) ── */
+    Route::get('/expirujici-kredity', [Admin\ExpiringCreditController::class, 'index'])->name('expiring-credits.index');
+
+    /* ── Admin audit trail (Phase 89) ── */
+    Route::get('/audit-trail', [Admin\AdminAuditTrailController::class, 'index'])->name('audit-trail.index');
+
+    /* ── Security settings / 2FA enforcement (Phase 90) ── */
+    Route::prefix('/security-settings')->name('security-settings.')->group(function (): void {
+        Route::get('/', [Admin\SecuritySettingsController::class, 'index'])->name('index');
+        Route::put('/', [Admin\SecuritySettingsController::class, 'update'])->name('update');
+    });
+
+    /* ── Service notes & labels (Phase 92) ── */
+    Route::get('/sluzby/{service}/poznamky', [Admin\ServiceNotesController::class, 'edit'])->name('service-notes.edit');
+    Route::put('/sluzby/{service}/poznamky', [Admin\ServiceNotesController::class, 'update'])->name('service-notes.update');
+
+    Route::prefix('/stitky-sluzeb')->name('service-labels.')->group(function (): void {
+        Route::get('/', [Admin\ServiceNotesController::class, 'labelsIndex'])->name('index');
+        Route::post('/', [Admin\ServiceNotesController::class, 'labelsStore'])->name('store');
+        Route::delete('/{serviceLabel}', [Admin\ServiceNotesController::class, 'labelsDestroy'])->name('destroy');
+    });
+
+    /* ── API Rate Limit Tracking ── */
+    Route::prefix('/api-rate-limits')->name('api-rate-limits.')->group(function (): void {
+        Route::get('/', [Admin\ApiRateLimitController::class, 'index'])->name('index');
+        Route::post('/', [Admin\ApiRateLimitController::class, 'store'])->name('store');
+        Route::delete('/{apiRateLimit}', [Admin\ApiRateLimitController::class, 'destroy'])->name('destroy');
+    });
 
     // Bulk operations
     Route::prefix('/hromadne')->name('bulk.')->group(function (): void {
@@ -398,6 +721,10 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::post('/sluzby/prodlouzit',               [Admin\BulkController::class, 'serviceExtendDueDate'])->name('service-extend');
         Route::post('/sluzby/ukoncit',                  [Admin\BulkController::class, 'serviceTerminate'])->name('service-terminate');
         Route::post('/sluzby/export',                   [Admin\BulkController::class, 'serviceExport'])->name('service-export');
+        Route::post('/sluzby/pozastavit',               [Admin\BulkController::class, 'serviceSuspend'])->name('service-suspend');
+        Route::post('/sluzby/obnovit',                  [Admin\BulkController::class, 'serviceResume'])->name('service-resume');
+        Route::post('/sluzby/auto-obnova',              [Admin\BulkController::class, 'serviceSetAutoRenew'])->name('service-auto-renew');
+        Route::post('/sluzby/upozorneni-obnova',        [Admin\BulkExpiryNotificationController::class, 'send'])->name('service-expiry-notify');
         Route::post('/faktury/storno',                  [Admin\BulkController::class, 'invoiceVoid'])->name('invoice-void');
         Route::post('/zakaznici/export',                [Admin\BulkController::class, 'customerExport'])->name('customer-export');
     });
@@ -466,6 +793,7 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     /* ── Discount codes ── */
     Route::get('/slevy', [Admin\DiscountCodeController::class, 'index'])->name('discount-codes.index');
     Route::post('/slevy', [Admin\DiscountCodeController::class, 'store'])->name('discount-codes.store');
+    Route::get('/slevy/{code}', [Admin\DiscountCodeController::class, 'show'])->name('discount-codes.show');
     Route::post('/slevy/{code}/toggle', [Admin\DiscountCodeController::class, 'toggle'])->name('discount-codes.toggle');
     Route::delete('/slevy/{code}', [Admin\DiscountCodeController::class, 'destroy'])->name('discount-codes.destroy');
 
@@ -542,8 +870,34 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::get('/hledani', [Admin\SearchController::class, 'index'])->name('search');
     Route::get('/hledani/autocomplete', [Admin\SearchController::class, 'autocomplete'])->name('search.autocomplete');
 
+    // Invoice custom field definitions
+    Route::prefix('/faktura-pole')->name('invoice-fields.')->group(function (): void {
+        Route::get('/', [Admin\InvoiceFieldController::class, 'index'])->name('index');
+        Route::post('/', [Admin\InvoiceFieldController::class, 'store'])->name('store');
+        Route::put('/{invoiceField}', [Admin\InvoiceFieldController::class, 'update'])->name('update');
+        Route::delete('/{invoiceField}', [Admin\InvoiceFieldController::class, 'destroy'])->name('destroy');
+        Route::post('/faktury/{invoice}/hodnoty', [Admin\InvoiceFieldController::class, 'saveValues'])->name('save-values');
+    });
+
     Route::get('/nastaveni', [Admin\SettingsController::class, 'index'])->name('settings.index');
     Route::post('/nastaveni', [Admin\SettingsController::class, 'update'])->name('settings.update');
+
+    /* ── Helpdesk webhooks ── */
+    Route::prefix('/helpdesk-webhooky')->name('helpdesk-webhooks.')->group(function (): void {
+        Route::get('/', [Admin\HelpdeskWebhookController::class, 'index'])->name('index');
+        Route::post('/', [Admin\HelpdeskWebhookController::class, 'store'])->name('store');
+        Route::put('/{helpdeskWebhook}', [Admin\HelpdeskWebhookController::class, 'update'])->name('update');
+        Route::delete('/{helpdeskWebhook}', [Admin\HelpdeskWebhookController::class, 'destroy'])->name('destroy');
+        Route::post('/{helpdeskWebhook}/regenerate-secret', [Admin\HelpdeskWebhookController::class, 'regenerateSecret'])->name('regenerate');
+    });
+
+    /* ── Maintenance banners (Phase 81) ── */
+    Route::prefix('/udrzba-bannery')->name('maintenance-banners.')->group(function (): void {
+        Route::get('/', [Admin\MaintenanceController::class, 'index'])->name('index');
+        Route::post('/', [Admin\MaintenanceController::class, 'store'])->name('store');
+        Route::put('/{maintenanceWindow}', [Admin\MaintenanceController::class, 'update'])->name('update');
+        Route::delete('/{maintenanceWindow}', [Admin\MaintenanceController::class, 'destroy'])->name('destroy');
+    });
 
     /* ── Exchange rates & DAC7 ── */
     Route::get('/kurzy', [Admin\ExchangeRateController::class, 'index'])->name('exchange-rates.index');
@@ -576,6 +930,7 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
     Route::get('/znalostni-baze/{kb}/upravit', [AdminKbController::class, 'edit'])->name('kb.edit');
     Route::put('/znalostni-baze/{kb}', [AdminKbController::class, 'update'])->name('kb.update');
     Route::delete('/znalostni-baze/{kb}', [AdminKbController::class, 'destroy'])->name('kb.destroy');
+    Route::get('/znalostni-baze/analytika', [Admin\KbAnalyticsController::class, 'index'])->name('kb.analytics');
 
     Route::get('/partner-program/nastaveni', [Admin\PartnerProgramController::class, 'settings'])->name('partner-program.settings');
     Route::put('/partner-program/nastaveni', [Admin\PartnerProgramController::class, 'updateSettings'])->name('partner-program.settings.update');
@@ -651,6 +1006,44 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::post('/{service}/ukoncit',         [Admin\ServiceLifecycleController::class, 'terminate'])->name('terminate');
     });
 
+    /* ── API Usage Analytics (Phase 103) ── */
+    Route::get('/api-analytics', [Admin\ApiUsageAnalyticsController::class, 'index'])->name('api-analytics');
+
+    /* ── Bulk customer email (Phase 118) ── */
+    Route::prefix('/hromadny-email')->name('bulk-email.')->group(function (): void {
+        Route::get('/',                            [Admin\BulkCustomerEmailController::class, 'index'])->name('index');
+        Route::post('/',                           [Admin\BulkCustomerEmailController::class, 'store'])->name('store');
+        Route::get('/nahled-poctu',                [Admin\BulkCustomerEmailController::class, 'previewCount'])->name('preview-count');
+        Route::get('/{bulkEmail}',                 [Admin\BulkCustomerEmailController::class, 'show'])->name('show');
+        Route::post('/{bulkEmail}/odeslat',        [Admin\BulkCustomerEmailController::class, 'send'])->name('send');
+        Route::delete('/{bulkEmail}',              [Admin\BulkCustomerEmailController::class, 'destroy'])->name('destroy');
+    });
+
+    /* ── Cancellation Survey (Phase 104) ── */
+    Route::get('/odchody', [Admin\CancellationSurveyController::class, 'index'])->name('cancellation-survey');
+
+    /* ── Revenue Forecast (Phase 107) ── */
+    Route::get('/prognoza-trzeb', [Admin\RevenueForecastController::class, 'index'])->name('revenue-forecast');
+
+    /* ── Customer Health Scores (Phase 110) ── */
+    Route::get('/zdravi-zakazniku', [Admin\CustomerHealthScoreController::class, 'index'])->name('customer-health-scores.index');
+
+    /* ── IP Allowlist (Phase 102) ── */
+    Route::prefix('/ip-allowlist')->name('ip-allowlist.')->group(function (): void {
+        Route::get('/',                [Admin\IpAllowlistController::class, 'index'])->name('index');
+        Route::post('/',               [Admin\IpAllowlistController::class, 'store'])->name('store');
+        Route::put('/{entry}',         [Admin\IpAllowlistController::class, 'update'])->name('update');
+        Route::delete('/{entry}',      [Admin\IpAllowlistController::class, 'destroy'])->name('destroy');
+    });
+
+    /* ── KPI Alert System (Phase 100) ── */
+    Route::prefix('/kpi-alerts')->name('kpi-alerts.')->group(function (): void {
+        Route::get('/',              [Admin\KpiAlertController::class, 'index'])->name('index');
+        Route::post('/',             [Admin\KpiAlertController::class, 'store'])->name('store');
+        Route::put('/{kpiAlert}',    [Admin\KpiAlertController::class, 'update'])->name('update');
+        Route::delete('/{kpiAlert}', [Admin\KpiAlertController::class, 'destroy'])->name('destroy');
+    });
+
     // SLA Tiers (Phase 70)
     Route::prefix('/sla-tiery')->name('sla-tiers.')->group(function (): void {
         Route::get('/',                    [Admin\SlaTierController::class, 'index'])->name('index');
@@ -669,4 +1062,329 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa'])->prefix('ad
         Route::get('/{slaIncident}',              [Admin\SlaIncidentController::class, 'show'])->name('show');
         Route::post('/{slaIncident}/aktualizace', [Admin\SlaIncidentController::class, 'addUpdate'])->name('update');
     });
+
+    /* ── Phase 152: VAT Summary Report ── */
+    Route::get('/metriky/dph-prehled', [Admin\VatSummaryController::class, 'index'])->name('metrics.vat-summary');
+
+    /* ── Phase 153: Invoice Reminder Escalation ── */
+    Route::post('/faktury/eskalovat-upominky', fn () => \Illuminate\Support\Facades\Artisan::call('billing:escalate-reminders') ?: back()->with('status', 'Upomínky odeslány.'))->name('invoices.escalate-reminders');
+
+    /* ── Phase 156: Email Suppression ── */
+    Route::get('/email-potlaceni', [Admin\EmailSuppressionController::class, 'index'])->name('email-suppression.index');
+    Route::post('/zakaznici/{customer}/email-potlacit', [Admin\EmailSuppressionController::class, 'suppress'])->name('email-suppression.suppress');
+    Route::delete('/zakaznici/{customer}/email-potlacit', [Admin\EmailSuppressionController::class, 'unsuppress'])->name('email-suppression.unsuppress');
+
+    /* ── Phase 159: Customer Account Merge ── */
+    Route::get('/zakaznici/{customer}/sloucit', [Admin\CustomerMergeController::class, 'show'])->name('customers.merge.show');
+    Route::post('/zakaznici/{customer}/sloucit', [Admin\CustomerMergeController::class, 'merge'])->name('customers.merge');
+
+    /* ── Phase 160: Service Billing Pause (admin) ── */
+    Route::post('/sluzby/{service}/pozastaveni-fakturace/schvalit', [Admin\ServiceBillingPauseController::class, 'approve'])->name('service-billing-pause.approve');
+    Route::delete('/sluzby/{service}/pozastaveni-fakturace', [Admin\ServiceBillingPauseController::class, 'reject'])->name('service-billing-pause.reject');
+
+    /* ── Phase 161: Service Config Snapshots ── */
+    Route::get('/sluzby/{service}/config-snapshoty', [Admin\ServiceConfigSnapshotController::class, 'index'])->name('services.config-snapshots.index');
+    Route::post('/sluzby/{service}/config-snapshoty', [Admin\ServiceConfigSnapshotController::class, 'store'])->name('services.config-snapshots.store');
+
+    /* ── Phase 163: Server Capacity Planning ── */
+    Route::get('/servery/kapacita', [Admin\ServerCapacityController::class, 'index'])->name('servers.capacity');
+
+    /* ── Phase 165: Email Log ── */
+    Route::get('/email-logy', [Admin\EmailLogController::class, 'index'])->name('email-logs.index');
+
+    /* ── Phase 167: Customer Onboarding Checklist ── */
+    Route::get('/zakaznici/{customer}/onboarding', [Admin\CustomerOnboardingController::class, 'show'])->name('customers.onboarding');
+
+    /* ── Phase 169: Revenue Cohort Analysis ── */
+    Route::get('/metriky/kohorty', [Admin\RevenueCohortController::class, 'index'])->name('metrics.cohort');
+
+    /* ── Phase 170: Revenue by Product Category ── */
+    Route::get('/metriky/produktove-kategorie', [Admin\ProductCategoryRevenueController::class, 'index'])->name('metrics.product-categories');
+
+    /* ── Phase 171: Scheduled Tasks / Failed Jobs Dashboard ── */
+    Route::get('/system/fronty', [Admin\ScheduledTasksController::class, 'index'])->name('scheduled-tasks.index');
+    Route::delete('/system/fronty/clear', [Admin\ScheduledTasksController::class, 'clearFailed'])->name('scheduled-tasks.clear');
+    Route::delete('/system/fronty/{id}', [Admin\ScheduledTasksController::class, 'retryJob'])->name('scheduled-tasks.retry');
+
+    /* ── Phase 172: Invoice Batch PDF Export ── */
+    Route::post('/faktury/batch-export', [Admin\InvoiceBatchExportController::class, 'export'])->name('invoice-batch.export');
+
+    /* ── Phase 174: Churn Risk Heatmap ── */
+    Route::get('/metriky/heatmapa-churn', [Admin\ChurnRiskHeatmapController::class, 'index'])->name('metrics.churn-heatmap');
+
+    /* ── Phase 176: Custom Invoice Footer / Settings ── */
+    Route::get('/nastaveni-faktur', [Admin\InvoiceSettingsController::class, 'show'])->name('invoice-settings.show');
+    Route::patch('/nastaveni-faktur', [Admin\InvoiceSettingsController::class, 'update'])->name('invoice-settings.update');
+
+    /* ── Phase 178: Provisioning Audit Trail ── */
+    Route::get('/sluzby/{service}/provisioning-audit', [Admin\ProvisioningAuditController::class, 'index'])->name('services.provisioning-audit.index');
+
+    /* ── Phase 182: Revenue by Country ── */
+    Route::get('/metriky/zeme', [Admin\RevenueByCountryController::class, 'index'])->name('metrics.revenue-by-country');
+
+    /* ── Phase 184: Failed Admin Login Monitor ── */
+    Route::get('/bezpecnost/neuspesna-prihlaseni', [Admin\FailedLoginMonitorController::class, 'index'])->name('failed-logins.index');
+
+    /* ── Phase 185: Domain WHOIS ── */
+    Route::get('/nastroje/whois', [Admin\DomainWhoisController::class, 'index'])->name('domain-whois.index');
+    Route::post('/nastroje/whois', [Admin\DomainWhoisController::class, 'lookup'])->name('domain-whois.lookup');
+
+    /* ── Phase 186: Affiliate Commissions ── */
+    Route::get('/affiliate', [Admin\AffiliateCommissionController::class, 'index'])->name('affiliate-commissions.index');
+    Route::patch('/affiliate/{commission}/schvalit', [Admin\AffiliateCommissionController::class, 'approve'])->name('affiliate-commissions.approve');
+    Route::patch('/affiliate/{commission}/vyplatit', [Admin\AffiliateCommissionController::class, 'markPaid'])->name('affiliate-commissions.pay');
+
+    /* ── Phase 187: Invoice Partial Payments ── */
+    Route::get('/faktury/{invoice}/castecne-platby', [Admin\InvoicePartialPaymentController::class, 'index'])->name('invoice-partial-payments.index');
+    Route::post('/faktury/{invoice}/castecne-platby', [Admin\InvoicePartialPaymentController::class, 'store'])->name('invoice-partial-payments.store');
+
+    /* ── Phase 188: Announcement Stats ── */
+    Route::get('/oznameni/statistiky', [Admin\AnnouncementStatsController::class, 'index'])->name('announcement-stats.index');
+    Route::get('/oznameni/{announcement}/statistiky', [Admin\AnnouncementStatsController::class, 'show'])->name('announcement-stats.show');
+
+    /* ── Phase 189: Account Deletion Requests (admin) ── */
+    Route::get('/zadosti-smazani', [Admin\AccountDeletionAdminController::class, 'index'])->name('account-deletion.index');
+    Route::patch('/zadosti-smazani/{deletion}/schvalit', [Admin\AccountDeletionAdminController::class, 'approve'])->name('account-deletion.approve');
+    Route::patch('/zadosti-smazani/{deletion}/zamit', [Admin\AccountDeletionAdminController::class, 'reject'])->name('account-deletion.reject');
+
+    /* ── Phase 190: API Rate Limit Config ── */
+    Route::get('/api-rate-limit', [Admin\ApiRateLimitConfigController::class, 'index'])->name('api-rate-limit.index');
+    Route::post('/api-rate-limit', [Admin\ApiRateLimitConfigController::class, 'store'])->name('api-rate-limit.store');
+    Route::delete('/api-rate-limit/{config}', [Admin\ApiRateLimitConfigController::class, 'destroy'])->name('api-rate-limit.destroy');
+
+    /* ── Phase 194: Bulk Email Campaigns ── */
+    Route::get('/hromadne-emaily', [Admin\BulkEmailCampaignController::class, 'index'])->name('bulk-email-campaigns.index');
+    Route::get('/hromadne-emaily/nova', [Admin\BulkEmailCampaignController::class, 'create'])->name('bulk-email-campaigns.create');
+    Route::post('/hromadne-emaily', [Admin\BulkEmailCampaignController::class, 'store'])->name('bulk-email-campaigns.store');
+    Route::delete('/hromadne-emaily/{campaign}', [Admin\BulkEmailCampaignController::class, 'destroy'])->name('bulk-email-campaigns.destroy');
+
+    /* ── Phase 195: Customer Credit Transfer ── */
+    Route::get('/kredit/prevod', [Admin\CustomerCreditTransferController::class, 'index'])->name('credit-transfer.index');
+    Route::post('/kredit/prevod', [Admin\CustomerCreditTransferController::class, 'transfer'])->name('credit-transfer.transfer');
+
+    /* ── Phase 197: Invoice Templates ── */
+    Route::get('/sablony-faktur', [Admin\InvoiceTemplateController::class, 'index'])->name('invoice-templates.index');
+    Route::post('/sablony-faktur', [Admin\InvoiceTemplateController::class, 'store'])->name('invoice-templates.store');
+    Route::delete('/sablony-faktur/{template}', [Admin\InvoiceTemplateController::class, 'destroy'])->name('invoice-templates.destroy');
+
+    /* ── Phase 198: Audit Log Export ── */
+    Route::get('/audit-log/export', [Admin\AuditLogExportController::class, 'index'])->name('audit-log-export.index');
+    Route::get('/audit-log/export/download', [Admin\AuditLogExportController::class, 'export'])->name('audit-log-export.export');
+
+    /* ── Phase 200: CSAT Dashboard ── */
+    Route::get('/metriky/csat', [Admin\CustomerSatisfactionController::class, 'index'])->name('metrics.csat');
+
+    /* ── Phase 201: Webhook Retry Policy ── */
+    Route::get('/webhook-retry-politika', [Admin\WebhookRetryPolicyController::class, 'index'])->name('webhook-retry-policy.index');
+    Route::patch('/webhook-retry-politika/{endpointId}', [Admin\WebhookRetryPolicyController::class, 'update'])->name('webhook-retry-policy.update');
+
+    /* ── Phase 202: Service Uptime Monitoring (admin) ── */
+    Route::get('/uptime', [Admin\ServiceUptimeController::class, 'index'])->name('service-uptime.index');
+    Route::get('/uptime/{service}', [Admin\ServiceUptimeController::class, 'show'])->name('service-uptime.show');
+    Route::post('/uptime/{service}/check', [Admin\ServiceUptimeController::class, 'store'])->name('service-uptime.store');
+
+    /* ── Phase 203: Invoice Reminder Rules ── */
+    Route::get('/upominky-faktur', [Admin\InvoiceReminderRuleController::class, 'index'])->name('invoice-reminder-rules.index');
+    Route::post('/upominky-faktur', [Admin\InvoiceReminderRuleController::class, 'store'])->name('invoice-reminder-rules.store');
+    Route::patch('/upominky-faktur/{rule}', [Admin\InvoiceReminderRuleController::class, 'update'])->name('invoice-reminder-rules.update');
+    Route::delete('/upominky-faktur/{rule}', [Admin\InvoiceReminderRuleController::class, 'destroy'])->name('invoice-reminder-rules.destroy');
+
+    /* ── Phase 206: Reseller White-label Branding ── */
+    Route::get('/reseller-whitelabel', [Admin\ResellerWhitelabelController::class, 'index'])->name('reseller-whitelabel.index');
+    Route::get('/reseller-whitelabel/{reseller}/upravit', [Admin\ResellerWhitelabelController::class, 'edit'])->name('reseller-whitelabel.edit');
+    Route::patch('/reseller-whitelabel/{reseller}', [Admin\ResellerWhitelabelController::class, 'update'])->name('reseller-whitelabel.update');
+
+    /* ── Phase 205: KB Article Comments (admin moderation) ── */
+    Route::get('/znalostni-baze/komentare', [Admin\KbArticleCommentController::class, 'index'])->name('kb-comments.index');
+    Route::patch('/znalostni-baze/komentare/{comment}/schvalit', [Admin\KbArticleCommentController::class, 'approve'])->name('kb-comments.approve');
+    Route::delete('/znalostni-baze/komentare/{comment}', [Admin\KbArticleCommentController::class, 'destroy'])->name('kb-comments.destroy');
+
+    /* ── Phase 210: Service Resource Usage Dashboard ── */
+    Route::get('/metriky/vyuziti-zdroju', [Admin\ServiceResourceUsageController::class, 'index'])->name('service-resource-usage.index');
+
+    /* ── Phase 207: Fraud Review Queue ── */
+    Route::get('/fraud-review', [Admin\FraudReviewController::class, 'index'])->name('fraud-reviews.index');
+    Route::post('/fraud-review', [Admin\FraudReviewController::class, 'store'])->name('fraud-reviews.store');
+    Route::patch('/fraud-review/{review}', [Admin\FraudReviewController::class, 'update'])->name('fraud-reviews.update');
+
+    /* ── Phase 212: Email Delivery Tracking (admin) ── */
+    Route::get('/e-maily', [Admin\EmailDeliveryController::class, 'index'])->name('email-deliveries.index');
+
+    /* ── Phase 214: Admin Tax Rate Configuration ── */
+    Route::get('/sazby-dani', [Admin\TaxRateController::class, 'index'])->name('tax-rates.index');
+    Route::post('/sazby-dani', [Admin\TaxRateController::class, 'store'])->name('tax-rates.store');
+    Route::patch('/sazby-dani/{taxRate}', [Admin\TaxRateController::class, 'update'])->name('tax-rates.update');
+    Route::delete('/sazby-dani/{taxRate}', [Admin\TaxRateController::class, 'destroy'])->name('tax-rates.destroy');
+
+    /* ── Phase 215: Service Resource Snapshot History (admin) ── */
+    Route::get('/snapshoty', [Admin\ServiceResourceSnapshotController::class, 'index'])->name('service-resource-snapshots.index');
+    Route::post('/sluzby/{service}/snapshoty', [Admin\ServiceResourceSnapshotController::class, 'store'])->name('service-resource-snapshots.store');
+
+    /* ── Phase 216: Admin IP Blocklist ── */
+    Route::get('/ip-blocklist', [Admin\IpBlocklistController::class, 'index'])->name('ip-blocklist.index');
+    Route::post('/ip-blocklist', [Admin\IpBlocklistController::class, 'store'])->name('ip-blocklist.store');
+    Route::delete('/ip-blocklist/{ipBlocklistEntry}', [Admin\IpBlocklistController::class, 'destroy'])->name('ip-blocklist.destroy');
+
+    /* ── Phase 218: Invoice Dunning Configuration ── */
+    Route::get('/dunning-konfigurace', [Admin\DunningConfigController::class, 'index'])->name('dunning-configs.index');
+    Route::post('/dunning-konfigurace', [Admin\DunningConfigController::class, 'store'])->name('dunning-configs.store');
+    Route::patch('/dunning-konfigurace/{dunningConfig}', [Admin\DunningConfigController::class, 'update'])->name('dunning-configs.update');
+    Route::delete('/dunning-konfigurace/{dunningConfig}', [Admin\DunningConfigController::class, 'destroy'])->name('dunning-configs.destroy');
+
+    /* ── Phase 220: Admin Customer Export Templates ── */
+    Route::get('/sablony-exportu', [Admin\ExportTemplateController::class, 'index'])->name('export-templates.index');
+    Route::post('/sablony-exportu', [Admin\ExportTemplateController::class, 'store'])->name('export-templates.store');
+    Route::delete('/sablony-exportu/{exportTemplate}', [Admin\ExportTemplateController::class, 'destroy'])->name('export-templates.destroy');
+
+    /* ── Phase 221: Admin Revenue by Reseller Report ── */
+    Route::get('/prehled-reselleru', [Admin\RevenueByResellerController::class, 'index'])->name('revenue-by-reseller.index');
+
+    /* ── Phase 222: Admin Payment Retry Schedules ── */
+    Route::get('/opakovani-plateb', [Admin\PaymentRetryScheduleController::class, 'index'])->name('payment-retry-schedules.index');
+    Route::post('/opakovani-plateb', [Admin\PaymentRetryScheduleController::class, 'store'])->name('payment-retry-schedules.store');
+    Route::delete('/opakovani-plateb/{paymentRetrySchedule}', [Admin\PaymentRetryScheduleController::class, 'destroy'])->name('payment-retry-schedules.destroy');
+
+    /* ── Phase 223: Admin Price Change Notifications ── */
+    Route::get('/oznameni-zdrazeni', [Admin\PriceChangeNotificationController::class, 'index'])->name('price-change-notifications.index');
+    Route::post('/oznameni-zdrazeni', [Admin\PriceChangeNotificationController::class, 'store'])->name('price-change-notifications.store');
+    Route::delete('/oznameni-zdrazeni/{priceChangeNotification}', [Admin\PriceChangeNotificationController::class, 'destroy'])->name('price-change-notifications.destroy');
+
+    /* ── Phase 224: Admin Service Changelogs ── */
+    Route::get('/changelog-sluzeb', [Admin\ServiceChangelogController::class, 'index'])->name('service-changelogs.index');
+    Route::post('/changelog-sluzeb', [Admin\ServiceChangelogController::class, 'store'])->name('service-changelogs.store');
+
+    /* ── Phase 225: Admin Domain Transfer Requests ── */
+    Route::get('/prevody-domen', [Admin\DomainTransferRequestController::class, 'index'])->name('domain-transfer-requests.index');
+    Route::patch('/prevody-domen/{domainTransferRequest}', [Admin\DomainTransferRequestController::class, 'update'])->name('domain-transfer-requests.update');
+
+    /* ── Phase 226: Admin License Keys ── */
+    Route::get('/licencni-klice', [Admin\LicenseKeyController::class, 'index'])->name('license-keys.index');
+    Route::post('/licencni-klice', [Admin\LicenseKeyController::class, 'store'])->name('license-keys.store');
+    Route::patch('/licencni-klice/{licenseKey}', [Admin\LicenseKeyController::class, 'update'])->name('license-keys.update');
+
+    /* ── Phase 228: Admin Service Migration Batches ── */
+    Route::get('/migrace-sluzeb', [Admin\ServiceMigrationBatchController::class, 'index'])->name('service-migration-batches.index');
+    Route::post('/migrace-sluzeb', [Admin\ServiceMigrationBatchController::class, 'store'])->name('service-migration-batches.store');
+
+    /* ── Phase 229: Admin Customer Segment Tags ── */
+    Route::get('/segmentacni-stitky', [Admin\CustomerSegmentTagController::class, 'index'])->name('customer-segment-tags.index');
+    Route::post('/segmentacni-stitky', [Admin\CustomerSegmentTagController::class, 'store'])->name('customer-segment-tags.store');
+    Route::delete('/segmentacni-stitky/{customerSegmentTag}', [Admin\CustomerSegmentTagController::class, 'destroy'])->name('customer-segment-tags.destroy');
+
+    /* ── Phase 230: Admin SSL Certificate Checks ── */
+    Route::get('/ssl-kontroly', [Admin\SslCertificateCheckController::class, 'index'])->name('ssl-certificate-checks.index');
+    Route::post('/ssl-kontroly', [Admin\SslCertificateCheckController::class, 'store'])->name('ssl-certificate-checks.store');
+
+    /* ── Phase 232: Admin Auto Suspend Rules ── */
+    Route::get('/pravidla-pozastaveni', [Admin\AutoSuspendRuleController::class, 'index'])->name('auto-suspend-rules.index');
+    Route::post('/pravidla-pozastaveni', [Admin\AutoSuspendRuleController::class, 'store'])->name('auto-suspend-rules.store');
+    Route::patch('/pravidla-pozastaveni/{autoSuspendRule}', [Admin\AutoSuspendRuleController::class, 'update'])->name('auto-suspend-rules.update');
+
+    /* ── Phase 233: Admin Report Schedules ── */
+    Route::get('/planovane-reporty', [Admin\ReportScheduleController::class, 'index'])->name('report-schedules.index');
+    Route::post('/planovane-reporty', [Admin\ReportScheduleController::class, 'store'])->name('report-schedules.store');
+    Route::delete('/planovane-reporty/{reportSchedule}', [Admin\ReportScheduleController::class, 'destroy'])->name('report-schedules.destroy');
+
+    /* ── Phase 236: Admin Chargeback Management ── */
+    Route::get('/chargeback', [Admin\ChargebackController::class, 'index'])->name('chargebacks.index');
+    Route::patch('/chargeback/{chargeback}', [Admin\ChargebackController::class, 'update'])->name('chargebacks.update');
+
+    /* ── Phase 240: Admin Customer Merges ── */
+    Route::get('/slucovani-zakazniku', [Admin\CustomerMergeController::class, 'index'])->name('customer-merges.index');
+    Route::post('/slucovani-zakazniku', [Admin\CustomerMergeController::class, 'store'])->name('customer-merges.store');
+
+    /* ── Phase 241: Admin Saved Search Filters ── */
+    Route::get('/ulozene-filtry', [Admin\SavedSearchFilterController::class, 'index'])->name('saved-search-filters.index');
+    Route::post('/ulozene-filtry', [Admin\SavedSearchFilterController::class, 'store'])->name('saved-search-filters.store');
+    Route::patch('/ulozene-filtry/{savedSearchFilter}', [Admin\SavedSearchFilterController::class, 'update'])->name('saved-search-filters.update');
+    Route::delete('/ulozene-filtry/{savedSearchFilter}', [Admin\SavedSearchFilterController::class, 'destroy'])->name('saved-search-filters.destroy');
+
+    /* ── Phase 242: Admin Tax Rate Application Log ── */
+    Route::get('/aplikace-sazeb-dani', [Admin\TaxRateApplicationController::class, 'index'])->name('tax-rate-applications.index');
+
+    /* ── Phase 243: Admin Service Log Viewer ── */
+    Route::get('/logy-sluzeb', [Admin\ServiceLogController::class, 'index'])->name('service-logs.index');
+
+    /* ── Phase 244: Admin Promotional Banners ── */
+    Route::get('/reklamni-bannery', [Admin\PromotionalBannerController::class, 'index'])->name('promotional-banners.index');
+    Route::post('/reklamni-bannery', [Admin\PromotionalBannerController::class, 'store'])->name('promotional-banners.store');
+    Route::patch('/reklamni-bannery/{promotionalBanner}', [Admin\PromotionalBannerController::class, 'update'])->name('promotional-banners.update');
+    Route::delete('/reklamni-bannery/{promotionalBanner}', [Admin\PromotionalBannerController::class, 'destroy'])->name('promotional-banners.destroy');
+
+    /* ── Phase 249: Admin Voucher Management ── */
+    Route::get('/vouchery', [Admin\VoucherController::class, 'index'])->name('vouchers.index');
+    Route::post('/vouchery', [Admin\VoucherController::class, 'store'])->name('vouchers.store');
+    Route::patch('/vouchery/{voucher}', [Admin\VoucherController::class, 'update'])->name('vouchers.update');
+
+    /* ── Phase 250: Admin Chargeback Analytics ── */
+    Route::get('/chargeback/analytika', [Admin\ChargebackAnalyticsController::class, 'index'])->name('chargeback-analytics.index');
+
+    /* ── Phase 252: Admin SSL Certificate Monitoring ── */
+    Route::get('/ssl-monitoring', [Admin\SslCertificateMonitoringController::class, 'index'])->name('ssl-monitoring.index');
+
+    /* ── Phase 254: Admin Customer Segment Analytics ── */
+    Route::get('/segmentacni-stitky/analytika', [Admin\CustomerSegmentAnalyticsController::class, 'index'])->name('customer-segment-analytics.index');
+
+    /* ── Phase 255: Admin Auto-Suspend Log ── */
+    Route::get('/pravidla-pozastaveni/log', [Admin\AutoSuspendLogController::class, 'index'])->name('auto-suspend-log.index');
+
+    /* ── Phase 257: Admin Voucher Analytics ── */
+    Route::get('/vouchery/analytika', [Admin\VoucherAnalyticsController::class, 'index'])->name('voucher-analytics.index');
+
+    /* ── Phase 259: Admin Service Log Analytics ── */
+    Route::get('/logy-sluzeb/analytika', [Admin\ServiceLogAnalyticsController::class, 'index'])->name('service-log-analytics.index');
+
+    /* ── Phase 260: Admin Report Schedule Run Trigger ── */
+    Route::post('/planovane-reporty/{reportSchedule}/spustit', [Admin\ReportScheduleRunController::class, 'store'])->name('report-schedule-runs.store');
+
+    /* ── Phase 261: Admin Domain Transfer Statistics ── */
+    Route::get('/prevody-domen/statistiky', [Admin\DomainTransferStatisticsController::class, 'index'])->name('domain-transfer-statistics.index');
+
+    /* ── Phase 262: Admin Service Firewall Rules ── */
+    Route::get('/firewall-pravidla', [Admin\ServiceFirewallRuleController::class, 'index'])->name('service-firewall-rules.index');
+    Route::post('/firewall-pravidla', [Admin\ServiceFirewallRuleController::class, 'store'])->name('service-firewall-rules.store');
+    Route::patch('/firewall-pravidla/{serviceFirewallRule}', [Admin\ServiceFirewallRuleController::class, 'update'])->name('service-firewall-rules.update');
+    Route::delete('/firewall-pravidla/{serviceFirewallRule}', [Admin\ServiceFirewallRuleController::class, 'destroy'])->name('service-firewall-rules.destroy');
+
+    /* ── Phase 263: Admin Customer Communication Log ── */
+    Route::get('/komunikace-zakazniku', [Admin\CustomerCommunicationLogController::class, 'index'])->name('customer-communication-logs.index');
+    Route::post('/komunikace-zakazniku', [Admin\CustomerCommunicationLogController::class, 'store'])->name('customer-communication-logs.store');
+
+    /* ── Phase 264: Admin Service Health Incidents ── */
+    Route::get('/incidenty-sluzeb', [Admin\ServiceHealthIncidentController::class, 'index'])->name('service-health-incidents.index');
+    Route::post('/incidenty-sluzeb', [Admin\ServiceHealthIncidentController::class, 'store'])->name('service-health-incidents.store');
+    Route::patch('/incidenty-sluzeb/{serviceHealthIncident}', [Admin\ServiceHealthIncidentController::class, 'update'])->name('service-health-incidents.update');
+
+    /* ── Phase 265: Admin Maintenance Windows ── */
+    Route::get('/okna-udrzby', [Admin\MaintenanceWindowController::class, 'index'])->name('maintenance-windows.index');
+    Route::post('/okna-udrzby', [Admin\MaintenanceWindowController::class, 'store'])->name('maintenance-windows.store');
+    Route::patch('/okna-udrzby/{maintenanceWindow}', [Admin\MaintenanceWindowController::class, 'update'])->name('maintenance-windows.update');
+    Route::delete('/okna-udrzby/{maintenanceWindow}', [Admin\MaintenanceWindowController::class, 'destroy'])->name('maintenance-windows.destroy');
+
+    /* ── Phase 266: Admin Customer Onboarding Steps ── */
+    Route::get('/kroky-onboardingu', [Admin\CustomerOnboardingStepController::class, 'index'])->name('customer-onboarding-steps.index');
+    Route::post('/kroky-onboardingu', [Admin\CustomerOnboardingStepController::class, 'store'])->name('customer-onboarding-steps.store');
+    Route::patch('/kroky-onboardingu/{customerOnboardingStep}', [Admin\CustomerOnboardingStepController::class, 'update'])->name('customer-onboarding-steps.update');
+
+    /* ── Phase 267: Admin Reseller Payout Requests ── */
+    Route::get('/vyplaty-resellerum', [Admin\ResellerPayoutRequestController::class, 'index'])->name('reseller-payout-requests.index');
+    Route::patch('/vyplaty-resellerum/{resellerPayoutRequest}', [Admin\ResellerPayoutRequestController::class, 'update'])->name('reseller-payout-requests.update');
+
+    /* ── Phase 268: Admin Service Config Profiles ── */
+    Route::get('/konfiguracni-profily', [Admin\ServiceConfigProfileController::class, 'index'])->name('service-config-profiles.index');
+    Route::post('/konfiguracni-profily', [Admin\ServiceConfigProfileController::class, 'store'])->name('service-config-profiles.store');
+    Route::patch('/konfiguracni-profily/{serviceConfigProfile}', [Admin\ServiceConfigProfileController::class, 'update'])->name('service-config-profiles.update');
+    Route::delete('/konfiguracni-profily/{serviceConfigProfile}', [Admin\ServiceConfigProfileController::class, 'destroy'])->name('service-config-profiles.destroy');
+
+    /* ── Phase 269: Admin Revenue Comparison Dashboard ── */
+    Route::get('/metriky/porovnani-trzeb', [Admin\RevenueComparisonController::class, 'index'])->name('metrics.revenue-comparison');
+
+    /* ── Phase 270: Admin Service Backup Logs ── */
+    Route::get('/zalohy-sluzeb', [Admin\ServiceBackupLogController::class, 'index'])->name('service-backup-logs.index');
+
+    /* ── Phase 271: Admin Portal Announcements ── */
+    Route::get('/oznameni-portalu', [Admin\PortalAnnouncementController::class, 'index'])->name('portal-announcements.index');
+    Route::post('/oznameni-portalu', [Admin\PortalAnnouncementController::class, 'store'])->name('portal-announcements.store');
+    Route::patch('/oznameni-portalu/{portalAnnouncement}', [Admin\PortalAnnouncementController::class, 'update'])->name('portal-announcements.update');
+    Route::delete('/oznameni-portalu/{portalAnnouncement}', [Admin\PortalAnnouncementController::class, 'destroy'])->name('portal-announcements.destroy');
 });

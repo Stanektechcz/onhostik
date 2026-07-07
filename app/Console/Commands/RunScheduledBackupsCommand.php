@@ -71,6 +71,14 @@ final class RunScheduledBackupsCommand extends Command
 
     private function isDue(BackupPolicy $policy, Carbon $now): bool
     {
+        // Check that we're within the configured hour window before running.
+        // Allows the scheduler to run every hour; each policy only fires at its
+        // scheduled_hour (±0 — exact match on the current UTC hour).
+        $scheduledHour = $policy->scheduled_hour ?? 3;
+        if ($now->hour !== $scheduledHour && $policy->last_run_at !== null) {
+            return false;
+        }
+
         if ($policy->last_run_at === null) {
             return true;
         }
@@ -80,6 +88,16 @@ final class RunScheduledBackupsCommand extends Command
             'monthly' => 30 * 24,
             default   => 24, // daily
         };
+
+        // For weekly policies also check that we're on the right weekday (0=Mon).
+        if ($policy->frequency === 'weekly' && $policy->scheduled_weekday !== null) {
+            // Carbon::dayOfWeek: 0=Sun, 1=Mon … 6=Sat; our convention: 0=Mon … 6=Sun
+            $carbonDow = $now->dayOfWeek; // 0=Sun
+            $ourDow    = $carbonDow === 0 ? 6 : $carbonDow - 1;
+            if ($ourDow !== (int) $policy->scheduled_weekday) {
+                return false;
+            }
+        }
 
         return $policy->last_run_at->diffInHours($now) >= $threshold;
     }

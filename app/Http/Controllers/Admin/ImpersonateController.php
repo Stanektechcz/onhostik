@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domains\Audit\Services\AdminAuditService;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -36,6 +37,10 @@ class ImpersonateController extends Controller
             ->withProperties(['admin_id' => $admin->id, 'admin_email' => $admin->email])
             ->log('admin_impersonated_user');
 
+        app(AdminAuditService::class)->log($admin, 'impersonate_start', $user, [
+            'target_email' => $user->email,
+        ]);
+
         return redirect()->route('panel.dashboard')
             ->with('status', "Přihlášen za uživatele {$user->name}. Pro návrat klikněte na banner v sidebaru.");
     }
@@ -51,9 +56,14 @@ class ImpersonateController extends Controller
 
         Auth::loginUsingId($adminId);
 
+        $adminUser = Auth::user();
         activity()
-            ->causedBy(Auth::user())
+            ->causedBy($adminUser)
             ->log('admin_stopped_impersonation');
+
+        if ($adminUser !== null) {
+            app(AdminAuditService::class)->log($adminUser, 'impersonate_stop');
+        }
 
         return redirect()->route('admin.customers.index')
             ->with('status', 'Vrácen zpět na admin účet.');

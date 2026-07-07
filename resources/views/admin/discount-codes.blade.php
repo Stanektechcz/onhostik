@@ -55,8 +55,17 @@
                                 </select>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Max. použití <small class="f-light">(prázdné = neomezeno)</small></label>
+                                <label class="form-label">Max. použití celkem <small class="f-light">(prázdné = neomezeno)</small></label>
                                 <input type="number" class="form-control" name="max_uses" min="1">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Max. použití na zákazníka <small class="f-light">(prázdné = neomezeno)</small></label>
+                                <input type="number" class="form-control" name="max_uses_per_customer" min="1">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Minimální hodnota obj. (haléře) <small class="f-light">0 = bez limitu</small></label>
+                                <input type="number" class="form-control" name="min_order_haler" min="0" value="0"
+                                       placeholder="5000 = 50 Kč">
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Platnost do <small class="f-light">(prázdné = navždy)</small></label>
@@ -122,6 +131,12 @@
                                         <td class="f-13">
                                             {{ $code->used_count }}
                                             @if($code->max_uses) / {{ $code->max_uses }} @else / ∞ @endif
+                                            @if($code->max_uses_per_customer)
+                                                <br><small class="f-light f-10">max {{ $code->max_uses_per_customer }}× / zákazník</small>
+                                            @endif
+                                            @if($code->min_order_haler > 0)
+                                                <br><small class="f-light f-10">min. {{ number_format($code->min_order_haler / 100, 0, ',', ' ') }} Kč</small>
+                                            @endif
                                         </td>
                                         <td class="f-12 f-light">
                                             {{ $code->expires_at?->format('d.m.Y H:i') ?? '—' }}
@@ -139,6 +154,10 @@
                                         </td>
                                         <td>
                                             <div class="common-align gap-2 justify-start">
+                                                <a href="{{ route('admin.discount-codes.show', $code) }}"
+                                                   class="square-white" title="Přehled použití">
+                                                    <i data-feather="bar-chart-2" style="width:14px;height:14px;"></i>
+                                                </a>
                                                 <form method="POST" action="{{ route('admin.discount-codes.toggle', $code) }}"
                                                       style="display:inline;">
                                                     @csrf

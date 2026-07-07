@@ -8,12 +8,19 @@ use App\Domains\Billing\Events\InvoicePaid;
 use App\Domains\Billing\Listeners\HandleInvoicePaid;
 use App\Domains\Partner\Listeners\CreateCommissionOnInvoicePaid;
 use App\Listeners\BroadcastNotificationReceived;
+use App\Listeners\LogSentEmail;
+use Illuminate\Mail\Events\MessageSent;
+use App\Listeners\HandleTwoFactorAuthenticationConfirmed;
+use App\Listeners\HandleTwoFactorAuthenticationDisabled;
 use App\Listeners\NotifyAdminOnFailedJob;
+use App\Listeners\RecordLoginHistoryEntry;
 use App\Listeners\RecordUserLogin;
 use App\Listeners\TrackSecurityEvent;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
+use Laravel\Fortify\Events\TwoFactorAuthenticationConfirmed as FortifyTwoFactorConfirmed;
+use Laravel\Fortify\Events\TwoFactorAuthenticationDisabled as FortifyTwoFactorDisabled;
 use Illuminate\Notifications\Events\NotificationSent;
 use Illuminate\Queue\Events\JobFailed;
 use App\Domains\Billing\Services\Gateways\ComgateGateway;
@@ -35,8 +42,11 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use App\Domains\Communication\Models\SystemAnnouncement;
+use App\Models\MaintenanceWindow;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -53,6 +63,7 @@ class AppServiceProvider extends ServiceProvider
         $this->configurePolicies();
         $this->configureRateLimiters();
         $this->configureEvents();
+        $this->configureViewComposers();
     }
 
     /**
@@ -66,10 +77,14 @@ class AppServiceProvider extends ServiceProvider
         // TrackSecurityEvent must run BEFORE RecordUserLogin to see the old last_login_ip
         Event::listen(Login::class, [TrackSecurityEvent::class, 'handleLogin']);
         Event::listen(Login::class, RecordUserLogin::class);
+        Event::listen(Login::class, RecordLoginHistoryEntry::class);
         Event::listen(Failed::class, [TrackSecurityEvent::class, 'handleFailed']);
         Event::listen(Logout::class, [TrackSecurityEvent::class, 'handleLogout']);
         Event::listen(NotificationSent::class, BroadcastNotificationReceived::class);
         Event::listen(JobFailed::class, NotifyAdminOnFailedJob::class);
+        Event::listen(FortifyTwoFactorConfirmed::class, HandleTwoFactorAuthenticationConfirmed::class);
+        Event::listen(FortifyTwoFactorDisabled::class, HandleTwoFactorAuthenticationDisabled::class);
+        Event::listen(MessageSent::class, LogSentEmail::class);
     }
 
     /**
@@ -103,6 +118,47 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(DomainRegistration::class, DomainRegistrationPolicy::class);
         Gate::policy(Customer::class, CustomerPolicy::class);
         Gate::policy(SupportTicket::class, SupportTicketPolicy::class);
+    }
+
+    private function configureViewComposers(): void
+    {
+        View::composer(['layouts.panel', 'layouts.front'], function (\Illuminate\View\View $view): void {
+            $isAdmin = str_contains($view->getName(), 'panel');
+            $banners = MaintenanceWindow::currentBanners($isAdmin);
+            $view->with('maintenanceActive', $banners['active']);
+            $view->with('maintenanceUpcoming', $banners['upcoming']);
+        });
+
+        View::composer('layouts.panel', function (\Illuminate\View\View $view): void {
+            $user = auth()->user();
+
+            if ($user === null) {
+                $view->with('activeAnnouncements', collect());
+                return;
+            }
+
+            $dismissed = $user->isAdmin()
+                ? collect()
+                : \Illuminate\Support\Facades\DB::table('announcement_dismissals')
+                      ->where('user_id', $user->id)
+                      ->pluck('announcement_id');
+
+            $customerSegment = null;
+            if (! $user->isAdmin()) {
+                $customer = $user->customer;
+                $customerSegment = $customer?->segment;
+            }
+
+            $view->with('activeAnnouncements', SystemAnnouncement::query()
+                ->where('is_published', true)
+                ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+                ->where(fn ($q) => $q->whereNull('scheduled_at')->orWhere('scheduled_at', '<=', now()))
+                ->where(fn ($q) => $q->whereNull('target_segment')
+                    ->orWhere('target_segment', $customerSegment))
+                ->whereNotIn('id', $dismissed)
+                ->latest('published_at')
+                ->get());
+        });
     }
 
     private function configureRateLimiters(): void

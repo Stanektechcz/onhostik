@@ -291,19 +291,65 @@
                             <button type="button" class="btn btn-outline-secondary btn-sm" disabled>{{ __('panel.services.upgrade_placeholder') }}</button>
                         @endif
                         @if(in_array($service->status->value, ['active', 'suspended']))
-                            <form method="POST" action="{{ route('panel.services.request-cancel', $service) }}"
-                                  onsubmit="return confirm('{{ __('panel.services.cancel_confirm') }}')">
-                                @csrf
-                                <button type="submit" class="btn btn-outline-danger btn-sm">
-                                    <i data-feather="x-circle" style="width:13px;height:13px"></i>
-                                    {{ __('panel.services.request_cancellation') }}
-                                </button>
-                            </form>
+                            <button type="button" class="btn btn-outline-danger btn-sm"
+                                    data-bs-toggle="modal" data-bs-target="#cancelModal">
+                                <i data-feather="x-circle" style="width:13px;height:13px"></i>
+                                {{ __('panel.services.request_cancellation') }}
+                            </button>
                         @else
                             <button type="button" class="btn btn-outline-secondary btn-sm" disabled>{{ __('panel.services.cancel_placeholder') }}</button>
                         @endif
                     </div>
                     <p class="f-light f-12 mb-0 mt-2">{{ __('panel.services.credentials') }}: {{ __('panel.services.credentials_note') }}</p>
+
+                    {{-- Auto-renewal toggle --}}
+                    <hr class="my-3">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="f-13 f-w-500">Automatická obnova</span>
+                            <p class="f-light f-12 mb-0">
+                                @if($service->auto_renew)
+                                    <span class="badge badge-light-success">Zapnuto</span>
+                                    Faktura za obnovu bude vystavena automaticky.
+                                @else
+                                    <span class="badge badge-light-secondary">Vypnuto</span>
+                                    Služba nebude automaticky obnovena.
+                                @endif
+                            </p>
+                        </div>
+                        <form method="POST" action="{{ route('panel.services.toggle-auto-renew', $service) }}">
+                            @csrf
+                            <button type="submit"
+                                    class="btn btn-outline-{{ $service->auto_renew ? 'warning' : 'success' }} btn-sm"
+                                    onclick="return confirm('{{ $service->auto_renew ? 'Vypnout automatickou obnovu?' : 'Zapnout automatickou obnovu?' }}')">
+                                <i data-feather="{{ $service->auto_renew ? 'toggle-right' : 'toggle-left' }}" style="width:13px;height:13px"></i>
+                                {{ $service->auto_renew ? 'Vypnout' : 'Zapnout' }}
+                            </button>
+                        </form>
+                    </div>
+
+                    {{-- Rename service --}}
+                    <hr class="my-3">
+                    <span class="f-13 f-w-500">Přejmenovat službu</span>
+                    <form method="POST" action="{{ route('panel.services.rename', $service) }}" class="d-flex gap-2 mt-2">
+                        @csrf
+                        @method('PATCH')
+                        <input type="text"
+                               name="label"
+                               class="form-control form-control-sm @error('label') is-invalid @enderror"
+                               value="{{ old('label', $service->label) }}"
+                               placeholder="Název služby"
+                               minlength="2"
+                               maxlength="100"
+                               required>
+                        @error('label')
+                            <div class="invalid-feedback">{{ $message }}</div>
+                        @enderror
+                        <button type="submit" class="btn btn-outline-primary btn-sm text-nowrap">
+                            <i data-feather="edit-2" style="width:13px;height:13px"></i>
+                            Uložit
+                        </button>
+                    </form>
                 </x-panel.card>
             </div>
 
@@ -427,6 +473,80 @@
                     @endif
                 </x-panel.card>
 
+                {{-- Backup schedule configuration --}}
+                <x-panel.card title="Plán zálohování">
+                    @if(session('status') === 'Plán zálohování byl uložen.')
+                        <div class="alert alert-success py-2 mb-3 f-12">Plán zálohování byl uložen.</div>
+                    @endif
+                    <form method="POST" action="{{ route('panel.services.backup-schedule', $service) }}">
+                        @csrf
+                        @method('PUT')
+
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label f-12 f-w-600">Frekvence</label>
+                                <select name="frequency" class="form-control form-control-sm @error('frequency') is-invalid @enderror">
+                                    @foreach(['daily' => 'Denně', 'weekly' => 'Týdně', 'monthly' => 'Měsíčně'] as $val => $label)
+                                        <option value="{{ $val }}" {{ old('frequency', $backupPolicy?->frequency ?? 'daily') === $val ? 'selected' : '' }}>{{ $label }}</option>
+                                    @endforeach
+                                </select>
+                                @error('frequency')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label f-12 f-w-600">Čas zálohy (hodina UTC)</label>
+                                <select name="scheduled_hour" class="form-control form-control-sm @error('scheduled_hour') is-invalid @enderror">
+                                    @for($h = 0; $h < 24; $h++)
+                                        <option value="{{ $h }}" {{ (int) old('scheduled_hour', $backupPolicy?->scheduled_hour ?? 3) === $h ? 'selected' : '' }}>
+                                            {{ str_pad((string) $h, 2, '0', STR_PAD_LEFT) }}:00
+                                        </option>
+                                    @endfor
+                                </select>
+                                @error('scheduled_hour')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label f-12 f-w-600">Den (pro týdenní plán)</label>
+                                <select name="scheduled_weekday" class="form-control form-control-sm @error('scheduled_weekday') is-invalid @enderror">
+                                    <option value="">—</option>
+                                    @foreach([0 => 'Pondělí', 1 => 'Úterý', 2 => 'Středa', 3 => 'Čtvrtek', 4 => 'Pátek', 5 => 'Sobota', 6 => 'Neděle'] as $d => $dn)
+                                        <option value="{{ $d }}" {{ (string) old('scheduled_weekday', $backupPolicy?->scheduled_weekday) === (string) $d ? 'selected' : '' }}>{{ $dn }}</option>
+                                    @endforeach
+                                </select>
+                                @error('scheduled_weekday')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label f-12 f-w-600">Uchovávat zálohy (dní)</label>
+                                <input type="number" name="retention_days" min="1" max="365"
+                                    value="{{ old('retention_days', $backupPolicy?->retention_days ?? 14) }}"
+                                    class="form-control form-control-sm @error('retention_days') is-invalid @enderror">
+                                @error('retention_days')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
+                            </div>
+
+                            <div class="col-md-4 d-flex align-items-center gap-2 pt-3">
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" name="is_active" value="1" id="bp_active"
+                                        {{ old('is_active', $backupPolicy?->is_active ?? true) ? 'checked' : '' }}>
+                                    <label class="form-check-label f-12" for="bp_active">Aktivní</label>
+                                </div>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" name="notify_on_failure" value="1" id="bp_notify"
+                                        {{ old('notify_on_failure', $backupPolicy?->notify_on_failure ?? true) ? 'checked' : '' }}>
+                                    <label class="form-check-label f-12" for="bp_notify">Upozornit při chybě</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <button type="submit" class="btn btn-primary btn-sm">
+                                <i data-feather="save" style="width:13px;height:13px"></i>
+                                Uložit plán
+                            </button>
+                        </div>
+                    </form>
+                </x-panel.card>
+
                 {{-- Provisioning tasks timeline --}}
                 @if($service->provisioningTasks->isNotEmpty())
                     <x-panel.card :title="__('panel.services.tasks')">
@@ -470,4 +590,44 @@
             </div>
         </div>
     </div>
+
+    {{-- Cancellation Survey Modal --}}
+    @if(in_array($service->status->value, ['active', 'suspended']))
+    <div class="modal fade" id="cancelModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form method="POST" action="{{ route('panel.services.request-cancel', $service) }}">
+                    @csrf
+                    <div class="modal-header border-0 pb-0">
+                        <h5 class="modal-title">Zrušení služby</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="f-12 text-muted mb-3">Žádost o zrušení bude odeslána podpoře. Před zpracováním vás budeme kontaktovat.</p>
+
+                        <div class="mb-3">
+                            <label class="form-label f-12 f-w-600">Důvod zrušení <span class="text-muted f-w-400">(volitelné)</span></label>
+                            <select name="cancellation_reason" class="form-select form-select-sm">
+                                <option value="">— Vyberte důvod —</option>
+                                @foreach(\App\Models\ServiceCancellation::REASONS as $value => $label)
+                                    <option value="{{ $value }}">{{ $label }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label f-12 f-w-600">Doplňující komentář <span class="text-muted f-w-400">(volitelné)</span></label>
+                            <textarea name="cancellation_feedback" class="form-control form-control-sm"
+                                      rows="3" maxlength="1000"
+                                      placeholder="Pomozte nám porozumět vašemu rozhodnutí…"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-0 pt-0">
+                        <button type="button" class="btn btn-sm btn-light" data-bs-dismiss="modal">Zpět</button>
+                        <button type="submit" class="btn btn-sm btn-danger">Odeslat žádost o zrušení</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    @endif
 @endsection

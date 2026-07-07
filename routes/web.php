@@ -83,3 +83,10 @@ Route::get('/sitemap.xml', [PageController::class, 'sitemap'])->name('front.site
 Route::get('/stav', StatusController::class)->name('front.status');
 
 Route::get('/ref/{code}', AffiliateController::class)->name('front.affiliate');
+
+/* ── Phase 157: Magic Link Login ── */
+Route::middleware('throttle:10,1')->group(function (): void {
+    Route::get('/magic-link', [\App\Http\Controllers\Auth\MagicLinkController::class, 'showRequestForm'])->name('magic-link.form');
+    Route::post('/magic-link', [\App\Http\Controllers\Auth\MagicLinkController::class, 'sendLink'])->name('magic-link.send');
+    Route::get('/magic-link/{token}', [\App\Http\Controllers\Auth\MagicLinkController::class, 'login'])->name('magic-link.login');
+});

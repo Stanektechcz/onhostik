@@ -32,12 +32,14 @@ class SystemAnnouncementController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'title'      => 'required|string|max:200',
-            'body'       => 'required|string',
-            'type'       => 'required|in:info,warning,maintenance,feature',
-            'icon'       => 'nullable|string|max:50',
-            'send_email' => 'boolean',
-            'expires_at' => 'nullable|date|after:now',
+            'title'          => 'required|string|max:200',
+            'body'           => 'required|string',
+            'type'           => 'required|in:info,warning,maintenance,feature',
+            'icon'           => 'nullable|string|max:50',
+            'send_email'     => 'boolean',
+            'expires_at'     => 'nullable|date|after:now',
+            'scheduled_at'   => 'nullable|date|after:now',
+            'target_segment' => 'nullable|in:vip,healthy,at_risk,churned',
         ]);
 
         $data['send_email'] = $request->boolean('send_email');
@@ -56,12 +58,14 @@ class SystemAnnouncementController extends Controller
     public function update(Request $request, SystemAnnouncement $announcement): RedirectResponse
     {
         $data = $request->validate([
-            'title'      => 'required|string|max:200',
-            'body'       => 'required|string',
-            'type'       => 'required|in:info,warning,maintenance,feature',
-            'icon'       => 'nullable|string|max:50',
-            'send_email' => 'boolean',
-            'expires_at' => 'nullable|date',
+            'title'          => 'required|string|max:200',
+            'body'           => 'required|string',
+            'type'           => 'required|in:info,warning,maintenance,feature',
+            'icon'           => 'nullable|string|max:50',
+            'send_email'     => 'boolean',
+            'expires_at'     => 'nullable|date',
+            'scheduled_at'   => 'nullable|date',
+            'target_segment' => 'nullable|in:vip,healthy,at_risk,churned',
         ]);
 
         $data['send_email'] = $request->boolean('send_email');

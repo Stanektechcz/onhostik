@@ -76,7 +76,35 @@ final class CreditLedger
         string $description,
         int $createdBy,
     ): CreditTransaction {
-        return $this->write($customer, CreditTransactionType::Adjustment, $amount, $description, createdBy: $createdBy);
+        $tx = $this->write($customer, CreditTransactionType::Adjustment, $amount, $description, createdBy: $createdBy);
+
+        try {
+            $admin = \App\Models\User::find($createdBy);
+            if ($admin !== null) {
+                app(\App\Domains\Audit\Services\AdminAuditService::class)->log(
+                    $admin,
+                    'credit_adjustment',
+                    $customer,
+                    ['amount_minor' => $amount->getMinorAmount()->toInt(), 'description' => $description],
+                );
+            }
+        } catch (\Throwable) {
+            // Audit failure must never block the ledger operation
+        }
+
+        return $tx;
+    }
+
+    /** Write an expiry deduction for a deposit whose expires_at has passed. */
+    public function expire(
+        Customer $customer,
+        Money $amount,
+        string $description,
+        ?Model $reference = null,
+    ): CreditTransaction {
+        $this->assertPositive($amount);
+
+        return $this->write($customer, CreditTransactionType::Expiry, $amount->negated(), $description, $reference);
     }
 
     public function getBalance(Customer $customer): Money

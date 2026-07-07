@@ -55,6 +55,9 @@
 
     <x-front.header />
 
+    {{-- Maintenance banner --}}
+    <x-maintenance-banner :active="$maintenanceActive ?? null" :upcoming="$maintenanceUpcoming ?? null" style="front" />
+
     @yield('content')
 
     <x-front.footer />

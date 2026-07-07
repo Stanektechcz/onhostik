@@ -35,6 +35,27 @@
         <x-panel.sidebar />
 
         <div class="page-body">
+            {{-- Maintenance banner --}}
+            <x-maintenance-banner :active="$maintenanceActive ?? null" :upcoming="$maintenanceUpcoming ?? null" style="admin" />
+            {{-- System announcement banners --}}
+            @foreach($activeAnnouncements ?? [] as $announcement)
+            <div class="container-fluid py-0 announcement-banner" id="announcement-{{ $announcement->id }}">
+                <div class="alert alert-light-{{ $announcement->type === 'warning' ? 'warning' : ($announcement->type === 'maintenance' ? 'danger' : ($announcement->type === 'feature' ? 'success' : 'primary')) }} mb-0 py-2 d-flex align-items-start gap-3"
+                     style="border-radius:0;border-left:0;border-right:0;border-top:0;">
+                    <i data-feather="{{ $announcement->icon }}" style="width:16px;height:16px;flex-shrink:0;margin-top:2px;"></i>
+                    <div class="flex-1">
+                        <strong class="f-13">{{ $announcement->title }}</strong>
+                        @if($announcement->body)
+                            <p class="f-12 f-light mb-0">{{ $announcement->body }}</p>
+                        @endif
+                    </div>
+                    <form method="POST" action="{{ route('panel.announcements.dismiss', $announcement) }}">
+                        @csrf
+                        <button type="submit" class="btn-close btn-sm" style="opacity:.6;" aria-label="Zavřít"></button>
+                    </form>
+                </div>
+            </div>
+            @endforeach
             {{-- Impersonation top bar --}}
             @if(session()->has('_impersonated_by'))
             <div class="container-fluid py-0">

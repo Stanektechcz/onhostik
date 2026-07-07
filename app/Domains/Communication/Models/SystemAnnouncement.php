@@ -7,6 +7,7 @@ namespace App\Domains\Communication\Models;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 /**
  * @property 'info'|'warning'|'maintenance'|'feature' $type
@@ -15,7 +16,7 @@ class SystemAnnouncement extends Model
 {
     protected $fillable = [
         'title', 'body', 'type', 'icon', 'send_email',
-        'is_published', 'published_at', 'expires_at', 'created_by', 'sent_count',
+        'is_published', 'published_at', 'expires_at', 'scheduled_at', 'target_segment', 'created_by', 'sent_count',
     ];
 
     protected $casts = [
@@ -23,12 +24,20 @@ class SystemAnnouncement extends Model
         'is_published' => 'boolean',
         'published_at' => 'datetime',
         'expires_at'   => 'datetime',
+        'scheduled_at' => 'datetime',
     ];
 
     /** @return BelongsTo<User, $this> */
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /** @return BelongsToMany<User, $this> */
+    public function dismissedBy(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'announcement_dismissals', 'announcement_id', 'user_id')
+                    ->withPivot('dismissed_at');
     }
 
     public function typeLabel(): string
@@ -54,6 +63,9 @@ class SystemAnnouncement extends Model
     public function isActive(): bool
     {
         if (! $this->is_published) {
+            return false;
+        }
+        if ($this->scheduled_at && $this->scheduled_at->isFuture()) {
             return false;
         }
         if ($this->expires_at && $this->expires_at->isPast()) {

@@ -341,6 +341,81 @@
                         </div>
                     </x-panel.card>
                 @endif
+
+                {{-- Plan change history (Phase 97) --}}
+                @if($planChanges->isNotEmpty())
+                    <x-panel.card title="Historie změn plánu">
+                        <div class="table-responsive">
+                            <table class="table table-sm mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Ze plánu</th>
+                                        <th>Na plán</th>
+                                        <th>Provedl</th>
+                                        <th>Důvod</th>
+                                        <th>Kdy</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach($planChanges as $change)
+                                        <tr>
+                                            <td class="text-muted">{{ $change->fromPlan?->name ?? '—' }}</td>
+                                            <td class="fw-semibold">{{ $change->toPlan->name }}</td>
+                                            <td>{{ $change->changedBy?->name ?? '—' }}</td>
+                                            <td><span class="badge bg-secondary">{{ $change->reasonLabel() }}</span></td>
+                                            <td class="text-muted small">{{ $change->changed_at->format('d.m.Y H:i') }}</td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    </x-panel.card>
+                @endif
+
+                {{-- Backup schedule (Phase 99) --}}
+                @if($backupPolicy)
+                    <x-panel.card title="Plán zálohování">
+                        <div class="row g-3">
+                            <div class="col-sm-4">
+                                <p class="f-12 text-muted mb-1">Frekvence</p>
+                                <span class="badge bg-info">{{ $backupPolicy->frequencyLabel() }}</span>
+                            </div>
+                            <div class="col-sm-4">
+                                <p class="f-12 text-muted mb-1">Čas zálohy</p>
+                                <span class="f-12">{{ str_pad((string) $backupPolicy->scheduled_hour, 2, '0', STR_PAD_LEFT) }}:00 UTC</span>
+                                @if($backupPolicy->frequency === 'weekly')
+                                    &mdash; {{ $backupPolicy->weekdayLabel() }}
+                                @endif
+                            </div>
+                            <div class="col-sm-4">
+                                <p class="f-12 text-muted mb-1">Uchovávání</p>
+                                <span class="f-12">{{ $backupPolicy->retention_days }} dní</span>
+                            </div>
+                            <div class="col-sm-4">
+                                <p class="f-12 text-muted mb-1">Stav</p>
+                                @if($backupPolicy->is_active)
+                                    <span class="badge bg-success">Aktivní</span>
+                                @else
+                                    <span class="badge bg-secondary">Neaktivní</span>
+                                @endif
+                            </div>
+                            <div class="col-sm-4">
+                                <p class="f-12 text-muted mb-1">Upozornit při chybě</p>
+                                @if($backupPolicy->notify_on_failure)
+                                    <span class="badge bg-warning text-dark">Ano</span>
+                                @else
+                                    <span class="badge bg-secondary">Ne</span>
+                                @endif
+                            </div>
+                            @if($backupPolicy->last_run_at)
+                                <div class="col-sm-4">
+                                    <p class="f-12 text-muted mb-1">Poslední záloha</p>
+                                    <span class="f-12">{{ $backupPolicy->last_run_at->format('d.m.Y H:i') }}</span>
+                                </div>
+                            @endif
+                        </div>
+                    </x-panel.card>
+                @endif
             </div>
         </div>
     </div>

@@ -4,19 +4,41 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Panel;
 
+use App\Domains\Api\Models\ApiUsageLog;
 use App\Http\Controllers\Api\V1\TokenController;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 class ApiTokenController extends Controller
 {
     public function index(Request $request): View
     {
-        $tokens = $request->user()?->tokens()->latest()->get() ?? collect();
+        $user   = $request->user();
+        $tokens = $user?->tokens()->latest()->get() ?? collect();
 
-        return view('panel.api-tokens', compact('tokens'));
+        $tokenIds = $tokens->pluck('id');
+
+        // All-time totals per token
+        $stats = ApiUsageLog::query()
+            ->selectRaw('token_id, COUNT(*) as total, SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as errors')
+            ->whereIn('token_id', $tokenIds)
+            ->groupBy('token_id')
+            ->get()
+            ->keyBy('token_id');
+
+        // Last 7 days per token
+        $recent = ApiUsageLog::query()
+            ->selectRaw('token_id, COUNT(*) as recent_total')
+            ->whereIn('token_id', $tokenIds)
+            ->where('created_at', '>=', now()->subDays(7))
+            ->groupBy('token_id')
+            ->get()
+            ->keyBy('token_id');
+
+        return view('panel.api-tokens', compact('tokens', 'stats', 'recent'));
     }
 
     public function store(Request $request): RedirectResponse

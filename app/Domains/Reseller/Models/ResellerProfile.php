@@ -37,6 +37,9 @@ class ResellerProfile extends Model
         'branding',
         'allowed_products',
         'approved_at',
+        'support_email',
+        'support_phone',
+        'panel_title',
     ];
 
     protected function casts(): array

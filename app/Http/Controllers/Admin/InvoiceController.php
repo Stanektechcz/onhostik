@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domains\Billing\Actions\CreateAdHocInvoiceAction;
+use App\Domains\Billing\Actions\PauseDunningAction;
 use App\Domains\Billing\Actions\IssueCreditNoteAction;
 use App\Domains\Billing\Actions\IssueTaxDocumentAction;
 use App\Domains\Billing\Actions\ProcessMockPaymentAction;
 use App\Domains\Billing\Enums\InvoiceStatus;
 use App\Domains\Billing\Exceptions\IncompleteBillingDetailsException;
 use App\Domains\Billing\Models\Invoice;
+use App\Domains\Customer\Models\Customer;
 use App\Http\Controllers\Controller;
 use App\Notifications\InvoiceIssuedNotification;
 use App\Notifications\PaymentOverdueNotification;
@@ -18,6 +21,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Carbon;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -303,5 +307,82 @@ class InvoiceController extends Controller
         return redirect()
             ->route('admin.invoices.show', $creditNote)
             ->with('status', 'Dobropis ' . $creditNote->number . ' byl vystaven a kredit připsán zákazníkovi.');
+    }
+
+    /** Pause dunning reminders on an open invoice for a specified number of days. */
+    public function pauseDunning(Invoice $invoice, Request $request, PauseDunningAction $action): RedirectResponse
+    {
+        if (! $invoice->status->isOpen()) {
+            return back()->withErrors(['invoice' => 'Upomínání lze pozastavit pouze u otevřených faktur.']);
+        }
+
+        $validated = $request->validate([
+            'days' => ['required', 'integer', 'in:7,14,30,60'],
+        ]);
+
+        $action->pause($invoice, (int) $validated['days']);
+
+        return back()->with('status', "Upomínání pozastaveno na {$validated['days']} dní.");
+    }
+
+    /** Resume dunning reminders on an invoice immediately. */
+    public function resumeDunning(Invoice $invoice, PauseDunningAction $action): RedirectResponse
+    {
+        $action->resume($invoice);
+
+        return back()->with('status', 'Upomínání obnoveno.');
+    }
+
+    /** Show the ad-hoc invoice creation form. */
+    public function adhocCreate(): View
+    {
+        return view('admin.invoice-adhoc-create', [
+            'customers' => Customer::query()
+                ->with('user')
+                ->orderBy('email')
+                ->get(),
+        ]);
+    }
+
+    /** Validate and create an ad-hoc invoice. */
+    public function adhocStore(Request $request, CreateAdHocInvoiceAction $action): RedirectResponse
+    {
+        $validated = $request->validate([
+            'customer_id'                  => ['required', 'integer', 'exists:customers,id'],
+            'due_date'                     => ['required', 'date', 'after:today'],
+            'notes'                        => ['nullable', 'string', 'max:1000'],
+            'items'                        => ['required', 'array', 'min:1', 'max:20'],
+            'items.*.description'          => ['required', 'string', 'max:255'],
+            'items.*.quantity'             => ['required', 'integer', 'min:1', 'max:9999'],
+            'items.*.unit_price_minor'     => ['required', 'integer', 'min:0'],
+            'items.*.vat_rate'             => ['required', 'numeric', 'in:0,21'],
+        ]);
+
+        $customer = Customer::findOrFail((int) $validated['customer_id']);
+
+        /** @var list<array{description: string, quantity: int, unit_price_minor: int, vat_rate: float}> $items */
+        $items = array_map(function (array $item): array {
+            return [
+                'description'      => (string) $item['description'],
+                'quantity'         => (int) $item['quantity'],
+                'unit_price_minor' => (int) $item['unit_price_minor'],
+                'vat_rate'         => (float) $item['vat_rate'],
+            ];
+        }, $validated['items']);
+
+        try {
+            $invoice = $action->execute(
+                $customer,
+                $items,
+                Carbon::parse($validated['due_date']),
+                $validated['notes'] ?? null,
+            );
+        } catch (InvalidArgumentException $e) {
+            return back()->withInput()->withErrors(['adhoc' => $e->getMessage()]);
+        }
+
+        return redirect()
+            ->route('admin.invoices.show', $invoice)
+            ->with('status', "Ad-hoc faktura {$invoice->number} byla vystavena.");
     }
 }

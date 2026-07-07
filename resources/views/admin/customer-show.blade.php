@@ -14,8 +14,13 @@
         <div class="alert alert-light-warning d-flex align-items-center gap-3 mb-3 py-2">
             <i data-feather="eye" style="width:16px;height:16px;"></i>
             <span class="f-14">Přihlásit se jako tento zákazník a zobrazit jeho panel.</span>
+            <a href="{{ route('admin.customer-login-history.show', $customer) }}"
+               class="btn btn-outline-secondary btn-xs ms-auto">
+                <i data-feather="clock" style="width:12px;height:12px;"></i>
+                Historie přihlášení
+            </a>
             <a href="{{ route('admin.impersonate.start', $customer->user_id) }}"
-               class="btn btn-warning btn-xs ms-auto text-white"
+               class="btn btn-warning btn-xs text-white"
                onclick="return confirm('Přihlásit se za zákazníka {{ addslashes($customer->user?->name) }}?')">
                 <i data-feather="log-in" style="width:12px;height:12px;"></i>
                 Přihlásit se za zákazníka
@@ -62,30 +67,39 @@
 
         {{-- KPI row --}}
         <div class="grid grid-cols-12 card-gap">
-            <div class="col-span-6 sm:col-span-12 md:col-span-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2-4">
                 <x-panel.stat-widget
                     :label="__('panel.billing.balance')"
                     :value="\App\Domains\Shared\Support\MoneyFormatter::format($balance)"
                     icon="credit-card" color="primary" />
             </div>
-            <div class="col-span-6 sm:col-span-12 md:col-span-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2-4">
                 <x-panel.stat-widget
                     :label="__('panel.nav.admin_services')"
                     :value="$services->count()"
                     icon="server" color="success" />
             </div>
-            <div class="col-span-6 sm:col-span-12 md:col-span-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2-4">
                 <x-panel.stat-widget
                     :label="__('panel.nav.admin_invoices')"
                     :value="$invoices->count()"
                     icon="file-text" color="warning" />
             </div>
-            <div class="col-span-6 sm:col-span-12 md:col-span-3">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2-4">
                 <x-panel.stat-widget
                     :label="__('panel.nav.admin_support')"
                     :value="$tickets->count()"
                     icon="life-buoy" color="danger" />
             </div>
+            @if($customer->health_score !== null)
+            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2-4">
+                <x-panel.stat-widget
+                    label="Zdraví zákazníka"
+                    :value="$customer->health_score . '/100'"
+                    icon="heart"
+                    :color="$customer->health_score >= 80 ? 'success' : ($customer->health_score >= 50 ? 'warning' : 'danger')" />
+            </div>
+            @endif
         </div>
 
         <div class="grid grid-cols-12 card-gap">
@@ -129,6 +143,20 @@
                             <td class="f-light ps-0">Registrace</td>
                             <td>{{ $customer->created_at?->format('d.m.Y') }}</td>
                         </tr>
+                        @if($customer->health_score !== null)
+                            <tr>
+                                <td class="f-light ps-0">Zdraví</td>
+                                <td>
+                                    <span class="badge badge-light-{{ $customer->health_score >= 80 ? 'success' : ($customer->health_score >= 50 ? 'warning' : 'danger') }}">
+                                        {{ $customer->health_score >= 80 ? 'Zdravý' : ($customer->health_score >= 50 ? 'Pozor' : 'Kritický') }}
+                                    </span>
+                                    <span class="f-light f-12 ms-1">{{ $customer->health_score }}/100</span>
+                                    <div class="progress mt-1" style="height:4px;">
+                                        <div class="progress-bar bg-{{ $customer->health_score >= 80 ? 'success' : ($customer->health_score >= 50 ? 'warning' : 'danger') }}" style="width:{{ $customer->health_score }}%"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endif
                     </table>
                 </x-panel.card>
 
@@ -150,12 +178,12 @@
                     </form>
                 </x-panel.card>
 
-                {{-- Admin notes --}}
-                <x-panel.card title="Interní poznámky">
+                {{-- Admin notes (quick sticky) --}}
+                <x-panel.card title="Rychlá poznámka (sticky)">
                     <form method="POST" action="{{ route('admin.customers.notes', $customer) }}">
                         @csrf
                         @method('PUT')
-                        <textarea name="admin_notes" rows="4"
+                        <textarea name="admin_notes" rows="3"
                                   class="form-control form-control-sm f-12 font-monospace mb-2"
                                   placeholder="Interní poznámky — nevidí zákazník…"
                                   maxlength="5000">{{ old('admin_notes', $customer->admin_notes) }}</textarea>
@@ -165,6 +193,58 @@
                             {{ __('panel.common.save') }}
                         </button>
                     </form>
+                </x-panel.card>
+
+                {{-- Threaded internal notes --}}
+                <x-panel.card title="Interní zápisky">
+                    {{-- Add note form --}}
+                    <form method="POST" action="{{ route('admin.customers.internal-notes.store', $customer) }}" class="mb-3">
+                        @csrf
+                        <textarea name="content" rows="2"
+                                  class="form-control form-control-sm f-12 mb-2 @error('content') is-invalid @enderror"
+                                  placeholder="Přidat zápis…" maxlength="5000"></textarea>
+                        @error('content')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        <div class="d-flex gap-2 align-items-center">
+                            <button type="submit" class="btn btn-primary btn-sm">Přidat</button>
+                            <div class="form-check mb-0">
+                                <input class="form-check-input" type="checkbox" name="is_pinned" value="1" id="pin_note">
+                                <label class="form-check-label f-11" for="pin_note">Připnout</label>
+                            </div>
+                        </div>
+                    </form>
+
+                    {{-- Notes timeline --}}
+                    @forelse($internalNotes as $note)
+                    <div class="border rounded p-2 mb-2 {{ $note->is_pinned ? 'border-warning bg-light-warning' : '' }}">
+                        <div class="d-flex justify-content-between align-items-start mb-1">
+                            <div>
+                                @if($note->is_pinned)
+                                    <i data-feather="bookmark" style="width:12px;height:12px;" class="txt-warning me-1"></i>
+                                @endif
+                                <span class="f-12 f-w-600">{{ $note->admin?->name ?? 'Admin' }}</span>
+                                <span class="f-light f-11 ms-2">{{ $note->created_at->diffForHumans() }}</span>
+                            </div>
+                            <div class="d-flex gap-1">
+                                <form method="POST" action="{{ route('admin.customers.internal-notes.pin', [$customer, $note]) }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-xs btn-outline-{{ $note->is_pinned ? 'warning' : 'secondary' }}" title="{{ $note->is_pinned ? 'Odepnout' : 'Připnout' }}">
+                                        <i data-feather="{{ $note->is_pinned ? 'bookmark' : 'bookmark' }}" style="width:10px;height:10px;"></i>
+                                    </button>
+                                </form>
+                                <form method="POST" action="{{ route('admin.customers.internal-notes.destroy', [$customer, $note]) }}">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn btn-xs btn-outline-danger" onclick="return confirm('Smazat zápis?')">
+                                        <i data-feather="trash-2" style="width:10px;height:10px;"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                        <p class="f-12 mb-0" style="white-space:pre-wrap;">{{ $note->content }}</p>
+                    </div>
+                    @empty
+                        <p class="f-light f-12 mb-0">Žádné zápisky.</p>
+                    @endforelse
                 </x-panel.card>
 
                 {{-- Domains --}}

@@ -24,6 +24,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
@@ -43,9 +44,15 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property string|null $company_name
  * @property Carbon|null $vat_validated_at
  * @property int|null $churn_risk_score
+ * @property int|null $health_score         0-100; high = healthy. Computed by CustomerHealthScorer.
+ * @property Carbon|null $health_score_updated_at
  * @property string|null $segment
+ * @property string|null $preferred_contact
  * @property Carbon|null $insights_updated_at
  * @property Carbon|null $onboarding_completed_at
+ * @property array<string, mixed>|null $credit_auto_topup
+ * @property int|null $referred_by_customer_id
+ * @property Carbon|null $risk_alert_sent_at
  */
 class Customer extends Model
 {
@@ -70,11 +77,16 @@ class Customer extends Model
         'vat_validated_at',
         'admin_notes',
         'churn_risk_score',
+        'health_score',
+        'health_score_updated_at',
         'segment',
+        'preferred_contact',
+        'risk_alert_sent_at',
         'insights_updated_at',
         'onboarding_completed_at',
         'referral_code',
         'referred_by_customer_id',
+        'credit_auto_topup',
     ];
 
     protected function casts(): array
@@ -84,7 +96,10 @@ class Customer extends Model
             'preferred_locale'    => Locale::class,
             'vat_validated_at'         => 'datetime',
             'insights_updated_at'      => 'datetime',
+            'health_score_updated_at'  => 'datetime',
             'onboarding_completed_at'  => 'datetime',
+            'risk_alert_sent_at'       => 'datetime',
+            'credit_auto_topup'        => 'array',
         ];
     }
 
@@ -187,6 +202,20 @@ class Customer extends Model
     public function referrals(): HasMany
     {
         return $this->hasMany(CustomerReferral::class, 'referrer_id');
+    }
+
+    /** @return HasMany<CustomerContact, $this> */
+    public function contacts(): HasMany
+    {
+        return $this->hasMany(CustomerContact::class);
+    }
+
+    /** @return BelongsToMany<CustomerTag, $this> */
+    public function tags(): BelongsToMany
+    {
+        return $this->belongsToMany(CustomerTag::class, 'customer_customer_tag')
+            ->withPivot(['assigned_by'])
+            ->withTimestamps();
     }
 
     // ---------------------------------------------------------------- helpers

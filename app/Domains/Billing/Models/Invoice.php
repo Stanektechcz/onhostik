@@ -38,10 +38,18 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property Carbon|null $due_date
  * @property Carbon|null $paid_at
  * @property Carbon|null $renewal_applied_at
+ * @property string|null  $purchase_order_number  Customer-supplied PO number (B2B)
+ * @property string|null  $custom_reference       Customer's own accounting reference
  * @property Carbon|null $dunning_paused_until
  * @property Carbon|null $reminder_1d_sent_at
  * @property Carbon|null $reminder_3d_sent_at
  * @property Carbon|null $reminder_7d_sent_at
+ * @property Carbon|null $suspension_warning_sent_at
+ * @property int|null    $late_fee_amount       Minor units (raw BIGINT), no MoneyCast — currency = invoice currency
+ * @property Carbon|null $late_fee_applied_at
+ * @property Carbon|null $renewal_failure_notified_at
+ * @property int         $reminder_sent_count
+ * @property Carbon|null $last_reminder_at
  */
 class Invoice extends Model
 {
@@ -73,10 +81,14 @@ class Invoice extends Model
         'renewal_applied_at', // set once a renewal invoice's payment has extended Service.next_due_date
         'pdf_path',
         'notes',
+        'purchase_order_number',
+        'custom_reference',
         'dunning_paused_until',
+        'reminder_before_1d_sent_at',
         'reminder_1d_sent_at',
         'reminder_3d_sent_at',
         'reminder_7d_sent_at',
+        'suspension_warning_sent_at',
         // --- billing snapshot ---
         'snapshot_name',
         'snapshot_company',
@@ -86,6 +98,11 @@ class Invoice extends Model
         'snapshot_country_code',
         'snapshot_vat_number',
         'snapshot_registration_number',
+        'late_fee_amount',
+        'late_fee_applied_at',
+        'renewal_failure_notified_at',
+        'reminder_sent_count',
+        'last_reminder_at',
     ];
 
     protected function casts(): array
@@ -104,9 +121,13 @@ class Invoice extends Model
             'paid_at'              => 'datetime',
             'renewal_applied_at'   => 'datetime',
             'dunning_paused_until' => 'datetime',
-            'reminder_1d_sent_at'  => 'datetime',
-            'reminder_3d_sent_at'  => 'datetime',
-            'reminder_7d_sent_at'  => 'datetime',
+            'reminder_1d_sent_at'          => 'datetime',
+            'reminder_3d_sent_at'          => 'datetime',
+            'reminder_7d_sent_at'          => 'datetime',
+            'suspension_warning_sent_at'   => 'datetime',
+            'last_reminder_at'             => 'datetime',
+            'late_fee_applied_at'              => 'datetime',
+            'renewal_failure_notified_at'      => 'datetime',
         ];
     }
 
@@ -154,6 +175,12 @@ class Invoice extends Model
     public function parentInvoice(): BelongsTo
     {
         return $this->belongsTo(self::class, 'parent_invoice_id');
+    }
+
+    /** @return HasMany<InvoiceCustomFieldValue, $this> */
+    public function customFieldValues(): HasMany
+    {
+        return $this->hasMany(InvoiceCustomFieldValue::class);
     }
 
     // ---------------------------------------------------------------- helpers
