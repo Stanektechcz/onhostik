@@ -23,24 +23,24 @@ beforeEach(function (): void {
 // ── Access control ────────────────────────────────────────────────────────────
 
 it('guest is redirected from global search', function (): void {
-    $this->getJson(route('admin.search', ['q' => 'test']))->assertUnauthorized();
+    $this->getJson(route('admin.search.quick', ['q' => 'test']))->assertUnauthorized();
 });
 
 it('customer cannot access global search', function (): void {
     $user = customerUser();
-    $this->actingAs($user)->getJson(route('admin.search', ['q' => 'test']))->assertForbidden();
+    $this->actingAs($user)->getJson(route('admin.search.quick', ['q' => 'test']))->assertForbidden();
 });
 
 it('admin can access global search', function (): void {
     $admin = adminUser();
-    $this->actingAs($admin)->getJson(route('admin.search', ['q' => 'test']))->assertOk();
+    $this->actingAs($admin)->getJson(route('admin.search.quick', ['q' => 'test']))->assertOk();
 });
 
 // ── Query length guard ────────────────────────────────────────────────────────
 
 it('returns empty when query is shorter than 2 chars', function (): void {
     $admin    = adminUser();
-    $response = $this->actingAs($admin)->getJson(route('admin.search', ['q' => 'a']));
+    $response = $this->actingAs($admin)->getJson(route('admin.search.quick', ['q' => 'a']));
 
     $response->assertOk()->assertJson(['results' => []]);
 });
@@ -51,7 +51,7 @@ it('finds customers by company name', function (): void {
     $admin = adminUser();
     Customer::factory()->create(['company_name' => 'Acme Corp s.r.o.', 'email' => 'acme@example.com']);
 
-    $response = $this->actingAs($admin)->getJson(route('admin.search', ['q' => 'Acme']));
+    $response = $this->actingAs($admin)->getJson(route('admin.search.quick', ['q' => 'Acme']));
 
     $response->assertOk()
         ->assertJsonPath('results.0.type', 'customer')
@@ -62,7 +62,7 @@ it('finds customers by email', function (): void {
     $admin = adminUser();
     Customer::factory()->create(['email' => 'unique-find@example.cz']);
 
-    $response = $this->actingAs($admin)->getJson(route('admin.search', ['q' => 'unique-find']));
+    $response = $this->actingAs($admin)->getJson(route('admin.search.quick', ['q' => 'unique-find']));
 
     $response->assertOk()
         ->assertJsonFragment(['type' => 'customer']);
@@ -79,7 +79,7 @@ it('finds services by label', function (): void {
         'label'       => 'mujweb-produkce',
     ]);
 
-    $response = $this->actingAs($admin)->getJson(route('admin.search', ['q' => 'mujweb']));
+    $response = $this->actingAs($admin)->getJson(route('admin.search.quick', ['q' => 'mujweb']));
 
     $response->assertOk()
         ->assertJsonFragment(['type' => 'service', 'title' => 'mujweb-produkce']);
@@ -103,7 +103,7 @@ it('finds invoices by number', function (): void {
         'total'        => Money::ofMinor(12100, 'CZK'),
     ]);
 
-    $response = $this->actingAs($admin)->getJson(route('admin.search', ['q' => 'INV-2026-9999']));
+    $response = $this->actingAs($admin)->getJson(route('admin.search.quick', ['q' => 'INV-2026-9999']));
 
     $response->assertOk()
         ->assertJsonFragment(['type' => 'invoice', 'title' => 'Faktura INV-2026-9999']);
@@ -121,7 +121,7 @@ it('finds tickets by subject', function (): void {
         'status'      => TicketStatus::Open,
     ]);
 
-    $response = $this->actingAs($admin)->getJson(route('admin.search', ['q' => 'FTP přístup']));
+    $response = $this->actingAs($admin)->getJson(route('admin.search.quick', ['q' => 'FTP přístup']));
 
     $response->assertOk()
         ->assertJsonFragment(['type' => 'ticket', 'title' => 'Problém s FTP přístupem']);
@@ -132,7 +132,7 @@ it('finds tickets by subject', function (): void {
 it('returns empty results when nothing matches', function (): void {
     $admin = adminUser();
 
-    $response = $this->actingAs($admin)->getJson(route('admin.search', ['q' => 'ZZZNOMATCH999']));
+    $response = $this->actingAs($admin)->getJson(route('admin.search.quick', ['q' => 'ZZZNOMATCH999']));
 
     $response->assertOk()->assertJson(['results' => []]);
 });
@@ -145,7 +145,7 @@ it('each result has required fields: type icon title subtitle url', function ():
 
     Customer::factory()->create(['company_name' => 'SearchTest Corp']);
 
-    $response = $this->actingAs($admin)->getJson(route('admin.search', ['q' => 'SearchTest']));
+    $response = $this->actingAs($admin)->getJson(route('admin.search.quick', ['q' => 'SearchTest']));
 
     $response->assertOk();
     $result = $response->json('results.0');

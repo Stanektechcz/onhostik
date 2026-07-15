@@ -424,8 +424,8 @@ Route::middleware(['auth', 'can:access-reseller'])->prefix('reseller')->name('re
 Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-allowlist'])->prefix('admin')->name('admin.')->group(function (): void {
     Route::get('/', [Admin\DashboardController::class, 'index'])->name('dashboard');
 
-    /* ── Global search (Phase 96) ── */
-    Route::get('/hledat', Admin\GlobalSearchController::class)->name('search');
+    /* ── Global search — JSON quick-search for the header autocomplete (Phase 96) ── */
+    Route::get('/hledat', Admin\GlobalSearchController::class)->name('search.quick');
 
     Route::get('/zakaznici', [Admin\CustomerController::class, 'index'])->name('customers.index');
     Route::get('/zakaznici/export', [Admin\CustomerController::class, 'export'])->name('customers.export');

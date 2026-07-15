@@ -9,6 +9,13 @@ use Illuminate\Support\Facades\Schema;
 return new class () extends Migration {
     public function up(): void
     {
+        // Self-heal: a previous run of this migration failed on MySQL mid-way
+        // (index name > 64 chars) leaving empty tables behind without the
+        // migration being recorded. Drop them so the re-run starts clean.
+        Schema::dropIfExists('email_drip_enrollments');
+        Schema::dropIfExists('email_drip_steps');
+        Schema::dropIfExists('email_drip_sequences');
+
         Schema::create('email_drip_sequences', function (Blueprint $table): void {
             $table->id();
             $table->string('name', 150);
@@ -45,7 +52,8 @@ return new class () extends Migration {
             $table->timestamp('unsubscribed_at')->nullable();
             $table->timestamps();
 
-            $table->index(['drip_sequence_id', 'next_send_at', 'completed_at']);
+            // Explicit name: the auto-generated one exceeds MySQL's 64-char limit.
+            $table->index(['drip_sequence_id', 'next_send_at', 'completed_at'], 'ede_sequence_send_completed_idx');
             $table->unique(['drip_sequence_id', 'email']);
         });
     }

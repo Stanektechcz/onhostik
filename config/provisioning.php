@@ -21,7 +21,7 @@ return [
         'password'         => env('WAPI_PASSWORD'),
         'url'              => env('WAPI_URL', 'https://api.wedos.com/wapi/json'),
         'test_mode'        => env('WAPI_TEST_MODE', true),
-        'timeout'          => env('WAPI_TIMEOUT', 30),
+        'timeout'          => (int) env('WAPI_TIMEOUT', 30),
         'allow_real_writes' => env('WAPI_ALLOW_REAL_WRITES', false),
         // WEDOS limits: 1000 req/h total, 100 req/h domain-check/create/transfer-check
         'rate_limit_per_hour'         => 1000,
@@ -29,7 +29,7 @@ return [
     ],
 
     'aapanel' => [
-        'timeout'          => env('AAPANEL_TIMEOUT', 30),
+        'timeout'          => (int) env('AAPANEL_TIMEOUT', 30),
         'verify_tls'       => env('AAPANEL_VERIFY_TLS', false),
         'allow_real_writes' => env('AAPANEL_ALLOW_REAL_WRITES', false),
     ],
@@ -43,17 +43,17 @@ return [
         'api_token_id'     => env('PROXMOX_API_TOKEN_ID'),           // token name (part before =)
         'api_token_secret' => env('PROXMOX_API_TOKEN_SECRET'),       // token UUID
         // VM defaults
-        'template_vmid'    => env('PROXMOX_TEMPLATE_VMID', 9000),    // VMID of the cloud-init template
+        'template_vmid'    => (int) env('PROXMOX_TEMPLATE_VMID', 9000),    // VMID of the cloud-init template
         'storage'          => env('PROXMOX_STORAGE', 'local-lvm'),   // storage for cloned disks
         'network_bridge'   => env('PROXMOX_BRIDGE', 'vmbr0'),        // network bridge
         'nameservers'      => env('PROXMOX_NAMESERVERS', '1.1.1.1 8.8.8.8'),
         // Request settings
-        'timeout'          => env('PROXMOX_TIMEOUT', 60),
+        'timeout'          => (int) env('PROXMOX_TIMEOUT', 60),
         'verify_tls'       => env('PROXMOX_VERIFY_TLS', true),
     ],
 
     'pterodactyl' => [
-        'timeout' => env('PTERODACTYL_TIMEOUT', 30),
+        'timeout' => (int) env('PTERODACTYL_TIMEOUT', 30),
     ],
 
     'queues' => [
@@ -63,5 +63,5 @@ return [
     ],
 
     /** Days a terminated service's data is retained before remote deletion. */
-    'retention_days' => env('PROVISIONING_RETENTION_DAYS', 30),
+    'retention_days' => (int) env('PROVISIONING_RETENTION_DAYS', 30),
 ];

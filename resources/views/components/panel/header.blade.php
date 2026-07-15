@@ -36,7 +36,7 @@
                 const q = this.value.trim();
                 if (q.length < 2) { box.style.display='none'; return; }
                 timer = setTimeout(() => {
-                    fetch(`{{ route('admin.search') }}?q=` + encodeURIComponent(q), {
+                    fetch(`{{ route('admin.search.quick') }}?q=` + encodeURIComponent(q), {
                         headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF }
                     })
                     .then(r => r.json())
