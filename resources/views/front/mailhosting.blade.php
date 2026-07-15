@@ -59,7 +59,7 @@
                                     @foreach($plan->resources ?? [] as $key => $value)
                                         <li>
                                             <i class="{{ config("resources.icons.$key", 'icon-emailopen') }}"></i>
-                                            <div>{{ __("front.resources.$key") }}<br><span>{{ $value }}</span></div>
+                                            <div>{{ __("front.resources.$key") }}<br><span>{{ \App\Domains\Shared\Support\ResourceFormatter::format($key, $value) }}</span></div>
                                         </li>
                                     @endforeach
                                 </ul>

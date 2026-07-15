@@ -24,6 +24,7 @@
     <link href="{{ asset('front/css/aos.min.css') }}" rel="stylesheet">
     <link href="{{ asset('front/css/vendors.min.css') }}" rel="stylesheet">
     <link href="{{ asset('front/css/theme.min.css') }}" rel="stylesheet">
+    <link href="{{ asset('front/css/custom.css') }}" rel="stylesheet">
     @stack('styles')
     @stack('jsonld')
 

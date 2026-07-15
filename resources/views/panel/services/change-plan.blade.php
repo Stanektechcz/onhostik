@@ -97,7 +97,7 @@
                                             @foreach($plan->resources as $rk => $rv)
                                                 <li class="mb-1">
                                                     <i data-feather="check" style="width:11px;height:11px" class="font-success me-1"></i>
-                                                    {{ __("front.resources.$rk", [], 'cs') }}: <strong>{{ is_array($rv) ? json_encode($rv) : $rv }}</strong>
+                                                    {{ __("front.resources.$rk", [], 'cs') }}: <strong>{{ \App\Domains\Shared\Support\ResourceFormatter::format($rk, $rv) }}</strong>
                                                 </li>
                                             @endforeach
                                         </ul>

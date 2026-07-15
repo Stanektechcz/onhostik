@@ -6,3 +6,21 @@
     defined here.
 
 ***************************************************** */
+/* ── OnHost: pricing card bullets ─────────────────────────────────────
+   The theme floats the icon; long labels (DATABÁZE, E-MAILY) then drop
+   the whole text block under the icon and the bullet grid falls apart.
+   Flex keeps icon + text side by side for any label length. */
+section.pricing .wrapper ul.list-info li {
+    display: flex;
+    align-items: center;
+}
+
+section.pricing .wrapper ul.list-info li i {
+    float: none;
+    flex-shrink: 0;
+}
+
+section.pricing .wrapper ul.list-info li > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}

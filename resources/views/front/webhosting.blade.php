@@ -148,7 +148,7 @@ $(function() { $('[data-bs-toggle="tooltip"]').tooltip(); });
                                     @foreach($plan->resources ?? [] as $key => $value)
                                         <li>
                                             <i class="{{ config("resources.icons.$key", 'icon-drives') }}"></i>
-                                            <div>{{ __("front.resources.$key") }}<br><span>{{ $value }}</span></div>
+                                            <div>{{ __("front.resources.$key") }}<br><span>{{ \App\Domains\Shared\Support\ResourceFormatter::format($key, $value) }}</span></div>
                                         </li>
                                     @endforeach
                                 </ul>
@@ -197,7 +197,7 @@ $(function() { $('[data-bs-toggle="tooltip"]').tooltip(); });
                                     @foreach($plan->resources ?? [] as $key => $value)
                                         <li>
                                             <i class="{{ config("resources.icons.$key", 'icon-drives') }}"></i>
-                                            <div>{{ __("front.resources.$key") }}<br><span>{{ $value }}</span></div>
+                                            <div>{{ __("front.resources.$key") }}<br><span>{{ \App\Domains\Shared\Support\ResourceFormatter::format($key, $value) }}</span></div>
                                         </li>
                                     @endforeach
                                 </ul>
@@ -232,7 +232,7 @@ $(function() { $('[data-bs-toggle="tooltip"]').tooltip(); });
                                         @foreach($plan->resources ?? [] as $key => $value)
                                             <li>
                                                 <i class="{{ config("resources.icons.$key", 'icon-drives') }}"></i>
-                                                <div>{{ __("front.resources.$key") }}<br><span>{{ $value }}</span></div>
+                                                <div>{{ __("front.resources.$key") }}<br><span>{{ \App\Domains\Shared\Support\ResourceFormatter::format($key, $value) }}</span></div>
                                             </li>
                                         @endforeach
                                     </ul>

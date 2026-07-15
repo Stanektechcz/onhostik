@@ -48,3 +48,6 @@ desktop.ini
 
 # Claude Code worktrees
 /.claude/worktrees
+
+/server-preview.php
+/database/preview.sqlite

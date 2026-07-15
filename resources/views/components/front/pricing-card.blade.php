@@ -4,8 +4,8 @@
     'featured' => false,
 ])
 @php($price = $plan->priceFor($currency))
-<div class="col-md-12 col-lg-4">
-    <div class="wrapper {{ $featured ? 'recommended' : '' }}">
+<div class="col-md-12 col-lg-4 d-flex">
+    <div class="wrapper w-100 d-flex flex-column {{ $featured ? 'recommended' : '' }}">
         @if($featured)
             <div class="plans badge feat bg-purple">{{ __('front.pricing.most_popular') }}</div>
         @endif
@@ -22,11 +22,11 @@
                 {{ __('front.pricing.order_now') }}
             </a>
         </div>
-        <ul class="list-info bg-purple">
+        <ul class="list-info bg-purple mt-auto">
             @foreach($plan->resources ?? [] as $key => $value)
                 <li>
                     <i class="{{ config("resources.icons.$key", 'icon-drives') }}"></i>
-                    <div>{{ __("front.resources.$key") }}<br><span>{{ $value }}</span></div>
+                    <div>{{ __("front.resources.$key") }}<br><span>{{ \App\Domains\Shared\Support\ResourceFormatter::format($key, $value) }}</span></div>
                 </li>
             @endforeach
         </ul>
