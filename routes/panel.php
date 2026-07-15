@@ -35,6 +35,8 @@ Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('pane
     Route::post('/sluzby/{service}/vps-akce', Panel\VpsPowerController::class)->name('services.vps-action');
     /* ── Phase 277: webhosting PHP version ── */
     Route::post('/sluzby/{service}/php-verze', Panel\WebhostingPhpController::class)->name('services.php-version');
+    /* ── Phase 278: game server actions ── */
+    Route::post('/sluzby/{service}/game-akce', Panel\GameServerActionController::class)->name('services.game-action');
     Route::post('/sluzby/{service}/zaloha', [Panel\ServiceController::class, 'requestBackup'])->name('services.backup');
     Route::put('/sluzby/{service}/zaloha-plan', [Panel\ServiceController::class, 'updateBackupSchedule'])->name('services.backup-schedule');
     Route::post('/sluzby/{service}/wordpress', [Panel\ServiceController::class, 'installWordpress'])->name('services.wordpress');
@@ -542,6 +544,8 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
     Route::post('/sluzby/{service}/vps-akce', Admin\ServiceVpsPowerController::class)->name('services.vps-action');
     /* ── Phase 277: admin webhosting PHP version ── */
     Route::post('/sluzby/{service}/php-verze', Admin\ServicePhpVersionController::class)->name('services.php-version');
+    /* ── Phase 278: admin game server actions ── */
+    Route::post('/sluzby/{service}/game-akce', Admin\ServiceGameActionController::class)->name('services.game-action');
 
     Route::resource('/service-addons', Admin\ServiceAddonController::class)->names('service-addons');
 

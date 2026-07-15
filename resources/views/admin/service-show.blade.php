@@ -456,6 +456,36 @@
                             </form>
                         @endif
 
+                        {{-- Phase 278: game server actions (Pterodactyl) --}}
+                        @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Pterodactyl)
+                            <div class="d-flex gap-2 flex-wrap mt-3 border-top pt-3">
+                                <form method="POST" action="{{ route('admin.services.game-action', $service) }}"
+                                      onsubmit="return confirm('POZOR: Reinstalace smaže všechna data game serveru. Opravdu pokračovat?')">
+                                    @csrf
+                                    <input type="hidden" name="action" value="reinstall">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">
+                                        <i data-feather="refresh-ccw" style="width:13px;height:13px"></i> Reinstalovat server
+                                    </button>
+                                </form>
+                            </div>
+                        @endif
+
+                        {{-- Phase 279: domain shortcuts (WEDOS) --}}
+                        @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Wedos && $service->domainRegistration)
+                            <div class="d-flex gap-2 flex-wrap mt-3 border-top pt-3 align-items-center">
+                                <span class="f-12 f-light">
+                                    Expirace: <strong>{{ $service->domainRegistration->expires_at?->format('d.m.Y') ?? '—' }}</strong>
+                                    · Auto-prodloužení:
+                                    <span class="badge {{ $service->domainRegistration->auto_renew ? 'bg-success' : 'bg-secondary' }}">
+                                        {{ $service->domainRegistration->auto_renew ? 'Zapnuto' : 'Vypnuto' }}
+                                    </span>
+                                </span>
+                                <a href="{{ route('admin.domains.show', $service->domainRegistration) }}" class="btn btn-outline-primary btn-sm ms-auto">
+                                    <i data-feather="globe" style="width:13px;height:13px"></i> Detail domény
+                                </a>
+                            </div>
+                        @endif
+
                         {{-- Phase 276: VPS power actions --}}
                         @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Proxmox)
                             <div class="d-flex gap-2 flex-wrap mt-3 border-top pt-3">

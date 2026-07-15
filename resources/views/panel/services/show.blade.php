@@ -547,6 +547,93 @@
                     </form>
                 </x-panel.card>
 
+                {{-- Phase 278: game server management (Pterodactyl only) --}}
+                @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Pterodactyl)
+                    <x-panel.card title="Správa game serveru">
+                        @error('game')<div class="alert alert-light-danger py-2 f-12 mb-2">{{ $message }}</div>@enderror
+                        <div class="d-flex align-items-center gap-2 mb-3">
+                            <span id="game-status-badge" class="badge badge-light-secondary">Načítám stav…</span>
+                            <span id="game-status-flag"></span>
+                            <button type="button" id="game-status-refresh" class="btn btn-outline-secondary btn-xs ms-auto">
+                                <i data-feather="refresh-cw" style="width:12px;height:12px"></i>
+                            </button>
+                        </div>
+                        <div id="game-status-body" class="mb-3"></div>
+
+                        @if($service->status === \App\Domains\Provisioning\Enums\ServiceStatus::Active)
+                            <form method="POST" action="{{ route('panel.services.game-action', $service) }}"
+                                  onsubmit="return confirm('POZOR: Reinstalace smaže všechna data serveru a obnoví výchozí instalaci. Opravdu pokračovat?')">
+                                @csrf
+                                <input type="hidden" name="action" value="reinstall">
+                                <button type="submit" class="btn btn-outline-danger btn-sm">
+                                    <i data-feather="refresh-ccw" style="width:13px;height:13px"></i>
+                                    Reinstalovat server
+                                </button>
+                            </form>
+                            <p class="f-light f-11 mt-2 mb-0">Reinstalace vrátí server do výchozího stavu — všechna herní data budou smazána.</p>
+                        @else
+                            <p class="f-light f-12 mb-0">Akce jsou dostupné jen pro aktivní služby.</p>
+                        @endif
+                    </x-panel.card>
+                @endif
+
+                {{-- Phase 279: domain management (WEDOS only) --}}
+                @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Wedos)
+                    <x-panel.card title="Správa domény">
+                        @if($service->domainRegistration)
+                            @php
+                                $domainReg = $service->domainRegistration;
+                            @endphp
+                            <table class="table table-borderless table-sm mb-3">
+                                <tr>
+                                    <td class="f-light ps-0" style="width:40%">Doména</td>
+                                    <td class="f-w-600">{{ $domainReg->fqdn() }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="f-light ps-0">Expirace</td>
+                                    <td>
+                                        {{ $domainReg->expires_at?->format('d.m.Y') ?? '—' }}
+                                        @if($domainReg->expires_at?->isPast())
+                                            <span class="badge badge-light-danger ms-1">Expirováno</span>
+                                        @elseif($domainReg->expires_at && $domainReg->expires_at->diffInDays(now()) <= 30)
+                                            <span class="badge badge-light-warning ms-1">Brzy expiruje</span>
+                                        @endif
+                                    </td>
+                                </tr>
+                                @if(is_array($domainReg->nameservers) && count($domainReg->nameservers) > 0)
+                                    <tr>
+                                        <td class="f-light ps-0">Nameservery</td>
+                                        <td class="f-12">{{ implode(', ', $domainReg->nameservers) }}</td>
+                                    </tr>
+                                @endif
+                                <tr>
+                                    <td class="f-light ps-0">Auto-prodloužení</td>
+                                    <td>
+                                        <form method="POST" action="{{ route('panel.domains.auto-renew', $domainReg) }}" class="d-inline">
+                                            @csrf
+                                            <button type="submit" class="btn btn-link p-0 border-0">
+                                                <span class="badge {{ $domainReg->auto_renew ? 'bg-success' : 'bg-secondary' }}">
+                                                    {{ $domainReg->auto_renew ? 'Zapnuto' : 'Vypnuto' }}
+                                                </span>
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            </table>
+                            <div class="d-flex gap-2 flex-wrap">
+                                <a href="{{ route('panel.domains.show', $domainReg) }}" class="btn btn-outline-primary btn-sm">
+                                    <i data-feather="globe" style="width:13px;height:13px"></i> Detail domény
+                                </a>
+                                <a href="{{ route('panel.domains.dns', $domainReg) }}" class="btn btn-outline-secondary btn-sm">
+                                    <i data-feather="list" style="width:13px;height:13px"></i> DNS záznamy
+                                </a>
+                            </div>
+                        @else
+                            <p class="f-light f-12 mb-0">Ke službě zatím není připojena žádná registrace domény.</p>
+                        @endif
+                    </x-panel.card>
+                @endif
+
                 {{-- Phase 277: webhosting management (aaPanel only) --}}
                 @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::AAPanel)
                     <x-panel.card title="Správa webhostingu">
@@ -848,6 +935,57 @@
             </div>
         </div>
     </div>
+    @endif
+
+    @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Pterodactyl)
+        <script nonce="{{ $cspNonce ?? '' }}">
+            document.addEventListener('DOMContentLoaded', function () {
+                const badge = document.getElementById('game-status-badge');
+                const flag  = document.getElementById('game-status-flag');
+                const body  = document.getElementById('game-status-body');
+                const btn   = document.getElementById('game-status-refresh');
+                if (!badge) return;
+
+                const esc = s => String(s ?? '—').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+
+                function load() {
+                    badge.className = 'badge badge-light-secondary';
+                    badge.textContent = 'Načítám stav…';
+
+                    fetch('{{ route('panel.services.live-status', $service) }}', {
+                        headers: { 'Accept': 'application/json' }
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        flag.innerHTML = data.dry_run
+                            ? '<span class="badge badge-light-warning f-10">MOCK</span>'
+                            : '';
+
+                        if (!data.ok) {
+                            badge.className = 'badge badge-light-danger';
+                            badge.textContent = 'Stav nedostupný';
+                            body.innerHTML = '';
+                            return;
+                        }
+
+                        const st = String(data.data.status ?? 'neznámý');
+                        badge.className = 'badge ' + (st === 'running' ? 'badge-light-success' : (st === 'offline' ? 'badge-light-danger' : 'badge-light-secondary'));
+                        badge.textContent = st === 'running' ? 'Běží' : (st === 'offline' ? 'Offline' : esc(st));
+
+                        body.innerHTML = data.data.name
+                            ? '<span class="f-12 f-light">Server: <strong>' + esc(data.data.name) + '</strong></span>'
+                            : '';
+                    })
+                    .catch(() => {
+                        badge.className = 'badge badge-light-danger';
+                        badge.textContent = 'Stav nedostupný';
+                    });
+                }
+
+                btn?.addEventListener('click', load);
+                load();
+            });
+        </script>
     @endif
 
     @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Proxmox)
