@@ -431,6 +431,31 @@
                             <p class="f-light f-12 mb-0">Stav se načítá na vyžádání — klikněte na tlačítko výše.</p>
                         </div>
 
+                        {{-- Phase 277: PHP version change (aaPanel) --}}
+                        @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::AAPanel)
+                            <form method="POST" action="{{ route('admin.services.php-version', $service) }}"
+                                  class="d-flex gap-2 align-items-end mt-3 border-top pt-3">
+                                @csrf
+                                @php
+                                    $currentPhp = $service->resources['php_version'] ?? null;
+                                @endphp
+                                <div>
+                                    <label class="form-label f-12 mb-1">PHP verze
+                                        <span class="badge badge-light-primary ms-1">{{ \App\Domains\Provisioning\Jobs\WebhostingPhpVersionJob::VERSIONS[$currentPhp] ?? '—' }}</span>
+                                    </label>
+                                    <select name="php_version" class="form-select form-select-sm">
+                                        @foreach(\App\Domains\Provisioning\Jobs\WebhostingPhpVersionJob::VERSIONS as $val => $label)
+                                            <option value="{{ $val }}" @selected($currentPhp === $val)>{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-outline-primary btn-sm"
+                                        onclick="return confirm('Změnit PHP verzi webu?')">
+                                    <i data-feather="refresh-cw" style="width:13px;height:13px"></i> Změnit PHP
+                                </button>
+                            </form>
+                        @endif
+
                         {{-- Phase 276: VPS power actions --}}
                         @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Proxmox)
                             <div class="d-flex gap-2 flex-wrap mt-3 border-top pt-3">

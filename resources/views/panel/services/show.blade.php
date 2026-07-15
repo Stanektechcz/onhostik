@@ -547,6 +547,42 @@
                     </form>
                 </x-panel.card>
 
+                {{-- Phase 277: webhosting management (aaPanel only) --}}
+                @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::AAPanel)
+                    <x-panel.card title="Správa webhostingu">
+                        @error('php')<div class="alert alert-light-danger py-2 f-12 mb-2">{{ $message }}</div>@enderror
+                        @php
+                            $currentPhp = $service->resources['php_version'] ?? null;
+                        @endphp
+                        <div class="d-flex align-items-center gap-2 mb-3">
+                            <span class="f-12 f-light">Aktuální PHP verze:</span>
+                            <span class="badge badge-light-primary">
+                                {{ \App\Domains\Provisioning\Jobs\WebhostingPhpVersionJob::VERSIONS[$currentPhp] ?? 'Neznámá' }}
+                            </span>
+                        </div>
+                        @if($service->status === \App\Domains\Provisioning\Enums\ServiceStatus::Active)
+                            <form method="POST" action="{{ route('panel.services.php-version', $service) }}" class="d-flex gap-2 align-items-end">
+                                @csrf
+                                <div>
+                                    <label class="form-label f-12 mb-1">Nová PHP verze</label>
+                                    <select name="php_version" class="form-select form-select-sm">
+                                        @foreach(\App\Domains\Provisioning\Jobs\WebhostingPhpVersionJob::VERSIONS as $val => $label)
+                                            <option value="{{ $val }}" @selected($currentPhp === $val)>{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-sm"
+                                        onclick="return confirm('Změnit PHP verzi webu?')">
+                                    <i data-feather="refresh-cw" style="width:13px;height:13px"></i> Změnit
+                                </button>
+                            </form>
+                            <p class="f-light f-11 mt-2 mb-0">Změna se zpracovává frontou — web může být na pár sekund nedostupný.</p>
+                        @else
+                            <p class="f-light f-12 mb-0">Změna PHP verze je dostupná jen pro aktivní služby.</p>
+                        @endif
+                    </x-panel.card>
+                @endif
+
                 {{-- Phase 276: VPS power management (Proxmox only) --}}
                 @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Proxmox)
                     <x-panel.card title="Správa VPS">
