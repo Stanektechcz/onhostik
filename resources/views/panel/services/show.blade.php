@@ -547,6 +547,143 @@
                     </form>
                 </x-panel.card>
 
+                {{-- Phase 274: planned maintenance affecting this service --}}
+                @if($maintenanceWindows->isNotEmpty())
+                    <x-panel.card title="Plánovaná údržba">
+                        @foreach($maintenanceWindows as $window)
+                            <div class="d-flex align-items-start gap-2 py-2 border-bottom">
+                                <i data-feather="tool" style="width:15px;height:15px;flex-shrink:0;" class="txt-warning mt-1"></i>
+                                <div class="flex-grow-1">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="f-12 f-w-600">{{ $window->title }}</span>
+                                        <span class="badge {{ $window->status === 'in_progress' ? 'badge-light-danger' : 'badge-light-warning' }} f-10">
+                                            {{ $window->status === 'in_progress' ? 'Probíhá' : 'Naplánováno' }}
+                                        </span>
+                                    </div>
+                                    @if($window->description)
+                                        <p class="f-12 f-light mb-0">{{ $window->description }}</p>
+                                    @endif
+                                    <p class="f-11 f-light mb-0">
+                                        {{ $window->starts_at->format('d.m.Y H:i') }} – {{ $window->ends_at->format('d.m.Y H:i') }}
+                                    </p>
+                                </div>
+                            </div>
+                        @endforeach
+                    </x-panel.card>
+                @endif
+
+                {{-- Phase 274: open incidents on this service --}}
+                @if($healthIncidents->isNotEmpty())
+                    <x-panel.card title="Aktivní incidenty služby">
+                        @foreach($healthIncidents as $incident)
+                            <div class="d-flex align-items-start gap-2 py-2 border-bottom">
+                                <i data-feather="alert-triangle" style="width:15px;height:15px;flex-shrink:0;"
+                                   class="{{ $incident->severity === 'critical' ? 'txt-danger' : 'txt-warning' }} mt-1"></i>
+                                <div class="flex-grow-1">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="f-12 f-w-600">{{ $incident->title }}</span>
+                                        <span class="badge {{ match($incident->severity) { 'critical' => 'badge-light-danger', 'warning' => 'badge-light-warning', default => 'badge-light-info' } }} f-10">
+                                            {{ ['info' => 'Info', 'warning' => 'Varování', 'critical' => 'Kritický'][$incident->severity] ?? $incident->severity }}
+                                        </span>
+                                    </div>
+                                    @if($incident->description)
+                                        <p class="f-12 f-light mb-0">{{ $incident->description }}</p>
+                                    @endif
+                                    <p class="f-11 f-light mb-0">{{ $incident->created_at?->format('d.m.Y H:i') }}</p>
+                                </div>
+                            </div>
+                        @endforeach
+                        <p class="f-light f-11 mt-2 mb-0">
+                            <a href="{{ route('panel.service-health-incidents.index') }}">Všechny incidenty →</a>
+                        </p>
+                    </x-panel.card>
+                @endif
+
+                {{-- Phase 274: firewall rules for this service (not for domains) --}}
+                @if($service->provisioning_driver !== \App\Domains\Provisioning\Enums\ProvisioningDriver::Wedos)
+                    <x-panel.card title="Firewall">
+                        @if($firewallRules->isEmpty())
+                            <p class="f-light f-12 mb-3">Žádná pravidla firewallu pro tuto službu.</p>
+                        @else
+                            <x-panel.data-table :headers="['Směr', 'Protokol', 'Porty', 'IP / CIDR', 'Akce', '']">
+                                @foreach($firewallRules as $rule)
+                                    <tr>
+                                        <td><span class="badge badge-light-secondary">{{ strtoupper($rule->direction) }}</span></td>
+                                        <td class="f-12">{{ strtoupper($rule->protocol) }}</td>
+                                        <td class="f-12">
+                                            @if($rule->port_from)
+                                                {{ $rule->port_from }}@if($rule->port_to && $rule->port_to !== $rule->port_from)–{{ $rule->port_to }}@endif
+                                            @else
+                                                —
+                                            @endif
+                                        </td>
+                                        <td><code class="f-12">{{ $rule->ip_cidr }}</code></td>
+                                        <td>
+                                            <span class="badge {{ $rule->action === 'allow' ? 'badge-light-success' : 'badge-light-danger' }}">
+                                                {{ $rule->action === 'allow' ? 'Povolit' : 'Zakázat' }}
+                                            </span>
+                                        </td>
+                                        <td class="text-end">
+                                            <form method="POST" action="{{ route('panel.service-firewall-rules.destroy', $rule) }}" class="d-inline"
+                                                  onsubmit="return confirm('Odstranit pravidlo?')">
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" class="btn btn-outline-danger btn-xs">
+                                                    <i data-feather="trash-2" style="width:12px;height:12px"></i>
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </x-panel.data-table>
+                        @endif
+
+                        <form method="POST" action="{{ route('panel.service-firewall-rules.store') }}" class="row g-2 align-items-end mt-3">
+                            @csrf
+                            <input type="hidden" name="service_id" value="{{ $service->id }}">
+                            <div class="col-6 col-md-2">
+                                <label class="form-label f-12 mb-1">Směr</label>
+                                <select name="direction" class="form-select form-select-sm">
+                                    <option value="in">Příchozí</option>
+                                    <option value="out">Odchozí</option>
+                                    <option value="both">Obojí</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label f-12 mb-1">Protokol</label>
+                                <select name="protocol" class="form-select form-select-sm">
+                                    <option value="tcp">TCP</option>
+                                    <option value="udp">UDP</option>
+                                    <option value="icmp">ICMP</option>
+                                    <option value="any">Any</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label f-12 mb-1">Port od</label>
+                                <input type="number" name="port_from" class="form-control form-control-sm" min="1" max="65535" placeholder="443">
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label f-12 mb-1">Port do</label>
+                                <input type="number" name="port_to" class="form-control form-control-sm" min="1" max="65535" placeholder="443">
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label f-12 mb-1">IP / CIDR</label>
+                                <input type="text" name="ip_cidr" class="form-control form-control-sm" placeholder="0.0.0.0/0" required maxlength="50">
+                            </div>
+                            <div class="col-3 col-md-1">
+                                <label class="form-label f-12 mb-1">Akce</label>
+                                <select name="action" class="form-select form-select-sm">
+                                    <option value="allow">Povolit</option>
+                                    <option value="deny">Zakázat</option>
+                                </select>
+                            </div>
+                            <div class="col-3 col-md-1">
+                                <button type="submit" class="btn btn-primary btn-sm w-100">Přidat</button>
+                            </div>
+                        </form>
+                    </x-panel.card>
+                @endif
+
                 {{-- Provisioning tasks timeline --}}
                 @if($service->provisioningTasks->isNotEmpty())
                     <x-panel.card :title="__('panel.services.tasks')">

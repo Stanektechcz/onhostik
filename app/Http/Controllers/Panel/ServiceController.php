@@ -77,6 +77,22 @@ class ServiceController extends Controller
             'backupPolicy'   => BackupPolicy::query()->where('service_id', $service->id)->first(),
             'renewalInvoice' => $renewalInvoice,
             'mockMode'       => (bool) config('provisioning.mock_mode', true),
+            // Phase 274: unified per-service sections
+            'firewallRules'   => \App\Models\ServiceFirewallRule::where('service_id', $service->id)
+                ->latest('id')->limit(20)->get(),
+            'healthIncidents' => \App\Models\ServiceHealthIncident::where('service_id', $service->id)
+                ->where('status', '!=', 'resolved')->latest('id')->limit(5)->get(),
+            'maintenanceWindows' => \App\Models\MaintenanceWindow::whereIn('status', ['scheduled', 'in_progress'])
+                ->where('ends_at', '>', now())
+                ->where(function ($q) use ($service): void {
+                    $q->whereNull('server_id');
+                    if ($service->server_id !== null) {
+                        $q->orWhere('server_id', $service->server_id);
+                    }
+                })
+                ->orderBy('starts_at')
+                ->limit(3)
+                ->get(),
         ]);
     }
 
