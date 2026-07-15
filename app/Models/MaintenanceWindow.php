@@ -62,6 +62,49 @@ class MaintenanceWindow extends Model
     }
 
     /**
+     * Currently running banner windows (Phase 81).
+     *
+     * @param  Builder<MaintenanceWindow>  $query
+     * @return Builder<MaintenanceWindow>
+     */
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->where('is_active', true)
+            ->where('starts_at', '<=', now())
+            ->where('ends_at', '>=', now());
+    }
+
+    /**
+     * @param  Builder<MaintenanceWindow>  $query
+     * @return Builder<MaintenanceWindow>
+     */
+    public function scopeForAdmin(Builder $query): Builder
+    {
+        return $query->where('show_on_admin', true);
+    }
+
+    /**
+     * @param  Builder<MaintenanceWindow>  $query
+     * @return Builder<MaintenanceWindow>
+     */
+    public function scopeForFrontend(Builder $query): Builder
+    {
+        return $query->where('show_on_frontend', true);
+    }
+
+    public function isCurrentlyActive(): bool
+    {
+        return $this->is_active
+            && $this->starts_at->isPast()
+            && $this->ends_at->isFuture();
+    }
+
+    public function isUpcoming(): bool
+    {
+        return $this->is_active && $this->starts_at->isFuture();
+    }
+
+    /**
      * @return array{active: self|null, upcoming: self|null}
      */
     public static function currentBanners(bool $isAdmin = false): array
