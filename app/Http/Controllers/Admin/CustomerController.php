@@ -109,7 +109,9 @@ class CustomerController extends Controller
             ->orderBy('step')
             ->get();
 
-        $healthScore = $healthScorer->score($customer);
+        // Stored (nightly) score wins; live computation is the fallback so
+        // the detail always shows a value even before the job first runs.
+        $healthScore = $customer->health_score ?? $healthScorer->score($customer);
 
         return view('admin.customer-show', [
             'customer'      => $customer->load(['user', 'addresses']),

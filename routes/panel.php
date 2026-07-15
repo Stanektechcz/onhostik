@@ -353,8 +353,10 @@ Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('pane
     /* ── Phase 264: Panel Service Health Incidents ── */
     Route::get('/incidenty', [Panel\ServiceHealthIncidentController::class, 'index'])->name('service-health-incidents.index');
 
-    /* ── Phase 265: Panel Maintenance Windows ── */
-    Route::get('/udrzba', [Panel\MaintenanceWindowController::class, 'index'])->name('maintenance-windows.index');
+    /* ── Phase 265: Panel Maintenance Windows ──
+       URL must differ from Phase 66's /udrzba (same URI would silently
+       drop the earlier route name from the collection). */
+    Route::get('/okna-udrzby', [Panel\MaintenanceWindowController::class, 'index'])->name('maintenance-windows.index');
 
     /* ── Phase 266: Panel Customer Onboarding Steps ── */
     Route::get('/onboarding-kroky', [Panel\CustomerOnboardingStepController::class, 'index'])->name('customer-onboarding-steps.index');
