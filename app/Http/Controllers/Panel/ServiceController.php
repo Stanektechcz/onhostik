@@ -96,6 +96,17 @@ class ServiceController extends Controller
         ]);
     }
 
+    /**
+     * Phase 276: customer-facing live snapshot from the backend panel.
+     * Read-only, whitelisted fields only — see ServiceLiveStatusService.
+     */
+    public function liveStatus(Service $service, \App\Domains\Provisioning\Services\ServiceLiveStatusService $liveStatus): JsonResponse
+    {
+        $this->authorize('view', $service);
+
+        return response()->json($liveStatus->fetchForCustomer($service));
+    }
+
     /** Manual mock backup — queued, idempotent at the job level. */
     public function requestBackup(Service $service): RedirectResponse
     {

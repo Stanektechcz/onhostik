@@ -30,6 +30,9 @@ Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('pane
     Route::post('/sluzby/firewall', [Panel\ServiceFirewallRuleController::class, 'store'])->name('service-firewall-rules.store');
     Route::delete('/sluzby/firewall/{serviceFirewallRule}', [Panel\ServiceFirewallRuleController::class, 'destroy'])->name('service-firewall-rules.destroy');
     Route::get('/sluzby/{service}', [Panel\ServiceController::class, 'show'])->name('services.show');
+    /* ── Phase 276: live status + VPS power actions ── */
+    Route::get('/sluzby/{service}/zivy-stav', [Panel\ServiceController::class, 'liveStatus'])->name('services.live-status');
+    Route::post('/sluzby/{service}/vps-akce', Panel\VpsPowerController::class)->name('services.vps-action');
     Route::post('/sluzby/{service}/zaloha', [Panel\ServiceController::class, 'requestBackup'])->name('services.backup');
     Route::put('/sluzby/{service}/zaloha-plan', [Panel\ServiceController::class, 'updateBackupSchedule'])->name('services.backup-schedule');
     Route::post('/sluzby/{service}/wordpress', [Panel\ServiceController::class, 'installWordpress'])->name('services.wordpress');
@@ -533,6 +536,8 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
     Route::delete('/sluzby/{service}/stitky/{serviceTag}', [Admin\ServiceTagController::class, 'detach'])->name('services.tags.detach');
     /* ── Phase 272: Service 360° — read-only live status from backend panel ── */
     Route::get('/sluzby/{service}/zivy-stav', Admin\ServiceLiveStatusController::class)->name('services.live-status');
+    /* ── Phase 276: admin VPS power actions ── */
+    Route::post('/sluzby/{service}/vps-akce', Admin\ServiceVpsPowerController::class)->name('services.vps-action');
 
     Route::resource('/service-addons', Admin\ServiceAddonController::class)->names('service-addons');
 

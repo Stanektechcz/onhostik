@@ -114,6 +114,27 @@ class ServiceLiveStatusService
     }
 
     /**
+     * Customer-facing variant: same fetch, but the data payload is reduced
+     * to a whitelist of harmless keys (no paths, tokens or internals).
+     *
+     * @return array{provider: string|null, label: string, dry_run: bool, ok: bool, data: array<string, mixed>, error: string|null}
+     */
+    public function fetchForCustomer(Service $service): array
+    {
+        $result = $this->fetch($service);
+
+        $whitelist = [
+            'name', 'status', 'qmpstatus', 'uptime',
+            'cpus', 'cpu', 'mem', 'maxmem', 'disk', 'maxdisk',
+            'expiration',
+        ];
+
+        $result['data'] = array_intersect_key($result['data'], array_flip($whitelist));
+
+        return $result;
+    }
+
+    /**
      * Flatten nested arrays into displayable key => scalar pairs (max 20 rows).
      *
      * @param  array<mixed>  $data

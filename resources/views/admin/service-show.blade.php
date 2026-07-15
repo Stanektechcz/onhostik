@@ -430,6 +430,35 @@
                         <div id="live-status-body">
                             <p class="f-light f-12 mb-0">Stav se načítá na vyžádání — klikněte na tlačítko výše.</p>
                         </div>
+
+                        {{-- Phase 276: VPS power actions --}}
+                        @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Proxmox)
+                            <div class="d-flex gap-2 flex-wrap mt-3 border-top pt-3">
+                                <form method="POST" action="{{ route('admin.services.vps-action', $service) }}">
+                                    @csrf
+                                    <input type="hidden" name="action" value="start">
+                                    <button type="submit" class="btn btn-success btn-sm">
+                                        <i data-feather="play" style="width:13px;height:13px"></i> Spustit VM
+                                    </button>
+                                </form>
+                                <form method="POST" action="{{ route('admin.services.vps-action', $service) }}"
+                                      onsubmit="return confirm('Opravdu vypnout VM?')">
+                                    @csrf
+                                    <input type="hidden" name="action" value="stop">
+                                    <button type="submit" class="btn btn-danger btn-sm">
+                                        <i data-feather="square" style="width:13px;height:13px"></i> Vypnout VM
+                                    </button>
+                                </form>
+                                <form method="POST" action="{{ route('admin.services.vps-action', $service) }}"
+                                      onsubmit="return confirm('Opravdu restartovat VM?')">
+                                    @csrf
+                                    <input type="hidden" name="action" value="restart">
+                                    <button type="submit" class="btn btn-warning btn-sm">
+                                        <i data-feather="rotate-cw" style="width:13px;height:13px"></i> Restart VM
+                                    </button>
+                                </form>
+                            </div>
+                        @endif
                     </x-panel.card>
                 @endif
 

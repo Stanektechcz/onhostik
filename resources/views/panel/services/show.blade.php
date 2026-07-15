@@ -547,6 +547,52 @@
                     </form>
                 </x-panel.card>
 
+                {{-- Phase 276: VPS power management (Proxmox only) --}}
+                @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Proxmox)
+                    <x-panel.card title="Správa VPS">
+                        @error('vps')<div class="alert alert-light-danger py-2 f-12 mb-2">{{ $message }}</div>@enderror
+                        <div class="d-flex align-items-center gap-2 mb-3">
+                            <span id="vps-status-badge" class="badge badge-light-secondary">Načítám stav…</span>
+                            <span id="vps-status-flag"></span>
+                            <button type="button" id="vps-status-refresh" class="btn btn-outline-secondary btn-xs ms-auto">
+                                <i data-feather="refresh-cw" style="width:12px;height:12px"></i>
+                            </button>
+                        </div>
+                        <div id="vps-status-body" class="mb-3"></div>
+
+                        @if($service->status === \App\Domains\Provisioning\Enums\ServiceStatus::Active)
+                            <div class="d-flex gap-2 flex-wrap">
+                                <form method="POST" action="{{ route('panel.services.vps-action', $service) }}">
+                                    @csrf
+                                    <input type="hidden" name="action" value="start">
+                                    <button type="submit" class="btn btn-success btn-sm">
+                                        <i data-feather="play" style="width:13px;height:13px"></i> Spustit
+                                    </button>
+                                </form>
+                                <form method="POST" action="{{ route('panel.services.vps-action', $service) }}"
+                                      onsubmit="return confirm('Opravdu vypnout VPS?')">
+                                    @csrf
+                                    <input type="hidden" name="action" value="stop">
+                                    <button type="submit" class="btn btn-danger btn-sm">
+                                        <i data-feather="square" style="width:13px;height:13px"></i> Vypnout
+                                    </button>
+                                </form>
+                                <form method="POST" action="{{ route('panel.services.vps-action', $service) }}"
+                                      onsubmit="return confirm('Opravdu restartovat VPS?')">
+                                    @csrf
+                                    <input type="hidden" name="action" value="restart">
+                                    <button type="submit" class="btn btn-warning btn-sm">
+                                        <i data-feather="rotate-cw" style="width:13px;height:13px"></i> Restartovat
+                                    </button>
+                                </form>
+                            </div>
+                            <p class="f-light f-11 mt-2 mb-0">Akce se zpracovávají frontou — stav se projeví během chvíle.</p>
+                        @else
+                            <p class="f-light f-12 mb-0">Akce napájení jsou dostupné jen pro aktivní služby.</p>
+                        @endif
+                    </x-panel.card>
+                @endif
+
                 {{-- Phase 274: planned maintenance affecting this service --}}
                 @if($maintenanceWindows->isNotEmpty())
                     <x-panel.card title="Plánovaná údržba">
@@ -766,5 +812,58 @@
             </div>
         </div>
     </div>
+    @endif
+
+    @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Proxmox)
+        <script nonce="{{ $cspNonce ?? '' }}">
+            document.addEventListener('DOMContentLoaded', function () {
+                const badge = document.getElementById('vps-status-badge');
+                const flag  = document.getElementById('vps-status-flag');
+                const body  = document.getElementById('vps-status-body');
+                const btn   = document.getElementById('vps-status-refresh');
+                if (!badge) return;
+
+                const esc = s => String(s ?? '—').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+
+                function load() {
+                    badge.className = 'badge badge-light-secondary';
+                    badge.textContent = 'Načítám stav…';
+
+                    fetch('{{ route('panel.services.live-status', $service) }}', {
+                        headers: { 'Accept': 'application/json' }
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        flag.innerHTML = data.dry_run
+                            ? '<span class="badge badge-light-warning f-10">MOCK</span>'
+                            : '';
+
+                        if (!data.ok) {
+                            badge.className = 'badge badge-light-danger';
+                            badge.textContent = 'Stav nedostupný';
+                            body.innerHTML = '';
+                            return;
+                        }
+
+                        const st = String(data.data.status ?? data.data.qmpstatus ?? 'neznámý');
+                        badge.className = 'badge ' + (st === 'running' ? 'badge-light-success' : (st === 'stopped' ? 'badge-light-danger' : 'badge-light-secondary'));
+                        badge.textContent = st === 'running' ? 'Běží' : (st === 'stopped' ? 'Vypnuto' : esc(st));
+
+                        let html = '';
+                        if (data.data.cpus)   html += '<span class="f-12 f-light me-3">CPU: <strong>' + esc(data.data.cpus) + '</strong></span>';
+                        if (data.data.maxmem) html += '<span class="f-12 f-light me-3">RAM: <strong>' + Math.round(data.data.maxmem / 1073741824 * 10) / 10 + ' GB</strong></span>';
+                        if (data.data.uptime) html += '<span class="f-12 f-light">Uptime: <strong>' + Math.floor(data.data.uptime / 3600) + ' h</strong></span>';
+                        body.innerHTML = html;
+                    })
+                    .catch(() => {
+                        badge.className = 'badge badge-light-danger';
+                        badge.textContent = 'Stav nedostupný';
+                    });
+                }
+
+                btn?.addEventListener('click', load);
+                load();
+            });
+        </script>
     @endif
 @endsection
