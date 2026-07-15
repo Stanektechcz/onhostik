@@ -25,10 +25,13 @@ class ServiceController extends Controller
         $status    = $request->string('status')->toString();
         $search    = $request->string('q')->toString();
         $dueFilter = $request->string('due')->toString();
+        $driver    = $request->string('driver')->toString();
 
         $query = Service::query()
             ->with(['customer', 'product', 'server', 'domainRegistration'])
             ->when($status !== '', fn ($q) => $q->where('status', $status))
+            ->when(\App\Domains\Provisioning\Enums\ProvisioningDriver::tryFrom($driver) !== null,
+                fn ($q) => $q->where('provisioning_driver', $driver))
             ->when($dueFilter === 'soon', fn ($q) => $q
                 ->whereNotNull('next_due_date')
                 ->whereDate('next_due_date', '<=', now()->addDays(30))
@@ -66,10 +69,10 @@ class ServiceController extends Controller
                         $service->id,
                         $service->label,
                         $service->status->label(),
-                        $service->customer?->company_name ?: ($service->customer->email ?: ''),
-                        $service->customer->email ?: '',
-                        $service->product->name ?: '',
-                        $service->server->name ?: '',
+                        $service->customer?->company_name ?: ($service->customer?->email ?? ''),
+                        $service->customer?->email ?? '',
+                        $service->product?->name ?? '',
+                        $service->server?->name ?? '',
                         $service->external_id ?? '',
                         $service->domainRegistration?->fqdn() ?? '',
                         $service->next_due_date?->format('d.m.Y') ?? '',
@@ -90,10 +93,13 @@ class ServiceController extends Controller
         $status = $request->string('status')->toString();
         $search = $request->string('q')->toString();
         $dueFilter = $request->string('due')->toString();
+        $driver = $request->string('driver')->toString();
 
         $services = Service::query()
             ->with(['customer', 'product', 'server', 'domainRegistration'])
             ->when($status !== '', fn ($query) => $query->where('status', $status))
+            ->when(\App\Domains\Provisioning\Enums\ProvisioningDriver::tryFrom($driver) !== null,
+                fn ($query) => $query->where('provisioning_driver', $driver))
             ->when($dueFilter === 'soon', fn ($query) => $query
                 ->whereNotNull('next_due_date')
                 ->whereDate('next_due_date', '<=', now()->addDays(30))
@@ -122,11 +128,20 @@ class ServiceController extends Controller
             ->whereDate('next_due_date', '<', now())
             ->count();
 
+        // Phase 275: one unified view across all four hosting platforms.
+        $driverCounts = Service::query()
+            ->whereNotNull('provisioning_driver')
+            ->selectRaw('provisioning_driver, COUNT(*) as cnt')
+            ->groupBy('provisioning_driver')
+            ->pluck('cnt', 'provisioning_driver');
+
         return view('admin.services', [
             'services'       => $services,
             'filter'         => $status,
             'search'         => $search,
             'dueFilter'      => $dueFilter,
+            'driverFilter'   => $driver,
+            'driverCounts'   => $driverCounts,
             'activeCount'    => $activeCount,
             'suspendedCount' => $suspendedCount,
             'expiringCount'  => $expiringCount,

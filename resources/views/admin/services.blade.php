@@ -76,7 +76,25 @@
         </div>
 
         <x-panel.card :title="__('panel.nav.admin_services')">
+            {{-- Phase 275: one view across all four hosting platforms --}}
+            <div class="d-flex gap-2 mb-3 flex-wrap">
+                <a href="{{ route('admin.services.index', array_filter(['status' => $filter, 'q' => $search, 'due' => $dueFilter])) }}"
+                   class="btn btn-sm {{ $driverFilter === '' ? 'btn-primary text-white' : 'btn-outline-primary' }}">
+                    Vše
+                </a>
+                @foreach(\App\Domains\Provisioning\Enums\ProvisioningDriver::cases() as $d)
+                    <a href="{{ route('admin.services.index', array_filter(['driver' => $d->value, 'status' => $filter, 'q' => $search, 'due' => $dueFilter])) }}"
+                       class="btn btn-sm {{ $driverFilter === $d->value ? 'btn-primary text-white' : 'btn-outline-primary' }}">
+                        {{ $d->label() }}
+                        <span class="badge {{ $driverFilter === $d->value ? 'bg-white text-primary' : 'badge-light-primary' }} ms-1">{{ $driverCounts[$d->value] ?? 0 }}</span>
+                    </a>
+                @endforeach
+            </div>
+
             <form method="GET" action="{{ route('admin.services.index') }}" class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+                @if($driverFilter !== '')
+                    <input type="hidden" name="driver" value="{{ $driverFilter }}">
+                @endif
                 <select name="status" class="form-select" style="max-width: 180px;">
                     <option value="">{{ __('panel.admin.all') }}</option>
                     @foreach(\App\Domains\Provisioning\Enums\ServiceStatus::cases() as $s)
@@ -91,11 +109,11 @@
                 <input type="text" name="q" class="form-control" style="max-width: 220px;"
                        placeholder="Label, ext. ID, e-mail…" value="{{ $search ?? '' }}">
                 <button type="submit" class="btn btn-outline-primary btn-sm">{{ __('panel.admin.filter') }}</button>
-                @if($filter || $search || $dueFilter)
+                @if($filter || $search || $dueFilter || $driverFilter)
                     <a href="{{ route('admin.services.index') }}" class="btn btn-outline-secondary btn-sm">×</a>
                 @endif
                 <span class="f-light f-12 ms-auto">{{ $services->total() }} služeb</span>
-                <a href="{{ route('admin.services.export', array_filter(['status' => $filter, 'q' => $search, 'due' => $dueFilter])) }}"
+                <a href="{{ route('admin.services.export', array_filter(['status' => $filter, 'q' => $search, 'due' => $dueFilter, 'driver' => $driverFilter])) }}"
                    class="btn btn-outline-success btn-sm ms-2" title="Export do CSV">
                     <i data-feather="download" style="width:13px;height:13px;"></i> CSV
                 </a>
