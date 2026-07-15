@@ -102,8 +102,15 @@ class CustomerController extends Controller
         ]);
     }
 
-    public function show(Customer $customer, CreditLedger $ledger): View
+    public function show(Customer $customer, CreditLedger $ledger, \App\Domains\Bi\Actions\CustomerHealthScorer $healthScorer): View
     {
+        $onboardingSteps = \App\Models\CustomerOnboardingStep::where('customer_id', $customer->id)
+            ->orderByDesc('is_required')
+            ->orderBy('step')
+            ->get();
+
+        $healthScore = $healthScorer->score($customer);
+
         return view('admin.customer-show', [
             'customer'      => $customer->load(['user', 'addresses']),
             'orders'        => $customer->orders()->latest('id')->limit(10)->get(),
@@ -123,6 +130,17 @@ class CustomerController extends Controller
                 ->orderByDesc('is_pinned')
                 ->latest()
                 ->get(),
+            // Phase 273: Customer 360°
+            'communicationLogs' => \App\Models\CustomerCommunicationLog::where('customer_id', $customer->id)
+                ->with('adminUser')
+                ->latest('id')
+                ->limit(8)
+                ->get(),
+            'onboardingSteps'      => $onboardingSteps,
+            'onboardingCompleted'  => $onboardingSteps->filter(fn ($s) => $s->completed_at !== null)->count(),
+            'healthScore'          => $healthScore,
+            'healthScoreColor'     => $healthScorer->color($healthScore),
+            'healthScoreLabel'     => $healthScorer->label($healthScore),
         ]);
     }
 

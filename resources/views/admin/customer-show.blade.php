@@ -143,20 +143,17 @@
                             <td class="f-light ps-0">Registrace</td>
                             <td>{{ $customer->created_at?->format('d.m.Y') }}</td>
                         </tr>
-                        @if($customer->health_score !== null)
-                            <tr>
-                                <td class="f-light ps-0">Zdraví</td>
-                                <td>
-                                    <span class="badge badge-light-{{ $customer->health_score >= 80 ? 'success' : ($customer->health_score >= 50 ? 'warning' : 'danger') }}">
-                                        {{ $customer->health_score >= 80 ? 'Zdravý' : ($customer->health_score >= 50 ? 'Pozor' : 'Kritický') }}
-                                    </span>
-                                    <span class="f-light f-12 ms-1">{{ $customer->health_score }}/100</span>
-                                    <div class="progress mt-1" style="height:4px;">
-                                        <div class="progress-bar bg-{{ $customer->health_score >= 80 ? 'success' : ($customer->health_score >= 50 ? 'warning' : 'danger') }}" style="width:{{ $customer->health_score }}%"></div>
-                                    </div>
-                                </td>
-                            </tr>
-                        @endif
+                        {{-- Phase 273: live-computed health score (works even before the nightly job stores one) --}}
+                        <tr>
+                            <td class="f-light ps-0">Zdraví</td>
+                            <td>
+                                <span class="badge badge-light-{{ $healthScoreColor }}">{{ $healthScoreLabel }}</span>
+                                <span class="f-light f-12 ms-1">{{ $healthScore }}/100</span>
+                                <div class="progress mt-1" style="height:4px;">
+                                    <div class="progress-bar bg-{{ $healthScoreColor }}" style="width:{{ $healthScore }}%"></div>
+                                </div>
+                            </td>
+                        </tr>
                     </table>
                 </x-panel.card>
 
@@ -258,6 +255,45 @@
                         @endforeach
                     </x-panel.card>
                 @endif
+
+                {{-- Phase 273: onboarding progress inline --}}
+                <x-panel.card title="Onboarding">
+                    @if($onboardingSteps->isNotEmpty())
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="f-light f-12">Postup</span>
+                            <span class="f-12 f-w-600">{{ $onboardingCompleted }}/{{ $onboardingSteps->count() }}</span>
+                        </div>
+                        <div class="progress mb-3" style="height:6px;">
+                            <div class="progress-bar bg-{{ $onboardingCompleted === $onboardingSteps->count() ? 'success' : 'primary' }}"
+                                 style="width:{{ $onboardingSteps->count() > 0 ? round($onboardingCompleted / $onboardingSteps->count() * 100) : 0 }}%"></div>
+                        </div>
+                        @foreach($onboardingSteps as $step)
+                            <div class="d-flex align-items-center gap-2 py-1 border-bottom">
+                                <form method="POST" action="{{ route('admin.customer-onboarding-steps.update', $step) }}" class="mb-0">
+                                    @csrf
+                                    @method('PATCH')
+                                    <button type="submit" class="btn btn-link p-0 border-0" title="{{ $step->isCompleted() ? 'Označit jako nesplněné' : 'Označit jako splněné' }}">
+                                        <i data-feather="{{ $step->isCompleted() ? 'check-circle' : 'circle' }}"
+                                           style="width:15px;height:15px;" class="{{ $step->isCompleted() ? 'txt-success' : 'txt-secondary' }}"></i>
+                                    </button>
+                                </form>
+                                <span class="f-12 {{ $step->isCompleted() ? 'text-decoration-line-through f-light' : 'f-w-500' }}">{{ $step->step }}</span>
+                                @if($step->is_required)
+                                    <span class="badge badge-light-danger ms-auto f-10">povinný</span>
+                                @endif
+                            </div>
+                        @endforeach
+                    @else
+                        <p class="f-light f-12 mb-2">Žádné kroky onboardingu.</p>
+                    @endif
+
+                    <form method="POST" action="{{ route('admin.customer-onboarding-steps.store') }}" class="d-flex gap-2 mt-3">
+                        @csrf
+                        <input type="hidden" name="customer_id" value="{{ $customer->id }}">
+                        <input type="text" name="step" class="form-control form-control-sm" placeholder="Nový krok…" required maxlength="100">
+                        <button type="submit" class="btn btn-outline-primary btn-sm text-nowrap">Přidat</button>
+                    </form>
+                </x-panel.card>
             </div>
 
             <div class="col-span-8 xl:col-span-12">
@@ -372,6 +408,65 @@
                         </x-panel.data-table>
                     </x-panel.card>
                 @endif
+
+                {{-- Phase 273: communication history inline --}}
+                <x-panel.card title="Komunikace se zákazníkem">
+                    <form method="POST" action="{{ route('admin.customer-communication-logs.store') }}" class="row g-2 align-items-end mb-3">
+                        @csrf
+                        <input type="hidden" name="customer_id" value="{{ $customer->id }}">
+                        <div class="col-6 col-md-2">
+                            <label class="form-label f-12 mb-1">Kanál</label>
+                            <select name="channel" class="form-select form-select-sm">
+                                <option value="email">E-mail</option>
+                                <option value="phone">Telefon</option>
+                                <option value="chat">Chat</option>
+                                <option value="note">Poznámka</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label f-12 mb-1">Směr</label>
+                            <select name="direction" class="form-select form-select-sm">
+                                <option value="outbound">Odchozí</option>
+                                <option value="inbound">Příchozí</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-3">
+                            <label class="form-label f-12 mb-1">Předmět</label>
+                            <input type="text" name="subject" class="form-control form-control-sm" maxlength="255" placeholder="Volitelné">
+                        </div>
+                        <div class="col-12 col-md-3">
+                            <label class="form-label f-12 mb-1">Obsah</label>
+                            <input type="text" name="body" class="form-control form-control-sm" required placeholder="Shrnutí komunikace">
+                        </div>
+                        <div class="col-12 col-md-2">
+                            <button type="submit" class="btn btn-primary btn-sm w-100 text-white">Zaznamenat</button>
+                        </div>
+                    </form>
+
+                    @if($communicationLogs->isEmpty())
+                        <p class="f-light f-12 mb-0">Zatím žádné záznamy komunikace.</p>
+                    @else
+                        @foreach($communicationLogs as $log)
+                            <div class="d-flex align-items-start gap-2 py-2 border-bottom">
+                                <i data-feather="{{ ['email' => 'mail', 'phone' => 'phone', 'chat' => 'message-circle', 'note' => 'edit-3'][$log->channel] ?? 'message-square' }}"
+                                   style="width:15px;height:15px;flex-shrink:0;" class="txt-primary mt-1"></i>
+                                <div class="flex-grow-1">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="f-12 f-w-600">{{ $log->subject ?: ucfirst($log->channel) }}</span>
+                                        <span class="badge {{ $log->direction === 'inbound' ? 'badge-light-info' : 'badge-light-success' }} f-10">
+                                            {{ $log->direction === 'inbound' ? 'Příchozí' : 'Odchozí' }}
+                                        </span>
+                                    </div>
+                                    <p class="f-12 f-light mb-0">{{ \Illuminate\Support\Str::limit($log->body, 160) }}</p>
+                                    <p class="f-11 f-light mb-0">{{ $log->adminUser?->name ?? 'systém' }} · {{ $log->created_at?->format('d.m.Y H:i') }}</p>
+                                </div>
+                            </div>
+                        @endforeach
+                        <p class="f-light f-11 mt-2 mb-0">
+                            <a href="{{ route('admin.customer-communication-logs.index', ['customer_id' => $customer->id]) }}">Celá historie komunikace →</a>
+                        </p>
+                    @endif
+                </x-panel.card>
             </div>
         </div>
     </div>
