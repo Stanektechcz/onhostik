@@ -77,7 +77,18 @@ class IntegrationSetting extends Model
                     return [];
                 }
 
-                $decoded = json_decode(Crypt::decryptString($value), true);
+                try {
+                    $decoded = json_decode(Crypt::decryptString($value), true);
+                } catch (\Illuminate\Contracts\Encryption\DecryptException) {
+                    // Legacy rows seeded with plain-text '{}' (or an APP_KEY
+                    // rotation) — treat as "no credentials" instead of crashing.
+                    // Never log the raw value.
+                    \Illuminate\Support\Facades\Log::warning('integration_settings.credentials undecryptable', [
+                        'provider' => $this->getAttribute('provider'),
+                    ]);
+
+                    return [];
+                }
 
                 return is_array($decoded) ? $decoded : [];
             },

@@ -220,6 +220,24 @@ class Service extends Model
         return $this->hasMany(\App\Models\ServiceUptimeCheck::class);
     }
 
+    /** @return HasMany<\App\Models\ServiceFirewallRule, $this> */
+    public function firewallRules(): HasMany
+    {
+        return $this->hasMany(\App\Models\ServiceFirewallRule::class);
+    }
+
+    /** @return HasMany<\App\Models\ServiceHealthIncident, $this> */
+    public function healthIncidents(): HasMany
+    {
+        return $this->hasMany(\App\Models\ServiceHealthIncident::class);
+    }
+
+    /** @return HasMany<\App\Models\ServiceBackupLog, $this> */
+    public function backupLogs(): HasMany
+    {
+        return $this->hasMany(\App\Models\ServiceBackupLog::class);
+    }
+
     // ---------------------------------------------------------------- helpers
 
     public function isProvisioned(): bool

@@ -59,16 +59,39 @@ final class AapanelClient
         return ['ok' => true, 'dry_run' => false, 'system' => $response];
     }
 
+    /**
+     * Read-only site overview for the admin Service 360° page.
+     * Like connectionTest, this is a pure GET — no write gate required.
+     *
+     * @return array<string, mixed>
+     */
+    public function getSiteOverview(string $siteName): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return [
+                'ok'      => true,
+                'dry_run' => true,
+                'site'    => ['name' => $siteName, 'status' => 'mock-run', 'path' => "/www/wwwroot/{$siteName}"],
+            ];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'getSiteOverview');
+
+        $response = $this->realRequest('/data?action=getBySearch&table=sites', ['search' => $siteName]);
+
+        return ['ok' => true, 'dry_run' => false, 'site' => $response];
+    }
+
     /** @param list<string> $required */
-    private function assertReadyForReadCall(array $required): void
+    private function assertReadyForReadCall(array $required, string $operation = 'connectionTest'): void
     {
         if (!$this->setting->is_active) {
-            throw new \RuntimeException("[aapanel] connectionTest: provider is inactive.");
+            throw new \RuntimeException("[aapanel] {$operation}: provider is inactive.");
         }
         $credentials = $this->setting->credentials;
         foreach ($required as $key) {
             if (($credentials[$key] ?? '') === '') {
-                throw new \RuntimeException("[aapanel] connectionTest: missing credential [{$key}].");
+                throw new \RuntimeException("[aapanel] {$operation}: missing credential [{$key}].");
             }
         }
     }

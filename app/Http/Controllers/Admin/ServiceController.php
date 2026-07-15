@@ -146,6 +146,9 @@ class ServiceController extends Controller
             'planChanges.fromPlan',
             'planChanges.toPlan',
             'planChanges.changedBy',
+            'firewallRules'   => fn ($q) => $q->latest('id')->limit(20),
+            'healthIncidents' => fn ($q) => $q->orderByRaw("CASE WHEN status = 'resolved' THEN 1 ELSE 0 END")->latest('id')->limit(10),
+            'backupLogs'      => fn ($q) => $q->latest('started_at')->limit(5),
         ]);
 
         $audit = Activity::query()

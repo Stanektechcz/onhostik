@@ -529,6 +529,8 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
     Route::post('/sluzby/{service}/obnova', [Admin\ServiceController::class, 'manualRenewal'])->name('services.manual-renewal');
     Route::post('/sluzby/{service}/stitky', [Admin\ServiceTagController::class, 'assign'])->name('services.tags.assign');
     Route::delete('/sluzby/{service}/stitky/{serviceTag}', [Admin\ServiceTagController::class, 'detach'])->name('services.tags.detach');
+    /* ── Phase 272: Service 360° — read-only live status from backend panel ── */
+    Route::get('/sluzby/{service}/zivy-stav', Admin\ServiceLiveStatusController::class)->name('services.live-status');
 
     Route::resource('/service-addons', Admin\ServiceAddonController::class)->names('service-addons');
 

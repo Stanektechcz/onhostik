@@ -416,7 +416,297 @@
                         </div>
                     </x-panel.card>
                 @endif
+
+                {{-- Phase 272: live status from the backend panel --}}
+                @if($service->provisioning_driver !== null)
+                    <x-panel.card title="Živý stav — {{ $service->provisioning_driver->label() }}">
+                        <div class="d-flex align-items-center gap-2 mb-3">
+                            <button type="button" id="live-status-btn" class="btn btn-outline-primary btn-sm">
+                                <i data-feather="activity" style="width:14px;height:14px"></i>
+                                Načíst stav z panelu
+                            </button>
+                            <span id="live-status-flag"></span>
+                        </div>
+                        <div id="live-status-body">
+                            <p class="f-light f-12 mb-0">Stav se načítá na vyžádání — klikněte na tlačítko výše.</p>
+                        </div>
+                    </x-panel.card>
+                @endif
+
+                {{-- Phase 272: firewall rules inline (skip for domain services) --}}
+                @if($service->provisioning_driver !== \App\Domains\Provisioning\Enums\ProvisioningDriver::Wedos)
+                    <x-panel.card title="Firewall pravidla">
+                        @if($service->firewallRules->isEmpty())
+                            <p class="f-light f-12 mb-3">Žádná pravidla. Přidejte první níže.</p>
+                        @else
+                            <div class="table-responsive mb-3">
+                                <table class="table table-sm mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Směr</th>
+                                            <th>Protokol</th>
+                                            <th>Porty</th>
+                                            <th>IP / CIDR</th>
+                                            <th>Akce</th>
+                                            <th>Stav</th>
+                                            <th class="text-end"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($service->firewallRules as $rule)
+                                            <tr>
+                                                <td><span class="badge badge-light-secondary">{{ strtoupper($rule->direction) }}</span></td>
+                                                <td>{{ strtoupper($rule->protocol) }}</td>
+                                                <td class="f-12">
+                                                    @if($rule->port_from)
+                                                        {{ $rule->port_from }}@if($rule->port_to && $rule->port_to !== $rule->port_from)–{{ $rule->port_to }}@endif
+                                                    @else
+                                                        —
+                                                    @endif
+                                                </td>
+                                                <td><code class="f-12">{{ $rule->ip_cidr }}</code></td>
+                                                <td>
+                                                    <span class="badge {{ $rule->action === 'allow' ? 'badge-light-success' : 'badge-light-danger' }}">
+                                                        {{ $rule->action === 'allow' ? 'Povolit' : 'Zakázat' }}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <form method="POST" action="{{ route('admin.service-firewall-rules.update', $rule) }}" class="d-inline">
+                                                        @csrf
+                                                        @method('PATCH')
+                                                        <button type="submit" class="btn btn-link p-0 border-0">
+                                                            <span class="badge {{ $rule->is_active ? 'bg-success' : 'bg-secondary' }}">
+                                                                {{ $rule->is_active ? 'Aktivní' : 'Vypnuto' }}
+                                                            </span>
+                                                        </button>
+                                                    </form>
+                                                </td>
+                                                <td class="text-end">
+                                                    <form method="POST" action="{{ route('admin.service-firewall-rules.destroy', $rule) }}" class="d-inline"
+                                                          onsubmit="return confirm('Odstranit pravidlo?')">
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="submit" class="btn btn-outline-danger btn-xs">
+                                                            <i data-feather="trash-2" style="width:12px;height:12px"></i>
+                                                        </button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
+
+                        <form method="POST" action="{{ route('admin.service-firewall-rules.store') }}" class="row g-2 align-items-end">
+                            @csrf
+                            <input type="hidden" name="service_id" value="{{ $service->id }}">
+                            <div class="col-6 col-md-2">
+                                <label class="form-label f-12 mb-1">Směr</label>
+                                <select name="direction" class="form-select form-select-sm">
+                                    <option value="in">Příchozí</option>
+                                    <option value="out">Odchozí</option>
+                                    <option value="both">Obojí</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label f-12 mb-1">Protokol</label>
+                                <select name="protocol" class="form-select form-select-sm">
+                                    <option value="tcp">TCP</option>
+                                    <option value="udp">UDP</option>
+                                    <option value="icmp">ICMP</option>
+                                    <option value="any">Any</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label f-12 mb-1">Port od</label>
+                                <input type="number" name="port_from" class="form-control form-control-sm" min="1" max="65535" placeholder="80">
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label f-12 mb-1">Port do</label>
+                                <input type="number" name="port_to" class="form-control form-control-sm" min="1" max="65535" placeholder="80">
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label f-12 mb-1">IP / CIDR</label>
+                                <input type="text" name="ip_cidr" class="form-control form-control-sm" placeholder="0.0.0.0/0" required maxlength="50">
+                            </div>
+                            <div class="col-6 col-md-1">
+                                <label class="form-label f-12 mb-1">Akce</label>
+                                <select name="action" class="form-select form-select-sm">
+                                    <option value="allow">Povolit</option>
+                                    <option value="deny">Zakázat</option>
+                                </select>
+                            </div>
+                            <div class="col-12 col-md-1">
+                                <button type="submit" class="btn btn-primary btn-sm w-100 text-white">Přidat</button>
+                            </div>
+                        </form>
+                        <p class="f-light f-11 mt-2 mb-0">
+                            <a href="{{ route('admin.service-firewall-rules.index', ['service_id' => $service->id]) }}">Všechna pravidla služby →</a>
+                        </p>
+                    </x-panel.card>
+                @endif
+
+                {{-- Phase 272: health incidents inline --}}
+                <x-panel.card title="Health incidenty">
+                    @if($service->healthIncidents->isEmpty())
+                        <p class="f-light f-12 mb-3">Žádné incidenty.</p>
+                    @else
+                        <div class="table-responsive mb-3">
+                            <table class="table table-sm mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Závažnost</th>
+                                        <th>Titulek</th>
+                                        <th>Stav</th>
+                                        <th>Vytvořeno</th>
+                                        <th class="text-end"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach($service->healthIncidents as $incident)
+                                        <tr>
+                                            <td>
+                                                <span class="badge {{ match($incident->severity) { 'critical' => 'bg-danger', 'warning' => 'bg-warning text-dark', default => 'bg-info' } }}">
+                                                    {{ ['info' => 'Info', 'warning' => 'Varování', 'critical' => 'Kritický'][$incident->severity] ?? $incident->severity }}
+                                                </span>
+                                            </td>
+                                            <td class="f-12 f-w-600">{{ $incident->title }}</td>
+                                            <td>
+                                                <span class="badge {{ match($incident->status) { 'resolved' => 'badge-light-success', 'investigating' => 'badge-light-warning', default => 'badge-light-danger' } }}">
+                                                    {{ ['open' => 'Otevřený', 'investigating' => 'Šetří se', 'resolved' => 'Vyřešeno'][$incident->status] ?? $incident->status }}
+                                                </span>
+                                            </td>
+                                            <td class="f-12 f-light">{{ $incident->created_at?->format('d.m. H:i') }}</td>
+                                            <td class="text-end">
+                                                @if($incident->status !== 'resolved')
+                                                    <form method="POST" action="{{ route('admin.service-health-incidents.update', $incident) }}" class="d-inline">
+                                                        @csrf
+                                                        @method('PATCH')
+                                                        <input type="hidden" name="status" value="resolved">
+                                                        <button type="submit" class="btn btn-outline-success btn-xs">Vyřešit</button>
+                                                    </form>
+                                                @endif
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+
+                    <form method="POST" action="{{ route('admin.service-health-incidents.store') }}" class="row g-2 align-items-end">
+                        @csrf
+                        <input type="hidden" name="service_id" value="{{ $service->id }}">
+                        <input type="hidden" name="status" value="open">
+                        <div class="col-12 col-md-3">
+                            <label class="form-label f-12 mb-1">Závažnost</label>
+                            <select name="severity" class="form-select form-select-sm">
+                                <option value="info">Info</option>
+                                <option value="warning">Varování</option>
+                                <option value="critical">Kritický</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-7">
+                            <label class="form-label f-12 mb-1">Titulek incidentu</label>
+                            <input type="text" name="title" class="form-control form-control-sm" required maxlength="255" placeholder="Např. vysoká zátěž disku">
+                        </div>
+                        <div class="col-12 col-md-2">
+                            <button type="submit" class="btn btn-primary btn-sm w-100 text-white">Nahlásit</button>
+                        </div>
+                    </form>
+                    <p class="f-light f-11 mt-2 mb-0">
+                        <a href="{{ route('admin.service-health-incidents.index', ['service_id' => $service->id]) }}">Všechny incidenty služby →</a>
+                    </p>
+                </x-panel.card>
+
+                {{-- Phase 272: recent backup runs --}}
+                @if($service->backupLogs->isNotEmpty())
+                    <x-panel.card title="Poslední zálohy">
+                        <div class="table-responsive">
+                            <table class="table table-sm mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Zahájeno</th>
+                                        <th>Stav</th>
+                                        <th>Velikost</th>
+                                        <th>Trvání</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach($service->backupLogs as $log)
+                                        <tr>
+                                            <td class="f-12">{{ $log->started_at?->format('d.m.Y H:i') }}</td>
+                                            <td>
+                                                <span class="badge {{ match($log->status) { 'success' => 'badge-light-success', 'failed' => 'badge-light-danger', 'cancelled' => 'badge-light-secondary', default => 'badge-light-warning' } }}">
+                                                    {{ ['success' => 'Dokončeno', 'failed' => 'Selhalo', 'running' => 'Běží', 'cancelled' => 'Zrušeno'][$log->status] ?? $log->status }}
+                                                </span>
+                                            </td>
+                                            <td class="f-12">{{ $log->size_bytes ? number_format($log->size_bytes / 1048576, 1, ',', ' ') . ' MB' : '—' }}</td>
+                                            <td class="f-12">{{ $log->duration_seconds !== null ? $log->duration_seconds . ' s' : '—' }}</td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="f-light f-11 mt-2 mb-0">
+                            <a href="{{ route('admin.service-backup-logs.index', ['service_id' => $service->id]) }}">Všechny zálohy služby →</a>
+                        </p>
+                    </x-panel.card>
+                @endif
             </div>
         </div>
     </div>
+
+    @if($service->provisioning_driver !== null)
+        <script nonce="{{ $cspNonce ?? '' }}">
+            document.addEventListener('DOMContentLoaded', function () {
+                const btn  = document.getElementById('live-status-btn');
+                const body = document.getElementById('live-status-body');
+                const flag = document.getElementById('live-status-flag');
+                if (!btn) return;
+
+                btn.addEventListener('click', function () {
+                    btn.disabled = true;
+                    body.innerHTML = '<p class="f-light f-12 mb-0">Načítám…</p>';
+                    flag.innerHTML = '';
+
+                    fetch('{{ route('admin.services.live-status', $service) }}', {
+                        headers: { 'Accept': 'application/json' }
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        btn.disabled = false;
+                        flag.innerHTML = data.dry_run
+                            ? '<span class="badge badge-light-warning">MOCK / DRY-RUN</span>'
+                            : '<span class="badge badge-light-success">ŽIVÁ DATA</span>';
+
+                        if (!data.ok) {
+                            body.innerHTML = '<div class="alert alert-light-danger f-12 mb-0">' + (data.error ?? 'Neznámá chyba') + '</div>';
+                            return;
+                        }
+
+                        const rows = Object.entries(data.data ?? {});
+                        if (rows.length === 0) {
+                            body.innerHTML = '<p class="f-light f-12 mb-0">Panel nevrátil žádná data.</p>';
+                            return;
+                        }
+
+                        let html = '<div class="table-responsive"><table class="table table-sm table-borderless mb-0">';
+                        for (const [key, val] of rows) {
+                            const safeKey = String(key).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+                            const safeVal = String(val ?? '—').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+                            html += '<tr><td class="f-light f-12 ps-0" style="width:35%">' + safeKey + '</td><td class="f-12 f-w-600">' + safeVal + '</td></tr>';
+                        }
+                        html += '</table></div>';
+                        body.innerHTML = html;
+                    })
+                    .catch(() => {
+                        btn.disabled = false;
+                        body.innerHTML = '<div class="alert alert-light-danger f-12 mb-0">Požadavek selhal.</div>';
+                    });
+                });
+            });
+        </script>
+    @endif
 @endsection

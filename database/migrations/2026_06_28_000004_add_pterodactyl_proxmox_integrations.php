@@ -14,7 +14,7 @@ return new class extends Migration
                 'is_active'  => false,
                 'mock_mode'  => true,
                 'dry_run'    => true,
-                'credentials'=> '{}',
+                'credentials'=> null, // encrypted-at-rest column — plain '{}' would fail decryption
                 'meta'       => json_encode(['category' => 'provisioning']),
             ],
             [
@@ -23,7 +23,7 @@ return new class extends Migration
                 'is_active'  => false,
                 'mock_mode'  => true,
                 'dry_run'    => true,
-                'credentials'=> '{}',
+                'credentials'=> null, // encrypted-at-rest column — plain '{}' would fail decryption
                 'meta'       => json_encode(['category' => 'provisioning']),
             ],
         ];
