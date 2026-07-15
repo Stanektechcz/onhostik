@@ -1,4 +1,4 @@
-@extends('layouts.front')
+@extends('layouts.panel')
 @section('title', 'Uptime: ' . $service->label)
 @section('content')
 <div class="container py-4">

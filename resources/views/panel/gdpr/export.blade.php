@@ -1,4 +1,4 @@
-@extends('layouts.front')
+@extends('layouts.panel')
 @section('title', 'Export osobních dat (GDPR)')
 @section('content')
 <div class="container py-4" style="max-width:700px">

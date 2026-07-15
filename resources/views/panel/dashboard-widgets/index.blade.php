@@ -1,4 +1,4 @@
-@extends('layouts.front')
+@extends('layouts.panel')
 
 @section('title', 'Nastavení widgetů dashboardu')
 

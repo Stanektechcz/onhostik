@@ -162,7 +162,7 @@
                             <input id="gp-startup" type="text" name="startup"
                                    class="form-control @error('startup') is-invalid @enderror"
                                    value="{{ old('startup', $preset?->startup) }}"
-                                   maxlength="1000" placeholder="java -Xms128M -Xmx{{SERVER_MEMORY}}M ...">
+                                   maxlength="1000" placeholder="java -Xms128M -Xmx@{{SERVER_MEMORY}}M ...">
                             @error('startup')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
 
