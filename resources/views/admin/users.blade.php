@@ -116,7 +116,7 @@
                                                     </a>
                                                     <a class="square-white" href="{{ route('admin.customers.show', $user->customer ?? $user->id) }}"
                                                        data-bs-toggle="tooltip" data-tooltip="Detail zákazníka">
-                                                        <svg><use href="{{ asset('panel/assets/svg/icon-sprite.svg#fill-view') }}"></use></svg>
+                                                        <svg><use href="{{ asset('panel/svg/icon-sprite.svg#fill-view') }}"></use></svg>
                                                     </a>
                                                 </div>
                                             </td>

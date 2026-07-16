@@ -162,7 +162,7 @@
                                                     <div class="common-align gap-2 justify-start">
                                                         <a class="square-white" href="{{ route('panel.billing.invoices.show', $invoice) }}"
                                                            data-bs-toggle="tooltip" data-bs-placement="top" data-tooltip="{{ __('panel.orders.view_invoice') }}">
-                                                            <svg><use href="{{ asset('panel/assets/svg/icon-sprite.svg#fill-view') }}"></use></svg>
+                                                            <svg><use href="{{ asset('panel/svg/icon-sprite.svg#fill-view') }}"></use></svg>
                                                         </a>
                                                     </div>
                                                 </td>

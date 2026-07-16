@@ -37,7 +37,7 @@
                                                 <button type="submit" class="btn p-0 border-0 c-o-light font-semibold">
                                                     Vymazat vše
                                                     <svg style="width:16px;height:16px;display:inline;">
-                                                        <use href="{{ asset('panel/assets/svg/icon-sprite.svg#trash1') }}"></use>
+                                                        <use href="{{ asset('panel/svg/icon-sprite.svg#trash1') }}"></use>
                                                     </svg>
                                                 </button>
                                             </form>
@@ -87,7 +87,7 @@
                                                     <button type="submit" class="square-white trash-3 border-0 bg-transparent"
                                                             data-bs-toggle="tooltip" data-bs-placement="top" data-tooltip="Odebrat">
                                                         <svg style="width:16px;height:16px;">
-                                                            <use href="{{ asset('panel/assets/svg/icon-sprite.svg#trash1') }}"></use>
+                                                            <use href="{{ asset('panel/svg/icon-sprite.svg#trash1') }}"></use>
                                                         </svg>
                                                     </button>
                                                 </form>

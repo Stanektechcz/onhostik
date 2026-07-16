@@ -61,7 +61,7 @@
                                                     <a class="square-white trash-6" href="#"
                                                        data-bs-toggle="tooltip" data-tooltip="Smazat"
                                                        onclick="return confirm('Smazat roli?')">
-                                                        <svg><use href="{{ asset('panel/assets/svg/icon-sprite.svg#trash1') }}"></use></svg>
+                                                        <svg><use href="{{ asset('panel/svg/icon-sprite.svg#trash1') }}"></use></svg>
                                                     </a>
                                                 </div>
                                             </td>
@@ -80,7 +80,7 @@
                                             <td>
                                                 <div class="common-align gap-2 justify-start">
                                                     <a class="square-white trash-6" href="#" data-bs-toggle="tooltip" data-tooltip="Smazat">
-                                                        <svg><use href="{{ asset('panel/assets/svg/icon-sprite.svg#trash1') }}"></use></svg>
+                                                        <svg><use href="{{ asset('panel/svg/icon-sprite.svg#trash1') }}"></use></svg>
                                                     </a>
                                                 </div>
                                             </td>

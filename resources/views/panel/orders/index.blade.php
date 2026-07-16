@@ -170,7 +170,7 @@
                                                             <div class="common-align gap-2 justify-start">
                                                                 <a class="square-white" href="{{ route('panel.orders.show', $order) }}"
                                                                    data-bs-toggle="tooltip" data-bs-placement="top" data-tooltip="{{ __('panel.common.detail') }}">
-                                                                    <svg><use href="{{ asset('panel/assets/svg/icon-sprite.svg#fill-view') }}"></use></svg>
+                                                                    <svg><use href="{{ asset('panel/svg/icon-sprite.svg#fill-view') }}"></use></svg>
                                                                 </a>
                                                                 @if($latestInvoice)
                                                                 <a class="square-white" href="{{ route('panel.billing.invoices.show', $latestInvoice) }}"

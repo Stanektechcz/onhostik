@@ -236,7 +236,7 @@
                                                           style="display:inline;" onsubmit="return confirm('Smazat komentář?')">
                                                         @csrf @method('DELETE')
                                                         <button type="submit" class="square-white trash-3" title="Smazat">
-                                                            <svg><use href="{{ asset('panel/assets/svg/icon-sprite.svg#trash1') }}"></use></svg>
+                                                            <svg><use href="{{ asset('panel/svg/icon-sprite.svg#trash1') }}"></use></svg>
                                                         </button>
                                                     </form>
                                                 </div>

@@ -15,7 +15,7 @@
 <div class="page-wrapper compact-wrapper" id="pageWrapper">
     <div class="error-wrapper">
         <div class="container">
-            <svg><use href="/panel/assets/svg/icon-sprite.svg#error-500"></use></svg>
+            <svg><use href="/panel/svg/icon-sprite.svg#error-500"></use></svg>
             <div class="grid grid-cols-12">
                 <div class="col-start-4 md:col-start-0 col-span-6 md:col-span-12">
                     <h3>Chyba serveru</h3>

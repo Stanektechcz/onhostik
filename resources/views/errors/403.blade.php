@@ -3,7 +3,7 @@
 @section('content')
 <div class="error-wrapper">
     <div class="container">
-        <svg><use href="{{ asset('panel/assets/svg/icon-sprite.svg#error-403') }}"></use></svg>
+        <svg><use href="{{ asset('panel/svg/icon-sprite.svg#error-403') }}"></use></svg>
         <div class="grid grid-cols-12">
             <div class="col-start-4 md:col-start-0 col-span-6 md:col-span-12">
                 <h3 class="[@media(max-width:575px)]:text-center">Přístup zakázán</h3>
