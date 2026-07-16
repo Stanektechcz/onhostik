@@ -98,7 +98,7 @@
             <x-panel.sidebar-link :href="route('panel.ai.index')" icon="zap" label="AI asistent" />
         </x-panel.sidebar-submenu>
 
-        <x-panel.sidebar-submenu icon="user" label="Muj ucet"
+        <x-panel.sidebar-submenu icon="user" label="Můj účet"
             :active="$p('panel.account') || $p('panel.notifications')">
             <x-panel.sidebar-link :href="route('panel.account.profile')" icon="user" label="Profil" />
             <x-panel.sidebar-link :href="route('panel.account.billing')" icon="dollar-sign" label="Fakturační údaje" />
@@ -187,7 +187,7 @@
             </a>
         </li>
 
-        <x-panel.sidebar-submenu icon="users" label="CRM — Uzivatele"
+        <x-panel.sidebar-submenu icon="users" label="CRM — Uživatelé"
             :active="$p('admin.customers') || $p('admin.users') || $p('admin.roles') || $p('admin.contacts')">
             <x-panel.sidebar-link :href="route('admin.customers.index')" icon="users" label="Zákazníci" />
             <x-panel.sidebar-link :href="route('admin.users.index')" icon="user" label="Uživatelé" />
@@ -207,7 +207,7 @@
             <x-panel.sidebar-link :href="route('admin.webhook-logs.index')" icon="radio" label="Webhook logy" />
         </x-panel.sidebar-submenu>
 
-        <x-panel.sidebar-submenu icon="box" label="Produkty a cenik"
+        <x-panel.sidebar-submenu icon="box" label="Produkty a ceník"
             :active="$p('admin.products') || $p('admin.pricing') || $p('admin.reviews') || $p('admin.game-presets')">
             <x-panel.sidebar-link :href="route('admin.products.index')" icon="box" label="Produkty a tarify" />
             <x-panel.sidebar-link :href="route('admin.game-presets.index')" icon="play-circle" label="Game presety" />
@@ -233,7 +233,7 @@
             <x-panel.sidebar-link :href="route('admin.site-content.index')" icon="file-text" label="Obsah stránek" />
         </x-panel.sidebar-submenu>
 
-        <x-panel.sidebar-submenu icon="share-2" label="Partnersky program"
+        <x-panel.sidebar-submenu icon="share-2" label="Partnerský program"
             :active="$p('admin.partners') || $p('admin.partner-program')">
             <x-panel.sidebar-link :href="route('admin.partners.index')" icon="users" label="Partneři" />
             <x-panel.sidebar-link :href="route('admin.partner-program.settings')" icon="settings" label="Nastavení programu" />
@@ -273,14 +273,14 @@
             </a>
         </li>
 
-        <x-panel.sidebar-submenu icon="sliders" label="System a nastaveni"
+        <x-panel.sidebar-submenu icon="sliders" label="Systém a nastavení"
             :active="$p('admin.integrations') || $p('admin.settings') || $p('admin.system') || $p('admin.logs') || $p('admin.sitemap') || $p('admin.sample-page') || $p('admin.metrics') || $p('admin.bi') || $p('admin.security')">
             <x-panel.sidebar-link :href="route('admin.metrics.index')" icon="bar-chart-2" label="Obchodní metriky" />
             <x-panel.sidebar-link :href="route('admin.bi.index')" icon="cpu" label="BI &amp; Predikce" />
             <x-panel.sidebar-link :href="route('admin.security.index')" icon="shield" label="Bezp. audit" />
             <x-panel.sidebar-link :href="route('admin.integrations.index')" icon="link" label="Integrace" />
             <x-panel.sidebar-link :href="route('admin.settings.index')" icon="settings" label="Nastavení" />
-            <x-panel.sidebar-link :href="route('admin.system.index')" icon="activity" label="System health" />
+            <x-panel.sidebar-link :href="route('admin.system.index')" icon="activity" label="Stav systému" />
             <x-panel.sidebar-link href="/horizon" icon="cpu" label="Horizon (queue)" />
             <x-panel.sidebar-link :href="route('admin.logs.audit')" icon="shield" label="Audit log" />
             <x-panel.sidebar-link :href="route('admin.sitemap')" icon="map" label="Mapa webu" />

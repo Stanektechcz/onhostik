@@ -20,7 +20,8 @@ final class InvoicePdfService
 
         $brand = $this->resolveBrand($invoice);
 
-        $pdf = Pdf::loadView('pdf.invoice', compact('invoice', 'brand'));
+        $isPdf = true;
+        $pdf = Pdf::loadView('pdf.invoice', compact('invoice', 'brand', 'isPdf'));
 
         $pdf->setPaper('A4', 'portrait');
 

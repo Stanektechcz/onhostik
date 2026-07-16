@@ -19,6 +19,7 @@
     <meta charset="utf-8">
     <title>{{ $invoice->number }}</title>
     <style type="text/css">
+        @page { margin: 26px 34px; }
         body {
             font-family: DejaVu Sans, Arial, sans-serif;
             font-size: 13px;
@@ -26,7 +27,10 @@
             margin: 0;
             padding: 0;
         }
-        .wrap { width: 1100px; margin: 0 auto; }
+        /* A4 portrait content area is ~527pt wide — the wrapper must fill the
+           page, never a fixed pixel width (1100px overflowed off the page). */
+        .wrap { width: 100%; max-width: 760px; margin: 0 auto; }
+        table { border-collapse: collapse; }
         /* Header */
         .header-row { display: flex; justify-content: space-between; align-items: center; padding: 24px 0 8px; }
         .logo { font-size: 22px; font-weight: 700; color: {{ $primaryColor }}; }
@@ -92,9 +96,9 @@
             <td><div class="logo">{{ $supplierName }}</div></td>
             <td style="text-align:right;">
                 <div class="contact-pill">
-                    <span>✉ {{ $supplierEmail }}</span>
+                    <span>{{ $supplierEmail }}</span>
                     <span style="border-left:1px solid rgba(255,255,255,.3);border-right:1px solid rgba(255,255,255,.3);padding:0 16px;">
-                        🌐 {{ $supplierWeb }}
+                        {{ $supplierWeb }}
                     </span>
                     @if($supplierIc)
                     <span>IČ: {{ $supplierIc }}</span>
@@ -124,7 +128,7 @@
                 @endif
             </td>
             <td style="text-align:right;">
-                <div class="invoice-title">{{ strtoupper($invoice->type->label()) }}</div>
+                <div class="invoice-title">{{ mb_strtoupper($invoice->type->label(), 'UTF-8') }}</div>
                 <div class="invoice-label">
                     {{ $invoice->isTaxDocument() ? 'Daňový doklad' : 'Zálohová faktura' }}
                 </div>
@@ -243,9 +247,11 @@
                 <div class="signature-role">Vystavil</div>
             </td>
             <td style="text-align:right;">
+                @unless($isPdf ?? false)
                 <a class="btn-print" href="{{ route('panel.billing.invoices.print', $invoice) }}" onclick="window.print()">
                     Vytisknout &rsaquo;
                 </a>
+                @endunless
             </td>
         </tr>
     </table>

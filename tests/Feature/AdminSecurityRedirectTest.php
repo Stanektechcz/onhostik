@@ -3,13 +3,15 @@
 declare(strict_types=1);
 
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Role;
 
 /**
- * Admins without confirmed 2FA are redirected to the admin-scoped security
- * page (admin.account.security), which lives OUTSIDE the require-admin-2fa
- * gate so it stays reachable. Regression guard for the reported bug where
- * the redirect pointed at /panel/ucet/zabezpeceni instead.
+ * Admin 2FA enforcement is OPT-IN (security.require_admin_2fa, default off)
+ * so a fresh install reaches the admin panel without a lock-out loop. When
+ * enabled, admins without confirmed 2FA are redirected to the admin-scoped
+ * security page (admin.account.security), which lives OUTSIDE the gate and
+ * never redirects onto itself.
  */
 
 function adminWithout2fa(): User
@@ -21,7 +23,24 @@ function adminWithout2fa(): User
     return $user;
 }
 
-it('admin without 2FA is redirected to the admin security page', function (): void {
+function setRequireAdmin2fa(bool $on): void
+{
+    DB::table('settings')->updateOrInsert(
+        ['group' => 'security', 'name' => 'require_admin_2fa'],
+        ['payload' => json_encode($on), 'updated_at' => now(), 'created_at' => now()],
+    );
+}
+
+it('admin without 2FA reaches the dashboard when enforcement is off (default)', function (): void {
+    $admin = adminWithout2fa();
+
+    $this->actingAs($admin)
+        ->get(route('admin.dashboard'))
+        ->assertOk();
+});
+
+it('admin without 2FA is redirected once enforcement is enabled', function (): void {
+    setRequireAdmin2fa(true);
     $admin = adminWithout2fa();
 
     $this->actingAs($admin)
@@ -29,7 +48,8 @@ it('admin without 2FA is redirected to the admin security page', function (): vo
         ->assertRedirect(route('admin.account.security'));
 });
 
-it('admin security page is reachable without confirmed 2FA (not gated)', function (): void {
+it('security page never redirects onto itself even with enforcement on', function (): void {
+    setRequireAdmin2fa(true);
     $admin = adminWithout2fa();
 
     $this->actingAs($admin)

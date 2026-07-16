@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="{{ asset('panel/css/vendors/icofont.css') }}">
     <link rel="stylesheet" href="{{ asset('panel/css/vendors/themify.css') }}">
     <link rel="stylesheet" href="{{ asset('panel/css/vendors/feather-icon.css') }}">
+    <link rel="stylesheet" href="{{ asset('panel/css/vendors/flag-icon.css') }}">
     <link rel="stylesheet" href="{{ asset('panel/css/vendors/scrollbar.css') }}">
     <link rel="stylesheet" href="{{ asset('panel/css/vendors/animate.css') }}">
     @stack('styles')

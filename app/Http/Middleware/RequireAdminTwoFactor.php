@@ -11,11 +11,13 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Enforces that admin users have confirmed 2FA before they can access admin routes.
  *
- * Applies only to users who have the 'admin' role. Non-admin users pass through
- * unchanged. Admins without confirmed 2FA are redirected to the security settings
- * page with a one-time warning message.
+ * Enforcement is OPT-IN via the `security.require_admin_2fa` setting (default
+ * OFF). This lets a fresh install / launch reach the admin panel immediately;
+ * an admin can then turn the requirement on from Nastavení zabezpečení once
+ * they have their own 2FA configured, avoiding a lock-out loop.
  *
- * Register this after the auth + can:access-admin middleware so $user is guaranteed.
+ * Applies only to users with the 'admin' role. Non-admins pass through.
+ * Register this after auth + can:access-admin so $user is guaranteed.
  */
 class RequireAdminTwoFactor
 {
@@ -24,6 +26,15 @@ class RequireAdminTwoFactor
         $user = $request->user();
 
         if ($user === null || ! $user->isAdmin()) {
+            return $next($request);
+        }
+
+        if (! $this->enforced()) {
+            return $next($request);
+        }
+
+        // Already on the security page? Never redirect onto itself (loop guard).
+        if ($request->routeIs('admin.account.security')) {
             return $next($request);
         }
 
@@ -39,5 +50,19 @@ class RequireAdminTwoFactor
         }
 
         return $next($request);
+    }
+
+    private function enforced(): bool
+    {
+        try {
+            $row = \Illuminate\Support\Facades\DB::table('settings')
+                ->where('group', 'security')
+                ->where('name', 'require_admin_2fa')
+                ->value('payload');
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return $row !== null && json_decode((string) $row, true) === true;
     }
 }

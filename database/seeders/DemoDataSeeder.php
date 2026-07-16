@@ -56,11 +56,16 @@ class DemoDataSeeder extends Seeder
             ],
         );
 
+        // Map each driver to the matching catalog product so demo services
+        // display the correct type (webhosting / vps / gamehosting).
+        $productBySlug = \App\Domains\Products\Models\Product::query()->pluck('id', 'slug');
+        $fallbackProductId = $productBySlug->first();
+
         $definitions = [
-            ['driver' => ProvisioningDriver::AAPanel,     'label' => 'demo-web.cz',        'external_id' => 'AAP-1001', 'resources' => ['disk_mb' => 20_480, 'bandwidth_gb' => 200, 'databases' => 5, 'emails' => 25, 'php_version' => '82']],
-            ['driver' => ProvisioningDriver::Proxmox,     'label' => 'demo-vps-01',        'external_id' => '100',      'resources' => ['cpu' => 2, 'ram_mb' => 4_096, 'disk_mb' => 81_920]],
-            ['driver' => ProvisioningDriver::Pterodactyl, 'label' => 'demo-minecraft',     'external_id' => '1',        'resources' => ['slots' => 20, 'ram_mb' => 4_096]],
-            ['driver' => ProvisioningDriver::Wedos,       'label' => 'demo-domena.cz',     'external_id' => 'demo-domena.cz', 'resources' => null],
+            ['driver' => ProvisioningDriver::AAPanel,     'product' => 'webhosting',  'label' => 'demo-web.cz',    'external_id' => 'AAP-1001', 'resources' => ['disk_mb' => 20_480, 'bandwidth_gb' => 200, 'databases' => 5, 'emails' => 25, 'php_version' => '82']],
+            ['driver' => ProvisioningDriver::Proxmox,     'product' => 'vps',         'label' => 'demo-vps-01',    'external_id' => '100',      'resources' => ['cpu' => 2, 'ram_mb' => 4_096, 'disk_mb' => 81_920]],
+            ['driver' => ProvisioningDriver::Pterodactyl, 'product' => 'gamehosting', 'label' => 'demo-minecraft', 'external_id' => '1',        'resources' => ['slots' => 20, 'ram_mb' => 4_096]],
+            ['driver' => ProvisioningDriver::Wedos,       'product' => 'webhosting',  'label' => 'demo-domena.cz', 'external_id' => 'demo-domena.cz', 'resources' => null],
         ];
 
         $services = [];
@@ -69,7 +74,7 @@ class DemoDataSeeder extends Seeder
             $services[$def['driver']->value] = Service::query()->firstOrCreate(
                 ['customer_id' => $customer->id, 'label' => $def['label']],
                 [
-                    'product_id'          => \App\Domains\Products\Models\Product::query()->value('id'),
+                    'product_id'          => $productBySlug[$def['product']] ?? $fallbackProductId,
                     'provisioning_driver' => $def['driver'],
                     'external_id'         => $def['external_id'],
                     'status'              => ServiceStatus::Active,

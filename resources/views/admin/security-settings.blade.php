@@ -49,14 +49,16 @@
                                 <div>
                                     <h6 class="mb-1">Vyžadovat 2FA od administrátorů</h6>
                                     <p class="f-12 f-light mb-0">
-                                        Administrátoři bez aktivního 2FA jsou blokováni ve všech admin sekcích.
-                                        Toto nastavení je vždy aktivní a nelze jej vypnout.
+                                        Když je zapnuto, administrátoři bez aktivního 2FA jsou přesměrováni
+                                        na tuto stránku, dokud si dvoufázové ověření nenastaví. Doporučeno
+                                        zapnout až poté, co má hlavní administrátor 2FA nastavené.
                                     </p>
                                 </div>
                                 <div class="form-check form-switch">
                                     <input class="form-check-input" type="checkbox" role="switch"
-                                           id="require_admin_2fa" disabled checked>
-                                    <label class="form-check-label" for="require_admin_2fa">Vždy aktivní</label>
+                                           id="require_admin_2fa" name="require_admin_2fa" value="1"
+                                           {{ ($stored['require_admin_2fa'] ?? false) ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="require_admin_2fa">Aktivní</label>
                                 </div>
                             </div>
                         </div>
