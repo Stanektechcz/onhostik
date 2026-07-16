@@ -10,6 +10,12 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Self-heal: a previous run failed on MySQL mid-way (auto-generated
+        // unique-index name exceeded 64 chars) leaving the first table behind
+        // without the migration being recorded. Drop the partial leftovers.
+        Schema::dropIfExists('invoice_custom_field_values');
+        Schema::dropIfExists('invoice_field_definitions');
+
         // Global field definitions managed by admin
         Schema::create('invoice_field_definitions', function (Blueprint $table): void {
             $table->id();
@@ -31,7 +37,8 @@ return new class extends Migration
             $table->text('value')->nullable();
             $table->timestamps();
 
-            $table->unique(['invoice_id', 'invoice_field_definition_id']);
+            // Explicit name: the auto-generated one exceeds MySQL's 64-char limit.
+            $table->unique(['invoice_id', 'invoice_field_definition_id'], 'icfv_invoice_definition_unique');
         });
     }
 
