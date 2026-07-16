@@ -11,7 +11,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('invoices', function (Blueprint $table): void {
-            $table->text('customer_note')->nullable()->after('admin_note');
+            // invoices has no "admin_note" column — position hint dropped,
+            // it's purely cosmetic.
+            $table->text('customer_note')->nullable();
         });
     }
 

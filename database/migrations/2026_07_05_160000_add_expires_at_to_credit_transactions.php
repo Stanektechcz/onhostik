@@ -11,7 +11,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('credit_transactions', static function (Blueprint $table): void {
-            $table->timestamp('expires_at')->nullable()->after('amount_haler')->index();
+            // credit_transactions has no "amount_haler" column — that name
+            // belongs to invoice_partial_payments. Real column is "amount".
+            $table->timestamp('expires_at')->nullable()->after('amount')->index();
         });
 
         // Tracks which deposit transactions already got a reminder, to prevent duplicates

@@ -9,7 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table): void {
-            $table->boolean('dark_mode')->default(false)->after('digest_frequency');
+            // digest_frequency is added later (2026_07_06_200014) — position
+            // hint dropped, it's purely cosmetic.
+            $table->boolean('dark_mode')->default(false);
         });
     }
 

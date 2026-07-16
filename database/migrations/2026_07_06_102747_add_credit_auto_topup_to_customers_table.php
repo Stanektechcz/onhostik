@@ -11,7 +11,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('customers', function (Blueprint $table): void {
-            $table->json('credit_auto_topup')->nullable()->after('health_score_updated_at');
+            // health_score_updated_at is added later (2026_07_06_170000) —
+            // position hint dropped, it's purely cosmetic.
+            $table->json('credit_auto_topup')->nullable();
         });
     }
 

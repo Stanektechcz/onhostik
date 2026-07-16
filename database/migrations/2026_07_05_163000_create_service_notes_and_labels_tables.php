@@ -27,7 +27,9 @@ return new class extends Migration
         });
 
         Schema::table('services', function (Blueprint $table): void {
-            $table->text('admin_note')->nullable()->after('notes');
+            // services has no "notes" column — position hint dropped, it's
+            // purely cosmetic (column order never affects Eloquent access).
+            $table->text('admin_note')->nullable();
         });
     }
 
