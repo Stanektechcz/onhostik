@@ -17,21 +17,24 @@ return new class extends Migration
         });
 
         // Tracks each referral conversion
-        Schema::create('customer_referrals', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('referrer_id')->constrained('customers')->cascadeOnDelete();
-            $table->foreignId('referee_id')->constrained('customers')->cascadeOnDelete();
-            $table->string('status', 20)->default('pending');    // pending | qualified | rewarded | expired
-            $table->integer('referrer_reward_haler')->default(0);
-            $table->integer('referee_reward_haler')->default(0);
-            $table->string('currency', 3)->default('CZK');
-            $table->timestamp('qualified_at')->nullable();
-            $table->timestamp('rewarded_at')->nullable();
-            $table->timestamps();
+        if (!Schema::hasTable('customer_referrals')) {
+            Schema::create('customer_referrals', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('referrer_id')->constrained('customers')->cascadeOnDelete();
+                $table->foreignId('referee_id')->constrained('customers')->cascadeOnDelete();
+                $table->string('status', 20)->default('pending');    // pending | qualified | rewarded | expired
+                $table->integer('referrer_reward_haler')->default(0);
+                $table->integer('referee_reward_haler')->default(0);
+                $table->string('currency', 3)->default('CZK');
+                $table->timestamp('qualified_at')->nullable();
+                $table->timestamp('rewarded_at')->nullable();
+                $table->timestamps();
 
-            $table->unique('referee_id');               // one referral per new customer
-            $table->index(['referrer_id', 'status']);
-        });
+                $table->unique('referee_id');               // one referral per new customer
+                $table->index(['referrer_id', 'status']);
+            });
+        }
+
     }
 
     public function down(): void

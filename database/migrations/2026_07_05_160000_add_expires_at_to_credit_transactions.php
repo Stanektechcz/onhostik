@@ -17,15 +17,18 @@ return new class extends Migration
         });
 
         // Tracks which deposit transactions already got a reminder, to prevent duplicates
-        Schema::create('credit_expiry_reminders', static function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('credit_transaction_id')->constrained()->cascadeOnDelete();
-            $table->unsignedInteger('days_before'); // 30 | 7
-            $table->timestamp('sent_at');
-            $table->timestamps();
+        if (!Schema::hasTable('credit_expiry_reminders')) {
+            Schema::create('credit_expiry_reminders', static function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('credit_transaction_id')->constrained()->cascadeOnDelete();
+                $table->unsignedInteger('days_before'); // 30 | 7
+                $table->timestamp('sent_at');
+                $table->timestamps();
 
-            $table->unique(['credit_transaction_id', 'days_before']);
-        });
+                $table->unique(['credit_transaction_id', 'days_before']);
+            });
+        }
+
     }
 
     public function down(): void

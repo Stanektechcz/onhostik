@@ -10,16 +10,19 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('dunning_configs', function (Blueprint $table): void {
-            $table->id();
-            $table->string('name');
-            $table->unsignedTinyInteger('step');
-            $table->unsignedSmallInteger('days_after_due');
-            $table->enum('action', ['email', 'suspend', 'cancel'])->default('email');
-            $table->string('email_template')->nullable();
-            $table->boolean('is_active')->default(true)->index();
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('dunning_configs')) {
+            Schema::create('dunning_configs', function (Blueprint $table): void {
+                $table->id();
+                $table->string('name');
+                $table->unsignedTinyInteger('step');
+                $table->unsignedSmallInteger('days_after_due');
+                $table->enum('action', ['email', 'suspend', 'cancel'])->default('email');
+                $table->string('email_template')->nullable();
+                $table->boolean('is_active')->default(true)->index();
+                $table->timestamps();
+            });
+        }
+
     }
 
     public function down(): void

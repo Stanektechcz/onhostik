@@ -10,16 +10,19 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('customer_internal_notes', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('customer_id')->constrained('customers')->cascadeOnDelete();
-            $table->foreignId('admin_id')->constrained('users')->cascadeOnDelete();
-            $table->text('content');
-            $table->boolean('is_pinned')->default(false);
-            $table->timestamps();
+        if (!Schema::hasTable('customer_internal_notes')) {
+            Schema::create('customer_internal_notes', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('customer_id')->constrained('customers')->cascadeOnDelete();
+                $table->foreignId('admin_id')->constrained('users')->cascadeOnDelete();
+                $table->text('content');
+                $table->boolean('is_pinned')->default(false);
+                $table->timestamps();
 
-            $table->index('customer_id');
-        });
+                $table->index('customer_id');
+            });
+        }
+
     }
 
     public function down(): void

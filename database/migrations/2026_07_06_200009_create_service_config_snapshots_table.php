@@ -10,14 +10,17 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('service_config_snapshots', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('service_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('created_by')->constrained('users')->cascadeOnDelete();
-            $table->json('config');
-            $table->string('reason', 200)->nullable();
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('service_config_snapshots')) {
+            Schema::create('service_config_snapshots', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('service_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('created_by')->constrained('users')->cascadeOnDelete();
+                $table->json('config');
+                $table->string('reason', 200)->nullable();
+                $table->timestamps();
+            });
+        }
+
     }
 
     public function down(): void

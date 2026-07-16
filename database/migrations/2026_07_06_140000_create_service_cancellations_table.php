@@ -10,16 +10,19 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('service_cancellations', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('service_id')->constrained('services')->cascadeOnDelete();
-            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->string('reason', 50);
-            $table->text('feedback')->nullable();
-            $table->timestamps();
+        if (!Schema::hasTable('service_cancellations')) {
+            Schema::create('service_cancellations', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('service_id')->constrained('services')->cascadeOnDelete();
+                $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
+                $table->string('reason', 50);
+                $table->text('feedback')->nullable();
+                $table->timestamps();
 
-            $table->index(['reason', 'created_at']);
-        });
+                $table->index(['reason', 'created_at']);
+            });
+        }
+
     }
 
     public function down(): void

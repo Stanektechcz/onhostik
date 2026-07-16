@@ -10,21 +10,27 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('service_labels', function (Blueprint $table): void {
-            $table->id();
-            $table->string('name', 60);
-            $table->string('color', 20)->default('secondary'); // Bootstrap color class suffix
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('service_labels')) {
+            Schema::create('service_labels', function (Blueprint $table): void {
+                $table->id();
+                $table->string('name', 60);
+                $table->string('color', 20)->default('secondary'); // Bootstrap color class suffix
+                $table->timestamps();
+            });
+        }
 
-        Schema::create('service_note_labels', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('service_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('service_label_id')->constrained()->cascadeOnDelete();
-            $table->timestamps();
 
-            $table->unique(['service_id', 'service_label_id']);
-        });
+        if (!Schema::hasTable('service_note_labels')) {
+            Schema::create('service_note_labels', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('service_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('service_label_id')->constrained()->cascadeOnDelete();
+                $table->timestamps();
+
+                $table->unique(['service_id', 'service_label_id']);
+            });
+        }
+
 
         Schema::table('services', function (Blueprint $table): void {
             // services has no "notes" column — position hint dropped, it's

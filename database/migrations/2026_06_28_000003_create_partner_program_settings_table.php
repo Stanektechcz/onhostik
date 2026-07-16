@@ -8,14 +8,17 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('partner_program_settings', function (Blueprint $table): void {
-            $table->id();
-            $table->string('key')->unique();
-            $table->text('value')->nullable();
-            $table->string('type')->default('string'); // string|boolean|integer|json
-            $table->string('group')->default('general');
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('partner_program_settings')) {
+            Schema::create('partner_program_settings', function (Blueprint $table): void {
+                $table->id();
+                $table->string('key')->unique();
+                $table->text('value')->nullable();
+                $table->string('type')->default('string'); // string|boolean|integer|json
+                $table->string('group')->default('general');
+                $table->timestamps();
+            });
+        }
+
 
         // Insert default settings
         $defaults = [

@@ -10,13 +10,16 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('user_login_history', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->string('ip_address', 45)->nullable();
-            $table->text('user_agent')->nullable();
-            $table->timestamp('created_at')->useCurrent()->index();
-        });
+        if (!Schema::hasTable('user_login_history')) {
+            Schema::create('user_login_history', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+                $table->string('ip_address', 45)->nullable();
+                $table->text('user_agent')->nullable();
+                $table->timestamp('created_at')->useCurrent()->index();
+            });
+        }
+
     }
 
     public function down(): void

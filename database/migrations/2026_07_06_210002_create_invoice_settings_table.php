@@ -10,12 +10,15 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('invoice_settings', function (Blueprint $table): void {
-            $table->id();
-            $table->string('key', 100)->unique();
-            $table->text('value')->nullable();
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('invoice_settings')) {
+            Schema::create('invoice_settings', function (Blueprint $table): void {
+                $table->id();
+                $table->string('key', 100)->unique();
+                $table->text('value')->nullable();
+                $table->timestamps();
+            });
+        }
+
     }
 
     public function down(): void

@@ -15,18 +15,21 @@ return new class () extends Migration {
             $table->unsignedSmallInteger('ssl_warn_days')->default(30)->after('uptime_threshold_percent');
         });
 
-        Schema::create('monitor_alerts', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('monitor_id')->constrained()->cascadeOnDelete();
-            $table->string('type');                           // response_time | uptime | ssl_expiry
-            $table->decimal('threshold_value', 10, 2);
-            $table->decimal('current_value', 10, 2);
-            $table->timestamp('triggered_at');
-            $table->timestamp('notified_at')->nullable();
-            $table->timestamp('resolved_at')->nullable();
-            $table->timestamps();
-            $table->index(['monitor_id', 'type', 'resolved_at']);
-        });
+        if (!Schema::hasTable('monitor_alerts')) {
+            Schema::create('monitor_alerts', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('monitor_id')->constrained()->cascadeOnDelete();
+                $table->string('type');                           // response_time | uptime | ssl_expiry
+                $table->decimal('threshold_value', 10, 2);
+                $table->decimal('current_value', 10, 2);
+                $table->timestamp('triggered_at');
+                $table->timestamp('notified_at')->nullable();
+                $table->timestamp('resolved_at')->nullable();
+                $table->timestamps();
+                $table->index(['monitor_id', 'type', 'resolved_at']);
+            });
+        }
+
     }
 
     public function down(): void

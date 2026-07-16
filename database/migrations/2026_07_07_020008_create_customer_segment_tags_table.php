@@ -10,23 +10,29 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('customer_segment_tags', function (Blueprint $table): void {
-            $table->id();
-            $table->string('name', 60)->unique();
-            $table->string('color', 7)->default('#6c757d');
-            $table->text('description')->nullable();
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('customer_segment_tags')) {
+            Schema::create('customer_segment_tags', function (Blueprint $table): void {
+                $table->id();
+                $table->string('name', 60)->unique();
+                $table->string('color', 7)->default('#6c757d');
+                $table->text('description')->nullable();
+                $table->timestamps();
+            });
+        }
 
-        Schema::create('customer_segment_tag_pivot', function (Blueprint $table): void {
-            $table->unsignedBigInteger('customer_id');
-            $table->unsignedBigInteger('segment_tag_id');
-            $table->timestamps();
 
-            $table->primary(['customer_id', 'segment_tag_id']);
-            $table->foreign('customer_id')->references('id')->on('customers')->cascadeOnDelete();
-            $table->foreign('segment_tag_id')->references('id')->on('customer_segment_tags')->cascadeOnDelete();
-        });
+        if (!Schema::hasTable('customer_segment_tag_pivot')) {
+            Schema::create('customer_segment_tag_pivot', function (Blueprint $table): void {
+                $table->unsignedBigInteger('customer_id');
+                $table->unsignedBigInteger('segment_tag_id');
+                $table->timestamps();
+
+                $table->primary(['customer_id', 'segment_tag_id']);
+                $table->foreign('customer_id')->references('id')->on('customers')->cascadeOnDelete();
+                $table->foreign('segment_tag_id')->references('id')->on('customer_segment_tags')->cascadeOnDelete();
+            });
+        }
+
     }
 
     public function down(): void

@@ -10,18 +10,21 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('admin_tasks', function (Blueprint $table): void {
-            $table->id();
-            $table->string('title');
-            $table->text('description')->nullable();
-            $table->string('status', 20)->default('pending'); // pending | inprogress | done
-            $table->string('priority', 10)->default('medium'); // low | medium | high
-            $table->date('due_date')->nullable();
-            $table->foreignId('assigned_to')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignId('created_by')->constrained('users')->cascadeOnDelete();
-            $table->timestamp('completed_at')->nullable();
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('admin_tasks')) {
+            Schema::create('admin_tasks', function (Blueprint $table): void {
+                $table->id();
+                $table->string('title');
+                $table->text('description')->nullable();
+                $table->string('status', 20)->default('pending'); // pending | inprogress | done
+                $table->string('priority', 10)->default('medium'); // low | medium | high
+                $table->date('due_date')->nullable();
+                $table->foreignId('assigned_to')->nullable()->constrained('users')->nullOnDelete();
+                $table->foreignId('created_by')->constrained('users')->cascadeOnDelete();
+                $table->timestamp('completed_at')->nullable();
+                $table->timestamps();
+            });
+        }
+
     }
 
     public function down(): void

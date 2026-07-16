@@ -10,19 +10,22 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('newsletter_campaigns', function (Blueprint $table): void {
-            $table->id();
-            $table->string('subject', 255);
-            $table->longText('body_html');
-            $table->text('body_text')->nullable();
-            $table->string('status', 20)->default('draft'); // draft|sending|sent|failed
-            $table->unsignedInteger('recipients_count')->default(0);
-            $table->unsignedInteger('sent_count')->default(0);
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->foreign('created_by')->references('id')->on('users')->nullOnDelete();
-            $table->timestamp('sent_at')->nullable();
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('newsletter_campaigns')) {
+            Schema::create('newsletter_campaigns', function (Blueprint $table): void {
+                $table->id();
+                $table->string('subject', 255);
+                $table->longText('body_html');
+                $table->text('body_text')->nullable();
+                $table->string('status', 20)->default('draft'); // draft|sending|sent|failed
+                $table->unsignedInteger('recipients_count')->default(0);
+                $table->unsignedInteger('sent_count')->default(0);
+                $table->unsignedBigInteger('created_by')->nullable();
+                $table->foreign('created_by')->references('id')->on('users')->nullOnDelete();
+                $table->timestamp('sent_at')->nullable();
+                $table->timestamps();
+            });
+        }
+
     }
 
     public function down(): void

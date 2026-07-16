@@ -10,18 +10,21 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('invoice_disputes', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('invoice_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('customer_id')->constrained()->cascadeOnDelete();
-            $table->text('reason');
-            $table->string('status', 20)->default('open'); // open, resolved, rejected
-            $table->text('admin_note')->nullable();
-            $table->timestamp('resolved_at')->nullable();
-            $table->timestamps();
+        if (!Schema::hasTable('invoice_disputes')) {
+            Schema::create('invoice_disputes', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('invoice_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('customer_id')->constrained()->cascadeOnDelete();
+                $table->text('reason');
+                $table->string('status', 20)->default('open'); // open, resolved, rejected
+                $table->text('admin_note')->nullable();
+                $table->timestamp('resolved_at')->nullable();
+                $table->timestamps();
 
-            $table->unique('invoice_id');
-        });
+                $table->unique('invoice_id');
+            });
+        }
+
     }
 
     public function down(): void

@@ -10,12 +10,15 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('announcement_dismissals', function (Blueprint $table): void {
-            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
-            $table->foreignId('announcement_id')->constrained('system_announcements')->cascadeOnDelete();
-            $table->timestamp('dismissed_at')->useCurrent();
-            $table->primary(['user_id', 'announcement_id']);
-        });
+        if (!Schema::hasTable('announcement_dismissals')) {
+            Schema::create('announcement_dismissals', function (Blueprint $table): void {
+                $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
+                $table->foreignId('announcement_id')->constrained('system_announcements')->cascadeOnDelete();
+                $table->timestamp('dismissed_at')->useCurrent();
+                $table->primary(['user_id', 'announcement_id']);
+            });
+        }
+
     }
 
     public function down(): void

@@ -10,13 +10,16 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('ticket_macros', function (Blueprint $table): void {
-            $table->id();
-            $table->string('title');
-            $table->text('body');
-            $table->foreignId('created_by')->constrained('users')->cascadeOnDelete();
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('ticket_macros')) {
+            Schema::create('ticket_macros', function (Blueprint $table): void {
+                $table->id();
+                $table->string('title');
+                $table->text('body');
+                $table->foreignId('created_by')->constrained('users')->cascadeOnDelete();
+                $table->timestamps();
+            });
+        }
+
     }
 
     public function down(): void

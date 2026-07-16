@@ -10,18 +10,21 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('domain_transfer_requests', function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('customer_id')->index();
-            $table->string('domain_name');
-            $table->string('auth_code', 100)->nullable();
-            $table->enum('status', ['pending', 'processing', 'completed', 'failed', 'cancelled'])->default('pending')->index();
-            $table->text('admin_note')->nullable();
-            $table->unsignedBigInteger('handled_by')->nullable();
-            $table->timestamps();
+        if (!Schema::hasTable('domain_transfer_requests')) {
+            Schema::create('domain_transfer_requests', function (Blueprint $table): void {
+                $table->id();
+                $table->unsignedBigInteger('customer_id')->index();
+                $table->string('domain_name');
+                $table->string('auth_code', 100)->nullable();
+                $table->enum('status', ['pending', 'processing', 'completed', 'failed', 'cancelled'])->default('pending')->index();
+                $table->text('admin_note')->nullable();
+                $table->unsignedBigInteger('handled_by')->nullable();
+                $table->timestamps();
 
-            $table->foreign('customer_id')->references('id')->on('customers')->cascadeOnDelete();
-        });
+                $table->foreign('customer_id')->references('id')->on('customers')->cascadeOnDelete();
+            });
+        }
+
     }
 
     public function down(): void

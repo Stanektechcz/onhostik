@@ -10,13 +10,16 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('failed_admin_logins', function (Blueprint $table): void {
-            $table->id();
-            $table->string('email', 255);
-            $table->string('ip_address', 45);
-            $table->string('user_agent', 500)->nullable();
-            $table->timestamp('attempted_at')->useCurrent();
-        });
+        if (!Schema::hasTable('failed_admin_logins')) {
+            Schema::create('failed_admin_logins', function (Blueprint $table): void {
+                $table->id();
+                $table->string('email', 255);
+                $table->string('ip_address', 45);
+                $table->string('user_agent', 500)->nullable();
+                $table->timestamp('attempted_at')->useCurrent();
+            });
+        }
+
     }
 
     public function down(): void

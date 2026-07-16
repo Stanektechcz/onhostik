@@ -10,12 +10,15 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('service_tags', function (Blueprint $table): void {
-            $table->id();
-            $table->string('name')->unique();
-            $table->string('color', 7)->default('#6c757d');
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('service_tags')) {
+            Schema::create('service_tags', function (Blueprint $table): void {
+                $table->id();
+                $table->string('name')->unique();
+                $table->string('color', 7)->default('#6c757d');
+                $table->timestamps();
+            });
+        }
+
     }
 
     public function down(): void

@@ -25,18 +25,21 @@ return new class extends Migration
             $table->timestamp('last_resource_check_at')->nullable()->after('resource_alert_threshold');
         });
 
-        Schema::create('service_resource_usages', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('service_id')->constrained()->cascadeOnDelete();
-            $table->unsignedSmallInteger('cpu_percent')->nullable();
-            $table->unsignedInteger('ram_mb')->nullable();
-            $table->unsignedInteger('disk_gb')->nullable();
-            $table->unsignedInteger('bandwidth_gb')->nullable();
-            $table->timestamp('recorded_at');
-            $table->timestamps();
+        if (!Schema::hasTable('service_resource_usages')) {
+            Schema::create('service_resource_usages', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('service_id')->constrained()->cascadeOnDelete();
+                $table->unsignedSmallInteger('cpu_percent')->nullable();
+                $table->unsignedInteger('ram_mb')->nullable();
+                $table->unsignedInteger('disk_gb')->nullable();
+                $table->unsignedInteger('bandwidth_gb')->nullable();
+                $table->timestamp('recorded_at');
+                $table->timestamps();
 
-            $table->index(['service_id', 'recorded_at']);
-        });
+                $table->index(['service_id', 'recorded_at']);
+            });
+        }
+
     }
 
     public function down(): void

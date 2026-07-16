@@ -10,14 +10,17 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('ip_blocklist', function (Blueprint $table): void {
-            $table->id();
-            $table->string('ip_address', 45)->index();
-            $table->string('reason')->nullable();
-            $table->unsignedBigInteger('blocked_by')->nullable();
-            $table->timestamp('expires_at')->nullable()->index();
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('ip_blocklist')) {
+            Schema::create('ip_blocklist', function (Blueprint $table): void {
+                $table->id();
+                $table->string('ip_address', 45)->index();
+                $table->string('reason')->nullable();
+                $table->unsignedBigInteger('blocked_by')->nullable();
+                $table->timestamp('expires_at')->nullable()->index();
+                $table->timestamps();
+            });
+        }
+
     }
 
     public function down(): void

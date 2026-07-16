@@ -10,17 +10,20 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('provisioning_audit_logs', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('service_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
-            $table->string('action', 100);
-            $table->json('payload')->nullable();
-            $table->string('driver', 50)->nullable();
-            $table->boolean('success')->default(true);
-            $table->text('error_message')->nullable();
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('provisioning_audit_logs')) {
+            Schema::create('provisioning_audit_logs', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('service_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
+                $table->string('action', 100);
+                $table->json('payload')->nullable();
+                $table->string('driver', 50)->nullable();
+                $table->boolean('success')->default(true);
+                $table->text('error_message')->nullable();
+                $table->timestamps();
+            });
+        }
+
     }
 
     public function down(): void

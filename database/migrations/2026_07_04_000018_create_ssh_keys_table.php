@@ -10,16 +10,19 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('ssh_keys', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('customer_id')->constrained()->cascadeOnDelete();
-            $table->string('name', 100);
-            $table->text('public_key');
-            $table->string('fingerprint', 100)->nullable();
-            $table->timestamps();
+        if (!Schema::hasTable('ssh_keys')) {
+            Schema::create('ssh_keys', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('customer_id')->constrained()->cascadeOnDelete();
+                $table->string('name', 100);
+                $table->text('public_key');
+                $table->string('fingerprint', 100)->nullable();
+                $table->timestamps();
 
-            $table->index('customer_id');
-        });
+                $table->index('customer_id');
+            });
+        }
+
     }
 
     public function down(): void

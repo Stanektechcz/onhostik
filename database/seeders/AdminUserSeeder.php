@@ -32,16 +32,19 @@ class AdminUserSeeder extends Seeder
 
         $user->assignRole('admin');
 
-        // Give admin a demo partner profile so partner panel is testable in dev
-        if (!PartnerProfile::where('user_id', $user->id)->exists()) {
-            $user->givePermissionTo('access-partner');
-            PartnerProfile::create([
-                'user_id'                  => $user->id,
-                'referral_code'            => 'ONHOSTDEV',
-                'status'                   => 'active',
-                'commission_rate_percent'  => 10.0,
-            ]);
-        }
+        // Give admin a demo partner profile so partner panel is testable in dev.
+        // Keyed on referral_code (the actual unique constraint) — a check on
+        // user_id alone re-inserts and crashes if a prior partial seed run
+        // left this code attached to a different (now stale) user id.
+        PartnerProfile::firstOrCreate(
+            ['referral_code' => 'ONHOSTDEV'],
+            [
+                'user_id'                 => $user->id,
+                'status'                  => 'active',
+                'commission_rate_percent' => 10.0,
+            ],
+        );
+        $user->givePermissionTo('access-partner');
 
         // Ensure admin also has a customer profile for /panel access
         $customer = Customer::firstOrCreate(

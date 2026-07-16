@@ -10,16 +10,19 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('ticket_ratings', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('support_ticket_id')->unique()->constrained()->cascadeOnDelete();
-            $table->unsignedTinyInteger('score');              // 1–5
-            $table->text('comment')->nullable();
-            $table->timestamp('rated_at')->nullable();
-            $table->timestamp('created_at')->nullable();
+        if (!Schema::hasTable('ticket_ratings')) {
+            Schema::create('ticket_ratings', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('support_ticket_id')->unique()->constrained()->cascadeOnDelete();
+                $table->unsignedTinyInteger('score');              // 1–5
+                $table->text('comment')->nullable();
+                $table->timestamp('rated_at')->nullable();
+                $table->timestamp('created_at')->nullable();
 
-            $table->index('score');
-        });
+                $table->index('score');
+            });
+        }
+
     }
 
     public function down(): void

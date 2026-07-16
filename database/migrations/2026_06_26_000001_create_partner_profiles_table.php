@@ -10,19 +10,22 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('partner_profiles', function (Blueprint $table): void {
-            $table->id();
-            $table->uuid('uuid')->unique();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->string('referral_code', 16)->unique();
-            $table->string('status', 20)->default('active');
-            $table->decimal('commission_rate_percent', 5, 2)->default(10.00);
-            $table->string('payout_method', 50)->nullable();
-            $table->text('payout_details_encrypted')->nullable(); // Crypt-encrypted JSON
-            $table->timestamps();
+        if (!Schema::hasTable('partner_profiles')) {
+            Schema::create('partner_profiles', function (Blueprint $table): void {
+                $table->id();
+                $table->uuid('uuid')->unique();
+                $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+                $table->string('referral_code', 16)->unique();
+                $table->string('status', 20)->default('active');
+                $table->decimal('commission_rate_percent', 5, 2)->default(10.00);
+                $table->string('payout_method', 50)->nullable();
+                $table->text('payout_details_encrypted')->nullable(); // Crypt-encrypted JSON
+                $table->timestamps();
 
-            $table->index('user_id');
-        });
+                $table->index('user_id');
+            });
+        }
+
     }
 
     public function down(): void

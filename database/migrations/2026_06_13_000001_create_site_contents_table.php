@@ -10,16 +10,19 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('site_contents', function (Blueprint $table): void {
-            $table->id();
-            $table->string('key')->unique();
-            $table->string('label');
-            $table->string('type')->default('text'); // text | textarea | html | boolean | url
-            $table->string('group')->default('general');
-            $table->text('value')->nullable();
-            $table->unsignedSmallInteger('sort_order')->default(0);
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('site_contents')) {
+            Schema::create('site_contents', function (Blueprint $table): void {
+                $table->id();
+                $table->string('key')->unique();
+                $table->string('label');
+                $table->string('type')->default('text'); // text | textarea | html | boolean | url
+                $table->string('group')->default('general');
+                $table->text('value')->nullable();
+                $table->unsignedSmallInteger('sort_order')->default(0);
+                $table->timestamps();
+            });
+        }
+
     }
 
     public function down(): void
