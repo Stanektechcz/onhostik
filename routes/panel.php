@@ -430,6 +430,16 @@ Route::middleware(['auth', 'can:access-reseller'])->prefix('reseller')->name('re
 |--------------------------------------------------------------------------
 */
 
+/*
+| Admin account security — deliberately OUTSIDE require-admin-2fa: this is
+| where an admin without confirmed 2FA is sent to set it up, so it must
+| stay reachable (same controller/view as the shared account page, but the
+| admin never leaves the /admin URL space).
+*/
+Route::middleware(['auth', 'can:access-admin', 'admin-ip-allowlist'])->prefix('admin')->name('admin.')->group(function (): void {
+    Route::get('/ucet/zabezpeceni', [Panel\AccountController::class, 'security'])->name('account.security');
+});
+
 Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-allowlist'])->prefix('admin')->name('admin.')->group(function (): void {
     Route::get('/', [Admin\DashboardController::class, 'index'])->name('dashboard');
 

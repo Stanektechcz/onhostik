@@ -34,8 +34,8 @@ class RequireAdminTwoFactor
             }
 
             return redirect()
-                ->route('panel.account.security')
-                ->with('warning', 'Administrátoři jsou povinni mít aktivované dvoufázové ověření (2FA). Prosím, nastavte jej.');
+                ->route('admin.account.security')
+                ->with('warning', 'Administrátoři jsou povinni mít aktivované dvoufázové ověření (2FA). Prosím, nastavte jej níže v sekci Dvoufázové ověření.');
         }
 
         return $next($request);

@@ -31,7 +31,7 @@
                             <div class="col-span-3 xl:col-span-12 text-end xl:text-center">
                                 <div class="social-btngroup d-flex gap-2 justify-content-end xl:justify-content-center">
                                     <a href="{{ route('panel.account.profile') }}" class="btn btn-primary btn-sm text-white">Upravit profil</a>
-                                    <a href="{{ route('panel.account.security') }}" class="btn btn-outline-primary btn-sm">Zabezpečení</a>
+                                    <a href="{{ route('admin.account.security') }}" class="btn btn-outline-primary btn-sm">Zabezpečení</a>
                                 </div>
                             </div>
                             <div class="col-span-6 xl:col-span-12 text-center">
@@ -132,7 +132,7 @@
                                         <h6 class="mb-3">Rychlé akce</h6>
                                         <div class="d-flex flex-column gap-2">
                                             <a href="{{ route('admin.settings.index') }}" class="btn btn-outline-primary btn-sm">Nastavení systému</a>
-                                            <a href="{{ route('panel.account.security') }}" class="btn btn-outline-secondary btn-sm">Změnit heslo</a>
+                                            <a href="{{ route('admin.account.security') }}" class="btn btn-outline-secondary btn-sm">Změnit heslo</a>
                                             <a href="{{ route('panel.account.profile') }}" class="btn btn-outline-secondary btn-sm">Upravit profil</a>
                                         </div>
                                     </div>

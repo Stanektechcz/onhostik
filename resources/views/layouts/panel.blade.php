@@ -310,6 +310,8 @@
 @auth
 {{-- ── AI Chatbot Widget ─────────────────────────────────────────────────── --}}
 <style nonce="{{ $cspNonce ?? '' }}">
+/* Language dropdown items */
+.translate_wrapper .more_lang .lang{padding:8px 14px;gap:8px;white-space:nowrap;}
 #ai-chat-widget{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;}
 #ai-chat-toggle{width:52px;height:52px;border-radius:50%;background:#4680ff;border:none;color:#fff;box-shadow:0 4px 14px rgba(70,128,255,.45);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .15s;}
 #ai-chat-toggle:hover{transform:scale(1.08);}

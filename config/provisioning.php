@@ -32,6 +32,9 @@ return [
         'timeout'          => (int) env('AAPANEL_TIMEOUT', 30),
         'verify_tls'       => env('AAPANEL_VERIFY_TLS', false),
         'allow_real_writes' => env('AAPANEL_ALLOW_REAL_WRITES', false),
+        // Fallback PHP version when a plan doesn't specify one. The driver
+        // still auto-negotiates against the versions the panel actually has.
+        'default_php_version' => env('AAPANEL_DEFAULT_PHP', '82'),
     ],
 
     'proxmox' => [

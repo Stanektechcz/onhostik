@@ -45,7 +45,7 @@
                                     ['Účet', 'info', [
                                         ['Profil',route('panel.account.profile')],
                                         ['Fakturační údaje',route('panel.account.billing')],
-                                        ['Zabezpečení',route('panel.account.security')],
+                                        ['Zabezpečení',route('admin.account.security')],
                                         ['Podpora',route('panel.support.index')],
                                         ['AI asistent',route('panel.ai.index')],
                                     ]],

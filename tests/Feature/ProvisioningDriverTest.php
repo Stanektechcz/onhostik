@@ -210,8 +210,10 @@ it('aaPanel create provisions a new site when gate is open', function (): void {
 it('aaPanel create recovers orphaned site when aaPanel reports already exists', function (): void {
     config(['provisioning.aapanel.allow_real_writes' => true]);
 
-    // First call: AddSite → already exists; second call: getData → returns site list
+    // Call order: GetPHPVersion (version negotiation) → AddSite (fails,
+    // already exists) → getData (recover the existing site by name).
     Http::fakeSequence()
+        ->push([['version' => '82', 'name' => 'PHP-82']])
         ->push(['status' => 0, 'msg' => 'Domain already exists', 'siteId' => null])
         ->push(['status' => 1, 'data' => [['name' => 'test.onhost.cz', 'id' => 55]]]);
 
@@ -220,6 +222,38 @@ it('aaPanel create recovers orphaned site when aaPanel reports already exists', 
 
     expect($result->success)->toBeTrue()
         ->and($result->externalId)->toBe('55');
+});
+
+it('aaPanel picks an installed PHP version when the requested one is missing', function (): void {
+    config(['provisioning.aapanel.allow_real_writes' => true]);
+
+    // Panel has 83/85 only; a plan asking for 82 must fall back to 85 (highest).
+    Http::fakeSequence()
+        ->push([['version' => '00', 'name' => 'Static'], ['version' => '83', 'name' => 'PHP-83'], ['version' => '85', 'name' => 'PHP-85']])
+        ->push(['status' => 1, 'siteId' => 88, 'msg' => 'OK']);
+
+    $result = (new AapanelProductionDriver(realAapanelServer()))
+        ->create(inMemoryService(['resources' => ['php_version' => '82']]));
+
+    expect($result->success)->toBeTrue()
+        ->and($result->metadata['php_version'])->toBe('85');
+});
+
+it('aaPanel recovers a partial create that failed after the site row was inserted', function (): void {
+    config(['provisioning.aapanel.allow_real_writes' => true]);
+
+    // AddSite returns status=false with a NON-"already exists" message, but
+    // the site actually exists (created then failed on a later step).
+    Http::fakeSequence()
+        ->push([['version' => '82', 'name' => 'PHP-82']])
+        ->push(['status' => false, 'msg' => 'PHP version does NOT exist!', 'siteId' => null])
+        ->push(['status' => 1, 'data' => [['name' => 'partial.onhost.cz', 'id' => 91]]]);
+
+    $result = (new AapanelProductionDriver(realAapanelServer()))
+        ->create(inMemoryService(['label' => 'partial.onhost.cz']));
+
+    expect($result->success)->toBeTrue()
+        ->and($result->externalId)->toBe('91');
 });
 
 // ──────────────────────────────────────────────────────────────────

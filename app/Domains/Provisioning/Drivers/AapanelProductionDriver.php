@@ -86,7 +86,11 @@ final class AapanelProductionDriver implements ProvisioningDriverInterface
 
         /** @var array<string, mixed> $resources */
         $resources  = is_array($service->resources) ? $service->resources : [];
-        $phpVersion = (string) ($resources['php_version'] ?? '82');
+        $requestedPhp = (string) ($resources['php_version'] ?? config('provisioning.aapanel.default_php_version', '82'));
+        // Panels differ in which PHP builds are installed; pick the requested
+        // version if present, otherwise the closest installed one so the
+        // AddSite call never fails on "PHP version does NOT exist".
+        $phpVersion = $this->resolvePhpVersion($requestedPhp);
 
         try {
             $response = $this->post('/site?action=AddSite', [
@@ -104,15 +108,26 @@ final class AapanelProductionDriver implements ProvisioningDriverInterface
 
             $siteId = $response['siteId'] ?? null;
 
-            // If aaPanel says "already exists", recover the existing site ID.
+            // aaPanel can report status=false yet still leave a site behind:
+            // "already exists" (a prior run), or a partial create that failed
+            // AFTER inserting the site row (e.g. on a later PHP/SSL step).
+            // In BOTH cases recover by looking the site up by name so the
+            // operation stays idempotent instead of leaking an orphan.
             if (($response['status'] ?? -1) !== 1) {
-                if (str_contains((string) ($response['msg'] ?? ''), 'already exists')) {
-                    $siteId = $this->findSiteIdByName($domain);
+                $recovered = $this->findSiteIdByName($domain);
+
+                if ($recovered !== null) {
+                    $siteId = $recovered;
                 } else {
                     return ProvisioningResult::failure(
                         'aaPanel AddSite failed: ' . ($response['msg'] ?? 'unknown error'),
                     );
                 }
+            }
+
+            if (! is_int($siteId) && ! is_string($siteId)) {
+                // Site created but no id in the AddSite response — recover it.
+                $siteId = $this->findSiteIdByName($domain);
             }
 
             if (! is_int($siteId) && ! is_string($siteId)) {
@@ -327,6 +342,45 @@ final class AapanelProductionDriver implements ProvisioningDriverInterface
         }
 
         return null;
+    }
+
+    /**
+     * Resolve the PHP version to use for a new site.
+     *
+     * Panels vary in which PHP builds are installed (this one has 83/85,
+     * another may have 74/80/82). If the requested version is installed,
+     * use it; otherwise fall back to the numerically-highest installed real
+     * version so AddSite never fails on a non-existent build. On any lookup
+     * error we return the requested version unchanged (fail-open).
+     */
+    private function resolvePhpVersion(string $requested): string
+    {
+        try {
+            $response  = $this->post('/site?action=GetPHPVersion', []);
+            $installed = [];
+
+            foreach ($response as $row) {
+                $v = is_array($row) ? (string) ($row['version'] ?? '') : '';
+                // '00' == "Static" (no PHP) — never a real hosting choice.
+                if ($v !== '' && $v !== '00' && ctype_digit($v)) {
+                    $installed[] = $v;
+                }
+            }
+
+            if ($installed === []) {
+                return $requested;
+            }
+
+            if (in_array($requested, $installed, true)) {
+                return $requested;
+            }
+
+            rsort($installed, SORT_NUMERIC);
+
+            return $installed[0];
+        } catch (\Throwable) {
+            return $requested;
+        }
     }
 
     /**
