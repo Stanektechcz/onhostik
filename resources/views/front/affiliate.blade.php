@@ -10,7 +10,7 @@
             <div class="row">
                 <div class="col-sm-12 col-md-12">
                     <div class="wrapper text-center">
-                        <p class="f-light mb-2" style="font-size:0.9rem;letter-spacing:.05em;">DOPORUČENO VAŠÍM PARTNEREM</p>
+                        <p class="seccolor mb-2" style="font-size:0.9rem;letter-spacing:.05em;">DOPORUČENO VAŠÍM PARTNEREM</p>
                         <h1 class="heading">Hosting, který oceníte</h1>
                         <div class="subheading">{{ $partnerName }} vás pozval na Onhost.cz — český hosting s AI, monitoringem a férovým přístupem.</div>
                         <div class="buttons">
@@ -74,7 +74,7 @@
                     <a href="{{ route('front.webhosting') }}" class="btn btn-default-grad-purple-fill">
                         Porovnat tarify
                     </a>
-                    <p class="f-light f-12 mt-3">
+                    <p class="seccolor mt-3" style="font-size:0.85rem;">
                         Váš partner: <strong>{{ $partnerName }}</strong> &bull; Kód: <code>{{ $profile->referral_code }}</code>
                     </p>
                 </div>

@@ -122,9 +122,18 @@ class AppServiceProvider extends ServiceProvider
 
     private function configureViewComposers(): void
     {
+        // Composers run on EVERY page — a missing table (mid-deploy, fresh
+        // database before migrations) must degrade to "no banner", never
+        // take the whole site down.
         View::composer(['layouts.panel', 'layouts.front'], function (\Illuminate\View\View $view): void {
             $isAdmin = str_contains($view->getName(), 'panel');
-            $banners = MaintenanceWindow::currentBanners($isAdmin);
+
+            try {
+                $banners = MaintenanceWindow::currentBanners($isAdmin);
+            } catch (\Illuminate\Database\QueryException) {
+                $banners = ['active' => null, 'upcoming' => null];
+            }
+
             $view->with('maintenanceActive', $banners['active']);
             $view->with('maintenanceUpcoming', $banners['upcoming']);
         });
@@ -137,27 +146,33 @@ class AppServiceProvider extends ServiceProvider
                 return;
             }
 
-            $dismissed = $user->isAdmin()
-                ? collect()
-                : \Illuminate\Support\Facades\DB::table('announcement_dismissals')
-                      ->where('user_id', $user->id)
-                      ->pluck('announcement_id');
+            try {
+                $dismissed = $user->isAdmin()
+                    ? collect()
+                    : \Illuminate\Support\Facades\DB::table('announcement_dismissals')
+                          ->where('user_id', $user->id)
+                          ->pluck('announcement_id');
 
-            $customerSegment = null;
-            if (! $user->isAdmin()) {
-                $customer = $user->customer;
-                $customerSegment = $customer?->segment;
+                $customerSegment = null;
+                if (! $user->isAdmin()) {
+                    $customer = $user->customer;
+                    $customerSegment = $customer?->segment;
+                }
+
+                $announcements = SystemAnnouncement::query()
+                    ->where('is_published', true)
+                    ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+                    ->where(fn ($q) => $q->whereNull('scheduled_at')->orWhere('scheduled_at', '<=', now()))
+                    ->where(fn ($q) => $q->whereNull('target_segment')
+                        ->orWhere('target_segment', $customerSegment))
+                    ->whereNotIn('id', $dismissed)
+                    ->latest('published_at')
+                    ->get();
+            } catch (\Illuminate\Database\QueryException) {
+                $announcements = collect();
             }
 
-            $view->with('activeAnnouncements', SystemAnnouncement::query()
-                ->where('is_published', true)
-                ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
-                ->where(fn ($q) => $q->whereNull('scheduled_at')->orWhere('scheduled_at', '<=', now()))
-                ->where(fn ($q) => $q->whereNull('target_segment')
-                    ->orWhere('target_segment', $customerSegment))
-                ->whereNotIn('id', $dismissed)
-                ->latest('published_at')
-                ->get());
+            $view->with('activeAnnouncements', $announcements);
         });
     }
 

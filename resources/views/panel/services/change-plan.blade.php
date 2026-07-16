@@ -177,12 +177,12 @@
 {{-- Plan-change confirmation modal --}}
 <div class="modal fade" id="planChangeModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
-        <div class="modal-content bg-colorstyle">
+        <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title mergecolor" id="pcmTitle">Změna plánu</h5>
+                <h5 class="modal-title" id="pcmTitle">Změna plánu</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body seccolor">
+            <div class="modal-body">
                 <div id="pcmBody"></div>
                 <p class="f-12 f-light mb-0">Potvrďte změnu plánu. Přesměrujeme vás na dokončení objednávky.</p>
             </div>
