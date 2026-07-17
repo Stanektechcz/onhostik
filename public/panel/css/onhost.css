@@ -266,22 +266,94 @@
   color: rgba(var(--theme-default), 1);
 }
 
-/* ── Plan cards: order-now / add-to-cart actions ────────────── */
-.plan-card-actions {
+/* ── Order page: plan cards (Cuba .card + our layout) ───────── */
+.plan-card .card {
+  height: 100%;
+}
+
+.plan-card .plan-card-inner .card-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.plan-card .plan-icon {
+  width: 46px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(var(--theme-default), 0.1);
+}
+
+.plan-card .plan-icon svg {
+  width: 22px;
+  height: 22px;
+  color: rgba(var(--theme-default), 1);
+}
+
+.plan-card .plan-price-amount {
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(var(--theme-default), 1);
+}
+
+.plan-card .plan-params li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.plan-card .plan-params li strong {
+  margin-left: auto;
+}
+
+.plan-card .plan-param-check {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: rgba(var(--success-color), 1);
+}
+
+.plan-card .plan-actions {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.plan-card-actions form {
+.plan-card .plan-actions form {
   margin: 0;
 }
 
-.plan-card-actions .btn svg {
+.plan-card .plan-actions .btn svg {
   width: 14px;
   height: 14px;
   margin-right: 4px;
   vertical-align: middle;
+}
+
+.plan-card .plan-actions .compare-check {
+  font-size: 12px;
+  color: rgba(var(--theme-body-sub-title-color), 1);
+  cursor: pointer;
+  text-align: center;
+  margin: 4px 0 0;
+}
+
+/* Fixed compare bar — styled from the Cuba card look. */
+.compare-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 999;
+  padding: 12px 20px;
+  border-radius: 10px;
+  background: rgba(var(--white), 1);
+  box-shadow: 0 4px 24px rgba(var(--semi-dark), 0.18);
 }
 
 /* ── Cart ───────────────────────────────────────────────────── */

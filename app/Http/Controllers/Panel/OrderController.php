@@ -52,11 +52,14 @@ class OrderController extends Controller
             ->select('pricing_plans.*')
             ->get();
 
+        /** @var array<int, int> $cart */
+        $cart = session('panel_cart', []);
+
         return view('panel.orders.create', [
             'plans'        => $plans,
-            'selectedPlan' => $request->integer('plan') ?: null,
             'customer'     => $this->customer($request),
-            'mockMode'     => (bool) config('provisioning.mock_mode', true),
+            'cartCount'    => array_sum($cart),
+            'cartPlanIds'  => array_keys($cart),
         ]);
     }
 
