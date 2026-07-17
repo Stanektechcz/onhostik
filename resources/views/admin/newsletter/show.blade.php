@@ -25,7 +25,7 @@
                 </div>
                 <div class="card-body p-0">
                     <div style="border: 1px solid rgba(var(--light-background), 1); border-radius: 0 0 8px 8px; overflow: hidden;">
-                        <div style="background: #f8f9fa; padding: 12px 16px; border-bottom: 1px solid rgba(var(--light-background),1); font-size: 12px;">
+                        <div style="background:rgba(var(--light-semi-gray),1); padding: 12px 16px; border-bottom: 1px solid rgba(var(--light-background),1); font-size: 12px;">
                             <strong>Předmět:</strong> {{ $campaign->subject }}
                         </div>
                         <div style="padding: 20px; min-height: 300px; overflow: auto;">

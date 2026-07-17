@@ -155,7 +155,7 @@
                 @if(empty($reseller->branding))
                     <p class="f-light f-12 mb-0">Žádná branding data.</p>
                 @else
-                    <pre class="mb-0" style="background:#f8f8f8;border-radius:6px;padding:12px;font-size:12px;overflow-x:auto;">{{ json_encode($reseller->branding, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
+                    <pre class="mb-0" style="background:rgba(var(--light-semi-gray),1);border-radius:6px;padding:12px;font-size:12px;overflow-x:auto;">{{ json_encode($reseller->branding, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
                 @endif
             </x-panel.card>
 
@@ -168,7 +168,7 @@
                 @elseif(count($reseller->allowed_products) === 0)
                     <p class="f-light f-12 mb-0">Prázdný seznam — žádné produkty nejsou povoleny.</p>
                 @else
-                    <pre class="mb-0" style="background:#f8f8f8;border-radius:6px;padding:12px;font-size:12px;overflow-x:auto;">{{ json_encode($reseller->allowed_products, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
+                    <pre class="mb-0" style="background:rgba(var(--light-semi-gray),1);border-radius:6px;padding:12px;font-size:12px;overflow-x:auto;">{{ json_encode($reseller->allowed_products, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
                 @endif
             </x-panel.card>
 

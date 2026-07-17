@@ -196,38 +196,61 @@
             badge.classList.toggle('show', count > 0);
         }
         var label = document.getElementById('notif-unread-label');
-        if (label) label.textContent = count > 0 ? count + ' nepřečtených' : '';
+        if (label) {
+            label.textContent = count > 0 ? count : '';
+            label.classList.toggle('show', count > 0);
+        }
     }
 
+    /**
+     * Rebuilds the Cuba notification-dropdown list in place: each entry is
+     * its own <li> (Cuba styles it as a card) between the heading <li> and
+     * the trailing actions <li>.
+     */
     function renderNotifications(data) {
         updateBadge(data.unread_count);
 
-        var container = document.getElementById('notif-items-container');
-        if (!container) return;
+        var list = document.getElementById('notif-dropdown');
+        if (!list) return;
+
+        // Drop previously rendered rows / placeholder, keep heading + actions.
+        list.querySelectorAll('.notif-item, .notif-placeholder').forEach(function (el) {
+            el.remove();
+        });
+
+        var actions = list.lastElementChild;
 
         if (!data.notifications || data.notifications.length === 0) {
-            container.innerHTML = '<p class="f-light f-12 mb-0 text-center py-3">Žádné notifikace</p>';
+            var empty = document.createElement('li');
+            empty.className = 'notif-placeholder';
+            empty.innerHTML = '<p class="f-light f-12 mb-0 p-3">Žádné notifikace</p>';
+            list.insertBefore(empty, actions);
             return;
         }
 
-        var html = '';
         data.notifications.forEach(function (n) {
             var d     = n.data || {};
             var icon  = iconMap[d.icon] || 'bell';
             var color = colorMap[d.color] || 'primary';
 
-            html += '<div class="notification-item' + (n.read ? '' : ' unread') + '"' +
-                ' data-id="' + esc(n.id) + '" data-url="' + esc(d.url || '#') + '" onclick="handleNotifClick(this)">' +
-                '<div class="notification-item-icon bg-light-' + color + '">' +
-                    '<i data-feather="' + esc(icon) + '"></i>' +
-                '</div>' +
-                '<div class="grow min-w-0">' +
-                    '<p class="mb-0 f-13 ' + (n.read ? '' : 'f-w-600') + '">' + esc(d.title) + '</p>' +
-                    '<p class="mb-0 f-light f-12 truncate">' + esc(d.body) + '</p>' +
-                    '<p class="mb-0 f-light f-10">' + esc(n.created_at) + '</p>' +
-                '</div></div>';
+            var li = document.createElement('li');
+            li.className = 'notif-item' + (n.read ? '' : ' unread');
+            li.dataset.id  = n.id;
+            li.dataset.url = d.url || '#';
+            li.addEventListener('click', function () { handleNotifClick(li); });
+
+            li.innerHTML =
+                '<p class="mb-0 p-3">' +
+                    '<span class="notif-title font-' + color + '">' +
+                        '<i data-feather="' + esc(icon) + '"></i>' + esc(d.title) +
+                    '</span>' +
+                    '<span class="f-light">' + esc(n.created_at) + '</span>' +
+                '</p>' +
+                (d.body ? '<p class="f-light f-12 mb-0 truncate notif-body">' + esc(d.body) + '</p>' : '');
+
+            list.insertBefore(li, actions);
         });
-        container.innerHTML = html;
+
         if (window.feather) feather.replace();
     }
 

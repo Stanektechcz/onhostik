@@ -158,7 +158,7 @@
                         {{-- ENABLED AND CONFIRMED --}}
                         <div class="d-flex align-items-start gap-3 p-3 border rounded mb-3"
                              style="background:rgba(84,186,74,.08);border-color:rgba(84,186,74,.3)!important;">
-                            <i data-feather="shield" style="width:32px;height:32px;color:#54ba4a;flex-shrink:0;"></i>
+                            <i data-feather="shield" style="width:32px;height:32px;color:rgba(var(--success-color),1);flex-shrink:0;"></i>
                             <div>
                                 <h6 class="mb-1">2FA je aktivní</h6>
                                 <p class="f-light f-12 mb-0">Váš účet je chráněn dvoufázovým ověřením.</p>
@@ -272,7 +272,7 @@
                             ['Záložní kódy','Uložte záložní kódy 2FA na bezpečné místo.','lock'],
                         ] as [$title, $tip, $icon])
                         <div class="d-flex gap-3 align-items-start py-2 {{ !$loop->last ? 'border-bottom' : '' }}">
-                            <i data-feather="{{ $icon }}" style="width:16px;height:16px;color:#54ba4a;flex-shrink:0;margin-top:2px;"></i>
+                            <i data-feather="{{ $icon }}" style="width:16px;height:16px;color:rgba(var(--success-color),1);flex-shrink:0;margin-top:2px;"></i>
                             <div>
                                 <p class="f-w-500 f-13 mb-0">{{ $title }}</p>
                                 <p class="f-light f-12 mb-0">{{ $tip }}</p>

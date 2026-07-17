@@ -93,23 +93,23 @@
                             {{-- Milestone checks --}}
                             <td class="text-center">
                                 @if($invoice->reminder_1d_sent_at)
-                                    <i data-feather="check-circle" style="width:14px;height:14px;color:#00c767;"></i>
+                                    <i data-feather="check-circle" style="width:14px;height:14px;color:rgba(var(--success-color),1);"></i>
                                 @else
-                                    <i data-feather="circle" style="width:14px;height:14px;color:#ced4da;"></i>
+                                    <i data-feather="circle" style="width:14px;height:14px;color:rgba(var(--theme-body-sub-title-color),.5);"></i>
                                 @endif
                             </td>
                             <td class="text-center">
                                 @if($invoice->reminder_3d_sent_at)
-                                    <i data-feather="check-circle" style="width:14px;height:14px;color:#00c767;"></i>
+                                    <i data-feather="check-circle" style="width:14px;height:14px;color:rgba(var(--success-color),1);"></i>
                                 @else
-                                    <i data-feather="circle" style="width:14px;height:14px;color:#ced4da;"></i>
+                                    <i data-feather="circle" style="width:14px;height:14px;color:rgba(var(--theme-body-sub-title-color),.5);"></i>
                                 @endif
                             </td>
                             <td class="text-center">
                                 @if($invoice->reminder_7d_sent_at)
-                                    <i data-feather="check-circle" style="width:14px;height:14px;color:#00c767;"></i>
+                                    <i data-feather="check-circle" style="width:14px;height:14px;color:rgba(var(--success-color),1);"></i>
                                 @else
-                                    <i data-feather="circle" style="width:14px;height:14px;color:#ced4da;"></i>
+                                    <i data-feather="circle" style="width:14px;height:14px;color:rgba(var(--theme-body-sub-title-color),.5);"></i>
                                 @endif
                             </td>
                             <td>
@@ -172,7 +172,7 @@
                     @empty
                         <tr>
                             <td colspan="10" class="text-center f-light f-13 py-4">
-                                <i data-feather="check-circle" style="width:20px;height:20px;color:#00c767;"></i>
+                                <i data-feather="check-circle" style="width:20px;height:20px;color:rgba(var(--success-color),1);"></i>
                                 Žádné faktury po splatnosti.
                             </td>
                         </tr>

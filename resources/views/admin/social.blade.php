@@ -18,7 +18,7 @@
                     <div class="card-header" style="height:140px;background:linear-gradient(135deg,rgba(var(--theme-default),.2),rgba(var(--theme-default),.05));"></div>
                     <div class="user-image">
                         <div class="avatar">
-                            <div style="width:80px;height:80px;border-radius:50%;background:rgba(var(--theme-default),1);display:flex;align-items:center;justify-content:center;margin:0 auto;border:4px solid #fff;">
+                            <div style="width:80px;height:80px;border-radius:50%;background:rgba(var(--theme-default),1);display:flex;align-items:center;justify-content:center;margin:0 auto;border:4px solid rgba(var(--white),1);">
                                 <span class="f-w-700 f-20 text-white">{{ strtoupper(substr(auth()->user()?->name ?? 'A', 0, 2)) }}</span>
                             </div>
                         </div>

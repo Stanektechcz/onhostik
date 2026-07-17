@@ -64,7 +64,7 @@
                 @if($task->payload)
                     <div class="mt-3">
                         <p class="f-11 f-light mb-1">Payload (vstup)</p>
-                        <pre class="f-11 rounded p-2" style="background:#f8f9fa;max-height:200px;overflow:auto;">{{ json_encode($task->payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
+                        <pre class="f-11 rounded p-2" style="background:rgba(var(--light-semi-gray),1);max-height:200px;overflow:auto;">{{ json_encode($task->payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
                     </div>
                 @endif
 

@@ -84,15 +84,22 @@
                         <i data-feather="bell"></i>
                         <span class="badge rounded-pill badge-danger" id="notif-count"></span>
                     </div>
-                    <ul class="notification-dropdown onhover-show-div">
+                    {{-- Cuba notification-dropdown: every notification is its own
+                         <li> (Cuba gives it the grey card + radius) whose <p> is
+                         flex/space-between — title left, timestamp right. The
+                         last <li> is the centred action row. JS rebuilds the
+                         list between the heading and the actions. --}}
+                    <ul class="notification-dropdown onhover-show-div" id="notif-dropdown">
                         <li>
-                            <h6 class="f-18 mb-0 dropdown-title">Notifikace</h6>
-                            <span class="f-light f-12 float-end" id="notif-unread-label"></span>
+                            <p class="f-w-600 mb-0 p-3">
+                                Notifikace
+                                <span class="pull-right badge badge-light-primary" id="notif-unread-label"></span>
+                            </p>
                         </li>
-                        <li id="notif-items-container">
-                            <p class="f-light f-12 mb-0 text-center py-3">Načítání…</p>
+                        <li class="notif-placeholder">
+                            <p class="f-light f-12 mb-0 p-3">Načítání…</p>
                         </li>
-                        <li class="text-center">
+                        <li>
                             <button class="btn btn-primary btn-xs text-white" id="notif-mark-all-btn" onclick="markAllNotifRead()">
                                 Označit vše přečtené
                             </button>

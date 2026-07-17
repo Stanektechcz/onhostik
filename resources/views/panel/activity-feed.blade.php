@@ -44,7 +44,7 @@
     @if($events->isEmpty())
         <div class="card">
             <div class="card-body text-center py-5">
-                <i data-feather="clock" style="width:40px;height:40px;color:#ccc;" class="mb-3"></i>
+                <i data-feather="clock" style="width:40px;height:40px;color:rgba(var(--theme-body-sub-title-color),.5);" class="mb-3"></i>
                 <p class="text-muted mb-0">Žádné aktivity k zobrazení.</p>
             </div>
         </div>
@@ -68,7 +68,7 @@
                             <span class="badge bg-light text-dark border f-12 px-3 py-2">
                                 {{ $event['date']?->translatedFormat('j. F Y') ?? '—' }}
                             </span>
-                            <div style="flex:1;height:1px;background:#f1f1f1;"></div>
+                            <div style="flex:1;height:1px;background:rgba(var(--light-semi-gray),1);"></div>
                         </div>
                     @endif
 
@@ -76,7 +76,7 @@
                         {{-- Icon dot --}}
                         <div class="flex-shrink-0 d-flex align-items-center justify-content-center rounded-circle"
                              style="width:36px;height:36px;background:{{ $bg }};">
-                            <i data-feather="{{ $event['icon'] }}" style="width:16px;height:16px;color:#fff;"></i>
+                            <i data-feather="{{ $event['icon'] }}" style="width:16px;height:16px;color:rgba(var(--white),1);"></i>
                         </div>
 
                         {{-- Content --}}

@@ -79,6 +79,15 @@
   display: inline-block;
 }
 
+/* Unread counter next to the dropdown heading. */
+.notification-dropdown #notif-unread-label {
+  display: none;
+}
+
+.notification-dropdown #notif-unread-label.show {
+  display: inline-block;
+}
+
 /* Notification dropdown must not run off a narrow viewport. */
 .page-header .header-wrapper .nav-right .notification-dropdown {
   width: 340px;
@@ -87,37 +96,45 @@
   overflow-y: auto;
 }
 
-/* Notification rows (Cuba ships no list-item component for these). */
-.notification-dropdown .notification-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 10px 14px;
+/* Notification rows — Cuba already styles `.notification-dropdown li`
+   (grey card + radius) and `li > p` (flex, space-between). These rules
+   only add what the markup needs on top: the click affordance, the
+   unread accent and the icon/label alignment inside the title span. */
+.notification-dropdown .notif-item {
   cursor: pointer;
-  border-bottom: 1px solid rgba(var(--light-semi-gray), 1);
 }
 
-.notification-dropdown .notification-item:hover {
-  background-color: rgba(var(--theme-default), 0.06);
+.notification-dropdown .notif-item:hover {
+  background-color: rgba(var(--theme-default), 0.08);
 }
 
-.notification-dropdown .notification-item.unread {
-  background-color: rgba(var(--theme-default), 0.04);
+.notification-dropdown .notif-item.unread {
+  border-left: 3px solid rgba(var(--theme-default), 1);
 }
 
-.notification-dropdown .notification-item-icon {
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  display: flex;
+.notification-dropdown .notif-item .notif-title {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border-radius: 50%;
+  gap: 7px;
+  min-width: 0;
 }
 
-.notification-dropdown .notification-item-icon svg {
-  width: 16px;
-  height: 16px;
+.notification-dropdown .notif-item .notif-title svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.notification-dropdown .notif-item .notif-body {
+  padding: 0 1rem 0.75rem;
+}
+
+/* Cuba centres and de-cards the last <li> — that's our actions row. */
+.notification-dropdown li:last-child {
+  padding: 10px 0 0 !important;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
 }
 
 /* ── Sidebar: submenu link icons ────────────────────────────── */
@@ -247,6 +264,24 @@
 .payment-method-option.selected .payment-method-icon {
   opacity: 1;
   color: rgba(var(--theme-default), 1);
+}
+
+/* ── Plan cards: order-now / add-to-cart actions ────────────── */
+.plan-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plan-card-actions form {
+  margin: 0;
+}
+
+.plan-card-actions .btn svg {
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  vertical-align: middle;
 }
 
 /* ── Cart ───────────────────────────────────────────────────── */

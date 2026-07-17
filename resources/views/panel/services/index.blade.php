@@ -38,13 +38,26 @@
             </x-slot>
             @if($services->isEmpty())
                 <div class="text-center py-5">
-                    <i data-feather="server" style="width:48px;height:48px;" class="text-muted mb-3"></i>
+                    <i data-feather="server" class="empty-state-icon mb-3"></i>
                     <h6 class="f-light mt-2">{{ __('panel.services.none') }}</h6>
-                    <p class="f-light f-12 mb-3">Nemáte ještě žádné aktivní služby.</p>
-                    <a href="{{ route('panel.orders.create') }}" class="btn btn-primary btn-sm">
-                        <i data-feather="plus" style="width:13px;height:13px;"></i>
-                        {{ __('panel.nav.new_order') }}
-                    </a>
+                    {{-- Staff accounts have a customer profile for self-billing but
+                         normally own no services — say so instead of leaving them
+                         staring at an empty list, and point them at the admin view
+                         that lists every customer's services. --}}
+                    @can('access-admin')
+                        <p class="f-light f-12 mb-3">
+                            Na tomto účtu nemáte žádné vlastní služby. Služby zákazníků spravujete v administraci.
+                        </p>
+                        <a href="{{ route('admin.services.index') }}" class="btn btn-primary btn-sm text-white">
+                            <i data-feather="server"></i> Hostingové služby zákazníků
+                        </a>
+                    @else
+                        <p class="f-light f-12 mb-3">Nemáte ještě žádné aktivní služby.</p>
+                        <a href="{{ route('panel.orders.create') }}" class="btn btn-primary btn-sm text-white">
+                            <i data-feather="plus"></i>
+                            {{ __('panel.nav.new_order') }}
+                        </a>
+                    @endcan
                 </div>
             @else
                 <x-panel.data-table :headers="[

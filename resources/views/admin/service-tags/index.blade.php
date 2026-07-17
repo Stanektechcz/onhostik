@@ -48,7 +48,7 @@
                                 @foreach($tags as $tag)
                                 <tr>
                                     <td>
-                                        <span class="badge" style="background-color: {{ $tag->color }}; color: #fff;">
+                                        <span class="badge" style="background-color: {{ $tag->color }}; color:rgba(var(--white),1);">
                                             {{ $tag->name }}
                                         </span>
                                     </td>

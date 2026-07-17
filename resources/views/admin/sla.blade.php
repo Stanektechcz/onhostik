@@ -68,7 +68,7 @@
     @if($openIncidents->count() > 0)
     <div class="grid grid-cols-12 card-gap">
         <div class="col-span-12">
-            <div class="card border-0" style="background: var(--danger-color, #dc3545); color:#fff">
+            <div class="card border-0" style="background: var(--danger-color, #dc3545); color:rgba(var(--white),1)">
                 <div class="card-body py-3">
                     <div class="d-flex align-items-center gap-2 mb-2">
                         <i data-feather="alert-octagon" style="width:18px;height:18px;"></i>
@@ -86,7 +86,7 @@
                         @endif
                         @if($inc->severity)
                             <span class="badge ms-1"
-                                  style="background:rgba(255,255,255,.25); color:#fff; font-size:10px;">{{ $inc->severity }}</span>
+                                  style="background:rgba(255,255,255,.25); color:rgba(var(--white),1); font-size:10px;">{{ $inc->severity }}</span>
                         @endif
                     </div>
                     @endforeach

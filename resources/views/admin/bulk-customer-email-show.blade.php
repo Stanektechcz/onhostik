@@ -24,7 +24,7 @@
                 </div>
 
                 {{-- Body preview --}}
-                <div class="border rounded p-3 mb-3" style="max-height:300px;overflow-y:auto;background:#f8f9fa;">
+                <div class="border rounded p-3 mb-3" style="max-height:300px;overflow-y:auto;background:rgba(var(--light-semi-gray),1);">
                     {!! $bulkEmail->body_html !!}
                 </div>
 

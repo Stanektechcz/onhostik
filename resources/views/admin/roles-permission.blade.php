@@ -128,13 +128,13 @@
                                             <br><small class="f-light f-11">{{ $perm }}</small>
                                         </td>
                                         <td class="text-center">
-                                            @if($admin)<i data-feather="check" style="width:16px;height:16px;color:#54ba4a;"></i>@else<i data-feather="x" style="width:16px;height:16px;color:#dc3545;"></i>@endif
+                                            @if($admin)<i data-feather="check" style="width:16px;height:16px;color:rgba(var(--success-color),1);"></i>@else<i data-feather="x" style="width:16px;height:16px;color:rgba(var(--danger-color),1);"></i>@endif
                                         </td>
                                         <td class="text-center">
-                                            @if($partner)<i data-feather="check" style="width:16px;height:16px;color:#54ba4a;"></i>@else<i data-feather="x" style="width:16px;height:16px;color:#dc3545;"></i>@endif
+                                            @if($partner)<i data-feather="check" style="width:16px;height:16px;color:rgba(var(--success-color),1);"></i>@else<i data-feather="x" style="width:16px;height:16px;color:rgba(var(--danger-color),1);"></i>@endif
                                         </td>
                                         <td class="text-center">
-                                            @if($customer)<i data-feather="check" style="width:16px;height:16px;color:#54ba4a;"></i>@else<i data-feather="x" style="width:16px;height:16px;color:#dc3545;"></i>@endif
+                                            @if($customer)<i data-feather="check" style="width:16px;height:16px;color:rgba(var(--success-color),1);"></i>@else<i data-feather="x" style="width:16px;height:16px;color:rgba(var(--danger-color),1);"></i>@endif
                                         </td>
                                     </tr>
                                     @endforeach

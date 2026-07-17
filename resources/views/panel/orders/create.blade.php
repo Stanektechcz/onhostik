@@ -326,7 +326,12 @@
                                         onclick="selectPlan({{ $plan->id }}, {{ json_encode($fullName) }}, {{ $priceVal }}, '{{ $currency }}');document.querySelector('#{{ $mid }} [data-bs-dismiss=modal]').click();">
                                   <i class="fa-solid fa-cart-shopping me-1"></i>Vybrat tarif
                                 </button>
-                                <a class="btn btn-primary text-white ms-2" href="{{ route('panel.orders.create', ['plan' => $plan->id]) }}">Objednat</a>
+                                <form method="POST" action="{{ route('panel.cart.add', $plan->id) }}">
+                                  @csrf
+                                  <button type="submit" class="btn btn-outline-primary">
+                                    <i data-feather="shopping-bag"></i> Do košíku
+                                  </button>
+                                </form>
                               </div>
                             </div>
                           </div>
@@ -361,14 +366,21 @@
                 </div>
               </div>
 
-              {{-- Always-visible select button --}}
-              <div class="px-3 pb-3">
+              {{-- Always-visible actions: order this one now, or collect
+                   several plans in the cart and order them together. --}}
+              <div class="px-3 pb-3 plan-card-actions">
                 <button type="button"
                         class="btn btn-primary w-full btn-select-visible"
                         id="btn-select-{{ $plan->id }}"
                         onclick="selectPlan({{ $plan->id }}, {{ json_encode($fullName) }}, {{ $priceVal }}, '{{ $currency }}')">
                   @if($isPreselected) ✓ Vybráno @else Vybrat tarif @endif
                 </button>
+                <form method="POST" action="{{ route('panel.cart.add', $plan->id) }}">
+                  @csrf
+                  <button type="submit" class="btn btn-outline-primary w-full" title="Přidat do košíku a pokračovat ve výběru">
+                    <i data-feather="shopping-bag"></i> Do košíku
+                  </button>
+                </form>
               </div>
 
             </div>{{-- /product-box --}}
@@ -416,7 +428,7 @@
       <span id="bar-plan-price" class="ms-3 badge badge-light-primary f-14"></span>
     </div>
     <div class="d-flex gap-2">
-      <button type="button" class="btn btn-sm" style="background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.4);" onclick="clearSelection()">
+      <button type="button" class="btn btn-sm" style="background:rgba(255,255,255,.2);color:rgba(var(--white),1);border:1px solid rgba(255,255,255,.4);" onclick="clearSelection()">
         Zrušit výběr
       </button>
       <button type="button" class="btn btn-success btn-sm fw-bold" id="btn-submit-order" onclick="goToCheckout()" disabled>

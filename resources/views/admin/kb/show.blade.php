@@ -228,7 +228,7 @@
                                                     <form method="POST" action="{{ route('admin.kb.review.approve', $review) }}" style="display:inline;">
                                                         @csrf
                                                         <button type="submit" class="square-white" title="Schválit">
-                                                            <i data-feather="check" style="width:14px;height:14px;color:#54ba4a;"></i>
+                                                            <i data-feather="check" style="width:14px;height:14px;color:rgba(var(--success-color),1);"></i>
                                                         </button>
                                                     </form>
                                                     @endif

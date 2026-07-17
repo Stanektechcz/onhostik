@@ -120,19 +120,19 @@
                     <div class="card-body pt-0">
                         <ul class="list-unstyled">
                             <li class="mb-2 d-flex align-items-start gap-2">
-                                <i data-feather="check-circle" style="width:14px;height:14px;color:#1ed760;flex-shrink:0;margin-top:2px;"></i>
+                                <i data-feather="check-circle" style="width:14px;height:14px;color:rgba(var(--success-color),1);flex-shrink:0;margin-top:2px;"></i>
                                 <span class="f-light f-13">Vlastní cenový markup na všechny produkty</span>
                             </li>
                             <li class="mb-2 d-flex align-items-start gap-2">
-                                <i data-feather="check-circle" style="width:14px;height:14px;color:#1ed760;flex-shrink:0;margin-top:2px;"></i>
+                                <i data-feather="check-circle" style="width:14px;height:14px;color:rgba(var(--success-color),1);flex-shrink:0;margin-top:2px;"></i>
                                 <span class="f-light f-13">Možnost prodeje pod vlastní doménou</span>
                             </li>
                             <li class="mb-2 d-flex align-items-start gap-2">
-                                <i data-feather="check-circle" style="width:14px;height:14px;color:#1ed760;flex-shrink:0;margin-top:2px;"></i>
+                                <i data-feather="check-circle" style="width:14px;height:14px;color:rgba(var(--success-color),1);flex-shrink:0;margin-top:2px;"></i>
                                 <span class="f-light f-13">Plná technická podpora pro vaše zákazníky</span>
                             </li>
                             <li class="mb-2 d-flex align-items-start gap-2">
-                                <i data-feather="check-circle" style="width:14px;height:14px;color:#1ed760;flex-shrink:0;margin-top:2px;"></i>
+                                <i data-feather="check-circle" style="width:14px;height:14px;color:rgba(var(--success-color),1);flex-shrink:0;margin-top:2px;"></i>
                                 <span class="f-light f-13">Flexibilní branding a nastavení</span>
                             </li>
                         </ul>
