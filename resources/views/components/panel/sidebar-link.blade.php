@@ -10,7 +10,7 @@
 <li class="{{ $isActive ? 'active' : '' }}">
     <a href="{{ $href }}" class="{{ $isActive ? 'active' : '' }}">
         @if($icon)
-        <i data-feather="{{ $icon }}" style="width:14px;height:14px;margin-right:6px;flex-shrink:0;"></i>
+        <i data-feather="{{ $icon }}"></i>
         @endif
         <span>{{ $label }}</span>
         @if($badge !== null)

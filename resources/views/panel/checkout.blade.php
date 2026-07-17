@@ -45,7 +45,7 @@
     @if(!$plan)
     <div class="card">
         <div class="card-body text-center py-5">
-            <i data-feather="shopping-cart" style="width:48px;height:48px;" class="text-muted mb-3 d-block mx-auto"></i>
+            <i data-feather="shopping-cart" class="empty-state-icon mb-3 d-block mx-auto"></i>
             <h5 class="f-light">Nebyl vybrán žádný tarif</h5>
             <a href="{{ route('panel.orders.create') }}" class="btn btn-primary mt-3">Vybrat tarif</a>
         </div>
@@ -124,7 +124,7 @@
                                     @else
                                     <div class="col-span-12">
                                         <div class="alert alert-light-warning">
-                                            <i data-feather="alert-circle" style="width:14px;height:14px;"></i>
+                                            <i data-feather="alert-circle"></i>
                                             Nemáte nastavenou fakturační adresu.
                                             <a href="{{ route('panel.account.billing') }}">Přidat adresu</a>
                                         </div>
@@ -134,9 +134,8 @@
                                     <div class="col-span-12">
                                         <label class="form-label">Slevový kód <small class="f-light">(volitelné)</small></label>
                                         <div class="input-group">
-                                            <input class="form-control" type="text" id="discount-input"
-                                                   placeholder="PROMO2026" style="text-transform:uppercase;"
-                                                   maxlength="32">
+                                            <input class="form-control text-uppercase" type="text" id="discount-input"
+                                                   placeholder="PROMO2026" maxlength="32">
                                             <button class="btn btn-outline-primary" type="button" onclick="applyDiscount()">
                                                 Použít
                                             </button>
@@ -159,8 +158,8 @@
                                     <div class="col-span-12">
                                         <div class="card-wrapper custom-border rounded-3 light-card">
                                             <div class="d-flex align-items-start gap-3">
-                                                <div style="width:60px;height:60px;background:linear-gradient(135deg,rgba(var(--theme-default),.1),rgba(var(--theme-default),.03));border-radius:10px;display:flex;align-items:center;justify-content:center;">
-                                                    <i data-feather="package" style="width:28px;height:28px;color:rgba(var(--theme-default),1);"></i>
+                                                <div class="plan-thumb plan-thumb-lg">
+                                                    <i data-feather="package"></i>
                                                 </div>
                                                 <div class="grow">
                                                     <h6 class="mb-1">{{ $plan->product?->name ?? '' }} {{ $plan->name }}</h6>
@@ -183,7 +182,7 @@
                                     </div>
                                     <div class="col-span-12">
                                         <a href="{{ route('panel.orders.create') }}" class="btn btn-outline-secondary btn-sm">
-                                            <i data-feather="arrow-left" style="width:13px;height:13px;"></i> Změnit tarif
+                                            <i data-feather="arrow-left"></i> Změnit tarif
                                         </a>
                                     </div>
                                 </div>
@@ -192,42 +191,38 @@
                             {{-- Step 3: Platba --}}
                             <div class="stepper-three shipping-wizard" id="wizard-step-3" style="display:none;">
                                 <div class="grid grid-cols-12 shipping-method gap-3">
-                                    <div class="col-span-12">
-                                        <div class="card-wrapper custom-border rounded-3 light-card d-flex justify-content-between align-items-center">
-                                            <div>
-                                                <div class="form-check radio radio-primary">
-                                                    <input class="form-check-input" type="radio" id="pay-comgate" name="payment_method" value="comgate" checked>
-                                                    <label class="form-check-label mb-0 font-medium" for="pay-comgate">Comgate — platební karta / QR</label>
+                                    @php
+                                        $creditBalance = app(\App\Domains\Billing\Services\CreditLedger::class)
+                                            ->getBalance(auth()->user()->customer);
+                                        $paymentMethods = [
+                                            ['id' => 'pay-comgate', 'value' => 'comgate', 'icon' => 'credit-card',
+                                             'title' => 'Comgate — platební karta / QR',
+                                             'desc'  => 'Zabezpečená platba kartou přes Comgate.'],
+                                            ['id' => 'pay-credit', 'value' => 'credit', 'icon' => 'dollar-sign',
+                                             'title' => 'Kredit na účtu',
+                                             'desc'  => 'Ihned uhrazeno z kreditu. Zůstatek: '
+                                                        . \App\Domains\Shared\Support\MoneyFormatter::format($creditBalance)],
+                                            ['id' => 'pay-bank', 'value' => 'bank', 'icon' => 'home',
+                                             'title' => 'Bankovní převod',
+                                             'desc'  => 'Objednávka bude aktivována po přijetí platby.'],
+                                        ];
+                                    @endphp
+                                    @foreach($paymentMethods as $i => $method)
+                                        <div class="col-span-12">
+                                            <div class="card-wrapper custom-border rounded-3 light-card payment-method-option {{ $i === 0 ? 'selected' : '' }}"
+                                                 data-radio="{{ $method['id'] }}">
+                                                <div class="grow">
+                                                    <div class="form-check radio radio-primary">
+                                                        <input class="form-check-input" type="radio" id="{{ $method['id'] }}"
+                                                               name="payment_method" value="{{ $method['value'] }}" {{ $i === 0 ? 'checked' : '' }}>
+                                                        <label class="form-check-label mb-0 font-medium" for="{{ $method['id'] }}">{{ $method['title'] }}</label>
+                                                    </div>
+                                                    <p class="f-light f-12 mb-0">{{ $method['desc'] }}</p>
                                                 </div>
-                                                <p class="f-light f-12 mb-0">Zabezpečená platba kartou přes Comgate.</p>
+                                                <i data-feather="{{ $method['icon'] }}" class="payment-method-icon"></i>
                                             </div>
-                                            <i data-feather="credit-card" style="width:32px;height:32px;opacity:.4;"></i>
                                         </div>
-                                    </div>
-                                    <div class="col-span-12">
-                                        <div class="card-wrapper custom-border rounded-3 light-card d-flex justify-content-between align-items-center">
-                                            <div>
-                                                <div class="form-check radio radio-primary">
-                                                    <input class="form-check-input" type="radio" id="pay-credit" name="payment_method" value="credit">
-                                                    <label class="form-check-label mb-0 font-medium" for="pay-credit">Kredit na účtu</label>
-                                                </div>
-                                                <p class="f-light f-12 mb-0">Platba z kreditu na účtu OnHost.</p>
-                                            </div>
-                                            <i data-feather="dollar-sign" style="width:32px;height:32px;opacity:.4;"></i>
-                                        </div>
-                                    </div>
-                                    <div class="col-span-12">
-                                        <div class="card-wrapper custom-border rounded-3 light-card d-flex justify-content-between align-items-center">
-                                            <div>
-                                                <div class="form-check radio radio-primary">
-                                                    <input class="form-check-input" type="radio" id="pay-bank" name="payment_method" value="bank">
-                                                    <label class="form-check-label mb-0 font-medium" for="pay-bank">Bankovní převod</label>
-                                                </div>
-                                                <p class="f-light f-12 mb-0">Objednávka bude aktivována po přijetí platby.</p>
-                                            </div>
-                                            <i data-feather="dollar-sign" style="width:32px;height:32px;opacity:.4;"></i>
-                                        </div>
-                                    </div>
+                                    @endforeach
                                 </div>
                             </div>
 
@@ -236,7 +231,7 @@
                                 <div class="grid grid-cols-12 gap-3">
                                     <div class="col-span-12">
                                         <div class="text-center py-4">
-                                            <i data-feather="check-circle" style="width:64px;height:64px;color:#54ba4a;margin-bottom:16px;display:block;" class="d-block mx-auto"></i>
+                                            <i data-feather="check-circle" class="checkout-success-icon font-success mb-3 d-block mx-auto"></i>
                                             <h5>Objednávka odeslána!</h5>
                                             <p class="f-light">Vaše objednávka bude zpracována. Potvrzení dostanete e-mailem.</p>
                                         </div>
@@ -269,8 +264,8 @@
                     <div class="card-body">
                         <ul class="summery-contain">
                             <li>
-                                <div style="width:44px;height:44px;background:linear-gradient(135deg,rgba(var(--theme-default),.1),rgba(var(--theme-default),.03));border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                                    <i data-feather="package" style="width:22px;height:22px;color:rgba(var(--theme-default),1);"></i>
+                                <div class="plan-thumb">
+                                    <i data-feather="package"></i>
                                 </div>
                                 <h6>
                                     {{ $plan->product?->name ?? '' }} {{ $plan->name }}
@@ -314,6 +309,9 @@
         <input type="hidden" name="pricing_plan_id" value="{{ $plan->id }}">
         <input type="hidden" name="domain" id="final-domain" value="">
         <input type="hidden" name="discount_code" id="final-discount-code" value="">
+        {{-- Mirrors the step-3 radio: the radios live outside this form, so
+             without this the chosen method would never reach the server. --}}
+        <input type="hidden" name="payment_method" id="final-payment-method" value="comgate">
         @if($mockMode)
         <input type="hidden" name="simulate_failure" value="0">
         @endif
@@ -382,6 +380,37 @@ function applyDiscount() {
         }
     }
 
+    /* Payment method: make the whole Cuba card a hit target and keep the
+       hidden field in the order form in sync with the chosen radio. */
+    function syncPaymentMethod() {
+        var picked = document.querySelector('input[name="payment_method"]:checked');
+        var hidden = document.getElementById('final-payment-method');
+        if (picked && hidden) hidden.value = picked.value;
+
+        document.querySelectorAll('.payment-method-option').forEach(function (card) {
+            var radio = document.getElementById(card.dataset.radio);
+            card.classList.toggle('selected', !!(radio && radio.checked));
+        });
+    }
+
+    document.querySelectorAll('.payment-method-option').forEach(function (card) {
+        card.addEventListener('click', function (e) {
+            var radio = document.getElementById(card.dataset.radio);
+            if (!radio) return;
+            // Let the native label/radio handle their own clicks.
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'LABEL') {
+                radio.checked = true;
+            }
+            syncPaymentMethod();
+        });
+    });
+
+    document.querySelectorAll('input[name="payment_method"]').forEach(function (radio) {
+        radio.addEventListener('change', syncPaymentMethod);
+    });
+
+    syncPaymentMethod();
+
     window.wizardNext = function() {
         if (currentStep === 3) {
             /* Submit order */
@@ -389,6 +418,7 @@ function applyDiscount() {
             if (domain && domain.value) {
                 document.getElementById('final-domain').value = domain.value;
             }
+            syncPaymentMethod();
             currentStep = 4;
             showStep(4);
             document.getElementById('final-order-form').submit();

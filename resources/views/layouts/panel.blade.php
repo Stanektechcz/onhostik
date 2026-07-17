@@ -19,6 +19,8 @@
     <link rel="stylesheet" href="{{ asset('panel/css/vendors/animate.css') }}">
     @stack('styles')
     <link rel="stylesheet" href="{{ asset('panel/css/style.css') }}">
+    {{-- Project layer — must load after Cuba's style.css --}}
+    <link rel="stylesheet" href="{{ asset('panel/css/onhost.css') }}">
 </head>
 <body>
 {{-- Cuba loader --}}
@@ -167,14 +169,22 @@
     var READ_URL_TPL = '{{ route('panel.notifications.read', ['id' => 'NOTIF_ID_PLACEHOLDER']) }}';
     var CSRF         = document.querySelector('meta[name="csrf-token"]').content;
 
+    // Feather icon names — rendered as real icons, not emoji.
     var iconMap = {
-        'check-circle': '✓', 'file-text': '📄', 'alert-triangle': '⚠',
-        'clock': '⏰', 'server': '🖥', 'message-circle': '💬',
+        'check-circle': 'check-circle', 'file-text': 'file-text',
+        'alert-triangle': 'alert-triangle', 'clock': 'clock',
+        'server': 'server', 'message-circle': 'message-circle',
     };
+    // Cuba colour keys → Cuba .bg-light-* / .txt-* utility suffixes.
     var colorMap = {
-        success: '#54ba4a', primary: '#7366FF', warning: '#f39c12',
-        danger: '#dc3545', info: '#0dcaf0',
+        success: 'success', primary: 'primary', warning: 'warning',
+        danger: 'danger', info: 'info',
     };
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[<>&"]/g, function (c) {
+            return { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c];
+        });
+    }
 
     var wsConnected = false;
     var pollInterval = null;
@@ -183,7 +193,7 @@
         var badge = document.getElementById('notif-count');
         if (badge) {
             badge.textContent = count > 9 ? '9+' : count;
-            badge.style.display = count > 0 ? '' : 'none';
+            badge.classList.toggle('show', count > 0);
         }
         var label = document.getElementById('notif-unread-label');
         if (label) label.textContent = count > 0 ? count + ' nepřečtených' : '';
@@ -196,28 +206,29 @@
         if (!container) return;
 
         if (!data.notifications || data.notifications.length === 0) {
-            container.innerHTML = '<div class="text-center py-3 f-light f-12">Žádné notifikace</div>';
+            container.innerHTML = '<p class="f-light f-12 mb-0 text-center py-3">Žádné notifikace</p>';
             return;
         }
 
         var html = '';
-        data.notifications.forEach(function(n) {
-            var d = n.data || {};
-            var icon = iconMap[d.icon] || '•';
-            var color = colorMap[d.color] || '#7366FF';
-            var readClass = n.read ? '' : 'f-w-600';
-            var bg = n.read ? '' : 'background:rgba(115,102,255,.04);';
-            html += '<div class="media notification-item" style="padding:10px 14px;border-bottom:1px solid rgba(82,82,108,.1);cursor:pointer;' + bg + '"' +
-                ' data-id="' + n.id + '" data-url="' + (d.url || '#') + '" onclick="handleNotifClick(this)">' +
-                '<div class="flex-shrink-0 me-3 d-flex align-items-center justify-content-center rounded-circle"' +
-                ' style="width:36px;height:36px;background:' + color + '22;font-size:15px;">' + icon + '</div>' +
-                '<div class="media-body">' +
-                '<p class="mb-0 ' + readClass + ' f-13">' + (d.title || '') + '</p>' +
-                '<p class="mb-0 f-light f-12" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;">' + (d.body || '') + '</p>' +
-                '<p class="mb-0 f-light" style="font-size:10px;">' + n.created_at + '</p>' +
+        data.notifications.forEach(function (n) {
+            var d     = n.data || {};
+            var icon  = iconMap[d.icon] || 'bell';
+            var color = colorMap[d.color] || 'primary';
+
+            html += '<div class="notification-item' + (n.read ? '' : ' unread') + '"' +
+                ' data-id="' + esc(n.id) + '" data-url="' + esc(d.url || '#') + '" onclick="handleNotifClick(this)">' +
+                '<div class="notification-item-icon bg-light-' + color + '">' +
+                    '<i data-feather="' + esc(icon) + '"></i>' +
+                '</div>' +
+                '<div class="grow min-w-0">' +
+                    '<p class="mb-0 f-13 ' + (n.read ? '' : 'f-w-600') + '">' + esc(d.title) + '</p>' +
+                    '<p class="mb-0 f-light f-12 truncate">' + esc(d.body) + '</p>' +
+                    '<p class="mb-0 f-light f-10">' + esc(n.created_at) + '</p>' +
                 '</div></div>';
         });
         container.innerHTML = html;
+        if (window.feather) feather.replace();
     }
 
     function loadNotifications() {

@@ -97,6 +97,8 @@ Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('pane
 
     Route::get('/kosik', [Panel\CartController::class, 'index'])->name('cart.index');
     Route::post('/kosik/pridat/{plan}', [Panel\CartController::class, 'add'])->name('cart.add');
+    Route::patch('/kosik/mnozstvi/{plan}', [Panel\CartController::class, 'update'])->name('cart.update');
+    Route::post('/kosik/objednat', [Panel\CartController::class, 'checkout'])->name('cart.checkout');
     Route::delete('/kosik/odebrat/{plan}', [Panel\CartController::class, 'remove'])->name('cart.remove');
     Route::delete('/kosik', [Panel\CartController::class, 'clear'])->name('cart.clear');
 

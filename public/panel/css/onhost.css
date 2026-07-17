@@ -1,0 +1,281 @@
+/* ============================================================
+   OnHost — project layer on top of the Cuba admin theme.
+
+   Rules for this file:
+     • Only for pieces Cuba has no component for (e.g. the global
+       search dropdown). Everything Cuba already ships (.card, .btn,
+       .badge, .translate_wrapper, .profile-media …) must be used
+       as-is from style.css — never re-implemented here.
+     • Always consume Cuba's CSS variables (--theme-default,
+       --white, --theme-body-font-color …) so light/dark mode and
+       any theme recolouring keep working.
+     • This file exists so views stay free of inline styles.
+   ============================================================ */
+
+/* ── Header: profile avatar (Cuba ships an <img>; we render initials) ── */
+.page-header .header-wrapper .nav-right .profile-media .profile-avatar {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(var(--white), 1);
+  background-color: rgba(var(--theme-default), 1) !important;
+}
+
+/* Name must never wrap — Cuba assumes a single line here. */
+.page-header .header-wrapper .nav-right .profile-media .profile-content span,
+.page-header .header-wrapper .nav-right .profile-media .profile-content p {
+  white-space: nowrap;
+}
+
+/* Logout sits in a <form>, so the trigger is a <button>: strip chrome
+   so it inherits the Cuba dropdown-link look of its siblings. */
+.page-header .header-wrapper .nav-right .profile-dropdown li .logout-btn {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+/* Credit pill: Cuba .badge, just aligned with its icon. */
+.page-header .header-wrapper .nav-right .nav-menus > li > a.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  font-size: 12px;
+}
+
+.page-header .header-wrapper .nav-right .nav-menus > li > a.badge svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* Keep the notification counter pinned to the bell. */
+.page-header .header-wrapper .nav-right .notification-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.page-header .header-wrapper .nav-right .notification-box #notif-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 9px;
+  line-height: 16px;
+  display: none;
+}
+
+.page-header .header-wrapper .nav-right .notification-box #notif-count.show {
+  display: inline-block;
+}
+
+/* Notification dropdown must not run off a narrow viewport. */
+.page-header .header-wrapper .nav-right .notification-dropdown {
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+/* Notification rows (Cuba ships no list-item component for these). */
+.notification-dropdown .notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(var(--light-semi-gray), 1);
+}
+
+.notification-dropdown .notification-item:hover {
+  background-color: rgba(var(--theme-default), 0.06);
+}
+
+.notification-dropdown .notification-item.unread {
+  background-color: rgba(var(--theme-default), 0.04);
+}
+
+.notification-dropdown .notification-item-icon {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.notification-dropdown .notification-item-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ── Sidebar: submenu link icons ────────────────────────────── */
+/* Cuba's own submenu links are text-only; ours carry a feather icon. */
+.sidebar-wrapper .sidebar-links .sidebar-submenu > li > a > svg {
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+/* ── Sidebar: impersonation banner ──────────────────────────── */
+.sidebar-wrapper .impersonation-banner {
+  margin: 0 12px 6px;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(var(--warning-color), 0.4);
+}
+
+.sidebar-wrapper .impersonation-banner svg {
+  width: 11px;
+  height: 11px;
+}
+
+.sidebar-wrapper .impersonation-banner .btn-xs {
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+/* ── Global admin search ────────────────────────────────────── */
+#admin-global-search-wrap {
+  max-width: 340px;
+}
+
+#admin-global-search-wrap .input-group-text svg,
+#admin-global-search-wrap .input-group-text i {
+  width: 14px;
+  height: 14px;
+}
+
+#admin-global-search-wrap #admin-global-search {
+  font-size: 13px;
+}
+
+/* Cuba has no header-typeahead component — this is the one addition,
+   styled from Cuba variables so it matches .card in both modes. */
+#admin-search-results {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 9;
+  max-height: 400px;
+  overflow-y: auto;
+  margin-bottom: 0;
+  border-radius: 8px;
+}
+
+#admin-search-results.show {
+  display: block;
+}
+
+#admin-search-results .search-result-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  text-decoration: none;
+  color: rgba(var(--theme-body-font-color), 1);
+  border-bottom: 1px solid rgba(var(--light-semi-gray), 1);
+}
+
+#admin-search-results .search-result-item:last-child {
+  border-bottom: 0;
+}
+
+#admin-search-results .search-result-item:hover,
+#admin-search-results .search-result-item.active {
+  background-color: rgba(var(--theme-default), 0.06);
+}
+
+#admin-search-results .search-result-item svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: rgba(var(--theme-body-sub-title-color), 1);
+}
+
+#admin-search-results .search-empty {
+  padding: 14px;
+  text-align: center;
+}
+
+/* ── Checkout: payment method picker ────────────────────────── */
+/* Cuba's .radio hides the native input and draws the dot on the
+   label, so only the label text was clickable. These rules turn the
+   whole Cuba .card-wrapper into the hit target and give it a clear
+   selected state; the radio component itself stays untouched. */
+.payment-method-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.payment-method-option:hover {
+  border-color: rgba(var(--theme-default), 0.5);
+}
+
+.payment-method-option.selected {
+  border-color: rgba(var(--theme-default), 1);
+  background-color: rgba(var(--theme-default), 0.05);
+}
+
+.payment-method-option .payment-method-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  opacity: 0.4;
+}
+
+.payment-method-option.selected .payment-method-icon {
+  opacity: 1;
+  color: rgba(var(--theme-default), 1);
+}
+
+/* ── Cart ───────────────────────────────────────────────────── */
+.cart-item-thumb {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background-color: rgba(var(--theme-default), 0.1);
+}
+
+.cart-item-thumb svg,
+.cart-item-thumb i {
+  width: 20px;
+  height: 20px;
+  color: rgba(var(--theme-default), 1);
+}
+
+.cart-qty-input {
+  width: 64px;
+}
+
+/* Shared empty-state icon (cart, lists with no rows). */
+.empty-state-icon {
+  width: 44px;
+  height: 44px;
+  color: rgba(var(--theme-body-sub-title-color), 1);
+  opacity: 0.5;
+}

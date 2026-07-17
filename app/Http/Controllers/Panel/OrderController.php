@@ -6,6 +6,8 @@ namespace App\Http\Controllers\Panel;
 
 use App\Domains\Billing\Actions\CreateOrderAction;
 use App\Domains\Billing\Actions\IssueProformaInvoiceAction;
+use App\Domains\Billing\Actions\PayInvoiceWithCreditAction;
+use App\Domains\Billing\Exceptions\InsufficientCreditException;
 use App\Domains\Billing\Models\Order;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Products\Models\PricingPlan;
@@ -62,12 +64,14 @@ class OrderController extends Controller
         Request $request,
         CreateOrderAction $createOrder,
         IssueProformaInvoiceAction $issueProforma,
+        PayInvoiceWithCreditAction $payWithCredit,
         DriverResolver $drivers,
     ): RedirectResponse {
         $validated = $request->validate([
             'pricing_plan_id'  => ['required', 'integer', 'exists:pricing_plans,id'],
             'domain'           => ['nullable', 'string', 'min:3', 'max:253', 'regex:/^[a-zA-Z0-9][a-zA-Z0-9\-]*\.[a-zA-Z]{2,}$/'],
             'register_domain'  => ['nullable', 'boolean'],
+            'payment_method'   => ['nullable', 'in:comgate,credit,bank'],
             'simulate_failure' => ['nullable', 'boolean'],
         ]);
 
@@ -109,7 +113,24 @@ class OrderController extends Controller
             return back()->withInput()->withErrors(['pricing_plan_id' => $e->getMessage()]);
         }
 
-        $issueProforma->execute($order);
+        $invoice = $issueProforma->execute($order);
+
+        // Honour the chosen payment method. Anything other than "credit"
+        // leaves the proforma open — the customer pays it from the order /
+        // invoice detail (gateway redirect or bank transfer).
+        if (($validated['payment_method'] ?? null) === 'credit') {
+            try {
+                $payWithCredit->execute($invoice);
+
+                return redirect()
+                    ->route('panel.orders.show', $order)
+                    ->with('status', __('panel.orders.created_and_paid'));
+            } catch (InsufficientCreditException) {
+                return redirect()
+                    ->route('panel.orders.show', $order)
+                    ->with('warning', __('panel.orders.created_credit_insufficient'));
+            }
+        }
 
         return redirect()
             ->route('panel.orders.show', $order)

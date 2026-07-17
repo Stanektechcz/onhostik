@@ -7,7 +7,7 @@
 <li class="sidebar-list">
     <i class="fa-solid fa-thumbtack"></i>
     <a class="sidebar-link sidebar-title {{ $isActive ? 'active' : '' }}" href="#">
-        <i data-feather="{{ $icon }}" style="margin-right:0;"></i>
+        <i data-feather="{{ $icon }}"></i>
         <span>{{ $label }}</span>
     </a>
     <ul class="sidebar-submenu">

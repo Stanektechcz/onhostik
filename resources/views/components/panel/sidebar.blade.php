@@ -5,10 +5,12 @@
      Hyphenated:    stored as  "name":'<svg>'
 ──────────────────────────────────────────────────────── --}}
 @php
-    $p = fn(string $name) => request()->routeIs($name . '*');
-    $canAdmin        = auth()->user()?->can('access-admin');
-    $canPartner      = auth()->user()?->can('access-partner');
-    $canReseller     = auth()->user()?->can('access-reseller');
+    $p               = fn (string $name) => request()->routeIs($name . '*');
+    $sidebarUser     = auth()->user();
+    $canAdmin        = $sidebarUser?->can('access-admin');
+    $canPartner      = $sidebarUser?->can('access-partner');
+    $canReseller     = $sidebarUser?->can('access-reseller');
+    $hasCustomer     = $sidebarUser?->customer !== null;
     $isImpersonating = session()->has('_impersonated_by');
 @endphp
 
@@ -24,14 +26,12 @@
 
     {{-- Impersonation banner --}}
     @if($isImpersonating)
-    <div class="p-2 mx-2 mb-1 rounded" style="background:rgba(243,156,18,.15);border:1px solid rgba(243,156,18,.4);">
+    <div class="impersonation-banner bg-light-warning">
         <p class="f-11 f-light mb-1 text-center">
-            <i data-feather="eye" style="width:11px;height:11px;"></i>
-            Přihlášen za: <strong>{{ auth()->user()?->name }}</strong>
+            <i data-feather="eye"></i>
+            Přihlášen za: <strong>{{ $sidebarUser?->name }}</strong>
         </p>
-        <a href="{{ route('admin.impersonate.stop') }}"
-           class="btn btn-warning btn-xs w-full text-white"
-           style="font-size:10px;padding:2px 6px;">
+        <a href="{{ route('admin.impersonate.stop') }}" class="btn btn-warning btn-xs w-full text-white">
             Zpět na admin účet
         </a>
     </div>
@@ -51,8 +51,11 @@
         </li>
 
 {{-- ══════════════════════════════════════════════════════
-     ZÁKAZNÍK
+     ZÁKAZNÍK — commerce agenda; only for accounts that
+     actually have a customer profile (staff-only admin
+     logins would otherwise see an empty "my services").
 ══════════════════════════════════════════════════════ --}}
+        @if($hasCustomer)
         <li class="sidebar-main-title"><div><h6>Zákazník</h6></div></li>
 
         <li class="sidebar-list">
@@ -65,16 +68,15 @@
 
         <x-panel.sidebar-submenu icon="server" label="Moje služby"
             :active="$p('panel.services') || $p('panel.domains')">
-            <x-panel.sidebar-link :href="route('panel.services.index')" icon="server" label="Hostingové služby" />
+            <x-panel.sidebar-link :href="route('panel.services.index')" icon="server" label="Všechny služby" />
             <x-panel.sidebar-link :href="route('panel.domains.index')" icon="globe" label="Domény" />
         </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="shopping-cart" label="Objednávky a nákup"
             :active="$p('panel.orders') || $p('panel.cart') || $p('panel.checkout') || $p('panel.wishlist')">
-            <x-panel.sidebar-link :href="route('panel.orders.index')" icon="package" label="Moje objednávky" />
             <x-panel.sidebar-link :href="route('panel.orders.create')" icon="plus-circle" label="Nová objednávka" />
             <x-panel.sidebar-link :href="route('panel.cart.index')" icon="shopping-bag" label="Košík" />
-            <x-panel.sidebar-link :href="route('panel.checkout.index')" icon="credit-card" label="Pokladna" />
+            <x-panel.sidebar-link :href="route('panel.orders.index')" icon="package" label="Moje objednávky" />
             <x-panel.sidebar-link :href="route('panel.wishlist.index')" icon="heart" label="Oblíbené" />
         </x-panel.sidebar-submenu>
 
@@ -84,40 +86,6 @@
             <x-panel.sidebar-link :href="route('panel.billing.payments')" icon="credit-card" label="Platby" />
             <x-panel.sidebar-link :href="route('panel.billing.credits')" icon="dollar-sign" label="Kredit" />
         </x-panel.sidebar-submenu>
-
-        <x-panel.sidebar-submenu icon="book-open" label="Obsah a info"
-            :active="$p('panel.blog') || $p('panel.kb') || $p('panel.faq')">
-            <x-panel.sidebar-link :href="route('panel.faq.index')" icon="help-circle" label="FAQ" />
-            <x-panel.sidebar-link :href="route('panel.kb.index')" icon="book-open" label="Znalostní báze" />
-            <x-panel.sidebar-link :href="route('panel.blog.index')" icon="rss" label="Blog" />
-        </x-panel.sidebar-submenu>
-
-        <x-panel.sidebar-submenu icon="life-buoy" label="Podpora"
-            :active="$p('panel.support') || $p('panel.ai')">
-            <x-panel.sidebar-link :href="route('panel.support.index')" icon="message-square" label="Tickety" />
-            <x-panel.sidebar-link :href="route('panel.ai.index')" icon="zap" label="AI asistent" />
-        </x-panel.sidebar-submenu>
-
-        <x-panel.sidebar-submenu icon="user" label="Můj účet"
-            :active="$p('panel.account') || $p('panel.notifications')">
-            <x-panel.sidebar-link :href="route('panel.account.profile')" icon="user" label="Profil" />
-            <x-panel.sidebar-link :href="route('panel.account.billing')" icon="dollar-sign" label="Fakturační údaje" />
-            <x-panel.sidebar-link :href="route('panel.account.security')" icon="lock" label="Zabezpečení" />
-            <x-panel.sidebar-link :href="route('panel.account.api-tokens')" icon="hash" label="API tokeny" />
-            <x-panel.sidebar-link :href="route('panel.notifications.index')" icon="bell" label="Notifikace" />
-        </x-panel.sidebar-submenu>
-
-{{-- ══════════════════════════════════════════════════════
-     RESELLER PROGRAM (application — visible to all users)
-══════════════════════════════════════════════════════ --}}
-        @if(!$canReseller)
-        <li class="sidebar-list">
-            <i class="fa-solid fa-thumbtack"></i>
-            <a class="sidebar-link sidebar-title link-nav {{ $p('panel.reseller-program') ? 'active' : '' }}"
-               href="{{ route('panel.reseller-program') }}">
-                <i data-feather="briefcase"></i><span>Reseller program</span>
-            </a>
-        </li>
         @endif
 
 {{-- ══════════════════════════════════════════════════════
@@ -254,7 +222,7 @@
             <x-panel.sidebar-link :href="route('admin.ai.index')" icon="zap" label="AI asistent" />
         </x-panel.sidebar-submenu>
 
-        <x-panel.sidebar-submenu icon="settings" label="Pracovni nastroje"
+        <x-panel.sidebar-submenu icon="settings" label="Pracovní nástroje"
             :active="$p('admin.kanban') || $p('admin.tasks') || $p('admin.calendar') || $p('admin.todo') || $p('admin.bookmarks') || $p('admin.file-manager') || $p('admin.social')">
             <x-panel.sidebar-link :href="route('admin.kanban')" icon="trello" label="Kanban board" />
             <x-panel.sidebar-link :href="route('admin.tasks')" icon="check-square" label="Úkoly" />
@@ -287,6 +255,47 @@
             <x-panel.sidebar-link :href="route('admin.sample-page')" icon="file-plus" label="Ukázková stránka" />
         </x-panel.sidebar-submenu>
 
+        @endif
+
+{{-- ══════════════════════════════════════════════════════
+     ÚČET A PODPORA — relevant to every signed-in user,
+     regardless of role, so it lives at the bottom.
+══════════════════════════════════════════════════════ --}}
+        <li class="sidebar-main-title"><div><h6>Účet a podpora</h6></div></li>
+
+        <x-panel.sidebar-submenu icon="user" label="Můj účet"
+            :active="$p('panel.account') || $p('panel.notifications')">
+            <x-panel.sidebar-link :href="route('panel.account.profile')" icon="user" label="Profil" />
+            @if($hasCustomer)
+                <x-panel.sidebar-link :href="route('panel.account.billing')" icon="dollar-sign" label="Fakturační údaje" />
+            @endif
+            <x-panel.sidebar-link :href="route('panel.account.security')" icon="lock" label="Zabezpečení" />
+            <x-panel.sidebar-link :href="route('panel.account.api-tokens')" icon="hash" label="API tokeny" />
+            <x-panel.sidebar-link :href="route('panel.notifications.index')" icon="bell" label="Notifikace" />
+        </x-panel.sidebar-submenu>
+
+        <x-panel.sidebar-submenu icon="life-buoy" label="Podpora"
+            :active="$p('panel.support') || $p('panel.ai')">
+            <x-panel.sidebar-link :href="route('panel.support.index')" icon="message-square" label="Tickety" />
+            <x-panel.sidebar-link :href="route('panel.ai.index')" icon="zap" label="AI asistent" />
+        </x-panel.sidebar-submenu>
+
+        <x-panel.sidebar-submenu icon="book-open" label="Nápověda a obsah"
+            :active="$p('panel.blog') || $p('panel.kb') || $p('panel.faq')">
+            <x-panel.sidebar-link :href="route('panel.faq.index')" icon="help-circle" label="FAQ" />
+            <x-panel.sidebar-link :href="route('panel.kb.index')" icon="book-open" label="Znalostní báze" />
+            <x-panel.sidebar-link :href="route('panel.blog.index')" icon="rss" label="Blog" />
+        </x-panel.sidebar-submenu>
+
+        {{-- Reseller programme pitch — only for users who aren't resellers yet --}}
+        @if(!$canReseller)
+        <li class="sidebar-list">
+            <i class="fa-solid fa-thumbtack"></i>
+            <a class="sidebar-link sidebar-title link-nav {{ $p('panel.reseller-program') ? 'active' : '' }}"
+               href="{{ route('panel.reseller-program') }}">
+                <i data-feather="briefcase"></i><span>Reseller program</span>
+            </a>
+        </li>
         @endif
 
         <li class="sidebar-main-title"><div><h6>Relace</h6></div></li>
