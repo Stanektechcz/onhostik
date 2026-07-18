@@ -14,7 +14,7 @@
     {{-- Filters --}}
     <div class="card mb-3">
         <div class="card-body py-2">
-            <form method="GET" class="d-flex gap-2 align-items-center flex-wrap">
+            <form method="GET" class="flex gap-2 items-center flex-wrap">
                 <select name="admin_id" class="form-select form-select-sm" style="max-width:200px">
                     <option value="">Všichni admini</option>
                     @foreach($admins as $adm)

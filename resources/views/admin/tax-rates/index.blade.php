@@ -6,8 +6,8 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="Sazby daní">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
@@ -16,7 +16,7 @@
                                 <th>Kód země</th>
                                 <th>Název</th>
                                 <th>Typ</th>
-                                <th class="text-end">Sazba (%)</th>
+                                <th class="text-right">Sazba (%)</th>
                                 <th>Platnost od</th>
                                 <th>Aktivní</th>
                                 <th></th>
@@ -28,7 +28,7 @@
                                 <td><strong>{{ $rate->country_code }}</strong></td>
                                 <td>{{ $rate->name }}</td>
                                 <td><span class="badge bg-secondary">{{ $rate->type }}</span></td>
-                                <td class="text-end">{{ $rate->rate_percent }}%</td>
+                                <td class="text-right">{{ $rate->rate_percent }}%</td>
                                 <td>{{ $rate->effective_from?->format('d.m.Y') ?? '—' }}</td>
                                 <td>
                                     @if($rate->is_active)
@@ -38,7 +38,7 @@
                                     @endif
                                 </td>
                                 <td>
-                                    <form method="POST" action="{{ route('admin.tax-rates.destroy', $rate) }}" class="d-inline">
+                                    <form method="POST" action="{{ route('admin.tax-rates.destroy', $rate) }}" class="inline">
                                         @csrf @method('DELETE')
                                         <button class="btn btn-sm btn-outline-danger">Smazat</button>
                                     </form>
@@ -54,7 +54,7 @@
             </x-panel.card>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Přidat sazbu">
                 <form method="POST" action="{{ route('admin.tax-rates.store') }}">
                     @csrf
@@ -82,7 +82,7 @@
                         <input type="checkbox" name="is_active" class="form-check-input" id="tax_is_active" value="1" @checked(old('is_active', true))>
                         <label class="form-check-label" for="tax_is_active">Aktivní</label>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Přidat</button>
+                    <button type="submit" class="btn btn-primary w-full">Přidat</button>
                 </form>
             </x-panel.card>
         </div>

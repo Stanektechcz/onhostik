@@ -37,7 +37,7 @@
                             @endif
                         </td>
                         @endforeach
-                        <td class="text-center fw-bold">
+                        <td class="text-center font-bold">
                             {{ array_sum(array_map(fn($b) => $data[$segment->value][$b] ?? 0, array_keys($buckets))) }}
                         </td>
                     </tr>
@@ -51,14 +51,14 @@
         <div class="table-responsive">
             <table class="table table-sm align-middle mb-0">
                 <thead>
-                    <tr><th>Zákazník</th><th>Segment</th><th class="text-end">Churn skóre</th></tr>
+                    <tr><th>Zákazník</th><th>Segment</th><th class="text-right">Churn skóre</th></tr>
                 </thead>
                 <tbody>
                     @foreach($topRisk as $s)
                     <tr>
                         <td>{{ $s->customer_name ?? ('Zákazník #' . $s->customer_id) }}</td>
                         <td>{{ $s->segment ?? '—' }}</td>
-                        <td class="text-end">
+                        <td class="text-right">
                             <span class="badge bg-danger">{{ $s->churn_risk_score }}</span>
                         </td>
                     </tr>

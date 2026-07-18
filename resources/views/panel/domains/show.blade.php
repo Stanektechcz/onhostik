@@ -34,7 +34,7 @@
                         </div>
                         <div class="col-span-3 sm:col-span-6">
                             <p class="f-light f-12 mb-1">{{ __('panel.domains.registrar') }}</p>
-                            <p class="mb-0 f-w-500 text-uppercase">{{ $domain->registrar ?? '—' }}</p>
+                            <p class="mb-0 f-w-500 uppercase">{{ $domain->registrar ?? '—' }}</p>
                         </div>
                         <div class="col-span-3 sm:col-span-6">
                             <p class="f-light f-12 mb-1">{{ __('panel.domains.registered_at') }}</p>
@@ -84,7 +84,7 @@
 
                     {{-- Nameservers --}}
                     <div class="border-top pt-3 mt-1">
-                        <div class="d-flex align-items-center justify-content-between mb-2">
+                        <div class="flex items-center justify-between mb-2">
                             <p class="f-light f-12 mb-0">{{ __('panel.domains.nameservers') }}</p>
                             <button type="button" class="btn btn-xs btn-outline-secondary"
                                     data-bs-toggle="collapse" data-bs-target="#ns-edit-form">
@@ -96,7 +96,7 @@
                         @if(!empty($domain->nameservers))
                             <ul class="list-unstyled mb-2">
                                 @foreach($domain->nameservers as $ns)
-                                    <li class="mb-1 d-flex align-items-center gap-2">
+                                    <li class="mb-1 flex items-center gap-2">
                                         <i data-feather="server" class="font-secondary" style="width:12px;height:12px;flex-shrink:0"></i>
                                         <span class="f-13 font-monospace">{{ $ns }}</span>
                                     </li>
@@ -136,13 +136,13 @@
                     </div>
 
                     {{-- DNS Management --}}
-                    <div class="border-top pt-3 mt-1 d-flex align-items-center justify-content-between">
+                    <div class="border-top pt-3 mt-1 flex items-center justify-between">
                         <div>
                             <p class="f-w-500 mb-1">{{ __('panel.domains.dns_records') }}</p>
                             <p class="f-light f-12 mb-0">{{ __('panel.domains.dns_description') }}</p>
                         </div>
                         <a href="{{ route('panel.domains.dns', $domain) }}"
-                           class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1">
+                           class="btn btn-outline-primary btn-sm flex items-center gap-1">
                             <i data-feather="globe" style="width:13px;height:13px"></i>
                             {{ __('panel.dns.manage') }}
                         </a>
@@ -172,8 +172,8 @@
 
                 {{-- Auto-renew toggle --}}
                 <x-panel.card :title="__('panel.domains.auto_renew')">
-                    <div class="d-flex align-items-center justify-content-between">
-                        <div class="d-flex align-items-center gap-2">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
                             @if($domain->auto_renew)
                                 <span class="badge badge-light-success">ON</span>
                                 <span class="f-12 f-light">{{ __('panel.domains.auto_renew_on') }}</span>

@@ -39,7 +39,7 @@
                         <td>{{ $transferRequest->admin_note ? \Illuminate\Support\Str::limit($transferRequest->admin_note, 60) : '—' }}</td>
                         <td>{{ $transferRequest->created_at?->format('d.m.Y H:i') }}</td>
                         <td>
-                            <form method="POST" action="{{ route('admin.domain-transfer-requests.update', $transferRequest) }}" class="d-flex gap-1 align-items-center">
+                            <form method="POST" action="{{ route('admin.domain-transfer-requests.update', $transferRequest) }}" class="flex gap-1 items-center">
                                 @csrf @method('PATCH')
                                 <select name="status" class="form-select form-select-sm" style="min-width:130px">
                                     @foreach(['pending','processing','completed','failed','cancelled'] as $s)

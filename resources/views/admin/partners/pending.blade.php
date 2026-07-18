@@ -5,7 +5,7 @@
 @section('content')
 <div class="container-fluid py-4">
 
-    <div class="d-flex align-items-center justify-content-between mb-3">
+    <div class="flex items-center justify-between mb-3">
         <h1 class="h4 mb-0">Čekající přihlášky do partnerského programu</h1>
         <a href="{{ route('admin.partners.index') }}" class="btn btn-sm btn-outline-secondary">Všichni partneři</a>
     </div>
@@ -43,18 +43,18 @@
                         @foreach($pending as $partner)
                             <tr>
                                 <td>
-                                    <div class="fw-semibold small">{{ $partner->user?->name ?? '—' }}</div>
+                                    <div class="font-semibold small">{{ $partner->user?->name ?? '—' }}</div>
                                     <div class="text-muted" style="font-size:11px">{{ $partner->user?->email ?? '' }}</div>
                                 </td>
                                 <td><code class="small">{{ $partner->referral_code }}</code></td>
                                 <td class="small">{{ $partner->payout_method ?? '—' }}</td>
                                 <td class="small text-muted">{{ $partner->created_at->format('d.m.Y H:i') }}</td>
                                 <td>
-                                    <div class="d-flex gap-1 align-items-center">
+                                    <div class="flex gap-1 items-center">
                                         <a href="{{ route('admin.partners.show', $partner) }}"
                                            class="btn btn-xs btn-sm btn-outline-primary">Detail</a>
 
-                                        <form method="POST" action="{{ route('admin.partners.approve', $partner) }}" class="d-inline">
+                                        <form method="POST" action="{{ route('admin.partners.approve', $partner) }}" class="inline">
                                             @csrf
                                             <button type="submit" class="btn btn-xs btn-sm btn-success"
                                                     onclick="return confirm('Schválit partnera {{ addslashes($partner->user?->name ?? '') }}?')">

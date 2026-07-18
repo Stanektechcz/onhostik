@@ -8,7 +8,7 @@
 
     {{-- Filter --}}
     <x-panel.card title="Filtr">
-        <form method="GET" action="{{ route('admin.service-health-incidents.index') }}" class="d-flex gap-2 align-items-end flex-wrap">
+        <form method="GET" action="{{ route('admin.service-health-incidents.index') }}" class="flex gap-2 items-end flex-wrap">
             <div>
                 <label class="form-label mb-1 small">Service ID</label>
                 <input type="number" name="service_id" class="form-control form-control-sm" value="{{ $serviceId }}" placeholder="všechny" style="width:140px">
@@ -71,12 +71,12 @@
                         <td>{{ $incident->id }}</td>
                         <td>{{ $incident->service_id }}</td>
                         <td><span class="badge bg-{{ $severityColor }}">{{ $incident->severity }}</span></td>
-                        <td class="text-truncate" style="max-width:240px">{{ $incident->title }}</td>
+                        <td class="truncate" style="max-width:240px">{{ $incident->title }}</td>
                         <td><span class="badge bg-{{ $statusColor }}">{{ $statusLabel }}</span></td>
                         <td class="text-nowrap">{{ $incident->created_at->format('d.m.Y H:i') }}</td>
                         <td class="text-nowrap">{{ $incident->resolved_at ? $incident->resolved_at->format('d.m.Y H:i') : '—' }}</td>
                         <td>
-                            <form method="POST" action="{{ route('admin.service-health-incidents.update', $incident->id) }}" class="d-flex gap-1">
+                            <form method="POST" action="{{ route('admin.service-health-incidents.update', $incident->id) }}" class="flex gap-1">
                                 @csrf @method('PATCH')
                                 <select name="status" class="form-select form-select-sm" style="width:140px">
                                     <option value="open"          @selected($incident->status === 'open')>Otevřený</option>
@@ -97,17 +97,17 @@
 
     {{-- Create form --}}
     <x-panel.card title="Nový incident">
-        <form method="POST" action="{{ route('admin.service-health-incidents.store') }}" class="row g-3">
+        <form method="POST" action="{{ route('admin.service-health-incidents.store') }}" class="grid grid-cols-12 gap-3">
             @csrf
 
-            <div class="col-md-2">
+            <div class="col-span-12 md:col-span-2">
                 <label class="form-label">Service ID <span class="text-danger">*</span></label>
                 <input type="number" name="service_id" class="form-control @error('service_id') is-invalid @enderror"
                        value="{{ old('service_id', $serviceId) }}" required>
                 @error('service_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
 
-            <div class="col-md-2">
+            <div class="col-span-12 md:col-span-2">
                 <label class="form-label">Závažnost <span class="text-danger">*</span></label>
                 <select name="severity" class="form-select @error('severity') is-invalid @enderror" required>
                     <option value="">— vyberte —</option>
@@ -118,7 +118,7 @@
                 @error('severity')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
 
-            <div class="col-md-2">
+            <div class="col-span-12 md:col-span-2">
                 <label class="form-label">Výchozí stav <span class="text-danger">*</span></label>
                 <select name="status" class="form-select @error('status') is-invalid @enderror" required>
                     <option value="">— vyberte —</option>
@@ -129,20 +129,20 @@
                 @error('status')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
 
-            <div class="col-md-6">
+            <div class="col-span-12 md:col-span-6">
                 <label class="form-label">Název <span class="text-danger">*</span></label>
                 <input type="text" name="title" class="form-control @error('title') is-invalid @enderror"
                        value="{{ old('title') }}" maxlength="255" required>
                 @error('title')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
 
-            <div class="col-12">
+            <div class="col-span-12">
                 <label class="form-label">Popis</label>
                 <textarea name="description" rows="4" class="form-control @error('description') is-invalid @enderror">{{ old('description') }}</textarea>
                 @error('description')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
 
-            <div class="col-12">
+            <div class="col-span-12">
                 <button type="submit" class="btn btn-primary">Vytvořit incident</button>
             </div>
         </form>

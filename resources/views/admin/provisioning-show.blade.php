@@ -15,35 +15,35 @@
         {{-- Task detail --}}
         <div class="col-span-8 xl:col-span-12">
             <x-panel.card :title="'Task #' . $task->id . ' — ' . $task->operation">
-                <div class="row g-3 mb-3">
-                    <div class="col-md-4">
+                <div class="grid grid-cols-12 gap-3 mb-3">
+                    <div class="col-span-12 md:col-span-4">
                         <div class="f-11 f-light mb-1">Status</div>
                         <span class="badge badge-light-{{ $task->status->color() }} f-12">{{ $task->status->label() }}</span>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-span-12 md:col-span-4">
                         <div class="f-11 f-light mb-1">Pokusy</div>
                         <span class="f-13 f-w-600">{{ $task->attempts }} / {{ $task->max_attempts }}</span>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-span-12 md:col-span-4">
                         <div class="f-11 f-light mb-1">Operace</div>
                         <code class="f-12">{{ $task->operation }}</code>
                     </div>
                     @if($task->error_message)
-                        <div class="col-12">
+                        <div class="col-span-12">
                             <div class="f-11 f-light mb-1">Chyba</div>
                             <div class="alert alert-danger f-12 mb-0" style="white-space:pre-wrap;">{{ $task->error_message }}</div>
                         </div>
                     @endif
-                    <div class="col-md-4">
+                    <div class="col-span-12 md:col-span-4">
                         <div class="f-11 f-light mb-1">Zahájeno</div>
                         <span class="f-12">{{ $task->started_at?->format('d.m.Y H:i:s') ?? '—' }}</span>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-span-12 md:col-span-4">
                         <div class="f-11 f-light mb-1">Dokončeno</div>
                         <span class="f-12">{{ $task->finished_at?->format('d.m.Y H:i:s') ?? '—' }}</span>
                     </div>
                     @if($task->external_request_id)
-                        <div class="col-md-4">
+                        <div class="col-span-12 md:col-span-4">
                             <div class="f-11 f-light mb-1">External request ID</div>
                             <code class="f-11">{{ $task->external_request_id }}</code>
                         </div>
@@ -114,7 +114,7 @@
                 @if($task->service)
                     <div class="mb-2">
                         <span class="f-11 f-light">Název:</span>
-                        <span class="f-w-600 f-13 d-block">{{ $task->service->label }}</span>
+                        <span class="f-w-600 f-13 block">{{ $task->service->label }}</span>
                     </div>
                     <div class="mb-2">
                         <span class="f-11 f-light">Status:</span>
@@ -123,7 +123,7 @@
                     @if($task->service->customer)
                         <div class="mb-2">
                             <span class="f-11 f-light">Zákazník:</span>
-                            <a href="{{ route('admin.customers.show', $task->service->customer) }}" class="f-12 d-block">
+                            <a href="{{ route('admin.customers.show', $task->service->customer) }}" class="f-12 block">
                                 {{ $task->service->customer->email }}
                             </a>
                         </div>

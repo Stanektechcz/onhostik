@@ -3,8 +3,8 @@
 @section('content')
 <div class="authentication-main mt-0">
     <div class="container-fluid p-0">
-        <div class="row m-0">
-            <div class="col-12 p-0">
+        <div class="grid grid-cols-12 m-0">
+            <div class="col-span-12 p-0">
                 <div class="login-card login-dark">
                     <div>
                         <div>
@@ -27,7 +27,7 @@
                                 </div>
                                 <div class="form-group">
                                     <label class="col-form-label">Heslo</label>
-                                    <div class="form-input position-relative">
+                                    <div class="form-input relative">
                                         <input class="form-control" type="password" name="password"
                                                placeholder="*********" required>
                                         <div class="show-hide">

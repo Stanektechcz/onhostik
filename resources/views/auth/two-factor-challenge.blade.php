@@ -11,8 +11,8 @@
 @section('content')
 <div class="authentication-main">
     <div class="container-fluid p-0">
-        <div class="row m-0 justify-content-center align-items-center min-vh-100">
-            <div class="col-12 col-md-6 col-lg-4">
+        <div class="grid grid-cols-12 m-0 justify-center items-center min-h-screen">
+            <div class="col-span-12 col-span-12 md:col-span-6 col-span-12 lg:col-span-4">
                 <div class="login-card login-dark">
                     <div>
                         <div class="text-center mb-4">

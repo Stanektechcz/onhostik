@@ -7,37 +7,6 @@
 
 @section('title', 'Pokladna | OnHost')
 
-@push('styles')
-<style>
-.stepper-horizontal { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.stepper-horizontal .step { flex: 1; position: relative; text-align: center; }
-.stepper-horizontal .step-circle { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    margin: 0 auto 6px; font-weight: 600; font-size: 15px; background: rgba(var(--light-background),1); color: var(--body-font-color); border: 2px solid rgba(var(--light-background),1); }
-.stepper-horizontal .step.active .step-circle, .stepper-horizontal .step.editing .step-circle { background: rgba(var(--theme-default),1); color: #fff; border-color: rgba(var(--theme-default),1); }
-.stepper-horizontal .step.done .step-circle { background: #54ba4a; color: #fff; border-color: #54ba4a; }
-.stepper-horizontal .step-title { font-size: 13px; color: var(--body-font-color); }
-.stepper-horizontal .step-bar-right { position: absolute; top: 20px; right: 0; width: 50%; height: 2px; background: rgba(var(--light-background),1); }
-.stepper-horizontal .step-bar-left { position: absolute; top: 20px; left: 0; width: 50%; height: 2px; background: rgba(var(--light-background),1); }
-.stepper-horizontal .step:first-child .step-bar-left { display: none; }
-.stepper-horizontal .step:last-child .step-bar-right { display: none; }
-
-/* Shipping form sections */
-.card-wrapper { border: 1px solid rgba(var(--light-background),1); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
-.card-wrapper.light-card { background: rgba(var(--light-background),.4); }
-.collect-address { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.shipping-address span { display: block; font-size: 12px; color: var(--body-font-color); margin-bottom: 4px; }
-
-/* Summary */
-.summery-contain li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(var(--light-background),1); }
-.summery-contain li h6 { flex: 1; margin: 0; }
-.summery-contain li h6 span { display: block; font-size: 11px; font-weight: 400; color: var(--body-font-color); opacity: .7; }
-.summery-contain li h6.price { flex: 0; white-space: nowrap; color: rgba(var(--theme-default),1); }
-.summary-total li { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(var(--light-background),1); }
-.summary-total li:last-child { border: none; }
-.summary-total h6.price { color: rgba(var(--theme-default),1); font-weight: 600; }
-</style>
-@endpush
-
 @section('content')
 <div class="container-fluid">
     <x-panel.flash />
@@ -45,7 +14,7 @@
     @if(!$plan)
     <div class="card">
         <div class="card-body text-center py-5">
-            <i data-feather="shopping-cart" class="empty-state-icon mb-3 d-block mx-auto"></i>
+            <i data-feather="shopping-cart" class="empty-state-icon mb-3 block mx-auto"></i>
             <h5 class="f-light">Nebyl vybrán žádný tarif</h5>
             <a href="{{ route('panel.orders.create') }}" class="btn btn-primary mt-3">Vybrat tarif</a>
         </div>
@@ -134,7 +103,7 @@
                                     <div class="col-span-12">
                                         <label class="form-label">Slevový kód <small class="f-light">(volitelné)</small></label>
                                         <div class="input-group">
-                                            <input class="form-control text-uppercase" type="text" id="discount-input"
+                                            <input class="form-control uppercase" type="text" id="discount-input"
                                                    placeholder="PROMO2026" maxlength="32">
                                             <button class="btn btn-outline-primary" type="button" onclick="applyDiscount()">
                                                 Použít
@@ -156,8 +125,8 @@
                             <div class="stepper-two shipping-wizard" id="wizard-step-2" style="display:none;">
                                 <div class="grid grid-cols-12 gap-3">
                                     <div class="col-span-12">
-                                        <div class="card-wrapper custom-border rounded-3 light-card">
-                                            <div class="d-flex align-items-start gap-3">
+                                        <div class="card-wrapper custom-border rounded light-card">
+                                            <div class="flex items-start gap-3">
                                                 <div class="plan-thumb plan-thumb-lg">
                                                     <i data-feather="package"></i>
                                                 </div>
@@ -166,14 +135,14 @@
                                                     <p class="f-light f-12 mb-1">{{ $plan->billing_cycle->label() }}</p>
                                                     @php $res = (array)($plan->resources ?? []); @endphp
                                                     @if(!empty($res))
-                                                    <div class="d-flex gap-2 flex-wrap">
+                                                    <div class="flex gap-2 flex-wrap">
                                                         @foreach(array_slice($res, 0, 4) as $k => $v)
                                                         <span class="badge badge-light-primary">{{ ucfirst($k) }}: {{ $v }}</span>
                                                         @endforeach
                                                     </div>
                                                     @endif
                                                 </div>
-                                                <div class="text-end">
+                                                <div class="text-right">
                                                     <h5 class="txt-primary mb-0">{{ number_format($priceVal, 0, ',', ' ') }} {{ $currency }}</h5>
                                                     <small class="f-light">/ {{ $plan->billing_cycle->label() }}</small>
                                                 </div>
@@ -209,7 +178,7 @@
                                     @endphp
                                     @foreach($paymentMethods as $i => $method)
                                         <div class="col-span-12">
-                                            <div class="card-wrapper custom-border rounded-3 light-card payment-method-option {{ $i === 0 ? 'selected' : '' }}"
+                                            <div class="card-wrapper custom-border rounded light-card payment-method-option {{ $i === 0 ? 'selected' : '' }}"
                                                  data-radio="{{ $method['id'] }}">
                                                 <div class="grow">
                                                     <div class="form-check radio radio-primary">
@@ -231,7 +200,7 @@
                                 <div class="grid grid-cols-12 gap-3">
                                     <div class="col-span-12">
                                         <div class="text-center py-4">
-                                            <i data-feather="check-circle" class="checkout-success-icon font-success mb-3 d-block mx-auto"></i>
+                                            <i data-feather="check-circle" class="checkout-success-icon font-success mb-3 block mx-auto"></i>
                                             <h5>Objednávka odeslána!</h5>
                                             <p class="f-light">Vaše objednávka bude zpracována. Potvrzení dostanete e-mailem.</p>
                                         </div>
@@ -242,7 +211,7 @@
                         </div>{{-- /shipping-content --}}
 
                         {{-- Wizard nav --}}
-                        <div class="wizard-footer d-flex gap-2 justify-content-end mt-3">
+                        <div class="wizard-footer flex gap-2 justify-end mt-3">
                             <button class="btn button-light-primary" id="backbtn" onclick="wizardBack()" style="display:none;">
                                 Zpět
                             </button>

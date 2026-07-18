@@ -39,7 +39,7 @@
                     </div>
                     <div class="card-body pt-0">
                         @foreach($customers as $c)
-                        <div class="info-block d-flex align-items-start gap-3 py-2 border-bottom">
+                        <div class="info-block flex items-start gap-3 py-2 border-bottom">
                             <div>
                                 <a href="{{ route('admin.customers.show', $c) }}" class="f-w-600">{{ $c->company_name ?? $c->user?->name }}</a>
                                 <p class="f-light f-12 mb-0">{{ $c->email }}</p>
@@ -60,7 +60,7 @@
                     </div>
                     <div class="card-body pt-0">
                         @foreach($orders as $o)
-                        <div class="info-block d-flex align-items-center gap-3 py-2 border-bottom">
+                        <div class="info-block flex items-center gap-3 py-2 border-bottom">
                             <div class="flex-1">
                                 <a href="{{ route('admin.orders.show', $o) }}" class="f-w-600">#{{ strtoupper(substr($o->uuid, 0, 8)) }}</a>
                                 <span class="f-light f-12 ms-2">{{ $o->created_at?->format('d.m.Y') }}</span>
@@ -81,7 +81,7 @@
                     </div>
                     <div class="card-body pt-0">
                         @foreach($invoices as $inv)
-                        <div class="info-block d-flex align-items-center gap-3 py-2 border-bottom">
+                        <div class="info-block flex items-center gap-3 py-2 border-bottom">
                             <div class="flex-1">
                                 <a href="{{ route('admin.invoices.show', $inv) }}" class="f-w-600">{{ $inv->number }}</a>
                                 <span class="f-light f-12 ms-2">{{ $inv->issue_date?->format('d.m.Y') }}</span>
@@ -102,7 +102,7 @@
                     </div>
                     <div class="card-body pt-0">
                         @foreach($services as $s)
-                        <div class="info-block d-flex align-items-center gap-3 py-2 border-bottom">
+                        <div class="info-block flex items-center gap-3 py-2 border-bottom">
                             <div class="flex-1">
                                 <a href="{{ route('admin.services.show', $s) }}" class="f-w-600">{{ $s->label ?? "Služba #{$s->id}" }}</a>
                                 <span class="f-light f-12 ms-2">{{ $s->product?->name ?? '—' }}</span>
@@ -124,7 +124,7 @@
                     </div>
                     <div class="card-body pt-0">
                         @foreach($tickets as $t)
-                        <div class="info-block d-flex align-items-center gap-3 py-2 border-bottom">
+                        <div class="info-block flex items-center gap-3 py-2 border-bottom">
                             <div class="flex-1">
                                 <a href="{{ route('admin.support.show', $t) }}" class="f-w-600">{{ $t->subject }}</a>
                                 <p class="f-light f-11 mb-0">{{ $t->customer?->user?->email ?? '—' }}</p>
@@ -139,7 +139,7 @@
                 @if($total === 0)
                 <div class="card">
                     <div class="card-body text-center py-5">
-                        <i data-feather="search" style="width:48px;height:48px;" class="text-muted mb-3 d-block mx-auto"></i>
+                        <i data-feather="search" style="width:48px;height:48px;" class="text-muted mb-3 block mx-auto"></i>
                         <h5 class="f-light">Žádné výsledky pro „{{ $query }}"</h5>
                         <p class="f-light f-12">Zkuste jiné klíčové slovo nebo změňte hledaný výraz.</p>
                     </div>
@@ -163,7 +163,7 @@
                                 ['Podpora','admin.support.index','message-square'],
                             ] as [$label, $route, $icon])
                             <li class="py-2 border-bottom">
-                                <a href="{{ route($route) }}" class="d-flex align-items-center gap-2 f-14">
+                                <a href="{{ route($route) }}" class="flex items-center gap-2 f-14">
                                     <i data-feather="{{ $icon }}" style="width:15px;height:15px;opacity:.5;"></i>
                                     {{ $label }}
                                 </a>
@@ -178,7 +178,7 @@
         @else
         <div class="card">
             <div class="card-body text-center py-5">
-                <i data-feather="search" style="width:48px;height:48px;" class="text-muted mb-3 d-block mx-auto"></i>
+                <i data-feather="search" style="width:48px;height:48px;" class="text-muted mb-3 block mx-auto"></i>
                 <h5 class="f-light">Zadejte hledaný výraz</h5>
                 <p class="f-light f-12">Hledejte zákazníky, faktury, objednávky, produkty…</p>
             </div>

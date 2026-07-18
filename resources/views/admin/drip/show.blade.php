@@ -12,7 +12,7 @@
     <x-panel.flash />
 
     {{-- Header --}}
-    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div>
             <h4 class="mb-1">{{ $drip->name }}</h4>
             <div class="f-light f-12">
@@ -20,7 +20,7 @@
                 &bull; {{ $activeEnrollments }} aktivních &bull; {{ $completedEnrollments }} dokončených
             </div>
         </div>
-        <div class="d-flex gap-2">
+        <div class="flex gap-2">
             <form method="POST" action="{{ route('admin.drip.toggle', $drip) }}">
                 @csrf
                 <button type="submit" class="btn btn-sm btn-{{ $drip->is_active ? 'outline-warning' : 'outline-success' }}">
@@ -60,9 +60,9 @@
                                         <div class="f-11 f-light">{{ Str::limit(strip_tags($step->body_html), 80) }}</div>
                                     </td>
                                     <td class="text-center">+{{ $step->delay_days }} d</td>
-                                    <td class="text-end">
+                                    <td class="text-right">
                                         <form method="POST" action="{{ route('admin.drip.step.destroy', [$drip, $step]) }}"
-                                              class="d-inline"
+                                              class="inline"
                                               onsubmit="return confirm('Smazat krok?')">
                                             @csrf @method('DELETE')
                                             <button class="btn btn-xs btn-outline-danger">

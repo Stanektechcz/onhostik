@@ -10,8 +10,8 @@
         <a href="{{ route('admin.invoices.show', $invoice) }}" class="btn btn-sm btn-outline-secondary">&larr; Zpět na fakturu</a>
     </div>
 
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="Zaznamenané částečné platby">
                 @if($payments->isEmpty())
                     <p class="text-muted">Žádné částečné platby.</p>
@@ -19,28 +19,28 @@
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
                         <thead>
-                            <tr><th>Datum</th><th>Metoda</th><th class="text-end">Částka</th><th>Poznámka</th><th>Admin</th></tr>
+                            <tr><th>Datum</th><th>Metoda</th><th class="text-right">Částka</th><th>Poznámka</th><th>Admin</th></tr>
                         </thead>
                         <tbody>
                             @foreach($payments as $p)
                             <tr>
                                 <td>{{ $p->paid_at?->format('d.m.Y') }}</td>
                                 <td>{{ $p->payment_method }}</td>
-                                <td class="text-end">{{ number_format($p->amount_haler / 100, 2) }} Kč</td>
+                                <td class="text-right">{{ number_format($p->amount_haler / 100, 2) }} Kč</td>
                                 <td class="text-muted small">{{ $p->note ?? '—' }}</td>
                                 <td class="text-muted small">{{ $p->adminUser?->name ?? '—' }}</td>
                             </tr>
                             @endforeach
                         </tbody>
                         <tfoot>
-                            <tr class="fw-bold">
+                            <tr class="font-bold">
                                 <td colspan="2">Celkem zaplaceno</td>
-                                <td class="text-end">{{ number_format($totalPaidHaler / 100, 2) }} Kč</td>
+                                <td class="text-right">{{ number_format($totalPaidHaler / 100, 2) }} Kč</td>
                                 <td colspan="2"></td>
                             </tr>
                             <tr class="@if($totalPaidHaler >= $invoiceTotalHaler) text-success @else text-danger @endif">
                                 <td colspan="2">Zbývá doplatit</td>
-                                <td class="text-end fw-bold">{{ number_format(max(0, $invoiceTotalHaler - $totalPaidHaler) / 100, 2) }} Kč</td>
+                                <td class="text-right font-bold">{{ number_format(max(0, $invoiceTotalHaler - $totalPaidHaler) / 100, 2) }} Kč</td>
                                 <td colspan="2"></td>
                             </tr>
                         </tfoot>
@@ -50,7 +50,7 @@
             </x-panel.card>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Přidat platbu">
                 <form method="POST" action="{{ route('admin.invoice-partial-payments.store', $invoice) }}">
                     @csrf
@@ -76,7 +76,7 @@
                         <label class="form-label">Poznámka</label>
                         <input type="text" name="note" class="form-control" maxlength="500">
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Uložit platbu</button>
+                    <button type="submit" class="btn btn-primary w-full">Uložit platbu</button>
                 </form>
             </x-panel.card>
         </div>

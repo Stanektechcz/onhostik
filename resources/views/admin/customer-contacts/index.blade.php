@@ -15,9 +15,9 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row g-3">
+    <div class="grid grid-cols-12 gap-3">
         {{-- Add contact form --}}
-        <div class="col-lg-4">
+        <div class="col-span-12 lg:col-span-4">
             <div class="card">
                 <div class="card-header card-no-border"><h5>Přidat kontakt</h5></div>
                 <div class="card-body">
@@ -67,14 +67,14 @@
                                    id="isPrimary" @checked(old('is_primary'))>
                             <label class="form-check-label f-12" for="isPrimary">Primární kontakt</label>
                         </div>
-                        <button type="submit" class="btn btn-primary btn-sm w-100">Přidat kontakt</button>
+                        <button type="submit" class="btn btn-primary btn-sm w-full">Přidat kontakt</button>
                     </form>
                 </div>
             </div>
         </div>
 
         {{-- Contact list --}}
-        <div class="col-lg-8">
+        <div class="col-span-12 lg:col-span-8">
             <div class="card">
                 <div class="card-header card-no-border">
                     <h5>Kontakty ({{ $contacts->count() }})</h5>
@@ -84,22 +84,22 @@
                         <p class="text-center f-light py-4">Žádné kontakty. Přidejte první kontakt.</p>
                     @else
                         @foreach($contacts as $contact)
-                        <div class="d-flex align-items-start gap-3 py-3 border-bottom">
+                        <div class="flex items-start gap-3 py-3 border-bottom">
                             <div class="flex-1">
-                                <div class="d-flex align-items-center gap-2">
+                                <div class="flex items-center gap-2">
                                     <span class="f-w-500">{{ $contact->name }}</span>
                                     @if($contact->is_primary)
                                         <span class="badge badge-light-success f-10">Primární</span>
                                     @endif
                                     <span class="badge badge-light-secondary f-10">{{ $contact->roleLabel() }}</span>
                                 </div>
-                                <div class="d-flex gap-3 mt-1 f-12 f-light">
+                                <div class="flex gap-3 mt-1 f-12 f-light">
                                     <span><i data-feather="mail" style="width:11px;height:11px;"></i> {{ $contact->email }}</span>
                                     @if($contact->phone)
                                         <span><i data-feather="phone" style="width:11px;height:11px;"></i> {{ $contact->phone }}</span>
                                     @endif
                                 </div>
-                                <div class="d-flex gap-2 mt-1 f-11">
+                                <div class="flex gap-2 mt-1 f-11">
                                     @if($contact->receives_invoices)
                                         <span class="badge badge-light-primary">Faktury</span>
                                     @endif
@@ -111,7 +111,7 @@
                                     @endif
                                 </div>
                             </div>
-                            <div class="d-flex gap-1 flex-shrink-0">
+                            <div class="flex gap-1 shrink-0">
                                 <button type="button" class="btn btn-outline-secondary btn-xs"
                                         data-bs-toggle="modal"
                                         data-bs-target="#editContactModal{{ $contact->id }}">

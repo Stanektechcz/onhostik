@@ -44,8 +44,8 @@
                             <th class="f-12 f-w-600">#</th>
                             <th class="f-12 f-w-600">Článek</th>
                             <th class="f-12 f-w-600">Kategorie</th>
-                            <th class="f-12 f-w-600 text-end">Zobrazení</th>
-                            <th class="f-12 f-w-600 text-end">Podíl</th>
+                            <th class="f-12 f-w-600 text-right">Zobrazení</th>
+                            <th class="f-12 f-w-600 text-right">Podíl</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -59,7 +59,7 @@
                             <td>
                                 <span class="badge badge-light-secondary f-11">{{ $article->category ?? 'Obecné' }}</span>
                             </td>
-                            <td class="text-end">
+                            <td class="text-right">
                                 <span class="f-w-600 f-13">{{ number_format($article->views_count) }}</span>
                                 {{-- Progress bar --}}
                                 @if($topArticles->first()->views_count > 0)
@@ -69,7 +69,7 @@
                                 </div>
                                 @endif
                             </td>
-                            <td class="text-end f-light f-12">
+                            <td class="text-right f-light f-12">
                                 {{ $totalViews > 0 ? round($article->views_count / $totalViews * 100, 1) : 0 }} %
                             </td>
                             <td>

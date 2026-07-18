@@ -4,8 +4,8 @@
 @section('content')
 <div class="container-fluid">
     <div class="page-header">
-        <div class="row align-items-center">
-            <div class="col-sm-6">
+        <div class="grid grid-cols-12 items-center">
+            <div class="col-span-12 sm:col-span-6">
                 <h3>SLA Monitor</h3>
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{{ route('admin.dashboard') }}">Přehled</a></li>
@@ -13,7 +13,7 @@
                     <li class="breadcrumb-item active">SLA Monitor</li>
                 </ol>
             </div>
-            <div class="col-sm-6 text-end">
+            <div class="col-span-12 sm:col-span-6 text-right">
                 <span class="badge bg-danger fs-6 me-2">
                     {{ $breached->count() }} porušeno
                 </span>
@@ -29,7 +29,7 @@
     {{-- At-risk tickets --}}
     @if ($atRisk->isNotEmpty())
     <div class="card mb-4 border-warning">
-        <div class="card-header bg-warning-subtle d-flex justify-content-between align-items-center">
+        <div class="card-header bg-warning-subtle flex justify-between items-center">
             <h5 class="mb-0">
                 <i data-feather="clock" class="me-1 text-warning"></i>
                 V ohrožení — SLA vyprší do 2 hodin
@@ -62,7 +62,7 @@
                             </span>
                         </td>
                         <td>{{ $ticket->sla_deadline?->format('d.m.Y H:i') }}</td>
-                        <td class="text-warning fw-semibold">
+                        <td class="text-warning font-semibold">
                             {{ $ticket->sla_deadline?->diffForHumans() }}
                         </td>
                         <td>
@@ -80,7 +80,7 @@
 
     {{-- Breached tickets --}}
     <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header flex justify-between items-center">
             <h5 class="mb-0">
                 <i data-feather="alert-triangle" class="me-1 text-danger"></i>
                 Porušené SLA — neuzavřené tikety

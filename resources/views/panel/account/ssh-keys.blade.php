@@ -51,7 +51,7 @@
                                     <td class="text-muted f-12">
                                         {{ $key->created_at->format('d.m.Y') }}
                                     </td>
-                                    <td class="text-end">
+                                    <td class="text-right">
                                         <form method="POST" action="{{ route('panel.account.ssh-keys.destroy', $key) }}"
                                               onsubmit="return confirm('Opravdu smazat klíč «{{ $key->name }}»?')">
                                             @csrf @method('DELETE')

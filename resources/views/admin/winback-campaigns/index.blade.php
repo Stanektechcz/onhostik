@@ -46,7 +46,7 @@
                             <tr>
                                 <th>Název</th>
                                 <th>Segment</th>
-                                <th class="text-end">Odesláno</th>
+                                <th class="text-right">Odesláno</th>
                                 <th>Odesláno</th>
                                 <th></th>
                             </tr>
@@ -56,7 +56,7 @@
                             <tr>
                                 <td class="f-w-500">{{ $campaign->name }}</td>
                                 <td><span class="badge bg-secondary">{{ $campaign->target_segment }}</span></td>
-                                <td class="text-end">{{ $campaign->sent_count }}</td>
+                                <td class="text-right">{{ $campaign->sent_count }}</td>
                                 <td class="f-12">
                                     @if($campaign->sent_at)
                                         <span class="text-success">{{ $campaign->sent_at->format('d.m.Y H:i') }}</span>

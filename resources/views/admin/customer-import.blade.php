@@ -84,7 +84,7 @@
                 <hr class="my-3">
 
                 <p class="f-12 f-w-500 mb-1">Příklad CSV:</p>
-                <code class="f-11 d-block p-2 rounded" style="background:rgba(0,0,0,.05);white-space:pre;">name,email,company_name,country_code,phone,type
+                <code class="f-11 block p-2 rounded" style="background:rgba(0,0,0,.05);white-space:pre;">name,email,company_name,country_code,phone,type
 Jan Novák,jan.novak@example.com,,CZ,+420123456789,person
 Acme s.r.o.,info@acme.cz,Acme s.r.o.,CZ,+420987654321,company
 Marie Horáková,marie@example.com,,,, </code>

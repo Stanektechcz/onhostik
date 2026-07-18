@@ -3,13 +3,13 @@
 @section('title', 'Výplata provize')
 
 @section('content')
-<div class="row justify-content-center">
-    <div class="col-lg-10">
+<div class="grid grid-cols-12 justify-center">
+    <div class="col-span-12 lg:col-span-10">
         <x-panel.flash />
 
-        <div class="row g-3">
+        <div class="grid grid-cols-12 gap-3">
             {{-- Payout request form --}}
-            <div class="col-md-4">
+            <div class="col-span-12 md:col-span-4">
                 <x-panel.card title="Nová žádost o výplatu">
                     <form method="POST" action="{{ route('panel.reseller-payout-requests.store') }}">
                         @csrf
@@ -29,13 +29,13 @@
                             @error('note')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-sm w-100">Podat žádost</button>
+                        <button type="submit" class="btn btn-primary btn-sm w-full">Podat žádost</button>
                     </form>
                 </x-panel.card>
             </div>
 
             {{-- Requests table --}}
-            <div class="col-md-8">
+            <div class="col-span-12 md:col-span-8">
                 <x-panel.card title="Žádosti o výplatu">
                     @if($requests->isEmpty())
                         <p class="text-muted">Žádné žádosti.</p>
@@ -44,7 +44,7 @@
                         <table class="table table-hover align-middle mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th class="text-end">Částka</th>
+                                    <th class="text-right">Částka</th>
                                     <th>Měna</th>
                                     <th>Stav</th>
                                     <th>Vytvořeno</th>
@@ -54,7 +54,7 @@
                             <tbody>
                                 @foreach($requests as $req)
                                 <tr>
-                                    <td class="text-end f-w-500">
+                                    <td class="text-right f-w-500">
                                         {{ number_format($req->amount / 100, 2, ',', ' ') }}
                                     </td>
                                     <td><span class="badge bg-light text-dark border">{{ $req->currency }}</span></td>

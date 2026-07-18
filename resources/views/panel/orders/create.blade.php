@@ -44,7 +44,7 @@
                     <option value="name_asc">Název (A–Z)</option>
                 </select>
             </div>
-            <div class="col-span-4 md:col-span-6 text-end md:text-start flex items-center justify-end gap-2">
+            <div class="col-span-4 md:col-span-6 text-right md:text-left flex items-center justify-end gap-2">
                 <span class="f-light f-12"><span id="visible-count">{{ $plans->count() }}</span> tarifů</span>
                 <a href="{{ route('panel.cart.index') }}" class="btn btn-outline-primary btn-sm" id="cart-link">
                     <i data-feather="shopping-bag"></i>
@@ -64,7 +64,7 @@
                         <h6 class="f-w-600 f-14 mb-2">Kategorie</h6>
                         <div class="checkbox-animated">
                             @foreach($productTypes as $i => $pt)
-                                <label class="d-block mb-1" for="cat-{{ $i }}">
+                                <label class="block mb-1" for="cat-{{ $i }}">
                                     <input class="checkbox_animated filter-cat" id="cat-{{ $i }}" type="checkbox" value="{{ $pt['slug'] }}" checked>
                                     {{ $pt['name'] }}
                                 </label>
@@ -105,7 +105,7 @@
                          data-product="{{ $slug }}"
                          data-price="{{ $priceVal }}"
                          data-name="{{ strtolower($fullName) }}">
-                        <x-panel.card class="h-100 plan-card-inner">
+                        <x-panel.card class="h-full plan-card-inner">
                             {{-- Header: icon + product badge --}}
                             <div class="flex items-center justify-between mb-3">
                                 <div class="plan-icon">
@@ -151,7 +151,7 @@
                                         {{ $inCart ? 'V košíku' : 'Do košíku' }}
                                     </button>
                                 </form>
-                                <label class="compare-check d-block">
+                                <label class="compare-check block">
                                     <input type="checkbox" class="compare-toggle" value="{{ $plan->id }}"
                                            data-name="{{ $fullName }}">
                                     Přidat k porovnání
@@ -204,6 +204,13 @@ document.addEventListener('DOMContentLoaded', function () {
     var grid  = document.getElementById('plans-grid');
     var cards = [].slice.call(grid.querySelectorAll('.plan-card'));
 
+    var CHECKOUT_URL = '{{ route('panel.checkout.index') }}?plan=';
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[<>&"]/g, function (c) {
+            return { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c];
+        });
+    }
+
     // ── Add to cart via fetch, so the count updates without a full reload ──
     grid.querySelectorAll('.add-to-cart-form').forEach(function (form) {
         form.addEventListener('submit', function (e) {
@@ -218,7 +225,14 @@ document.addEventListener('DOMContentLoaded', function () {
                 btn.classList.add('btn-success');
                 btn.innerHTML = '<i data-feather="check"></i> V košíku';
                 var counter = document.getElementById('cart-count');
-                counter.textContent = parseInt(counter.textContent || '0', 10) + 1;
+                var newCount = parseInt(counter.textContent || '0', 10) + 1;
+                counter.textContent = newCount;
+                // Keep the navbar cart badge in sync too.
+                var navCount = document.getElementById('cart-nav-count');
+                if (navCount) {
+                    navCount.textContent = newCount > 9 ? '9+' : newCount;
+                    navCount.classList.add('show');
+                }
                 if (window.feather) feather.replace();
             }).catch(function () { form.submit(); });
         });
@@ -310,6 +324,40 @@ document.addEventListener('DOMContentLoaded', function () {
         refreshCompareBar();
     });
 
+    // Self-managed modal: Cuba's Tailwind build styles `.modal.show` but the
+    // Bootstrap fade transition is unreliable here (the modal could stay
+    // display:none), so we toggle it directly instead of via bootstrap.Modal.
+    var modalEl = document.getElementById('compare-modal');
+
+    function openCompareModal() {
+        modalEl.classList.add('show');
+        modalEl.style.display = 'block';
+        modalEl.removeAttribute('aria-hidden');
+        document.body.classList.add('modal-open');
+        if (!document.querySelector('.compare-backdrop')) {
+            var bd = document.createElement('div');
+            bd.className = 'modal-backdrop fade show compare-backdrop';
+            document.body.appendChild(bd);
+            bd.addEventListener('click', closeCompareModal);
+        }
+    }
+
+    function closeCompareModal() {
+        modalEl.classList.remove('show');
+        modalEl.style.display = 'none';
+        modalEl.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('modal-open');
+        var bd = document.querySelector('.compare-backdrop');
+        if (bd) bd.remove();
+    }
+
+    modalEl.querySelectorAll('[data-bs-dismiss="modal"]').forEach(function (btn) {
+        btn.addEventListener('click', closeCompareModal);
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modalEl.classList.contains('show')) closeCompareModal();
+    });
+
     openBtn.addEventListener('click', function () {
         var ids = Object.keys(compare);
         // Collect the union of parameter labels across the compared cards.
@@ -324,6 +372,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (labels.indexOf(k) === -1) labels.push(k);
             });
             return {
+                id:    id,
                 name:  compare[id],
                 price: card.querySelector('.plan-price-amount').textContent.trim(),
                 cycle: card.querySelector('.plan-price .f-light').textContent.trim(),
@@ -332,21 +381,26 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         var thead = '<thead><tr><th>Parametr</th>' + data.map(function (d) {
-            return '<th>' + d.name + '</th>';
+            return '<th>' + esc(d.name) + '</th>';
         }).join('') + '</tr></thead>';
 
         var rows = '<tr><td class="f-w-600">Cena</td>' + data.map(function (d) {
-            return '<td class="f-w-600 txt-primary">' + d.price + ' ' + d.cycle + '</td>';
+            return '<td class="f-w-600 txt-primary">' + esc(d.price) + ' ' + esc(d.cycle) + '</td>';
         }).join('') + '</tr>';
 
         labels.forEach(function (label) {
-            rows += '<tr><td class="f-light">' + label + '</td>' + data.map(function (d) {
-                return '<td>' + (d.params[label] || '—') + '</td>';
+            rows += '<tr><td class="f-light">' + esc(label) + '</td>' + data.map(function (d) {
+                return '<td>' + esc(d.params[label] || '—') + '</td>';
             }).join('') + '</tr>';
         });
 
+        // Actionable footer: order any compared plan straight from the table.
+        rows += '<tr><td></td>' + data.map(function (d) {
+            return '<td><a href="' + CHECKOUT_URL + d.id + '" class="btn btn-primary btn-xs text-white">Objednat</a></td>';
+        }).join('') + '</tr>';
+
         document.getElementById('compare-table').innerHTML = thead + '<tbody>' + rows + '</tbody>';
-        new bootstrap.Modal(document.getElementById('compare-modal')).show();
+        openCompareModal();
     });
 
     if (window.feather) feather.replace();

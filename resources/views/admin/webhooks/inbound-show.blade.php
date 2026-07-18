@@ -5,14 +5,14 @@
 @section('content')
 <div class="container-fluid py-4" style="max-width:900px">
 
-    <div class="d-flex align-items-center gap-2 mb-4">
+    <div class="flex items-center gap-2 mb-4">
         <a href="{{ route('admin.webhooks.inbound.index') }}" class="btn btn-sm btn-outline-secondary">&larr; Zpět</a>
         <h1 class="h5 mb-0">Webhook #{{ $log->id }} — {{ $log->source }}</h1>
         <span class="badge {{ $log->statusBadgeClass() }}">{{ $log->statusLabel() }}</span>
     </div>
 
-    <div class="row g-3">
-        <div class="col-md-4">
+    <div class="grid grid-cols-12 gap-3">
+        <div class="col-span-12 md:col-span-4">
             <div class="card">
                 <div class="card-header"><strong>Metadata</strong></div>
                 <div class="card-body p-0">
@@ -43,7 +43,7 @@
             @endif
         </div>
 
-        <div class="col-md-8">
+        <div class="col-span-12 md:col-span-8">
             <div class="card mb-3">
                 <div class="card-header"><strong>Payload (JSON)</strong></div>
                 <div class="card-body p-0">

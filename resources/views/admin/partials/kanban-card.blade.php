@@ -1,5 +1,5 @@
 <div class="kanban-card">
-    <div class="d-flex justify-content-between align-items-start mb-1">
+    <div class="flex justify-between items-start mb-1">
         <p class="card-title mb-0">{{ $task->title }}</p>
         <div class="dropdown ms-2">
             <button class="btn btn-link p-0 text-muted" data-bs-toggle="dropdown">
@@ -36,7 +36,7 @@
         <p class="card-desc">{{ Str::limit($task->description, 80) }}</p>
     @endif
 
-    <div class="d-flex flex-wrap gap-1 align-items-center mt-1">
+    <div class="flex flex-wrap gap-1 items-center mt-1">
         <span class="badge badge-light-{{ $task->priorityColor() }} f-10">{{ $task->priorityLabel() }}</span>
 
         @if($task->assignee)

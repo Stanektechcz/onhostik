@@ -9,7 +9,7 @@
 
     {{-- Upcoming --}}
     <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header flex justify-between items-center">
             <strong>Nadcházející / probíhající</strong>
             <span class="badge bg-warning">{{ $upcoming->count() }}</span>
         </div>

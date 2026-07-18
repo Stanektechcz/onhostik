@@ -29,7 +29,7 @@
         <div class="grid grid-cols-12 gap-3">
 
             {{-- ── Left sidebar: KB navigation (col-span-3) ─────────── --}}
-            <div class="col-span-3 xl:col-span-12 xl-40 box-col-12">
+            <div class="col-span-3 xl:col-span-12 xl-40 box-col-span-12">
                 <div class="md-sidebar">
                     <a class="btn btn-primary email-aside-toggle text-white md-sidebar-toggle hover:text-white">
                         Navigace KB
@@ -44,7 +44,7 @@
                                 <div class="card accordion">
                                     <div class="card-header accordion-item" id="head{{ $collapseId }}">
                                         <h2 class="accordion-header relative">
-                                            <button class="accordion-button btn btn-link btn-block text-start {{ $cat !== $article->category ? 'collapsed' : '' }}"
+                                            <button class="accordion-button btn btn-link btn-block text-left {{ $cat !== $article->category ? 'collapsed' : '' }}"
                                                     type="button" data-bs-toggle="collapse"
                                                     data-bs-target="#{{ $collapseId }}"
                                                     aria-expanded="{{ $cat === $article->category ? 'true' : 'false' }}">
@@ -82,7 +82,7 @@
             </div>
 
             {{-- ── Right: Article content (col-span-9) ──────────────── --}}
-            <div class="col-span-9 xl:col-span-12 xl-80 box-col-12">
+            <div class="col-span-9 xl:col-span-12 xl-80 box-col-span-12">
                 <div class="card">
                     <div class="job-search">
                         <div class="card-body">
@@ -95,7 +95,7 @@
                                 <div class="grow">
                                     <h6>
                                         {{ $article->title }}
-                                        <span class="pull-right d-flex gap-2">
+                                        <span class="pull-right flex gap-2">
                                             @if($article->is_published)
                                                 <span class="badge badge-light-success">Publikován</span>
                                             @else
@@ -140,7 +140,7 @@
                             </div>
 
                             {{-- Actions --}}
-                            <div class="job-description d-flex gap-3 flex-wrap">
+                            <div class="job-description flex gap-3 flex-wrap">
                                 <a href="{{ route('admin.kb.edit', $article) }}" class="btn btn-primary text-white">
                                     <i data-feather="edit-2" style="width:14px;height:14px;"></i> Upravit článek
                                 </a>
@@ -173,7 +173,7 @@
                     </div>
                     <div class="card-body">
                         {{-- Stats --}}
-                        <div class="d-flex gap-4 mb-4">
+                        <div class="flex gap-4 mb-4">
                             <div class="text-center">
                                 <h4 class="txt-success mb-0">{{ $voteStats['helpful'] ?? 0 }}</h4>
                                 <small class="f-light">Užitečný</small>

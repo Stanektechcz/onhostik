@@ -3,8 +3,8 @@
 @section('title', 'PIN správa — ' . $service->name)
 
 @section('content')
-<div class="row g-4">
-    <div class="col-lg-6">
+<div class="grid grid-cols-12 gap-4">
+    <div class="col-span-12 lg:col-span-6">
         <x-panel.card title="Stav PIN — {{ $service->name }}">
             <x-panel.flash />
 
@@ -13,15 +13,15 @@
                     PIN není nastaven.
                 </div>
             @else
-                <dl class="row mb-0">
-                    <dt class="col-sm-4">Stav</dt>
-                    <dd class="col-sm-8"><span class="badge bg-success">PIN nastaven</span></dd>
+                <dl class="grid grid-cols-12 mb-0">
+                    <dt class="col-span-12 sm:col-span-4">Stav</dt>
+                    <dd class="col-span-12 sm:col-span-8"><span class="badge bg-success">PIN nastaven</span></dd>
 
-                    <dt class="col-sm-4">Nápověda</dt>
-                    <dd class="col-sm-8">{{ $pin->hint ?? '—' }}</dd>
+                    <dt class="col-span-12 sm:col-span-4">Nápověda</dt>
+                    <dd class="col-span-12 sm:col-span-8">{{ $pin->hint ?? '—' }}</dd>
 
-                    <dt class="col-sm-4">Nastaveno</dt>
-                    <dd class="col-sm-8">
+                    <dt class="col-span-12 sm:col-span-4">Nastaveno</dt>
+                    <dd class="col-span-12 sm:col-span-8">
                         {{ $pin->set_at ? \Carbon\Carbon::parse($pin->set_at)->format('d.m.Y H:i') : '—' }}
                     </dd>
                 </dl>
@@ -29,7 +29,7 @@
         </x-panel.card>
     </div>
 
-    <div class="col-lg-6">
+    <div class="col-span-12 lg:col-span-6">
         <x-panel.card title="{{ $pin ? 'Změnit PIN' : 'Nastavit PIN' }}">
             <form method="POST" action="{{ route('panel.service-pins.store', $service) }}">
                 @csrf
@@ -60,7 +60,7 @@
                     @error('hint') <div class="invalid-feedback">{{ $message }}</div> @enderror
                 </div>
 
-                <button type="submit" class="btn btn-primary w-100">
+                <button type="submit" class="btn btn-primary w-full">
                     {{ $pin ? 'Aktualizovat PIN' : 'Nastavit PIN' }}
                 </button>
             </form>

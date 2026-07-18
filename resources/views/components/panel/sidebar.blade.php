@@ -42,7 +42,7 @@
     <div id="sidebar-menu">
     <ul class="sidebar-links" id="simple-bar">
         <li class="back-btn">
-            <div class="mobile-back text-end"><span>Zpět</span><i class="fa-solid fa-angle-right ps-2"></i></div>
+            <div class="mobile-back text-right"><span>Zpět</span><i class="fa-solid fa-angle-right ps-2"></i></div>
         </li>
 
         {{-- Required by sidebar-pin.js --}}
@@ -75,7 +75,6 @@
         <x-panel.sidebar-submenu icon="shopping-cart" label="Objednávky a nákup"
             :active="$p('panel.orders') || $p('panel.cart') || $p('panel.checkout') || $p('panel.wishlist')">
             <x-panel.sidebar-link :href="route('panel.orders.create')" icon="plus-circle" label="Nová objednávka" />
-            <x-panel.sidebar-link :href="route('panel.cart.index')" icon="shopping-bag" label="Košík" />
             <x-panel.sidebar-link :href="route('panel.orders.index')" icon="package" label="Moje objednávky" />
             <x-panel.sidebar-link :href="route('panel.wishlist.index')" icon="heart" label="Oblíbené" />
         </x-panel.sidebar-submenu>
@@ -213,7 +212,8 @@
         </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="message-square" label="Komunikace"
-            :active="$p('admin.support') || $p('admin.mailbox') || $p('admin.newsletter') || $p('admin.subscribers') || $p('admin.drip')">
+            :active="$p('admin.support') || $p('admin.chat') || $p('admin.mailbox') || $p('admin.newsletter') || $p('admin.subscribers') || $p('admin.drip')">
+            <x-panel.sidebar-link :href="route('admin.chat.index')" icon="message-circle" label="Živá podpora — Chat" />
             <x-panel.sidebar-link :href="route('admin.support.index')" icon="life-buoy" label="Podpora — Tickety" />
             <x-panel.sidebar-link :href="route('admin.mailbox')" icon="inbox" label="Pošta" />
             <x-panel.sidebar-link :href="route('admin.newsletter.index')" icon="mail" label="Newsletter kampaně" />

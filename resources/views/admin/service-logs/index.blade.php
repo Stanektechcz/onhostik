@@ -6,7 +6,7 @@
 <x-panel.flash />
 
 <x-panel.card title="Filtr">
-    <form method="GET" action="{{ route('admin.service-logs.index') }}" class="row g-2 align-items-end">
+    <form method="GET" action="{{ route('admin.service-logs.index') }}" class="grid grid-cols-12 gap-2 items-end">
         <div class="col-auto">
             <label for="service_id" class="form-label">Služba ID</label>
             <input type="text" id="service_id" name="service_id" class="form-control" value="{{ request('service_id') }}" placeholder="ID služby">

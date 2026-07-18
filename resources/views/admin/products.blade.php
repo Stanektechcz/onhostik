@@ -12,7 +12,7 @@
         <x-panel.flash />
         @error('product')<div class="alert alert-light-danger">{{ $message }}</div>@enderror
 
-        <div class="d-flex justify-content-end mb-3">
+        <div class="flex justify-end mb-3">
             <a href="{{ route('admin.products.create') }}" class="btn btn-primary btn-sm">+ Přidat produkt</a>
         </div>
 
@@ -45,7 +45,7 @@
                         </tr>
                     @endforeach
                 </x-panel.data-table>
-                <div class="d-flex gap-2 mt-3 align-items-center">
+                <div class="flex gap-2 mt-3 items-center">
                     <a href="{{ route('admin.products.edit', $product) }}" class="btn btn-outline-secondary btn-sm">Upravit produkt / přidat plán</a>
                     <span class="badge badge-light-{{ $salesMode->color() }}">{{ $salesMode->label() }}</span>
                     @if($product->provisioning_driver?->value === 'pterodactyl')

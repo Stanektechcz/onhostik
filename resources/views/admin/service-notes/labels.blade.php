@@ -11,8 +11,8 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row">
-        <div class="col-lg-4">
+    <div class="grid grid-cols-12">
+        <div class="col-span-12 lg:col-span-4">
             <div class="card">
                 <div class="card-header card-no-border">
                     <h5>Nový štítek</h5>
@@ -43,7 +43,7 @@
             </div>
         </div>
 
-        <div class="col-lg-8">
+        <div class="col-span-12 lg:col-span-8">
             <div class="card">
                 <div class="card-header card-no-border">
                     <h5>Existující štítky ({{ $labels->total() }})</h5>
@@ -61,7 +61,7 @@
                                     <td><span class="badge bg-{{ $label->color }}">{{ $label->name }}</span></td>
                                     <td class="f-12">{{ $label->color }}</td>
                                     <td class="f-12">{{ $label->services_count }}</td>
-                                    <td class="text-end">
+                                    <td class="text-right">
                                         <form method="POST" action="{{ route('admin.service-labels.destroy', $label) }}"
                                               onsubmit="return confirm('Smazat štítek?')">
                                             @csrf @method('DELETE')

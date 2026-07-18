@@ -49,15 +49,15 @@
                     @error('service_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
                 </div>
 
-                <div class="row g-3 mb-3">
-                    <div class="col-md-6">
+                <div class="grid grid-cols-12 gap-3 mb-3">
+                    <div class="col-span-12 md:col-span-6">
                         <label class="form-label">Plánovaný začátek *</label>
                         <input type="datetime-local" name="scheduled_start"
                                value="{{ old('scheduled_start', $window->scheduled_start?->format('Y-m-d\TH:i')) }}"
                                class="form-control @error('scheduled_start') is-invalid @enderror" required>
                         @error('scheduled_start')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-span-12 md:col-span-6">
                         <label class="form-label">Plánovaný konec *</label>
                         <input type="datetime-local" name="scheduled_end"
                                value="{{ old('scheduled_end', $window->scheduled_end?->format('Y-m-d\TH:i')) }}"
@@ -83,7 +83,7 @@
                     <label class="form-check-label" for="notify">Upozornit zákazníky</label>
                 </div>
 
-                <div class="d-flex gap-2">
+                <div class="flex gap-2">
                     <button type="submit" class="btn btn-primary btn-sm">Uložit</button>
                     <a href="{{ route('admin.maintenance.index') }}" class="btn btn-outline-secondary btn-sm">Zpět</a>
                 </div>

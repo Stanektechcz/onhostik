@@ -14,19 +14,19 @@
         <form method="POST" action="{{ route('admin.bulk-email-campaigns.store') }}">
             @csrf
             <div class="mb-3">
-                <label class="form-label fw-semibold">Předmět *</label>
+                <label class="form-label font-semibold">Předmět *</label>
                 <input type="text" name="subject" class="form-control @error('subject') is-invalid @enderror" value="{{ old('subject') }}" maxlength="255" required>
                 @error('subject')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
 
             <div class="mb-3">
-                <label class="form-label fw-semibold">Obsah (HTML) *</label>
+                <label class="form-label font-semibold">Obsah (HTML) *</label>
                 <textarea name="body_html" class="form-control font-monospace @error('body_html') is-invalid @enderror" rows="12">{{ old('body_html') }}</textarea>
                 @error('body_html')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
 
-            <div class="row g-3 mb-3">
-                <div class="col-md-4">
+            <div class="grid grid-cols-12 gap-3 mb-3">
+                <div class="col-span-12 md:col-span-4">
                     <label class="form-label">Segment zákazníků</label>
                     <select name="target_segment" class="form-select">
                         <option value="">Všichni</option>
@@ -37,11 +37,11 @@
                         <option value="churned">Churned</option>
                     </select>
                 </div>
-                <div class="col-md-4">
+                <div class="col-span-12 md:col-span-4">
                     <label class="form-label">Kód země (ISO 2)</label>
                     <input type="text" name="target_country" class="form-control" maxlength="2" placeholder="CZ">
                 </div>
-                <div class="col-md-4">
+                <div class="col-span-12 md:col-span-4">
                     <label class="form-label">Naplánovat odeslání</label>
                     <input type="datetime-local" name="scheduled_at" class="form-control">
                 </div>

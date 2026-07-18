@@ -5,7 +5,7 @@
 @section('content')
 <div class="container-fluid py-4">
 
-    <div class="d-flex align-items-center justify-content-between mb-4">
+    <div class="flex items-center justify-between mb-4">
         <h1 class="h4 mb-0">WAF &amp; Bezpečnostní pravidla</h1>
     </div>
 
@@ -13,12 +13,12 @@
         <div class="alert alert-success">{{ session('status') }}</div>
     @endif
 
-    <div class="row">
+    <div class="grid grid-cols-12">
 
         {{-- Rules Table --}}
-        <div class="col-lg-8 mb-4">
+        <div class="col-span-12 lg:col-span-8 mb-4">
             <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="card-header flex justify-between items-center">
                     <strong>Všechna WAF pravidla</strong>
                     <span class="badge bg-secondary">{{ $rules->total() }}</span>
                 </div>
@@ -56,14 +56,14 @@
                                     @endif
                                 </td>
                                 <td class="small text-muted">{{ $rule->creator?->name ?? 'Systém' }}</td>
-                                <td class="text-end">
-                                    <form method="POST" action="{{ route('admin.waf.toggle', $rule) }}" class="d-inline">
+                                <td class="text-right">
+                                    <form method="POST" action="{{ route('admin.waf.toggle', $rule) }}" class="inline">
                                         @csrf @method('PATCH')
                                         <button class="btn btn-xs btn-sm btn-outline-secondary">
                                             {{ $rule->is_active ? 'Deaktivovat' : 'Aktivovat' }}
                                         </button>
                                     </form>
-                                    <form method="POST" action="{{ route('admin.waf.destroy', $rule) }}" class="d-inline"
+                                    <form method="POST" action="{{ route('admin.waf.destroy', $rule) }}" class="inline"
                                           onsubmit="return confirm('Smazat pravidlo?')">
                                         @csrf @method('DELETE')
                                         <button class="btn btn-xs btn-sm btn-outline-danger">Smazat</button>
@@ -85,7 +85,7 @@
         </div>
 
         {{-- Add Rule Form --}}
-        <div class="col-lg-4 mb-4">
+        <div class="col-span-12 lg:col-span-4 mb-4">
             <div class="card">
                 <div class="card-header"><strong>Přidat globální pravidlo</strong></div>
                 <div class="card-body">
@@ -123,7 +123,7 @@
                                    placeholder="Důvod pravidla…">
                             @error('notes')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
-                        <button type="submit" class="btn btn-primary w-100">Přidat pravidlo</button>
+                        <button type="submit" class="btn btn-primary w-full">Přidat pravidlo</button>
                     </form>
                 </div>
             </div>
@@ -133,7 +133,7 @@
 
     {{-- Recent WAF Events --}}
     <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header flex justify-between items-center">
             <strong>Poslední bezpečnostní události</strong>
             <span class="badge bg-secondary">{{ $recentEvents->count() }}</span>
         </div>
@@ -155,7 +155,7 @@
                     <tr>
                         <td><code>{{ $event->ip_address }}</code></td>
                         <td>{{ $event->country_code ?? '—' }}</td>
-                        <td class="text-truncate" style="max-width:200px">{{ $event->request_uri ?? '—' }}</td>
+                        <td class="truncate" style="max-width:200px">{{ $event->request_uri ?? '—' }}</td>
                         <td>{{ $event->method ?? '—' }}</td>
                         <td>
                             @if($event->action_taken === 'block')

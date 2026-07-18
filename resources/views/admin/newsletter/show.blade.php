@@ -15,7 +15,7 @@
         {{-- Preview --}}
         <div class="col-span-8 sm:col-span-12">
             <div class="card card-no-border">
-                <div class="card-header d-flex align-items-center justify-content-between">
+                <div class="card-header flex items-center justify-between">
                     <h5 class="mb-0">Náhled e-mailu</h5>
                     @if($campaign->isDraft())
                         <a href="{{ route('admin.newsletter.edit', $campaign) }}" class="btn btn-outline-secondary btn-sm">
@@ -41,7 +41,7 @@
             {{-- Status card --}}
             <div class="card card-no-border mb-3">
                 <div class="card-body">
-                    <div class="d-flex align-items-center justify-content-between mb-3">
+                    <div class="flex items-center justify-between mb-3">
                         <h6 class="mb-0">Stav kampaně</h6>
                         <span class="badge badge-light-{{ $campaign->statusColor() }} f-12">
                             {{ $campaign->statusLabel() }}
@@ -50,7 +50,7 @@
 
                     @if($campaign->isSent() || $campaign->isSending())
                         <div class="mb-2">
-                            <div class="d-flex justify-content-between f-12 mb-1">
+                            <div class="flex justify-between f-12 mb-1">
                                 <span>Odesláno</span>
                                 <span class="f-w-500">{{ number_format($campaign->sent_count) }} / {{ number_format($campaign->recipients_count) }}</span>
                             </div>
@@ -67,7 +67,7 @@
                         @if($campaign->isSending())
                             <form method="POST" action="{{ route('admin.newsletter.mark-sent', $campaign) }}" class="mt-2">
                                 @csrf
-                                <button class="btn btn-outline-success btn-sm w-100">
+                                <button class="btn btn-outline-success btn-sm w-full">
                                     <i data-feather="check" style="width:13px;height:13px;"></i> Označit jako odesláno
                                 </button>
                             </form>
@@ -84,7 +84,7 @@
                             <form method="POST" action="{{ route('admin.newsletter.send', $campaign) }}"
                                   onsubmit="return confirm('Opravdu odeslat tuto kampaň {{ $activeCount }} odběratelům? Tato akce nelze vrátit.')">
                                 @csrf
-                                <button class="btn btn-danger w-100 text-white">
+                                <button class="btn btn-danger w-full text-white">
                                     <i data-feather="send" style="width:14px;height:14px;"></i>
                                     Odeslat {{ number_format($activeCount) }} odběratelům
                                 </button>
@@ -100,13 +100,13 @@
             <div class="card card-no-border">
                 <div class="card-body">
                     <h6 class="mb-3">Informace</h6>
-                    <dl class="row g-1 f-12 mb-0">
-                        <dt class="col-5 f-light">Autor</dt>
-                        <dd class="col-7">{{ $campaign->author?->name ?? '—' }}</dd>
-                        <dt class="col-5 f-light">Vytvořeno</dt>
-                        <dd class="col-7">{{ $campaign->created_at->format('d.m.Y H:i') }}</dd>
-                        <dt class="col-5 f-light">Změněno</dt>
-                        <dd class="col-7">{{ $campaign->updated_at->format('d.m.Y H:i') }}</dd>
+                    <dl class="grid grid-cols-12 gap-1 f-12 mb-0">
+                        <dt class="col-span-5 f-light">Autor</dt>
+                        <dd class="col-span-7">{{ $campaign->author?->name ?? '—' }}</dd>
+                        <dt class="col-span-5 f-light">Vytvořeno</dt>
+                        <dd class="col-span-7">{{ $campaign->created_at->format('d.m.Y H:i') }}</dd>
+                        <dt class="col-span-5 f-light">Změněno</dt>
+                        <dd class="col-span-7">{{ $campaign->updated_at->format('d.m.Y H:i') }}</dd>
                     </dl>
 
                     @if($campaign->isDraft())
@@ -114,7 +114,7 @@
                         <form method="POST" action="{{ route('admin.newsletter.destroy', $campaign) }}"
                               onsubmit="return confirm('Smazat tuto kampaň?')">
                             @csrf @method('DELETE')
-                            <button class="btn btn-outline-danger btn-sm w-100">
+                            <button class="btn btn-outline-danger btn-sm w-full">
                                 <i data-feather="trash-2" style="width:13px;height:13px;"></i> Smazat kampaň
                             </button>
                         </form>

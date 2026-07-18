@@ -5,7 +5,7 @@
 @section('content')
 <div class="container-fluid py-4">
 
-    <div class="d-flex align-items-center justify-content-between mb-4">
+    <div class="flex items-center justify-between mb-4">
         <h1 class="h4 mb-0">OAuth Aplikace</h1>
         <span class="badge bg-secondary">{{ $apps->total() }} celkem</span>
     </div>
@@ -31,7 +31,7 @@
                 <tbody>
                     @forelse($apps as $app)
                     <tr>
-                        <td class="fw-semibold">{{ $app->name }}</td>
+                        <td class="font-semibold">{{ $app->name }}</td>
                         <td class="small text-muted">{{ $app->customer->user->name ?? '—' }}</td>
                         <td><code class="small">{{ $app->client_id }}</code></td>
                         <td>
@@ -45,7 +45,7 @@
                             {{ $app->last_used_at?->format('d.m.Y H:i') ?? 'Nikdy' }}
                         </td>
                         <td class="small text-muted">{{ $app->created_at->format('d.m.Y') }}</td>
-                        <td class="text-end">
+                        <td class="text-right">
                             <form method="POST" action="{{ route('admin.developer.oauth-apps.destroy', $app) }}"
                                   onsubmit="return confirm('Smazat OAuth aplikaci?')">
                                 @csrf @method('DELETE')

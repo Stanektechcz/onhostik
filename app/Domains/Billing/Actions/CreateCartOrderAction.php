@@ -29,8 +29,9 @@ use InvalidArgumentException;
  * A discount code applies to the whole cart subtotal, not per line.
  *
  * `$lines` is a list of:
- *   - plan (PricingPlan)  required
- *   - qty  (int >= 1)     defaults to 1
+ *   - plan   (PricingPlan)            required
+ *   - qty    (int >= 1)               defaults to 1
+ *   - config (array<string,mixed>)    per-item provisioning data (domain …)
  *
  * `$config` keys:
  *   - discount_code (?string)
@@ -43,7 +44,7 @@ final class CreateCartOrderAction
     ) {}
 
     /**
-     * @param  list<array{plan: PricingPlan, qty?: int}>  $lines
+     * @param  list<array{plan: PricingPlan, qty?: int, config?: array<string, mixed>}>  $lines
      * @param  array<string, mixed>  $config
      */
     public function execute(Customer $customer, array $lines, array $config = []): Order
@@ -92,11 +93,15 @@ final class CreateCartOrderAction
             $lineTotal = $unitPrice->multipliedBy($qty, RoundingMode::HALF_UP);
             $subtotal  = $subtotal->plus($lineTotal);
 
+            /** @var array<string, mixed> $lineConfig */
+            $lineConfig = is_array($line['config'] ?? null) ? $line['config'] : [];
+
             $priced[] = [
                 'plan'      => $plan,
                 'qty'       => $qty,
                 'unitPrice' => $unitPrice,
                 'lineTotal' => $lineTotal,
+                'config'    => $lineConfig,
             ];
         }
 
@@ -149,7 +154,7 @@ final class CreateCartOrderAction
                     'period_from'         => $periodFrom,
                     'period_to'           => $periodFrom->copy()->addMonths($plan->billing_cycle->months()),
                     'provisioning_status' => TaskStatus::Pending,
-                    'config'              => [],
+                    'config'              => $line['config'],
                 ]);
             }
 

@@ -89,7 +89,7 @@
                             <div class="card-body">
                                 @if($articles->isEmpty())
                                     <div class="text-center py-5">
-                                        <i data-feather="book-open" style="width:40px;height:40px;" class="text-muted d-block mx-auto mb-3"></i>
+                                        <i data-feather="book-open" style="width:40px;height:40px;" class="text-muted block mx-auto mb-3"></i>
                                         <h5 class="f-light">Žádné články k dispozici</h5>
                                     </div>
                                 @else
@@ -137,7 +137,7 @@
                 </div>
                 <div class="card">
                     <div class="card-body text-center py-4">
-                        <i data-feather="headphones" style="width:40px;height:40px;" class="text-muted d-block mx-auto mb-3"></i>
+                        <i data-feather="headphones" style="width:40px;height:40px;" class="text-muted block mx-auto mb-3"></i>
                         <h5 class="f-light mb-2">Kontaktujte naši podporu</h5>
                         <p class="f-light f-13 mb-3">Pokud jste odpověď v bázi nenašli, naši technici vám pomohou.</p>
                         <a href="{{ route('panel.support.index') }}" class="btn btn-primary text-white">

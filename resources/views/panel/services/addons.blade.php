@@ -14,7 +14,7 @@
             <div class="col-span-5 xl:col-span-12">
                 <x-panel.card title="Aktivní doplňky">
                     @forelse($subscriptions as $sub)
-                        <div class="d-flex align-items-center justify-content-between mb-2 p-2 rounded bg-light">
+                        <div class="flex items-center justify-between mb-2 p-2 rounded bg-light">
                             <div>
                                 <span class="f-14 f-w-600">{{ $sub->addon->name }}</span>
                                 <span class="badge badge-light-success ms-2">aktivní</span>
@@ -36,8 +36,8 @@
             <div class="col-span-7 xl:col-span-12">
                 <x-panel.card title="Dostupné doplňky">
                     @forelse($available as $addon)
-                        <div class="d-flex align-items-start justify-content-between mb-3 pb-3 border-bottom">
-                            <div class="flex-grow-1 pe-3">
+                        <div class="flex items-start justify-between mb-3 pb-3 border-bottom">
+                            <div class="grow pe-3">
                                 <p class="f-14 f-w-600 mb-1">{{ $addon->name }}</p>
                                 @if($addon->description)
                                     <p class="f-12 f-light mb-1">{{ $addon->description }}</p>

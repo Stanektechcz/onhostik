@@ -34,14 +34,14 @@
             </div>
         </div>
         <div class="col-span-12 lg:col-span-4">
-            <div class="card h-100">
-                <div class="card-body d-flex flex-column justify-content-center">
+            <div class="card h-full">
+                <div class="card-body flex flex-col justify-center">
                     <ul class="list-unstyled mb-0">
-                        <li class="d-flex justify-content-between py-2 border-bottom">
+                        <li class="flex justify-between py-2 border-bottom">
                             <span class="f-light f-14">Referraly celkem</span>
                             <span class="f-w-600">{{ is_object($referrals) && method_exists($referrals, 'total') ? $referrals->total() : $referrals->count() }}</span>
                         </li>
-                        <li class="d-flex justify-content-between py-2">
+                        <li class="flex justify-between py-2">
                             <span class="f-light f-14">Sledování konverzí</span>
                             <span class="badge badge-light-success">Aktivní</span>
                         </li>
@@ -64,7 +64,7 @@
                         <i data-feather="copy" style="width:13px;height:13px;"></i>
                         Zkopírovat referral odkaz
                     </button>
-                    <button id="copy-btn-fallback" class="d-none">btn</button>
+                    <button id="copy-btn-fallback" class="hidden">btn</button>
                 @endif
             </div>
         @else

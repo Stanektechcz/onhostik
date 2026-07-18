@@ -6,11 +6,11 @@
 
     <h4 class="mb-3">{{ $service->label }} — Uptime monitoring</h4>
 
-    <div class="row g-3 mb-4">
-        <div class="col-md-3">
+    <div class="grid grid-cols-12 gap-3 mb-4">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center shadow-sm">
                 <div class="card-body">
-                    <div class="display-6 fw-bold {{ ($uptime ?? 100) >= 99 ? 'text-success' : (($uptime ?? 100) >= 95 ? 'text-warning' : 'text-danger') }}">
+                    <div class="display-6 font-bold {{ ($uptime ?? 100) >= 99 ? 'text-success' : (($uptime ?? 100) >= 95 ? 'text-warning' : 'text-danger') }}">
                         {{ $uptime !== null ? number_format((float)$uptime, 2) . ' %' : 'N/A' }}
                     </div>
                     <small class="text-muted">Uptime (30 dní)</small>
@@ -20,7 +20,7 @@
     </div>
 
     <div class="card shadow-sm">
-        <div class="card-header fw-semibold">Historie checků</div>
+        <div class="card-header font-semibold">Historie checků</div>
         <div class="table-responsive">
             <table class="table table-sm table-hover mb-0">
                 <thead>
@@ -28,7 +28,7 @@
                         <th>Čas</th>
                         <th>Typ</th>
                         <th>Cíl</th>
-                        <th class="text-end">MS</th>
+                        <th class="text-right">MS</th>
                         <th>Stav</th>
                     </tr>
                 </thead>
@@ -37,8 +37,8 @@
                     <tr>
                         <td class="small text-muted">{{ $c->checked_at?->format('d.m. H:i') }}</td>
                         <td>{{ strtoupper($c->check_type) }}</td>
-                        <td class="text-truncate" style="max-width:200px">{{ $c->target }}</td>
-                        <td class="text-end">{{ $c->response_ms ?? '—' }}</td>
+                        <td class="truncate" style="max-width:200px">{{ $c->target }}</td>
+                        <td class="text-right">{{ $c->response_ms ?? '—' }}</td>
                         <td>
                             @if($c->is_up)
                                 <span class="badge bg-success">UP</span>

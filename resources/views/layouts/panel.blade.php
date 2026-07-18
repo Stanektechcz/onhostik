@@ -43,7 +43,7 @@
             {{-- System announcement banners --}}
             @foreach($activeAnnouncements ?? [] as $announcement)
             <div class="container-fluid py-0 announcement-banner" id="announcement-{{ $announcement->id }}">
-                <div class="alert alert-light-{{ $announcement->type === 'warning' ? 'warning' : ($announcement->type === 'maintenance' ? 'danger' : ($announcement->type === 'feature' ? 'success' : 'primary')) }} mb-0 py-2 d-flex align-items-start gap-3"
+                <div class="alert alert-light-{{ $announcement->type === 'warning' ? 'warning' : ($announcement->type === 'maintenance' ? 'danger' : ($announcement->type === 'feature' ? 'success' : 'primary')) }} mb-0 py-2 flex items-start gap-3"
                      style="border-radius:0;border-left:0;border-right:0;border-top:0;">
                     <i data-feather="{{ $announcement->icon }}" style="width:16px;height:16px;flex-shrink:0;margin-top:2px;"></i>
                     <div class="flex-1">
@@ -62,7 +62,7 @@
             {{-- Impersonation top bar --}}
             @if(session()->has('_impersonated_by'))
             <div class="container-fluid py-0">
-                <div class="alert alert-warning mb-0 py-2 d-flex align-items-center gap-3" role="alert"
+                <div class="alert alert-warning mb-0 py-2 flex items-center gap-3" role="alert"
                      style="border-radius:0;border-left:0;border-right:0;border-top:0;">
                     <i data-feather="eye" style="width:16px;height:16px;flex-shrink:0;"></i>
                     <span class="f-13 flex-1">
@@ -70,7 +70,7 @@
                         ({{ auth()->user()?->email }}) — vidíte zákaznický panel z perspektivy zákazníka.
                     </span>
                     <a href="{{ route('admin.impersonate.stop') }}"
-                       class="btn btn-sm btn-warning text-white flex-shrink-0">
+                       class="btn btn-sm btn-warning text-white shrink-0">
                         <i data-feather="log-out" style="width:13px;height:13px;"></i>
                         Zpět na admin účet
                     </a>
@@ -162,6 +162,17 @@
 <script src="{{ asset('panel/js/pusher.min.js') }}"></script>
 <script src="{{ asset('panel/js/echo.iife.js') }}"></script>
 <script nonce="{{ $cspNonce ?? '' }}">
+/* Initialise Bootstrap tooltips (Cuba loads bootstrap.bundle but does not
+   auto-init them). Reads the element's data-tooltip / title as the label. */
+(function(){
+    if (typeof bootstrap === 'undefined' || !bootstrap.Tooltip) return;
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el){
+        var label = el.getAttribute('data-tooltip') || el.getAttribute('title');
+        if (label) new bootstrap.Tooltip(el, { title: label });
+    });
+})();
+</script>
+<script nonce="{{ $cspNonce ?? '' }}">
 /* ── In-panel notification bell ─────────────────────────────────── */
 (function() {
     var FETCH_URL    = '{{ route('panel.notifications.index') }}';
@@ -169,16 +180,10 @@
     var READ_URL_TPL = '{{ route('panel.notifications.read', ['id' => 'NOTIF_ID_PLACEHOLDER']) }}';
     var CSRF         = document.querySelector('meta[name="csrf-token"]').content;
 
-    // Feather icon names — rendered as real icons, not emoji.
-    var iconMap = {
-        'check-circle': 'check-circle', 'file-text': 'file-text',
-        'alert-triangle': 'alert-triangle', 'clock': 'clock',
-        'server': 'server', 'message-circle': 'message-circle',
-    };
-    // Cuba colour keys → Cuba .bg-light-* / .txt-* utility suffixes.
+    // Notification type → Cuba border-l-{color} accent on the toast row.
     var colorMap = {
         success: 'success', primary: 'primary', warning: 'warning',
-        danger: 'danger', info: 'info',
+        danger: 'danger', info: 'info', secondary: 'secondary',
     };
     function esc(s) {
         return String(s == null ? '' : s).replace(/[<>&"]/g, function (c) {
@@ -203,56 +208,70 @@
     }
 
     /**
-     * Rebuilds the Cuba notification-dropdown list in place: each entry is
-     * its own <li> (Cuba styles it as a card) between the heading <li> and
-     * the trailing actions <li>.
+     * Rebuilds the Cuba notification-dropdown list in place. Each entry is a
+     * Cuba toast row: a grey card accented with border-l-{color} !border-l-4,
+     * a .toast-body holding the title (left) + time (right) and an optional
+     * sub-line, plus a .btn-close that marks it read. Rows are inserted
+     * between the heading and the trailing (centred) actions <li>.
      */
     function renderNotifications(data) {
         updateBadge(data.unread_count);
 
-        var list = document.getElementById('notif-dropdown');
+        var list = document.getElementById('notif-list');
         if (!list) return;
 
-        // Drop previously rendered rows / placeholder, keep heading + actions.
+        // Drop previously rendered rows / placeholder, keep the actions row.
         list.querySelectorAll('.notif-item, .notif-placeholder').forEach(function (el) {
             el.remove();
         });
 
-        var actions = list.lastElementChild;
+        var actions = list.querySelector('.notif-actions');
 
         if (!data.notifications || data.notifications.length === 0) {
             var empty = document.createElement('li');
             empty.className = 'notif-placeholder';
-            empty.innerHTML = '<p class="f-light f-12 mb-0 p-3">Žádné notifikace</p>';
+            empty.innerHTML = '<div class="toast-body p-3"><p class="f-light f-12 mb-0">Žádné notifikace</p></div>';
             list.insertBefore(empty, actions);
             return;
         }
 
         data.notifications.forEach(function (n) {
             var d     = n.data || {};
-            var icon  = iconMap[d.icon] || 'bell';
             var color = colorMap[d.color] || 'primary';
 
             var li = document.createElement('li');
-            li.className = 'notif-item' + (n.read ? '' : ' unread');
+            li.className = 'notif-item border-l-' + color + ' !border-l-4' + (n.read ? ' is-read' : ' unread');
             li.dataset.id  = n.id;
             li.dataset.url = d.url || '#';
-            li.addEventListener('click', function () { handleNotifClick(li); });
 
             li.innerHTML =
-                '<p class="mb-0 p-3">' +
-                    '<span class="notif-title font-' + color + '">' +
-                        '<i data-feather="' + esc(icon) + '"></i>' + esc(d.title) +
-                    '</span>' +
-                    '<span class="f-light">' + esc(n.created_at) + '</span>' +
-                '</p>' +
-                (d.body ? '<p class="f-light f-12 mb-0 truncate notif-body">' + esc(d.body) + '</p>' : '');
+                '<div class="flex justify-between items-center">' +
+                    '<div class="toast-body p-3">' +
+                        '<p><span class="notif-title">' + esc(d.title) + '</span>' +
+                        '<span class="f-light notif-time">' + esc(n.created_at) + '</span></p>' +
+                        (d.body ? '<p class="f-light f-12 mb-0 notif-sub">' + esc(d.body) + '</p>' : '') +
+                    '</div>' +
+                    '<button class="btn-close" type="button" aria-label="Označit přečtené"></button>' +
+                '</div>';
+
+            // Whole grid grid-cols-12 navigates + marks read; the close button only marks read.
+            li.querySelector('.toast-body').addEventListener('click', function () { handleNotifClick(li); });
+            li.querySelector('.btn-close').addEventListener('click', function (e) {
+                e.stopPropagation();
+                markNotifRead(li);
+            });
 
             list.insertBefore(li, actions);
         });
-
-        if (window.feather) feather.replace();
     }
+
+    window.markNotifRead = function(el) {
+        var id = el.getAttribute('data-id');
+        fetch(READ_URL_TPL.replace('NOTIF_ID_PLACEHOLDER', id), {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': CSRF, Accept: 'application/json' },
+        }).then(function() { loadNotifications(); });
+    };
 
     function loadNotifications() {
         fetch(FETCH_URL, { headers: { Accept: 'application/json' } })
@@ -347,85 +366,181 @@
 <style nonce="{{ $cspNonce ?? '' }}">
 /* Language dropdown items */
 .translate_wrapper .more_lang .lang{padding:8px 14px;gap:8px;white-space:nowrap;}
-#ai-chat-widget{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;}
-#ai-chat-toggle{width:52px;height:52px;border-radius:50%;background:#4680ff;border:none;color:#fff;box-shadow:0 4px 14px rgba(70,128,255,.45);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .15s;}
-#ai-chat-toggle:hover{transform:scale(1.08);}
-#ai-chat-panel{width:320px;background:#fff;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.18);margin-bottom:10px;overflow:hidden;display:flex;flex-direction:column;}
-#ai-chat-header{background:#4680ff;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:13px;}
-#ai-chat-close{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1;padding:0;}
-#ai-chat-messages{height:220px;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;}
-.ai-msg{padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.5;max-width:92%;word-break:break-word;}
-.ai-msg--user{background:#4680ff;color:#fff;align-self:flex-end;border-radius:8px 8px 2px 8px;}
-.ai-msg--bot{background:#f0f2f8;color:#333;align-self:flex-start;border-radius:8px 8px 8px 2px;}
-#ai-chat-form{padding:8px 12px 12px;display:flex;gap:6px;}
-#ai-chat-input{flex:1;border:1px solid #dde1ef;border-radius:8px;padding:7px 10px;font-size:12px;outline:none;transition:border-color .15s;}
-#ai-chat-input:focus{border-color:#4680ff;}
-#ai-chat-send{background:#4680ff;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;}
-#ai-chat-send:disabled{opacity:.55;cursor:default;}
 </style>
-<div id="ai-chat-widget">
-    <div id="ai-chat-panel" class="d-none">
+{{-- Floating AI assistant. Closed by default; the whole thing is styled from
+     Cuba variables in onhost.css. The chat backend returns a categorised set
+     of follow-up quick-replies + deep links per turn. --}}
+<div id="ai-chat-widget" class="ai-closed">
+    <div id="ai-chat-panel" role="dialog" aria-label="AI asistent">
         <div id="ai-chat-header">
-            <span>⚡ AI Asistent</span>
-            <button id="ai-chat-close" title="Zavřít">×</button>
+            <span class="ai-chat-title">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                AI asistent
+            </span>
+            <button id="ai-chat-close" type="button" title="Zavřít" aria-label="Zavřít">×</button>
         </div>
-        <div id="ai-chat-messages">
-            <div class="ai-msg ai-msg--bot">Dobrý den! Jak vám mohu pomoci?</div>
-        </div>
-        <div id="ai-chat-form">
-            <input id="ai-chat-input" type="text" placeholder="Napište dotaz…" autocomplete="off">
-            <button id="ai-chat-send">→</button>
-        </div>
+        <div id="ai-chat-messages" aria-live="polite"></div>
+        <div id="ai-chat-suggestions"></div>
+        <button id="ai-chat-escalate" type="button" hidden>Spojit s živou podporou</button>
+        <form id="ai-chat-form">
+            <input id="ai-chat-input" type="text" placeholder="Napište dotaz…" autocomplete="off" aria-label="Zpráva pro asistenta">
+            <button id="ai-chat-send" type="submit" title="Odeslat" aria-label="Odeslat">→</button>
+        </form>
     </div>
-    <button id="ai-chat-toggle" title="AI Asistent">
+    <button id="ai-chat-toggle" type="button" title="AI asistent" aria-label="Otevřít AI asistenta">
         <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
     </button>
 </div>
 <script nonce="{{ $cspNonce ?? '' }}">
 (function(){
-    var toggle=document.getElementById('ai-chat-toggle'),
-        panel=document.getElementById('ai-chat-panel'),
-        close=document.getElementById('ai-chat-close'),
+    var widget=document.getElementById('ai-chat-widget'),
+        toggle=document.getElementById('ai-chat-toggle'),
+        closeBtn=document.getElementById('ai-chat-close'),
+        form=document.getElementById('ai-chat-form'),
         input=document.getElementById('ai-chat-input'),
         send=document.getElementById('ai-chat-send'),
         msgs=document.getElementById('ai-chat-messages'),
-        csrf=document.querySelector('meta[name="csrf-token"]')?document.querySelector('meta[name="csrf-token"]').content:'';
+        sugg=document.getElementById('ai-chat-suggestions'),
+        escalateBtn=document.getElementById('ai-chat-escalate'),
+        meta=document.querySelector('meta[name="csrf-token"]'),
+        csrf=meta?meta.content:'',
+        loaded=false, busy=false, escalated=false, lastId=0, pollTimer=null,
+        renderedIds={};
 
-    toggle.addEventListener('click',function(){panel.classList.toggle('d-none');if(!panel.classList.contains('d-none'))input.focus();});
-    close.addEventListener('click',function(){panel.classList.add('d-none');});
+    var URL_CHAT='{{ route('panel.ai.chat') }}',
+        URL_ESCALATE='{{ route('panel.ai.escalate') }}',
+        URL_POLL='{{ route('panel.ai.poll') }}';
 
-    function addMsg(text,isUser){
+    /* role: user | bot | agent | system */
+    function addMsg(text, role){
         var d=document.createElement('div');
-        d.className='ai-msg '+(isUser?'ai-msg--user':'ai-msg--bot');
+        d.className='ai-msg ai-msg--'+role;
         d.textContent=text;
         msgs.appendChild(d);
         msgs.scrollTop=msgs.scrollHeight;
+        return d;
     }
 
-    function sendMsg(){
-        var text=input.value.trim();
-        if(!text||send.disabled)return;
-        addMsg(text,true);
-        input.value='';
-        input.disabled=true;
-        send.disabled=true;
-        addMsg('…',false);
-        fetch('/panel/ai/chat',{
-            method:'POST',
-            headers:{'Content-Type':'application/json','X-CSRF-TOKEN':csrf,'Accept':'application/json'},
-            body:JSON.stringify({message:text})
-        }).then(function(r){return r.json();}).then(function(d){
-            msgs.lastChild.textContent=d.reply||'Omlouváme se, zkuste to znovu.';
-            msgs.scrollTop=msgs.scrollHeight;
-        }).catch(function(){
-            msgs.lastChild.textContent='Chyba komunikace.';
-        }).finally(function(){
-            input.disabled=false;send.disabled=false;input.focus();
+    function renderLinks(el,links){
+        if(!links||!links.length)return;
+        var wrap=document.createElement('div'); wrap.className='ai-msg-links';
+        links.forEach(function(l){
+            var a=document.createElement('a'); a.href=l.url; a.textContent=l.label;
+            wrap.appendChild(a);
+        });
+        el.appendChild(wrap);
+        msgs.scrollTop=msgs.scrollHeight;
+    }
+
+    function renderSuggestions(items){
+        sugg.innerHTML='';
+        (items||[]).forEach(function(s){
+            var b=document.createElement('button');
+            b.type='button'; b.className='ai-suggestion'; b.textContent=s.label;
+            b.addEventListener('click',function(){ ask(s.message, s.label); });
+            sugg.appendChild(b);
         });
     }
 
-    send.addEventListener('click',sendMsg);
-    input.addEventListener('keydown',function(e){if(e.key==='Enter')sendMsg();});
+    function setEscalated(on){
+        escalated=on;
+        escalateBtn.hidden = on;
+        if(on){ sugg.innerHTML=''; startPolling(); }
+    }
+
+    /* Render a persisted message object from the server (poll/history). */
+    function renderServerMsg(m){
+        if(renderedIds[m.id]) return;
+        renderedIds[m.id]=true;
+        if(m.id>lastId) lastId=m.id;
+        var el=addMsg(m.body, m.role);
+        if(m.meta && m.meta.links) renderLinks(el, m.meta.links);
+    }
+
+    /* Post a chatbot turn. echoLabel=null → no user bubble (opening menu). */
+    function postAndRender(message, echoLabel){
+        if(busy)return;
+        if(echoLabel!==null){ addMsg(echoLabel, 'user'); }
+        sugg.innerHTML='';
+        busy=true; input.disabled=true; send.disabled=true;
+        var typing=addMsg('…','bot'); typing.classList.add('ai-msg--typing');
+        fetch(URL_CHAT,{
+            method:'POST',
+            headers:{'Content-Type':'application/json','X-CSRF-TOKEN':csrf,'Accept':'application/json'},
+            body:JSON.stringify({message:message})
+        }).then(function(r){return r.json();}).then(function(d){
+            typing.remove();
+            if(typeof d.lastId==='number' && d.lastId>lastId){ lastId=d.lastId; renderedIds[d.lastId]=true; }
+            var bot=addMsg(d.reply||'Omlouváme se, zkuste to prosím znovu.','bot');
+            renderLinks(bot, d.links);
+            renderSuggestions(d.suggestions);
+            if(d.escalated){ setEscalated(true); }
+        }).catch(function(){
+            typing.textContent='Chyba komunikace, zkuste to prosím znovu.';
+            typing.classList.remove('ai-msg--typing');
+        }).finally(function(){
+            busy=false; input.disabled=false; send.disabled=false; input.focus();
+        });
+    }
+
+    function ask(message, label){ postAndRender(message, label || message); }
+
+    /* Load persisted history; empty conversation → show the AI menu. */
+    function loadHistory(){
+        fetch(URL_POLL+'?after=0',{headers:{'Accept':'application/json'}})
+        .then(function(r){return r.json();}).then(function(d){
+            if(d.messages && d.messages.length){
+                d.messages.forEach(renderServerMsg);
+                if(d.status==='waiting_agent' || d.status==='agent_active') setEscalated(true);
+            } else {
+                postAndRender('', null); // opening menu
+            }
+        }).catch(function(){ postAndRender('', null); });
+    }
+
+    function escalate(){
+        if(busy||escalated)return;
+        fetch(URL_ESCALATE,{
+            method:'POST',
+            headers:{'X-CSRF-TOKEN':csrf,'Accept':'application/json'}
+        }).then(function(r){return r.json();}).then(function(d){
+            addMsg(d.message||'Spojujeme vás s podporou.','system');
+            setEscalated(true);
+        });
+    }
+
+    function poll(){
+        fetch(URL_POLL+'?after='+lastId,{headers:{'Accept':'application/json'}})
+        .then(function(r){return r.json();}).then(function(d){
+            (d.messages||[]).forEach(renderServerMsg);
+            if(d.status==='closed'){ stopPolling(); addMsg('Konverzace byla uzavřena.','system'); }
+        }).catch(function(){});
+    }
+
+    function startPolling(){ if(!pollTimer) pollTimer=setInterval(poll, 5000); }
+    function stopPolling(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
+
+    function openPanel(){
+        widget.classList.remove('ai-closed'); widget.classList.add('ai-open');
+        try{ localStorage.setItem('ai_chat_open','1'); }catch(e){}
+        if(!loaded){ loaded=true; escalateBtn.hidden=false; loadHistory(); }
+        input.focus();
+    }
+    function closePanel(){
+        widget.classList.add('ai-closed'); widget.classList.remove('ai-open');
+        try{ localStorage.setItem('ai_chat_open','0'); }catch(e){}
+    }
+
+    toggle.addEventListener('click',openPanel);
+    closeBtn.addEventListener('click',closePanel);
+    escalateBtn.addEventListener('click',escalate);
+    form.addEventListener('submit',function(e){
+        e.preventDefault();
+        var t=input.value.trim(); if(!t)return; input.value=''; ask(t);
+    });
+
+    /* Default closed; only reopen if the user had it open before. */
+    try{ if(localStorage.getItem('ai_chat_open')==='1') openPanel(); }catch(e){}
 })();
 </script>
 @endauth

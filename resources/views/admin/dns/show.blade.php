@@ -4,8 +4,8 @@
 @section('content')
 <div class="container-fluid">
     <div class="page-header">
-        <div class="row align-items-center">
-            <div class="col-sm-8">
+        <div class="grid grid-cols-12 items-center">
+            <div class="col-span-12 sm:col-span-8">
                 <h3 class="font-monospace">{{ $zone->domain }}</h3>
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{{ route('admin.dashboard') }}">Přehled</a></li>
@@ -13,7 +13,7 @@
                     <li class="breadcrumb-item active">{{ $zone->domain }}</li>
                 </ol>
             </div>
-            <div class="col-sm-4 text-end">
+            <div class="col-span-12 sm:col-span-4 text-right">
                 <span class="badge bg-{{ $zone->status->color() === 'success' ? 'success' : ($zone->status->color() === 'danger' ? 'danger' : 'warning') }} fs-6">
                     {{ $zone->status->label() }}
                 </span>
@@ -21,12 +21,12 @@
         </div>
     </div>
 
-    <div class="row g-3 mb-3">
-        <div class="col-md-4">
-            <div class="card h-100">
+    <div class="grid grid-cols-12 gap-3 mb-3">
+        <div class="col-span-12 md:col-span-4">
+            <div class="card h-full">
                 <div class="card-body">
                     <p class="text-muted f-12 mb-1">Zákazník</p>
-                    <p class="fw-semibold mb-0">
+                    <p class="font-semibold mb-0">
                         @if ($zone->customer)
                             <a href="{{ route('admin.customers.show', $zone->customer) }}">{{ $zone->customer->email }}</a>
                         @else
@@ -36,19 +36,19 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
-            <div class="card h-100">
+        <div class="col-span-12 md:col-span-4">
+            <div class="card h-full">
                 <div class="card-body">
                     <p class="text-muted f-12 mb-1">Provider</p>
-                    <p class="fw-semibold mb-0">{{ strtoupper($zone->provider) }}</p>
+                    <p class="font-semibold mb-0">{{ strtoupper($zone->provider) }}</p>
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
-            <div class="card h-100">
+        <div class="col-span-12 md:col-span-4">
+            <div class="card h-full">
                 <div class="card-body">
                     <p class="text-muted f-12 mb-1">Počet záznamů</p>
-                    <p class="fw-semibold mb-0">{{ $records->count() }}</p>
+                    <p class="font-semibold mb-0">{{ $records->count() }}</p>
                 </div>
             </div>
         </div>

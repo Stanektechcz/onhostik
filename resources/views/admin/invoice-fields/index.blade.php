@@ -10,8 +10,8 @@
 @section('content')
 <div class="container-fluid">
     <x-panel.flash />
-    <div class="row g-3">
-        <div class="col-lg-4">
+    <div class="grid grid-cols-12 gap-3">
+        <div class="col-span-12 lg:col-span-4">
             <div class="card">
                 <div class="card-header card-no-border"><h5>Nové pole</h5></div>
                 <div class="card-body">
@@ -46,13 +46,13 @@
                                    id="showOnInvoice" checked>
                             <label class="form-check-label f-12" for="showOnInvoice">Zobrazit na faktuře</label>
                         </div>
-                        <button type="submit" class="btn btn-primary btn-sm w-100">Přidat pole</button>
+                        <button type="submit" class="btn btn-primary btn-sm w-full">Přidat pole</button>
                     </form>
                 </div>
             </div>
         </div>
 
-        <div class="col-lg-8">
+        <div class="col-span-12 lg:col-span-8">
             <div class="card">
                 <div class="card-header card-no-border"><h5>Definovaná pole ({{ $definitions->count() }})</h5></div>
                 <div class="card-body pt-0">
@@ -106,7 +106,7 @@
                                                 Upravit
                                             </button>
                                             <form method="POST" action="{{ route('admin.invoice-fields.destroy', $def) }}"
-                                                  class="d-inline" onsubmit="return confirm('Smazat pole?')">
+                                                  class="inline" onsubmit="return confirm('Smazat pole?')">
                                                 @csrf @method('DELETE')
                                                 <button type="submit" class="btn btn-outline-danger btn-xs">×</button>
                                             </form>

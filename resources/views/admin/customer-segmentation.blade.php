@@ -36,9 +36,9 @@
                 <thead>
                     <tr class="border-bottom">
                         <th class="f-12 f-w-600">Segment</th>
-                        <th class="f-12 f-w-600 text-end">Zákazníků</th>
-                        <th class="f-12 f-w-600 text-end">Průměrné zdraví</th>
-                        <th class="f-12 f-w-600 text-end">Průměrné riziko odchodu</th>
+                        <th class="f-12 f-w-600 text-right">Zákazníků</th>
+                        <th class="f-12 f-w-600 text-right">Průměrné zdraví</th>
+                        <th class="f-12 f-w-600 text-right">Průměrné riziko odchodu</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -50,8 +50,8 @@
                                 {{ $data['segment']->label() }}
                             </span>
                         </td>
-                        <td class="text-end f-w-600">{{ $data['count'] }}</td>
-                        <td class="text-end">
+                        <td class="text-right f-w-600">{{ $data['count'] }}</td>
+                        <td class="text-right">
                             @if($data['avg_health'] > 0)
                                 <span class="{{ $data['avg_health'] >= 70 ? 'txt-success' : ($data['avg_health'] >= 40 ? 'txt-warning' : 'txt-danger') }}">
                                     {{ $data['avg_health'] }} / 100
@@ -60,7 +60,7 @@
                                 <span class="f-light">—</span>
                             @endif
                         </td>
-                        <td class="text-end">
+                        <td class="text-right">
                             @if($data['avg_churn_risk'] > 0)
                                 <span class="{{ $data['avg_churn_risk'] <= 30 ? 'txt-success' : ($data['avg_churn_risk'] <= 60 ? 'txt-warning' : 'txt-danger') }}">
                                     {{ $data['avg_churn_risk'] }} / 100
@@ -79,9 +79,9 @@
                     @endforeach
                     <tr>
                         <td><span class="badge badge-light-secondary">Bez segmentu</span></td>
-                        <td class="text-end f-w-600">{{ $unassignedCount }}</td>
-                        <td class="text-end f-light">—</td>
-                        <td class="text-end f-light">—</td>
+                        <td class="text-right f-w-600">{{ $unassignedCount }}</td>
+                        <td class="text-right f-light">—</td>
+                        <td class="text-right f-light">—</td>
                         <td>
                             <a href="{{ route('admin.customers.segmentation', ['segment' => 'unknown']) }}"
                                class="btn btn-outline-secondary btn-xs">

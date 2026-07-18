@@ -20,7 +20,7 @@
                     </div>
                     <div class="card-body">
                         {{-- Filters --}}
-                        <div class="d-flex gap-3 mb-3 flex-wrap">
+                        <div class="flex gap-3 mb-3 flex-wrap">
                             <select class="form-select w-auto form-select-sm">
                                 <option>Hodnocení</option>
                                 <option>★★★★★ (5)</option>
@@ -55,7 +55,7 @@
                                     <tbody>
                                         <tr class="inbox-data">
                                             <td colspan="7" class="text-center py-5 f-light">
-                                                <i data-feather="star" style="width:40px;height:40px;" class="d-block mx-auto mb-3 text-muted"></i>
+                                                <i data-feather="star" style="width:40px;height:40px;" class="block mx-auto mb-3 text-muted"></i>
                                                 Modul recenzí bude implementován v dalším vydání.
                                                 <br><small>Aktuálně zákazníci mohou hodnotit přes e-mail nebo tickety.</small>
                                             </td>

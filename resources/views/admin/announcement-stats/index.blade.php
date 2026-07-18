@@ -13,8 +13,8 @@
                     <tr>
                         <th>Název</th>
                         <th>Typ</th>
-                        <th class="text-end">Odesláno</th>
-                        <th class="text-end">Zavřeno uživateli</th>
+                        <th class="text-right">Odesláno</th>
+                        <th class="text-right">Zavřeno uživateli</th>
                         <th>Stav</th>
                         <th></th>
                     </tr>
@@ -24,8 +24,8 @@
                     <tr>
                         <td>{{ $a->title }}</td>
                         <td><span class="{{ $a->typeBadgeClass() }}">{{ $a->typeLabel() }}</span></td>
-                        <td class="text-end">{{ number_format($a->sent_count ?? 0) }}</td>
-                        <td class="text-end">{{ number_format($a->dismissed_by_count) }}</td>
+                        <td class="text-right">{{ number_format($a->sent_count ?? 0) }}</td>
+                        <td class="text-right">{{ number_format($a->dismissed_by_count) }}</td>
                         <td>
                             @if($a->isActive())
                                 <span class="badge bg-success">Aktivní</span>

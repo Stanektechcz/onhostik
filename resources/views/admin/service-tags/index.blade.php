@@ -41,7 +41,7 @@
                                     <th>Štítek</th>
                                     <th>Barva</th>
                                     <th>Počet služeb</th>
-                                    <th class="text-end">Akce</th>
+                                    <th class="text-right">Akce</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -54,9 +54,9 @@
                                     </td>
                                     <td class="f-12">{{ $tag->color }}</td>
                                     <td class="f-12">{{ $tag->services_count }}</td>
-                                    <td class="text-end">
+                                    <td class="text-right">
                                         <form method="POST" action="{{ route('admin.services.tags.destroy', $tag) }}"
-                                              class="d-inline" onsubmit="return confirm('Smazat štítek?')">
+                                              class="inline" onsubmit="return confirm('Smazat štítek?')">
                                             @csrf
                                             @method('DELETE')
                                             <button type="submit" class="btn btn-outline-danger btn-sm">

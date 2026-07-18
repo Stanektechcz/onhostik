@@ -57,7 +57,7 @@
                         <h5>Akce</h5>
                     </div>
                     <div class="card-body">
-                        <div class="d-grid gap-2">
+                        <div class="grid gap-2">
                             <button type="submit" class="btn btn-primary text-white">
                                 <i data-feather="save" style="width:14px;height:14px;"></i> Uložit změny
                             </button>

@@ -3,8 +3,8 @@
 @section('title', 'Zálohy služeb')
 
 @section('content')
-<div class="row justify-content-center">
-    <div class="col-lg-11">
+<div class="grid grid-cols-12 justify-center">
+    <div class="col-span-12 lg:col-span-11">
         <x-panel.flash />
 
         <x-panel.card title="Zálohy služeb">
@@ -17,8 +17,8 @@
                         <tr>
                             <th>ID</th>
                             <th>Stav</th>
-                            <th class="text-end">Velikost</th>
-                            <th class="text-end">Trvání (s)</th>
+                            <th class="text-right">Velikost</th>
+                            <th class="text-right">Trvání (s)</th>
                             <th>Chyba</th>
                             <th>Zahájeno</th>
                             <th>Dokončeno</th>
@@ -47,7 +47,7 @@
                                 @endphp
                                 <span class="badge bg-{{ $color }}">{{ $label }}</span>
                             </td>
-                            <td class="text-end f-12">
+                            <td class="text-right f-12">
                                 @if($log->size_bytes !== null)
                                     @php
                                         $bytes = $log->size_bytes;
@@ -66,7 +66,7 @@
                                     <span class="text-muted">—</span>
                                 @endif
                             </td>
-                            <td class="text-end f-12">
+                            <td class="text-right f-12">
                                 {{ $log->duration_seconds ?? '—' }}
                             </td>
                             <td class="f-12 text-danger">

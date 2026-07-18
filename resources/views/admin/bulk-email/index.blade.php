@@ -17,8 +17,8 @@
                     <tr>
                         <th>Předmět</th>
                         <th>Segment</th>
-                        <th class="text-end">Příjemců</th>
-                        <th class="text-end">Odesláno</th>
+                        <th class="text-right">Příjemců</th>
+                        <th class="text-right">Odesláno</th>
                         <th>Stav</th>
                         <th>Vytvořeno</th>
                         <th></th>
@@ -29,8 +29,8 @@
                     <tr>
                         <td>{{ $c->subject }}</td>
                         <td class="text-muted">{{ $c->target_segment ?? 'Všichni' }}</td>
-                        <td class="text-end">{{ number_format($c->recipient_count) }}</td>
-                        <td class="text-end">{{ number_format($c->sent_count) }}</td>
+                        <td class="text-right">{{ number_format($c->recipient_count) }}</td>
+                        <td class="text-right">{{ number_format($c->sent_count) }}</td>
                         <td>
                             @php $badges = ['draft'=>'secondary','sending'=>'warning text-dark','sent'=>'success','failed'=>'danger'] @endphp
                             <span class="badge bg-{{ $badges[$c->status] ?? 'secondary' }}">{{ $c->status }}</span>

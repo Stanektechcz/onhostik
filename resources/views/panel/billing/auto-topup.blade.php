@@ -21,8 +21,8 @@
             @csrf
             @method('PUT')
 
-            <div class="row g-3">
-                <div class="col-12">
+            <div class="grid grid-cols-12 gap-3">
+                <div class="col-span-12">
                     <div class="form-check form-switch">
                         <input class="form-check-input" type="checkbox" id="enabled" name="enabled"
                                value="1" {{ $enabled ? 'checked' : '' }}>
@@ -32,7 +32,7 @@
                     </div>
                 </div>
 
-                <div class="col-md-6">
+                <div class="col-span-12 md:col-span-6">
                     <label class="form-label f-12 f-w-600" for="threshold_amount">
                         Spouštěcí hranice (Kč)
                     </label>
@@ -45,11 +45,11 @@
                     </div>
                     <div class="f-light f-11 mt-1">Dobití se spustí, pokud kredit klesne pod tuto částku.</div>
                     @error('threshold_amount')
-                        <div class="invalid-feedback d-block">{{ $message }}</div>
+                        <div class="invalid-feedback block">{{ $message }}</div>
                     @enderror
                 </div>
 
-                <div class="col-md-6">
+                <div class="col-span-12 md:col-span-6">
                     <label class="form-label f-12 f-w-600" for="topup_amount">
                         Částka dobití (Kč)
                     </label>
@@ -62,11 +62,11 @@
                     </div>
                     <div class="f-light f-11 mt-1">Výše faktury, která bude automaticky vystavena.</div>
                     @error('topup_amount')
-                        <div class="invalid-feedback d-block">{{ $message }}</div>
+                        <div class="invalid-feedback block">{{ $message }}</div>
                     @enderror
                 </div>
 
-                <div class="col-12 mt-2">
+                <div class="col-span-12 mt-2">
                     <button type="submit" class="btn btn-primary btn-sm">
                         <i data-feather="save" style="width:13px;height:13px;" class="me-1"></i>
                         Uložit nastavení

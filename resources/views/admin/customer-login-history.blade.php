@@ -13,7 +13,7 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="d-flex align-items-center justify-content-between mb-3">
+    <div class="flex items-center justify-between mb-3">
         <h1 class="h4 mb-0">
             <i data-feather="log-in" style="width:20px;height:20px" class="me-1"></i>
             Historie přihlášení
@@ -45,7 +45,7 @@
                                 <span class="text-muted">—</span>
                             @endif
                         </td>
-                        <td class="f-12 text-truncate" style="max-width:400px" title="{{ $entry->user_agent }}">
+                        <td class="f-12 truncate" style="max-width:400px" title="{{ $entry->user_agent }}">
                             {{ $entry->user_agent ? Str::limit($entry->user_agent, 80) : '—' }}
                         </td>
                     </tr>

@@ -3,8 +3,8 @@
 @section('title', 'Uplatnit voucher')
 
 @section('content')
-<div class="row justify-content-center">
-    <div class="col-lg-5">
+<div class="grid grid-cols-12 justify-center">
+    <div class="col-span-12 lg:col-span-5">
         <x-panel.card title="Uplatnit voucher">
             <x-panel.flash />
 
@@ -22,7 +22,7 @@
                     @enderror
                 </div>
 
-                <button type="submit" class="btn btn-primary w-100">Uplatnit</button>
+                <button type="submit" class="btn btn-primary w-full">Uplatnit</button>
             </form>
         </x-panel.card>
     </div>

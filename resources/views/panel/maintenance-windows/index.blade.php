@@ -3,8 +3,8 @@
 @section('title', 'Plánované údržby')
 
 @section('content')
-<div class="row justify-content-center">
-    <div class="col-lg-10">
+<div class="grid grid-cols-12 justify-center">
+    <div class="col-span-12 lg:col-span-10">
         <x-panel.flash />
 
         <x-panel.card title="Plánované údržby">
@@ -14,11 +14,11 @@
                     <small class="text-muted">V tuto chvíli nejsou naplánované žádné servisní okna.</small>
                 </div>
             @else
-            <div class="row g-3">
+            <div class="grid grid-cols-12 gap-3">
                 @foreach($windows as $window)
-                <div class="col-md-6">
+                <div class="col-span-12 md:col-span-6">
                     <div class="border rounded p-3">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="flex justify-between items-start mb-2">
                             <h6 class="mb-0 f-w-600">{{ $window->title }}</h6>
                             @php
                                 $statusColors = [
@@ -41,12 +41,12 @@
                         </div>
                         @endif
 
-                        <div class="row g-1 f-12">
-                            <div class="col-6">
+                        <div class="grid grid-cols-12 gap-1 f-12">
+                            <div class="col-span-6">
                                 <span class="text-muted">Začátek:</span><br>
                                 <strong>{{ $window->starts_at?->format('d.m.Y H:i') ?? '—' }}</strong>
                             </div>
-                            <div class="col-6">
+                            <div class="col-span-6">
                                 <span class="text-muted">Konec:</span><br>
                                 <strong>{{ $window->ends_at?->format('d.m.Y H:i') ?? '—' }}</strong>
                             </div>

@@ -10,7 +10,7 @@
 @section('content')
 <div class="container-fluid">
     <div class="container social-user-cards">
-        <div class="d-flex justify-content-end mb-3 gap-2">
+        <div class="flex justify-end mb-3 gap-2">
             <a href="{{ route('admin.users.index') }}" class="btn btn-outline-primary btn-sm">
                 <i data-feather="list" style="width:13px;height:13px;"></i> Tabulkový pohled
             </a>
@@ -44,7 +44,7 @@
                             </div>
                             <p class="f-12 f-light">Od {{ $user->created_at?->format('d.m.Y') }}</p>
                         </div>
-                        <div class="card-social d-flex justify-content-center gap-2 mt-3">
+                        <div class="card-social flex justify-center gap-2 mt-3">
                             <div class="social-follow text-center">
                                 <h5>{{ $user->customer?->orders()->count() ?? 0 }}</h5>
                                 <h6 class="f-light">Objednávek</h6>
@@ -58,7 +58,7 @@
                                 <h6 class="f-light">Služeb</h6>
                             </div>
                         </div>
-                        <div class="d-flex gap-2 mt-3">
+                        <div class="flex gap-2 mt-3">
                             <a href="{{ route('admin.users.edit', $user) }}"
                                class="btn btn-outline-primary btn-sm w-full">Upravit</a>
                             @if($user->customer)

@@ -6,8 +6,8 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="Blokované IP adresy">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
@@ -55,7 +55,7 @@
             </x-panel.card>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Blokovat IP">
                 <form method="POST" action="{{ route('admin.ip-blocklist.store') }}">
                     @csrf
@@ -71,7 +71,7 @@
                         <label class="form-label">Platnost do (prázdné = permanentní)</label>
                         <input type="datetime-local" name="expires_at" class="form-control" value="{{ old('expires_at') }}">
                     </div>
-                    <button type="submit" class="btn btn-danger w-100">Zablokovat</button>
+                    <button type="submit" class="btn btn-danger w-full">Zablokovat</button>
                 </form>
             </x-panel.card>
         </div>

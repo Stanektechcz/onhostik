@@ -11,8 +11,8 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row justify-content-center">
-        <div class="col-xl-8">
+    <div class="grid grid-cols-12 justify-center">
+        <div class="col-span-12 xl:col-span-8">
             <x-panel.card title="Přidat odchozí webhook">
                 <form method="POST" action="{{ route('admin.outgoing-webhooks.store') }}">
                     @csrf
@@ -39,9 +39,9 @@
 
                     <div class="mb-3">
                         <label class="form-label">Události</label>
-                        <div class="row g-2">
+                        <div class="grid grid-cols-12 gap-2">
                             @foreach($allowedEvents as $event)
-                                <div class="col-md-6">
+                                <div class="col-span-12 md:col-span-6">
                                     <div class="form-check">
                                         <input class="form-check-input" type="checkbox" name="events[]"
                                                id="ev-{{ $loop->index }}" value="{{ $event }}"
@@ -62,7 +62,7 @@
                         <label class="form-check-label" for="wh-active">Webhook je aktivní</label>
                     </div>
 
-                    <div class="d-flex gap-2">
+                    <div class="flex gap-2">
                         <button type="submit" class="btn btn-primary">Uložit webhook</button>
                         <a href="{{ route('admin.outgoing-webhooks.index') }}" class="btn btn-outline-secondary">Zpět</a>
                     </div>

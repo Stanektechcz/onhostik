@@ -13,7 +13,7 @@
                     <tr>
                         <th>Zákazník</th>
                         <th>Objednávka</th>
-                        <th class="text-end">Skóre</th>
+                        <th class="text-right">Skóre</th>
                         <th>Signály</th>
                         <th>Datum</th>
                         <th></th>
@@ -24,15 +24,15 @@
                     <tr>
                         <td>{{ $r->customer?->company_name ?? '—' }}</td>
                         <td>{{ $r->order_id ?? '—' }}</td>
-                        <td class="text-end fw-bold {{ $r->score >= 80 ? 'text-danger' : ($r->score >= 50 ? 'text-warning' : 'text-muted') }}">
+                        <td class="text-right font-bold {{ $r->score >= 80 ? 'text-danger' : ($r->score >= 50 ? 'text-warning' : 'text-muted') }}">
                             {{ $r->score }}
                         </td>
-                        <td class="small text-truncate" style="max-width:220px">
+                        <td class="small truncate" style="max-width:220px">
                             {{ implode(', ', (array)($r->signals ?? [])) }}
                         </td>
                         <td class="small text-muted">{{ $r->created_at?->format('d.m.Y H:i') }}</td>
                         <td>
-                            <div class="d-flex gap-2">
+                            <div class="flex gap-2">
                                 <form method="POST" action="{{ route('admin.fraud-reviews.update', $r) }}">
                                     @csrf @method('PATCH')
                                     <input type="hidden" name="status" value="cleared">

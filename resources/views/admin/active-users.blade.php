@@ -46,7 +46,7 @@
                 <thead>
                     <tr>
                         <th>Datum</th>
-                        <th class="text-end">Unikátní uživatelé</th>
+                        <th class="text-right">Unikátní uživatelé</th>
                         <th>Graf</th>
                     </tr>
                 </thead>
@@ -54,7 +54,7 @@
                     @foreach($days as $row)
                     <tr>
                         <td class="f-12">{{ $row['day'] }}</td>
-                        <td class="text-end f-w-600">{{ $row['users'] }}</td>
+                        <td class="text-right f-w-600">{{ $row['users'] }}</td>
                         <td style="min-width:180px;">
                             @php $pct = $maxDau > 0 ? round($row['users'] / $maxDau * 100) : 0; @endphp
                             <div class="progress" style="height: 8px;">

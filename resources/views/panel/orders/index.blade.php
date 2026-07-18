@@ -95,7 +95,7 @@
                     <div class="card-body pt-0 px-0">
                         @if($orders->isEmpty())
                             <div class="text-center py-5 px-3">
-                                <i data-feather="shopping-cart" style="width:48px;height:48px;" class="text-muted mb-3 d-block mx-auto"></i>
+                                <i data-feather="shopping-cart" style="width:48px;height:48px;" class="text-muted mb-3 block mx-auto"></i>
                                 <h6 class="f-light mt-2">{{ __('panel.orders.none') }}</h6>
                                 <p class="f-light f-12 mb-3">Ještě jste neobjednali žádnou službu.</p>
                                 <a href="{{ route('panel.orders.create') }}" class="btn btn-primary btn-sm">

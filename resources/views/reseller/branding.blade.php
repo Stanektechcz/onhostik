@@ -50,7 +50,7 @@
 
                     <div class="mb-3">
                         <label class="form-label">Primární barva</label>
-                        <div class="d-flex align-items-center gap-2">
+                        <div class="flex items-center gap-2">
                             <input type="color" name="primary_color"
                                    value="{{ old('primary_color', $branding['primary_color'] ?? '#4B6EF5') }}"
                                    style="width:48px;height:36px;padding:2px;border-radius:4px;">
@@ -83,8 +83,8 @@
                         @error('invoice_company_name')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
 
-                    <div class="row g-2 mb-3">
-                        <div class="col-6">
+                    <div class="grid grid-cols-12 gap-2 mb-3">
+                        <div class="col-span-6">
                             <label class="form-label">Kontaktní e-mail</label>
                             <input class="form-control @error('invoice_email') is-invalid @enderror"
                                    type="email" name="invoice_email"
@@ -92,7 +92,7 @@
                                    maxlength="200" placeholder="billing@mujhosting.cz">
                             @error('invoice_email')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
-                        <div class="col-6">
+                        <div class="col-span-6">
                             <label class="form-label">Webová stránka</label>
                             <input class="form-control @error('invoice_website') is-invalid @enderror"
                                    type="text" name="invoice_website"
@@ -111,8 +111,8 @@
                         @error('invoice_street')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
 
-                    <div class="row g-2 mb-3">
-                        <div class="col-4">
+                    <div class="grid grid-cols-12 gap-2 mb-3">
+                        <div class="col-span-4">
                             <label class="form-label">PSČ</label>
                             <input class="form-control @error('invoice_zip') is-invalid @enderror"
                                    type="text" name="invoice_zip"
@@ -120,7 +120,7 @@
                                    maxlength="20" placeholder="110 00">
                             @error('invoice_zip')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
-                        <div class="col-8">
+                        <div class="col-span-8">
                             <label class="form-label">Město</label>
                             <input class="form-control @error('invoice_city') is-invalid @enderror"
                                    type="text" name="invoice_city"
@@ -130,8 +130,8 @@
                         </div>
                     </div>
 
-                    <div class="row g-2 mb-3">
-                        <div class="col-6">
+                    <div class="grid grid-cols-12 gap-2 mb-3">
+                        <div class="col-span-6">
                             <label class="form-label">IČ</label>
                             <input class="form-control @error('invoice_ic') is-invalid @enderror"
                                    type="text" name="invoice_ic"
@@ -139,7 +139,7 @@
                                    maxlength="20" placeholder="12345678">
                             @error('invoice_ic')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
-                        <div class="col-6">
+                        <div class="col-span-6">
                             <label class="form-label">DIČ</label>
                             <input class="form-control @error('invoice_dic') is-invalid @enderror"
                                    type="text" name="invoice_dic"

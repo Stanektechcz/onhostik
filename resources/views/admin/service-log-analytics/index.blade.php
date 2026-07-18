@@ -6,12 +6,12 @@
 <x-panel.flash />
 
 <x-panel.card title="Analytika logů služeb">
-    <div class="row g-3 mb-4">
+    <div class="grid grid-cols-12 gap-3 mb-4">
         @foreach(['debug' => 'secondary', 'info' => 'info', 'warning' => 'warning', 'error' => 'danger'] as $level => $color)
-            <div class="col-md-3">
+            <div class="col-span-12 md:col-span-3">
                 <div class="card text-center border-0 bg-light">
                     <div class="card-body">
-                        <h6 class="card-title text-uppercase">{{ $level }}</h6>
+                        <h6 class="card-title uppercase">{{ $level }}</h6>
                         <p class="display-6 text-{{ $color }}">
                             {{ $levelStats[$level]->count ?? 0 }}
                         </p>

@@ -6,14 +6,14 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row g-4">
-        <div class="col-md-5">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-5">
             <x-panel.card title="Převod kreditu mezi zákazníky">
                 <form method="POST" action="{{ route('admin.credit-transfer.transfer') }}">
                     @csrf
 
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">Od zákazníka *</label>
+                        <label class="form-label font-semibold">Od zákazníka *</label>
                         <select name="from_customer_id" class="form-select @error('from_customer_id') is-invalid @enderror" required>
                             <option value="">— Vyberte zákazníka —</option>
                             @foreach($customers as $c)
@@ -27,7 +27,7 @@
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">Pro zákazníka *</label>
+                        <label class="form-label font-semibold">Pro zákazníka *</label>
                         <select name="to_customer_id" class="form-select @error('to_customer_id') is-invalid @enderror" required>
                             <option value="">— Vyberte zákazníka —</option>
                             @foreach($customers as $c)
@@ -40,7 +40,7 @@
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">Částka (haléře) *</label>
+                        <label class="form-label font-semibold">Částka (haléře) *</label>
                         <input type="number" name="amount_haler" class="form-control @error('amount_haler') is-invalid @enderror" min="100" value="{{ old('amount_haler') }}" required>
                         <div class="form-text">100 haléřů = 1 Kč</div>
                         @error('amount_haler')<div class="invalid-feedback">{{ $message }}</div>@enderror
@@ -51,7 +51,7 @@
                         <input type="text" name="note" class="form-control" maxlength="500" value="{{ old('note') }}">
                     </div>
 
-                    <button type="submit" class="btn btn-warning w-100">Převést kredit</button>
+                    <button type="submit" class="btn btn-warning w-full">Převést kredit</button>
                 </form>
             </x-panel.card>
         </div>

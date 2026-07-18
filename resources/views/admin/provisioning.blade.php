@@ -11,13 +11,13 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        {{-- KPI row --}}
+        {{-- KPI grid grid-cols-12 --}}
         <div class="grid grid-cols-12 card-gap">
             <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $failedCount > 0 ? 'danger' : 'success' }}">
                         <span class="f-light">Selhané úkoly</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>{{ $failedCount }}</h4>
                         </div>
                         <div class="bg-gradient"><i data-feather="alert-triangle"></i></div>
@@ -28,7 +28,7 @@
                 <div class="card small-widget">
                     <div class="card-body {{ $pendingCount > 0 ? 'warning' : 'secondary' }}">
                         <span class="f-light">Čekající / probíhající</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>{{ $pendingCount }}</h4>
                         </div>
                         <div class="bg-gradient"><i data-feather="loader"></i></div>
@@ -39,7 +39,7 @@
                 <div class="card small-widget">
                     <div class="card-body {{ $reviewCount > 0 ? 'warning' : 'secondary' }}">
                         <span class="f-light">Vyžaduje review</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>{{ $reviewCount }}</h4>
                         </div>
                         <div class="bg-gradient"><i data-feather="eye"></i></div>
@@ -50,7 +50,7 @@
                 <div class="card small-widget">
                     <div class="card-body success">
                         <span class="f-light">Dokončeno (celkem)</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>{{ $successCount }}</h4>
                         </div>
                         <div class="bg-gradient"><i data-feather="check-circle"></i></div>
@@ -60,7 +60,7 @@
         </div>
 
         <x-panel.card :title="__('panel.nav.admin_provisioning')">
-            <form method="GET" action="{{ route('admin.provisioning.index') }}" class="mb-3 d-flex gap-2 flex-wrap align-items-center">
+            <form method="GET" action="{{ route('admin.provisioning.index') }}" class="mb-3 flex gap-2 flex-wrap items-center">
                 <select class="form-select w-auto" name="status">
                     <option value="">{{ __('panel.admin.all') }} stav</option>
                     @foreach(\App\Domains\Provisioning\Enums\TaskStatus::cases() as $s)

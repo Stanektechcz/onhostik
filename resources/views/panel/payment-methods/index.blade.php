@@ -10,13 +10,13 @@
     <div class="alert alert-success">{{ session('status') }}</div>
     @endif
 
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             @forelse($methods as $method)
             <div class="card mb-3 @if($method->is_default) border-primary @endif">
-                <div class="card-body d-flex justify-content-between align-items-center">
+                <div class="card-body flex justify-between items-center">
                     <div>
-                        <div class="fw-semibold">{{ $method->label }}</div>
+                        <div class="font-semibold">{{ $method->label }}</div>
                         <small class="text-muted">
                             {{ $method->provider }}
                             @if($method->last4) · **** {{ $method->last4 }} @endif
@@ -27,7 +27,7 @@
                         <span class="badge bg-primary ms-2">Výchozí</span>
                         @endif
                     </div>
-                    <div class="d-flex gap-2">
+                    <div class="flex gap-2">
                         @if(!$method->is_default)
                         <form method="POST" action="{{ route('panel.payment-methods.default', $method) }}">
                             @csrf @method('PATCH')
@@ -46,7 +46,7 @@
             @endforelse
         </div>
 
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card">
                 <div class="card-body">
                     <h5 class="card-title">Přidat platební metodu</h5>
@@ -73,7 +73,7 @@
                             <input type="checkbox" name="is_default" class="form-check-input" id="is_default" value="1">
                             <label class="form-check-label" for="is_default">Nastavit jako výchozí</label>
                         </div>
-                        <button type="submit" class="btn btn-primary w-100">Přidat</button>
+                        <button type="submit" class="btn btn-primary w-full">Přidat</button>
                     </form>
                 </div>
             </div>

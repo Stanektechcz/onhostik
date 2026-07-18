@@ -5,10 +5,10 @@
 @section('content')
 <x-panel.flash />
 
-<div class="row g-4">
-    <div class="col-lg-8">
+<div class="grid grid-cols-12 gap-4">
+    <div class="col-span-12 lg:col-span-8">
         <x-panel.card title="Vouchery">
-            <div class="mb-3 d-flex gap-2">
+            <div class="mb-3 flex gap-2">
                 <a href="{{ route('admin.vouchers.index') }}"
                    class="btn btn-sm {{ !request('status_filter') ? 'btn-primary' : 'btn-outline-secondary' }}">Všechny</a>
                 <a href="{{ route('admin.vouchers.index', ['status_filter' => 'active']) }}"
@@ -67,7 +67,7 @@
                                     @endif
                                 </td>
                                 <td>
-                                    <form method="POST" action="{{ route('admin.vouchers.update', $voucher) }}" class="d-inline">
+                                    <form method="POST" action="{{ route('admin.vouchers.update', $voucher) }}" class="inline">
                                         @csrf
                                         @method('PATCH')
                                         <input type="hidden" name="is_active" value="{{ $voucher->is_active ? '0' : '1' }}">
@@ -94,7 +94,7 @@
         </x-panel.card>
     </div>
 
-    <div class="col-lg-4">
+    <div class="col-span-12 lg:col-span-4">
         <x-panel.card title="Nový voucher">
             <form method="POST" action="{{ route('admin.vouchers.store') }}">
                 @csrf
@@ -151,7 +151,7 @@
                     <label class="form-check-label" for="is_active">Aktivní</label>
                 </div>
 
-                <button type="submit" class="btn btn-primary w-100">Vytvořit voucher</button>
+                <button type="submit" class="btn btn-primary w-full">Vytvořit voucher</button>
             </form>
         </x-panel.card>
     </div>

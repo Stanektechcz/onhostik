@@ -1,7 +1,9 @@
 ﻿@extends('layouts.panel')
 
-@php($breadcrumbTitle = '#' . $order->id)
-@php($breadcrumbItems = [__('panel.nav.admin_orders') => route('admin.orders.index'), '#' . $order->id => ''])
+@php
+    $breadcrumbTitle = '#' . $order->id;
+    $breadcrumbItems = [__('panel.nav.admin_orders') => route('admin.orders.index'), '#' . $order->id => ''];
+@endphp
 
 @section('title', 'Objednávka #' . $order->id)
 
@@ -33,20 +35,20 @@
                         @endforeach
                     </x-panel.data-table>
 
-                    <div class="d-flex justify-content-end mt-3">
+                    <div class="flex justify-end mt-3">
                         <div>
                             <table class="table table-borderless mb-0">
                                 <tr>
                                     <td class="f-light">{{ __('panel.orders.subtotal') }}</td>
-                                    <td class="text-end"><x-panel.money :money="$order->subtotal" /></td>
+                                    <td class="text-right"><x-panel.money :money="$order->subtotal" /></td>
                                 </tr>
                                 <tr>
                                     <td class="f-light">{{ __('panel.orders.vat') }}</td>
-                                    <td class="text-end"><x-panel.money :money="$order->tax_amount" /></td>
+                                    <td class="text-right"><x-panel.money :money="$order->tax_amount" /></td>
                                 </tr>
                                 <tr class="border-top">
                                     <td class="f-w-600">{{ __('panel.common.total') }}</td>
-                                    <td class="text-end f-w-600"><x-panel.money :money="$order->total" /></td>
+                                    <td class="text-right f-w-600"><x-panel.money :money="$order->total" /></td>
                                 </tr>
                             </table>
                         </div>
@@ -105,6 +107,85 @@
 
             {{-- Sidebar --}}
             <div class="col-span-4 xl:col-span-12">
+                {{-- Admin actions --}}
+                <x-panel.card title="Akce">
+                    @php
+                        $openInvoice = $order->invoices->first(fn ($i) => $i->status->isOpen());
+                        $canProvision = $services->isNotEmpty()
+                            && $services->contains(fn ($s) => $s->status->value !== 'active');
+                    @endphp
+                    @if($openInvoice)
+                        <form method="POST" action="{{ route('admin.orders.accept', $order) }}" class="mb-2">
+                            @csrf
+                            <button type="submit" class="btn btn-success w-full text-white">
+                                <i data-feather="check-circle" style="width:14px;height:14px;"></i>
+                                Akceptovat a aktivovat
+                            </button>
+                        </form>
+                        <p class="f-light f-12 mb-3">Zaznamená platbu k faktuře {{ $openInvoice->number }} a spustí zřízení služeb.</p>
+                    @endif
+
+                    @if($canProvision)
+                        <form method="POST" action="{{ route('admin.orders.provision', $order) }}" class="mb-2">
+                            @csrf
+                            <button type="submit" class="btn btn-outline-primary w-full">
+                                <i data-feather="refresh-cw" style="width:14px;height:14px;"></i>
+                                Znovu zřídit služby
+                            </button>
+                        </form>
+                    @endif
+
+                    @if($order->status->value !== 'cancelled')
+                        <form method="POST" action="{{ route('admin.orders.cancel', $order) }}"
+                              onsubmit="return confirm('Opravdu zrušit tuto objednávku?');">
+                            @csrf
+                            <button type="submit" class="btn btn-outline-danger w-full">
+                                <i data-feather="x-circle" style="width:14px;height:14px;"></i>
+                                Zrušit objednávku
+                            </button>
+                        </form>
+                    @endif
+
+                    @if(!$openInvoice && !$canProvision && $order->status->value !== 'cancelled')
+                        <p class="f-light f-12 mb-0">Objednávka je vyřízena — žádné akce nejsou potřeba.</p>
+                    @endif
+                </x-panel.card>
+
+                {{-- Edit order --}}
+                <x-panel.card title="Upravit objednávku">
+                    <form method="POST" action="{{ route('admin.orders.update', $order) }}">
+                        @csrf
+                        @method('PATCH')
+
+                        <div class="mb-3">
+                            <label class="form-label f-12">Stav</label>
+                            <select name="status" class="form-select">
+                                @foreach(['pending' => 'Čeká na platbu', 'processing' => 'Zpracovává se', 'active' => 'Aktivní', 'cancelled' => 'Zrušena', 'fraud' => 'Podvodná'] as $val => $lbl)
+                                    <option value="{{ $val }}" @selected($order->status->value === $val)>{{ $lbl }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        @foreach($order->items as $item)
+                            <div class="mb-3">
+                                <label class="form-label f-12">Doména — {{ $item->pricingPlan?->name ?? ('položka #' . $item->id) }}</label>
+                                <input type="text" name="item_domain[{{ $item->id }}]" class="form-control"
+                                       value="{{ $item->config['domain'] ?? '' }}" placeholder="mujweb.cz">
+                            </div>
+                        @endforeach
+
+                        <div class="mb-3">
+                            <label class="form-label f-12">Poznámka</label>
+                            <textarea name="notes" class="form-control" rows="2" placeholder="Interní poznámka…">{{ $order->notes }}</textarea>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-full text-white">
+                            <i data-feather="save" style="width:14px;height:14px;"></i>
+                            Uložit změny
+                        </button>
+                    </form>
+                </x-panel.card>
+
                 {{-- Status --}}
                 <x-panel.card :title="__('panel.common.status')">
                     <div class="mb-2">

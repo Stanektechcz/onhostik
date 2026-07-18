@@ -17,26 +17,26 @@
     @endif
 
     {{-- Action bar --}}
-    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <div class="flex items-center gap-2 mb-3 flex-wrap">
         <x-panel.status-badge :status="$partner->status" />
         <a href="{{ route('admin.partners.edit', $partner) }}" class="btn btn-outline-primary btn-sm">
             <i data-feather="edit-2" style="width:13px;height:13px;"></i> Upravit
         </a>
         {{-- Quick status toggle --}}
         @if($partner->status->value !== 'active')
-            <form method="POST" action="{{ route('admin.partners.status', $partner) }}" class="d-inline">
+            <form method="POST" action="{{ route('admin.partners.status', $partner) }}" class="inline">
                 @csrf <input type="hidden" name="status" value="active">
                 <button type="submit" class="btn btn-outline-success btn-sm">Aktivovat</button>
             </form>
         @endif
         @if($partner->status->value === 'active')
-            <form method="POST" action="{{ route('admin.partners.status', $partner) }}" class="d-inline">
+            <form method="POST" action="{{ route('admin.partners.status', $partner) }}" class="inline">
                 @csrf <input type="hidden" name="status" value="paused">
                 <button type="submit" class="btn btn-outline-warning btn-sm">Pozastavit</button>
             </form>
         @endif
         @if($partner->status->value !== 'banned')
-            <form method="POST" action="{{ route('admin.partners.status', $partner) }}" class="d-inline"
+            <form method="POST" action="{{ route('admin.partners.status', $partner) }}" class="inline"
                   onsubmit="return confirm('Opravdu zablokovat partnera?')">
                 @csrf <input type="hidden" name="status" value="banned">
                 <button type="submit" class="btn btn-outline-danger btn-sm">Zablokovat</button>
@@ -202,11 +202,11 @@
                                 <td class="f-12">{{ $commission->eligible_at?->format('d.m.Y') ?? '—' }}</td>
                                 <td>
                                     @if($commission->status->value === 'pending')
-                                        <form method="POST" action="{{ route('admin.partners.commissions.approve', [$partner, $commission]) }}" class="d-inline">
+                                        <form method="POST" action="{{ route('admin.partners.commissions.approve', [$partner, $commission]) }}" class="inline">
                                             @csrf
                                             <button type="submit" class="btn btn-outline-success btn-xs">Schválit</button>
                                         </form>
-                                        <form method="POST" action="{{ route('admin.partners.commissions.reject', [$partner, $commission]) }}" class="d-inline ms-1"
+                                        <form method="POST" action="{{ route('admin.partners.commissions.reject', [$partner, $commission]) }}" class="inline ms-1"
                                               onsubmit="return confirm('Opravdu zamítnout?')">
                                             @csrf
                                             <input type="hidden" name="reason" value="Admin zamítl">
@@ -243,11 +243,11 @@
                                     @if($payout->status->value === 'paid')
                                         <span class="badge badge-light-success">Zaplaceno</span>
                                     @elseif($payout->status->value !== 'cancelled')
-                                        <form method="POST" action="{{ route('admin.partners.payouts.paid', [$partner, $payout]) }}" class="d-inline">
+                                        <form method="POST" action="{{ route('admin.partners.payouts.paid', [$partner, $payout]) }}" class="inline">
                                             @csrf
                                             <button type="submit" class="btn btn-outline-primary btn-xs">Zaplaceno</button>
                                         </form>
-                                        <form method="POST" action="{{ route('admin.partners.payouts.cancel', [$partner, $payout]) }}" class="d-inline ms-1"
+                                        <form method="POST" action="{{ route('admin.partners.payouts.cancel', [$partner, $payout]) }}" class="inline ms-1"
                                               onsubmit="return confirm('Zrušit výplatu?')">
                                             @csrf
                                             <button type="submit" class="btn btn-outline-danger btn-xs">Zrušit</button>
@@ -310,7 +310,7 @@
                             @if($hasUtm || $ref->utm_campaign || $ref->source_url || $ref->landing_url)
                             <tr class="collapse" id="ref-detail-{{ $ref->id }}">
                                 <td colspan="7" class="bg-light py-2 px-3">
-                                    <div class="d-flex flex-wrap gap-3 f-12">
+                                    <div class="flex flex-wrap gap-3 f-12">
                                         @if($ref->utm_source)
                                             <div><span class="f-light">utm_source:</span> <code>{{ $ref->utm_source }}</code></div>
                                         @endif
@@ -327,10 +327,10 @@
                                             <div><span class="f-light">utm_content:</span> <code>{{ $ref->utm_content }}</code></div>
                                         @endif
                                         @if($ref->source_url)
-                                            <div><span class="f-light">Zdroj:</span> <span class="text-truncate" style="max-width:300px;display:inline-block;vertical-align:bottom;" title="{{ $ref->source_url }}">{{ $ref->source_url }}</span></div>
+                                            <div><span class="f-light">Zdroj:</span> <span class="truncate" style="max-width:300px;display:inline-block;vertical-align:bottom;" title="{{ $ref->source_url }}">{{ $ref->source_url }}</span></div>
                                         @endif
                                         @if($ref->landing_url)
-                                            <div><span class="f-light">Landing:</span> <span class="text-truncate" style="max-width:300px;display:inline-block;vertical-align:bottom;" title="{{ $ref->landing_url }}">{{ $ref->landing_url }}</span></div>
+                                            <div><span class="f-light">Landing:</span> <span class="truncate" style="max-width:300px;display:inline-block;vertical-align:bottom;" title="{{ $ref->landing_url }}">{{ $ref->landing_url }}</span></div>
                                         @endif
                                     </div>
                                 </td>

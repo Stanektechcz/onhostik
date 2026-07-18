@@ -14,7 +14,7 @@
     {{-- Search bar --}}
     <div class="card mb-3">
         <div class="card-body py-2">
-            <form method="GET" action="{{ route('panel.blog.index') }}" class="d-flex gap-2 flex-wrap align-items-center">
+            <form method="GET" action="{{ route('panel.blog.index') }}" class="flex gap-2 flex-wrap items-center">
                 <input type="text" name="q" class="form-control form-control-sm" style="max-width:260px;"
                        placeholder="Hledat příspěvek…" value="{{ $search }}">
                 @if($categories->isNotEmpty())
@@ -40,7 +40,7 @@
 
             @if($loop->first)
             {{-- Featured post: blog-shadow --}}
-            <div class="col-span-6 xl:col-span-12 set-col-12 box-col-12">
+            <div class="col-span-6 xl:col-span-12 set-col-span-12 box-col-span-12">
                 <div class="card">
                     <div class="blog-box blog-shadow">
                         @if($post->featured_image)
@@ -63,7 +63,7 @@
                 </div>
             </div>
             @elseif($loop->index === 1)
-            <div class="col-span-6 xl:col-span-12 set-col-12 box-col-12">
+            <div class="col-span-6 xl:col-span-12 set-col-span-12 box-col-span-12">
             @endif
 
             @if($loop->index === 1 || $loop->index === 2)
@@ -104,7 +104,7 @@
             @endif
 
             @if($loop->index >= 3)
-            <div class="col-span-3 xxl:col-span-6 md:col-span-12 box-col-6">
+            <div class="col-span-3 xxl:col-span-6 md:col-span-12 box-col-span-6">
                 <div class="card">
                     <div class="blog-box blog-grid text-center">
                         @if($post->featured_image)
@@ -133,7 +133,7 @@
             <div class="col-span-12">
                 <div class="card">
                     <div class="card-body text-center py-5">
-                        <i data-feather="file-text" style="width:48px;height:48px;" class="text-muted mb-3 d-block mx-auto"></i>
+                        <i data-feather="file-text" style="width:48px;height:48px;" class="text-muted mb-3 block mx-auto"></i>
                         <h5 class="f-light">Žádné příspěvky k dispozici</h5>
                     </div>
                 </div>

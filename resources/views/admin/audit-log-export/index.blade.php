@@ -8,16 +8,16 @@
 
     <x-panel.card title="Export audit / activity logu do CSV">
         <form method="GET" action="{{ route('admin.audit-log-export.export') }}">
-            <div class="row g-3 mb-4">
-                <div class="col-md-3">
+            <div class="grid grid-cols-12 gap-3 mb-4">
+                <div class="col-span-12 md:col-span-3">
                     <label class="form-label">Od data</label>
                     <input type="date" name="from" class="form-control" value="{{ old('from') }}">
                 </div>
-                <div class="col-md-3">
+                <div class="col-span-12 md:col-span-3">
                     <label class="form-label">Do data</label>
                     <input type="date" name="to" class="form-control" value="{{ old('to', date('Y-m-d')) }}">
                 </div>
-                <div class="col-md-3">
+                <div class="col-span-12 md:col-span-3">
                     <label class="form-label">Log name</label>
                     <select name="log_name" class="form-select">
                         <option value="">Vše</option>
@@ -26,7 +26,7 @@
                         @endforeach
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-span-12 md:col-span-3">
                     <label class="form-label">ID uživatele</label>
                     <input type="number" name="causer_id" class="form-control" placeholder="volitelné">
                 </div>

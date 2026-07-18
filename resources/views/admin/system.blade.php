@@ -21,7 +21,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-{{ $allOk ? 'success' : 'danger' }} rounded p-2">
                                     <i data-feather="{{ $allOk ? 'check-circle' : 'x-circle' }}"
                                        class="font-{{ $allOk ? 'success' : 'danger' }}"></i>
@@ -41,7 +41,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-success rounded p-2"><i data-feather="link" class="font-success"></i></div>
                                 <div>
                                     <h5 class="mb-0 f-w-600">{{ $healthyProviders }}</h5>
@@ -56,7 +56,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-{{ $errorProviders > 0 ? 'danger' : 'success' }} rounded p-2">
                                     <i data-feather="alert-circle" class="font-{{ $errorProviders > 0 ? 'danger' : 'success' }}"></i>
                                 </div>
@@ -73,7 +73,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-primary rounded p-2"><i data-feather="cpu" class="font-primary"></i></div>
                                 <div>
                                     <h5 class="mb-0 f-w-600">{{ PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION }}</h5>
@@ -96,7 +96,7 @@
                                     <li>
                                         <div class="timeline-dot-{{ $check['ok'] ? 'success' : 'danger' }}"></div>
                                         <div class="ms-4 pb-2">
-                                            <div class="d-flex align-items-center gap-2">
+                                            <div class="flex items-center gap-2">
                                                 <i data-feather="{{ $check['ok'] ? 'check-circle' : 'x-circle' }}"
                                                    class="font-{{ $check['ok'] ? 'success' : 'danger' }}"
                                                    style="width:14px;height:14px;flex-shrink:0"></i>
@@ -146,7 +146,7 @@
         <div class="grid grid-cols-12 card-gap">
             <div class="col-span-12">
                 <x-panel.card title="Runtime informace">
-                    <div class="d-flex gap-4 flex-wrap f-12">
+                    <div class="flex gap-4 flex-wrap f-12">
                         <span><span class="f-light">PHP:</span> <strong>{{ PHP_VERSION }}</strong></span>
                         <span><span class="f-light">Laravel:</span> <strong>{{ app()->version() }}</strong></span>
                         <span><span class="f-light">Prostředí:</span> <strong>{{ app()->environment() }}</strong></span>

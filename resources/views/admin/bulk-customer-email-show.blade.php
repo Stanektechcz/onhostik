@@ -13,7 +13,7 @@
         {{-- Main card --}}
         <div class="col-span-8 xl:col-span-12">
             <x-panel.card :title="$bulkEmail->subject">
-                <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+                <div class="flex flex-wrap gap-2 mb-3 items-center">
                     <span class="badge {{ $bulkEmail->status === 'sent' ? 'badge-light-success' : ($bulkEmail->status === 'sending' ? 'badge-light-warning' : ($bulkEmail->status === 'failed' ? 'badge-light-danger' : 'badge-light-secondary')) }}">
                         {{ $bulkEmail->status === 'sent' ? 'Odesláno' : ($bulkEmail->status === 'sending' ? 'Odesílání' : ($bulkEmail->status === 'failed' ? 'Chyba' : 'Koncept')) }}
                     </span>
@@ -30,7 +30,7 @@
 
                 {{-- Actions --}}
                 @if($bulkEmail->isDraft())
-                    <div class="d-flex gap-2">
+                    <div class="flex gap-2">
                         <form method="POST" action="{{ route('admin.bulk-email.send', $bulkEmail) }}"
                               onsubmit="return confirm('Odeslat e-mail {{ $recipientCount }} zákazníkům?')">
                             @csrf

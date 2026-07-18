@@ -66,7 +66,7 @@
                                 ] as [$section, $color, $links])
                                 <div class="col-span-2 xl:col-span-4 sm:col-span-6">
                                     <h6 class="mb-2"><span class="badge badge-{{ $color }} text-white">{{ $section }}</span></h6>
-                                    <ul class="common-flex flex-column gap-1 list-unstyled">
+                                    <ul class="common-flex flex-col gap-1 list-unstyled">
                                         @foreach($links as [$label, $url])
                                         <li><a href="{{ $url }}" class="f-12 f-light">→ {{ $label }}</a></li>
                                         @endforeach
@@ -92,7 +92,7 @@
                                     <div class="main-root text-center p-3 border rounded mb-3">
                                         <strong>onhost.cz</strong>
                                     </div>
-                                    <ul class="tier-1 d-flex flex-wrap gap-3 list-unstyled">
+                                    <ul class="tier-1 flex flex-wrap gap-3 list-unstyled">
                                         @foreach([
                                             ['/ (Domovská stránka)', ['/login','/register','/blog','/faq','/kontakt']],
                                             ['/panel (Zákaznický panel)', ['/panel/objednavky','/panel/sluzby','/panel/domeny','/panel/fakturace','/panel/faq']],

@@ -11,8 +11,8 @@
         Nemáte aktivní partnerský profil. Pro zapojení do referral programu kontaktujte podporu.
     </div>
     @else
-    <div class="row g-3 mb-4">
-        <div class="col-md-3">
+    <div class="grid grid-cols-12 gap-3 mb-4">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body">
                     <h4 class="mb-1">{{ $referrals->total() }}</h4>
@@ -20,7 +20,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body">
                     <h4 class="mb-1">{{ number_format($totalEarned, 2, ',', ' ') }} Kč</h4>
@@ -28,7 +28,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body">
                     <h4 class="mb-1">{{ number_format($pendingPayout, 2, ',', ' ') }} Kč</h4>
@@ -36,7 +36,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body">
                     <p class="text-muted mb-1 small">Referral kód</p>

@@ -5,7 +5,7 @@
 @section('content')
 <div class="container-fluid py-4">
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="flex justify-between items-center mb-4">
         <h1 class="h4 mb-0">SLA Incidenty</h1>
         <a href="{{ route('admin.sla-incidents.create') }}" class="btn btn-sm btn-danger">+ Nový incident</a>
     </div>
@@ -15,8 +15,8 @@
     @endif
 
     {{-- Stats --}}
-    <div class="row g-3 mb-4">
-        <div class="col-md-3">
+    <div class="grid grid-cols-12 gap-3 mb-4">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body py-3">
                     <div class="h4 mb-0">{{ $stats['total'] }}</div>
@@ -24,7 +24,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body py-3">
                     <div class="h4 mb-0 text-danger">{{ $stats['open'] }}</div>
@@ -32,7 +32,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body py-3">
                     <div class="h4 mb-0 text-success">{{ $stats['resolved'] }}</div>
@@ -40,7 +40,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body py-3">
                     <div class="h4 mb-0 text-warning">{{ $stats['breached'] }}</div>
@@ -51,7 +51,7 @@
     </div>
 
     {{-- Filters --}}
-    <form class="row g-2 mb-3" method="GET">
+    <form class="grid grid-cols-12 gap-2 mb-3" method="GET">
         <div class="col-auto">
             <select name="status" class="form-select form-select-sm">
                 <option value="">— Stav —</option>
@@ -92,7 +92,7 @@
                 <tbody>
                     @forelse($incidents as $incident)
                     <tr>
-                        <td class="fw-semibold small">{{ $incident->title }}</td>
+                        <td class="font-semibold small">{{ $incident->title }}</td>
                         <td class="small">{{ $incident->service?->name ?? '—' }}</td>
                         <td class="small">{{ $incident->service?->customer?->company ?? '—' }}</td>
                         <td><span class="{{ $incident->severityBadgeClass() }}">{{ $incident->severityLabel() }}</span></td>

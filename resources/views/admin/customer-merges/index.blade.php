@@ -3,8 +3,8 @@
 @section('title', 'Sloučení zákazníků')
 
 @section('content')
-<div class="row g-4">
-    <div class="col-lg-8">
+<div class="grid grid-cols-12 gap-4">
+    <div class="col-span-12 lg:col-span-8">
         <x-panel.card title="Sloučení zákazníků">
             <x-panel.flash />
 
@@ -62,7 +62,7 @@
         </x-panel.card>
     </div>
 
-    <div class="col-lg-4">
+    <div class="col-span-12 lg:col-span-4">
         <x-panel.card title="Nové sloučení">
             <form method="POST" action="{{ route('admin.customer-merges.store') }}">
                 @csrf
@@ -92,7 +92,7 @@
                     @error('note') <div class="invalid-feedback">{{ $message }}</div> @enderror
                 </div>
 
-                <button type="submit" class="btn btn-warning w-100"
+                <button type="submit" class="btn btn-warning w-full"
                     onclick="return confirm('Opravdu zahájit sloučení zákazníků?')">
                     Vytvořit žádost o sloučení
                 </button>

@@ -9,7 +9,7 @@
     <x-panel.card title="Žádosti o výplatu resellerů">
 
         {{-- Filter --}}
-        <form method="GET" action="{{ route('admin.reseller-payout-requests.index') }}" class="d-flex gap-2 mb-3">
+        <form method="GET" action="{{ route('admin.reseller-payout-requests.index') }}" class="flex gap-2 mb-3">
             <select name="status" class="form-select form-select-sm w-auto">
                 <option value="">Všechny statusy</option>
                 @foreach(['pending','approved','paid','rejected'] as $s)
@@ -31,7 +31,7 @@
                     <tr>
                         <th>ID</th>
                         <th>Reseller profil ID</th>
-                        <th class="text-end">Částka</th>
+                        <th class="text-right">Částka</th>
                         <th>Měna</th>
                         <th>Status</th>
                         <th>Požadoval</th>
@@ -53,7 +53,7 @@
                     <tr>
                         <td class="f-12 text-muted">{{ $req->id }}</td>
                         <td>{{ $req->reseller_profile_id }}</td>
-                        <td class="text-end f-w-500">
+                        <td class="text-right f-w-500">
                             {{ number_format($req->amount / 100, 2, ',', ' ') }}
                         </td>
                         <td class="f-12">{{ strtoupper($req->currency ?? 'CZK') }}</td>
@@ -73,7 +73,7 @@
                         </td>
                         <td>
                             <form method="POST" action="{{ route('admin.reseller-payout-requests.update', $req) }}"
-                                  class="d-flex gap-1 flex-wrap align-items-center">
+                                  class="flex gap-1 flex-wrap items-center">
                                 @csrf
                                 @method('PATCH')
                                 <select name="status" class="form-select form-select-sm" style="width:110px">

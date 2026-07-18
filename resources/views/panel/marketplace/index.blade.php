@@ -17,7 +17,7 @@
 
     <div class="container">
 
-        <div class="d-flex align-items-center gap-3 mb-4">
+        <div class="flex items-center gap-3 mb-4">
             <a href="{{ route('panel.services.show', $service) }}" class="btn btn-outline-secondary btn-sm">
                 <svg data-feather="arrow-left" style="width:13px;height:13px" class="me-1"></svg>
                 {{ $service->label }}
@@ -34,17 +34,17 @@
         @endphp
 
         @foreach ($grouped as $category => $categoryApps)
-        <h6 class="text-muted f-12 text-uppercase mb-3 mt-4">{{ $categoryLabels[$category] ?? $category }}</h6>
-        <div class="row g-3 mb-2">
+        <h6 class="text-muted f-12 uppercase mb-3 mt-4">{{ $categoryLabels[$category] ?? $category }}</h6>
+        <div class="grid grid-cols-12 gap-3 mb-2">
             @foreach ($categoryApps as $app)
             @php
                 $status   = $installed[$app->id] ?? null;
                 $isActive = in_array($status, ['installed', 'installing', 'pending']);
             @endphp
-            <div class="col-md-4 col-lg-3">
-                <div class="card h-100 @if($isActive) border-success @endif">
-                    <div class="card-body d-flex flex-column gap-2 p-3">
-                        <div class="d-flex align-items-center gap-2">
+            <div class="col-span-12 md:col-span-4 col-span-12 lg:col-span-3">
+                <div class="card h-full @if($isActive) border-success @endif">
+                    <div class="card-body flex flex-col gap-2 p-3">
+                        <div class="flex items-center gap-2">
                             <div class="p-2 rounded bg-light-primary">
                                 <svg data-feather="{{ $app->icon }}" style="width:20px;height:20px" class="font-primary"></svg>
                             </div>
@@ -54,7 +54,7 @@
                             </div>
                         </div>
                         @if ($app->description)
-                            <p class="text-muted f-12 mb-0 flex-grow-1">{{ $app->description }}</p>
+                            <p class="text-muted f-12 mb-0 grow">{{ $app->description }}</p>
                         @endif
                         <p class="text-muted f-11 mb-0">Min. disk: {{ $app->min_disk_gb }} GB</p>
 
@@ -66,14 +66,14 @@
                             <form method="POST" action="{{ route('panel.marketplace.remove', [$service, $app]) }}"
                                   onsubmit="return confirm('Odinstalovat {{ $app->name }}?')">
                                 @csrf @method('DELETE')
-                                <button type="submit" class="btn btn-outline-danger btn-xs w-100">
+                                <button type="submit" class="btn btn-outline-danger btn-xs w-full">
                                     Odinstalovat
                                 </button>
                             </form>
                         @else
                             <form method="POST" action="{{ route('panel.marketplace.install', [$service, $app]) }}">
                                 @csrf
-                                <button type="submit" class="btn btn-primary btn-sm w-100">
+                                <button type="submit" class="btn btn-primary btn-sm w-full">
                                     <svg data-feather="download" style="width:13px;height:13px" class="me-1"></svg>
                                     Instalovat
                                 </button>

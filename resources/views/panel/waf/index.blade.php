@@ -5,7 +5,7 @@
 @section('content')
 <div class="container py-4">
 
-    <div class="d-flex align-items-center mb-4 gap-3">
+    <div class="flex items-center mb-4 gap-3">
         <a href="{{ route('panel.services.show', $service) }}" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-arrow-left"></i>
         </a>
@@ -19,7 +19,7 @@
 
     {{-- Active Rules --}}
     <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header flex justify-between items-center">
             <strong>Aktivní pravidla</strong>
             <span class="badge bg-secondary">{{ $rules->count() }}</span>
         </div>
@@ -55,14 +55,14 @@
                                     <span class="badge bg-secondary">Neaktivní</span>
                                 @endif
                             </td>
-                            <td class="text-end">
-                                <form method="POST" action="{{ route('panel.waf.toggle', [$service, $rule]) }}" class="d-inline">
+                            <td class="text-right">
+                                <form method="POST" action="{{ route('panel.waf.toggle', [$service, $rule]) }}" class="inline">
                                     @csrf @method('PATCH')
                                     <button class="btn btn-xs btn-outline-secondary btn-sm">
                                         {{ $rule->is_active ? 'Deaktivovat' : 'Aktivovat' }}
                                     </button>
                                 </form>
-                                <form method="POST" action="{{ route('panel.waf.destroy', [$service, $rule]) }}" class="d-inline"
+                                <form method="POST" action="{{ route('panel.waf.destroy', [$service, $rule]) }}" class="inline"
                                       onsubmit="return confirm('Smazat pravidlo?')">
                                     @csrf @method('DELETE')
                                     <button class="btn btn-xs btn-outline-danger btn-sm">Smazat</button>
@@ -82,8 +82,8 @@
         <div class="card-body">
             <form method="POST" action="{{ route('panel.waf.store', $service) }}">
                 @csrf
-                <div class="row g-3">
-                    <div class="col-md-3">
+                <div class="grid grid-cols-12 gap-3">
+                    <div class="col-span-12 md:col-span-3">
                         <label class="form-label">Typ pravidla</label>
                         <select name="type" class="form-select @error('type') is-invalid @enderror" required>
                             @foreach(\App\Domains\Security\Enums\WafRuleType::cases() as $type)
@@ -94,22 +94,22 @@
                         </select>
                         @error('type')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-span-12 md:col-span-4">
                         <label class="form-label">Hodnota</label>
                         <input type="text" name="value" value="{{ old('value') }}"
                                class="form-control @error('value') is-invalid @enderror"
                                placeholder="IP, CIDR, kód země nebo limit" required>
                         @error('value')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-span-12 md:col-span-4">
                         <label class="form-label">Poznámka (nepovinná)</label>
                         <input type="text" name="notes" value="{{ old('notes') }}"
                                class="form-control @error('notes') is-invalid @enderror"
                                placeholder="Důvod pravidla…">
                         @error('notes')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    <div class="col-md-1 d-flex align-items-end">
-                        <button type="submit" class="btn btn-primary w-100">Přidat</button>
+                    <div class="col-span-12 md:col-span-1 flex items-end">
+                        <button type="submit" class="btn btn-primary w-full">Přidat</button>
                     </div>
                 </div>
             </form>
@@ -118,7 +118,7 @@
 
     {{-- Recent Events --}}
     <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header flex justify-between items-center">
             <strong>Poslední bezpečnostní události</strong>
             <span class="badge bg-secondary">{{ $events->count() }}</span>
         </div>
@@ -143,7 +143,7 @@
                         <tr>
                             <td><code>{{ $event->ip_address }}</code></td>
                             <td>{{ $event->country_code ?? '—' }}</td>
-                            <td class="text-truncate" style="max-width:200px">{{ $event->request_uri ?? '—' }}</td>
+                            <td class="truncate" style="max-width:200px">{{ $event->request_uri ?? '—' }}</td>
                             <td>{{ $event->method ?? '—' }}</td>
                             <td>
                                 @if($event->action_taken === 'block')

@@ -17,13 +17,13 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-{{ match($service->status) { \App\Domains\Provisioning\Enums\ServiceStatus::Active => 'success', \App\Domains\Provisioning\Enums\ServiceStatus::Suspended => 'warning', default => 'secondary' } }} rounded p-2">
                                     <i data-feather="server" class="font-{{ match($service->status) { \App\Domains\Provisioning\Enums\ServiceStatus::Active => 'success', \App\Domains\Provisioning\Enums\ServiceStatus::Suspended => 'warning', default => 'secondary' } }}"></i>
                                 </div>
                                 <div>
                                     <x-panel.status-badge :status="$service->status" />
-                                    <span class="f-light f-12 d-block">{{ __('panel.common.status') }}</span>
+                                    <span class="f-light f-12 block">{{ __('panel.common.status') }}</span>
                                 </div>
                             </div>
                         </div>
@@ -34,7 +34,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-primary rounded p-2"><i data-feather="calendar" class="font-primary"></i></div>
                                 <div>
                                     <h5 class="mb-0 f-w-600 {{ $service->next_due_date?->isPast() ? 'font-danger' : '' }}">
@@ -51,7 +51,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-{{ $monitor?->uptime_percent >= 99 ? 'success' : ($monitor?->uptime_percent >= 95 ? 'warning' : 'danger') }} rounded p-2">
                                     <i data-feather="activity" class="font-{{ $monitor?->uptime_percent >= 99 ? 'success' : ($monitor?->uptime_percent >= 95 ? 'warning' : 'danger') }}"></i>
                                 </div>
@@ -68,7 +68,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 @php
                                     $sslDays = $monitor?->ssl_expires_at ? now()->diffInDays($monitor->ssl_expires_at, false) : null;
                                 @endphp
@@ -92,8 +92,8 @@
                 $isVps = $service->provisioning_driver?->value === 'proxmox';
                 $latestTask = $service->provisioningTasks->first();
             @endphp
-            <div class="alert alert-light-warning d-flex align-items-center gap-3 mb-3">
-                <i data-feather="loader" style="width:20px;height:20px;" class="txt-warning flex-shrink-0"></i>
+            <div class="alert alert-light-warning flex items-center gap-3 mb-3">
+                <i data-feather="loader" style="width:20px;height:20px;" class="txt-warning shrink-0"></i>
                 <div>
                     <span class="f-w-600">Služba se aktivuje</span>
                     <p class="mb-0 f-14 f-light">
@@ -189,7 +189,7 @@
                             @endif
                         </div>
                         @foreach(array_diff_key($res, array_flip(['cpu','ram_mb','disk_mb','bandwidth_gb','ipconfig'])) as $key => $val)
-                            <div class="d-flex justify-content-between f-12 mt-2">
+                            <div class="flex justify-between f-12 mt-2">
                                 <span class="f-light">{{ $key }}</span>
                                 <span>{{ is_array($val) ? json_encode($val) : $val }}</span>
                             </div>
@@ -210,13 +210,13 @@
                 @if(!empty($usage))
                     <x-panel.card title="Využití prostředků">
                         @if(!empty($usage['mock']))
-                            <p class="f-12 f-light mb-2 d-flex align-items-center gap-1">
+                            <p class="f-12 f-light mb-2 flex items-center gap-1">
                                 <i data-feather="info" style="width:12px;height:12px;"></i>
                                 Demo data — synchronizace probíhá každých 15 min.
                             </p>
                         @endif
                         <div class="mb-3">
-                            <div class="d-flex justify-content-between mb-1">
+                            <div class="flex justify-between mb-1">
                                 <span class="f-light f-12">Disk</span>
                                 <span class="f-12 f-w-500">
                                     {{ number_format($diskUsed / 1024, 1) }} / {{ number_format($diskQuota / 1024, 1) }} GB
@@ -228,7 +228,7 @@
                             </div>
                         </div>
                         <div class="mb-3">
-                            <div class="d-flex justify-content-between mb-1">
+                            <div class="flex justify-between mb-1">
                                 <span class="f-light f-12">Přenos</span>
                                 <span class="f-12 f-w-500">
                                     {{ number_format($bwUsed / 1024, 1) }} / {{ number_format($bwQuota / 1024, 1) }} GB
@@ -239,7 +239,7 @@
                                      role="progressbar" style="width:{{ $bwPct }}%"></div>
                             </div>
                         </div>
-                        <div class="d-flex gap-3 f-12">
+                        <div class="flex gap-3 f-12">
                             @if(isset($usage['db_count']))
                                 <span class="f-light">Databáze: <strong>{{ $usage['db_count'] }}</strong></span>
                             @endif
@@ -260,7 +260,7 @@
 
                 {{-- Actions --}}
                 <x-panel.card title="Akce">
-                    <div class="d-flex flex-wrap gap-2">
+                    <div class="flex flex-wrap gap-2">
                         @if($mockMode && $service->status === \App\Domains\Provisioning\Enums\ServiceStatus::Active)
                             <form method="POST" action="{{ route('panel.services.wordpress', $service) }}">
                                 @csrf
@@ -304,7 +304,7 @@
 
                     {{-- Auto-renewal toggle --}}
                     <hr class="my-3">
-                    <div class="d-flex align-items-center justify-content-between">
+                    <div class="flex items-center justify-between">
                         <div>
                             <span class="f-13 f-w-500">Automatická obnova</span>
                             <p class="f-light f-12 mb-0">
@@ -331,7 +331,7 @@
                     {{-- Rename service --}}
                     <hr class="my-3">
                     <span class="f-13 f-w-500">Přejmenovat službu</span>
-                    <form method="POST" action="{{ route('panel.services.rename', $service) }}" class="d-flex gap-2 mt-2">
+                    <form method="POST" action="{{ route('panel.services.rename', $service) }}" class="flex gap-2 mt-2">
                         @csrf
                         @method('PATCH')
                         <input type="text"
@@ -373,9 +373,9 @@
                                 {{ __('panel.services.monitoring_mock_note') }}
                             </p>
                         @endif
-                        <div class="grid grid-cols-12 gap-3 align-items-center mb-3">
+                        <div class="grid grid-cols-12 gap-3 items-center mb-3">
                             <div class="col-span-6 md:col-span-12">
-                                <div class="d-flex justify-content-between mb-1">
+                                <div class="flex justify-between mb-1">
                                     <span class="f-light f-12">Uptime (30 dní)</span>
                                     <span class="f-w-600 f-12">{{ $uptime }} %</span>
                                 </div>
@@ -400,7 +400,7 @@
                                 </p>
                             </div>
                         </div>
-                        <div class="d-flex gap-2 align-items-center mb-3">
+                        <div class="flex gap-2 items-center mb-3">
                             <x-panel.status-badge :status="$monitor->status" />
                             @if($monitor->status->value === 'down')
                                 <span class="f-12 text-danger">
@@ -415,7 +415,7 @@
                             <h6 class="f-12 f-light mb-2 border-top pt-3">Incidenty (posledních 10)</h6>
                             <ul class="list-unstyled mb-0">
                                 @foreach($incidents as $incident)
-                                    <li class="d-flex align-items-start gap-2 mb-2">
+                                    <li class="flex items-start gap-2 mb-2">
                                         <span class="badge badge-light-{{ $incident->isOpen() ? 'danger' : 'secondary' }} mt-1 f-10">
                                             {{ $incident->isOpen() ? 'Probíhá' : 'Vyřešeno' }}
                                         </span>
@@ -482,8 +482,8 @@
                         @csrf
                         @method('PUT')
 
-                        <div class="row g-3">
-                            <div class="col-md-4">
+                        <div class="grid grid-cols-12 gap-3">
+                            <div class="col-span-12 md:col-span-4">
                                 <label class="form-label f-12 f-w-600">Frekvence</label>
                                 <select name="frequency" class="form-control form-control-sm @error('frequency') is-invalid @enderror">
                                     @foreach(['daily' => 'Denně', 'weekly' => 'Týdně', 'monthly' => 'Měsíčně'] as $val => $label)
@@ -493,7 +493,7 @@
                                 @error('frequency')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
                             </div>
 
-                            <div class="col-md-4">
+                            <div class="col-span-12 md:col-span-4">
                                 <label class="form-label f-12 f-w-600">Čas zálohy (hodina UTC)</label>
                                 <select name="scheduled_hour" class="form-control form-control-sm @error('scheduled_hour') is-invalid @enderror">
                                     @for($h = 0; $h < 24; $h++)
@@ -505,7 +505,7 @@
                                 @error('scheduled_hour')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
                             </div>
 
-                            <div class="col-md-4">
+                            <div class="col-span-12 md:col-span-4">
                                 <label class="form-label f-12 f-w-600">Den (pro týdenní plán)</label>
                                 <select name="scheduled_weekday" class="form-control form-control-sm @error('scheduled_weekday') is-invalid @enderror">
                                     <option value="">—</option>
@@ -516,7 +516,7 @@
                                 @error('scheduled_weekday')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
                             </div>
 
-                            <div class="col-md-4">
+                            <div class="col-span-12 md:col-span-4">
                                 <label class="form-label f-12 f-w-600">Uchovávat zálohy (dní)</label>
                                 <input type="number" name="retention_days" min="1" max="365"
                                     value="{{ old('retention_days', $backupPolicy?->retention_days ?? 14) }}"
@@ -524,7 +524,7 @@
                                 @error('retention_days')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
                             </div>
 
-                            <div class="col-md-4 d-flex align-items-center gap-2 pt-3">
+                            <div class="col-span-12 md:col-span-4 flex items-center gap-2 pt-3">
                                 <div class="form-check form-switch mb-0">
                                     <input class="form-check-input" type="checkbox" name="is_active" value="1" id="bp_active"
                                         {{ old('is_active', $backupPolicy?->is_active ?? true) ? 'checked' : '' }}>
@@ -551,7 +551,7 @@
                 @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Pterodactyl)
                     <x-panel.card title="Správa game serveru">
                         @error('game')<div class="alert alert-light-danger py-2 f-12 mb-2">{{ $message }}</div>@enderror
-                        <div class="d-flex align-items-center gap-2 mb-3">
+                        <div class="flex items-center gap-2 mb-3">
                             <span id="game-status-badge" class="badge badge-light-secondary">Načítám stav…</span>
                             <span id="game-status-flag"></span>
                             <button type="button" id="game-status-refresh" class="btn btn-outline-secondary btn-xs ms-auto">
@@ -609,7 +609,7 @@
                                 <tr>
                                     <td class="f-light ps-0">Auto-prodloužení</td>
                                     <td>
-                                        <form method="POST" action="{{ route('panel.domains.auto-renew', $domainReg) }}" class="d-inline">
+                                        <form method="POST" action="{{ route('panel.domains.auto-renew', $domainReg) }}" class="inline">
                                             @csrf
                                             <button type="submit" class="btn btn-link p-0 border-0">
                                                 <span class="badge {{ $domainReg->auto_renew ? 'bg-success' : 'bg-secondary' }}">
@@ -620,7 +620,7 @@
                                     </td>
                                 </tr>
                             </table>
-                            <div class="d-flex gap-2 flex-wrap">
+                            <div class="flex gap-2 flex-wrap">
                                 <a href="{{ route('panel.domains.show', $domainReg) }}" class="btn btn-outline-primary btn-sm">
                                     <i data-feather="globe" style="width:13px;height:13px"></i> Detail domény
                                 </a>
@@ -641,14 +641,14 @@
                         @php
                             $currentPhp = $service->resources['php_version'] ?? null;
                         @endphp
-                        <div class="d-flex align-items-center gap-2 mb-3">
+                        <div class="flex items-center gap-2 mb-3">
                             <span class="f-12 f-light">Aktuální PHP verze:</span>
                             <span class="badge badge-light-primary">
                                 {{ \App\Domains\Provisioning\Jobs\WebhostingPhpVersionJob::VERSIONS[$currentPhp] ?? 'Neznámá' }}
                             </span>
                         </div>
                         @if($service->status === \App\Domains\Provisioning\Enums\ServiceStatus::Active)
-                            <form method="POST" action="{{ route('panel.services.php-version', $service) }}" class="d-flex gap-2 align-items-end">
+                            <form method="POST" action="{{ route('panel.services.php-version', $service) }}" class="flex gap-2 items-end">
                                 @csrf
                                 <div>
                                     <label class="form-label f-12 mb-1">Nová PHP verze</label>
@@ -674,7 +674,7 @@
                 @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Proxmox)
                     <x-panel.card title="Správa VPS">
                         @error('vps')<div class="alert alert-light-danger py-2 f-12 mb-2">{{ $message }}</div>@enderror
-                        <div class="d-flex align-items-center gap-2 mb-3">
+                        <div class="flex items-center gap-2 mb-3">
                             <span id="vps-status-badge" class="badge badge-light-secondary">Načítám stav…</span>
                             <span id="vps-status-flag"></span>
                             <button type="button" id="vps-status-refresh" class="btn btn-outline-secondary btn-xs ms-auto">
@@ -684,7 +684,7 @@
                         <div id="vps-status-body" class="mb-3"></div>
 
                         @if($service->status === \App\Domains\Provisioning\Enums\ServiceStatus::Active)
-                            <div class="d-flex gap-2 flex-wrap">
+                            <div class="flex gap-2 flex-wrap">
                                 <form method="POST" action="{{ route('panel.services.vps-action', $service) }}">
                                     @csrf
                                     <input type="hidden" name="action" value="start">
@@ -720,10 +720,10 @@
                 @if($maintenanceWindows->isNotEmpty())
                     <x-panel.card title="Plánovaná údržba">
                         @foreach($maintenanceWindows as $window)
-                            <div class="d-flex align-items-start gap-2 py-2 border-bottom">
+                            <div class="flex items-start gap-2 py-2 border-bottom">
                                 <i data-feather="tool" style="width:15px;height:15px;flex-shrink:0;" class="txt-warning mt-1"></i>
-                                <div class="flex-grow-1">
-                                    <div class="d-flex align-items-center gap-2">
+                                <div class="grow">
+                                    <div class="flex items-center gap-2">
                                         <span class="f-12 f-w-600">{{ $window->title }}</span>
                                         <span class="badge {{ $window->status === 'in_progress' ? 'badge-light-danger' : 'badge-light-warning' }} f-10">
                                             {{ $window->status === 'in_progress' ? 'Probíhá' : 'Naplánováno' }}
@@ -745,11 +745,11 @@
                 @if($healthIncidents->isNotEmpty())
                     <x-panel.card title="Aktivní incidenty služby">
                         @foreach($healthIncidents as $incident)
-                            <div class="d-flex align-items-start gap-2 py-2 border-bottom">
+                            <div class="flex items-start gap-2 py-2 border-bottom">
                                 <i data-feather="alert-triangle" style="width:15px;height:15px;flex-shrink:0;"
                                    class="{{ $incident->severity === 'critical' ? 'txt-danger' : 'txt-warning' }} mt-1"></i>
-                                <div class="flex-grow-1">
-                                    <div class="d-flex align-items-center gap-2">
+                                <div class="grow">
+                                    <div class="flex items-center gap-2">
                                         <span class="f-12 f-w-600">{{ $incident->title }}</span>
                                         <span class="badge {{ match($incident->severity) { 'critical' => 'badge-light-danger', 'warning' => 'badge-light-warning', default => 'badge-light-info' } }} f-10">
                                             {{ ['info' => 'Info', 'warning' => 'Varování', 'critical' => 'Kritický'][$incident->severity] ?? $incident->severity }}
@@ -792,8 +792,8 @@
                                                 {{ $rule->action === 'allow' ? 'Povolit' : 'Zakázat' }}
                                             </span>
                                         </td>
-                                        <td class="text-end">
-                                            <form method="POST" action="{{ route('panel.service-firewall-rules.destroy', $rule) }}" class="d-inline"
+                                        <td class="text-right">
+                                            <form method="POST" action="{{ route('panel.service-firewall-rules.destroy', $rule) }}" class="inline"
                                                   onsubmit="return confirm('Odstranit pravidlo?')">
                                                 @csrf
                                                 @method('DELETE')
@@ -807,10 +807,10 @@
                             </x-panel.data-table>
                         @endif
 
-                        <form method="POST" action="{{ route('panel.service-firewall-rules.store') }}" class="row g-2 align-items-end mt-3">
+                        <form method="POST" action="{{ route('panel.service-firewall-rules.store') }}" class="grid grid-cols-12 gap-2 items-end mt-3">
                             @csrf
                             <input type="hidden" name="service_id" value="{{ $service->id }}">
-                            <div class="col-6 col-md-2">
+                            <div class="col-span-6 col-span-12 md:col-span-2">
                                 <label class="form-label f-12 mb-1">Směr</label>
                                 <select name="direction" class="form-select form-select-sm">
                                     <option value="in">Příchozí</option>
@@ -818,7 +818,7 @@
                                     <option value="both">Obojí</option>
                                 </select>
                             </div>
-                            <div class="col-6 col-md-2">
+                            <div class="col-span-6 col-span-12 md:col-span-2">
                                 <label class="form-label f-12 mb-1">Protokol</label>
                                 <select name="protocol" class="form-select form-select-sm">
                                     <option value="tcp">TCP</option>
@@ -827,27 +827,27 @@
                                     <option value="any">Any</option>
                                 </select>
                             </div>
-                            <div class="col-6 col-md-2">
+                            <div class="col-span-6 col-span-12 md:col-span-2">
                                 <label class="form-label f-12 mb-1">Port od</label>
                                 <input type="number" name="port_from" class="form-control form-control-sm" min="1" max="65535" placeholder="443">
                             </div>
-                            <div class="col-6 col-md-2">
+                            <div class="col-span-6 col-span-12 md:col-span-2">
                                 <label class="form-label f-12 mb-1">Port do</label>
                                 <input type="number" name="port_to" class="form-control form-control-sm" min="1" max="65535" placeholder="443">
                             </div>
-                            <div class="col-6 col-md-2">
+                            <div class="col-span-6 col-span-12 md:col-span-2">
                                 <label class="form-label f-12 mb-1">IP / CIDR</label>
                                 <input type="text" name="ip_cidr" class="form-control form-control-sm" placeholder="0.0.0.0/0" required maxlength="50">
                             </div>
-                            <div class="col-3 col-md-1">
+                            <div class="col-span-3 col-span-12 md:col-span-1">
                                 <label class="form-label f-12 mb-1">Akce</label>
                                 <select name="action" class="form-select form-select-sm">
                                     <option value="allow">Povolit</option>
                                     <option value="deny">Zakázat</option>
                                 </select>
                             </div>
-                            <div class="col-3 col-md-1">
-                                <button type="submit" class="btn btn-primary btn-sm w-100">Přidat</button>
+                            <div class="col-span-3 col-span-12 md:col-span-1">
+                                <button type="submit" class="btn btn-primary btn-sm w-full">Přidat</button>
                             </div>
                         </form>
                     </x-panel.card>
@@ -873,7 +873,7 @@
                                         <li>
                                             <div class="timeline-dot-{{ $dotColor }}"></div>
                                             <div class="ms-4 pb-1">
-                                                <div class="d-flex justify-content-between">
+                                                <div class="flex justify-between">
                                                     <div>
                                                         <span class="f-w-500">{{ $task->operation }}</span>
                                                         <x-panel.status-badge :status="$task->status" />

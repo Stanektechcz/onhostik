@@ -7,7 +7,7 @@
     <x-panel.flash />
 
     <div class="mb-3">
-        <form method="GET" class="d-flex gap-2 align-items-center">
+        <form method="GET" class="flex gap-2 items-center">
             <label class="mb-0">Od</label>
             <input type="date" name="from" class="form-control form-control-sm" style="max-width:160px" value="{{ $from }}">
             <label class="mb-0">Do</label>
@@ -24,8 +24,8 @@
                         <th>#</th>
                         <th>Reseller</th>
                         <th>E-mail</th>
-                        <th class="text-end">Zákazníků</th>
-                        <th class="text-end">Příjmy (Kč)</th>
+                        <th class="text-right">Zákazníků</th>
+                        <th class="text-right">Příjmy (Kč)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -36,8 +36,8 @@
                         <td class="text-muted">{{ $i + 1 }}</td>
                         <td>{{ $row['reseller']->user?->name ?? '—' }}</td>
                         <td>{{ $row['reseller']->user?->email ?? '—' }}</td>
-                        <td class="text-end">{{ $row['reseller']->customers_count }}</td>
-                        <td class="text-end">
+                        <td class="text-right">{{ $row['reseller']->customers_count }}</td>
+                        <td class="text-right">
                             <strong>{{ number_format($row['revenue'] / 100, 2, ',', ' ') }}</strong>
                         </td>
                     </tr>
@@ -47,9 +47,9 @@
                 </tbody>
                 @if(count($revenueByReseller) > 0)
                 <tfoot>
-                    <tr class="fw-bold">
+                    <tr class="font-bold">
                         <td colspan="4">Celkem</td>
-                        <td class="text-end">{{ number_format($total / 100, 2, ',', ' ') }} Kč</td>
+                        <td class="text-right">{{ number_format($total / 100, 2, ',', ' ') }} Kč</td>
                     </tr>
                 </tfoot>
                 @endif

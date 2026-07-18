@@ -66,8 +66,8 @@
                 <thead>
                     <tr>
                         <th>Měsíc</th>
-                        <th class="text-end">MRR (Kč)</th>
-                        <th class="text-end">Počet faktur</th>
+                        <th class="text-right">MRR (Kč)</th>
+                        <th class="text-right">Počet faktur</th>
                         <th>Vizualizace</th>
                     </tr>
                 </thead>
@@ -76,10 +76,10 @@
                     @foreach($mrrData as $row)
                     <tr>
                         <td class="f-w-500">{{ $row['month'] }}</td>
-                        <td class="text-end f-w-600">
+                        <td class="text-right f-w-600">
                             {{ number_format($row['mrr_minor'] / 100, 0, ',', ' ') }} Kč
                         </td>
-                        <td class="text-end f-12">{{ $row['invoice_count'] }}</td>
+                        <td class="text-right f-12">{{ $row['invoice_count'] }}</td>
                         <td style="min-width: 200px;">
                             @php $pct = $maxMrr > 0 ? round($row['mrr_minor'] / $maxMrr * 100) : 0; @endphp
                             <div class="progress" style="height: 8px;">

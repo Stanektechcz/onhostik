@@ -6,7 +6,7 @@
 <x-panel.flash />
 
 <x-panel.card title="Filtr">
-    <form method="GET" action="{{ route('admin.tax-rate-applications.index') }}" class="row g-2 align-items-end">
+    <form method="GET" action="{{ route('admin.tax-rate-applications.index') }}" class="grid grid-cols-12 gap-2 items-end">
         <div class="col-auto">
             <label for="invoice_id" class="form-label">Faktura ID</label>
             <input type="text" id="invoice_id" name="invoice_id" class="form-control" value="{{ request('invoice_id') }}" placeholder="ID faktury">

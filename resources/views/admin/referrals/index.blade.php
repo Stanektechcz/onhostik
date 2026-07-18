@@ -12,8 +12,8 @@
     @endif
 
     {{-- Summary cards --}}
-    <div class="row g-3 mb-4">
-        <div class="col-md-4">
+    <div class="grid grid-cols-12 gap-3 mb-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card text-center">
                 <div class="card-body">
                     <div class="h3 mb-1">{{ number_format($stats['total']) }}</div>
@@ -21,7 +21,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card text-center">
                 <div class="card-body">
                     <div class="h3 mb-1 text-warning">{{ number_format($stats['pending']) }}</div>
@@ -29,7 +29,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card text-center">
                 <div class="card-body">
                     <div class="h3 mb-1 text-success">{{ number_format($stats['rewarded']) }}</div>
@@ -40,7 +40,7 @@
     </div>
 
     {{-- Filter --}}
-    <form class="row g-2 mb-3" method="GET" action="{{ route('admin.referrals.index') }}">
+    <form class="grid grid-cols-12 gap-2 mb-3" method="GET" action="{{ route('admin.referrals.index') }}">
         <div class="col-auto">
             <select name="status" class="form-select form-select-sm">
                 <option value="">— Všechny stavy —</option>
@@ -79,21 +79,21 @@
                         <td class="small">{{ number_format($r->referrer_reward_haler / 100, 0, ',', ' ') }} Kč</td>
                         <td class="small">{{ number_format($r->referee_reward_haler / 100, 0, ',', ' ') }} Kč</td>
                         <td class="small text-muted">{{ $r->created_at->format('d.m.Y') }}</td>
-                        <td class="text-end text-nowrap">
+                        <td class="text-right text-nowrap">
                             @if($r->status === 'pending')
-                                <form action="{{ route('admin.referrals.qualify', $r) }}" method="POST" class="d-inline">
+                                <form action="{{ route('admin.referrals.qualify', $r) }}" method="POST" class="inline">
                                     @csrf
                                     <button class="btn btn-xs btn-outline-info">Kvalifikovat</button>
                                 </form>
                             @endif
                             @if($r->status === 'qualified')
-                                <form action="{{ route('admin.referrals.reward', $r) }}" method="POST" class="d-inline">
+                                <form action="{{ route('admin.referrals.reward', $r) }}" method="POST" class="inline">
                                     @csrf
                                     <button class="btn btn-xs btn-outline-success">Odměnit</button>
                                 </form>
                             @endif
                             @if(in_array($r->status, ['pending', 'qualified']))
-                                <form action="{{ route('admin.referrals.expire', $r) }}" method="POST" class="d-inline">
+                                <form action="{{ route('admin.referrals.expire', $r) }}" method="POST" class="inline">
                                     @csrf
                                     <button class="btn btn-xs btn-outline-secondary">Expirovat</button>
                                 </form>

@@ -14,8 +14,8 @@
     {{-- Manual payout notice --}}
     <div class="card mb-3 border-warning">
         <div class="card-body py-3">
-            <div class="d-flex align-items-start gap-3">
-                <div class="flex-shrink-0 mt-1">
+            <div class="flex items-start gap-3">
+                <div class="shrink-0 mt-1">
                     <i data-feather="alert-triangle" class="txt-warning" style="width:18px;height:18px;"></i>
                 </div>
                 <div>
@@ -39,12 +39,12 @@
                 <p class="f-light f-12 mb-3">
                     Historie výplat se zobrazí po první manuální výplatě.
                 </p>
-                <div class="d-flex justify-content-center gap-2">
+                <div class="flex justify-center gap-2">
                     <a href="{{ route('partner.commissions') }}" class="btn btn-outline-primary btn-sm">
                         <i data-feather="trending-up" style="width:13px;height:13px;"></i>
                         Přehled provizí
                     </a>
-                    <span class="badge badge-light-warning align-self-center">MANUAL</span>
+                    <span class="badge badge-light-warning self-center">MANUAL</span>
                 </div>
             </div>
         @else

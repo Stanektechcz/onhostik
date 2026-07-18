@@ -18,20 +18,20 @@
                 <thead>
                     <tr>
                         <th>Zaznamenáno</th>
-                        <th class="text-end">Disk (GB)</th>
-                        <th class="text-end">Bandwidth (GB)</th>
-                        <th class="text-end">CPU (%)</th>
-                        <th class="text-end">RAM (MB)</th>
+                        <th class="text-right">Disk (GB)</th>
+                        <th class="text-right">Bandwidth (GB)</th>
+                        <th class="text-right">CPU (%)</th>
+                        <th class="text-right">RAM (MB)</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse($snapshots as $snap)
                     <tr>
                         <td>{{ $snap->recorded_at->format('d.m.Y H:i') }}</td>
-                        <td class="text-end">{{ $snap->disk_gb ?? '—' }}</td>
-                        <td class="text-end">{{ $snap->bandwidth_gb ?? '—' }}</td>
-                        <td class="text-end">{{ $snap->cpu_percent !== null ? $snap->cpu_percent . '%' : '—' }}</td>
-                        <td class="text-end">{{ $snap->ram_mb ?? '—' }}</td>
+                        <td class="text-right">{{ $snap->disk_gb ?? '—' }}</td>
+                        <td class="text-right">{{ $snap->bandwidth_gb ?? '—' }}</td>
+                        <td class="text-right">{{ $snap->cpu_percent !== null ? $snap->cpu_percent . '%' : '—' }}</td>
+                        <td class="text-right">{{ $snap->ram_mb ?? '—' }}</td>
                     </tr>
                     @empty
                     <tr><td colspan="5" class="text-center text-muted py-4">Žádné záznamy.</td></tr>

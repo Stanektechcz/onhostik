@@ -6,8 +6,13 @@ namespace App\Http\Controllers\Admin;
 
 use App\Domains\Backups\Models\BackupPolicy;
 use App\Domains\Billing\Actions\IssueRenewalInvoiceAction;
+use App\Domains\Customer\Models\Customer;
+use App\Domains\Products\Models\PricingPlan;
+use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Jobs\ChangeServiceStateJob;
+use App\Domains\Provisioning\Jobs\ProvisionHostingServiceJob;
+use App\Domains\Provisioning\Models\Server;
 use App\Domains\Provisioning\Models\Service;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
@@ -180,6 +185,61 @@ class ServiceController extends Controller
             'planChanges'  => $service->planChanges,
             'backupPolicy' => BackupPolicy::query()->where('service_id', $service->id)->first(),
         ]);
+    }
+
+    /** Form: provision a service for a customer directly (no order). */
+    public function create(Request $request): View
+    {
+        return view('admin.service-create', [
+            'customers' => Customer::query()->with('user')->orderBy('company_name')->limit(500)->get(),
+            'plans'     => PricingPlan::query()->where('is_active', true)->with('product')->get(),
+            'servers'   => Server::query()->where('status', 'active')->orderBy('name')->get(),
+            'preselectedCustomer' => $request->integer('customer') ?: null,
+        ]);
+    }
+
+    /** Create the service, then optionally queue provisioning. */
+    public function store(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'customer_id'     => ['required', 'integer', 'exists:customers,id'],
+            'pricing_plan_id' => ['required', 'integer', 'exists:pricing_plans,id'],
+            'server_id'       => ['nullable', 'integer', 'exists:servers,id'],
+            'label'           => ['required', 'string', 'max:191'],
+            'status'          => ['required', 'in:pending,active'],
+            'provision'       => ['nullable', 'boolean'],
+        ]);
+
+        $plan     = PricingPlan::with('product')->findOrFail((int) $validated['pricing_plan_id']);
+        $product  = $plan->product;
+        $driver   = $product->provisioning_driver ?? ProvisioningDriver::AAPanel;
+
+        $service = Service::create([
+            'customer_id'         => (int) $validated['customer_id'],
+            'order_item_id'       => null, // admin-created, no order
+            'product_id'          => $product->id,
+            'server_id'           => $validated['server_id'] ?? null,
+            'provisioning_driver' => $driver,
+            'status'              => ServiceStatus::from($validated['status']),
+            'label'               => $validated['label'],
+            'resources'           => $plan->resources,
+            'next_due_date'       => now()->startOfDay()->addMonths($plan->billing_cycle->months()),
+        ]);
+
+        activity('service')
+            ->performedOn($service)
+            ->causedBy($request->user())
+            ->withProperties(['created_by_admin' => true, 'plan_id' => $plan->id])
+            ->log('service.created_by_admin');
+
+        // Optional immediate provisioning for backend-driven products.
+        if ($request->boolean('provision')
+            && in_array($driver, [ProvisioningDriver::AAPanel, ProvisioningDriver::Proxmox, ProvisioningDriver::Pterodactyl], true)) {
+            ProvisionHostingServiceJob::dispatch($service->id);
+        }
+
+        return redirect()->route('admin.services.show', $service)
+            ->with('status', 'Služba byla vytvořena.');
     }
 
     public function suspend(Request $request, Service $service): RedirectResponse

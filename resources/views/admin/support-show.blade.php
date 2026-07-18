@@ -21,13 +21,13 @@
                             $dotColor   = $isInternal ? 'warning' : ($message->is_staff ? 'success' : 'primary');
                             $bgClass    = $isInternal ? 'bg-light-warning' : ($message->is_staff ? 'bg-light-success' : 'bg-light-primary');
                         @endphp
-                        <div class="d-flex gap-3 mb-3">
-                            <div class="flex-shrink-0 pt-1">
+                        <div class="flex gap-3 mb-3">
+                            <div class="shrink-0 pt-1">
                                 <div class="activity-dot-{{ $dotColor }}" style="margin-top:4px"></div>
                             </div>
-                            <div class="flex-grow-1">
-                                <div class="rounded p-3 {{ $bgClass }}" style="{{ $isInternal ? 'border-left:3px solid #f39c12;' : '' }}">
-                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="grow">
+                                <div class="rounded p-3 {{ $bgClass }}" style="{{ $isInternal ? 'border-left:3px solid rgba(var(--warning-color),1);' : '' }}">
+                                    <div class="flex justify-between items-center mb-2">
                                         <span class="f-w-600 f-13">
                                             @if($isInternal)
                                                 <i data-feather="lock" class="font-warning" style="width:12px;height:12px"></i>
@@ -82,7 +82,7 @@
             <div class="col-span-4 xl:col-span-12">
                 {{-- Customer info --}}
                 <x-panel.card :title="__('panel.common.customer')">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
+                    <div class="flex justify-between items-center mb-1">
                         <span class="f-w-600">{{ $ticket->customer?->user?->name ?? $ticket->customer?->email }}</span>
                         <a href="{{ route('admin.customers.show', $ticket->customer) }}" class="btn btn-outline-primary btn-sm f-12">
                             <i data-feather="user" style="width:12px;height:12px"></i> Detail
@@ -97,7 +97,7 @@
                 {{-- Assigned to --}}
                 @if($ticket->assignee)
                     <x-panel.card>
-                        <div class="d-flex align-items-center gap-2">
+                        <div class="flex items-center gap-2">
                             <i data-feather="user-check" class="font-success" style="width:14px;height:14px"></i>
                             <span class="f-12 f-light">{{ __('panel.support.assignee') }}:</span>
                             <span class="f-w-600 f-13">{{ $ticket->assignee->name }}</span>
@@ -123,7 +123,7 @@
                             };
                         @endphp
 
-                        <div class="d-flex flex-wrap gap-2 mb-3">
+                        <div class="flex flex-wrap gap-2 mb-3">
                             @if($ticket->ai_classification)
                                 <span class="badge badge-light-{{ $classColor }}">
                                     <i data-feather="tag" style="width:10px;height:10px;margin-right:3px;"></i>
@@ -152,9 +152,9 @@
                             </button>
                         @endif
 
-                        <div class="mt-2 d-flex align-items-center justify-content-between">
+                        <div class="mt-2 flex items-center justify-between">
                             <span class="f-11 f-light">Analysováno {{ $ticket->ai_analysed_at->diffForHumans() }}</span>
-                            <form method="POST" action="{{ route('admin.support.kb-draft', $ticket) }}" class="d-inline">
+                            <form method="POST" action="{{ route('admin.support.kb-draft', $ticket) }}" class="inline">
                                 @csrf
                                 <button type="submit" class="btn btn-sm btn-outline-secondary f-11">
                                     <i data-feather="book-open" style="width:10px;height:10px;"></i>
@@ -171,7 +171,7 @@
                         </p>
                         <form method="POST" action="{{ route('admin.support.ai-analyse', $ticket) }}">
                             @csrf
-                            <button type="submit" class="btn btn-sm btn-outline-primary f-11 w-100">
+                            <button type="submit" class="btn btn-sm btn-outline-primary f-11 w-full">
                                 <i data-feather="zap" style="width:10px;height:10px;"></i>
                                 Spustit AI analýzu
                             </button>
@@ -214,12 +214,12 @@
                     </form>
 
                     <div class="border-top pt-3 mt-3 f-12 f-light">
-                        <div class="d-flex justify-content-between">
+                        <div class="flex justify-between">
                             <span>Otevřeno:</span>
                             <span>{{ $ticket->created_at?->format('d.m.Y H:i') }}</span>
                         </div>
                         @if($ticket->sla_deadline)
-                            <div class="d-flex justify-content-between mt-1">
+                            <div class="flex justify-between mt-1">
                                 <span>SLA deadline:</span>
                                 <span class="{{ $ticket->sla_deadline->isPast() ? 'txt-danger f-w-600' : 'txt-warning' }}">
                                     {{ $ticket->sla_deadline->format('d.m.Y H:i') }}
@@ -228,13 +228,13 @@
                             </div>
                         @endif
                         @if($ticket->closed_at)
-                            <div class="d-flex justify-content-between mt-1">
+                            <div class="flex justify-between mt-1">
                                 <span>Uzavřeno:</span>
                                 <span>{{ $ticket->closed_at->format('d.m.Y H:i') }}</span>
                             </div>
                         @endif
                         @if($ticket->last_reply_at)
-                            <div class="d-flex justify-content-between mt-1">
+                            <div class="flex justify-between mt-1">
                                 <span>Poslední odpověď:</span>
                                 <span>{{ $ticket->last_reply_at->format('d.m.Y H:i') }}</span>
                             </div>
@@ -245,7 +245,7 @@
                 {{-- SLA deadline setter --}}
                 <x-panel.card title="SLA deadline">
                     @if($ticket->sla_deadline)
-                        <div class="d-flex align-items-center gap-2 mb-3">
+                        <div class="flex items-center gap-2 mb-3">
                             <i data-feather="clock" class="{{ $ticket->sla_deadline->isPast() ? 'font-danger' : 'font-warning' }}" style="width:14px;height:14px;flex-shrink:0;"></i>
                             <span class="f-12">
                                 {{ $ticket->sla_deadline->format('d.m.Y H:i') }}

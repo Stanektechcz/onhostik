@@ -28,9 +28,9 @@
                 <h5 class="card-title mb-0 f-14">Zákazník a termíny</h5>
             </div>
             <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Zákazník <span class="text-danger">*</span></label>
+                <div class="grid grid-cols-12 gap-3">
+                    <div class="col-span-12 md:col-span-6">
+                        <label class="form-label font-semibold">Zákazník <span class="text-danger">*</span></label>
                         <select name="customer_id" class="form-select @error('customer_id') is-invalid @enderror" required>
                             <option value="">— Vyberte zákazníka —</option>
                             @foreach($customers as $c)
@@ -42,8 +42,8 @@
                         @error('customer_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
 
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Datum splatnosti <span class="text-danger">*</span></label>
+                    <div class="col-span-12 md:col-span-6">
+                        <label class="form-label font-semibold">Datum splatnosti <span class="text-danger">*</span></label>
                         <input type="date"
                                name="due_date"
                                class="form-control @error('due_date') is-invalid @enderror"
@@ -53,8 +53,8 @@
                         @error('due_date')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
 
-                    <div class="col-12">
-                        <label class="form-label fw-semibold">Poznámky</label>
+                    <div class="col-span-12">
+                        <label class="form-label font-semibold">Poznámky</label>
                         <textarea name="notes"
                                   class="form-control @error('notes') is-invalid @enderror"
                                   rows="2"
@@ -67,7 +67,7 @@
 
         {{-- Line items --}}
         <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header flex justify-between items-center">
                 <h5 class="card-title mb-0 f-14">Položky faktury</h5>
                 <button type="button" class="btn btn-outline-primary btn-xs" id="addItemBtn">
                     <i data-feather="plus" style="width:12px;height:12px"></i> Přidat řádek
@@ -135,7 +135,7 @@
         </div>
 
         {{-- Actions --}}
-        <div class="d-flex gap-2">
+        <div class="flex gap-2">
             <button type="submit" class="btn btn-primary btn-sm">
                 <i data-feather="check" style="width:14px;height:14px"></i>
                 Vystavit fakturu

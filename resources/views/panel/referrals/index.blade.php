@@ -15,8 +15,8 @@
                 Sdílejte tento kód s přáteli. Jakmile se zaregistrují a provedou první platbu,
                 získáte <strong>200 Kč kredit</strong> a váš přátelé dostanou <strong>100 Kč uvítací bonus</strong>.
             </p>
-            <div class="d-flex align-items-center gap-3">
-                <div class="fs-3 fw-bold font-monospace text-primary border rounded px-4 py-2 bg-light">{{ $code }}</div>
+            <div class="flex items-center gap-3">
+                <div class="fs-3 font-bold font-monospace text-primary border rounded px-4 py-2 bg-light">{{ $code }}</div>
                 <button class="btn btn-outline-secondary btn-sm"
                         onclick="navigator.clipboard.writeText('{{ $code }}').then(()=>alert('Kód zkopírován!'))">
                     Kopírovat
@@ -26,8 +26,8 @@
     </div>
 
     {{-- Stats --}}
-    <div class="row g-3 mb-4">
-        <div class="col-md-3">
+    <div class="grid grid-cols-12 gap-3 mb-4">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body py-3">
                     <div class="h4 mb-0">{{ $stats['total'] }}</div>
@@ -35,7 +35,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body py-3">
                     <div class="h4 mb-0 text-info">{{ $stats['qualified'] }}</div>
@@ -43,7 +43,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body py-3">
                     <div class="h4 mb-0 text-success">{{ $stats['rewarded'] }}</div>
@@ -51,7 +51,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body py-3">
                     <div class="h4 mb-0 text-success">{{ number_format($stats['earned_haler'] / 100, 0, ',', ' ') }} Kč</div>

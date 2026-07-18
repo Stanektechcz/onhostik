@@ -11,8 +11,8 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row g-3 mb-3">
-        <div class="col-md-3">
+    <div class="grid grid-cols-12 gap-3 mb-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body">
                     <h3 class="mb-0">{{ $summary['used_count'] }}</h3>
@@ -20,7 +20,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body">
                     <h3 class="mb-0">{{ $summary['unique_customers'] }}</h3>
@@ -28,7 +28,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body">
                     <h3 class="mb-0">{{ number_format($summary['total_saved_haler'] / 100, 0, ',', ' ') }} Kč</h3>
@@ -36,7 +36,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body">
                     <h3 class="mb-0 {{ $code->isValid() ? 'text-success' : 'text-danger' }}">
@@ -48,8 +48,8 @@
         </div>
     </div>
 
-    <div class="row g-3">
-        <div class="col-md-4">
+    <div class="grid grid-cols-12 gap-3">
+        <div class="col-span-12 md:col-span-4">
             <div class="card">
                 <div class="card-header card-no-border"><h5>Detaily kódu</h5></div>
                 <div class="card-body">
@@ -69,7 +69,7 @@
             </div>
         </div>
 
-        <div class="col-md-8">
+        <div class="col-span-12 md:col-span-8">
             <div class="card">
                 <div class="card-header card-no-border">
                     <h5>Historie použití <span class="badge bg-secondary ms-2">{{ $usages->count() }}</span></h5>

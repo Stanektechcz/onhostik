@@ -24,7 +24,7 @@
         <div class="grid grid-cols-12 gap-3">
 
             {{-- Left sidebar: KB navigation --}}
-            <div class="col-span-3 xl:col-span-12 xl-40 box-col-12">
+            <div class="col-span-3 xl:col-span-12 xl-40 box-col-span-12">
                 <div class="md-sidebar">
                     <a class="btn btn-primary email-aside-toggle text-white md-sidebar-toggle hover:text-white">Navigace KB</a>
                     <div class="md-sidebar-aside job-sidebar custom-scrollbar">
@@ -36,7 +36,7 @@
                                 <div class="card accordion">
                                     <div class="card-header accordion-item">
                                         <h2 class="accordion-header relative">
-                                            <button class="accordion-button btn btn-link btn-block text-start {{ $cat !== $article->category ? 'collapsed' : '' }}"
+                                            <button class="accordion-button btn btn-link btn-block text-left {{ $cat !== $article->category ? 'collapsed' : '' }}"
                                                     type="button" data-bs-toggle="collapse"
                                                     data-bs-target="#{{ $cid }}"
                                                     aria-expanded="{{ $cat === $article->category ? 'true' : 'false' }}">
@@ -70,7 +70,7 @@
             </div>
 
             {{-- Right: Article content --}}
-            <div class="col-span-9 xl:col-span-12 xl-80 box-col-12">
+            <div class="col-span-9 xl:col-span-12 xl-80 box-col-span-12">
                 <div class="card">
                     <div class="job-search">
                         <div class="card-body">
@@ -113,7 +113,7 @@
                             <div class="job-description">
                                 <div class="border rounded p-3" style="background:rgba(var(--light-background),.4);">
                                     <h6 class="mb-2">Byl tento článek užitečný?</h6>
-                                    <div class="d-flex align-items-center gap-3">
+                                    <div class="flex items-center gap-3">
                                         <button type="button" id="vote-helpful"
                                                 class="btn {{ ($userVote ?? '') === 'helpful' ? 'btn-success' : 'btn-outline-success' }} btn-sm"
                                                 onclick="castVote(true)">
@@ -169,14 +169,14 @@
                                 <div class="mt-4">
                                     <h6 class="mb-3">Komentáře ({{ $reviews->count() }})</h6>
                                     @foreach($reviews as $review)
-                                    <div class="d-flex gap-3 py-3 {{ !$loop->last ? 'border-bottom' : '' }}">
+                                    <div class="flex gap-3 py-3 {{ !$loop->last ? 'border-bottom' : '' }}">
                                         <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,rgba(var(--theme-default),.15),rgba(var(--theme-default),.03));display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                                             <span class="f-w-600 f-12" style="color:rgba(var(--theme-default),1);">
                                                 {{ strtoupper(substr($review->author_name ?? 'A', 0, 2)) }}
                                             </span>
                                         </div>
                                         <div class="flex-1">
-                                            <div class="d-flex justify-content-between">
+                                            <div class="flex justify-between">
                                                 <span class="f-w-500 f-13">{{ $review->author_name ?? 'Anonymní' }}</span>
                                                 <span class="f-light f-11">{{ $review->created_at?->format('d.m.Y') }}</span>
                                             </div>
@@ -189,7 +189,7 @@
                             </div>
 
                             {{-- Actions --}}
-                            <div class="job-description d-flex gap-3 flex-wrap mt-2">
+                            <div class="job-description flex gap-3 flex-wrap mt-2">
                                 <a href="{{ route('panel.kb.index') }}" class="btn btn-hover-effect">
                                     <span><i class="fa-solid fa-caret-left fa-lg"></i></span> Zpět na znalostní bázi
                                 </a>

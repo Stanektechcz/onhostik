@@ -17,7 +17,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-success rounded p-2"><i data-feather="check-circle" class="font-success"></i></div>
                                 <div>
                                     <h5 class="mb-0 f-w-600">{{ $activeCount }}</h5>
@@ -32,7 +32,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-warning rounded p-2"><i data-feather="pause-circle" class="font-warning"></i></div>
                                 <div>
                                     <h5 class="mb-0 f-w-600">{{ $suspendedCount }}</h5>
@@ -47,7 +47,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-warning rounded p-2"><i data-feather="clock" class="font-warning"></i></div>
                                 <div>
                                     <h5 class="mb-0 f-w-600 {{ $expiringCount > 0 ? 'font-warning' : '' }}">{{ $expiringCount }}</h5>
@@ -62,7 +62,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-danger rounded p-2"><i data-feather="alert-circle" class="font-danger"></i></div>
                                 <div>
                                     <h5 class="mb-0 f-w-600 {{ $overdueCount > 0 ? 'font-danger' : '' }}">{{ $overdueCount }}</h5>
@@ -77,7 +77,7 @@
 
         <x-panel.card :title="__('panel.nav.admin_services')">
             {{-- Phase 275: one view across all four hosting platforms --}}
-            <div class="d-flex gap-2 mb-3 flex-wrap">
+            <div class="flex gap-2 mb-3 flex-wrap">
                 <a href="{{ route('admin.services.index', array_filter(['status' => $filter, 'q' => $search, 'due' => $dueFilter])) }}"
                    class="btn btn-sm {{ $driverFilter === '' ? 'btn-primary text-white' : 'btn-outline-primary' }}">
                     Vše
@@ -91,7 +91,7 @@
                 @endforeach
             </div>
 
-            <form method="GET" action="{{ route('admin.services.index') }}" class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+            <form method="GET" action="{{ route('admin.services.index') }}" class="flex gap-2 mb-3 flex-wrap items-center">
                 @if($driverFilter !== '')
                     <input type="hidden" name="driver" value="{{ $driverFilter }}">
                 @endif
@@ -117,6 +117,9 @@
                    class="btn btn-outline-success btn-sm ms-2" title="Export do CSV">
                     <i data-feather="download" style="width:13px;height:13px;"></i> CSV
                 </a>
+                <a href="{{ route('admin.services.create') }}" class="btn btn-primary btn-sm text-white">
+                    <i data-feather="plus" style="width:13px;height:13px;"></i> Nová služba
+                </a>
             </form>
 
             @if($services->isEmpty())
@@ -126,13 +129,13 @@
                 </div>
             @else
                 {{-- Bulk actions toolbar --}}
-                <div id="bulk-toolbar" class="d-none alert alert-light-primary py-2 px-3 mb-2 d-flex align-items-center gap-3">
+                <div id="bulk-toolbar" class="hidden alert alert-light-primary py-2 px-3 mb-2 flex items-center gap-3">
                     <span class="f-14"><strong id="bulk-count">0</strong> vybráno</span>
                     <button type="button" class="btn btn-warning btn-sm text-white"
                             data-bs-toggle="modal" data-bs-target="#batchSuspendModal">
                         <i data-feather="pause" style="width:12px;height:12px;"></i> Pozastavit
                     </button>
-                    <form id="batch-unsuspend-form" method="POST" action="{{ route('admin.services.batch-unsuspend') }}" class="d-inline">
+                    <form id="batch-unsuspend-form" method="POST" action="{{ route('admin.services.batch-unsuspend') }}" class="inline">
                         @csrf
                         <div id="batch-unsuspend-ids"></div>
                         <button type="submit" class="btn btn-success btn-sm text-white"
@@ -187,7 +190,7 @@
                                         <td><x-panel.status-badge :status="$service->status" /></td>
                                         <td>
                                             @if($service->status === \App\Domains\Provisioning\Enums\ServiceStatus::Active)
-                                                <form method="POST" action="{{ route('admin.services.suspend', $service) }}" class="d-flex gap-1">
+                                                <form method="POST" action="{{ route('admin.services.suspend', $service) }}" class="flex gap-1">
                                                     @csrf
                                                     <input type="text" name="reason" class="form-control form-control-sm" placeholder="{{ __('panel.admin.suspend_reason') }}" required minlength="3" style="max-width: 130px;">
                                                     <button type="submit" class="btn btn-outline-warning btn-sm">{{ __('panel.admin.suspend') }}</button>
@@ -257,11 +260,11 @@
         var count   = ids.length;
 
         if (count > 0) {
-            toolbar.classList.remove('d-none');
-            toolbar.classList.add('d-flex');
+            toolbar.classList.remove('hidden');
+            toolbar.classList.add('flex');
         } else {
-            toolbar.classList.add('d-none');
-            toolbar.classList.remove('d-flex');
+            toolbar.classList.add('hidden');
+            toolbar.classList.remove('flex');
         }
         countEl.textContent = count;
 

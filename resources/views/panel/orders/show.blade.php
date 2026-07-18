@@ -5,13 +5,13 @@
     $breadcrumbTitle = __('panel.nav.orders') . ' ' . $orderNo;
     $breadcrumbItems = [__('panel.nav.orders') => route('panel.orders.index'), $orderNo => ''];
 
-    /* Status timeline step */
+    /* Status timeline step (1 přijata · 2 čeká na platbu · 3 zaplaceno · 4 aktivace · 5 aktivní) */
     $step = match($order->status->value) {
-        'pending'   => 1,
-        'active'    => 3,
-        'cancelled' => 0,
-        'expired'   => 2,
-        default     => 1,
+        'pending'    => 2,
+        'processing' => 4,
+        'active'     => 5,
+        'cancelled'  => 0,
+        default      => 1,
     };
     $latestInvoice = $order->invoices->sortByDesc('id')->first();
     $billingAddress = auth()->user()?->customer?->addresses()->where('type','billing')->first();
@@ -95,7 +95,7 @@
                                             @foreach($order->items as $item)
                                             <tr class="border-b">
                                                 <td>
-                                                    <div class="light-product-box d-flex align-items-center justify-content-center" style="width:48px;height:48px;">
+                                                    <div class="light-product-box flex items-center justify-center" style="width:48px;height:48px;">
                                                         <i data-feather="package" style="width:24px;height:24px;"></i>
                                                     </div>
                                                 </td>
@@ -180,7 +180,7 @@
             </div>
 
             {{-- ── Right (col-span-3): Summary + Customer ───────────── --}}
-            <div class="col-span-3 xxl:col-span-4 xl:col-span-12 box-col-4">
+            <div class="col-span-3 xxl:col-span-4 xl:col-span-12 box-col-span-4">
                 <div class="grid grid-cols-12">
 
                     {{-- Summary card --}}
@@ -265,7 +265,7 @@
                                     <i data-feather="arrow-left" style="width:14px;height:14px;"></i>
                                     Zpět na objednávky
                                 </a>
-                                @if($latestInvoice && $latestInvoice->status->value === 'unpaid')
+                                @if($latestInvoice && $latestInvoice->status->isOpen())
                                 <a href="{{ route('panel.billing.invoices.show', $latestInvoice) }}"
                                    class="btn btn-primary w-full text-white">
                                     <i data-feather="credit-card" style="width:14px;height:14px;"></i>

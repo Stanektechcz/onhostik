@@ -6,13 +6,13 @@
 <x-panel.flash />
 
 <x-panel.card title="Log automatického pozastavení">
-    <div class="row g-3 mb-4">
-        <div class="col-md-6">
+    <div class="grid grid-cols-12 gap-3 mb-4">
+        <div class="col-span-12 md:col-span-6">
             <div class="alert alert-success mb-0">
                 <strong>Aktivní pravidla:</strong> {{ $activeCount }}
             </div>
         </div>
-        <div class="col-md-6">
+        <div class="col-span-12 md:col-span-6">
             <div class="alert alert-secondary mb-0">
                 <strong>Neaktivní:</strong> {{ $inactiveCount }}
             </div>

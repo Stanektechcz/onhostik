@@ -34,7 +34,7 @@
                                 <textarea name="excerpt" rows="2" class="form-control">{{ old('excerpt', $post->excerpt) }}</textarea>
                             </div>
                             <div class="col-span-12">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="flex justify-between items-center mb-2">
                                     <label class="form-label f-w-500 mb-0">Obsah (HTML)</label>
                                     <button type="button" class="btn btn-outline-secondary btn-sm"
                                             onclick="togglePreview('body-editor', 'body-preview')">
@@ -61,7 +61,7 @@
                                 <input type="datetime-local" name="published_at" class="form-control"
                                        value="{{ old('published_at', $post->published_at?->format('Y-m-d\TH:i')) }}">
                             </div>
-                            <div class="col-span-4 md:col-span-6 sm:col-span-12 d-flex align-items-end pb-2">
+                            <div class="col-span-4 md:col-span-6 sm:col-span-12 flex items-end pb-2">
                                 <div class="form-check">
                                     <input type="hidden" name="is_published" value="0">
                                     <input type="checkbox" name="is_published" value="1" class="form-check-input" id="is_published"
@@ -71,7 +71,7 @@
                             </div>
                         </div>
 
-                        <div class="mt-4 d-flex gap-2">
+                        <div class="mt-4 flex gap-2">
                             <button type="submit" class="btn btn-primary">
                                 <i data-feather="save" style="width:14px;height:14px"></i> Uložit
                             </button>

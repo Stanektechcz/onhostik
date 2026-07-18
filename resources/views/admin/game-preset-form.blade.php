@@ -78,7 +78,7 @@
                                        value="{{ old('sort_order', $preset?->sort_order ?? 0) }}"
                                        min="0" max="255">
                             </div>
-                            <div class="col-span-3 md:col-span-6 sm:col-span-12 d-flex align-items-end pb-1">
+                            <div class="col-span-3 md:col-span-6 sm:col-span-12 flex items-end pb-1">
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" id="gp-active"
                                            name="is_active" value="1"
@@ -182,7 +182,7 @@
                             </div>
                         </div>
 
-                        <div class="d-flex gap-2 border-top pt-3 mt-1">
+                        <div class="flex gap-2 border-top pt-3 mt-1">
                             <button type="submit" class="btn btn-primary btn-sm">
                                 <i data-feather="save" style="width:13px;height:13px"></i>
                                 {{ $isNew ? 'Vytvořit preset' : 'Uložit změny' }}
@@ -217,7 +217,7 @@
                             @csrf
                             @method('DELETE')
                             <p class="seccolor f-13 mb-2">Smazání je nevratné. Existující služby nejsou dotčeny.</p>
-                            <button type="submit" class="btn btn-outline-danger btn-sm w-100">
+                            <button type="submit" class="btn btn-outline-danger btn-sm w-full">
                                 <i data-feather="trash-2" style="width:13px;height:13px"></i>
                                 Smazat preset
                             </button>

@@ -12,12 +12,12 @@
         </a>
     </div>
 
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="Moje poznámky — {{ $service->name }}">
                 @forelse($notes as $note)
                 <div class="border rounded p-3 mb-3">
-                    <div class="d-flex justify-content-between align-items-start">
+                    <div class="flex justify-between items-start">
                         <p class="mb-1">{{ $note->content }}</p>
                         <form method="POST" action="{{ route('panel.service-notes.destroy', $note) }}" class="ms-3">
                             @csrf @method('DELETE')
@@ -33,14 +33,14 @@
             </x-panel.card>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Nová poznámka">
                 <form method="POST" action="{{ route('panel.service-notes.store', $service) }}">
                     @csrf
                     <div class="mb-3">
                         <textarea name="content" class="form-control" rows="5" placeholder="Poznámka…" maxlength="2000" required>{{ old('content') }}</textarea>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Uložit</button>
+                    <button type="submit" class="btn btn-primary w-full">Uložit</button>
                 </form>
             </x-panel.card>
         </div>

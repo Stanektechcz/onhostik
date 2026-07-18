@@ -5,7 +5,7 @@
     <x-panel.flash />
 
     <div class="card shadow-sm mb-4">
-        <div class="card-header fw-semibold">Export osobních dat</div>
+        <div class="card-header font-semibold">Export osobních dat</div>
         <div class="card-body">
             <p class="text-muted">Můžete si vyžádat export všech vašich osobních dat uložených v systému. Export se připraví na pozadí a budete o něm informováni.</p>
             <form method="POST" action="{{ route('panel.gdpr.export.store') }}">
@@ -17,10 +17,10 @@
 
     @if($exports->isNotEmpty())
     <div class="card shadow-sm">
-        <div class="card-header fw-semibold">Historie exportů</div>
+        <div class="card-header font-semibold">Historie exportů</div>
         <div class="list-group list-group-flush">
             @foreach($exports as $req)
-            <div class="list-group-item d-flex align-items-center justify-content-between">
+            <div class="list-group-item flex items-center justify-between">
                 <div>
                     <span class="me-2">
                         @switch($req->status)

@@ -12,7 +12,7 @@
                 <div class="progress-bar bg-success" role="progressbar"
                      style="width: {{ $total > 0 ? round($completed / $total * 100) : 0 }}%"></div>
             </div>
-            <small class="text-muted mt-1 d-block">Dokončeno {{ $completed }} z {{ $total }} kroků</small>
+            <small class="text-muted mt-1 block">Dokončeno {{ $completed }} z {{ $total }} kroků</small>
         </div>
     @endif
 
@@ -21,9 +21,9 @@
     @else
         <div class="list-group">
             @foreach($steps as $step)
-                <div class="list-group-item d-flex justify-content-between align-items-start">
+                <div class="list-group-item flex justify-between items-start">
                     <div>
-                        <div class="d-flex align-items-center gap-2">
+                        <div class="flex items-center gap-2">
                             @if($step->completed_at)
                                 <i class="bi bi-check-circle-fill text-success"></i>
                             @elseif($step->is_required)

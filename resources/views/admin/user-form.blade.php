@@ -109,7 +109,7 @@
                                         <label class="form-check-label" for="is_active">Aktivní účet</label>
                                     </div>
                                 </div>
-                                <div class="col-span-12 d-flex gap-2">
+                                <div class="col-span-12 flex gap-2">
                                     <button type="submit" class="btn btn-primary text-white">
                                         {{ $isEdit ? 'Uložit změny' : 'Vytvořit uživatele' }}
                                     </button>

@@ -3,8 +3,8 @@
 @section('title', 'Pravidla automatického pozastavení')
 
 @section('content')
-<div class="row g-4">
-    <div class="col-lg-8">
+<div class="grid grid-cols-12 gap-4">
+    <div class="col-span-12 lg:col-span-8">
         <x-panel.card title="Pravidla automatického pozastavení">
             <x-panel.flash />
 
@@ -44,7 +44,7 @@
                                 </td>
                                 <td class="text-muted small">{{ $rule->description ?? '—' }}</td>
                                 <td>
-                                    <form method="POST" action="{{ route('admin.auto-suspend-rules.update', $rule) }}" class="d-inline">
+                                    <form method="POST" action="{{ route('admin.auto-suspend-rules.update', $rule) }}" class="inline">
                                         @csrf
                                         @method('PATCH')
                                         <input type="hidden" name="is_active" value="{{ $rule->is_active ? '0' : '1' }}">
@@ -52,7 +52,7 @@
                                             {{ $rule->is_active ? 'Deaktivovat' : 'Aktivovat' }}
                                         </button>
                                     </form>
-                                    <form method="POST" action="{{ route('admin.auto-suspend-rules.index') }}" class="d-inline ms-1">
+                                    <form method="POST" action="{{ route('admin.auto-suspend-rules.index') }}" class="inline ms-1">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="btn btn-sm btn-outline-danger"
@@ -77,7 +77,7 @@
         </x-panel.card>
     </div>
 
-    <div class="col-lg-4">
+    <div class="col-span-12 lg:col-span-4">
         <x-panel.card title="Přidat pravidlo">
             <form method="POST" action="{{ route('admin.auto-suspend-rules.store') }}">
                 @csrf
@@ -120,7 +120,7 @@
                     <label class="form-check-label" for="is_active">Aktivní</label>
                 </div>
 
-                <button type="submit" class="btn btn-primary w-100">Vytvořit pravidlo</button>
+                <button type="submit" class="btn btn-primary w-full">Vytvořit pravidlo</button>
             </form>
         </x-panel.card>
     </div>

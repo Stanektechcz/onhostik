@@ -17,7 +17,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-primary rounded p-2"><i data-feather="server" class="font-primary"></i></div>
                                 <div>
                                     <h5 class="mb-0 f-w-600">{{ $totalCount }}</h5>
@@ -32,7 +32,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-success rounded p-2"><i data-feather="check-circle" class="font-success"></i></div>
                                 <div>
                                     <h5 class="mb-0 f-w-600">{{ $activeCount }}</h5>
@@ -47,7 +47,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-warning rounded p-2"><i data-feather="eye-off" class="font-warning"></i></div>
                                 <div>
                                     <h5 class="mb-0 f-w-600">{{ $mockCount }}</h5>
@@ -62,7 +62,7 @@
                 <div class="small-widget">
                     <div class="card card-no-border">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-3">
+                            <div class="flex items-center gap-3">
                                 <div class="bg-light-{{ $failedHealth > 0 ? 'danger' : 'success' }} rounded p-2">
                                     <i data-feather="{{ $failedHealth > 0 ? 'x-circle' : 'activity' }}"
                                        class="font-{{ $failedHealth > 0 ? 'danger' : 'success' }}"></i>
@@ -78,7 +78,7 @@
             </div>
         </div>
 
-        <div class="d-flex justify-content-end mb-3">
+        <div class="flex justify-end mb-3">
             <a href="{{ route('admin.servers.create') }}" class="btn btn-primary btn-sm">
                 <i data-feather="plus" style="width:14px;height:14px"></i> Přidat server
             </a>
@@ -129,13 +129,13 @@
                                     <span class="badge badge-light-{{ $server->last_health_ok ? 'success' : 'danger' }}">
                                         {{ $server->last_health_ok ? 'OK' : 'FAIL' }}
                                     </span>
-                                    <span class="f-light f-12 d-block">{{ $server->last_health_check_at->format('d.m. H:i') }}</span>
+                                    <span class="f-light f-12 block">{{ $server->last_health_check_at->format('d.m. H:i') }}</span>
                                 @else
                                     —
                                 @endif
                             </td>
                             <td>
-                                <div class="d-flex gap-1 flex-wrap">
+                                <div class="flex gap-1 flex-wrap">
                                     <a href="{{ route('admin.servers.edit', $server) }}" class="btn btn-outline-secondary btn-sm">Upravit</a>
                                     <form method="POST" action="{{ route('admin.servers.test', $server) }}">
                                         @csrf

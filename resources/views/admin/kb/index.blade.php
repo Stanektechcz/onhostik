@@ -28,7 +28,7 @@
                     <div>
                         <h3 class="txt-dark">Správa znalostní báze</h3>
                         <form class="form-inline" method="GET" action="{{ route('admin.kb.index') }}">
-                            <div class="form-group w-full d-flex gap-2">
+                            <div class="form-group w-full flex gap-2">
                                 <i data-feather="search"></i>
                                 <input class="form-control-plaintext w-full" type="text" name="q"
                                        value="{{ $search }}" placeholder="Hledat článek…">
@@ -76,8 +76,8 @@
                         <div class="flex faq-widgets">
                             <div class="grow faq-flex">
                                 <h5>Filtry</h5>
-                                <div class="d-flex gap-2 flex-wrap mt-1">
-                                    <form method="GET" action="{{ route('admin.kb.index') }}" class="d-flex gap-2">
+                                <div class="flex gap-2 flex-wrap mt-1">
+                                    <form method="GET" action="{{ route('admin.kb.index') }}" class="flex gap-2">
                                         @if($categories->isNotEmpty())
                                         <select name="cat" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
                                             <option value="">Všechny kategorie</option>
@@ -122,7 +122,7 @@
                             <div class="card-body">
                                 @if($articles->isEmpty())
                                     <div class="text-center py-5">
-                                        <i data-feather="book-open" style="width:40px;height:40px;" class="text-muted d-block mx-auto mb-3"></i>
+                                        <i data-feather="book-open" style="width:40px;height:40px;" class="text-muted block mx-auto mb-3"></i>
                                         <h5 class="f-light">Žádné články zatím</h5>
                                         <a href="{{ route('admin.kb.create') }}" class="btn btn-primary mt-2">Vytvořit první článek</a>
                                     </div>
@@ -196,7 +196,7 @@
                 </div>
                 <div class="grid grid-cols-12 card-gap">
                     @foreach($articles->take(4) as $article)
-                    <div class="col-span-3 xl:col-span-6 md:col-span-12 xl-50 box-col-6">
+                    <div class="col-span-3 xl:col-span-6 md:col-span-12 xl-50 box-col-span-6">
                         <div class="card features-faq product-box" style="position:relative;">
                             <div class="faq-image product-img">
                                 <div style="height:120px;background:linear-gradient(135deg,rgba(var(--theme-default),.1),rgba(var(--theme-default),.03));display:flex;align-items:center;justify-content:center;">
@@ -213,7 +213,7 @@
                                 <h6 class="pb-1">{{ Str::limit($article->title, 40) }}</h6>
                                 <p class="c-light f-12">{{ Str::limit($article->excerpt, 60) }}</p>
                             </div>
-                            <div class="card-footer d-flex justify-content-between align-items-center">
+                            <div class="card-footer flex justify-between items-center">
                                 <span>{{ $article->updated_at?->format('d.m.Y') }}</span>
                                 @if($article->is_published)
                                     <span class="badge badge-light-success">Publikován</span>

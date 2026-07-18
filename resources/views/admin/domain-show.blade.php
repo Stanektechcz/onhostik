@@ -25,7 +25,7 @@
             <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="$domain->fqdn()">
                     {{-- Status badge --}}
-                    <div class="d-flex gap-2 mb-3 align-items-center">
+                    <div class="flex gap-2 mb-3 items-center">
                         @if($domain->wedos_domain_id)
                             <span class="badge badge-light-success">{{ __('panel.domains.registered') }}</span>
                         @else
@@ -42,7 +42,7 @@
                     <div class="grid grid-cols-12 gap-3 mb-4">
                         <div class="col-span-3 sm:col-span-6">
                             <p class="f-light f-12 mb-1">{{ __('panel.domains.registrar') }}</p>
-                            <p class="mb-0 f-w-500 text-uppercase">{{ $domain->registrar ?? '—' }}</p>
+                            <p class="mb-0 f-w-500 uppercase">{{ $domain->registrar ?? '—' }}</p>
                         </div>
                         <div class="col-span-3 sm:col-span-6">
                             <p class="f-light f-12 mb-1">{{ __('panel.domains.registered_at') }}</p>
@@ -71,7 +71,7 @@
                         @if(!empty($domain->nameservers))
                             <ul class="list-unstyled mb-0">
                                 @foreach($domain->nameservers as $ns)
-                                    <li class="mb-1 d-flex align-items-center gap-2">
+                                    <li class="mb-1 flex items-center gap-2">
                                         <i data-feather="server" class="font-secondary" style="width:12px;height:12px;flex-shrink:0"></i>
                                         <span class="f-13 font-monospace">{{ $ns }}</span>
                                     </li>
@@ -83,7 +83,7 @@
                     </div>
 
                     {{-- Actions --}}
-                    <div class="border-top pt-3 mt-1 d-flex flex-wrap gap-2">
+                    <div class="border-top pt-3 mt-1 flex flex-wrap gap-2">
                         <form method="POST" action="{{ route('admin.domains.toggle-auto-renew', $domain) }}">
                             @csrf
                             <button type="submit" class="btn btn-outline-{{ $domain->auto_renew ? 'warning' : 'success' }} btn-sm">

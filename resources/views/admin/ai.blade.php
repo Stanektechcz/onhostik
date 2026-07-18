@@ -55,7 +55,7 @@
                             @endphp
                             <div class="card card-no-border border rounded mb-2 {{ $isPending ? 'border-warning' : '' }}">
                                 <div class="card-body p-3">
-                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <div class="flex justify-between items-start mb-2">
                                         <div>
                                             <span class="badge badge-light-{{ $statusColor }} me-1">{{ $approval->status->value }}</span>
                                             <strong class="f-14">{{ $approval->action_type }}</strong>
@@ -70,7 +70,7 @@
                                         @endif
                                     </p>
                                     @if($isPending)
-                                        <div class="d-flex gap-2">
+                                        <div class="flex gap-2">
                                             <form method="POST" action="{{ route('admin.ai.review', $approval) }}">
                                                 @csrf
                                                 <input type="hidden" name="decision" value="approve">
@@ -114,7 +114,7 @@
                                         <li>
                                             <div class="timeline-dot-primary"></div>
                                             <div class="ms-4 pb-2">
-                                                <div class="d-flex justify-content-between align-items-start">
+                                                <div class="flex justify-between items-start">
                                                     <div>
                                                         <span class="badge badge-light-primary me-1">{{ $run->provider }}</span>
                                                         <span class="f-w-500">{{ __("panel.ai.features.{$run->feature}") }}</span>
@@ -146,7 +146,7 @@
                                 <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
                             @else
                                 @foreach($templates as $template)
-                                    <div class="d-flex align-items-center gap-2 mb-2">
+                                    <div class="flex items-center gap-2 mb-2">
                                         <span class="badge badge-light-{{ $template->audience === 'admin' ? 'secondary' : 'primary' }}">{{ $template->audience }}</span>
                                         <span class="f-12">{{ $template->name }}</span>
                                     </div>
@@ -160,7 +160,7 @@
                                 <p class="f-light mb-0">{{ __('panel.common.empty') }}</p>
                             @else
                                 @foreach($usage as $log)
-                                    <div class="d-flex justify-content-between f-12 mb-1">
+                                    <div class="flex justify-between f-12 mb-1">
                                         <div>
                                             <span class="f-light">{{ $log->created_at?->format('d.m. H:i') }}</span>
                                             <span class="ms-1">{{ $log->feature }}</span>

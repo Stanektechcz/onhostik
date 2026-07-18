@@ -52,7 +52,7 @@
             <x-panel.card title="Profily konfigurace">
 
                 {{-- Filter --}}
-                <form method="GET" action="{{ route('admin.service-config-profiles.index') }}" class="d-flex gap-2 mb-3">
+                <form method="GET" action="{{ route('admin.service-config-profiles.index') }}" class="flex gap-2 mb-3">
                     <input type="text" name="service_type" class="form-control form-control-sm w-auto"
                            placeholder="Typ služby" value="{{ $serviceType }}">
                     <button type="submit" class="btn btn-sm btn-secondary">Filtrovat</button>

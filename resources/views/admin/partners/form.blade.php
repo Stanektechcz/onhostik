@@ -57,7 +57,7 @@
                         <div class="mb-3">
                             <label class="form-label f-12 f-light" for="referral_code">Referral kód <span class="txt-danger">*</span></label>
                             <div class="input-group">
-                                <input id="referral_code" type="text" name="referral_code" class="form-control text-uppercase"
+                                <input id="referral_code" type="text" name="referral_code" class="form-control uppercase"
                                        value="{{ old('referral_code', $partner?->referral_code) }}"
                                        pattern="[A-Z0-9]{4,16}" maxlength="16" required
                                        placeholder="např. PARTNER01">
@@ -128,7 +128,7 @@
                             @error('payout_details')<div class="text-danger f-12 mt-1">{{ $message }}</div>@enderror
                         </div>
 
-                        <div class="d-flex gap-3">
+                        <div class="flex gap-3">
                             <button type="submit" class="btn btn-primary">
                                 {{ $isNew ? 'Vytvořit profil' : 'Uložit změny' }}
                             </button>

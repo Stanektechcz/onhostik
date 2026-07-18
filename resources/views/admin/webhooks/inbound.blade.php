@@ -5,7 +5,7 @@
 @section('content')
 <div class="container-fluid py-4">
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="flex justify-between items-center mb-4">
         <h1 class="h4 mb-0">Příchozí webhooky</h1>
         <a href="{{ route('admin.webhooks.endpoint.create') }}" class="btn btn-primary btn-sm">+ Nový endpoint</a>
     </div>
@@ -16,12 +16,12 @@
 
     {{-- Endpoint cards --}}
     @if($endpoints->isNotEmpty())
-    <div class="row g-3 mb-4">
+    <div class="grid grid-cols-12 gap-3 mb-4">
         @foreach($endpoints as $ep)
-        <div class="col-md-4">
-            <div class="card h-100">
+        <div class="col-span-12 md:col-span-4">
+            <div class="card h-full">
                 <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div class="flex justify-between items-start mb-2">
                         <strong>{{ $ep->name }}</strong>
                         <span class="badge {{ $ep->is_active ? 'bg-success' : 'bg-secondary' }}">
                             {{ $ep->is_active ? 'Aktivní' : 'Neaktivní' }}
@@ -34,16 +34,16 @@
                     @if($ep->description)
                         <div class="small text-muted mt-1">{{ $ep->description }}</div>
                     @endif
-                    <div class="mt-2 d-flex gap-1 flex-wrap">
+                    <div class="mt-2 flex gap-1 flex-wrap">
                         <a href="{{ route('admin.webhooks.endpoint.edit', $ep) }}"
                            class="btn btn-xs btn-outline-secondary">Upravit</a>
-                        <form action="{{ route('admin.webhooks.endpoint.toggle', $ep) }}" method="POST" class="d-inline">
+                        <form action="{{ route('admin.webhooks.endpoint.toggle', $ep) }}" method="POST" class="inline">
                             @csrf
                             <button class="btn btn-xs btn-outline-{{ $ep->is_active ? 'warning' : 'success' }}">
                                 {{ $ep->is_active ? 'Deaktivovat' : 'Aktivovat' }}
                             </button>
                         </form>
-                        <form action="{{ route('admin.webhooks.endpoint.destroy', $ep) }}" method="POST" class="d-inline"
+                        <form action="{{ route('admin.webhooks.endpoint.destroy', $ep) }}" method="POST" class="inline"
                               onsubmit="return confirm('Smazat endpoint?')">
                             @csrf @method('DELETE')
                             <button class="btn btn-xs btn-outline-danger">Smazat</button>
@@ -57,7 +57,7 @@
     @endif
 
     {{-- Filter --}}
-    <form class="row g-2 mb-3" method="GET" action="{{ route('admin.webhooks.inbound.index') }}">
+    <form class="grid grid-cols-12 gap-2 mb-3" method="GET" action="{{ route('admin.webhooks.inbound.index') }}">
         <div class="col-auto">
             <select name="source" class="form-select form-select-sm">
                 <option value="">— Všechny zdroje —</option>

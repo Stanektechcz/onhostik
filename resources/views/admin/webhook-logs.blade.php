@@ -17,7 +17,7 @@
                 <div class="card small-widget">
                     <div class="card-body">
                         <span class="f-light">Celkem</span>
-                        <div class="d-flex align-items-end gap-1 mt-1">
+                        <div class="flex items-end gap-1 mt-1">
                             <h4>{{ number_format((int) ($counts->total ?? 0)) }}</h4>
                         </div>
                         <div class="bg-gradient">
@@ -30,7 +30,7 @@
                 <div class="card small-widget">
                     <div class="card-body">
                         <span class="f-light">Zpracováno</span>
-                        <div class="d-flex align-items-end gap-1 mt-1">
+                        <div class="flex items-end gap-1 mt-1">
                             <h4 class="text-success">{{ number_format((int) ($counts->processed ?? 0)) }}</h4>
                         </div>
                         <div class="bg-gradient">
@@ -43,7 +43,7 @@
                 <div class="card small-widget">
                     <div class="card-body">
                         <span class="f-light">Chyby</span>
-                        <div class="d-flex align-items-end gap-1 mt-1">
+                        <div class="flex items-end gap-1 mt-1">
                             <h4 class="text-danger">{{ number_format((int) ($counts->errors ?? 0)) }}</h4>
                         </div>
                         <div class="bg-gradient">
@@ -56,7 +56,7 @@
                 <div class="card small-widget">
                     <div class="card-body">
                         <span class="f-light">Neplatný podpis</span>
-                        <div class="d-flex align-items-end gap-1 mt-1">
+                        <div class="flex items-end gap-1 mt-1">
                             <h4 class="text-warning">{{ number_format((int) ($counts->invalid_sig ?? 0)) }}</h4>
                         </div>
                         <div class="bg-gradient">
@@ -68,7 +68,7 @@
         </div>
 
         <x-panel.card title="Webhook logy">
-            <form method="GET" action="{{ route('admin.webhook-logs.index') }}" class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+            <form method="GET" action="{{ route('admin.webhook-logs.index') }}" class="flex gap-2 mb-3 flex-wrap items-center">
                 <select name="provider" class="form-select" style="max-width: 160px;">
                     <option value="">Vše (provider)</option>
                     <option value="comgate" @selected($provider === 'comgate')>Comgate</option>
@@ -170,8 +170,8 @@
                                 </tr>
                                 <tr class="collapse" id="log-payload-{{ $log->id }}">
                                     <td colspan="8" class="bg-light p-3">
-                                        <div class="d-flex justify-content-between align-items-start">
-                                            <div class="flex-grow-1">
+                                        <div class="flex justify-between items-start">
+                                            <div class="grow">
                                                 @if($log->ip_address)
                                                     <p class="f-12 mb-1"><span class="f-light">IP:</span> {{ $log->ip_address }}</p>
                                                 @endif

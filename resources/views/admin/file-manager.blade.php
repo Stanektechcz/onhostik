@@ -25,13 +25,13 @@
                                 ['Zálohy','archive','warning',3,'120 MB'],
                                 ['Logy','terminal','info',45,'8.7 MB'],
                             ] as [$label,$icon,$color,$count,$size])
-                            <li class="d-flex align-items-center gap-3 py-2 border-bottom cursor-pointer">
+                            <li class="flex items-center gap-3 py-2 border-bottom cursor-pointer">
                                 <div style="width:36px;height:36px;border-radius:8px;background:rgba(var(--theme-default),.08);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                                     <i data-feather="{{ $icon }}" style="width:18px;height:18px;color:rgba(var(--theme-default),1);"></i>
                                 </div>
                                 <div class="flex-1">
                                     <span class="f-14 f-w-500">{{ $label }}</span>
-                                    <small class="d-block f-light f-11">{{ $count }} souborů · {{ $size }}</small>
+                                    <small class="block f-light f-11">{{ $count }} souborů · {{ $size }}</small>
                                 </div>
                             </li>
                             @endforeach
@@ -58,7 +58,7 @@
                     <div class="card-header card-no-border">
                         <div class="header-top">
                             <h5>Správce souborů</h5>
-                            <div class="card-header-right-icon d-flex gap-2">
+                            <div class="card-header-right-icon flex gap-2">
                                 <button class="btn btn-primary btn-sm text-white">
                                     <i data-feather="upload" style="width:13px;height:13px;"></i> Nahrát soubory
                                 </button>
@@ -68,7 +68,7 @@
                             </div>
                         </div>
                         {{-- Path bar --}}
-                        <div class="d-flex align-items-center gap-2 mt-2">
+                        <div class="flex items-center gap-2 mt-2">
                             <a href="#" class="btn btn-xs btn-outline-secondary"><i data-feather="arrow-left" style="width:12px;height:12px;"></i></a>
                             <a href="#" class="btn btn-xs btn-outline-secondary"><i data-feather="arrow-right" style="width:12px;height:12px;"></i></a>
                             <a href="#" class="btn btn-xs btn-outline-secondary"><i data-feather="home" style="width:12px;height:12px;"></i></a>
@@ -102,7 +102,7 @@
                                         <div class="folder-icon-container mb-2">
                                             <i data-feather="{{ $icon }}" style="width:36px;height:36px;opacity:.5;"></i>
                                         </div>
-                                        <p class="f-12 mb-0 f-w-500 text-truncate">{{ $file }}</p>
+                                        <p class="f-12 mb-0 f-w-500 truncate">{{ $file }}</p>
                                         <small class="f-light f-11">Soubor</small>
                                     </div>
                                 </div>

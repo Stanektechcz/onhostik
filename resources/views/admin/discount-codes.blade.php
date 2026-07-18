@@ -44,7 +44,7 @@
                                            name="value" step="0.01" min="0.01" placeholder="10">
                                     <span class="input-group-text" id="value-unit">%</span>
                                 </div>
-                                @error('value')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
+                                @error('value')<div class="invalid-feedback block">{{ $message }}</div>@enderror
                             </div>
                             <div class="mb-3" id="currency-field" style="display:none;">
                                 <label class="form-label">Měna</label>
@@ -91,7 +91,7 @@
                         <div class="header-top">
                             <h5>Slevové kódy ({{ $codes->total() }})</h5>
                         </div>
-                        <form method="GET" action="{{ route('admin.discount-codes.index') }}" class="d-flex gap-2 mt-2">
+                        <form method="GET" action="{{ route('admin.discount-codes.index') }}" class="flex gap-2 mt-2">
                             <input type="text" name="q" class="form-control form-control-sm"
                                    style="max-width:200px;" placeholder="Hledat kód…" value="{{ request('q') }}">
                             <select name="status" class="form-select form-select-sm w-auto" onchange="this.form.submit()">

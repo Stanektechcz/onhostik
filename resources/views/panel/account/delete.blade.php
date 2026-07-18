@@ -4,8 +4,8 @@
 
 @section('content')
 <div class="container py-5">
-    <div class="row justify-content-center">
-        <div class="col-md-8 col-lg-6">
+    <div class="grid grid-cols-12 justify-center">
+        <div class="col-span-12 md:col-span-8 col-span-12 lg:col-span-6">
             <h2 class="mb-4 text-danger">Žádost o smazání účtu</h2>
 
             @if($errors->any())
@@ -36,7 +36,7 @@
                             @error('reason')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
 
-                        <div class="d-flex gap-2">
+                        <div class="flex gap-2">
                             <a href="{{ route('panel.dashboard') }}" class="btn btn-outline-secondary">Zrušit</a>
                             <button type="submit" class="btn btn-danger">Odeslat žádost o smazání</button>
                         </div>

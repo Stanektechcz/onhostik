@@ -4,8 +4,8 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row g-4">
-        <div class="col-md-5">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-5">
             <x-panel.card title="Nové pravidlo">
                 <form method="POST" action="{{ route('admin.invoice-reminder-rules.store') }}">
                     @csrf
@@ -29,16 +29,16 @@
             </x-panel.card>
         </div>
 
-        <div class="col-md-7">
+        <div class="col-span-12 md:col-span-7">
             <x-panel.card title="Aktivní pravidla">
                 @forelse($rules as $rule)
-                <div class="d-flex align-items-center justify-content-between border rounded p-2 mb-2">
+                <div class="flex items-center justify-between border rounded p-2 mb-2">
                     <div>
                         <strong>D+{{ $rule->days_after_due }}</strong>
                         <span class="ms-2 badge bg-secondary">{{ $rule->channel }}</span>
                         <small class="ms-2 text-muted">{{ $rule->template_key }}</small>
                     </div>
-                    <div class="d-flex gap-2">
+                    <div class="flex gap-2">
                         <form method="POST" action="{{ route('admin.invoice-reminder-rules.update', $rule) }}">
                             @csrf @method('PATCH')
                             <input type="hidden" name="is_active" value="{{ $rule->is_active ? '0' : '1' }}">

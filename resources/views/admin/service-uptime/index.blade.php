@@ -10,14 +10,14 @@
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead>
-                    <tr><th>Služba</th><th>Zákazník</th><th class="text-end">Výpadky (24h)</th><th></th></tr>
+                    <tr><th>Služba</th><th>Zákazník</th><th class="text-right">Výpadky (24h)</th><th></th></tr>
                 </thead>
                 <tbody>
                     @foreach($services as $s)
                     <tr>
                         <td>{{ $s->label }}</td>
                         <td>{{ $s->customer?->company_name }}</td>
-                        <td class="text-end">
+                        <td class="text-right">
                             @if(($s->down_checks ?? 0) > 0)
                                 <span class="badge bg-danger">{{ $s->down_checks }} výpadků</span>
                             @else

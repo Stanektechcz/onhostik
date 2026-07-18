@@ -35,11 +35,11 @@
     </style>
 </head>
 <body>
-<div class="min-vh-100 d-flex align-items-center justify-content-center py-5">
+<div class="min-h-screen flex items-center justify-center py-5">
     <div class="card shadow-sm" style="max-width:520px;width:100%">
         <div class="card-body p-4 p-md-5">
             <div class="text-center mb-4">
-                <div class="fw-bold fs-5 mb-1">Onhost.cz</div>
+                <div class="font-bold fs-5 mb-1">Onhost.cz</div>
                 <h1 class="h4">Doporučili byste nás?</h1>
                 <p class="text-muted mb-0">Jak pravděpodobné je, že byste Onhost.cz doporučili přátelům nebo kolegům?</p>
             </div>
@@ -49,12 +49,12 @@
                 <input type="hidden" name="score" id="score-input" value="">
 
                 <div class="mb-4">
-                    <div class="d-flex flex-wrap gap-2 justify-content-center mb-2">
+                    <div class="flex flex-wrap gap-2 justify-center mb-2">
                         @for ($i = 0; $i <= 10; $i++)
                             <button type="button" class="nps-btn" data-score="{{ $i }}">{{ $i }}</button>
                         @endfor
                     </div>
-                    <div class="d-flex justify-content-between text-muted" style="font-size:12px">
+                    <div class="flex justify-between text-muted" style="font-size:12px">
                         <span>😞 Vůbec ne</span>
                         <span>😊 Rozhodně ano</span>
                     </div>
@@ -65,7 +65,7 @@
                     <textarea name="comment" class="form-control" rows="3" maxlength="2000" placeholder="Váš komentář..."></textarea>
                 </div>
 
-                <div class="d-grid" id="submit-block" style="display:none !important">
+                <div class="grid" id="submit-block" style="display:none !important">
                     <button type="submit" class="btn btn-primary">Odeslat hodnocení</button>
                 </div>
             </form>

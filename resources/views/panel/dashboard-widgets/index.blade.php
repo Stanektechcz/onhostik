@@ -16,9 +16,9 @@
 
             <div id="widgetList">
                 @foreach($widgets as $i => $widget)
-                <div class="d-flex align-items-center gap-3 mb-2 p-3 border rounded bg-light widget-item" data-key="{{ $widget['key'] }}">
+                <div class="flex items-center gap-3 mb-2 p-3 border rounded bg-light widget-item" data-key="{{ $widget['key'] }}">
                     <span class="text-muted" style="cursor:grab">&#9776;</span>
-                    <div class="flex-grow-1 fw-semibold">{{ $widget['label'] }}</div>
+                    <div class="grow font-semibold">{{ $widget['label'] }}</div>
                     <div class="form-check form-switch mb-0">
                         <input class="form-check-input widget-toggle" type="checkbox" id="w_{{ $widget['key'] }}" @checked($widget['is_visible'])>
                         <label class="form-check-label text-muted" for="w_{{ $widget['key'] }}">Zobrazit</label>

@@ -12,21 +12,21 @@
     <x-panel.flash />
 
     {{-- Summary cards --}}
-    <div class="row g-3 mb-3">
-        <div class="col-md-4">
+    <div class="grid grid-cols-12 gap-3 mb-3">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.stat-widget label="Aktivní tokeny (24h)" :value="$summary['active_tokens']" icon="key" />
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.stat-widget label="Překročily limit" :value="$summary['exceeded_tokens']" icon="alert-circle" color="danger" />
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.stat-widget label="Blízko limitu (≥75%)" :value="$summary['near_limit_tokens']" icon="alert-triangle" color="warning" />
         </div>
     </div>
 
-    <div class="row g-3">
+    <div class="grid grid-cols-12 gap-3">
         {{-- Token status table --}}
-        <div class="col-lg-8">
+        <div class="col-span-12 lg:col-span-8">
             <div class="card">
                 <div class="card-header card-no-border">
                     <h5>Aktivní tokeny — využití limitů</h5>
@@ -55,7 +55,7 @@
                                     <td class="f-w-500">{{ $ts->token_name }}</td>
                                     <td>
                                         @php $pct = $ts->status['minute_pct']; $color = $pct >= 100 ? 'danger' : ($pct >= 75 ? 'warning' : 'success'); @endphp
-                                        <div class="d-flex align-items-center gap-2">
+                                        <div class="flex items-center gap-2">
                                             <div class="progress flex-1" style="height:6px;min-width:60px;">
                                                 <div class="progress-bar bg-{{ $color }}" style="width:{{ min($pct, 100) }}%"></div>
                                             </div>
@@ -64,7 +64,7 @@
                                     </td>
                                     <td>
                                         @php $pct = $ts->status['hour_pct']; $color = $pct >= 100 ? 'danger' : ($pct >= 75 ? 'warning' : 'success'); @endphp
-                                        <div class="d-flex align-items-center gap-2">
+                                        <div class="flex items-center gap-2">
                                             <div class="progress flex-1" style="height:6px;min-width:60px;">
                                                 <div class="progress-bar bg-{{ $color }}" style="width:{{ min($pct, 100) }}%"></div>
                                             </div>
@@ -73,7 +73,7 @@
                                     </td>
                                     <td>
                                         @php $pct = $ts->status['day_pct']; $color = $pct >= 100 ? 'danger' : ($pct >= 75 ? 'warning' : 'success'); @endphp
-                                        <div class="d-flex align-items-center gap-2">
+                                        <div class="flex items-center gap-2">
                                             <div class="progress flex-1" style="height:6px;min-width:60px;">
                                                 <div class="progress-bar bg-{{ $color }}" style="width:{{ min($pct, 100) }}%"></div>
                                             </div>
@@ -100,7 +100,7 @@
         </div>
 
         {{-- Configure limits --}}
-        <div class="col-lg-4">
+        <div class="col-span-12 lg:col-span-4">
             <div class="card mb-3">
                 <div class="card-header card-no-border"><h5>Nastavit limity tokenu</h5></div>
                 <div class="card-body">
@@ -127,7 +127,7 @@
                             <input type="number" name="requests_per_day" class="form-control form-control-sm"
                                    value="{{ old('requests_per_day', 5000) }}" min="1" required>
                         </div>
-                        <button type="submit" class="btn btn-primary btn-sm w-100">Uložit limity</button>
+                        <button type="submit" class="btn btn-primary btn-sm w-full">Uložit limity</button>
                     </form>
                 </div>
             </div>

@@ -5,47 +5,47 @@
 @section('content')
 <div class="container-fluid py-4">
 
-    <div class="d-flex align-items-center justify-content-between mb-4">
+    <div class="flex items-center justify-between mb-4">
         <h1 class="h4 mb-0">BI 2.0 — Prediktivní analytika</h1>
         <a href="{{ route('admin.bi.index') }}" class="btn btn-sm btn-outline-secondary">Klasický BI dashboard</a>
     </div>
 
     {{-- MRR Summary Cards --}}
-    <div class="row g-3 mb-4">
-        <div class="col-md-3">
-            <div class="card text-center h-100">
+    <div class="grid grid-cols-12 gap-3 mb-4">
+        <div class="col-span-12 md:col-span-3">
+            <div class="card text-center h-full">
                 <div class="card-body py-3">
                     <div class="text-muted small mb-1">MRR</div>
-                    <div class="h4 mb-0 fw-bold text-success">{{ number_format($mrrSummary['mrr'], 0, ',', ' ') }} Kč</div>
+                    <div class="h4 mb-0 font-bold text-success">{{ number_format($mrrSummary['mrr'], 0, ',', ' ') }} Kč</div>
                     <div class="text-muted" style="font-size:11px">Monthly Recurring Revenue</div>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card text-center h-100">
+        <div class="col-span-12 md:col-span-3">
+            <div class="card text-center h-full">
                 <div class="card-body py-3">
                     <div class="text-muted small mb-1">ARR</div>
-                    <div class="h4 mb-0 fw-bold text-primary">{{ number_format($mrrSummary['arr'], 0, ',', ' ') }} Kč</div>
+                    <div class="h4 mb-0 font-bold text-primary">{{ number_format($mrrSummary['arr'], 0, ',', ' ') }} Kč</div>
                     <div class="text-muted" style="font-size:11px">Annual Recurring Revenue</div>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card text-center h-100">
+        <div class="col-span-12 md:col-span-3">
+            <div class="card text-center h-full">
                 <div class="card-body py-3">
                     <div class="text-muted small mb-1">Churn rate</div>
-                    <div class="h4 mb-0 fw-bold {{ $mrrSummary['churn_rate'] > 5 ? 'text-danger' : 'text-success' }}">
+                    <div class="h4 mb-0 font-bold {{ $mrrSummary['churn_rate'] > 5 ? 'text-danger' : 'text-success' }}">
                         {{ $mrrSummary['churn_rate'] }}%
                     </div>
                     <div class="text-muted" style="font-size:11px">Posledních 30 dní</div>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card text-center h-100">
+        <div class="col-span-12 md:col-span-3">
+            <div class="card text-center h-full">
                 <div class="card-body py-3">
                     <div class="text-muted small mb-1">Růst MOM</div>
-                    <div class="h4 mb-0 fw-bold {{ $mrrSummary['growth_rate'] >= 0 ? 'text-success' : 'text-danger' }}">
+                    <div class="h4 mb-0 font-bold {{ $mrrSummary['growth_rate'] >= 0 ? 'text-success' : 'text-danger' }}">
                         {{ $mrrSummary['growth_rate'] >= 0 ? '+' : '' }}{{ $mrrSummary['growth_rate'] }}%
                     </div>
                     <div class="text-muted" style="font-size:11px">Vs. minulý měsíc</div>
@@ -54,11 +54,11 @@
         </div>
     </div>
 
-    <div class="row g-3 mb-4">
+    <div class="grid grid-cols-12 gap-3 mb-4">
 
         {{-- Revenue Trend (6 months) --}}
-        <div class="col-lg-7">
-            <div class="card h-100">
+        <div class="col-span-12 lg:col-span-7">
+            <div class="card h-full">
                 <div class="card-header"><strong>Příjmy posledních 6 měsíců</strong></div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
@@ -66,24 +66,24 @@
                             <thead class="table-light">
                                 <tr>
                                     <th>Měsíc</th>
-                                    <th class="text-end">Příjem</th>
-                                    <th class="text-end">Noví zákazníci</th>
+                                    <th class="text-right">Příjem</th>
+                                    <th class="text-right">Noví zákazníci</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach($mrrTrend as $month => $revenue)
                                     <tr>
                                         <td class="small">{{ $month }}</td>
-                                        <td class="text-end small">{{ number_format($revenue, 0, ',', ' ') }} Kč</td>
-                                        <td class="text-end small">{{ $newPerMonth[$month] ?? 0 }}</td>
+                                        <td class="text-right small">{{ number_format($revenue, 0, ',', ' ') }} Kč</td>
+                                        <td class="text-right small">{{ $newPerMonth[$month] ?? 0 }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>
                             <tfoot class="table-secondary">
                                 <tr>
-                                    <td class="small fw-semibold">Forecast (příští měsíc)</td>
-                                    <td class="text-end small fw-semibold">{{ number_format($forecast['forecast'], 0, ',', ' ') }} Kč</td>
-                                    <td class="text-end small text-muted">
+                                    <td class="small font-semibold">Forecast (příští měsíc)</td>
+                                    <td class="text-right small font-semibold">{{ number_format($forecast['forecast'], 0, ',', ' ') }} Kč</td>
+                                    <td class="text-right small text-muted">
                                         <span class="badge bg-{{ $forecast['confidence'] === 'high' ? 'success' : ($forecast['confidence'] === 'medium' ? 'warning' : 'secondary') }}">
                                             {{ $forecast['confidence'] }}
                                         </span>
@@ -97,8 +97,8 @@
         </div>
 
         {{-- CLV by Segment --}}
-        <div class="col-lg-5">
-            <div class="card h-100">
+        <div class="col-span-12 lg:col-span-5">
+            <div class="card h-full">
                 <div class="card-header"><strong>Customer Lifetime Value dle segmentu</strong></div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
@@ -106,7 +106,7 @@
                             <thead class="table-light">
                                 <tr>
                                     <th>Segment</th>
-                                    <th class="text-end">Průměrná CLV</th>
+                                    <th class="text-right">Průměrná CLV</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -124,7 +124,7 @@
                                             @endphp
                                             <span class="badge bg-{{ $segColor }}">{{ $segment }}</span>
                                         </td>
-                                        <td class="text-end small fw-semibold">{{ number_format($clv, 0, ',', ' ') }} Kč</td>
+                                        <td class="text-right small font-semibold">{{ number_format($clv, 0, ',', ' ') }} Kč</td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -138,7 +138,7 @@
 
     {{-- Cohort Analysis --}}
     <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header flex justify-between items-center">
             <strong>Kohortní analýza (příjmy dle měsíce akvizice)</strong>
             <span class="text-muted small">CZK, poslední 6 kohort × 4 periody</span>
         </div>
@@ -147,18 +147,18 @@
                 <thead class="table-dark">
                     <tr>
                         <th>Kohorta</th>
-                        <th class="text-end">Měsíc 0</th>
-                        <th class="text-end">Měsíc 1</th>
-                        <th class="text-end">Měsíc 2</th>
-                        <th class="text-end">Měsíc 3</th>
+                        <th class="text-right">Měsíc 0</th>
+                        <th class="text-right">Měsíc 1</th>
+                        <th class="text-right">Měsíc 2</th>
+                        <th class="text-right">Měsíc 3</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach($cohortData as $cohortMonth => $periods)
                         <tr>
-                            <td class="small fw-semibold">{{ $cohortMonth }}</td>
+                            <td class="small font-semibold">{{ $cohortMonth }}</td>
                             @foreach([0, 1, 2, 3] as $p)
-                                <td class="text-end small">
+                                <td class="text-right small">
                                     @if(isset($periods[$p]) && $periods[$p] !== null)
                                         @php
                                             $val     = $periods[$p];
@@ -202,7 +202,7 @@
                         @foreach($topAtRisk as $customer)
                             <tr>
                                 <td>
-                                    <div class="fw-semibold small">{{ $customer->user->name ?? '—' }}</div>
+                                    <div class="font-semibold small">{{ $customer->user->name ?? '—' }}</div>
                                     <div class="text-muted" style="font-size:11px">{{ $customer->user->email ?? '' }}</div>
                                 </td>
                                 <td>

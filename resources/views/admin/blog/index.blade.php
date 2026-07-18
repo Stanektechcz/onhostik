@@ -14,7 +14,7 @@
     {{-- Filter bar --}}
     <div class="card mb-3">
         <div class="card-body py-2">
-            <form method="GET" action="{{ route('admin.blog.index') }}" class="d-flex gap-2 flex-wrap align-items-center">
+            <form method="GET" action="{{ route('admin.blog.index') }}" class="flex gap-2 flex-wrap items-center">
                 <input type="text" name="q" class="form-control form-control-sm" style="max-width:240px;"
                        placeholder="Hledat název…" value="{{ $search }}">
                 @if($categories->isNotEmpty())
@@ -56,7 +56,7 @@
 
             @if($isFirst)
             {{-- First post: blog-shadow full-width --}}
-            <div class="col-span-6 xl:col-span-12 set-col-12 box-col-12">
+            <div class="col-span-6 xl:col-span-12 set-col-span-12 box-col-span-12">
                 <div class="card">
                     <div class="blog-box blog-shadow">
                         @if($post->featured_image)
@@ -103,7 +103,7 @@
             </div>
             @elseif($loop->index === 1)
             {{-- Posts 2+3: blog-list side by side --}}
-            <div class="col-span-6 xl:col-span-12 set-col-12 box-col-12">
+            <div class="col-span-6 xl:col-span-12 set-col-span-12 box-col-span-12">
             @endif
 
             @if($loop->index === 1 || $loop->index === 2)
@@ -132,7 +132,7 @@
                                     </ul>
                                     <hr>
                                     <p class="mt-0">{{ Str::limit($post->excerpt, 80) }}</p>
-                                    <div class="d-flex gap-2 mt-2">
+                                    <div class="flex gap-2 mt-2">
                                         <a href="{{ route('admin.blog.show', $post) }}" class="btn btn-outline-secondary btn-xs">Náhled</a>
                                         <a href="{{ route('admin.blog.edit', $post) }}" class="btn btn-outline-primary btn-xs">Upravit</a>
                                         <form method="POST" action="{{ route('admin.blog.destroy', $post) }}" style="display:inline;"
@@ -154,7 +154,7 @@
 
             @if($loop->index >= 3)
             {{-- Remaining posts: blog-grid 3-col --}}
-            <div class="col-span-3 xxl:col-span-6 md:col-span-12 box-col-6">
+            <div class="col-span-3 xxl:col-span-6 md:col-span-12 box-col-span-6">
                 <div class="card">
                     <div class="blog-box blog-grid text-center" style="position:relative;">
                         @if($post->featured_image)
@@ -198,7 +198,7 @@
             <div class="col-span-12">
                 <div class="card">
                     <div class="card-body text-center py-5">
-                        <i data-feather="file-text" style="width:48px;height:48px;" class="text-muted mb-3 d-block mx-auto"></i>
+                        <i data-feather="file-text" style="width:48px;height:48px;" class="text-muted mb-3 block mx-auto"></i>
                         <h5 class="f-light">Žádné příspěvky zatím</h5>
                         <a href="{{ route('admin.blog.create') }}" class="btn btn-primary mt-3">Vytvořit první příspěvek</a>
                     </div>

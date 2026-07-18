@@ -14,7 +14,7 @@
     @if(!$referralCode)
         <div class="card mb-3">
             <div class="card-body py-3">
-                <div class="d-flex align-items-center gap-3">
+                <div class="flex items-center gap-3">
                     <i data-feather="info" class="txt-warning" style="width:18px;height:18px;"></i>
                     <span class="f-light f-14">Váš partnerský profil ještě není aktivní. Kontaktujte administrátora pro aktivaci.</span>
                 </div>
@@ -71,7 +71,7 @@
 
         {{-- Quick stats --}}
         <div class="col-span-12 xl:col-span-4">
-            <div class="card h-100">
+            <div class="card h-full">
                 <div class="card-header card-no-border pb-0">
                     <div class="header-top">
                         <h5>Stav programu</h5>
@@ -79,19 +79,19 @@
                 </div>
                 <div class="card-body">
                     <ul class="list-unstyled mb-0">
-                        <li class="d-flex justify-content-between py-2 border-bottom">
+                        <li class="flex justify-between py-2 border-bottom">
                             <span class="f-light f-14">Referral kód</span>
                             <code class="badge badge-light-primary">{{ $referralCode }}</code>
                         </li>
-                        <li class="d-flex justify-content-between py-2 border-bottom">
+                        <li class="flex justify-between py-2 border-bottom">
                             <span class="f-light f-14">Sazba provize</span>
                             <span class="f-w-600">Kontaktujte nás <span class="badge badge-light-warning">MANUAL</span></span>
                         </li>
-                        <li class="d-flex justify-content-between py-2 border-bottom">
+                        <li class="flex justify-between py-2 border-bottom">
                             <span class="f-light f-14">Výplatní cyklus</span>
                             <span class="f-light">Měsíční <span class="badge badge-light-warning">MANUAL</span></span>
                         </li>
-                        <li class="d-flex justify-content-between py-2">
+                        <li class="flex justify-between py-2">
                             <span class="f-light f-14">Sledování konverzí</span>
                             <span class="badge badge-light-warning">PŘIPRAVUJEME</span>
                         </li>

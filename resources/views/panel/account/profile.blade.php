@@ -106,7 +106,7 @@
             <div class="col-span-7 xl:col-span-12">
                 <x-panel.card :title="__('panel.nav.security')">
                     <p class="f-light mb-3">{{ __('panel.account.security_note') }}</p>
-                    <div class="d-flex gap-2 flex-wrap">
+                    <div class="flex gap-2 flex-wrap">
                         <a href="{{ route('panel.account.security') }}" class="btn btn-outline-secondary btn-sm">
                             <i data-feather="shield" style="width:13px;height:13px"></i>
                             Bezpečnostní nastavení
@@ -123,8 +123,8 @@
                 <x-panel.card title="Rychlé akce">
                     <div class="grid grid-cols-12 gap-2">
                         <div class="col-span-6 sm:col-span-12">
-                            <a href="{{ route('panel.billing.invoices') }}" class="card card-no-border border p-3 d-block text-decoration-none">
-                                <div class="d-flex align-items-center gap-2">
+                            <a href="{{ route('panel.billing.invoices') }}" class="card card-no-border border p-3 block text-decoration-none">
+                                <div class="flex items-center gap-2">
                                     <i data-feather="file-text" class="font-primary" style="width:18px;height:18px"></i>
                                     <div>
                                         <div class="f-w-600 f-14">Faktury</div>
@@ -134,8 +134,8 @@
                             </a>
                         </div>
                         <div class="col-span-6 sm:col-span-12">
-                            <a href="{{ route('panel.billing.credits') }}" class="card card-no-border border p-3 d-block text-decoration-none">
-                                <div class="d-flex align-items-center gap-2">
+                            <a href="{{ route('panel.billing.credits') }}" class="card card-no-border border p-3 block text-decoration-none">
+                                <div class="flex items-center gap-2">
                                     <i data-feather="dollar-sign" class="font-success" style="width:18px;height:18px"></i>
                                     <div>
                                         <div class="f-w-600 f-14">Kredit</div>
@@ -145,8 +145,8 @@
                             </a>
                         </div>
                         <div class="col-span-6 sm:col-span-12">
-                            <a href="{{ route('panel.support.index') }}" class="card card-no-border border p-3 d-block text-decoration-none">
-                                <div class="d-flex align-items-center gap-2">
+                            <a href="{{ route('panel.support.index') }}" class="card card-no-border border p-3 block text-decoration-none">
+                                <div class="flex items-center gap-2">
                                     <i data-feather="life-buoy" class="font-warning" style="width:18px;height:18px"></i>
                                     <div>
                                         <div class="f-w-600 f-14">Podpora</div>
@@ -156,8 +156,8 @@
                             </a>
                         </div>
                         <div class="col-span-6 sm:col-span-12">
-                            <a href="{{ route('panel.services.index') }}" class="card card-no-border border p-3 d-block text-decoration-none">
-                                <div class="d-flex align-items-center gap-2">
+                            <a href="{{ route('panel.services.index') }}" class="card card-no-border border p-3 block text-decoration-none">
+                                <div class="flex items-center gap-2">
                                     <i data-feather="server" class="font-info" style="width:18px;height:18px"></i>
                                     <div>
                                         <div class="f-w-600 f-14">Moje služby</div>

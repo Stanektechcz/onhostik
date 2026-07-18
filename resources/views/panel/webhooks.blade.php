@@ -11,11 +11,11 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row g-4">
+    <div class="grid grid-cols-12 gap-4">
         {{-- Webhook list --}}
-        <div class="col-md-8">
+        <div class="col-span-12 md:col-span-8">
             <div class="card card-no-border">
-                <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="card-header flex justify-between items-center">
                     <h5>Odchozí webhooky</h5>
                     <span class="f-light f-12">{{ $webhooks->count() }} / {{ $maxWebhooks }}</span>
                 </div>
@@ -63,7 +63,7 @@
                                             </td>
                                             <td class="f-light f-12">{{ $webhook->created_at?->format('d.m.Y') }}</td>
                                             <td>
-                                                <div class="d-flex gap-1">
+                                                <div class="flex gap-1">
                                                     <form method="POST" action="{{ route('panel.webhooks.toggle', $webhook) }}">
                                                         @csrf
                                                         <button type="submit"
@@ -94,7 +94,7 @@
         </div>
 
         {{-- Create form --}}
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card card-no-border">
                 <div class="card-header">
                     <h5>Nový webhook</h5>
@@ -171,7 +171,7 @@
                                 @enderror
                             </div>
 
-                            <button type="submit" class="btn btn-primary text-white w-100">
+                            <button type="submit" class="btn btn-primary text-white w-full">
                                 <i data-feather="rss" style="width:13px;height:13px;"></i>
                                 Vytvořit webhook
                             </button>
@@ -186,7 +186,7 @@
                     <p class="f-12 f-light mb-2">
                         Webhooky jsou odesílány jako <code>POST</code> s JSON tělem a hlavičkami:
                     </p>
-                    <code class="f-11 d-block p-2 rounded mb-1" style="background:rgba(0,0,0,.05);">
+                    <code class="f-11 block p-2 rounded mb-1" style="background:rgba(0,0,0,.05);">
                         Content-Type: application/json<br>
                         X-Webhook-Event: invoice.paid<br>
                         X-Webhook-Signature: sha256=...

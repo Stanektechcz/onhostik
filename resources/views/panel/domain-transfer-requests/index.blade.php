@@ -5,8 +5,8 @@
 @section('content')
 <x-panel.flash />
 
-<div class="row g-4">
-    <div class="col-lg-8">
+<div class="grid grid-cols-12 gap-4">
+    <div class="col-span-12 lg:col-span-8">
         <x-panel.card title="Žádosti o přenos domény">
             <div class="table-responsive">
                 <table class="table table-striped table-hover mb-0">
@@ -72,7 +72,7 @@
         </x-panel.card>
     </div>
 
-    <div class="col-lg-4">
+    <div class="col-span-12 lg:col-span-4">
         <x-panel.card title="Nová žádost o přenos">
             <form method="POST" action="{{ route('panel.domain-transfer-requests.store') }}">
                 @csrf
@@ -91,7 +91,7 @@
                     @error('auth_code') <div class="invalid-feedback">{{ $message }}</div> @enderror
                 </div>
 
-                <button type="submit" class="btn btn-primary w-100">Odeslat žádost</button>
+                <button type="submit" class="btn btn-primary w-full">Odeslat žádost</button>
             </form>
         </x-panel.card>
     </div>

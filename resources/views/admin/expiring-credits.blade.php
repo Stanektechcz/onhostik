@@ -14,7 +14,7 @@
     {{-- Filter tabs --}}
     <div class="card mb-3">
         <div class="card-body py-2">
-            <div class="d-flex gap-2 align-items-center flex-wrap">
+            <div class="flex gap-2 items-center flex-wrap">
                 <span class="f-12 f-light me-2">Vyprší v příštích:</span>
                 @foreach([7, 30, 90] as $d)
                 <a href="{{ route('admin.expiring-credits.index', ['days' => $d]) }}"
@@ -28,9 +28,9 @@
 
     <div class="card">
         <div class="card-header card-no-border">
-            <div class="d-flex justify-content-between align-items-center">
+            <div class="flex justify-between items-center">
                 <h5>Kredity expirující v příštích {{ $days }} dnech ({{ $transactions->total() }})</h5>
-                <div class="d-flex gap-2">
+                <div class="flex gap-2">
                     <span class="badge badge-light-warning f-12">30d reminder</span>
                     <span class="badge badge-light-danger f-12">7d reminder</span>
                 </div>
@@ -46,7 +46,7 @@
                         <tr>
                             <th>Zákazník</th>
                             <th>Transakce</th>
-                            <th class="text-end">Částka</th>
+                            <th class="text-right">Částka</th>
                             <th>Datum vkladu</th>
                             <th>Vyprší</th>
                             <th>Za dní</th>
@@ -66,7 +66,7 @@
                                 <div class="f-11 f-light">{{ $tx->customer?->user?->email ?? '' }}</div>
                             </td>
                             <td class="f-12 f-light">#{{ $tx->id }}</td>
-                            <td class="text-end">
+                            <td class="text-right">
                                 <span class="f-w-500 text-success">
                                     {{ \App\Domains\Shared\Support\MoneyFormatter::format($tx->amount) }}
                                 </span>
@@ -79,7 +79,7 @@
                                 </span>
                             </td>
                             <td>
-                                <div class="d-flex gap-1">
+                                <div class="flex gap-1">
                                     <span class="badge {{ $sent30 ? 'badge-light-success' : 'badge-light-secondary' }} f-10"
                                           title="{{ $sent30 ? 'Odesláno ' . $sent30->sent_at?->format('d.m.Y') : 'Neodesláno' }}">
                                         30d

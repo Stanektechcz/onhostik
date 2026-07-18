@@ -11,7 +11,7 @@
 
         {{-- Impersonation banner --}}
         @if($customer->user_id)
-        <div class="alert alert-light-warning d-flex align-items-center gap-3 mb-3 py-2">
+        <div class="alert alert-light-warning flex items-center gap-3 mb-3 py-2">
             <i data-feather="eye" style="width:16px;height:16px;"></i>
             <span class="f-14">Přihlásit se jako tento zákazník a zobrazit jeho panel.</span>
             <a href="{{ route('admin.customer-login-history.show', $customer) }}"
@@ -31,7 +31,7 @@
         {{-- Newsletter subscription shortcut --}}
         @php($subscriberExists = $customer->user ? \App\Models\Subscriber::where('email', $customer->email)->exists() : false)
         @if($customer->user && !$subscriberExists)
-            <div class="alert alert-light-info d-flex align-items-center gap-3 mb-3 py-2">
+            <div class="alert alert-light-info flex items-center gap-3 mb-3 py-2">
                 <i data-feather="mail" style="width:16px;height:16px;"></i>
                 <span class="f-14 f-light">Zákazník není přihlášen k odběru newsletteru.</span>
                 <form method="POST" action="{{ route('admin.subscribers.store') }}" class="ms-auto">
@@ -48,7 +48,7 @@
         {{-- Partner profile shortcut --}}
         @php($customerPartner = $customer->user ? \App\Domains\Partner\Models\PartnerProfile::where('user_id', $customer->user_id)->first() : null)
         @if($customerPartner)
-            <div class="alert alert-light-primary d-flex align-items-center gap-3 mb-3 py-2">
+            <div class="alert alert-light-primary flex items-center gap-3 mb-3 py-2">
                 <i data-feather="share-2" style="width:16px;height:16px;"></i>
                 <span class="f-14">Tento zákazník je partner.</span>
                 <a href="{{ route('admin.partners.show', $customerPartner) }}" class="btn btn-outline-primary btn-xs ms-auto">
@@ -56,7 +56,7 @@
                 </a>
             </div>
         @elseif($customer->user_id)
-            <div class="alert alert-light-secondary d-flex align-items-center gap-3 mb-3 py-2">
+            <div class="alert alert-light-secondary flex items-center gap-3 mb-3 py-2">
                 <i data-feather="share-2" style="width:16px;height:16px;"></i>
                 <span class="f-14 f-light">Zákazník nemá partner profil.</span>
                 <a href="{{ route('admin.partners.create') }}?user_id={{ $customer->user_id }}" class="btn btn-outline-secondary btn-xs ms-auto">
@@ -65,34 +65,34 @@
             </div>
         @endif
 
-        {{-- KPI row --}}
+        {{-- KPI grid grid-cols-12 --}}
         <div class="grid grid-cols-12 card-gap">
-            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2-4">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2">
                 <x-panel.stat-widget
                     :label="__('panel.billing.balance')"
                     :value="\App\Domains\Shared\Support\MoneyFormatter::format($balance)"
                     icon="credit-card" color="primary" />
             </div>
-            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2-4">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2">
                 <x-panel.stat-widget
                     :label="__('panel.nav.admin_services')"
                     :value="$services->count()"
                     icon="server" color="success" />
             </div>
-            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2-4">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2">
                 <x-panel.stat-widget
                     :label="__('panel.nav.admin_invoices')"
                     :value="$invoices->count()"
                     icon="file-text" color="warning" />
             </div>
-            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2-4">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2">
                 <x-panel.stat-widget
                     :label="__('panel.nav.admin_support')"
                     :value="$tickets->count()"
                     icon="life-buoy" color="danger" />
             </div>
             @if($customer->health_score !== null)
-            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2-4">
+            <div class="col-span-6 sm:col-span-12 md:col-span-3 lg:col-span-2">
                 <x-panel.stat-widget
                     label="Zdraví zákazníka"
                     :value="$customer->health_score . '/100'"
@@ -157,6 +157,70 @@
                     </table>
                 </x-panel.card>
 
+                {{-- Quick actions --}}
+                <x-panel.card title="Akce">
+                    <div class="flex flex-wrap gap-2">
+                        <a href="{{ route('admin.services.create', ['customer' => $customer->id]) }}" class="btn btn-primary btn-sm text-white">
+                            <i data-feather="server" style="width:13px;height:13px;"></i> Vytvořit službu
+                        </a>
+                        <a href="{{ route('admin.orders.index', ['q' => $customer->email]) }}" class="btn btn-outline-primary btn-sm">
+                            <i data-feather="shopping-bag" style="width:13px;height:13px;"></i> Objednávky
+                        </a>
+                        @if($customer->user)
+                            <form method="POST" action="{{ route('admin.customers.toggle-active', $customer) }}"
+                                  onsubmit="return confirm('Změnit stav přihlášení zákazníka?');">
+                                @csrf
+                                <button type="submit" class="btn btn-sm {{ $customer->user->is_active ? 'btn-outline-danger' : 'btn-outline-success' }}">
+                                    <i data-feather="{{ $customer->user->is_active ? 'user-x' : 'user-check' }}" style="width:13px;height:13px;"></i>
+                                    {{ $customer->user->is_active ? 'Deaktivovat účet' : 'Aktivovat účet' }}
+                                </button>
+                            </form>
+                        @endif
+                    </div>
+                </x-panel.card>
+
+                {{-- Edit profile --}}
+                <x-panel.card title="Upravit údaje">
+                    <form method="POST" action="{{ route('admin.customers.update', $customer) }}">
+                        @csrf
+                        @method('PATCH')
+                        <div class="grid grid-cols-12 gap-2">
+                            <div class="col-span-12">
+                                <label class="form-label f-12 f-light">Jméno kontaktu</label>
+                                <input type="text" name="name" class="form-control form-control-sm" value="{{ old('name', $customer->user?->name) }}">
+                            </div>
+                            <div class="col-span-12">
+                                <label class="form-label f-12 f-light">E-mail</label>
+                                <input type="email" name="email" class="form-control form-control-sm" value="{{ old('email', $customer->email) }}" required>
+                                @error('email')<div class="text-danger f-12">{{ $message }}</div>@enderror
+                            </div>
+                            <div class="col-span-6">
+                                <label class="form-label f-12 f-light">Telefon</label>
+                                <input type="text" name="phone" class="form-control form-control-sm" value="{{ old('phone', $customer->phone) }}">
+                            </div>
+                            <div class="col-span-6">
+                                <label class="form-label f-12 f-light">Země (ISO2)</label>
+                                <input type="text" name="country_code" class="form-control form-control-sm uppercase" maxlength="2" value="{{ old('country_code', $customer->country_code) }}">
+                            </div>
+                            <div class="col-span-12">
+                                <label class="form-label f-12 f-light">Firma</label>
+                                <input type="text" name="company_name" class="form-control form-control-sm" value="{{ old('company_name', $customer->company_name) }}">
+                            </div>
+                            <div class="col-span-6">
+                                <label class="form-label f-12 f-light">IČ</label>
+                                <input type="text" name="registration_number" class="form-control form-control-sm" value="{{ old('registration_number', $customer->registration_number) }}">
+                            </div>
+                            <div class="col-span-6">
+                                <label class="form-label f-12 f-light">DIČ</label>
+                                <input type="text" name="vat_number" class="form-control form-control-sm" value="{{ old('vat_number', $customer->vat_number) }}">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm mt-3">
+                            <i data-feather="save" style="width:13px;height:13px;"></i> Uložit údaje
+                        </button>
+                    </form>
+                </x-panel.card>
+
                 {{-- Credit adjustment --}}
                 <x-panel.card :title="__('panel.admin.adjust_credit')">
                     <form method="POST" action="{{ route('admin.customers.credit', $customer) }}">
@@ -201,7 +265,7 @@
                                   class="form-control form-control-sm f-12 mb-2 @error('content') is-invalid @enderror"
                                   placeholder="Přidat zápis…" maxlength="5000"></textarea>
                         @error('content')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                        <div class="d-flex gap-2 align-items-center">
+                        <div class="flex gap-2 items-center">
                             <button type="submit" class="btn btn-primary btn-sm">Přidat</button>
                             <div class="form-check mb-0">
                                 <input class="form-check-input" type="checkbox" name="is_pinned" value="1" id="pin_note">
@@ -213,7 +277,7 @@
                     {{-- Notes timeline --}}
                     @forelse($internalNotes as $note)
                     <div class="border rounded p-2 mb-2 {{ $note->is_pinned ? 'border-warning bg-light-warning' : '' }}">
-                        <div class="d-flex justify-content-between align-items-start mb-1">
+                        <div class="flex justify-between items-start mb-1">
                             <div>
                                 @if($note->is_pinned)
                                     <i data-feather="bookmark" style="width:12px;height:12px;" class="txt-warning me-1"></i>
@@ -221,7 +285,7 @@
                                 <span class="f-12 f-w-600">{{ $note->admin?->name ?? 'Admin' }}</span>
                                 <span class="f-light f-11 ms-2">{{ $note->created_at->diffForHumans() }}</span>
                             </div>
-                            <div class="d-flex gap-1">
+                            <div class="flex gap-1">
                                 <form method="POST" action="{{ route('admin.customers.internal-notes.pin', [$customer, $note]) }}">
                                     @csrf
                                     <button type="submit" class="btn btn-xs btn-outline-{{ $note->is_pinned ? 'warning' : 'secondary' }}" title="{{ $note->is_pinned ? 'Odepnout' : 'Připnout' }}">
@@ -248,7 +312,7 @@
                 @if($domains->isNotEmpty())
                     <x-panel.card :title="__('panel.nav.admin_domains')">
                         @foreach($domains as $domain)
-                            <div class="d-flex justify-content-between align-items-center mb-1">
+                            <div class="flex justify-between items-center mb-1">
                                 <span class="f-w-600 f-14">{{ $domain->fqdn() }}</span>
                                 <span class="f-light f-12">{{ $domain->expires_at?->format('d.m.Y') ?? '—' }}</span>
                             </div>
@@ -259,7 +323,7 @@
                 {{-- Phase 273: onboarding progress inline --}}
                 <x-panel.card title="Onboarding">
                     @if($onboardingSteps->isNotEmpty())
-                        <div class="d-flex justify-content-between mb-1">
+                        <div class="flex justify-between mb-1">
                             <span class="f-light f-12">Postup</span>
                             <span class="f-12 f-w-600">{{ $onboardingCompleted }}/{{ $onboardingSteps->count() }}</span>
                         </div>
@@ -268,7 +332,7 @@
                                  style="width:{{ $onboardingSteps->count() > 0 ? round($onboardingCompleted / $onboardingSteps->count() * 100) : 0 }}%"></div>
                         </div>
                         @foreach($onboardingSteps as $step)
-                            <div class="d-flex align-items-center gap-2 py-1 border-bottom">
+                            <div class="flex items-center gap-2 py-1 border-bottom">
                                 <form method="POST" action="{{ route('admin.customer-onboarding-steps.update', $step) }}" class="mb-0">
                                     @csrf
                                     @method('PATCH')
@@ -287,7 +351,7 @@
                         <p class="f-light f-12 mb-2">Žádné kroky onboardingu.</p>
                     @endif
 
-                    <form method="POST" action="{{ route('admin.customer-onboarding-steps.store') }}" class="d-flex gap-2 mt-3">
+                    <form method="POST" action="{{ route('admin.customer-onboarding-steps.store') }}" class="flex gap-2 mt-3">
                         @csrf
                         <input type="hidden" name="customer_id" value="{{ $customer->id }}">
                         <input type="text" name="step" class="form-control form-control-sm" placeholder="Nový krok…" required maxlength="100">
@@ -411,10 +475,10 @@
 
                 {{-- Phase 273: communication history inline --}}
                 <x-panel.card title="Komunikace se zákazníkem">
-                    <form method="POST" action="{{ route('admin.customer-communication-logs.store') }}" class="row g-2 align-items-end mb-3">
+                    <form method="POST" action="{{ route('admin.customer-communication-logs.store') }}" class="grid grid-cols-12 gap-2 items-end mb-3">
                         @csrf
                         <input type="hidden" name="customer_id" value="{{ $customer->id }}">
-                        <div class="col-6 col-md-2">
+                        <div class="col-span-6 col-span-12 md:col-span-2">
                             <label class="form-label f-12 mb-1">Kanál</label>
                             <select name="channel" class="form-select form-select-sm">
                                 <option value="email">E-mail</option>
@@ -423,23 +487,23 @@
                                 <option value="note">Poznámka</option>
                             </select>
                         </div>
-                        <div class="col-6 col-md-2">
+                        <div class="col-span-6 col-span-12 md:col-span-2">
                             <label class="form-label f-12 mb-1">Směr</label>
                             <select name="direction" class="form-select form-select-sm">
                                 <option value="outbound">Odchozí</option>
                                 <option value="inbound">Příchozí</option>
                             </select>
                         </div>
-                        <div class="col-12 col-md-3">
+                        <div class="col-span-12 col-span-12 md:col-span-3">
                             <label class="form-label f-12 mb-1">Předmět</label>
                             <input type="text" name="subject" class="form-control form-control-sm" maxlength="255" placeholder="Volitelné">
                         </div>
-                        <div class="col-12 col-md-3">
+                        <div class="col-span-12 col-span-12 md:col-span-3">
                             <label class="form-label f-12 mb-1">Obsah</label>
                             <input type="text" name="body" class="form-control form-control-sm" required placeholder="Shrnutí komunikace">
                         </div>
-                        <div class="col-12 col-md-2">
-                            <button type="submit" class="btn btn-primary btn-sm w-100 text-white">Zaznamenat</button>
+                        <div class="col-span-12 col-span-12 md:col-span-2">
+                            <button type="submit" class="btn btn-primary btn-sm w-full text-white">Zaznamenat</button>
                         </div>
                     </form>
 
@@ -447,11 +511,11 @@
                         <p class="f-light f-12 mb-0">Zatím žádné záznamy komunikace.</p>
                     @else
                         @foreach($communicationLogs as $log)
-                            <div class="d-flex align-items-start gap-2 py-2 border-bottom">
+                            <div class="flex items-start gap-2 py-2 border-bottom">
                                 <i data-feather="{{ ['email' => 'mail', 'phone' => 'phone', 'chat' => 'message-circle', 'note' => 'edit-3'][$log->channel] ?? 'message-square' }}"
                                    style="width:15px;height:15px;flex-shrink:0;" class="txt-primary mt-1"></i>
-                                <div class="flex-grow-1">
-                                    <div class="d-flex align-items-center gap-2">
+                                <div class="grow">
+                                    <div class="flex items-center gap-2">
                                         <span class="f-12 f-w-600">{{ $log->subject ?: ucfirst($log->channel) }}</span>
                                         <span class="badge {{ $log->direction === 'inbound' ? 'badge-light-info' : 'badge-light-success' }} f-10">
                                             {{ $log->direction === 'inbound' ? 'Příchozí' : 'Odchozí' }}

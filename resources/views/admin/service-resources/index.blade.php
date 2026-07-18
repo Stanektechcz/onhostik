@@ -12,8 +12,8 @@
     <x-panel.flash />
 
     {{-- Stats cards --}}
-    <div class="row g-3 mb-3">
-        <div class="col-md-4">
+    <div class="grid grid-cols-12 gap-3 mb-3">
+        <div class="col-span-12 md:col-span-4">
             <div class="card text-center">
                 <div class="card-body">
                     <h3 class="mb-0">{{ $stats['total_monitored'] }}</h3>
@@ -21,7 +21,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card text-center">
                 <div class="card-body">
                     <h3 class="mb-0 {{ $stats['over_threshold'] > 0 ? 'text-danger' : 'text-success' }}">
@@ -31,7 +31,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card text-center">
                 <div class="card-body">
                     <h3 class="mb-0 f-14">{{ $stats['last_checked'] ? $stats['last_checked']->diffForHumans() : '—' }}</h3>
@@ -42,9 +42,9 @@
     </div>
 
     <div class="card">
-        <div class="card-header card-no-border d-flex align-items-center gap-3">
+        <div class="card-header card-no-border flex items-center gap-3">
             <h5 class="mb-0">Využití zdrojů</h5>
-            <div class="ms-auto d-flex gap-2">
+            <div class="ms-auto flex gap-2">
                 <a href="{{ route('admin.service-resources.index', ['filter' => 'all']) }}"
                    class="btn btn-sm {{ $filter === 'all' ? 'btn-primary' : 'btn-outline-secondary' }}">Vše</a>
                 <a href="{{ route('admin.service-resources.index', ['filter' => 'alerts']) }}"
@@ -56,7 +56,7 @@
         <div class="card-body pt-0">
             @if($services->isEmpty())
                 <div class="text-center py-5">
-                    <i data-feather="cpu" style="width:40px;height:40px;" class="text-muted mb-3 d-block mx-auto"></i>
+                    <i data-feather="cpu" style="width:40px;height:40px;" class="text-muted mb-3 block mx-auto"></i>
                     <h6 class="f-light">Žádná data o využití zdrojů</h6>
                     <p class="f-light f-12">Data se zobrazí po prvním zaznamenání využití.</p>
                 </div>

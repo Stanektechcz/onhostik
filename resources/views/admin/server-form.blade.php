@@ -61,7 +61,7 @@
                                        value="{{ old('max_services', $server?->max_services) }}" min="1" placeholder="∞">
                                 <div class="form-text">Prázdné = bez limitu</div>
                             </div>
-                            <div class="col-span-4 md:col-span-12 mb-3 d-flex align-items-end gap-3 pb-3">
+                            <div class="col-span-4 md:col-span-12 mb-3 flex items-end gap-3 pb-3">
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" id="s-mock" name="mock_mode" value="1"
                                            @checked(old('mock_mode', $server?->mock_mode ?? true))>
@@ -101,7 +101,7 @@
                             </div>
                         </div>
 
-                        <div class="d-flex gap-2 mt-2">
+                        <div class="flex gap-2 mt-2">
                             <button type="submit" class="btn btn-primary">{{ __('panel.admin.save') }}</button>
                             <a href="{{ route('admin.servers.index') }}" class="btn btn-outline-secondary">{{ __('panel.common.back') }}</a>
                         </div>

@@ -16,7 +16,7 @@
                     <tr>
                         <th>Číslo</th>
                         <th>Zákazník</th>
-                        <th class="text-end">Celkem</th>
+                        <th class="text-right">Celkem</th>
                         <th>Splatnost</th>
                         <th>Stav</th>
                         <th></th>
@@ -27,7 +27,7 @@
                     <tr>
                         <td class="f-w-500">{{ $inv->number }}</td>
                         <td>{{ $inv->customer?->display_name ?? '—' }}</td>
-                        <td class="text-end">{{ number_format($inv->total->getMinorAmount()->toInt() / 100, 2, ',', ' ') }} Kč</td>
+                        <td class="text-right">{{ number_format($inv->total->getMinorAmount()->toInt() / 100, 2, ',', ' ') }} Kč</td>
                         <td class="{{ $inv->due_date?->isPast() ? 'text-danger' : '' }}">
                             {{ $inv->due_date?->format('d.m.Y') ?? '—' }}
                         </td>

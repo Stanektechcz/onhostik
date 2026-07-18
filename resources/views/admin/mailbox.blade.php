@@ -16,41 +16,41 @@
                 {{-- Left sidebar --}}
                 <div class="col-span-3 xl:col-span-12 box-col-3e">
                     <div class="email-app-sidebar left-bookmark">
-                        <div class="d-flex align-items-center justify-content-between mb-3">
+                        <div class="flex items-center justify-between mb-3">
                             <h5 class="mb-0">Pošta</h5>
                             <button class="btn btn-primary btn-sm text-white"
                                     data-bs-toggle="modal" data-bs-target="#composeModal">
                                 <i data-feather="edit" style="width:13px;height:13px;"></i> Napsat
                             </button>
                         </div>
-                        <ul class="nav flex-column email-sidebar-list">
+                        <ul class="nav flex-col email-sidebar-list">
                             <li class="nav-item">
-                                <a class="nav-link active d-flex align-items-center gap-2" href="#">
+                                <a class="nav-link active flex items-center gap-2" href="#">
                                     <i data-feather="inbox" style="width:16px;height:16px;"></i>
                                     Doručené
                                     <span class="badge badge-primary ms-auto text-white">{{ $inboxCount ?? 0 }}</span>
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a class="nav-link d-flex align-items-center gap-2" href="#">
+                                <a class="nav-link flex items-center gap-2" href="#">
                                     <i data-feather="send" style="width:16px;height:16px;"></i>
                                     Odeslané
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a class="nav-link d-flex align-items-center gap-2" href="#">
+                                <a class="nav-link flex items-center gap-2" href="#">
                                     <i data-feather="star" style="width:16px;height:16px;"></i>
                                     Označené
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a class="nav-link d-flex align-items-center gap-2" href="#">
+                                <a class="nav-link flex items-center gap-2" href="#">
                                     <i data-feather="file" style="width:16px;height:16px;"></i>
                                     Koncepty
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a class="nav-link d-flex align-items-center gap-2" href="#">
+                                <a class="nav-link flex items-center gap-2" href="#">
                                     <i data-feather="trash-2" style="width:16px;height:16px;"></i>
                                     Koš
                                 </a>
@@ -58,7 +58,7 @@
                         </ul>
                         <hr>
                         <h6 class="f-light f-12 mb-2">Štítky</h6>
-                        <ul class="nav flex-column">
+                        <ul class="nav flex-col">
                             <li class="nav-item"><a class="nav-link f-12" href="#"><span class="badge badge-primary me-2 text-white">●</span>Podpora</a></li>
                             <li class="nav-item"><a class="nav-link f-12" href="#"><span class="badge badge-success me-2 text-white">●</span>Fakturace</a></li>
                             <li class="nav-item"><a class="nav-link f-12" href="#"><span class="badge badge-warning me-2 text-white">●</span>Urgentní</a></li>
@@ -89,7 +89,7 @@
                             </div>
                             <div class="card-body pt-0 px-0">
                                 <div class="text-center py-5">
-                                    <i data-feather="mail" style="width:48px;height:48px;" class="text-muted mb-3 d-block mx-auto"></i>
+                                    <i data-feather="mail" style="width:48px;height:48px;" class="text-muted mb-3 block mx-auto"></i>
                                     <h5 class="f-light">Poštovní schránka</h5>
                                     <p class="f-light f-13 mb-4">
                                         Interní e-mailový systém bude dostupný v dalším vydání.<br>

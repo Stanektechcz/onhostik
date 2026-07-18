@@ -13,7 +13,7 @@
             <div class="card-body">
 
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">Služba <span class="text-danger">*</span></label>
+                    <label class="form-label font-semibold">Služba <span class="text-danger">*</span></label>
                     <select name="service_id" class="form-select @error('service_id') is-invalid @enderror" required>
                         <option value="">— Vyberte službu —</option>
                         @foreach($services as $service)
@@ -27,14 +27,14 @@
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">Název <span class="text-danger">*</span></label>
+                    <label class="form-label font-semibold">Název <span class="text-danger">*</span></label>
                     <input type="text" name="title" class="form-control @error('title') is-invalid @enderror"
                            value="{{ old('title') }}" required>
                     @error('title')<div class="invalid-feedback">{{ $message }}</div>@enderror
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">Závažnost <span class="text-danger">*</span></label>
+                    <label class="form-label font-semibold">Závažnost <span class="text-danger">*</span></label>
                     <select name="severity" class="form-select" required>
                         @foreach(['critical' => 'Kritická', 'high' => 'Vysoká', 'medium' => 'Střední', 'low' => 'Nízká'] as $v => $l)
                             <option value="{{ $v }}" @selected(old('severity') === $v)>{{ $l }}</option>
@@ -43,12 +43,12 @@
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">Popis</label>
+                    <label class="form-label font-semibold">Popis</label>
                     <textarea name="description" class="form-control" rows="3">{{ old('description') }}</textarea>
                 </div>
 
             </div>
-            <div class="card-footer d-flex gap-2">
+            <div class="card-footer flex gap-2">
                 <button type="submit" class="btn btn-danger btn-sm">Otevřít incident</button>
                 <a href="{{ route('admin.sla-incidents.index') }}" class="btn btn-outline-secondary btn-sm">Zrušit</a>
             </div>

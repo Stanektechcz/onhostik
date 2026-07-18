@@ -19,7 +19,7 @@
                             data-bs-toggle="modal" data-bs-target="#newContactModal">
                         <i data-feather="user-plus" style="width:13px;height:13px;"></i> Nový kontakt
                     </button>
-                    <ul class="nav flex-column">
+                    <ul class="nav flex-col">
                         @foreach(['Všechny','Zákazníci','Partneři','Interní'] as $filter)
                         <li class="nav-item">
                             <a class="nav-link {{ $loop->first ? 'active' : '' }}" href="#">{{ $filter }}</a>
@@ -44,7 +44,7 @@
                             </div>
                             <div class="card-body pt-0">
                                 @forelse($contacts ?? [] as $contact)
-                                <div class="d-flex align-items-center gap-3 py-2 border-bottom cursor-pointer">
+                                <div class="flex items-center gap-3 py-2 border-bottom cursor-pointer">
                                     <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,rgba(var(--theme-default),.2),rgba(var(--theme-default),.05));display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                                         <span class="f-w-600 f-12" style="color:rgba(var(--theme-default),1);">{{ strtoupper(substr($contact->name, 0, 2)) }}</span>
                                     </div>
@@ -57,7 +57,7 @@
                                 @empty
                                 {{-- Static contacts fallback --}}
                                 @foreach([['Jan Novák','jan.novak@example.com','JN'],['Petra Svobodová','petra@firma.cz','PS'],['Martin Kříž','mkriz@web.cz','MK'],['Eva Procházková','eva@hosting.cz','EP'],['Tomáš Blaha','tomas@blaha.cz','TB']] as [$name, $email, $initials])
-                                <div class="d-flex align-items-center gap-3 py-2 border-bottom">
+                                <div class="flex items-center gap-3 py-2 border-bottom">
                                     <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,rgba(var(--theme-default),.2),rgba(var(--theme-default),.05));display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                                         <span class="f-w-600 f-12" style="color:rgba(var(--theme-default),1);">{{ $initials }}</span>
                                     </div>
@@ -89,13 +89,13 @@
                                     </div>
                                     <ul class="list-unstyled">
                                         @foreach([['E-mail','jan.novak@example.com','mail'],['Telefon','+420 777 123 456','phone'],['Město','Praha, ČR','map-pin'],['Web','www.jnweb.cz','globe']] as [$label, $val, $icon])
-                                        <li class="d-flex gap-3 py-2 border-bottom">
+                                        <li class="flex gap-3 py-2 border-bottom">
                                             <i data-feather="{{ $icon }}" style="width:16px;height:16px;flex-shrink:0;opacity:.5;margin-top:2px;"></i>
-                                            <div><small class="f-light d-block f-11">{{ $label }}</small><span class="f-14">{{ $val }}</span></div>
+                                            <div><small class="f-light block f-11">{{ $label }}</small><span class="f-14">{{ $val }}</span></div>
                                         </li>
                                         @endforeach
                                     </ul>
-                                    <div class="d-flex gap-2 mt-4">
+                                    <div class="flex gap-2 mt-4">
                                         <a href="{{ route('admin.customers.index') }}" class="btn btn-outline-primary btn-sm">Zákaznický profil</a>
                                         <a href="{{ route('admin.support.index') }}" class="btn btn-primary btn-sm text-white">Tickety</a>
                                     </div>

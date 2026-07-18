@@ -5,8 +5,8 @@
 @section('content')
 <x-panel.flash />
 
-<div class="row g-4">
-    <div class="col-lg-8">
+<div class="grid grid-cols-12 gap-4">
+    <div class="col-span-12 lg:col-span-8">
         <x-panel.card title="Propagační bannery">
             <div class="table-responsive">
                 <table class="table table-striped table-hover mb-0">
@@ -53,7 +53,7 @@
                                     {{ $banner->ends_at ? \Carbon\Carbon::parse($banner->ends_at)->format('d.m.Y') : '—' }}
                                 </td>
                                 <td>
-                                    <form method="POST" action="{{ route('admin.promotional-banners.update', $banner) }}" class="d-inline">
+                                    <form method="POST" action="{{ route('admin.promotional-banners.update', $banner) }}" class="inline">
                                         @csrf
                                         @method('PATCH')
                                         <input type="hidden" name="is_active" value="{{ $banner->is_active ? '0' : '1' }}">
@@ -61,7 +61,7 @@
                                             {{ $banner->is_active ? 'Deaktivovat' : 'Aktivovat' }}
                                         </button>
                                     </form>
-                                    <form method="POST" action="{{ route('admin.promotional-banners.destroy', $banner) }}" class="d-inline" onsubmit="return confirm('Opravdu smazat tento banner?')">
+                                    <form method="POST" action="{{ route('admin.promotional-banners.destroy', $banner) }}" class="inline" onsubmit="return confirm('Opravdu smazat tento banner?')">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="btn btn-sm btn-outline-danger">Smazat</button>
@@ -85,7 +85,7 @@
         </x-panel.card>
     </div>
 
-    <div class="col-lg-4">
+    <div class="col-span-12 lg:col-span-4">
         <x-panel.card title="Nový banner">
             <form method="POST" action="{{ route('admin.promotional-banners.store') }}">
                 @csrf
@@ -166,7 +166,7 @@
                     <label class="form-check-label" for="is_dismissible">Zavíratelný</label>
                 </div>
 
-                <button type="submit" class="btn btn-primary w-100">Vytvořit banner</button>
+                <button type="submit" class="btn btn-primary w-full">Vytvořit banner</button>
             </form>
         </x-panel.card>
     </div>

@@ -17,8 +17,8 @@
                 <i data-feather="check-circle" style="width:16px;height:16px;"></i>
                 Token vytvořen — zkopírujte ho nyní
             </h6>
-            <div class="d-flex gap-2 align-items-center">
-                <code class="flex-grow-1 p-2 rounded" style="background:rgba(0,0,0,.06);word-break:break-all;font-size:13px;">
+            <div class="flex gap-2 items-center">
+                <code class="grow p-2 rounded" style="background:rgba(0,0,0,.06);word-break:break-all;font-size:13px;">
                     {{ session('new_token') }}
                 </code>
                 <button class="btn btn-sm btn-outline-success" onclick="navigator.clipboard.writeText('{{ session('new_token') }}');this.textContent='Zkopírováno!'">
@@ -29,8 +29,8 @@
         </div>
     @endif
 
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <div class="card card-no-border">
                 <div class="card-header">
                     <h5>Aktivní API tokeny</h5>
@@ -102,7 +102,7 @@
             </div>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card card-no-border">
                 <div class="card-header">
                     <h5>Nový token</h5>
@@ -142,12 +142,12 @@
                                         @endif
                                         <label class="form-check-label f-12" for="ability_{{ $key }}">
                                             <span class="f-w-500">{{ $info['label'] }}</span>
-                                            <span class="f-light d-block" style="font-size:11px;">{{ $info['desc'] }}</span>
+                                            <span class="f-light block" style="font-size:11px;">{{ $info['desc'] }}</span>
                                         </label>
                                     </div>
                                 @endforeach
                             </div>
-                            <button type="submit" class="btn btn-primary text-white w-100">
+                            <button type="submit" class="btn btn-primary text-white w-full">
                                 <i data-feather="hash" style="width:13px;height:13px;"></i> Vytvořit token
                             </button>
                         </form>
@@ -159,7 +159,7 @@
                 <div class="card-body">
                     <h6 class="mb-2">Jak používat API</h6>
                     <p class="f-12 f-light mb-2">Přidejte token jako Bearer header:</p>
-                    <code class="f-11 d-block p-2 rounded" style="background:rgba(0,0,0,.05);">
+                    <code class="f-11 block p-2 rounded" style="background:rgba(0,0,0,.05);">
                         Authorization: Bearer &lt;váš-token&gt;
                     </code>
                     <div class="mt-3 f-12 f-light">

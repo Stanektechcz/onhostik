@@ -38,7 +38,7 @@
                             <th>#</th>
                             <th>Zákazník</th>
                             <th>Segment</th>
-                            <th class="text-end">LTV (Kč)</th>
+                            <th class="text-right">LTV (Kč)</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -63,10 +63,10 @@
                                     <span class="text-muted f-12">—</span>
                                 @endif
                             </td>
-                            <td class="text-end f-w-600">
+                            <td class="text-right f-w-600">
                                 {{ number_format($row['ltv_minor'] / 100, 0, ',', ' ') }} Kč
                             </td>
-                            <td class="text-end">
+                            <td class="text-right">
                                 @if($row['customer'])
                                     <a href="{{ route('admin.customers.show', $row['customer']) }}"
                                        class="btn btn-outline-secondary btn-sm">

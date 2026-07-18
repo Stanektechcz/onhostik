@@ -7,7 +7,7 @@
 
 <x-panel.card title="Chargebacky">
     {{-- Filter --}}
-    <form method="GET" action="{{ route('admin.chargebacks.index') }}" class="row g-2 mb-4">
+    <form method="GET" action="{{ route('admin.chargebacks.index') }}" class="grid grid-cols-12 gap-2 mb-4">
         <div class="col-auto">
             <select name="status" class="form-select form-select-sm">
                 <option value="">Všechny stavy</option>
@@ -64,7 +64,7 @@
                         <td>{{ number_format($cb->amount / 100, 2) }} {{ $cb->currency }}</td>
                         <td class="small">{{ $cb->reason }}</td>
                         <td>
-                            <form method="POST" action="{{ route('admin.chargebacks.update', $cb) }}" class="d-flex gap-1 align-items-center">
+                            <form method="POST" action="{{ route('admin.chargebacks.update', $cb) }}" class="flex gap-1 items-center">
                                 @csrf
                                 @method('PATCH')
                                 <select name="status" class="form-select form-select-sm" style="min-width:120px">
@@ -76,7 +76,7 @@
                                 </select>
                                 <button type="submit" class="btn btn-sm btn-outline-primary">OK</button>
                             </form>
-                            <span class="badge bg-{{ $statusColors[$cb->status] ?? 'secondary' }} mt-1 d-inline-block">
+                            <span class="badge bg-{{ $statusColors[$cb->status] ?? 'secondary' }} mt-1 inline-block">
                                 {{ $statusLabels[$cb->status] ?? $cb->status }}
                             </span>
                         </td>

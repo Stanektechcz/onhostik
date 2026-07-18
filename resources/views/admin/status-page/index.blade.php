@@ -4,15 +4,15 @@
 @section('content')
 <div class="container-fluid">
     <div class="page-header">
-        <div class="row align-items-center">
-            <div class="col-sm-6">
+        <div class="grid grid-cols-12 items-center">
+            <div class="col-span-12 sm:col-span-6">
                 <h3>Status Page</h3>
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{{ route('admin.dashboard') }}">Přehled</a></li>
                     <li class="breadcrumb-item active">Status Page</li>
                 </ol>
             </div>
-            <div class="col-sm-6 text-end">
+            <div class="col-span-12 sm:col-span-6 text-right">
                 <a href="{{ route('front.status') }}" target="_blank" class="btn btn-outline-primary btn-sm">
                     <i data-feather="external-link" style="width:13px;height:13px" class="me-1"></i>
                     Zobrazit veřejnou stránku
@@ -23,12 +23,12 @@
 
     <x-panel.flash />
 
-    <div class="row g-4">
+    <div class="grid grid-cols-12 gap-4">
 
         {{-- ── Components ─────────────────────────────────────────── --}}
-        <div class="col-lg-7">
+        <div class="col-span-12 lg:col-span-7">
             <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="card-header flex justify-between items-center">
                     <h5 class="mb-0">Komponenty</h5>
                 </div>
                 <div class="card-body p-0">
@@ -48,7 +48,7 @@
                             @forelse ($components as $comp)
                             <tr>
                                 <td class="text-muted f-12">{{ $comp->sort_order }}</td>
-                                <td class="fw-semibold">{{ $comp->name }}</td>
+                                <td class="font-semibold">{{ $comp->name }}</td>
                                 <td class="text-muted f-12">{{ $comp->group_name ?? '—' }}</td>
                                 <td class="f-12">{{ $comp->monitor?->label ?? $comp->monitor?->name ?? '—' }}</td>
                                 <td>
@@ -58,10 +58,10 @@
                                         <span class="badge bg-secondary">Ne</span>
                                     @endif
                                 </td>
-                                <td class="text-end">
+                                <td class="text-right">
                                     <form method="POST"
                                           action="{{ route('admin.status-page.components.destroy', $comp) }}"
-                                          class="d-inline"
+                                          class="inline"
                                           onsubmit="return confirm('Smazat?')">
                                         @csrf @method('DELETE')
                                         <button type="submit" class="btn btn-outline-danger btn-xs">
@@ -83,7 +83,7 @@
         </div>
 
         {{-- ── Add component ───────────────────────────────────────── --}}
-        <div class="col-lg-5">
+        <div class="col-span-12 lg:col-span-5">
             <div class="card">
                 <div class="card-header"><h5 class="mb-0">Přidat komponentu</h5></div>
                 <div class="card-body">
@@ -111,13 +111,13 @@
                                 @endforeach
                             </select>
                         </div>
-                        <div class="row g-2 mb-2">
-                            <div class="col-6">
+                        <div class="grid grid-cols-12 gap-2 mb-2">
+                            <div class="col-span-6">
                                 <label class="form-label f-12">Pořadí</label>
                                 <input type="number" name="sort_order" class="form-control form-control-sm"
                                        value="{{ old('sort_order', 0) }}" min="0">
                             </div>
-                            <div class="col-6 d-flex align-items-end">
+                            <div class="col-span-6 flex items-end">
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" name="is_visible" value="1"
                                            id="is_visible" {{ old('is_visible', '1') === '1' ? 'checked' : '' }}>
@@ -132,7 +132,7 @@
         </div>
 
         {{-- ── Maintenances ────────────────────────────────────────── --}}
-        <div class="col-lg-7">
+        <div class="col-span-12 lg:col-span-7">
             <div class="card">
                 <div class="card-header"><h5 class="mb-0">Plánovaná údržba</h5></div>
                 <div class="card-body p-0">
@@ -150,16 +150,16 @@
                             <tbody>
                             @forelse ($maintenances as $maint)
                             <tr>
-                                <td class="fw-semibold">{{ $maint->title }}</td>
+                                <td class="font-semibold">{{ $maint->title }}</td>
                                 <td class="text-muted f-12">{{ $maint->scheduled_start_at->format('d.m.Y H:i') }}</td>
                                 <td class="text-muted f-12">{{ $maint->scheduled_end_at->format('d.m.Y H:i') }}</td>
                                 <td>
                                     <span class="badge bg-{{ $maint->statusColor() }}">{{ $maint->statusLabel() }}</span>
                                 </td>
-                                <td class="text-end">
+                                <td class="text-right">
                                     <form method="POST"
                                           action="{{ route('admin.status-page.maintenances.destroy', $maint) }}"
-                                          class="d-inline"
+                                          class="inline"
                                           onsubmit="return confirm('Smazat?')">
                                         @csrf @method('DELETE')
                                         <button type="submit" class="btn btn-outline-danger btn-xs">
@@ -184,7 +184,7 @@
         </div>
 
         {{-- ── Add maintenance ─────────────────────────────────────── --}}
-        <div class="col-lg-5">
+        <div class="col-span-12 lg:col-span-5">
             <div class="card">
                 <div class="card-header"><h5 class="mb-0">Přidat údržbu</h5></div>
                 <div class="card-body">
@@ -201,15 +201,15 @@
                             <textarea name="description" class="form-control form-control-sm" rows="2"
                                       maxlength="2000">{{ old('description') }}</textarea>
                         </div>
-                        <div class="row g-2 mb-2">
-                            <div class="col-6">
+                        <div class="grid grid-cols-12 gap-2 mb-2">
+                            <div class="col-span-6">
                                 <label class="form-label f-12">Začátek *</label>
                                 <input type="datetime-local" name="scheduled_start_at"
                                        class="form-control form-control-sm @error('scheduled_start_at') is-invalid @enderror"
                                        value="{{ old('scheduled_start_at') }}" required>
                                 @error('scheduled_start_at')<div class="invalid-feedback">{{ $message }}</div>@enderror
                             </div>
-                            <div class="col-6">
+                            <div class="col-span-6">
                                 <label class="form-label f-12">Konec *</label>
                                 <input type="datetime-local" name="scheduled_end_at"
                                        class="form-control form-control-sm @error('scheduled_end_at') is-invalid @enderror"

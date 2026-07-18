@@ -49,8 +49,8 @@
                     <div class="form-text">Klíč se nikdy nezobrazuje ani nezapisuje do logů.</div>
                 </div>
 
-                <div class="row g-3 mb-3">
-                    <div class="col-md-6">
+                <div class="grid grid-cols-12 gap-3 mb-3">
+                    <div class="col-span-12 md:col-span-6">
                         <label class="form-label">Algoritmus podpisu</label>
                         <select name="signature_algo" class="form-select">
                             @foreach(['sha256' => 'SHA-256', 'sha512' => 'SHA-512', 'sha1' => 'SHA-1'] as $v => $l)
@@ -58,7 +58,7 @@
                             @endforeach
                         </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-span-12 md:col-span-6">
                         <label class="form-label">Hlavička podpisu</label>
                         <input type="text" name="signature_header"
                                value="{{ old('signature_header', $endpoint->signature_header ?? 'X-Signature') }}"
@@ -86,7 +86,7 @@
                     <label class="form-check-label" for="is_active">Endpoint je aktivní</label>
                 </div>
 
-                <div class="d-flex gap-2">
+                <div class="flex gap-2">
                     <button type="submit" class="btn btn-primary btn-sm">Uložit</button>
                     <a href="{{ route('admin.webhooks.inbound.index') }}" class="btn btn-outline-secondary btn-sm">Zpět</a>
                 </div>

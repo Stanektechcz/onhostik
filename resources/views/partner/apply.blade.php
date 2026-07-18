@@ -9,27 +9,27 @@
 
 @section('content')
 <div class="container-fluid py-4">
-    <div class="row justify-content-center">
-        <div class="col-lg-7">
+    <div class="grid grid-cols-12 justify-center">
+        <div class="col-span-12 lg:col-span-7">
 
             <div class="card mb-4">
                 <div class="card-header">
                     <h5 class="mb-0">Partnerský program OnHost</h5>
                 </div>
                 <div class="card-body">
-                    <div class="row g-3 mb-4">
-                        <div class="col-4 text-center">
-                            <div class="h4 text-dark fw-bold mb-0">Bronze</div>
+                    <div class="grid grid-cols-12 gap-3 mb-4">
+                        <div class="col-span-4 text-center">
+                            <div class="h4 text-dark font-bold mb-0">Bronze</div>
                             <div class="text-muted small">5 % provize</div>
                             <div class="text-muted" style="font-size:11px">start</div>
                         </div>
-                        <div class="col-4 text-center">
-                            <div class="h4 text-secondary fw-bold mb-0">Silver</div>
+                        <div class="col-span-4 text-center">
+                            <div class="h4 text-secondary font-bold mb-0">Silver</div>
                             <div class="text-muted small">8 % provize</div>
                             <div class="text-muted" style="font-size:11px">od 100 000 Kč celkových výplat</div>
                         </div>
-                        <div class="col-4 text-center">
-                            <div class="h4 text-warning fw-bold mb-0">Gold</div>
+                        <div class="col-span-4 text-center">
+                            <div class="h4 text-warning font-bold mb-0">Gold</div>
                             <div class="text-muted small">12 % provize</div>
                             <div class="text-muted" style="font-size:11px">od 500 000 Kč celkových výplat</div>
                         </div>
@@ -62,17 +62,17 @@
                         @csrf
 
                         <div class="mb-3">
-                            <label class="form-label fw-semibold">Vaše jméno</label>
+                            <label class="form-label font-semibold">Vaše jméno</label>
                             <input type="text" class="form-control" value="{{ $user->name }}" disabled>
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label fw-semibold">Email</label>
+                            <label class="form-label font-semibold">Email</label>
                             <input type="text" class="form-control" value="{{ $user->email }}" disabled>
                         </div>
 
                         <div class="mb-3">
-                            <label for="payout_method" class="form-label fw-semibold">Způsob výplaty</label>
+                            <label for="payout_method" class="form-label font-semibold">Způsob výplaty</label>
                             <select name="payout_method" id="payout_method" class="form-select @error('payout_method') is-invalid @enderror" required>
                                 <option value="">— vyberte —</option>
                                 <option value="bank_czk" {{ old('payout_method') === 'bank_czk' ? 'selected' : '' }}>Bankovní účet CZK</option>
@@ -84,7 +84,7 @@
                         </div>
 
                         <div class="mb-3">
-                            <label for="payout_info" class="form-label fw-semibold">Číslo účtu / IBAN / PayPal / adresa peněženky</label>
+                            <label for="payout_info" class="form-label font-semibold">Číslo účtu / IBAN / PayPal / adresa peněženky</label>
                             <textarea name="payout_info" id="payout_info" rows="2"
                                       class="form-control @error('payout_info') is-invalid @enderror"
                                       placeholder="Zadejte detaily pro výplatu" required>{{ old('payout_info') }}</textarea>
@@ -101,7 +101,7 @@
                             @error('agree_terms') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
 
-                        <div class="d-flex gap-2">
+                        <div class="flex gap-2">
                             <button type="submit" class="btn btn-primary">Odeslat přihlášku</button>
                             <a href="{{ route('panel.dashboard') }}" class="btn btn-outline-secondary">Zrušit</a>
                         </div>

@@ -6,17 +6,17 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row g-3 mb-4">
-        <div class="col-md-6">
+    <div class="grid grid-cols-12 gap-3 mb-4">
+        <div class="col-span-12 md:col-span-6">
             <x-panel.card title="Nejčastější IP adresy">
                 <div class="table-responsive">
                     <table class="table table-sm mb-0">
-                        <thead><tr><th>IP adresa</th><th class="text-end">Pokusů</th></tr></thead>
+                        <thead><tr><th>IP adresa</th><th class="text-right">Pokusů</th></tr></thead>
                         <tbody>
                             @foreach($topIps as $ip)
                             <tr>
                                 <td><code>{{ $ip->ip_address }}</code></td>
-                                <td class="text-end"><span class="badge bg-danger">{{ $ip->attempts }}</span></td>
+                                <td class="text-right"><span class="badge bg-danger">{{ $ip->attempts }}</span></td>
                             </tr>
                             @endforeach
                         </tbody>
@@ -24,16 +24,16 @@
                 </div>
             </x-panel.card>
         </div>
-        <div class="col-md-6">
+        <div class="col-span-12 md:col-span-6">
             <x-panel.card title="Nejčastější emaily">
                 <div class="table-responsive">
                     <table class="table table-sm mb-0">
-                        <thead><tr><th>Email</th><th class="text-end">Pokusů</th></tr></thead>
+                        <thead><tr><th>Email</th><th class="text-right">Pokusů</th></tr></thead>
                         <tbody>
                             @foreach($topEmails as $em)
                             <tr>
                                 <td>{{ $em->email }}</td>
-                                <td class="text-end"><span class="badge bg-warning text-dark">{{ $em->attempts }}</span></td>
+                                <td class="text-right"><span class="badge bg-warning text-dark">{{ $em->attempts }}</span></td>
                             </tr>
                             @endforeach
                         </tbody>

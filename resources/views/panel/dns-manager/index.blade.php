@@ -55,12 +55,12 @@
                                     </td>
                                     <td class="text-muted f-12">{{ $zone->records_count }}</td>
                                     <td class="text-muted f-12">{{ $zone->created_at->format('d.m.Y') }}</td>
-                                    <td class="text-end">
+                                    <td class="text-right">
                                         <a href="{{ route('panel.dns-manager.show', $zone) }}" class="btn btn-outline-primary btn-xs me-1">
                                             <svg data-feather="edit-2" style="width:12px;height:12px"></svg>
                                         </a>
                                         <form method="POST" action="{{ route('panel.dns-manager.destroy', $zone) }}"
-                                              class="d-inline"
+                                              class="inline"
                                               onsubmit="return confirm('Smazat zónu {{ $zone->domain }} i se všemi záznamy?')">
                                             @csrf @method('DELETE')
                                             <button type="submit" class="btn btn-outline-danger btn-xs">
@@ -113,8 +113,8 @@
                             Jak nastavit NS záznamy
                         </p>
                         <p class="text-muted mb-1">Přejděte k registrátoru vaší domény a nastavte tyto NS záznamy:</p>
-                        <code class="d-block f-12 text-dark mb-0">ns1.onhost.cz</code>
-                        <code class="d-block f-12 text-dark">ns2.onhost.cz</code>
+                        <code class="block f-12 text-dark mb-0">ns1.onhost.cz</code>
+                        <code class="block f-12 text-dark">ns2.onhost.cz</code>
                     </div>
                 </div>
             </div>

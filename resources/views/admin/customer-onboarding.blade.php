@@ -6,7 +6,7 @@
 <div class="container-fluid">
     <x-panel.card title="Onboarding checklist — {{ $customer->display_name }}">
         <div class="mb-3">
-            <div class="d-flex justify-content-between mb-1">
+            <div class="flex justify-between mb-1">
                 <span class="f-12 text-muted">Dokončeno {{ $progress }}%</span>
             </div>
             <div class="progress" style="height:10px">
@@ -16,7 +16,7 @@
 
         <ul class="list-group list-group-flush">
             @foreach($checklist as $item)
-            <li class="list-group-item d-flex align-items-center gap-3 px-0">
+            <li class="list-group-item flex items-center gap-3 px-0">
                 @if($item['done'])
                     <i class="ti ti-circle-check text-success f-20"></i>
                 @else

@@ -15,29 +15,29 @@
             <div class="card-body">
 
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">Název <span class="text-danger">*</span></label>
+                    <label class="form-label font-semibold">Název <span class="text-danger">*</span></label>
                     <input type="text" name="title" class="form-control @error('title') is-invalid @enderror"
                            value="{{ old('title', $announcement->title) }}" required>
                     @error('title')<div class="invalid-feedback">{{ $message }}</div>@enderror
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">Text <span class="text-danger">*</span></label>
+                    <label class="form-label font-semibold">Text <span class="text-danger">*</span></label>
                     <textarea name="body" class="form-control @error('body') is-invalid @enderror" rows="4" required>{{ old('body', $announcement->body) }}</textarea>
                     @error('body')<div class="invalid-feedback">{{ $message }}</div>@enderror
                 </div>
 
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label fw-semibold">Typ <span class="text-danger">*</span></label>
+                <div class="grid grid-cols-12">
+                    <div class="col-span-12 md:col-span-6 mb-3">
+                        <label class="form-label font-semibold">Typ <span class="text-danger">*</span></label>
                         <select name="type" class="form-select" required>
                             @foreach(['info' => 'Informace', 'warning' => 'Varování', 'maintenance' => 'Maintenance', 'feature' => 'Novinka'] as $v => $l)
                                 <option value="{{ $v }}" @selected(old('type', $announcement->type) === $v)>{{ $l }}</option>
                             @endforeach
                         </select>
                     </div>
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label fw-semibold">Ikona</label>
+                    <div class="col-span-12 md:col-span-6 mb-3">
+                        <label class="form-label font-semibold">Ikona</label>
                         <input type="text" name="icon" class="form-control"
                                value="{{ old('icon', $announcement->icon ?? 'bell') }}"
                                placeholder="bell">
@@ -46,7 +46,7 @@
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">Vypršení</label>
+                    <label class="form-label font-semibold">Vypršení</label>
                     <input type="datetime-local" name="expires_at" class="form-control"
                            value="{{ old('expires_at', $announcement->expires_at?->format('Y-m-d\TH:i')) }}">
                     <div class="form-text">Nechat prázdné = platí trvale</div>
@@ -59,7 +59,7 @@
                 </div>
 
             </div>
-            <div class="card-footer d-flex gap-2">
+            <div class="card-footer flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm">Uložit</button>
                 <a href="{{ route('admin.announcements.index') }}" class="btn btn-outline-secondary btn-sm">Zrušit</a>
             </div>

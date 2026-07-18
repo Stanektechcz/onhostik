@@ -206,4 +206,60 @@ class CustomerController extends Controller
 
         return back()->with('status', 'Preferovaný kontakt uložen.');
     }
+
+    /** Edit the customer's profile fields (and the linked user's name). */
+    public function update(Request $request, Customer $customer): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name'                => ['nullable', 'string', 'max:191'],
+            'email'               => ['required', 'email', 'max:191'],
+            'phone'               => ['nullable', 'string', 'max:40'],
+            'company_name'        => ['nullable', 'string', 'max:191'],
+            'registration_number' => ['nullable', 'string', 'max:40'],
+            'vat_number'          => ['nullable', 'string', 'max:40'],
+            'country_code'        => ['nullable', 'string', 'size:2'],
+            'segment'             => ['nullable', 'string', 'max:40'],
+        ]);
+
+        $customer->update([
+            'email'               => $validated['email'],
+            'phone'               => $validated['phone'] ?? null,
+            'company_name'        => $validated['company_name'] ?? null,
+            'registration_number' => $validated['registration_number'] ?? null,
+            'vat_number'          => $validated['vat_number'] ?? null,
+            'country_code'        => isset($validated['country_code']) ? strtoupper($validated['country_code']) : $customer->country_code,
+            'segment'             => $validated['segment'] ?? null,
+        ]);
+
+        if (! empty($validated['name']) && $customer->user !== null) {
+            $customer->user->update(['name' => $validated['name']]);
+        }
+
+        activity('customer')
+            ->performedOn($customer)
+            ->causedBy($request->user())
+            ->log('customer.updated_by_admin');
+
+        return back()->with('status', 'Údaje zákazníka byly uloženy.');
+    }
+
+    /** Enable/disable the customer's login (their linked user account). */
+    public function toggleActive(Request $request, Customer $customer): RedirectResponse
+    {
+        $user = $customer->user;
+
+        if ($user === null) {
+            return back()->withErrors(['customer' => 'Zákazník nemá přiřazený uživatelský účet.']);
+        }
+
+        $user->update(['is_active' => ! $user->is_active]);
+
+        activity('customer')
+            ->performedOn($customer)
+            ->causedBy($request->user())
+            ->withProperties(['is_active' => $user->is_active])
+            ->log('customer.active_toggled');
+
+        return back()->with('status', $user->is_active ? 'Účet byl aktivován.' : 'Účet byl deaktivován.');
+    }
 }

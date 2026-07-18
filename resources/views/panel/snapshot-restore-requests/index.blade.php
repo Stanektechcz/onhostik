@@ -3,8 +3,8 @@
 @section('title', 'Žádosti o obnovení ze snímku')
 
 @section('content')
-<div class="row g-4">
-    <div class="col-lg-8">
+<div class="grid grid-cols-12 gap-4">
+    <div class="col-span-12 lg:col-span-8">
         <x-panel.card title="Moje žádosti o obnovení">
             <x-panel.flash />
 
@@ -65,7 +65,7 @@
         </x-panel.card>
     </div>
 
-    <div class="col-lg-4">
+    <div class="col-span-12 lg:col-span-4">
         <x-panel.card title="Nová žádost o obnovení">
             <form method="POST" action="{{ route('panel.snapshot-restore-requests.store') }}">
                 @csrf
@@ -103,7 +103,7 @@
                     @error('customer_note') <div class="invalid-feedback">{{ $message }}</div> @enderror
                 </div>
 
-                <button type="submit" class="btn btn-primary w-100">Odeslat žádost</button>
+                <button type="submit" class="btn btn-primary w-full">Odeslat žádost</button>
             </form>
         </x-panel.card>
     </div>

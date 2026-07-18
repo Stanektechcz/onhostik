@@ -5,13 +5,13 @@
 @section('content')
 <x-panel.flash />
 
-<div class="row g-3 mb-4">
-    <div class="col-md-6">
+<div class="grid grid-cols-12 gap-3 mb-4">
+    <div class="col-span-12 md:col-span-6">
         <x-panel.card title="Celkem chargebacků">
             <p class="display-6 mb-0">{{ number_format($totalCount) }}</p>
         </x-panel.card>
     </div>
-    <div class="col-md-6">
+    <div class="col-span-12 md:col-span-6">
         <x-panel.card title="Celková částka">
             <p class="display-6 mb-0">{{ number_format($totalAmount / 100, 2) }} CZK</p>
         </x-panel.card>

@@ -11,12 +11,12 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row g-4">
+    <div class="grid grid-cols-12 gap-4">
 
         {{-- Previous Requests --}}
-        <div class="col-lg-8">
+        <div class="col-span-12 lg:col-span-8">
             <div class="card card-no-border">
-                <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="card-header flex justify-between items-center">
                     <h5 class="mb-0">Moje GDPR žádosti</h5>
                     <span class="f-light f-12">{{ $requests->count() }} žádostí</span>
                 </div>
@@ -69,7 +69,7 @@
         </div>
 
         {{-- Actions Sidebar --}}
-        <div class="col-lg-4">
+        <div class="col-span-12 lg:col-span-4">
 
             {{-- Data Export --}}
             <div class="card card-no-border mb-4">
@@ -80,7 +80,7 @@
                     </p>
                     <form method="POST" action="{{ route('panel.compliance.export') }}">
                         @csrf
-                        <button type="submit" class="btn btn-info btn-sm w-100">
+                        <button type="submit" class="btn btn-info btn-sm w-full">
                             Požádat o export dat
                         </button>
                     </form>
@@ -103,7 +103,7 @@
                     <form method="POST" action="{{ route('panel.compliance.deletion') }}"
                           onsubmit="return confirm('Opravdu chcete požádat o smazání účtu? Tato akce je nevratná.')">
                         @csrf
-                        <button type="submit" class="btn btn-outline-danger btn-sm w-100">
+                        <button type="submit" class="btn btn-outline-danger btn-sm w-full">
                             Požádat o smazání účtu
                         </button>
                     </form>

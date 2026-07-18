@@ -12,7 +12,7 @@
         <x-panel.flash />
 
         <x-panel.card :title="__('panel.nav.admin_payments')">
-            <form method="GET" action="{{ route('admin.payments.index') }}" class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+            <form method="GET" action="{{ route('admin.payments.index') }}" class="flex gap-2 mb-3 flex-wrap items-center">
                 <select name="status" class="form-select" style="max-width: 180px;">
                     <option value="">{{ __('panel.admin.all') }}</option>
                     @foreach(\App\Domains\Billing\Enums\PaymentStatus::cases() as $s)

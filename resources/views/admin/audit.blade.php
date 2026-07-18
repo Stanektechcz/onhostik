@@ -12,7 +12,7 @@
         <x-panel.card :title="__('panel.nav.admin_audit')">
             {{-- Filter bar --}}
             <form method="GET" action="{{ route('admin.logs.audit') }}" class="mb-4">
-                <div class="row g-2 align-items-end">
+                <div class="grid grid-cols-12 gap-2 items-end">
                     <div class="col-auto">
                         <label class="form-label f-12 f-light mb-1">Log</label>
                         <select class="form-select form-select-sm" name="log">
@@ -100,7 +100,7 @@
                                 <li>
                                     <div class="timeline-dot-{{ $dotColor }}"></div>
                                     <div class="ms-4 pb-1">
-                                        <div class="d-flex justify-content-between align-items-start gap-3">
+                                        <div class="flex justify-between items-start gap-3">
                                             <div>
                                                 <span class="badge badge-light-{{ match($activity->log_name) {
                                                     'order', 'invoice', 'payment', 'credit' => 'primary',
@@ -115,7 +115,7 @@
                                                 {{ $activity->created_at?->format('d.m.Y H:i:s') }}
                                             </span>
                                         </div>
-                                        <div class="d-flex gap-3 mt-1 f-12">
+                                        <div class="flex gap-3 mt-1 f-12">
                                             <span class="f-light">
                                                 <i data-feather="user" style="width:11px;height:11px"></i>
                                                 {{ $activity->causer?->name ?? 'system' }}

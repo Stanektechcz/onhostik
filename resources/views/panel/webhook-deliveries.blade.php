@@ -16,10 +16,10 @@
     <x-panel.flash />
 
     <div class="card card-no-border">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header flex justify-between items-center">
             <div>
                 <h5 class="mb-0">{{ $webhook->name }}</h5>
-                <span class="f-12 f-light text-truncate">{{ $webhook->url }}</span>
+                <span class="f-12 f-light truncate">{{ $webhook->url }}</span>
             </div>
             <a href="{{ route('panel.webhooks.index') }}" class="btn btn-outline-secondary btn-sm">
                 <i data-feather="arrow-left" style="width:12px;height:12px;"></i>

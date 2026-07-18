@@ -31,7 +31,7 @@
                                     <th class="text-center">Kroků</th>
                                     <th class="text-center">Zapsaných</th>
                                     <th>Stav</th>
-                                    <th class="text-end">Akce</th>
+                                    <th class="text-right">Akce</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -55,13 +55,13 @@
                                             <span class="badge badge-light-secondary">Neaktivní</span>
                                         @endif
                                     </td>
-                                    <td class="text-end">
+                                    <td class="text-right">
                                         <a href="{{ route('admin.drip.show', $seq) }}"
                                            class="btn btn-xs btn-outline-primary">
                                             <i data-feather="settings" style="width:11px;height:11px"></i>
                                         </a>
                                         <form method="POST" action="{{ route('admin.drip.destroy', $seq) }}"
-                                              class="d-inline"
+                                              class="inline"
                                               onsubmit="return confirm('Smazat sekvenci? Všechny kroky a zápisy budou odstraněny.')">
                                             @csrf @method('DELETE')
                                             <button class="btn btn-xs btn-outline-danger">

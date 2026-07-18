@@ -4,7 +4,7 @@
 
 @section('content')
 <div class="container-fluid py-4">
-    <div class="d-flex align-items-center mb-4">
+    <div class="flex items-center mb-4">
         <a href="{{ route('admin.automation.index') }}" class="btn btn-sm btn-outline-secondary me-3">← Zpět</a>
         <h1 class="h4 mb-0">Logy: {{ $rule->name }}</h1>
     </div>

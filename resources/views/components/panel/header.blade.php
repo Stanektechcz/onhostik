@@ -53,6 +53,15 @@
                             {{ \App\Domains\Shared\Support\MoneyFormatter::format(app(\App\Domains\Billing\Services\CreditLedger::class)->getBalance($authUser->customer)) }}
                         </a>
                     </li>
+
+                    {{-- Cart — Cuba .cart-box in the navbar, with a live counter --}}
+                    <li>
+                        <a href="{{ route('panel.cart.index') }}" class="cart-box" title="Košík">
+                            <i data-feather="shopping-bag"></i>
+                            <span class="badge rounded-full badge-primary {{ ($cartItemCount ?? 0) > 0 ? 'show' : '' }}"
+                                  id="cart-nav-count">{{ ($cartItemCount ?? 0) > 9 ? '9+' : ($cartItemCount ?? 0) }}</span>
+                        </a>
+                    </li>
                 @endif
 
                 {{-- Language switcher — Cuba translate_wrapper (script.js toggles .active).
@@ -78,36 +87,36 @@
                     </div>
                 </li>
 
-                {{-- Notifications --}}
+                {{-- Notifications — Cuba onhover notification-dropdown.
+                     Cuba's real design: a .dropdown-title heading, then a <ul>
+                     whose items are toast rows accented with a coloured left
+                     border (border-l-{color} !border-l-4) and a .btn-close.
+                     JS rebuilds the rows between the heading and the (centred)
+                     actions <li>, which Cuba renders as the last-child row. --}}
                 <li class="onhover-dropdown" id="notif-bell-li">
                     <div class="notification-box" id="notif-bell">
-                        <i data-feather="bell"></i>
-                        <span class="badge rounded-pill badge-danger" id="notif-count"></span>
+                        <svg><use href="{{ asset('panel/svg/icon-sprite.svg') }}#notification"></use></svg>
+                        <span class="badge rounded-full badge-danger text-white" id="notif-count"></span>
                     </div>
-                    {{-- Cuba notification-dropdown: every notification is its own
-                         <li> (Cuba gives it the grey card + radius) whose <p> is
-                         flex/space-between — title left, timestamp right. The
-                         last <li> is the centred action row. JS rebuilds the
-                         list between the heading and the actions. --}}
-                    <ul class="notification-dropdown onhover-show-div" id="notif-dropdown">
-                        <li>
-                            <p class="f-w-600 mb-0 p-3">
-                                Notifikace
-                                <span class="pull-right badge badge-light-primary" id="notif-unread-label"></span>
-                            </p>
-                        </li>
-                        <li class="notif-placeholder">
-                            <p class="f-light f-12 mb-0 p-3">Načítání…</p>
-                        </li>
-                        <li>
-                            <button class="btn btn-primary btn-xs text-white" id="notif-mark-all-btn" onclick="markAllNotifRead()">
-                                Označit vše přečtené
-                            </button>
-                            <a href="{{ route('panel.notifications.index') }}" class="btn btn-outline-primary btn-xs">
-                                Všechny
-                            </a>
-                        </li>
-                    </ul>
+                    <div class="onhover-show-div notification-dropdown" id="notif-dropdown">
+                        <h6 class="mb-0 dropdown-title">
+                            Notifikace
+                            <span class="badge badge-light-primary" id="notif-unread-label"></span>
+                        </h6>
+                        <ul id="notif-list">
+                            <li class="notif-placeholder">
+                                <div class="toast-body p-3"><p class="f-light f-12 mb-0">Načítání…</p></div>
+                            </li>
+                            <li class="notif-actions">
+                                <button class="btn btn-primary btn-xs text-white" id="notif-mark-all-btn" onclick="markAllNotifRead()">
+                                    Označit vše přečtené
+                                </button>
+                                <a href="{{ route('panel.notifications.index') }}" class="btn btn-outline-primary btn-xs">
+                                    Všechny
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
                 </li>
 
                 {{-- Dark mode --}}
@@ -120,7 +129,7 @@
                 {{-- Profile — Cuba .profile-media > .profile-content --}}
                 <li class="profile-nav onhover-dropdown p-0">
                     <div class="flex profile-media items-center">
-                        <div class="profile-avatar bg-primary rounded-circle flex items-center justify-center">
+                        <div class="profile-avatar bg-primary rounded-full flex items-center justify-center">
                             {{ mb_strtoupper(mb_substr($authUser?->name ?? 'U', 0, 1)) }}
                         </div>
                         <div class="grow profile-content">

@@ -138,6 +138,13 @@ class AppServiceProvider extends ServiceProvider
             $view->with('maintenanceUpcoming', $banners['upcoming']);
         });
 
+        // Cart item count for the navbar cart badge — session-backed, cheap.
+        View::composer(['layouts.panel', 'components.panel.header'], function (\Illuminate\View\View $view): void {
+            /** @var array<int, int> $cart */
+            $cart = session('panel_cart', []);
+            $view->with('cartItemCount', array_sum($cart));
+        });
+
         View::composer('layouts.panel', function (\Illuminate\View\View $view): void {
             $user = auth()->user();
 

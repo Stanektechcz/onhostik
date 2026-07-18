@@ -10,8 +10,8 @@
 @section('content')
 <div class="container-fluid">
     <x-panel.flash />
-    <div class="row g-3">
-        <div class="col-lg-4">
+    <div class="grid grid-cols-12 gap-3">
+        <div class="col-span-12 lg:col-span-4">
             <div class="card">
                 <div class="card-header card-no-border"><h5>Nové okno údržby</h5></div>
                 <div class="card-body">
@@ -31,7 +31,7 @@
                                       placeholder="Systém bude dočasně nedostupný…" required>{{ old('message') }}</textarea>
                             @error('message')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
-                        <div class="row g-2 mb-2">
+                        <div class="grid grid-cols-12 gap-2 mb-2">
                             <div class="col">
                                 <label class="form-label f-12">Začátek *</label>
                                 <input type="datetime-local" name="starts_at"
@@ -69,13 +69,13 @@
                                    id="isActive" @checked(old('is_active', true))>
                             <label class="form-check-label f-12" for="isActive">Aktivní</label>
                         </div>
-                        <button type="submit" class="btn btn-primary btn-sm w-100">Přidat</button>
+                        <button type="submit" class="btn btn-primary btn-sm w-full">Přidat</button>
                     </form>
                 </div>
             </div>
         </div>
 
-        <div class="col-lg-8">
+        <div class="col-span-12 lg:col-span-8">
             <div class="card">
                 <div class="card-header card-no-border"><h5>Okna údržby ({{ $windows->count() }})</h5></div>
                 <div class="card-body pt-0">
@@ -134,7 +134,7 @@
                                         </button>
                                         <form method="POST"
                                               action="{{ route('admin.maintenance-banners.destroy', $maint) }}"
-                                              class="d-inline"
+                                              class="inline"
                                               onsubmit="return confirm('Smazat okno údržby?')">
                                             @csrf @method('DELETE')
                                             <button type="submit" class="btn btn-outline-danger btn-xs">×</button>
@@ -166,7 +166,7 @@
                                                               class="form-control form-control-sm"
                                                               required>{{ $maint->message }}</textarea>
                                                 </div>
-                                                <div class="row g-2 mb-2">
+                                                <div class="grid grid-cols-12 gap-2 mb-2">
                                                     <div class="col">
                                                         <label class="form-label f-12">Začátek *</label>
                                                         <input type="datetime-local" name="starts_at"

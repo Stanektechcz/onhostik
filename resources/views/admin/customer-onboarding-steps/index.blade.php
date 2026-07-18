@@ -46,10 +46,10 @@
             <x-panel.card title="Kroky onboardingu">
 
                 {{-- Filter --}}
-                <form method="GET" action="{{ route('admin.customer-onboarding-steps.index') }}" class="d-flex gap-2 mb-3 flex-wrap">
+                <form method="GET" action="{{ route('admin.customer-onboarding-steps.index') }}" class="flex gap-2 mb-3 flex-wrap">
                     <input type="number" name="customer_id" class="form-control form-control-sm w-auto"
                            placeholder="Customer ID" value="{{ $customerId }}">
-                    <div class="form-check align-self-center ms-2">
+                    <div class="form-check self-center ms-2">
                         <input type="checkbox" name="pending" value="1" id="pending_filter"
                                class="form-check-input" {{ $onlyPending ? 'checked' : '' }}>
                         <label class="form-check-label" for="pending_filter">Pouze čekající</label>

@@ -10,7 +10,7 @@
         <x-panel.flash />
 
         <x-panel.card :title="$invoice->type->label() . ' ' . $invoice->number">
-            <div class="d-flex justify-content-end mb-2">
+            <div class="flex justify-end mb-2">
                 <a href="{{ route('panel.billing.invoices.print', $invoice) }}" target="_blank" class="btn btn-outline-secondary btn-sm">
                     {{ __('panel.billing.print') }}
                 </a>
@@ -81,12 +81,12 @@
                 @endforeach
             </x-panel.data-table>
 
-            <div class="d-flex justify-content-end mt-3">
+            <div class="flex justify-end mt-3">
                 <div>
                     <table class="table table-borderless mb-0">
-                        <tr><td class="f-light">{{ __('panel.orders.subtotal') }}</td><td class="text-end"><x-panel.money :money="$invoice->subtotal" /></td></tr>
-                        <tr><td class="f-light">{{ __('panel.orders.vat') }}</td><td class="text-end"><x-panel.money :money="$invoice->tax_amount" /></td></tr>
-                        <tr><td class="f-w-600">{{ __('panel.common.total') }}</td><td class="text-end f-w-600"><x-panel.money :money="$invoice->total" /></td></tr>
+                        <tr><td class="f-light">{{ __('panel.orders.subtotal') }}</td><td class="text-right"><x-panel.money :money="$invoice->subtotal" /></td></tr>
+                        <tr><td class="f-light">{{ __('panel.orders.vat') }}</td><td class="text-right"><x-panel.money :money="$invoice->tax_amount" /></td></tr>
+                        <tr><td class="f-w-600">{{ __('panel.common.total') }}</td><td class="text-right f-w-600"><x-panel.money :money="$invoice->total" /></td></tr>
                         @if($invoice->late_fee_amount !== null)
                         <tr>
                             <td class="text-warning f-12">
@@ -94,7 +94,7 @@
                                 Upomínkový poplatek
                                 <small class="text-muted ms-1">({{ $invoice->late_fee_applied_at?->format('d.m.Y') }})</small>
                             </td>
-                            <td class="text-end text-warning f-12">
+                            <td class="text-right text-warning f-12">
                                 +{{ number_format($invoice->late_fee_amount / 100, 0, ',', ' ') }} Kč
                             </td>
                         </tr>
@@ -106,7 +106,7 @@
             @if($invoice->status->isOpen())
                 <div class="border-top pt-3 mt-3">
                     <h6 class="mb-3">{{ __('panel.billing.choose_payment') }}</h6>
-                    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                    <div class="flex flex-wrap gap-2 items-center mb-3">
                         <form method="POST" action="{{ route('panel.billing.invoices.pay-comgate', $invoice) }}">
                             @csrf
                             <button type="submit" class="btn btn-primary">
@@ -218,8 +218,8 @@
             <form method="POST" action="{{ route('panel.billing.invoices.update-reference', $invoice) }}">
                 @csrf
                 @method('PUT')
-                <div class="row g-3">
-                    <div class="col-md-5">
+                <div class="grid grid-cols-12 gap-3">
+                    <div class="col-span-12 md:col-span-5">
                         <label class="form-label f-12 f-w-600">Číslo objednávky (PO)</label>
                         <input type="text" name="purchase_order_number" maxlength="100"
                             value="{{ old('purchase_order_number', $invoice->purchase_order_number) }}"
@@ -227,7 +227,7 @@
                             placeholder="Např. PO-2024-0042">
                         @error('purchase_order_number')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
                     </div>
-                    <div class="col-md-5">
+                    <div class="col-span-12 md:col-span-5">
                         <label class="form-label f-12 f-w-600">Vlastní reference</label>
                         <input type="text" name="custom_reference" maxlength="255"
                             value="{{ old('custom_reference', $invoice->custom_reference) }}"
@@ -235,8 +235,8 @@
                             placeholder="Např. projekt Alfa / účetní středisko">
                         @error('custom_reference')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
                     </div>
-                    <div class="col-md-2 d-flex align-items-end">
-                        <button type="submit" class="btn btn-primary btn-sm w-100">
+                    <div class="col-span-12 md:col-span-2 flex items-end">
+                        <button type="submit" class="btn btn-primary btn-sm w-full">
                             <i data-feather="save" style="width:13px;height:13px"></i>
                             Uložit
                         </button>

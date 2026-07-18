@@ -5,8 +5,8 @@
 @section('content')
 <div class="container-fluid">
 
-    <div class="row g-3 mb-3">
-        <div class="col-md-3">
+    <div class="grid grid-cols-12 gap-3 mb-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body">
                     <h3 class="f-w-700">{{ number_format($totalRequests) }}</h3>
@@ -14,7 +14,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body">
                     <h3 class="f-w-700">{{ number_format($requestsToday) }}</h3>
@@ -22,7 +22,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body">
                     <h3 class="f-w-700">{{ number_format($requests7d) }}</h3>
@@ -30,7 +30,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <div class="card text-center">
                 <div class="card-body">
                     <h3 class="f-w-700 {{ $errorCount > 0 ? 'text-danger' : '' }}">{{ number_format($errorCount) }}</h3>
@@ -41,7 +41,7 @@
     </div>
 
     <x-panel.card title="Denní aktivita — posledních 30 dní">
-        <div class="d-flex align-items-end gap-1" style="height:80px">
+        <div class="flex items-end gap-1" style="height:80px">
             @php $maxCnt = max(1, $days->max('cnt')); @endphp
             @foreach($days as $d)
             <div style="flex:1; background:#4361ee{{ $d['cnt'] > 0 ? '' : '22' }}; height:{{ max(4, round($d['cnt']/$maxCnt*76)) }}px"
@@ -49,7 +49,7 @@
             </div>
             @endforeach
         </div>
-        <div class="d-flex justify-content-between mt-1">
+        <div class="flex justify-between mt-1">
             <small class="text-muted">{{ $days->first()['day'] }}</small>
             <small class="text-muted">{{ $days->last()['day'] }}</small>
         </div>

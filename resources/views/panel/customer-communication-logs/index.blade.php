@@ -3,8 +3,8 @@
 @section('title', 'Komunikace')
 
 @section('content')
-<div class="row justify-content-center">
-    <div class="col-lg-11">
+<div class="grid grid-cols-12 justify-center">
+    <div class="col-span-12 lg:col-span-11">
         <x-panel.flash />
 
         <x-panel.card title="Komunikace">

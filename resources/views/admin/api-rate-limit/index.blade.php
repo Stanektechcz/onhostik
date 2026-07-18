@@ -6,8 +6,8 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="Konfigurace rate limitů">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
@@ -15,8 +15,8 @@
                             <tr>
                                 <th>Zákazník</th>
                                 <th>Scope</th>
-                                <th class="text-end">req/min</th>
-                                <th class="text-end">req/den</th>
+                                <th class="text-right">req/min</th>
+                                <th class="text-right">req/den</th>
                                 <th>Aktivní</th>
                                 <th>Poznámka</th>
                                 <th></th>
@@ -27,8 +27,8 @@
                             <tr>
                                 <td>{{ $cfg->customer?->company_name ?? 'Globální' }}</td>
                                 <td><code>{{ $cfg->scope }}</code></td>
-                                <td class="text-end">{{ number_format($cfg->requests_per_minute) }}</td>
-                                <td class="text-end">{{ number_format($cfg->requests_per_day) }}</td>
+                                <td class="text-right">{{ number_format($cfg->requests_per_minute) }}</td>
+                                <td class="text-right">{{ number_format($cfg->requests_per_day) }}</td>
                                 <td>
                                     @if($cfg->is_active)
                                         <span class="badge bg-success">Ano</span>
@@ -54,7 +54,7 @@
             </x-panel.card>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Přidat / upravit konfiguraci">
                 <form method="POST" action="{{ route('admin.api-rate-limit.store') }}">
                     @csrf
@@ -82,7 +82,7 @@
                         <input type="checkbox" name="is_active" class="form-check-input" id="is_active" value="1" @checked(old('is_active', true))>
                         <label class="form-check-label" for="is_active">Aktivní</label>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Uložit</button>
+                    <button type="submit" class="btn btn-primary w-full">Uložit</button>
                 </form>
             </x-panel.card>
         </div>

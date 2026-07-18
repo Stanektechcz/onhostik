@@ -12,29 +12,29 @@
     <x-panel.flash />
 
     {{-- Summary --}}
-    <div class="row g-3 mb-3">
-        <div class="col-md-4">
+    <div class="grid grid-cols-12 gap-3 mb-3">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.stat-widget label="Aktivní alerty" :value="$alerts->where('is_active', true)->count()" icon="bell" />
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.stat-widget label="Aktivovaná upozornění" :value="$triggeredCount" icon="alert-triangle" color="danger" />
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.stat-widget label="Metriky celkem" :value="count($metrics)" icon="bar-chart-2" color="info" />
         </div>
     </div>
 
-    <div class="row g-3">
+    <div class="grid grid-cols-12 gap-3">
         {{-- Existing alerts table --}}
-        <div class="col-lg-8">
+        <div class="col-span-12 lg:col-span-8">
             <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center py-3">
+                <div class="card-header flex justify-between items-center py-3">
                     <h6 class="mb-0">Přehled KPI alertů</h6>
                 </div>
                 <div class="card-body p-0">
                     @if($alerts->isEmpty())
                         <div class="text-center py-4 text-muted f-12">
-                            <i data-feather="bell-off" style="width:28px;height:28px;" class="mb-2 d-block mx-auto"></i>
+                            <i data-feather="bell-off" style="width:28px;height:28px;" class="mb-2 block mx-auto"></i>
                             Žádné alerty nejsou nakonfigurovány.
                         </div>
                     @else
@@ -53,7 +53,7 @@
                                 <tbody>
                                     @foreach($alerts as $alert)
                                         <tr class="{{ $alert->isTriggered() ? 'table-danger' : '' }}">
-                                            <td class="fw-semibold f-12">{{ $alert->metricLabel() }}</td>
+                                            <td class="font-semibold f-12">{{ $alert->metricLabel() }}</td>
                                             <td class="f-12">
                                                 {{ $alert->operatorLabel() }}
                                                 <strong>{{ number_format($alert->threshold, 0, ',', ' ') }}</strong>
@@ -78,7 +78,7 @@
                                                 {{ $alert->last_checked_at?->format('d.m.Y H:i') ?? '—' }}
                                             </td>
                                             <td>
-                                                <div class="d-flex gap-1">
+                                                <div class="flex gap-1">
                                                     {{-- Toggle active --}}
                                                     <form method="POST" action="{{ route('admin.kpi-alerts.update', $alert) }}">
                                                         @csrf @method('PUT')
@@ -109,7 +109,7 @@
         </div>
 
         {{-- Add new alert form --}}
-        <div class="col-lg-4">
+        <div class="col-span-12 lg:col-span-4">
             <div class="card">
                 <div class="card-header py-3">
                     <h6 class="mb-0">Přidat nový alert</h6>
@@ -146,7 +146,7 @@
                             @error('threshold')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-sm w-100">
+                        <button type="submit" class="btn btn-primary btn-sm w-full">
                             <i data-feather="plus" style="width:13px;height:13px"></i>
                             Přidat alert
                         </button>

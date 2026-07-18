@@ -12,13 +12,13 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    {{-- Revenue forecast KPI row --}}
+    {{-- Revenue forecast KPI grid grid-cols-12 --}}
     <div class="grid grid-cols-12 card-gap">
         <div class="col-span-6 sm:col-span-12 md:col-span-3">
             <div class="card small-widget">
                 <div class="card-body primary">
                     <span class="f-light">Výhled příjmů (příští měsíc)</span>
-                    <div class="d-flex align-items-end gap-1">
+                    <div class="flex items-end gap-1">
                         <h4>{{ number_format($forecast['forecast'], 0, ',', ' ') }} Kč</h4>
                     </div>
                     <div class="bg-gradient"><i data-feather="trending-up"></i></div>
@@ -29,7 +29,7 @@
             <div class="card small-widget">
                 <div class="card-body {{ $forecast['trend'] === 'growing' ? 'success' : ($forecast['trend'] === 'declining' ? 'danger' : 'warning') }}">
                     <span class="f-light">Trend příjmů</span>
-                    <div class="d-flex align-items-end gap-1">
+                    <div class="flex items-end gap-1">
                         <h4>
                             @if($forecast['trend'] === 'growing') ▲ Rostoucí
                             @elseif($forecast['trend'] === 'declining') ▼ Klesající
@@ -45,7 +45,7 @@
             <div class="card small-widget">
                 <div class="card-body {{ ($segmentCounts['at_risk'] ?? 0) + ($segmentCounts['churned'] ?? 0) > 0 ? 'warning' : 'success' }}">
                     <span class="f-light">Ohrožení + Odchody</span>
-                    <div class="d-flex align-items-end gap-1">
+                    <div class="flex items-end gap-1">
                         <h4>{{ ($segmentCounts['at_risk'] ?? 0) + ($segmentCounts['churned'] ?? 0) }}</h4>
                         <span class="f-light f-12 mb-1">zákazníků</span>
                     </div>
@@ -57,7 +57,7 @@
             <div class="card small-widget">
                 <div class="card-body {{ $forecast['confidence'] === 'high' ? 'success' : ($forecast['confidence'] === 'medium' ? 'warning' : 'secondary') }}">
                     <span class="f-light">Spolehlivost výhledu</span>
-                    <div class="d-flex align-items-end gap-1">
+                    <div class="flex items-end gap-1">
                         <h4>{{ match($forecast['confidence']) { 'high' => 'Vysoká', 'medium' => 'Střední', default => 'Nízká' } }}</h4>
                     </div>
                     <div class="bg-gradient"><i data-feather="bar-chart-2"></i></div>
@@ -79,24 +79,24 @@
                     <thead>
                         <tr>
                             <th>Měsíc</th>
-                            <th class="text-end">Příjmy (Kč)</th>
+                            <th class="text-right">Příjmy (Kč)</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach($forecast['months'] as $month => $amount)
                         <tr>
                             <td>{{ $month }}</td>
-                            <td class="text-end f-w-500">{{ number_format($amount, 0, ',', ' ') }} Kč</td>
+                            <td class="text-right f-w-500">{{ number_format($amount, 0, ',', ' ') }} Kč</td>
                         </tr>
                         @endforeach
                         <tr class="table-light">
                             <td class="f-w-600">Výhled příští měsíc</td>
-                            <td class="text-end f-w-600 font-primary">{{ number_format($forecast['forecast'], 0, ',', ' ') }} Kč</td>
+                            <td class="text-right f-w-600 font-primary">{{ number_format($forecast['forecast'], 0, ',', ' ') }} Kč</td>
                         </tr>
                     </tbody>
                 </table>
 
-                <div class="d-flex align-items-center gap-2 f-12 f-light">
+                <div class="flex items-center gap-2 f-12 f-light">
                     <i data-feather="info" style="width:12px;height:12px"></i>
                     Přepočteno z haléřů. Spusťte <code>php artisan bi:compute-insights</code> pro aktualizaci segmentů.
                 </div>
@@ -113,11 +113,11 @@
                         <p class="f-11 f-light">Spusťte: <code>php artisan bi:compute-insights</code></p>
                     </div>
                 @else
-                    <div class="row g-3 mb-4">
+                    <div class="grid grid-cols-12 gap-3 mb-4">
                         @foreach(CustomerSegment::cases() as $seg)
-                        <div class="col-6 col-md-3">
+                        <div class="col-span-6 col-span-12 md:col-span-3">
                             <div class="border rounded p-3 text-center">
-                                <span class="badge badge-light-{{ $seg->color() }} f-12 d-block mb-1">{{ $seg->label() }}</span>
+                                <span class="badge badge-light-{{ $seg->color() }} f-12 block mb-1">{{ $seg->label() }}</span>
                                 <h4 class="mb-0">{{ $segmentCounts[$seg->value] ?? 0 }}</h4>
                             </div>
                         </div>
@@ -148,7 +148,7 @@
                                 <th>Skóre rizika</th>
                                 <th>Skóre (vizuál)</th>
                                 <th>Poslední výpočet</th>
-                                <th class="text-end">Akce</th>
+                                <th class="text-right">Akce</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -191,7 +191,7 @@
                                 <td class="f-light f-12">
                                     {{ $customer->insights_updated_at?->diffForHumans() ?? '—' }}
                                 </td>
-                                <td class="text-end">
+                                <td class="text-right">
                                     <a href="{{ route('admin.customers.show', $customer) }}"
                                        class="btn btn-xs btn-outline-secondary">
                                         <i data-feather="eye" style="width:11px;height:11px"></i>

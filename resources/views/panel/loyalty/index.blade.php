@@ -13,7 +13,7 @@
         <div class="card-body">
             <h5 class="card-title">Další milník: <strong>{{ $next['milestone']->name }}</strong></h5>
             <p class="text-muted mb-2 small">{{ $next['milestone']->description }}</p>
-            <div class="d-flex justify-content-between small mb-1">
+            <div class="flex justify-between small mb-1">
                 <span>Podmínka: {{ $next['milestone']->triggerLabel() }}</span>
                 <span>{{ $next['current'] }} / {{ $next['target'] }}</span>
             </div>

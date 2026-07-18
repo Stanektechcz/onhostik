@@ -6,8 +6,8 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="mb-3 d-flex align-items-center gap-3">
-        <form method="GET" class="d-flex align-items-center gap-2">
+    <div class="mb-3 flex items-center gap-3">
+        <form method="GET" class="flex items-center gap-2">
             <select name="year" class="form-select form-select-sm" style="width:120px" onchange="this.form.submit()">
                 @foreach($availableYears as $y)
                     <option value="{{ $y }}" @selected($y == $year)>{{ $y }}</option>
@@ -29,7 +29,7 @@
                     <tr>
                         <th>Měsíc</th>
                         @foreach($scenarios as $sc)
-                        <th class="text-end">{{ $sc }}<br><small class="text-muted">DPH / celkem</small></th>
+                        <th class="text-right">{{ $sc }}<br><small class="text-muted">DPH / celkem</small></th>
                         @endforeach
                     </tr>
                 </thead>
@@ -39,7 +39,7 @@
                     <tr class="{{ $hasData ? '' : 'text-muted' }}">
                         <td class="f-w-500">{{ \Carbon\Carbon::create($year, $m)->locale('cs')->monthName }}</td>
                         @foreach($scenarios as $sc)
-                        <td class="text-end f-12">
+                        <td class="text-right f-12">
                             @if(isset($byMonth[$m][$sc]))
                                 {{ number_format($byMonth[$m][$sc]->tax_minor / 100, 2, ',', ' ') }} Kč<br>
                                 <small class="text-muted">/ {{ number_format($byMonth[$m][$sc]->total_minor / 100, 2, ',', ' ') }} Kč</small>
@@ -55,7 +55,7 @@
                     <tr>
                         <td>Celkem {{ $year }}</td>
                         @foreach($scenarios as $sc)
-                        <td class="text-end">
+                        <td class="text-right">
                             @if(isset($totals[$sc]))
                                 {{ number_format($totals[$sc]->tax_minor / 100, 2, ',', ' ') }} Kč<br>
                                 <small>/ {{ number_format($totals[$sc]->total_minor / 100, 2, ',', ' ') }} Kč</small>

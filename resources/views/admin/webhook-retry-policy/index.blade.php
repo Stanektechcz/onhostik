@@ -15,26 +15,26 @@
                 <thead>
                     <tr>
                         <th>Endpoint</th>
-                        <th class="text-end">Max retries</th>
-                        <th class="text-end">Zpoždění (s)</th>
-                        <th class="text-end">Timeout (s)</th>
+                        <th class="text-right">Max retries</th>
+                        <th class="text-right">Zpoždění (s)</th>
+                        <th class="text-right">Timeout (s)</th>
                         <th></th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach($endpoints as $ep)
                     <tr>
-                        <td class="text-truncate" style="max-width:300px"><strong>{{ $ep->name }}</strong> <small class="text-muted">({{ $ep->source }})</small></td>
-                        <td class="text-end">{{ $ep->max_retries ?? 3 }}</td>
-                        <td class="text-end">{{ $ep->retry_delay_seconds ?? 60 }}</td>
-                        <td class="text-end">{{ $ep->timeout_seconds ?? 10 }}</td>
+                        <td class="truncate" style="max-width:300px"><strong>{{ $ep->name }}</strong> <small class="text-muted">({{ $ep->source }})</small></td>
+                        <td class="text-right">{{ $ep->max_retries ?? 3 }}</td>
+                        <td class="text-right">{{ $ep->retry_delay_seconds ?? 60 }}</td>
+                        <td class="text-right">{{ $ep->timeout_seconds ?? 10 }}</td>
                         <td>
                             <button class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#edit-{{ $ep->id }}">Upravit</button>
                         </td>
                     </tr>
                     <tr class="collapse" id="edit-{{ $ep->id }}">
                         <td colspan="5" class="bg-light">
-                            <form method="POST" action="{{ route('admin.webhook-retry-policy.update', $ep->id) }}" class="d-flex gap-3 align-items-end p-2">
+                            <form method="POST" action="{{ route('admin.webhook-retry-policy.update', $ep->id) }}" class="flex gap-3 items-end p-2">
                                 @csrf @method('PATCH')
                                 <div>
                                     <label class="form-label mb-1 small">Max retries</label>

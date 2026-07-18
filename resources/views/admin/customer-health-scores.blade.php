@@ -30,7 +30,7 @@
     <x-panel.card title="Zdraví zákazníků" subtitle="Skóre 0–100, seřazeno od nejhorší hodnoty">
 
         {{-- Tier filter --}}
-        <div class="d-flex gap-2 mb-3 flex-wrap">
+        <div class="flex gap-2 mb-3 flex-wrap">
             <a href="{{ route('admin.customer-health-scores.index') }}"
                class="btn btn-sm {{ $tier === null ? 'btn-primary' : 'btn-outline-secondary' }}">
                 Vše
@@ -79,9 +79,9 @@
                             <span class="badge badge-light-{{ $hColor }}">{{ $hLabel }}</span>
                         </td>
                         <td style="min-width:120px;">
-                            <div class="d-flex align-items-center gap-2">
+                            <div class="flex items-center gap-2">
                                 <span class="f-w-600 f-12 text-{{ $hColor }}" style="width:30px;">{{ $hs }}</span>
-                                <div class="progress flex-grow-1" style="height:6px;">
+                                <div class="progress grow" style="height:6px;">
                                     <div class="progress-bar bg-{{ $hColor }}" style="width:{{ $hs }}%"></div>
                                 </div>
                             </div>

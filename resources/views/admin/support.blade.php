@@ -32,7 +32,7 @@
         </div>
 
         <x-panel.card :title="__('panel.nav.admin_support')">
-            <form method="GET" action="{{ route('admin.support.index') }}" class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+            <form method="GET" action="{{ route('admin.support.index') }}" class="flex gap-2 mb-3 flex-wrap items-center">
                 <select name="status" class="form-select" style="max-width: 200px;">
                     <option value="">{{ __('panel.admin.all') }}</option>
                     @foreach(\App\Domains\Support\Enums\TicketStatus::cases() as $s)

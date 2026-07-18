@@ -28,7 +28,7 @@
                 <form action="{{ route('admin.bulk.service-extend') }}" method="POST" class="mb-3 js-bulk-form">
                     @csrf
                     <div class="f-12 f-w-600 mb-1">Prodloužit splatnost</div>
-                    <div class="d-flex gap-2">
+                    <div class="flex gap-2">
                         <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
                         <input type="number" name="days" class="form-control form-control-sm" style="width:80px" placeholder="Dní" min="1" max="365" required>
                         <button class="btn btn-outline-primary btn-sm text-nowrap">Prodloužit</button>
@@ -39,7 +39,7 @@
                 <form action="{{ route('admin.bulk.service-suspend') }}" method="POST" class="mb-3 js-bulk-form">
                     @csrf
                     <div class="f-12 f-w-600 mb-1">Pozastavit aktivní služby</div>
-                    <div class="d-flex gap-2">
+                    <div class="flex gap-2">
                         <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
                         <input type="text" name="reason" class="form-control form-control-sm flex-1" placeholder="Důvod" required>
                         <button class="btn btn-outline-warning btn-sm text-nowrap">Pozastavit</button>
@@ -50,7 +50,7 @@
                 <form action="{{ route('admin.bulk.service-resume') }}" method="POST" class="mb-3 js-bulk-form">
                     @csrf
                     <div class="f-12 f-w-600 mb-1">Obnovit pozastavené služby</div>
-                    <div class="d-flex gap-2">
+                    <div class="flex gap-2">
                         <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
                         <button class="btn btn-outline-success btn-sm text-nowrap">Obnovit</button>
                     </div>
@@ -61,7 +61,7 @@
                     @csrf
                     <input type="hidden" name="auto_renew" value="1">
                     <div class="f-12 f-w-600 mb-1">Zapnout automatickou obnovu</div>
-                    <div class="d-flex gap-2">
+                    <div class="flex gap-2">
                         <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
                         <button class="btn btn-outline-success btn-sm text-nowrap">Zapnout</button>
                     </div>
@@ -72,7 +72,7 @@
                     @csrf
                     <input type="hidden" name="auto_renew" value="0">
                     <div class="f-12 f-w-600 mb-1">Vypnout automatickou obnovu</div>
-                    <div class="d-flex gap-2">
+                    <div class="flex gap-2">
                         <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
                         <button class="btn btn-outline-secondary btn-sm text-nowrap">Vypnout</button>
                     </div>
@@ -82,7 +82,7 @@
                 <form action="{{ route('admin.bulk.service-terminate') }}" method="POST" class="mb-1 js-bulk-form">
                     @csrf
                     <div class="f-12 f-w-600 mb-1 txt-danger">Ukončit služby (nevratné)</div>
-                    <div class="d-flex gap-2">
+                    <div class="flex gap-2">
                         <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
                         <input type="text" name="reason" class="form-control form-control-sm flex-1" placeholder="Důvod" required>
                         <button class="btn btn-outline-danger btn-sm text-nowrap"
@@ -104,7 +104,7 @@
                 <form action="{{ route('admin.bulk.invoice-void') }}" method="POST" class="mb-3 js-bulk-form">
                     @csrf
                     <div class="f-12 f-w-600 mb-1">Stornovat faktury</div>
-                    <div class="d-flex gap-2">
+                    <div class="flex gap-2">
                         <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
                         <button class="btn btn-outline-warning btn-sm text-nowrap">Stornovat</button>
                     </div>
@@ -124,7 +124,7 @@
                 <form action="{{ route('admin.bulk.customer-export') }}" method="POST" class="js-bulk-form">
                     @csrf
                     <div class="f-12 f-w-600 mb-1">Export zákazníků (CSV)</div>
-                    <div class="d-flex gap-2">
+                    <div class="flex gap-2">
                         <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
                         <button class="btn btn-outline-info btn-sm text-nowrap">Stáhnout CSV</button>
                     </div>

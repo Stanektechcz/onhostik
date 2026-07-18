@@ -26,7 +26,7 @@
                         <hr>
                         <div class="mb-3">
                             <label class="form-label f-12 f-light">Filtr stavu</label>
-                            <div class="d-flex flex-column gap-1">
+                            <div class="flex flex-col gap-1">
                                 <a href="{{ route('admin.tasks') }}" class="btn btn-sm {{ $status === '' ? 'btn-primary text-white' : 'btn-outline-secondary' }}">Vše ({{ $taskStats['total'] }})</a>
                                 <a href="{{ route('admin.tasks', ['status' => 'pending']) }}" class="btn btn-sm {{ $status === 'pending' ? 'btn-warning text-white' : 'btn-outline-warning' }}">
                                     Čekající ({{ $taskStats['pending'] }})
@@ -42,7 +42,7 @@
                         <hr>
                         <div class="mb-3">
                             <label class="form-label f-12 f-light">Filtr priority</label>
-                            <div class="d-flex flex-column gap-1">
+                            <div class="flex flex-col gap-1">
                                 <a href="{{ route('admin.tasks', ['priority' => 'high'] + ($status ? ['status' => $status] : [])) }}"
                                    class="btn btn-sm {{ $priority === 'high' ? 'btn-danger text-white' : 'btn-outline-danger' }}">Vysoká</a>
                                 <a href="{{ route('admin.tasks', ['priority' => 'medium'] + ($status ? ['status' => $status] : [])) }}"
@@ -53,19 +53,19 @@
                         </div>
                         <hr>
                         <div class="task-stats">
-                            <div class="d-flex justify-content-between mb-2">
+                            <div class="flex justify-between mb-2">
                                 <span class="f-light f-12">Celkem úkolů</span>
                                 <span class="f-w-600">{{ $taskStats['total'] }}</span>
                             </div>
-                            <div class="d-flex justify-content-between mb-2">
+                            <div class="flex justify-between mb-2">
                                 <span class="f-light f-12">Dokončeno</span>
                                 <span class="badge badge-light-success">{{ $taskStats['done'] }}</span>
                             </div>
-                            <div class="d-flex justify-content-between mb-2">
+                            <div class="flex justify-between mb-2">
                                 <span class="f-light f-12">Probíhá</span>
                                 <span class="badge badge-light-warning">{{ $taskStats['inprogress'] }}</span>
                             </div>
-                            <div class="d-flex justify-content-between">
+                            <div class="flex justify-between">
                                 <span class="f-light f-12">Čekající</span>
                                 <span class="badge badge-light-danger">{{ $taskStats['pending'] }}</span>
                             </div>
@@ -124,7 +124,7 @@
                                                     {{ $task->assignee?->name ?? '—' }}
                                                 </td>
                                                 <td>
-                                                    <form method="POST" action="{{ route('admin.tasks.toggle', $task) }}" class="d-inline">
+                                                    <form method="POST" action="{{ route('admin.tasks.toggle', $task) }}" class="inline">
                                                         @csrf
                                                         <button type="submit" class="badge badge-light-{{ $task->statusColor() }} border-0"
                                                                 style="cursor:pointer;" title="Kliknutím změnit stav">
@@ -145,7 +145,7 @@
                                                                 title="Upravit">
                                                             <i data-feather="edit-2" style="width:14px;height:14px;"></i>
                                                         </button>
-                                                        <form method="POST" action="{{ route('admin.tasks.destroy', $task) }}" class="d-inline"
+                                                        <form method="POST" action="{{ route('admin.tasks.destroy', $task) }}" class="inline"
                                                               onsubmit="return confirm('Smazat úkol?')">
                                                             @csrf @method('DELETE')
                                                             <button type="submit" class="square-white trash-3" title="Smazat">

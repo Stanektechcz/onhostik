@@ -45,7 +45,7 @@
         </div>
 
         <x-panel.card :title="__('panel.nav.admin_customers')">
-            <form method="GET" action="{{ route('admin.customers.index') }}" class="d-flex gap-2 mb-3 align-items-center flex-wrap">
+            <form method="GET" action="{{ route('admin.customers.index') }}" class="flex gap-2 mb-3 items-center flex-wrap">
                 <input type="text" name="q" class="form-control" style="max-width: 300px;"
                        placeholder="Jméno, e-mail, firma…" value="{{ $search }}">
                 <button type="submit" class="btn btn-outline-primary btn-sm">{{ __('panel.admin.filter') }}</button>

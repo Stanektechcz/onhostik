@@ -12,7 +12,7 @@
     <x-panel.flash />
 
     {{-- Status filter pills --}}
-    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <div class="flex items-center gap-2 mb-3 flex-wrap">
         @foreach(['all' => 'Vše', 'pending' => 'Čekající', 'active' => 'Aktivní', 'suspended' => 'Pozastavení', 'rejected' => 'Zamítnutí'] as $val => $label)
             <a href="{{ route('admin.resellers.index', array_filter(['status' => $val === 'all' ? null : $val, 'search' => $search ?: null])) }}"
                class="btn btn-sm {{ ($statusFilter === $val || ($statusFilter === '' && $val === 'all')) ? 'btn-primary' : 'btn-outline-secondary' }}">
@@ -20,7 +20,7 @@
             </a>
         @endforeach
 
-        <form method="GET" action="{{ route('admin.resellers.index') }}" class="ms-auto d-flex gap-2">
+        <form method="GET" action="{{ route('admin.resellers.index') }}" class="ms-auto flex gap-2">
             @if($statusFilter && $statusFilter !== 'all')
                 <input type="hidden" name="status" value="{{ $statusFilter }}">
             @endif

@@ -5,7 +5,7 @@
 @section('content')
 <div class="container py-4">
 
-    <div class="d-flex align-items-center gap-2 mb-4">
+    <div class="flex items-center gap-2 mb-4">
         <a href="{{ route('panel.services.show', $service) }}" class="btn btn-sm btn-outline-secondary">&larr; Zpět na službu</a>
         <h2 class="mb-0 h5">Údržba: {{ $service->label ?? "Služba #{$service->id}" }}</h2>
     </div>

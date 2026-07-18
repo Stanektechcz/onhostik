@@ -11,7 +11,7 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="flex justify-between items-center mb-3">
             <p class="seccolor f-14 mb-0">
                 Presety definují výchozí zdroje a konfiguraci pro každou hru nasazovanou přes Pterodactyl.
             </p>
@@ -42,13 +42,13 @@
                                     <span class="badge badge-light-secondary">Neaktivní</span>
                                 @endif
                             </td>
-                            <td class="text-end">
+                            <td class="text-right">
                                 <a href="{{ route('admin.game-presets.edit', $preset) }}" class="btn btn-outline-secondary btn-sm">
                                     <i data-feather="edit-2" style="width:13px;height:13px"></i>
                                     Upravit
                                 </a>
                                 <form method="POST" action="{{ route('admin.game-presets.destroy', $preset) }}"
-                                      class="d-inline" onsubmit="return confirm('Opravdu smazat preset {{ $preset->name }}?')">
+                                      class="inline" onsubmit="return confirm('Opravdu smazat preset {{ $preset->name }}?')">
                                     @csrf
                                     @method('DELETE')
                                     <button type="submit" class="btn btn-outline-danger btn-sm ms-1">

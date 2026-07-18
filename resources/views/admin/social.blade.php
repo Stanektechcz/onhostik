@@ -22,14 +22,14 @@
                                 <span class="f-w-700 f-20 text-white">{{ strtoupper(substr(auth()->user()?->name ?? 'A', 0, 2)) }}</span>
                             </div>
                         </div>
-                        <div class="icon-wrapper d-inline-block" style="cursor:pointer;">
+                        <div class="icon-wrapper inline-block" style="cursor:pointer;">
                             <i class="icofont icofont-pencil-alt-5"></i>
                         </div>
                     </div>
                     <div class="info">
                         <div class="grid grid-cols-12 gap-3">
-                            <div class="col-span-3 xl:col-span-12 text-end xl:text-center">
-                                <div class="social-btngroup d-flex gap-2 justify-content-end xl:justify-content-center">
+                            <div class="col-span-3 xl:col-span-12 text-right xl:text-center">
+                                <div class="social-btngroup flex gap-2 justify-end xl:justify-center">
                                     <a href="{{ route('panel.account.profile') }}" class="btn btn-primary btn-sm text-white">Upravit profil</a>
                                     <a href="{{ route('admin.account.security') }}" class="btn btn-outline-primary btn-sm">Zabezpečení</a>
                                 </div>
@@ -37,14 +37,14 @@
                             <div class="col-span-6 xl:col-span-12 text-center">
                                 <h3>{{ auth()->user()?->name }}</h3>
                                 <p class="f-light">{{ auth()->user()?->email }}</p>
-                                <div class="d-flex gap-3 justify-content-center mt-2">
+                                <div class="flex gap-3 justify-center mt-2">
                                     @foreach(auth()->user()?->getRoleNames() ?? [] as $r)
                                     <span class="badge badge-light-primary">{{ $r }}</span>
                                     @endforeach
                                 </div>
                             </div>
                             <div class="col-span-3 xl:col-span-12">
-                                <div class="follow d-flex gap-4 justify-content-center">
+                                <div class="follow flex gap-4 justify-center">
                                     <div class="text-center">
                                         <h5>{{ $stats['customers'] ?? 0 }}</h5>
                                         <h6 class="f-light">Zákazníků</h6>
@@ -84,7 +84,7 @@
                                             ['Faktura CZ-2026-000123 vystavena','Před 3 hodinami','file-text'],
                                             ['Server test proběhl úspěšně','Před 5 hodinami','server'],
                                         ] as [$act, $time, $icon])
-                                        <div class="d-flex align-items-start gap-3 py-2 border-bottom">
+                                        <div class="flex items-start gap-3 py-2 border-bottom">
                                             <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,rgba(var(--theme-default),.15),rgba(var(--theme-default),.03));display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                                                 <i data-feather="{{ $icon }}" style="width:16px;height:16px;color:rgba(var(--theme-default),1);"></i>
                                             </div>
@@ -101,7 +101,7 @@
                                         <div class="grid grid-cols-12 card-gap">
                                             @foreach([['Celkem zákazníků','users','primary',$stats['customers'] ?? 0],['Aktivní objednávky','shopping-cart','success',$stats['orders'] ?? 0],['Otevřené tickety','message-square','warning',$stats['tickets'] ?? 0],['Aktivní servery','server','info',$stats['servers'] ?? 0]] as [$label,$icon,$color,$val])
                                             <div class="col-span-6">
-                                                <div class="d-flex align-items-center gap-3 p-3 border rounded">
+                                                <div class="flex items-center gap-3 p-3 border rounded">
                                                     <div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,rgba(var(--theme-default),.15),rgba(var(--theme-default),.03));display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                                                         <i data-feather="{{ $icon }}" style="width:20px;height:20px;color:rgba(var(--theme-default),1);"></i>
                                                     </div>
@@ -123,14 +123,14 @@
                                     <div class="col-span-6">
                                         <h6 class="mb-3">Informace o účtu</h6>
                                         @foreach([['Jméno',auth()->user()?->name],['E-mail',auth()->user()?->email],['Jazyk',auth()->user()?->locale ?? 'cs'],['Registrace',auth()->user()?->created_at?->format('d.m.Y')]] as [$l,$v])
-                                        <div class="d-flex justify-content-between py-2 border-bottom">
+                                        <div class="flex justify-between py-2 border-bottom">
                                             <span class="f-light f-13">{{ $l }}</span><span class="f-w-500 f-13">{{ $v }}</span>
                                         </div>
                                         @endforeach
                                     </div>
                                     <div class="col-span-6">
                                         <h6 class="mb-3">Rychlé akce</h6>
-                                        <div class="d-flex flex-column gap-2">
+                                        <div class="flex flex-col gap-2">
                                             <a href="{{ route('admin.settings.index') }}" class="btn btn-outline-primary btn-sm">Nastavení systému</a>
                                             <a href="{{ route('admin.account.security') }}" class="btn btn-outline-secondary btn-sm">Změnit heslo</a>
                                             <a href="{{ route('panel.account.profile') }}" class="btn btn-outline-secondary btn-sm">Upravit profil</a>

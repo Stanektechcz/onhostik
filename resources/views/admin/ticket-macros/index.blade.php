@@ -24,7 +24,7 @@
                             <th>Název</th>
                             <th>Obsah (náhled)</th>
                             <th>Vytvořil</th>
-                            <th class="text-end">Akce</th>
+                            <th class="text-right">Akce</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -33,14 +33,14 @@
                             <td class="f-w-500">{{ $macro->title }}</td>
                             <td class="f-light f-13">{{ \Illuminate\Support\Str::limit($macro->body, 80) }}</td>
                             <td class="f-12">{{ $macro->creator?->name ?? '—' }}</td>
-                            <td class="text-end">
+                            <td class="text-right">
                                 <button type="button"
                                         class="btn btn-outline-secondary btn-sm"
                                         data-bs-toggle="modal"
                                         data-bs-target="#editMacroModal{{ $macro->id }}">
                                     <i data-feather="edit-2" style="width:12px;height:12px"></i>
                                 </button>
-                                <form method="POST" action="{{ route('admin.support.macros.destroy', $macro) }}" class="d-inline"
+                                <form method="POST" action="{{ route('admin.support.macros.destroy', $macro) }}" class="inline"
                                       onsubmit="return confirm('Smazat makro?')">
                                     @csrf
                                     @method('DELETE')

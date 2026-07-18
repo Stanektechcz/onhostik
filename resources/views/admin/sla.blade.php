@@ -19,7 +19,7 @@
                 @endphp
                 <div class="card-body {{ $sla30Color }}">
                     <span class="f-light">Platf. SLA 30 dní</span>
-                    <div class="d-flex align-items-end gap-1">
+                    <div class="flex items-end gap-1">
                         <h4>{{ $platformSla30 !== null ? number_format($platformSla30, 2, ',', ' ') . ' %' : '—' }}</h4>
                     </div>
                     <div class="bg-gradient"><i data-feather="check-circle"></i></div>
@@ -33,7 +33,7 @@
                 @endphp
                 <div class="card-body {{ $sla90Color }}">
                     <span class="f-light">Platf. SLA 90 dní</span>
-                    <div class="d-flex align-items-end gap-1">
+                    <div class="flex items-end gap-1">
                         <h4>{{ $platformSla90 !== null ? number_format($platformSla90, 2, ',', ' ') . ' %' : '—' }}</h4>
                     </div>
                     <div class="bg-gradient"><i data-feather="bar-chart-2"></i></div>
@@ -44,7 +44,7 @@
             <div class="card small-widget">
                 <div class="card-body {{ $openIncidents->count() > 0 ? 'danger' : 'success' }}">
                     <span class="f-light">Aktuální incidenty</span>
-                    <div class="d-flex align-items-end gap-1">
+                    <div class="flex items-end gap-1">
                         <h4>{{ $openIncidents->count() }}</h4>
                     </div>
                     <div class="bg-gradient"><i data-feather="zap"></i></div>
@@ -55,7 +55,7 @@
             <div class="card small-widget">
                 <div class="card-body {{ $recentClosed->count() > 5 ? 'warning' : 'success' }}">
                     <span class="f-light">Incidenty (30 dní)</span>
-                    <div class="d-flex align-items-end gap-1">
+                    <div class="flex items-end gap-1">
                         <h4>{{ $stats->sum('incidents30') }}</h4>
                     </div>
                     <div class="bg-gradient"><i data-feather="alert-triangle"></i></div>
@@ -70,7 +70,7 @@
         <div class="col-span-12">
             <div class="card border-0" style="background: var(--danger-color, #dc3545); color:rgba(var(--white),1)">
                 <div class="card-body py-3">
-                    <div class="d-flex align-items-center gap-2 mb-2">
+                    <div class="flex items-center gap-2 mb-2">
                         <i data-feather="alert-octagon" style="width:18px;height:18px;"></i>
                         <strong>{{ $openIncidents->count() }} otevřený incident{{ $openIncidents->count() > 1 ? 'ů' : '' }}</strong>
                     </div>
@@ -146,16 +146,16 @@
                                     @endif
                                 </td>
                                 <td style="min-width:130px;">
-                                    <div class="d-flex align-items-center gap-2">
-                                        <div class="progress flex-grow-1" style="height:6px">
+                                    <div class="flex items-center gap-2">
+                                        <div class="progress grow" style="height:6px">
                                             <div class="progress-bar bg-{{ $c30Color }}" style="width:{{ $u30 }}%"></div>
                                         </div>
                                         <span class="f-12 f-light text-nowrap">{{ number_format($u30, 2, ',', '') }} %</span>
                                     </div>
                                 </td>
                                 <td style="min-width:130px;">
-                                    <div class="d-flex align-items-center gap-2">
-                                        <div class="progress flex-grow-1" style="height:6px">
+                                    <div class="flex items-center gap-2">
+                                        <div class="progress grow" style="height:6px">
                                             <div class="progress-bar bg-{{ $c90Color }}" style="width:{{ $u90 }}%"></div>
                                         </div>
                                         <span class="f-12 f-light text-nowrap">{{ number_format($u90, 2, ',', '') }} %</span>
@@ -217,10 +217,10 @@
                             <li>
                                 <div class="timeline-dot-success"></div>
                                 <div class="ms-4">
-                                    <div class="d-flex justify-content-between align-items-start">
+                                    <div class="flex justify-between items-start">
                                         <p class="f-w-500 mb-0">{{ $incident->monitor?->name }}</p>
                                         @if($incident->severity)
-                                        <span class="badge badge-light-{{ $sevColor }} ms-2 flex-shrink-0 f-10">
+                                        <span class="badge badge-light-{{ $sevColor }} ms-2 shrink-0 f-10">
                                             {{ $incident->severity }}
                                         </span>
                                         @endif
@@ -253,16 +253,16 @@
     <div class="grid grid-cols-12 card-gap">
         <div class="col-span-12">
             <x-panel.card title="SLA cíle">
-                <div class="d-flex flex-wrap gap-4 f-12">
-                    <div class="d-flex align-items-center gap-2">
+                <div class="flex flex-wrap gap-4 f-12">
+                    <div class="flex items-center gap-2">
                         <span class="badge badge-light-success">≥ 99,9 %</span>
                         <span class="f-light">Plnění SLA — žádné výpadky</span>
                     </div>
-                    <div class="d-flex align-items-center gap-2">
+                    <div class="flex items-center gap-2">
                         <span class="badge badge-light-warning">99,0 – 99,9 %</span>
                         <span class="f-light">Přijatelná úroveň — max 43 min výpadku/30 dní</span>
                     </div>
-                    <div class="d-flex align-items-center gap-2">
+                    <div class="flex items-center gap-2">
                         <span class="badge badge-light-danger">&lt; 99,0 %</span>
                         <span class="f-light">Porušení SLA — vyžaduje řešení</span>
                     </div>

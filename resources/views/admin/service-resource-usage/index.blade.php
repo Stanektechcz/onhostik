@@ -13,10 +13,10 @@
                     <tr>
                         <th>Služba</th>
                         <th>Zákazník</th>
-                        <th class="text-end">Disk využito</th>
-                        <th class="text-end">Disk limit</th>
-                        <th class="text-end">Využití %</th>
-                        <th class="text-end">Práh %</th>
+                        <th class="text-right">Disk využito</th>
+                        <th class="text-right">Disk limit</th>
+                        <th class="text-right">Využití %</th>
+                        <th class="text-right">Práh %</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -29,12 +29,12 @@
                     <tr>
                         <td>{{ $s->label }}</td>
                         <td>{{ $s->customer?->company_name }}</td>
-                        <td class="text-end">{{ $s->disk_usage_gb }} GB</td>
-                        <td class="text-end">{{ $s->disk_limit_gb }} GB</td>
-                        <td class="text-end fw-bold {{ $usedPct >= 95 ? 'text-danger' : 'text-warning' }}">
+                        <td class="text-right">{{ $s->disk_usage_gb }} GB</td>
+                        <td class="text-right">{{ $s->disk_limit_gb }} GB</td>
+                        <td class="text-right font-bold {{ $usedPct >= 95 ? 'text-danger' : 'text-warning' }}">
                             {{ $usedPct }} %
                         </td>
-                        <td class="text-end text-muted">{{ $s->usage_alert_threshold }} %</td>
+                        <td class="text-right text-muted">{{ $s->usage_alert_threshold }} %</td>
                     </tr>
                     @endforeach
                 </tbody>

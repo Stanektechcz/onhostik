@@ -29,29 +29,29 @@
                             @csrf @method('PUT')
                             <div class="mb-3">
                                 <label class="form-label">Současné heslo *</label>
-                                <div class="form-input position-relative">
+                                <div class="form-input relative">
                                     <input class="form-control @error('current_password') is-invalid @enderror"
                                            type="password" name="current_password" placeholder="Zadejte současné heslo" required>
                                     <div class="show-hide"><span class="show"></span></div>
                                 </div>
                                 @error('current_password')
-                                    <div class="invalid-feedback d-block">{{ $message }}</div>
+                                    <div class="invalid-feedback block">{{ $message }}</div>
                                 @enderror
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Nové heslo * <small class="f-light">(min. 8 znaků)</small></label>
-                                <div class="form-input position-relative">
+                                <div class="form-input relative">
                                     <input class="form-control @error('password') is-invalid @enderror"
                                            type="password" name="password" placeholder="Zadejte nové heslo" required minlength="8">
                                     <div class="show-hide"><span class="show"></span></div>
                                 </div>
                                 @error('password')
-                                    <div class="invalid-feedback d-block">{{ $message }}</div>
+                                    <div class="invalid-feedback block">{{ $message }}</div>
                                 @enderror
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Potvrzení hesla *</label>
-                                <div class="form-input position-relative">
+                                <div class="form-input relative">
                                     <input class="form-control" type="password" name="password_confirmation"
                                            placeholder="Zopakujte nové heslo" required>
                                     <div class="show-hide"><span class="show"></span></div>
@@ -91,7 +91,7 @@
 
                         @if(!$hasTwoFactorSecret)
                         {{-- NOT STARTED: Show enable button --}}
-                        <div class="d-flex align-items-start gap-3 p-3 border rounded mb-3" style="background:rgba(var(--light-background),.4);">
+                        <div class="flex items-start gap-3 p-3 border rounded mb-3" style="background:rgba(var(--light-background),.4);">
                             <i data-feather="shield-off" style="width:32px;height:32px;opacity:.4;flex-shrink:0;"></i>
                             <div>
                                 <h6 class="mb-1">2FA není zapnuto</h6>
@@ -115,7 +115,7 @@
 
                         <div class="grid grid-cols-12 gap-4">
                             <div class="col-span-5 xl:col-span-12 text-center">
-                                <div class="border rounded p-3 d-inline-block bg-white" id="qr-code-container">
+                                <div class="border rounded p-3 inline-block bg-white" id="qr-code-container">
                                     <div id="qr-loading" class="text-center py-4">
                                         <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
                                         <p class="f-light f-12 mt-2 mb-0">Načítám QR kód…</p>
@@ -134,7 +134,7 @@
                                            inputmode="numeric" autocomplete="one-time-code"
                                            pattern="[0-9]{6}" maxlength="6"
                                            placeholder="000000" required autofocus>
-                                    <div class="d-flex gap-2">
+                                    <div class="flex gap-2">
                                         <button type="submit" class="btn btn-success text-white">
                                             <i data-feather="check" style="width:14px;height:14px;"></i>
                                             Potvrdit 2FA
@@ -156,7 +156,7 @@
 
                         @else
                         {{-- ENABLED AND CONFIRMED --}}
-                        <div class="d-flex align-items-start gap-3 p-3 border rounded mb-3"
+                        <div class="flex items-start gap-3 p-3 border rounded mb-3"
                              style="background:rgba(84,186,74,.08);border-color:rgba(84,186,74,.3)!important;">
                             <i data-feather="shield" style="width:32px;height:32px;color:rgba(var(--success-color),1);flex-shrink:0;"></i>
                             <div>
@@ -177,7 +177,7 @@
                         </div>
                         @endif
 
-                        <div class="d-flex gap-2 flex-wrap">
+                        <div class="flex gap-2 flex-wrap">
                             {{-- Regenerate recovery codes --}}
                             <form method="POST" action="{{ url('/user/two-factor-recovery-codes') }}">
                                 @csrf
@@ -271,7 +271,7 @@
                             ['2FA ochrana','Zapněte dvoufázové ověření pro maximum bezpečnosti.','shield'],
                             ['Záložní kódy','Uložte záložní kódy 2FA na bezpečné místo.','lock'],
                         ] as [$title, $tip, $icon])
-                        <div class="d-flex gap-3 align-items-start py-2 {{ !$loop->last ? 'border-bottom' : '' }}">
+                        <div class="flex gap-3 items-start py-2 {{ !$loop->last ? 'border-bottom' : '' }}">
                             <i data-feather="{{ $icon }}" style="width:16px;height:16px;color:rgba(var(--success-color),1);flex-shrink:0;margin-top:2px;"></i>
                             <div>
                                 <p class="f-w-500 f-13 mb-0">{{ $title }}</p>
@@ -285,14 +285,14 @@
                 {{-- Quick links --}}
                 <div class="card">
                     <div class="card-body">
-                        <div class="d-flex flex-column gap-2">
-                            <a href="{{ route('panel.account.profile') }}" class="btn btn-outline-secondary btn-sm text-start">
+                        <div class="flex flex-col gap-2">
+                            <a href="{{ route('panel.account.profile') }}" class="btn btn-outline-secondary btn-sm text-left">
                                 <i data-feather="user" style="width:13px;height:13px;"></i> Profil
                             </a>
-                            <a href="{{ route('panel.account.billing') }}" class="btn btn-outline-secondary btn-sm text-start">
+                            <a href="{{ route('panel.account.billing') }}" class="btn btn-outline-secondary btn-sm text-left">
                                 <i data-feather="file-text" style="width:13px;height:13px;"></i> Fakturační údaje
                             </a>
-                            <a href="{{ route('panel.account.notification-preferences') }}" class="btn btn-outline-secondary btn-sm text-start">
+                            <a href="{{ route('panel.account.notification-preferences') }}" class="btn btn-outline-secondary btn-sm text-left">
                                 <i data-feather="bell" style="width:13px;height:13px;"></i> Předvolby notifikací
                             </a>
                         </div>
@@ -321,7 +321,7 @@
                                         @foreach($tokens as $token)
                                             <tr>
                                                 <td class="ps-0 py-2">
-                                                    <div class="d-flex align-items-center gap-2">
+                                                    <div class="flex items-center gap-2">
                                                         <i data-feather="hash" style="width:13px;height:13px;opacity:.5;"></i>
                                                         <span class="f-13 f-w-500">{{ $token->name }}</span>
                                                     </div>
@@ -334,7 +334,7 @@
                                                         &bull; Vytvořen: {{ $token->created_at->format('d.m.Y') }}
                                                     </div>
                                                 </td>
-                                                <td class="pe-0 py-2 text-end" style="white-space:nowrap;">
+                                                <td class="pe-0 py-2 text-right" style="white-space:nowrap;">
                                                     <form method="POST"
                                                           action="{{ route('panel.account.api-tokens.destroy', $token->id) }}"
                                                           onsubmit="return confirm('Opravdu chcete odvolat token \'{{ addslashes($token->name) }}\'?')">
@@ -379,7 +379,7 @@
                                                 <span class="f-w-500">{{ $ev->label() }}</span>
                                                 <div class="f-light f-11">IP: {{ $ev->ip_address }}</div>
                                             </td>
-                                            <td class="pe-0 py-1 text-end f-light" style="white-space:nowrap;">
+                                            <td class="pe-0 py-1 text-right f-light" style="white-space:nowrap;">
                                                 {{ $ev->created_at?->diffForHumans() }}
                                             </td>
                                         </tr>
@@ -398,10 +398,10 @@
                     </div>
                     <div class="card-body pt-0">
                         @if(auth()->user()?->deletion_requested_at)
-                            <div class="alert alert-light-warning d-flex align-items-start gap-2 mb-0">
+                            <div class="alert alert-light-warning flex items-start gap-2 mb-0">
                                 <i data-feather="clock" style="width:15px;height:15px;flex-shrink:0;margin-top:2px;"></i>
                                 <div>
-                                    <strong class="d-block f-12">Smazání čeká na vyřízení</strong>
+                                    <strong class="block f-12">Smazání čeká na vyřízení</strong>
                                     <span class="f-light f-12">
                                         Žádost o smazání účtu byla přijata
                                         {{ auth()->user()->deletion_requested_at->diffForHumans() }}

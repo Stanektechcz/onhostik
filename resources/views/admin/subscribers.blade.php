@@ -25,8 +25,8 @@
     </div>
 
     <x-panel.card title="Odběratelé newsletteru">
-        <div class="d-flex gap-2 mb-3 flex-wrap align-items-center">
-            <form method="GET" action="{{ route('admin.subscribers.index') }}" class="d-flex gap-2 flex-wrap align-items-center">
+        <div class="flex gap-2 mb-3 flex-wrap items-center">
+            <form method="GET" action="{{ route('admin.subscribers.index') }}" class="flex gap-2 flex-wrap items-center">
                 <input type="text" name="q" class="form-control form-control-sm" style="max-width:240px;"
                        placeholder="E-mail nebo jméno…" value="{{ $search }}">
                 <select name="status" class="form-select form-select-sm w-auto">
@@ -39,7 +39,7 @@
                     <a href="{{ route('admin.subscribers.index') }}" class="btn btn-outline-secondary btn-sm">×</a>
                 @endif
             </form>
-            <div class="ms-auto d-flex gap-2">
+            <div class="ms-auto flex gap-2">
                 <a href="{{ route('admin.subscribers.export') }}" class="btn btn-outline-success btn-sm">
                     <i data-feather="download" style="width:13px;height:13px;"></i> CSV
                 </a>
@@ -72,7 +72,7 @@
                             @endif
                         </td>
                         <td>
-                            <div class="d-flex gap-1">
+                            <div class="flex gap-1">
                                 <form method="POST" action="{{ route('admin.subscribers.toggle', $sub) }}">
                                     @csrf
                                     <button type="submit" class="btn btn-outline-{{ $sub->is_active ? 'warning' : 'success' }} btn-xs"

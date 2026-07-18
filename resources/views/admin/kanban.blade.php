@@ -28,11 +28,11 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="d-flex gap-2 justify-content-between align-items-center mb-3">
+    <div class="flex gap-2 justify-between items-center mb-3">
         <div>
             <span class="f-light f-12">Celkem: {{ $pending->count() + $inprogress->count() + $done->count() }} úkolů</span>
         </div>
-        <div class="d-flex gap-2">
+        <div class="flex gap-2">
             <a href="{{ route('admin.tasks') }}" class="btn btn-outline-secondary btn-sm">
                 <i data-feather="list" style="width:13px;height:13px;"></i> Seznam
             </a>
@@ -119,8 +119,8 @@
                         <label class="form-label">Popis</label>
                         <textarea name="description" class="form-control" rows="2" maxlength="1000" placeholder="Volitelný popis…"></textarea>
                     </div>
-                    <div class="row g-2">
-                        <div class="col-6">
+                    <div class="grid grid-cols-12 gap-2">
+                        <div class="col-span-6">
                             <label class="form-label">Priorita</label>
                             <select name="priority" class="form-select">
                                 <option value="low">Nízká</option>
@@ -128,7 +128,7 @@
                                 <option value="high">Vysoká</option>
                             </select>
                         </div>
-                        <div class="col-6">
+                        <div class="col-span-6">
                             <label class="form-label">Termín</label>
                             <input type="date" name="due_date" class="form-control" min="{{ now()->toDateString() }}">
                         </div>

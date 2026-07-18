@@ -108,6 +108,8 @@ class CartController extends Controller
         $validated = $request->validate([
             'payment_method' => ['nullable', 'in:comgate,credit,bank'],
             'discount_code'  => ['nullable', 'string', 'max:50'],
+            'domains'        => ['nullable', 'array'],
+            'domains.*'      => ['nullable', 'string', 'max:253', 'regex:/^[a-zA-Z0-9][a-zA-Z0-9\-]*\.[a-zA-Z]{2,}$/'],
         ]);
 
         $customer = $this->customer($request);
@@ -117,6 +119,9 @@ class CartController extends Controller
             return redirect()->route('panel.cart.index')->withErrors(['cart' => 'Košík je prázdný.']);
         }
 
+        /** @var array<int|string, string|null> $domains */
+        $domains = $validated['domains'] ?? [];
+
         $reseller = $request->user()?->can('access-reseller')
             ? ResellerProfile::where('user_id', $request->user()->id)->where('status', 'active')->first()
             : null;
@@ -124,7 +129,16 @@ class CartController extends Controller
         try {
             $order = $createOrder->execute(
                 $customer,
-                $items->map(fn (array $i): array => ['plan' => $i['plan'], 'qty' => $i['qty']])->all(),
+                $items->map(function (array $i) use ($domains): array {
+                    $raw    = $domains[$i['plan']->id] ?? null;
+                    $domain = is_string($raw) ? mb_strtolower(trim($raw)) : '';
+
+                    return [
+                        'plan'   => $i['plan'],
+                        'qty'    => $i['qty'],
+                        'config' => $domain !== '' ? ['domain' => $domain] : [],
+                    ];
+                })->all(),
                 [
                     'discount_code'  => $validated['discount_code'] ?? null,
                     'markup_percent' => $reseller ? (float) $reseller->markup_percent : 0.0,

@@ -5,7 +5,7 @@
 @section('content')
 <div class="container-fluid">
     <x-panel.card title="Log odeslaných e-mailů">
-        <form method="GET" class="mb-3 d-flex gap-2">
+        <form method="GET" class="mb-3 flex gap-2">
             <input type="text" name="q" value="{{ request('q') }}" class="form-control form-control-sm" placeholder="Hledat adresu nebo předmět..." style="max-width:300px">
             <button class="btn btn-sm btn-outline-secondary">Hledat</button>
         </form>

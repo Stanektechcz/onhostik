@@ -269,18 +269,22 @@ it('panel ai chat endpoint rejects guests', function (): void {
         ->assertUnauthorized();
 });
 
-it('panel ai chat endpoint validates message is required', function (): void {
+it('panel ai chat endpoint returns the opening menu when nothing is sent', function (): void {
     $user = customerUser();
 
+    // The rebuilt chatbot accepts an empty body (category chips send no text)
+    // and answers with the categorised opening menu instead of a 422.
     $this->actingAs($user)
         ->postJson(route('panel.ai.chat'), [])
-        ->assertUnprocessable();
+        ->assertOk()
+        ->assertJsonStructure(['reply', 'suggestions', 'links', 'category']);
 });
 
-it('panel ai chat endpoint rejects messages shorter than 3 characters', function (): void {
+it('panel ai chat endpoint accepts short greetings and replies helpfully', function (): void {
     $user = customerUser();
 
     $this->actingAs($user)
         ->postJson(route('panel.ai.chat'), ['message' => 'hi'])
-        ->assertUnprocessable();
+        ->assertOk()
+        ->assertJsonPath('reply', fn ($v) => is_string($v) && strlen($v) > 0);
 });

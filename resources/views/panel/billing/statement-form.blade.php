@@ -13,8 +13,8 @@
         <div class="card-body">
             <p class="text-muted mb-4">Vyberte měsíc a rok, pro který chcete vygenerovat PDF přehled vašich faktur.</p>
             <form method="GET" action="#" id="statement-form">
-                <div class="row g-3">
-                    <div class="col-md-4">
+                <div class="grid grid-cols-12 gap-3">
+                    <div class="col-span-12 md:col-span-4">
                         <label class="form-label">Rok</label>
                         <select name="year" class="form-select" id="year-select">
                             @for($y = now()->year; $y >= now()->year - 3; $y--)
@@ -22,7 +22,7 @@
                             @endfor
                         </select>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-span-12 md:col-span-4">
                         <label class="form-label">Měsíc</label>
                         <select name="month" class="form-select" id="month-select">
                             @for($m = 1; $m <= 12; $m++)
@@ -30,7 +30,7 @@
                             @endfor
                         </select>
                     </div>
-                    <div class="col-md-4 d-flex align-items-end">
+                    <div class="col-span-12 md:col-span-4 flex items-end">
                         <button type="submit" class="btn btn-primary" id="dl-btn">
                             <i class="bi bi-file-pdf me-1"></i> Stáhnout PDF
                         </button>

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Domains\Provisioning\Services;
 
 use App\Domains\Backups\Models\BackupPolicy;
+use App\Domains\Billing\Actions\SyncOrderCompletionAction;
 use App\Domains\Monitoring\Services\MonitoringResolver;
 use App\Domains\Provisioning\Models\Service;
 use App\Notifications\ServiceActivatedNotification;
@@ -57,6 +58,17 @@ final class ServiceActivationHooks
         try {
             $user = $service->customer?->user;
             $user?->notify(new ServiceActivatedNotification($service));
+        } catch (Throwable $e) {
+            report($e); // non-fatal — provisioning succeeded regardless
+        }
+
+        /* Complete the parent order once all of its services are live. */
+        try {
+            $order = $service->orderItem?->order;
+
+            if ($order !== null) {
+                app(SyncOrderCompletionAction::class)->execute($order);
+            }
         } catch (Throwable $e) {
             report($e); // non-fatal — provisioning succeeded regardless
         }

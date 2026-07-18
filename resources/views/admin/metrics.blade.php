@@ -20,7 +20,7 @@
         <div class="col-span-3 xl:col-span-6 sm:col-span-12">
             <div class="card card-no-border">
                 <div class="card-body">
-                    <div class="d-flex align-items-center gap-3">
+                    <div class="flex items-center gap-3">
                         <div class="bg-light-primary rounded p-3">
                             <i data-feather="trending-up" class="font-primary" style="width:24px;height:24px"></i>
                         </div>
@@ -44,7 +44,7 @@
         <div class="col-span-3 xl:col-span-6 sm:col-span-12">
             <div class="card card-no-border">
                 <div class="card-body">
-                    <div class="d-flex align-items-center gap-3">
+                    <div class="flex items-center gap-3">
                         <div class="bg-light-success rounded p-3">
                             <i data-feather="bar-chart-2" class="font-success" style="width:24px;height:24px"></i>
                         </div>
@@ -61,7 +61,7 @@
         <div class="col-span-3 xl:col-span-6 sm:col-span-12">
             <div class="card card-no-border">
                 <div class="card-body">
-                    <div class="d-flex align-items-center gap-3">
+                    <div class="flex items-center gap-3">
                         <div class="bg-light-{{ $churnRatePct > 5 ? 'danger' : 'warning' }} rounded p-3">
                             <i data-feather="user-minus" class="font-{{ $churnRatePct > 5 ? 'danger' : 'warning' }}" style="width:24px;height:24px"></i>
                         </div>
@@ -81,7 +81,7 @@
         <div class="col-span-3 xl:col-span-6 sm:col-span-12">
             <div class="card card-no-border">
                 <div class="card-body">
-                    <div class="d-flex align-items-center gap-3">
+                    <div class="flex items-center gap-3">
                         <div class="bg-light-info rounded p-3">
                             <i data-feather="users" class="font-info" style="width:24px;height:24px"></i>
                         </div>
@@ -107,20 +107,20 @@
         {{-- Stats sidebar --}}
         <div class="col-span-4 xl:col-span-12">
             <x-panel.card title="Zákazníci">
-                <div class="d-flex justify-content-between mb-2">
+                <div class="flex justify-between mb-2">
                     <span class="f-light f-13">Celkem zákazníků</span>
                     <span class="f-w-600">{{ $totalCustomers }}</span>
                 </div>
-                <div class="d-flex justify-content-between mb-2">
+                <div class="flex justify-between mb-2">
                     <span class="f-light f-13">Noví (30 dní)</span>
                     <span class="f-w-600 text-success">+{{ $newCustomers30 }}</span>
                 </div>
-                <div class="d-flex justify-content-between mb-3">
+                <div class="flex justify-between mb-3">
                     <span class="f-light f-13">Aktivní služby</span>
                     <span class="f-w-600">{{ $activeServices }}</span>
                 </div>
                 <hr>
-                <div class="d-flex justify-content-between mt-2">
+                <div class="flex justify-between mt-2">
                     <span class="f-light f-13">Nezaplacené faktury</span>
                     <span class="f-w-600 text-warning">{{ number_format($outstandingCzk, 0, ',', ' ') }} Kč</span>
                 </div>
@@ -151,7 +151,7 @@
                     $newPct = $totalBuyers > 0 ? round($newBuyersThisMonth / $totalBuyers * 100) : 0;
                     $retPct = $totalBuyers > 0 ? 100 - $newPct : 0;
                 @endphp
-                <div class="d-flex justify-content-around text-center mb-3">
+                <div class="flex justify-around text-center mb-3">
                     <div>
                         <div class="f-28 f-w-700 text-primary">{{ $newBuyersThisMonth }}</div>
                         <div class="f-light f-12">Noví</div>
@@ -169,7 +169,7 @@
                     <div class="progress-bar bg-primary" style="width:{{ $newPct }}%;border-radius:4px 0 0 4px;"></div>
                     <div class="progress-bar bg-success" style="width:{{ $retPct }}%;border-radius:0 4px 4px 0;"></div>
                 </div>
-                <div class="d-flex justify-content-between mt-1">
+                <div class="flex justify-between mt-1">
                     <span class="f-light f-11">Noví</span>
                     <span class="f-light f-11">Vracející se</span>
                 </div>
@@ -188,7 +188,7 @@
                     @php $maxCount = $topProducts->max('count') ?: 1; @endphp
                     @foreach($topProducts as $product)
                     <div class="mb-3">
-                        <div class="d-flex justify-content-between mb-1">
+                        <div class="flex justify-between mb-1">
                             <span class="f-13 f-w-500">{{ $product['label'] }}</span>
                             <span class="f-13 f-w-600">{{ $product['count'] }}</span>
                         </div>

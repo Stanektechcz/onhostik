@@ -16,7 +16,7 @@
                     <tr>
                         <th>Kohorta</th>
                         @foreach($allMonths as $month)
-                        <th class="text-end">{{ $month }}</th>
+                        <th class="text-right">{{ $month }}</th>
                         @endforeach
                     </tr>
                 </thead>
@@ -25,7 +25,7 @@
                     <tr>
                         <td class="f-w-600">{{ $cohort }}</td>
                         @foreach($allMonths as $month)
-                        <td class="text-end">
+                        <td class="text-right">
                             @if(isset($cohortData[$cohort][$month]))
                                 @php $d = $cohortData[$cohort][$month]; @endphp
                                 {{ number_format($d['revenue_minor'] / 100, 0, ',', ' ') }} Kč

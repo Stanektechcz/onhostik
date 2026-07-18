@@ -6,8 +6,8 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="Dunning kroky">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
@@ -15,7 +15,7 @@
                             <tr>
                                 <th>Krok</th>
                                 <th>Název</th>
-                                <th class="text-end">Dní po splatnosti</th>
+                                <th class="text-right">Dní po splatnosti</th>
                                 <th>Akce</th>
                                 <th>Šablona</th>
                                 <th>Aktivní</th>
@@ -27,7 +27,7 @@
                             <tr>
                                 <td><span class="badge bg-primary">{{ $cfg->step }}</span></td>
                                 <td>{{ $cfg->name }}</td>
-                                <td class="text-end">{{ $cfg->days_after_due }}</td>
+                                <td class="text-right">{{ $cfg->days_after_due }}</td>
                                 <td>
                                     @php $colors = ['email'=>'info','suspend'=>'warning','cancel'=>'danger']; @endphp
                                     <span class="badge bg-{{ $colors[$cfg->action] ?? 'secondary' }}">{{ $cfg->action }}</span>
@@ -57,7 +57,7 @@
             </x-panel.card>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Přidat krok">
                 <form method="POST" action="{{ route('admin.dunning-configs.store') }}">
                     @csrf
@@ -89,7 +89,7 @@
                         <input type="checkbox" name="is_active" class="form-check-input" id="dc_active" value="1" @checked(old('is_active', true))>
                         <label class="form-check-label" for="dc_active">Aktivní</label>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Přidat</button>
+                    <button type="submit" class="btn btn-primary w-full">Přidat</button>
                 </form>
             </x-panel.card>
         </div>

@@ -3,8 +3,8 @@
 @section('content')
 <div class="container-fluid">
     <x-panel.flash />
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="Upozornění na využití zdrojů">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
@@ -57,7 +57,7 @@
                 </div>
             </x-panel.card>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Nastavit upozornění">
                 <form method="POST" action="{{ route('panel.usage-alert-configs.store') }}">
                     @csrf
@@ -90,7 +90,7 @@
                             <label class="form-check-label" for="is_active">Aktivní</label>
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Uložit upozornění</button>
+                    <button type="submit" class="btn btn-primary w-full">Uložit upozornění</button>
                 </form>
             </x-panel.card>
         </div>

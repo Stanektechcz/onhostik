@@ -10,10 +10,10 @@
 @section('content')
 <div class="container-fluid">
     <x-panel.flash />
-    <div class="row g-3">
+    <div class="grid grid-cols-12 gap-3">
 
         {{-- Create form --}}
-        <div class="col-lg-4">
+        <div class="col-span-12 lg:col-span-4">
             <div class="card">
                 <div class="card-header card-no-border"><h5>Nový webhook</h5></div>
                 <div class="card-body">
@@ -59,13 +59,13 @@
                             <input class="form-check-input" type="checkbox" name="is_active" value="1" @checked(old('is_active', true))>
                             <label class="form-check-label f-12">Aktivní</label>
                         </div>
-                        <button type="submit" class="btn btn-primary btn-sm w-100">Přidat webhook</button>
+                        <button type="submit" class="btn btn-primary btn-sm w-full">Přidat webhook</button>
                     </form>
                 </div>
             </div>
         </div>
 
-        <div class="col-lg-8">
+        <div class="col-span-12 lg:col-span-8">
             {{-- Webhook list --}}
             <div class="card mb-3">
                 <div class="card-header card-no-border"><h5>Webhooky ({{ $webhooks->count() }})</h5></div>
@@ -90,7 +90,7 @@
                                 <tr>
                                     <td>
                                         <div class="f-w-500">{{ $wh->name }}</div>
-                                        <div class="f-11 f-light text-truncate" style="max-width:200px;">{{ $wh->url }}</div>
+                                        <div class="f-11 f-light truncate" style="max-width:200px;">{{ $wh->url }}</div>
                                     </td>
                                     <td>
                                         @foreach($wh->events as $ev)
@@ -118,14 +118,14 @@
                                         </button>
                                         <form method="POST"
                                               action="{{ route('admin.helpdesk-webhooks.regenerate', $wh) }}"
-                                              class="d-inline">
+                                              class="inline">
                                             @csrf
                                             <button type="submit" class="btn btn-outline-info btn-xs"
                                                     title="Vygenerovat nový secret">⟳</button>
                                         </form>
                                         <form method="POST"
                                               action="{{ route('admin.helpdesk-webhooks.destroy', $wh) }}"
-                                              class="d-inline"
+                                              class="inline"
                                               onsubmit="return confirm('Smazat webhook?')">
                                             @csrf @method('DELETE')
                                             <button type="submit" class="btn btn-outline-danger btn-xs">×</button>
@@ -166,7 +166,7 @@
                                                     </div>
                                                     @endforeach
                                                 </div>
-                                                <div class="row g-2 mb-2">
+                                                <div class="grid grid-cols-12 gap-2 mb-2">
                                                     <div class="col">
                                                         <label class="form-label f-12">Timeout (s)</label>
                                                         <input type="number" name="timeout_seconds"

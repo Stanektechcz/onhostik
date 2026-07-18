@@ -30,10 +30,10 @@
         </div>
 
     @elseif($profile->status === 'pending')
-        <div class="alert alert-light-warning d-flex align-items-start gap-3 mb-4">
+        <div class="alert alert-light-warning flex items-start gap-3 mb-4">
             <i data-feather="clock" style="width:20px;height:20px;flex-shrink:0;margin-top:2px;color:#e29d38;"></i>
             <div>
-                <strong class="d-block">Žádost čeká na schválení</strong>
+                <strong class="block">Žádost čeká na schválení</strong>
                 <span class="f-light f-13">
                     Váš reseller profil byl zaregistrován a čeká na schválení administrátorem.
                     Jakmile bude schválen, získáte přístup ke všem funkcím resellera.
@@ -49,17 +49,17 @@
             </div>
             <div class="card-body pt-0">
                 <ul class="list-group list-group-flush">
-                    <li class="list-group-item d-flex justify-content-between px-0">
+                    <li class="list-group-item flex justify-between px-0">
                         <span class="f-light">Obchodní jméno</span>
                         <strong>{{ $profile->business_name }}</strong>
                     </li>
                     @if($profile->custom_domain)
-                    <li class="list-group-item d-flex justify-content-between px-0">
+                    <li class="list-group-item flex justify-between px-0">
                         <span class="f-light">Vlastní doména</span>
                         <strong>{{ $profile->custom_domain }}</strong>
                     </li>
                     @endif
-                    <li class="list-group-item d-flex justify-content-between px-0">
+                    <li class="list-group-item flex justify-between px-0">
                         <span class="f-light">Stav</span>
                         <span class="badge badge-light-warning">Čeká na schválení</span>
                     </li>
@@ -68,10 +68,10 @@
         </div>
 
     @elseif($profile->status === 'suspended')
-        <div class="alert alert-light-danger d-flex align-items-start gap-3 mb-4">
+        <div class="alert alert-light-danger flex items-start gap-3 mb-4">
             <i data-feather="alert-triangle" style="width:20px;height:20px;flex-shrink:0;margin-top:2px;"></i>
             <div>
-                <strong class="d-block">Reseller účet pozastaven</strong>
+                <strong class="block">Reseller účet pozastaven</strong>
                 <span class="f-light f-13">
                     Váš reseller profil byl dočasně pozastaven. Kontaktujte podporu pro obnovení přístupu.
                 </span>
@@ -79,10 +79,10 @@
         </div>
 
     @elseif($profile->status === 'rejected')
-        <div class="alert alert-light-danger d-flex align-items-start gap-3 mb-4">
+        <div class="alert alert-light-danger flex items-start gap-3 mb-4">
             <i data-feather="x-circle" style="width:20px;height:20px;flex-shrink:0;margin-top:2px;"></i>
             <div>
-                <strong class="d-block">Žádost zamítnuta</strong>
+                <strong class="block">Žádost zamítnuta</strong>
                 <span class="f-light f-13">
                     Vaše žádost o reseller program byla zamítnuta. Kontaktujte nás pro více informací.
                 </span>
@@ -93,12 +93,12 @@
         {{-- ACTIVE reseller --}}
 
         {{-- KPI cards --}}
-        <div class="row g-3 mb-4">
-            <div class="col-xl-3 col-md-6">
+        <div class="grid grid-cols-12 gap-3 mb-4">
+            <div class="col-span-12 xl:col-span-3 col-span-12 md:col-span-6">
                 <div class="card o-hidden">
                     <div class="card-body">
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="flex-shrink-0" style="width:48px;height:48px;border-radius:12px;background:rgba(30,215,96,.12);display:flex;align-items:center;justify-content:center;">
+                        <div class="flex items-center gap-3">
+                            <div class="shrink-0" style="width:48px;height:48px;border-radius:12px;background:rgba(30,215,96,.12);display:flex;align-items:center;justify-content:center;">
                                 <i data-feather="users" style="width:22px;height:22px;color:#1ed760;"></i>
                             </div>
                             <div>
@@ -110,11 +110,11 @@
                 </div>
             </div>
 
-            <div class="col-xl-3 col-md-6">
+            <div class="col-span-12 xl:col-span-3 col-span-12 md:col-span-6">
                 <div class="card o-hidden">
                     <div class="card-body">
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="flex-shrink-0" style="width:48px;height:48px;border-radius:12px;background:rgba(var(--theme-default),.1);display:flex;align-items:center;justify-content:center;">
+                        <div class="flex items-center gap-3">
+                            <div class="shrink-0" style="width:48px;height:48px;border-radius:12px;background:rgba(var(--theme-default),.1);display:flex;align-items:center;justify-content:center;">
                                 <i data-feather="shopping-cart" style="width:22px;height:22px;color:rgba(var(--theme-default),1);"></i>
                             </div>
                             <div>
@@ -126,11 +126,11 @@
                 </div>
             </div>
 
-            <div class="col-xl-3 col-md-6">
+            <div class="col-span-12 xl:col-span-3 col-span-12 md:col-span-6">
                 <div class="card o-hidden">
                     <div class="card-body">
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="flex-shrink-0" style="width:48px;height:48px;border-radius:12px;background:rgba(var(--theme-default),.1);display:flex;align-items:center;justify-content:center;">
+                        <div class="flex items-center gap-3">
+                            <div class="shrink-0" style="width:48px;height:48px;border-radius:12px;background:rgba(var(--theme-default),.1);display:flex;align-items:center;justify-content:center;">
                                 <i data-feather="trending-up" style="width:22px;height:22px;color:rgba(var(--theme-default),1);"></i>
                             </div>
                             <div>
@@ -142,11 +142,11 @@
                 </div>
             </div>
 
-            <div class="col-xl-3 col-md-6">
+            <div class="col-span-12 xl:col-span-3 col-span-12 md:col-span-6">
                 <div class="card o-hidden">
                     <div class="card-body">
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="flex-shrink-0" style="width:48px;height:48px;border-radius:12px;background:rgba(var(--theme-default),.1);display:flex;align-items:center;justify-content:center;">
+                        <div class="flex items-center gap-3">
+                            <div class="shrink-0" style="width:48px;height:48px;border-radius:12px;background:rgba(var(--theme-default),.1);display:flex;align-items:center;justify-content:center;">
                                 <i data-feather="percent" style="width:22px;height:22px;color:rgba(var(--theme-default),1);"></i>
                             </div>
                             <div>
@@ -160,8 +160,8 @@
         </div>
 
         {{-- Revenue chart + info --}}
-        <div class="row g-3 mb-3">
-            <div class="col-lg-8">
+        <div class="grid grid-cols-12 gap-3 mb-3">
+            <div class="col-span-12 lg:col-span-8">
                 <div class="card">
                     <div class="card-header card-no-border">
                         <h5>Tržby zákazníků — posledních 6 měsíců</h5>
@@ -172,28 +172,28 @@
                 </div>
             </div>
 
-            <div class="col-lg-4">
-                <div class="card h-100">
+            <div class="col-span-12 lg:col-span-4">
+                <div class="card h-full">
                     <div class="card-header card-no-border">
                         <h5>Reseller profil</h5>
                     </div>
                     <div class="card-body pt-0">
                         <ul class="list-group list-group-flush">
-                            <li class="list-group-item d-flex justify-content-between px-0">
+                            <li class="list-group-item flex justify-between px-0">
                                 <span class="f-light">Obchodní jméno</span>
                                 <strong>{{ $profile->business_name }}</strong>
                             </li>
                             @if($profile->custom_domain)
-                            <li class="list-group-item d-flex justify-content-between px-0">
+                            <li class="list-group-item flex justify-between px-0">
                                 <span class="f-light">Vlastní doména</span>
                                 <strong>{{ $profile->custom_domain }}</strong>
                             </li>
                             @endif
-                            <li class="list-group-item d-flex justify-content-between px-0">
+                            <li class="list-group-item flex justify-between px-0">
                                 <span class="f-light">Markup</span>
                                 <strong>{{ number_format($profile->markup_percent, 2) }} %</strong>
                             </li>
-                            <li class="list-group-item d-flex justify-content-between px-0">
+                            <li class="list-group-item flex justify-between px-0">
                                 <span class="f-light">Dostupné produkty</span>
                                 <span>
                                     @if($profile->allowed_products === null)
@@ -203,16 +203,16 @@
                                     @endif
                                 </span>
                             </li>
-                            <li class="list-group-item d-flex justify-content-between px-0">
+                            <li class="list-group-item flex justify-between px-0">
                                 <span class="f-light">Aktivní od</span>
                                 <strong>{{ $profile->approved_at?->format('d. m. Y') ?? '—' }}</strong>
                             </li>
                         </ul>
-                        <div class="mt-3 d-flex flex-column gap-2">
-                            <a href="{{ route('panel.services.index') }}" class="btn btn-outline-primary btn-sm text-start">
+                        <div class="mt-3 flex flex-col gap-2">
+                            <a href="{{ route('panel.services.index') }}" class="btn btn-outline-primary btn-sm text-left">
                                 <i data-feather="server" style="width:13px;height:13px;"></i> Moje služby
                             </a>
-                            <a href="{{ route('panel.support.index') }}" class="btn btn-outline-secondary btn-sm text-start">
+                            <a href="{{ route('panel.support.index') }}" class="btn btn-outline-secondary btn-sm text-left">
                                 <i data-feather="message-square" style="width:13px;height:13px;"></i> Kontaktovat podporu
                             </a>
                         </div>

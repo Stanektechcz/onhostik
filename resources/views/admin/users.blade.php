@@ -14,11 +14,11 @@
     <div class="container user-list-wrapper">
         <div class="grid grid-cols-12 card-gap">
 
-            {{-- Filter/Action row --}}
+            {{-- Filter/Action grid grid-cols-12 --}}
             <div class="col-span-12">
                 <div class="card">
                     <div class="card-body py-2">
-                        <form method="GET" action="{{ route('admin.users.index') }}" class="d-flex gap-2 flex-wrap align-items-center">
+                        <form method="GET" action="{{ route('admin.users.index') }}" class="flex gap-2 flex-wrap items-center">
                             <input type="text" name="q" class="form-control form-control-sm" style="max-width:260px;"
                                    placeholder="Hledat jméno nebo e-mail…" value="{{ $search }}">
                             <select name="role" class="form-select form-select-sm w-auto">
@@ -72,8 +72,8 @@
                                         <tr class="product-removes inbox-data">
                                             <td></td>
                                             <td>
-                                                <div class="product-names d-flex align-items-center gap-2">
-                                                    <div class="light-product-box d-flex align-items-center justify-content-center"
+                                                <div class="product-names flex items-center gap-2">
+                                                    <div class="light-product-box flex items-center justify-center"
                                                          style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,rgba(var(--theme-default),.15),rgba(var(--theme-default),.05));">
                                                         <span class="f-w-600 f-12" style="color:rgba(var(--theme-default),1);">
                                                             {{ strtoupper(substr($user->name, 0, 2)) }}

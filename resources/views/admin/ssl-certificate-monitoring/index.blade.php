@@ -6,13 +6,13 @@
 <x-panel.flash />
 
 <x-panel.card title="Monitoring SSL certifikátů">
-    <div class="row g-3 mb-4">
-        <div class="col-md-6">
+    <div class="grid grid-cols-12 gap-3 mb-4">
+        <div class="col-span-12 md:col-span-6">
             <div class="alert alert-warning mb-0">
                 <strong>Brzy expirující:</strong> {{ $expiringCount }}
             </div>
         </div>
-        <div class="col-md-6">
+        <div class="col-span-12 md:col-span-6">
             <div class="alert alert-danger mb-0">
                 <strong>Expirovaná:</strong> {{ $expiredCount }}
             </div>

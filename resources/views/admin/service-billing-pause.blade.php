@@ -27,8 +27,8 @@
                         <td>{{ $service->customer?->display_name ?? '—' }}</td>
                         <td class="f-12">{{ $service->billing_pause_requested_at->format('d.m.Y H:i') }}</td>
                         <td>
-                            <div class="d-flex gap-2">
-                                <form method="POST" action="{{ route('admin.service-billing-pause.approve', $service) }}" class="d-flex gap-2 align-items-center">
+                            <div class="flex gap-2">
+                                <form method="POST" action="{{ route('admin.service-billing-pause.approve', $service) }}" class="flex gap-2 items-center">
                                     @csrf
                                     <input type="date" name="paused_until" class="form-control form-control-sm" style="width:160px"
                                            min="{{ now()->addDay()->toDateString() }}" required>

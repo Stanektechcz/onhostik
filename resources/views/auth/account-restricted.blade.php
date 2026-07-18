@@ -16,10 +16,10 @@
                 <p class="f-light f-14 mb-4">
                     Váš účet byl dočasně omezen. Kontaktujte naši podporu pro obnovení přístupu.
                 </p>
-                <a class="btn btn-primary text-white d-block mb-3" href="{{ url('/') }}">
+                <a class="btn btn-primary text-white block mb-3" href="{{ url('/') }}">
                     Domovská stránka
                 </a>
-                <a class="btn btn-outline-secondary d-block" href="{{ url('/panel/podpora') }}">
+                <a class="btn btn-outline-secondary block" href="{{ url('/panel/podpora') }}">
                     <i data-feather="message-square" style="width:14px;height:14px;"></i>
                     Kontaktovat podporu
                 </a>

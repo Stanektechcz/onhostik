@@ -15,9 +15,9 @@
                 <thead>
                     <tr>
                         <th>Kód země</th>
-                        <th class="text-end">Zákazníků</th>
-                        <th class="text-end">Faktur</th>
-                        <th class="text-end">Příjmy (Kč)</th>
+                        <th class="text-right">Zákazníků</th>
+                        <th class="text-right">Faktur</th>
+                        <th class="text-right">Příjmy (Kč)</th>
                         <th>Podíl</th>
                     </tr>
                 </thead>
@@ -26,12 +26,12 @@
                     @php $pct = round($row->revenue_minor / $totalRevenue * 100, 1); @endphp
                     <tr>
                         <td><strong>{{ strtoupper($row->country_code ?? 'N/A') }}</strong></td>
-                        <td class="text-end">{{ number_format($row->customer_count) }}</td>
-                        <td class="text-end">{{ number_format($row->invoice_count) }}</td>
-                        <td class="text-end">{{ number_format($row->revenue_minor / 100, 2) }}</td>
+                        <td class="text-right">{{ number_format($row->customer_count) }}</td>
+                        <td class="text-right">{{ number_format($row->invoice_count) }}</td>
+                        <td class="text-right">{{ number_format($row->revenue_minor / 100, 2) }}</td>
                         <td>
-                            <div class="d-flex align-items-center gap-2">
-                                <div class="progress flex-grow-1" style="height:6px">
+                            <div class="flex items-center gap-2">
+                                <div class="progress grow" style="height:6px">
                                     <div class="progress-bar bg-primary" style="width:{{ $pct }}%"></div>
                                 </div>
                                 <small class="text-muted">{{ $pct }}%</small>

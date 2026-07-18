@@ -4,16 +4,16 @@
 @section('content')
 <div class="container-fluid">
     <div class="page-header">
-        <div class="row align-items-center">
-            <div class="col-sm-6">
+        <div class="grid grid-cols-12 items-center">
+            <div class="col-span-12 sm:col-span-6">
                 <h3>Stáří pohledávek</h3>
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{{ route('admin.dashboard') }}">Přehled</a></li>
                     <li class="breadcrumb-item active">Aging</li>
                 </ol>
             </div>
-            <div class="col-sm-6 text-end">
-                <form method="GET" action="{{ route('admin.financial-report.revenue-csv') }}" class="d-inline-flex gap-2 align-items-center">
+            <div class="col-span-12 sm:col-span-6 text-right">
+                <form method="GET" action="{{ route('admin.financial-report.revenue-csv') }}" class="inline-flex gap-2 items-center">
                     <input type="date" name="from" class="form-control form-control-sm"
                            value="{{ now()->startOfYear()->toDateString() }}">
                     <input type="date" name="to" class="form-control form-control-sm"
@@ -39,14 +39,14 @@
     @endphp
 
     {{-- Summary cards --}}
-    <div class="row">
+    <div class="grid grid-cols-12">
         @foreach ($bucketLabels as $key => $meta)
-        <div class="col-sm-6 col-xl">
+        <div class="col-span-12 sm:col-span-6 col-xl">
             <div class="card">
                 <div class="card-body text-center py-3">
                     <span class="badge bg-{{ $meta['color'] }} mb-1">{{ count($buckets[$key]) }}</span>
                     <p class="mb-0 small text-muted">{{ $meta['label'] }}</p>
-                    <p class="mb-0 fw-semibold">{{ number_format($totals[$key] / 100, 0, ',', ' ') }} Kč</p>
+                    <p class="mb-0 font-semibold">{{ number_format($totals[$key] / 100, 0, ',', ' ') }} Kč</p>
                 </div>
             </div>
         </div>
@@ -57,7 +57,7 @@
     @foreach ($bucketLabels as $key => $meta)
     @if (count($buckets[$key]) > 0)
     <div class="card mt-3">
-        <div class="card-header d-flex justify-content-between">
+        <div class="card-header flex justify-between">
             <h5><span class="badge bg-{{ $meta['color'] }} me-2">{{ count($buckets[$key]) }}</span>{{ $meta['label'] }}</h5>
             <strong>{{ number_format($totals[$key] / 100, 2, ',', ' ') }} Kč</strong>
         </div>
@@ -73,7 +73,7 @@
                         <td><code>{{ $invoice->number }}</code></td>
                         <td>{{ $invoice->customer?->company_name ?: $invoice->snapshot_name }}</td>
                         <td>{{ $invoice->due_date?->format('d.m.Y') }}</td>
-                        <td class="text-end">{{ number_format($invoice->total->getAmount()->toFloat(), 2, ',', ' ') }}</td>
+                        <td class="text-right">{{ number_format($invoice->total->getAmount()->toFloat(), 2, ',', ' ') }}</td>
                         <td>{{ $invoice->currency->value }}</td>
                         <td>
                             <a href="{{ route('admin.invoices.show', $invoice) }}" class="btn btn-xs btn-outline-primary">Detail</a>

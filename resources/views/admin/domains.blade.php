@@ -11,7 +11,7 @@
     <div class="container-fluid">
         <x-panel.flash />
 
-        {{-- KPI row --}}
+        {{-- KPI grid grid-cols-12 --}}
         <div class="grid grid-cols-12 card-gap">
             <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <x-panel.stat-widget
@@ -29,7 +29,7 @@
                 <div class="card small-widget">
                     <div class="card-body {{ $expiringCount > 0 ? 'warning' : 'secondary' }}">
                         <span class="f-light">Vyprší do 30 dní</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>{{ $expiringCount }}</h4>
                         </div>
                         <div class="bg-gradient"><i data-feather="clock"></i></div>
@@ -40,7 +40,7 @@
                 <div class="card small-widget">
                     <div class="card-body {{ $expiredCount > 0 ? 'danger' : 'secondary' }}">
                         <span class="f-light">Vypršelé domény</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>{{ $expiredCount }}</h4>
                         </div>
                         <div class="bg-gradient"><i data-feather="alert-octagon"></i></div>
@@ -51,7 +51,7 @@
 
         {{-- Domains table --}}
         <x-panel.card :title="__('panel.nav.admin_domains')">
-            <form method="GET" action="{{ route('admin.domains.index') }}" class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+            <form method="GET" action="{{ route('admin.domains.index') }}" class="flex gap-2 mb-3 flex-wrap items-center">
                 <input type="text" name="q" class="form-control" style="max-width: 260px;"
                        placeholder="Doména, zákazník…" value="{{ $search }}">
                 <select name="expiry" class="form-select w-auto">

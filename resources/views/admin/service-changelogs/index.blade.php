@@ -3,8 +3,8 @@
 @section('content')
 <div class="container-fluid">
     <x-panel.flash />
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="Záznamy změn služeb">
                 <form method="GET" action="{{ route('admin.service-changelogs.index') }}" class="mb-3">
                     <div class="input-group">
@@ -46,7 +46,7 @@
                 <div class="mt-3">{{ $changelogs->links() }}</div>
             </x-panel.card>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Přidat záznam">
                 <form method="POST" action="{{ route('admin.service-changelogs.store') }}">
                     @csrf
@@ -70,7 +70,7 @@
                         <input type="text" name="caused_by" class="form-control @error('caused_by') is-invalid @enderror" value="{{ old('caused_by') }}" maxlength="100">
                         @error('caused_by')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Přidat</button>
+                    <button type="submit" class="btn btn-primary w-full">Přidat</button>
                 </form>
             </x-panel.card>
         </div>

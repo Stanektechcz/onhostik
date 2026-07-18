@@ -19,7 +19,7 @@
                         <th>Faktura</th>
                         <th>Zákazník</th>
                         <th>Služba</th>
-                        <th class="text-end">Částka</th>
+                        <th class="text-right">Částka</th>
                         <th>Poslední upomínka</th>
                         <th></th>
                     </tr>
@@ -34,7 +34,7 @@
                         </td>
                         <td>{{ $invoice->customer?->company_name ?? $invoice->customer?->full_name ?? '—' }}</td>
                         <td class="f-12 text-muted">{{ $invoice->renewalService?->label ?? '—' }}</td>
-                        <td class="text-end f-w-600">{{ number_format($invoice->total->getMinorAmount()->toInt() / 100, 0, ',', ' ') }} Kč</td>
+                        <td class="text-right f-w-600">{{ number_format($invoice->total->getMinorAmount()->toInt() / 100, 0, ',', ' ') }} Kč</td>
                         <td class="f-12">{{ $invoice->renewal_failure_notified_at?->format('d.m.Y H:i') ?? '—' }}</td>
                         <td>
                             <form method="POST" action="{{ route('admin.failed-payment-queue.resend', $invoice) }}">

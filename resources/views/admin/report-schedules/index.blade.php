@@ -3,8 +3,8 @@
 @section('title', 'Plány reportů')
 
 @section('content')
-<div class="row g-4">
-    <div class="col-lg-8">
+<div class="grid grid-cols-12 gap-4">
+    <div class="col-span-12 lg:col-span-8">
         <x-panel.card title="Plány reportů">
             <x-panel.flash />
 
@@ -36,7 +36,7 @@
                                         {{ $freqLabels[$schedule->frequency] ?? $schedule->frequency }}
                                     </span>
                                 </td>
-                                <td><span class="badge bg-dark text-uppercase">{{ $schedule->format }}</span></td>
+                                <td><span class="badge bg-dark uppercase">{{ $schedule->format }}</span></td>
                                 <td>
                                     @php $recipients = is_array($schedule->recipients) ? $schedule->recipients : [] @endphp
                                     {{ count($recipients) }} příjemce/ů
@@ -77,7 +77,7 @@
         </x-panel.card>
     </div>
 
-    <div class="col-lg-4">
+    <div class="col-span-12 lg:col-span-4">
         <x-panel.card title="Přidat plán reportu">
             <form method="POST" action="{{ route('admin.report-schedules.store') }}">
                 @csrf
@@ -132,7 +132,7 @@
                     <label class="form-check-label" for="is_active">Aktivní</label>
                 </div>
 
-                <button type="submit" class="btn btn-primary w-100">Vytvořit plán</button>
+                <button type="submit" class="btn btn-primary w-full">Vytvořit plán</button>
             </form>
         </x-panel.card>
     </div>

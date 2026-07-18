@@ -67,10 +67,10 @@
                                     <td class="font-monospace f-12 text-break" style="max-width:280px">{{ $record->content }}</td>
                                     <td class="text-muted f-12">{{ number_format($record->ttl) }}</td>
                                     <td class="text-muted f-12">{{ $record->priority !== null ? $record->priority : '—' }}</td>
-                                    <td class="text-end">
+                                    <td class="text-right">
                                         <form method="POST"
                                               action="{{ route('panel.dns-manager.records.destroy', [$zone, $record]) }}"
-                                              class="d-inline"
+                                              class="inline"
                                               onsubmit="return confirm('Smazat záznam?')">
                                             @csrf @method('DELETE')
                                             <button type="submit" class="btn btn-outline-danger btn-xs">
@@ -126,14 +126,14 @@
                                        value="{{ old('content') }}" required>
                                 @error('content')<div class="invalid-feedback">{{ $message }}</div>@enderror
                             </div>
-                            <div class="row g-2 mb-3">
-                                <div class="col-6">
+                            <div class="grid grid-cols-12 gap-2 mb-3">
+                                <div class="col-span-6">
                                     <label class="form-label f-12">TTL</label>
                                     <input type="number" name="ttl"
                                            class="form-control form-control-sm @error('ttl') is-invalid @enderror"
                                            value="{{ old('ttl', 3600) }}" min="60" max="86400" required>
                                 </div>
-                                <div class="col-6">
+                                <div class="col-span-6">
                                     <label class="form-label f-12">Priorita</label>
                                     <input type="number" name="priority"
                                            class="form-control form-control-sm @error('priority') is-invalid @enderror"
@@ -141,7 +141,7 @@
                                            placeholder="MX/SRV">
                                 </div>
                             </div>
-                            <button type="submit" class="btn btn-primary btn-sm w-100">
+                            <button type="submit" class="btn btn-primary btn-sm w-full">
                                 <svg data-feather="plus" style="width:14px;height:14px" class="me-1"></svg>
                                 Přidat záznam
                             </button>

@@ -19,31 +19,31 @@
         <div class="col-span-4 xl:col-span-12">
             <x-panel.card title="Zákazník">
                 <ul class="list-group list-group-flush">
-                    <li class="list-group-item d-flex justify-content-between px-0">
+                    <li class="list-group-item flex justify-between px-0">
                         <span class="f-light">Email</span>
                         <strong>{{ $customer->email }}</strong>
                     </li>
                     @if($customer->company_name)
-                    <li class="list-group-item d-flex justify-content-between px-0">
+                    <li class="list-group-item flex justify-between px-0">
                         <span class="f-light">Firma</span>
                         <strong>{{ $customer->company_name }}</strong>
                     </li>
                     @endif
                     @if($customer->phone)
-                    <li class="list-group-item d-flex justify-content-between px-0">
+                    <li class="list-group-item flex justify-between px-0">
                         <span class="f-light">Telefon</span>
                         <strong>{{ $customer->phone }}</strong>
                     </li>
                     @endif
-                    <li class="list-group-item d-flex justify-content-between px-0">
+                    <li class="list-group-item flex justify-between px-0">
                         <span class="f-light">Typ</span>
                         <span class="badge badge-light-secondary">{{ $customer->type }}</span>
                     </li>
-                    <li class="list-group-item d-flex justify-content-between px-0">
+                    <li class="list-group-item flex justify-between px-0">
                         <span class="f-light">Země</span>
                         <strong>{{ $customer->country_code }}</strong>
                     </li>
-                    <li class="list-group-item d-flex justify-content-between px-0">
+                    <li class="list-group-item flex justify-between px-0">
                         <span class="f-light">Registrace</span>
                         <strong>{{ $customer->created_at?->format('d. m. Y') }}</strong>
                     </li>

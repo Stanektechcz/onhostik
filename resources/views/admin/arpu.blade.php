@@ -48,9 +48,9 @@
                 <thead>
                     <tr>
                         <th>Měsíc</th>
-                        <th class="text-end">Počet zákazníků</th>
-                        <th class="text-end">Příjem (Kč)</th>
-                        <th class="text-end">ARPU (Kč)</th>
+                        <th class="text-right">Počet zákazníků</th>
+                        <th class="text-right">Příjem (Kč)</th>
+                        <th class="text-right">ARPU (Kč)</th>
                         <th>Vizualizace</th>
                     </tr>
                 </thead>
@@ -58,9 +58,9 @@
                     @foreach($arpuData as $row)
                     <tr>
                         <td class="f-w-500">{{ $row['month'] }}</td>
-                        <td class="text-end f-12">{{ $row['customers'] }}</td>
-                        <td class="text-end f-12">{{ number_format($row['revenue'] / 100, 0, ',', ' ') }}</td>
-                        <td class="text-end f-w-600">{{ number_format($row['arpu'] / 100, 0, ',', ' ') }}</td>
+                        <td class="text-right f-12">{{ $row['customers'] }}</td>
+                        <td class="text-right f-12">{{ number_format($row['revenue'] / 100, 0, ',', ' ') }}</td>
+                        <td class="text-right f-w-600">{{ number_format($row['arpu'] / 100, 0, ',', ' ') }}</td>
                         <td style="min-width: 180px;">
                             @php $pct = $maxArpu > 0 ? round($row['arpu'] / $maxArpu * 100) : 0; @endphp
                             <div class="progress" style="height: 8px;">

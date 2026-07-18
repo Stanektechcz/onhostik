@@ -13,8 +13,8 @@
                 <thead>
                     <tr>
                         <th>Kategorie</th>
-                        <th class="text-end">Tržby</th>
-                        <th class="text-end">Faktur</th>
+                        <th class="text-right">Tržby</th>
+                        <th class="text-right">Faktur</th>
                         <th>Podíl</th>
                     </tr>
                 </thead>
@@ -22,8 +22,8 @@
                     @foreach($rows as $row)
                     <tr>
                         <td class="f-w-500">{{ $row->product_type }}</td>
-                        <td class="text-end f-w-600">{{ number_format($row->revenue_minor / 100, 2, ',', ' ') }} Kč</td>
-                        <td class="text-end text-muted">{{ $row->invoice_count }}</td>
+                        <td class="text-right f-w-600">{{ number_format($row->revenue_minor / 100, 2, ',', ' ') }} Kč</td>
+                        <td class="text-right text-muted">{{ $row->invoice_count }}</td>
                         <td style="min-width:120px">
                             @php $pct = round($row->revenue_minor / $totalRevenue * 100) @endphp
                             <div class="progress" style="height:8px">

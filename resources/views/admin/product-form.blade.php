@@ -88,7 +88,7 @@
                             </div>
                         </div>
 
-                        <div class="d-flex gap-2">
+                        <div class="flex gap-2">
                             <button type="submit" class="btn btn-primary">{{ __('panel.admin.save') }}</button>
                             <a href="{{ route('admin.products.index') }}" class="btn btn-outline-secondary">{{ __('panel.common.back') }}</a>
                             @if(!$isNew)
@@ -135,7 +135,7 @@
                             <td><input type="checkbox" name="is_active" value="1" form="plan-{{ $plan->id }}" @checked($plan->is_active)></td>
                             <td><input type="checkbox" name="is_featured" value="1" form="plan-{{ $plan->id }}" @checked($plan->is_featured)></td>
                             <td>
-                                <div class="d-flex gap-1">
+                                <div class="flex gap-1">
                                     <button type="submit" form="plan-{{ $plan->id }}" class="btn btn-primary btn-sm">{{ __('panel.admin.save') }}</button>
                                     <button type="submit" form="plan-del-{{ $plan->id }}" class="btn btn-outline-danger btn-sm">×</button>
                                 </div>
@@ -178,7 +178,7 @@
                             <input id="np-eur" type="number" step="0.01" min="0" name="price_eur" class="form-control" placeholder="3.99">
                         </div>
                     </div>
-                    <div class="d-flex gap-3 mb-3">
+                    <div class="flex gap-3 mb-3">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="np-active" name="is_active" value="1" checked>
                             <label class="form-check-label" for="np-active">Aktivní</label>

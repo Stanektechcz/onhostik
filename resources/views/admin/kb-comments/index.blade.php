@@ -21,14 +21,14 @@
                 <tbody>
                     @foreach($pending as $c)
                     <tr>
-                        <td class="text-truncate" style="max-width:160px">
+                        <td class="truncate" style="max-width:160px">
                             <a href="{{ route('admin.kb.show', $c->kb_article_id) }}">{{ $c->article?->title ?? '—' }}</a>
                         </td>
                         <td>{{ $c->author?->name ?? '—' }}</td>
-                        <td class="text-truncate" style="max-width:300px">{{ $c->body }}</td>
+                        <td class="truncate" style="max-width:300px">{{ $c->body }}</td>
                         <td class="small text-muted">{{ $c->created_at?->format('d.m.Y H:i') }}</td>
                         <td>
-                            <div class="d-flex gap-2">
+                            <div class="flex gap-2">
                                 <form method="POST" action="{{ route('admin.kb-comments.approve', $c) }}">
                                     @csrf @method('PATCH')
                                     <button class="btn btn-sm btn-success">Schválit</button>

@@ -14,7 +14,7 @@
             <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="$invoice->type->label() . ' ' . $invoice->number">
                     {{-- Meta strip --}}
-                    <div class="d-flex flex-wrap gap-3 mb-3 align-items-center">
+                    <div class="flex flex-wrap gap-3 mb-3 items-center">
                         <x-panel.status-badge :status="$invoice->status" />
                         <span class="f-light f-12">
                             <i data-feather="calendar" style="width:11px;height:11px"></i>
@@ -60,20 +60,20 @@
                     </x-panel.data-table>
 
                     {{-- Totals --}}
-                    <div class="d-flex justify-content-end mt-3">
+                    <div class="flex justify-end mt-3">
                         <div>
                             <table class="table table-borderless mb-0">
                                 <tr>
                                     <td class="f-light">{{ __('panel.orders.subtotal') }}</td>
-                                    <td class="text-end"><x-panel.money :money="$invoice->subtotal" /></td>
+                                    <td class="text-right"><x-panel.money :money="$invoice->subtotal" /></td>
                                 </tr>
                                 <tr>
                                     <td class="f-light">{{ __('panel.orders.vat') }}</td>
-                                    <td class="text-end"><x-panel.money :money="$invoice->tax_amount" /></td>
+                                    <td class="text-right"><x-panel.money :money="$invoice->tax_amount" /></td>
                                 </tr>
                                 <tr>
                                     <td class="f-w-600">{{ __('panel.common.total') }}</td>
-                                    <td class="text-end f-w-600"><x-panel.money :money="$invoice->total" /></td>
+                                    <td class="text-right f-w-600"><x-panel.money :money="$invoice->total" /></td>
                                 </tr>
                                 @if($invoice->late_fee_amount !== null)
                                 <tr>
@@ -82,7 +82,7 @@
                                         Upomínkový poplatek
                                         <small class="text-muted ms-1">({{ $invoice->late_fee_applied_at?->format('d.m.Y') }})</small>
                                     </td>
-                                    <td class="text-end text-warning f-12">
+                                    <td class="text-right text-warning f-12">
                                         +{{ number_format($invoice->late_fee_amount / 100, 0, ',', ' ') }} Kč
                                     </td>
                                 </tr>
@@ -92,7 +92,7 @@
                     </div>
 
                     {{-- Actions --}}
-                    <div class="border-top pt-3 mt-3 d-flex flex-wrap gap-2">
+                    <div class="border-top pt-3 mt-3 flex flex-wrap gap-2">
                         <a href="{{ route('admin.invoices.pdf', $invoice) }}" target="_blank"
                            class="btn btn-outline-secondary btn-sm">
                             <i data-feather="download" style="width:13px;height:13px"></i>
@@ -120,7 +120,7 @@
                         {{-- Dunning pause / resume --}}
                         @if($invoice->status->isOpen())
                             @if($invoice->dunning_paused_until !== null && $invoice->dunning_paused_until->isFuture())
-                                <span class="badge badge-light-warning f-12 align-self-center">
+                                <span class="badge badge-light-warning f-12 self-center">
                                     <i data-feather="pause" style="width:11px;height:11px"></i>
                                     Upomínání do {{ $invoice->dunning_paused_until->format('d.m.Y') }}
                                 </span>
@@ -133,7 +133,7 @@
                                 </form>
                             @else
                                 <form method="POST" action="{{ route('admin.invoices.pause-dunning', $invoice) }}"
-                                      class="d-flex gap-1 align-items-center">
+                                      class="flex gap-1 items-center">
                                     @csrf
                                     <select name="days" class="form-select form-select-sm" style="width:90px">
                                         <option value="7">7 dní</option>
@@ -235,7 +235,7 @@
                 {{-- Related order --}}
                 @if($invoice->order)
                     <x-panel.card :title="__('panel.nav.admin_orders')">
-                        <div class="d-flex justify-content-between align-items-center">
+                        <div class="flex justify-between items-center">
                             <div>
                                 <p class="mb-1 f-w-600">#{{ $invoice->order->id }}</p>
                                 <x-panel.status-badge :status="$invoice->order->status" />

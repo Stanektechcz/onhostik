@@ -171,7 +171,7 @@
         list.innerHTML = sorted.map(function (e) {
             var d = e.start;
             var dateStr = d.toLocaleDateString('cs-CZ', { day: '2-digit', month: '2-digit' });
-            return '<div class="d-flex justify-content-between mb-1">'
+            return '<div class="flex justify-between mb-1">'
                 + '<span style="color:' + (e.backgroundColor || '#333') + '">● ' + e.title + '</span>'
                 + '<span class="text-muted">' + dateStr + '</span>'
                 + '</div>';

@@ -14,14 +14,12 @@
 
     @if($items->isEmpty())
         <x-panel.card title="Košík">
-            <div class="text-center py-5">
-                <i data-feather="shopping-bag" class="empty-state-icon"></i>
-                <h6 class="f-light mt-3">Váš košík je prázdný</h6>
-                <p class="f-light f-12">Vyberte tarif a přidejte ho do košíku — objednat můžete i více služeb najednou.</p>
-                <a href="{{ route('panel.orders.create') }}" class="btn btn-primary text-white mt-2">
+            <x-panel.empty-state icon="shopping-bag" title="Váš košík je prázdný"
+                subtitle="Vyberte tarif a přidejte ho do košíku — objednat můžete i více služeb najednou.">
+                <a href="{{ route('panel.orders.create') }}" class="btn btn-primary text-white">
                     <i data-feather="plus-circle"></i> Vybrat tarif
                 </a>
-            </div>
+            </x-panel.empty-state>
         </x-panel.card>
     @else
         <div class="grid grid-cols-12 card-gap">
@@ -73,7 +71,7 @@
                                                 {{ \App\Domains\Shared\Support\MoneyFormatter::format(\Brick\Money\Money::ofMinor($item['subtotal'], $currency)) }}
                                             </span>
                                         </td>
-                                        <td class="text-end">
+                                        <td class="text-right">
                                             <form method="POST" action="{{ route('panel.cart.remove', $item['plan']->id) }}"
                                                   onsubmit="return confirm('Odebrat položku z košíku?')">
                                                 @csrf
@@ -110,17 +108,41 @@
                 <form method="POST" action="{{ route('panel.cart.checkout') }}" id="cart-checkout-form">
                     @csrf
 
+                    @php
+                        // Products provisioned by a web/domain backend need a domain.
+                        $domainDrivers = ['aapanel', 'wedos'];
+                        $domainItems = $items->filter(fn ($i) => in_array($i['plan']->product?->provisioning_driver?->value, $domainDrivers, true));
+                    @endphp
+                    @if($domainItems->isNotEmpty())
+                        <x-panel.card title="Konfigurace služeb">
+                            <p class="f-light f-12 mb-3">Zadejte doménu pro služby, které ji vyžadují. Nepovinné — lze doplnit i po objednání.</p>
+                            @foreach($domainItems as $i)
+                                <div class="mb-3">
+                                    <label class="form-label f-12" for="domain-{{ $i['plan']->id }}">
+                                        <i data-feather="globe" style="width:12px;height:12px;"></i>
+                                        {{ $i['plan']->product?->name }} — {{ $i['plan']->name }}
+                                    </label>
+                                    <input type="text" id="domain-{{ $i['plan']->id }}" name="domains[{{ $i['plan']->id }}]"
+                                           class="form-control form-control-sm" placeholder="mujweb.cz"
+                                           value="{{ old('domains.' . $i['plan']->id) }}"
+                                           pattern="^[a-zA-Z0-9][a-zA-Z0-9\-]*\.[a-zA-Z]{2,}$">
+                                </div>
+                            @endforeach
+                            @error('domains.*')<div class="text-danger f-12">{{ $message }}</div>@enderror
+                        </x-panel.card>
+                    @endif
+
                     <x-panel.card title="Souhrn objednávky">
                         <table class="table table-borderless mb-3">
                             <tr>
                                 <td class="f-light ps-0">Mezisoučet (bez DPH)</td>
-                                <td class="text-end f-w-500">
+                                <td class="text-right f-w-500">
                                     {{ \App\Domains\Shared\Support\MoneyFormatter::format(\Brick\Money\Money::ofMinor($subtotal, $currency)) }}
                                 </td>
                             </tr>
                             <tr>
                                 <td class="f-light ps-0">Položek celkem</td>
-                                <td class="text-end">{{ $items->sum('qty') }}</td>
+                                <td class="text-right">{{ $items->sum('qty') }}</td>
                             </tr>
                         </table>
 
@@ -148,7 +170,7 @@
                             @endphp
                             @foreach($cartMethods as $i => $method)
                                 <div class="col-span-12">
-                                    <div class="card-wrapper custom-border rounded-3 light-card payment-method-option {{ $i === 0 ? 'selected' : '' }}"
+                                    <div class="card-wrapper custom-border rounded light-card payment-method-option {{ $i === 0 ? 'selected' : '' }}"
                                          data-radio="{{ $method['id'] }}">
                                         <div class="grow">
                                             <div class="form-check radio radio-primary">

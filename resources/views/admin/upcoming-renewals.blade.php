@@ -14,7 +14,7 @@
     {{-- Filter tabs --}}
     <div class="card mb-3">
         <div class="card-body py-2">
-            <div class="d-flex gap-2 align-items-center flex-wrap">
+            <div class="flex gap-2 items-center flex-wrap">
                 <span class="f-12 f-light me-2">Zobrazit obnovy v příštích:</span>
                 @foreach([7, 14, 30] as $d)
                 <a href="{{ route('admin.upcoming-renewals.index', ['days' => $d]) }}"
@@ -67,7 +67,7 @@
                                 </span>
                             </td>
                             <td>
-                                <div class="d-flex gap-1 flex-wrap">
+                                <div class="flex gap-1 flex-wrap">
                                     @foreach([30 => '30d', 14 => '14d', 7 => '7d', 1 => '1d'] as $th => $lbl)
                                         @php $col = "renewal_reminder_{$th}d_sent_at"; @endphp
                                         <span class="badge {{ $service->$col ? 'badge-light-success' : 'badge-light-secondary' }} f-10">

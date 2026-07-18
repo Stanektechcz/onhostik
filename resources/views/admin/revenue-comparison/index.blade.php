@@ -78,7 +78,7 @@
                         <thead class="table-light">
                             <tr>
                                 <th>Období</th>
-                                <th class="text-end">Tržby</th>
+                                <th class="text-right">Tržby</th>
                                 <th class="text-center">Změna</th>
                             </tr>
                         </thead>
@@ -88,7 +88,7 @@
                                     <span class="f-w-500">Aktuální měsíc</span>
                                     <div class="text-muted f-12">{{ now()->translatedFormat('F Y') }}</div>
                                 </td>
-                                <td class="text-end f-w-500">{{ number_format($currentMonth / 100, 2, ',', ' ') }} Kč</td>
+                                <td class="text-right f-w-500">{{ number_format($currentMonth / 100, 2, ',', ' ') }} Kč</td>
                                 <td class="text-center">
                                     @if($momChange !== null)
                                         @if($momChange > 0)
@@ -109,7 +109,7 @@
                                     <span class="f-w-500">Předchozí měsíc</span>
                                     <div class="text-muted f-12">{{ now()->subMonth()->translatedFormat('F Y') }}</div>
                                 </td>
-                                <td class="text-end">{{ number_format($previousMonth / 100, 2, ',', ' ') }} Kč</td>
+                                <td class="text-right">{{ number_format($previousMonth / 100, 2, ',', ' ') }} Kč</td>
                                 <td class="text-center text-muted">—</td>
                             </tr>
                             <tr class="table-light">
@@ -117,7 +117,7 @@
                                     <span class="f-w-500">Aktuální rok</span>
                                     <div class="text-muted f-12">{{ now()->year }}</div>
                                 </td>
-                                <td class="text-end f-w-500">{{ number_format($currentYear / 100, 2, ',', ' ') }} Kč</td>
+                                <td class="text-right f-w-500">{{ number_format($currentYear / 100, 2, ',', ' ') }} Kč</td>
                                 <td class="text-center">
                                     @if($yoyChange !== null)
                                         @if($yoyChange > 0)
@@ -138,7 +138,7 @@
                                     <span class="f-w-500">Předchozí rok</span>
                                     <div class="text-muted f-12">{{ now()->subYear()->year }}</div>
                                 </td>
-                                <td class="text-end">{{ number_format($previousYear / 100, 2, ',', ' ') }} Kč</td>
+                                <td class="text-right">{{ number_format($previousYear / 100, 2, ',', ' ') }} Kč</td>
                                 <td class="text-center text-muted">—</td>
                             </tr>
                         </tbody>

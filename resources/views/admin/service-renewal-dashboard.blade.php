@@ -42,7 +42,7 @@
     </div>
 
     {{-- Filter --}}
-    <div class="d-flex gap-2 mb-3">
+    <div class="flex gap-2 mb-3">
         @foreach([7, 14, 30, 60, 90] as $d)
         <a href="{{ route('admin.services.renewal-dashboard', ['days' => $d]) }}"
            class="btn btn-sm {{ $window === $d ? 'btn-primary' : 'btn-outline-secondary' }}">

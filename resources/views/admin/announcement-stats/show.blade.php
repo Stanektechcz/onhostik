@@ -10,8 +10,8 @@
         <a href="{{ route('admin.announcement-stats.index') }}" class="btn btn-sm btn-outline-secondary">&larr; Zpět</a>
     </div>
 
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="Uživatelé, kteří zavřeli oznámení">
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
@@ -32,14 +32,14 @@
             </x-panel.card>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Hodinová statistika zavření">
                 @if($hourlyStats->isEmpty())
                     <p class="text-muted">Žádná data.</p>
                 @else
                 <ul class="list-group list-group-flush">
                     @foreach($hourlyStats as $stat)
-                    <li class="list-group-item d-flex justify-content-between">
+                    <li class="list-group-item flex justify-between">
                         <span class="text-muted small">{{ $stat->hour }}</span>
                         <span class="badge bg-primary">{{ $stat->cnt }}</span>
                     </li>

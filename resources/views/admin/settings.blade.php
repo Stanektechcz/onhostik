@@ -111,7 +111,7 @@
 
             {{-- ── Akce ──────────────────────────────────────────────────── --}}
             <x-panel.card title="Správa aplikace">
-                <div class="d-flex align-items-center gap-3 flex-wrap">
+                <div class="flex items-center gap-3 flex-wrap">
                     <div class="form-check">
                         <input type="checkbox" name="clear_cache" value="1" id="clear_cache" class="form-check-input">
                         <label for="clear_cache" class="form-check-label">Smazat cache config/route/view po uložení</label>
@@ -125,7 +125,7 @@
                 </p>
             </x-panel.card>
 
-            <div class="d-flex justify-content-end pb-4">
+            <div class="flex justify-end pb-4">
                 <button type="submit" class="btn btn-primary">Uložit nastavení</button>
             </div>
         </form>

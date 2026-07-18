@@ -23,7 +23,7 @@
                         <tr>
                             <td>
                                 @if($tag->color)
-                                    <span class="d-inline-block rounded-circle me-2"
+                                    <span class="inline-block rounded-full me-2"
                                           style="width:12px;height:12px;background-color:{{ $tag->color }};"></span>
                                 @endif
                                 {{ $tag->name }}

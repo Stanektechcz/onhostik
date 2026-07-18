@@ -3,8 +3,8 @@
 @section('title', 'Uložené vyhledávací filtry')
 
 @section('content')
-<div class="row g-4">
-    <div class="col-lg-8">
+<div class="grid grid-cols-12 gap-4">
+    <div class="col-span-12 lg:col-span-8">
         <x-panel.card title="Uložené vyhledávací filtry">
             <x-panel.flash />
 
@@ -32,7 +32,7 @@
                                     @endif
                                 </td>
                                 <td class="text-muted small">{{ $filter->created_at?->format('d.m.Y') }}</td>
-                                <td class="d-flex gap-1">
+                                <td class="flex gap-1">
                                     @unless ($filter->is_default)
                                         <form method="POST" action="{{ route('admin.saved-search-filters.update', $filter) }}">
                                             @csrf
@@ -64,7 +64,7 @@
         </x-panel.card>
     </div>
 
-    <div class="col-lg-4">
+    <div class="col-span-12 lg:col-span-4">
         <x-panel.card title="Uložit nový filtr">
             <form method="POST" action="{{ route('admin.saved-search-filters.store') }}">
                 @csrf
@@ -98,7 +98,7 @@
                     <label class="form-check-label" for="is_default">Nastavit jako výchozí</label>
                 </div>
 
-                <button type="submit" class="btn btn-primary w-100">Uložit filtr</button>
+                <button type="submit" class="btn btn-primary w-full">Uložit filtr</button>
             </form>
         </x-panel.card>
     </div>

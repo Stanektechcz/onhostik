@@ -25,7 +25,7 @@
 
         {{-- Mark all read --}}
         @if($unreadCount > 0)
-        <div class="col-span-8 md:col-span-6 sm:col-span-12 d-flex align-items-center justify-content-end">
+        <div class="col-span-8 md:col-span-6 sm:col-span-12 flex items-center justify-end">
             <form method="POST" action="{{ route('panel.notifications.read-all') }}">
                 @csrf
                 <button type="submit" class="btn btn-outline-primary btn-sm">
@@ -41,7 +41,7 @@
             <x-panel.card :title="__('panel.nav.notifications')">
                 @if($notifications->isEmpty())
                     <div class="text-center py-5">
-                        <i data-feather="bell-off" style="width:48px;height:48px;" class="text-muted mb-3 d-block mx-auto"></i>
+                        <i data-feather="bell-off" style="width:48px;height:48px;" class="text-muted mb-3 block mx-auto"></i>
                         <h6 class="f-light mt-2">{{ __('panel.common.empty') }}</h6>
                         <p class="f-light f-12 mb-0">{{ __('panel.notifications.no_notifications') }}</p>
                     </div>
@@ -74,19 +74,19 @@
                                 $color  = $colorMap[$d['color'] ?? ''] ?? 'badge-light-secondary txt-secondary';
                                 $isRead = $notification->read_at !== null;
                             @endphp
-                            <div class="d-flex align-items-start gap-3 py-3 border-bottom {{ $isRead ? '' : 'bg-light' }}"
+                            <div class="flex items-start gap-3 py-3 border-bottom {{ $isRead ? '' : 'bg-light' }}"
                                  style="{{ $isRead ? '' : 'background:rgba(115,102,255,.03);border-left:3px solid rgba(115,102,255,.5);padding-left:12px;' }}">
 
                                 {{-- Icon bubble --}}
-                                <div class="flex-shrink-0">
-                                    <span class="badge {{ $color }} rounded-circle p-2" style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;">
+                                <div class="shrink-0">
+                                    <span class="badge {{ $color }} rounded-full p-2" style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;">
                                         <i data-feather="{{ $icon }}" style="width:16px;height:16px;"></i>
                                     </span>
                                 </div>
 
                                 {{-- Content --}}
-                                <div class="flex-grow-1">
-                                    <div class="d-flex justify-content-between align-items-start gap-2">
+                                <div class="grow">
+                                    <div class="flex justify-between items-start gap-2">
                                         <p class="mb-1 f-14 {{ $isRead ? 'f-light' : 'f-w-600' }}">
                                             {{ $d['title'] ?? '' }}
                                             @if(!$isRead)
@@ -96,7 +96,7 @@
                                         <span class="f-light f-11 text-nowrap">{{ $notification->created_at?->diffForHumans() }}</span>
                                     </div>
                                     <p class="mb-1 f-13 f-light">{{ $d['body'] ?? '' }}</p>
-                                    <div class="d-flex gap-2 mt-1">
+                                    <div class="flex gap-2 mt-1">
                                         @if(!empty($d['url']) && $d['url'] !== '#')
                                             <a href="{{ $d['url'] }}" class="btn btn-outline-primary btn-xs">
                                                 <i data-feather="arrow-right" style="width:11px;height:11px;"></i>

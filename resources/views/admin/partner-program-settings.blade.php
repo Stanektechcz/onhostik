@@ -244,7 +244,7 @@
 
         {{-- Save button --}}
         <div class="col-span-12">
-            <div class="d-flex gap-2">
+            <div class="flex gap-2">
                 <button type="submit" class="btn btn-primary text-white">
                     <i data-feather="save" style="width:14px;height:14px;"></i>
                     Uložit nastavení programu

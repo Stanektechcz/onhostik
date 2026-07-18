@@ -3,8 +3,8 @@
 @section('content')
 <div class="container-fluid">
     <x-panel.flash />
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="Licenční klíče">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
@@ -38,7 +38,7 @@
                                 </td>
                                 <td>{{ $key->expires_at ? \Carbon\Carbon::parse($key->expires_at)->format('d.m.Y') : '—' }}</td>
                                 <td>
-                                    <form method="POST" action="{{ route('admin.license-keys.update', $key) }}" class="d-flex gap-1 align-items-center">
+                                    <form method="POST" action="{{ route('admin.license-keys.update', $key) }}" class="flex gap-1 items-center">
                                         @csrf @method('PATCH')
                                         <select name="status" class="form-select form-select-sm" style="min-width:110px">
                                             @foreach($statuses as $s)
@@ -60,7 +60,7 @@
                 <div class="mt-3">{{ $keys->links() }}</div>
             </x-panel.card>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Přidat licenční klíč">
                 <form method="POST" action="{{ route('admin.license-keys.store') }}">
                     @csrf
@@ -99,7 +99,7 @@
                         <textarea name="notes" class="form-control @error('notes') is-invalid @enderror" rows="3" maxlength="500">{{ old('notes') }}</textarea>
                         @error('notes')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Přidat</button>
+                    <button type="submit" class="btn btn-primary w-full">Přidat</button>
                 </form>
             </x-panel.card>
         </div>

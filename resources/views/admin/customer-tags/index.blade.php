@@ -9,10 +9,10 @@
 
 @section('content')
 <div class="container-fluid">
-    <div class="row">
+    <div class="grid grid-cols-12">
 
         {{-- Left: tag list + create form --}}
-        <div class="col-xl-4 col-lg-5">
+        <div class="col-span-12 xl:col-span-4 col-span-12 lg:col-span-5">
             <div class="card">
                 <div class="card-header card-no-border">
                     <h5>Správa štítků</h5>
@@ -23,13 +23,13 @@
                     @else
                         <ul class="list-unstyled mb-4">
                             @foreach($tags as $tag)
-                            <li class="d-flex align-items-center gap-2 py-2 border-bottom">
-                                <span class="badge rounded-pill px-3 py-2"
+                            <li class="flex items-center gap-2 py-2 border-bottom">
+                                <span class="badge rounded-full px-3 py-2"
                                       style="{{ $tag->colorBadgeStyle() }}">
                                     {{ $tag->name }}
                                 </span>
                                 <small class="f-light ms-1">{{ $tag->customer_count }} zákazníků</small>
-                                <div class="ms-auto d-flex gap-1">
+                                <div class="ms-auto flex gap-1">
                                     <a href="{{ route('admin.customer-tags.index', ['tag' => $tag->id]) }}"
                                        class="btn btn-outline-primary btn-xs">Filtr</a>
                                     <button type="button"
@@ -63,7 +63,7 @@
                                             </div>
                                             <div class="mb-2">
                                                 <label class="form-label f-12">Barva (hex)</label>
-                                                <div class="d-flex gap-2">
+                                                <div class="flex gap-2">
                                                     <input type="color" name="color" class="form-control form-control-color"
                                                            value="{{ $tag->color }}" style="width:50px;">
                                                     <input type="text" name="color" class="form-control form-control-sm"
@@ -98,10 +98,10 @@
                         </div>
                         <div class="mb-2">
                             <label class="form-label f-12">Barva *</label>
-                            <div class="d-flex gap-2 align-items-center">
+                            <div class="flex gap-2 items-center">
                                 <input type="color" name="color" class="form-control form-control-color"
                                        value="{{ old('color', '#0d6efd') }}" style="width:50px;">
-                                <div class="d-flex gap-1 flex-wrap">
+                                <div class="flex gap-1 flex-wrap">
                                     @foreach(['#0d6efd','#198754','#dc3545','#ffc107','#6f42c1','#fd7e14','#20c997','#6c757d'] as $preset)
                                         <button type="button" class="btn btn-xs" style="background:{{ $preset }};width:22px;height:22px;padding:0;"
                                                 onclick="this.closest('form').querySelector('[type=color]').value='{{ $preset }}'"></button>
@@ -114,22 +114,22 @@
                             <input type="text" name="description" class="form-control form-control-sm"
                                    value="{{ old('description') }}" placeholder="Volitelný popis…">
                         </div>
-                        <button type="submit" class="btn btn-primary btn-sm w-100">Vytvořit štítek</button>
+                        <button type="submit" class="btn btn-primary btn-sm w-full">Vytvořit štítek</button>
                     </form>
                 </div>
             </div>
         </div>
 
         {{-- Right: filtered customers --}}
-        <div class="col-xl-8 col-lg-7">
+        <div class="col-span-12 xl:col-span-8 col-span-12 lg:col-span-7">
             @php $activeTag = $tags->firstWhere('id', $tagId); @endphp
 
             @if($activeTag)
             <div class="card">
-                <div class="card-header card-no-border d-flex align-items-center gap-2">
+                <div class="card-header card-no-border flex items-center gap-2">
                     <h5 class="mb-0">
                         Zákazníci se štítkem
-                        <span class="badge rounded-pill ms-1" style="{{ $activeTag->colorBadgeStyle() }}">
+                        <span class="badge rounded-full ms-1" style="{{ $activeTag->colorBadgeStyle() }}">
                             {{ $activeTag->name }}
                         </span>
                     </h5>
@@ -160,12 +160,12 @@
                                         <td class="f-light f-12">{{ $customer->email }}</td>
                                         <td>
                                             @foreach($customer->tags as $t)
-                                                <span class="badge rounded-pill me-1" style="{{ $t->colorBadgeStyle() }}">
+                                                <span class="badge rounded-full me-1" style="{{ $t->colorBadgeStyle() }}">
                                                     {{ $t->name }}
                                                 </span>
                                             @endforeach
                                         </td>
-                                        <td class="text-end">
+                                        <td class="text-right">
                                             <form method="POST"
                                                   action="{{ route('admin.customer-tags.detach', [$customer, $activeTag]) }}">
                                                 @csrf @method('DELETE')
@@ -184,7 +184,7 @@
             @else
             <div class="card">
                 <div class="card-body text-center py-5">
-                    <i data-feather="tag" style="width:40px;height:40px;" class="text-muted mb-3 d-block mx-auto"></i>
+                    <i data-feather="tag" style="width:40px;height:40px;" class="text-muted mb-3 block mx-auto"></i>
                     <h6 class="f-light">Vyberte štítek vlevo pro filtrování zákazníků</h6>
                     <p class="f-light f-12">Nebo přiřaďte štítky přímo z detailu zákazníka.</p>
                 </div>

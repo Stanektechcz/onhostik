@@ -144,25 +144,25 @@
                 <div class="card-body">
                     <div class="grid grid-cols-12 card-gap">
                         <div class="col-span-6 sm:col-span-12 md:col-span-3">
-                            <a href="{{ route('partner.assets') }}" class="card text-center p-3 d-block text-decoration-none border b-light">
+                            <a href="{{ route('partner.assets') }}" class="card text-center p-3 block text-decoration-none border b-light">
                                 <i data-feather="share-2" class="txt-primary mb-2" style="width:24px;height:24px;"></i>
                                 <p class="f-w-500 mb-0 f-14">Referral odkaz</p>
                             </a>
                         </div>
                         <div class="col-span-6 sm:col-span-12 md:col-span-3">
-                            <a href="{{ route('partner.commissions') }}" class="card text-center p-3 d-block text-decoration-none border b-light">
+                            <a href="{{ route('partner.commissions') }}" class="card text-center p-3 block text-decoration-none border b-light">
                                 <i data-feather="trending-up" class="txt-success mb-2" style="width:24px;height:24px;"></i>
                                 <p class="f-w-500 mb-0 f-14">Provize</p>
                             </a>
                         </div>
                         <div class="col-span-6 sm:col-span-12 md:col-span-3">
-                            <a href="{{ route('partner.payouts') }}" class="card text-center p-3 d-block text-decoration-none border b-light">
+                            <a href="{{ route('partner.payouts') }}" class="card text-center p-3 block text-decoration-none border b-light">
                                 <i data-feather="dollar-sign" class="txt-warning mb-2" style="width:24px;height:24px;"></i>
                                 <p class="f-w-500 mb-0 f-14">Výplaty</p>
                             </a>
                         </div>
                         <div class="col-span-6 sm:col-span-12 md:col-span-3">
-                            <a href="{{ route('partner.referrals') }}" class="card text-center p-3 d-block text-decoration-none border b-light">
+                            <a href="{{ route('partner.referrals') }}" class="card text-center p-3 block text-decoration-none border b-light">
                                 <i data-feather="users" class="txt-info mb-2" style="width:24px;height:24px;"></i>
                                 <p class="f-w-500 mb-0 f-14">Referraly</p>
                             </a>

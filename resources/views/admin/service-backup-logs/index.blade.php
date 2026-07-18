@@ -10,7 +10,7 @@
         {{-- Filters --}}
         <div class="col-span-12">
             <x-panel.card title="Filtr">
-                <form method="GET" action="{{ route('admin.service-backup-logs.index') }}" class="row g-2 align-items-end">
+                <form method="GET" action="{{ route('admin.service-backup-logs.index') }}" class="grid grid-cols-12 gap-2 items-end">
                     <div class="col-auto">
                         <label class="form-label form-label-sm mb-1">Service ID</label>
                         <input type="number" name="service_id" class="form-control form-control-sm"
@@ -47,8 +47,8 @@
                                 <th>ID</th>
                                 <th>Service ID</th>
                                 <th>Stav</th>
-                                <th class="text-end">Velikost</th>
-                                <th class="text-end">Trvání (s)</th>
+                                <th class="text-right">Velikost</th>
+                                <th class="text-right">Trvání (s)</th>
                                 <th>Chyba</th>
                                 <th>Zahájeno</th>
                                 <th>Dokončeno</th>
@@ -73,7 +73,7 @@
                                     @endphp
                                     <span class="badge bg-{{ $color }}">{{ ucfirst($log->status) }}</span>
                                 </td>
-                                <td class="text-end f-12">
+                                <td class="text-right f-12">
                                     @if($log->size_bytes !== null)
                                         @php
                                             $bytes = $log->size_bytes;
@@ -92,7 +92,7 @@
                                         <span class="text-muted">—</span>
                                     @endif
                                 </td>
-                                <td class="text-end f-12">
+                                <td class="text-right f-12">
                                     {{ $log->duration_seconds ?? '—' }}
                                 </td>
                                 <td class="f-12 text-danger">

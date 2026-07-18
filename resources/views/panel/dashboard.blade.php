@@ -30,7 +30,7 @@
     <div class="grid grid-cols-12 mb-2" style="gap:8px;">
       @if($overdueInvoices > 0)
         <div class="col-span-12">
-          <div class="alert alert-danger d-flex align-items-center gap-2 py-2 px-3 mb-0" role="alert">
+          <div class="alert alert-danger flex items-center gap-2 py-2 px-3 mb-0" role="alert">
             <i data-feather="alert-octagon" style="width:16px;height:16px;flex-shrink:0;"></i>
             <span class="f-14">
               <strong>{{ $overdueInvoices }} {{ $overdueInvoices === 1 ? 'faktura je' : ($overdueInvoices < 5 ? 'faktury jsou' : 'faktur je') }} po splatnosti.</strong>
@@ -44,7 +44,7 @@
       @endif
       @foreach($criticalRenewals as $svc)
         <div class="col-span-12">
-          <div class="alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mb-0" role="alert">
+          <div class="alert alert-warning flex items-center gap-2 py-2 px-3 mb-0" role="alert">
             <i data-feather="clock" style="width:16px;height:16px;flex-shrink:0;"></i>
             <span class="f-14">
               <strong>{{ $svc->label }}</strong> —
@@ -66,7 +66,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  1. Profile / Greeting card                     col-span-4     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-4 xxl:col-span-6 sm:col-span-12 box-col-6">
+    <div class="col-span-4 xxl:col-span-6 sm:col-span-12 box-col-span-6">
       <div class="card profile-box">
         <div class="card-body">
           <div class="flex media-wrapper justify-between">
@@ -114,7 +114,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  2. 4 KPI mini-cards                            col-span-5     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-5 xxl:col-span-6 xl:col-span-12 box-col-6 ord-md-2 ord-custom-2">
+    <div class="col-span-5 xxl:col-span-6 xl:col-span-12 box-col-span-6 ord-md-2 ord-custom-2">
       <div class="grid grid-cols-12 card-gap">
 
         {{-- Credit balance --}}
@@ -219,7 +219,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  3. Visitor / Orders chart                      col-span-3     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-3 xxl:col-span-4 xl:col-span-6 sm:col-span-12 box-col-4 ord-md-1 box-ord-1 ord-xl-5 box-ord-5 ord-custom-1">
+    <div class="col-span-3 xxl:col-span-4 xl:col-span-6 sm:col-span-12 box-col-span-4 ord-md-1 box-ord-1 ord-xl-5 box-ord-5 ord-custom-1">
       <div class="card">
         <div class="card-header card-no-border pb-2">
           <div class="header-top">
@@ -247,7 +247,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  4. Recent invoices table                       col-span-4     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-4 xxl:col-span-6 sm:col-span-12 ord-xl-1 ord-md-3 box-ord-1 box-col-6 ord-custom-3">
+    <div class="col-span-4 xxl:col-span-6 sm:col-span-12 ord-xl-1 ord-md-3 box-ord-1 box-col-span-6 ord-custom-3">
       <div class="card">
         <div class="card-header card-no-border">
           <div class="header-top">
@@ -320,7 +320,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  5. Payment Statistical Overview                col-span-5     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-5 xxl:col-span-6 lg:col-span-12 box-col-6 ord-xl-2 ord-md-5 box-ord-2 ord-custom-4">
+    <div class="col-span-5 xxl:col-span-6 lg:col-span-12 box-col-span-6 ord-xl-2 ord-md-5 box-ord-2 ord-custom-4">
       <div class="card">
         <div class="card-header card-no-border">
           <div class="header-top">
@@ -555,7 +555,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  9. New Order CTA (buy-card)                    col-span-3     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-3 xxl:col-span-4 lg:col-span-6 sm:col-span-12 box-col-4 ord-xl-7 ord-md-4 box-ord-7 ord-custom-8">
+    <div class="col-span-3 xxl:col-span-4 lg:col-span-6 sm:col-span-12 box-col-span-4 ord-xl-7 ord-md-4 box-ord-7 ord-custom-8">
       <div class="card buy-card text-center">
         <img class="max-w-full" src="{{ asset('panel/images/dashboard/purchase1.png') }}" alt="new order"/>
         <div class="card-body [@media(max-width:1700px)]:!mx-[0]">
@@ -580,7 +580,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  10. Payment report chart (sales-report)        col-span-5     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-5 xxl:col-span-6 lg:col-span-12 ord-xl-9 ord-md-9 box-ord-7 box-col-6 ord-custom-9">
+    <div class="col-span-5 xxl:col-span-6 lg:col-span-12 ord-xl-9 ord-md-9 box-ord-7 box-col-span-6 ord-custom-9">
       <div class="card sales-report">
         <div class="card-header card-no-border">
           <div class="header-top">
@@ -607,7 +607,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  11. Nadcházející obnovy (Appointments)         col-span-4     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-4 xxl:col-span-6 lg:col-span-12 ord-xl-10 ord-md-10 box-ord-7 box-col-6 ord-custom-10">
+    <div class="col-span-4 xxl:col-span-6 lg:col-span-12 ord-xl-10 ord-md-10 box-ord-7 box-col-span-6 ord-custom-10">
       <div class="card">
         <div class="card-header card-no-border">
           <div class="header-top">

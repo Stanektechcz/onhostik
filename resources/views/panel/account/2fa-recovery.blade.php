@@ -12,10 +12,10 @@
         @if($codes->isEmpty())
             <p class="text-muted">Žádné záložní kódy. Vygenerujte je kliknutím níže.</p>
         @else
-        <div class="row g-2 mb-3">
+        <div class="grid grid-cols-12 gap-2 mb-3">
             @foreach($codes as $code)
-            <div class="col-md-3">
-                <code class="d-block p-2 border rounded text-center {{ $code->isUsed() ? 'text-muted text-decoration-line-through' : 'f-w-600' }}">
+            <div class="col-span-12 md:col-span-3">
+                <code class="block p-2 border rounded text-center {{ $code->isUsed() ? 'text-muted text-decoration-line-through' : 'f-w-600' }}">
                     {{ $code->code }}
                 </code>
             </div>

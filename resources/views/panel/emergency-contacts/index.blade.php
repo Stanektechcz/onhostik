@@ -3,8 +3,8 @@
 @section('title', 'Nouzové kontakty')
 
 @section('content')
-<div class="row g-4">
-    <div class="col-lg-8">
+<div class="grid grid-cols-12 gap-4">
+    <div class="col-span-12 lg:col-span-8">
         <x-panel.card title="Nouzové kontakty">
             <x-panel.flash />
 
@@ -64,7 +64,7 @@
         </x-panel.card>
     </div>
 
-    <div class="col-lg-4">
+    <div class="col-span-12 lg:col-span-4">
         <x-panel.card title="Přidat kontakt">
             <form method="POST" action="{{ route('panel.emergency-contacts.store') }}">
                 @csrf
@@ -109,7 +109,7 @@
                     <label class="form-check-label" for="notify_on_expiry">Notifikovat při expiraci</label>
                 </div>
 
-                <button type="submit" class="btn btn-primary w-100">Přidat kontakt</button>
+                <button type="submit" class="btn btn-primary w-full">Přidat kontakt</button>
             </form>
         </x-panel.card>
     </div>

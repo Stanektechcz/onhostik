@@ -10,13 +10,13 @@
 @section('content')
     <div class="container-fluid">
 
-        {{-- KPI row --}}
+        {{-- KPI grid grid-cols-12 --}}
         <div class="grid grid-cols-12 card-gap">
             <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $downCount > 0 ? 'danger' : 'success' }}">
                         <span class="f-light">{{ __('panel.admin.down_monitors') }}</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>{{ $downCount }}</h4>
                             <span class="f-light f-12 mb-1">/ {{ $totalCount }}</span>
                         </div>
@@ -28,7 +28,7 @@
                 <div class="card small-widget">
                     <div class="card-body {{ $openIncidents > 0 ? 'warning' : 'success' }}">
                         <span class="f-light">Otevřené incidenty</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>{{ $openIncidents }}</h4>
                         </div>
                         <div class="bg-gradient"><i data-feather="zap"></i></div>
@@ -39,7 +39,7 @@
                 <div class="card small-widget">
                     <div class="card-body {{ $openAlertCount > 0 ? 'warning' : 'success' }}">
                         <span class="f-light">Aktivní alerty</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>{{ $openAlertCount }}</h4>
                         </div>
                         <div class="bg-gradient"><i data-feather="bell"></i></div>
@@ -50,7 +50,7 @@
                 <div class="card small-widget">
                     <div class="card-body {{ $avgUptime >= 99 ? 'success' : ($avgUptime >= 95 ? 'warning' : 'danger') }}">
                         <span class="f-light">Prům. dostupnost</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>{{ $avgUptime > 0 ? number_format($avgUptime, 2, ',', ' ') . ' %' : '—' }}</h4>
                         </div>
                         <div class="bg-gradient"><i data-feather="activity"></i></div>
@@ -64,21 +64,21 @@
             <div class="col-span-12">
                 <div class="card">
                     <div class="card-body py-3">
-                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
-                            <div class="d-flex flex-wrap gap-3 f-12">
-                                <div class="d-flex align-items-center gap-2">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div class="flex flex-wrap gap-3 f-12">
+                                <div class="flex items-center gap-2">
                                     <span class="badge badge-light-success">≥ 99,9 %</span>
                                     <span class="f-light">Výborná: <strong>{{ $uptimeGroups['excellent'] }}</strong></span>
                                 </div>
-                                <div class="d-flex align-items-center gap-2">
+                                <div class="flex items-center gap-2">
                                     <span class="badge badge-light-warning">99 – 99,9 %</span>
                                     <span class="f-light">Dobrá: <strong>{{ $uptimeGroups['good'] }}</strong></span>
                                 </div>
-                                <div class="d-flex align-items-center gap-2">
+                                <div class="flex items-center gap-2">
                                     <span class="badge badge-light-danger">&lt; 99 %</span>
                                     <span class="f-light">Kritická: <strong>{{ $uptimeGroups['poor'] }}</strong></span>
                                 </div>
-                                <div class="d-flex align-items-center gap-2">
+                                <div class="flex items-center gap-2">
                                     <span class="badge badge-light-secondary">—</span>
                                     <span class="f-light">Neznámá: <strong>{{ $uptimeGroups['unknown'] }}</strong></span>
                                 </div>
@@ -97,7 +97,7 @@
             <div class="col-span-8 xl:col-span-12">
                 <x-panel.card :title="__('panel.admin.monitors')">
                     {{-- Filters --}}
-                    <form method="GET" action="{{ route('admin.monitoring.index') }}" class="row g-2 mb-3">
+                    <form method="GET" action="{{ route('admin.monitoring.index') }}" class="grid grid-cols-12 gap-2 mb-3">
                         <div class="col-auto">
                             <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
                                 <option value="">Všechny stavy</option>
@@ -145,7 +145,7 @@
                                         <th>Dostupnost</th>
                                         <th>SSL expiry</th>
                                         <th>Poslední check</th>
-                                        <th class="text-end">Prahy</th>
+                                        <th class="text-right">Prahy</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -183,8 +183,8 @@
                                             </td>
                                             <td style="min-width: 120px;">
                                                 @if($monitor->uptime_percent !== null)
-                                                    <div class="d-flex align-items-center gap-2">
-                                                        <div class="progress flex-grow-1" style="height:6px">
+                                                    <div class="flex items-center gap-2">
+                                                        <div class="progress grow" style="height:6px">
                                                             <div class="progress-bar bg-{{ $uptimeColor }}"
                                                                  style="width: {{ $uptimePct }}%"></div>
                                                         </div>
@@ -211,7 +211,7 @@
                                             <td class="f-light f-12">
                                                 {{ $monitor->last_check_at?->diffForHumans() ?? '—' }}
                                             </td>
-                                            <td class="text-end">
+                                            <td class="text-right">
                                                 <button type="button"
                                                         class="btn btn-xs btn-outline-{{ $hasThresholds ? 'primary' : 'secondary' }}"
                                                         data-bs-toggle="modal"
@@ -327,12 +327,12 @@
                                         <li>
                                             <div class="timeline-dot-{{ $dotColor }}"></div>
                                             <div class="ms-4">
-                                                <div class="d-flex justify-content-between align-items-start">
+                                                <div class="flex justify-between items-start">
                                                     <div>
                                                         <p class="f-w-500 mb-0">{{ $incident->monitor?->name }}</p>
                                                         <p class="f-12 f-light mb-0">{{ $incident->reason }}</p>
                                                     </div>
-                                                    <span class="badge badge-light-{{ $sevColor }} ms-2 flex-shrink-0">{{ $incident->severity }}</span>
+                                                    <span class="badge badge-light-{{ $sevColor }} ms-2 shrink-0">{{ $incident->severity }}</span>
                                                 </div>
                                                 <p class="f-12 f-light mb-0 mt-1">
                                                     {{ $incident->started_at?->format('d.m. H:i') }}

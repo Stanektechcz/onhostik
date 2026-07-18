@@ -79,6 +79,42 @@
   display: inline-block;
 }
 
+/* Cart box in the navbar — Cuba ships .cart-box (position:relative) but no
+   counter; pin ours to the bag exactly like the notification counter. */
+.page-header .header-wrapper .nav-right .cart-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.page-header .header-wrapper .nav-right .cart-box svg {
+  width: 20px;
+  height: 20px;
+}
+
+.page-header .header-wrapper .nav-right .cart-box #cart-nav-count {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 9px;
+  line-height: 16px;
+  display: none;
+}
+
+.page-header .header-wrapper .nav-right .cart-box #cart-nav-count.show {
+  display: inline-block;
+}
+
+/* Bell glyph (Cuba sprite #notification) sizing. */
+.page-header .header-wrapper .nav-right .notification-box > svg {
+  width: 20px;
+  height: 20px;
+}
+
 /* Unread counter next to the dropdown heading. */
 .notification-dropdown #notif-unread-label {
   display: none;
@@ -88,49 +124,70 @@
   display: inline-block;
 }
 
-/* Notification dropdown must not run off a narrow viewport. */
+/* Dropdown must not run off a narrow viewport; Cuba fixes width at 300px. */
 .page-header .header-wrapper .nav-right .notification-dropdown {
-  width: 340px;
   max-width: calc(100vw - 32px);
   max-height: 480px;
   overflow-y: auto;
 }
 
-/* Notification rows — Cuba already styles `.notification-dropdown li`
-   (grey card + radius) and `li > p` (flex, space-between). These rules
-   only add what the markup needs on top: the click affordance, the
-   unread accent and the icon/label alignment inside the title span. */
-.notification-dropdown .notif-item {
+/* Heading row: title + unread badge on one line. */
+.notification-dropdown .dropdown-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 10px;
+}
+
+/* Notification rows are Cuba toast cards (border-l-{color} !border-l-4 gives
+   the accent, .toast-body the padding). These rules add only the click
+   affordance, hover, the title/time split and the unread emphasis. */
+.notification-dropdown .notif-item .toast-body {
   cursor: pointer;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .notification-dropdown .notif-item:hover {
   background-color: rgba(var(--theme-default), 0.08);
 }
 
-.notification-dropdown .notif-item.unread {
-  border-left: 3px solid rgba(var(--theme-default), 1);
-}
-
 .notification-dropdown .notif-item .notif-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
+  font-weight: 500;
+  color: rgba(var(--theme-body-font-color), 1);
 }
 
-.notification-dropdown .notif-item .notif-title svg {
-  width: 14px;
-  height: 14px;
+.notification-dropdown .notif-item.unread .notif-title {
+  font-weight: 600;
+}
+
+.notification-dropdown .notif-item .notif-time {
   flex-shrink: 0;
+  padding-left: 8px;
+  white-space: nowrap;
 }
 
-.notification-dropdown .notif-item .notif-body {
-  padding: 0 1rem 0.75rem;
+/* Sub-line runs full width, not split like the title row. */
+.notification-dropdown .notif-item .notif-sub {
+  display: block !important;
+  margin-top: 2px;
+}
+
+/* Close button: Cuba draws it at 6px — nudge to a clickable size. */
+.notification-dropdown .notif-item .btn-close {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  margin-right: 12px;
+  opacity: 0.5;
+}
+
+.notification-dropdown .notif-item .btn-close:hover {
+  opacity: 1;
 }
 
 /* Cuba centres and de-cards the last <li> — that's our actions row. */
-.notification-dropdown li:last-child {
+.notification-dropdown .notif-actions {
   padding: 10px 0 0 !important;
   display: flex;
   gap: 8px;
@@ -385,4 +442,371 @@
   height: 44px;
   color: rgba(var(--theme-body-sub-title-color), 1);
   opacity: 0.5;
+}
+
+/* ── AI chatbot widget ──────────────────────────────────────── */
+/* Floating assistant. Consumes Cuba vars so it matches light/dark mode.
+   The panel is hidden while the widget carries .ai-closed (default). */
+#ai-chat-widget {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1050;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+#ai-chat-widget.ai-closed #ai-chat-panel {
+  display: none;
+}
+
+#ai-chat-widget.ai-open #ai-chat-toggle {
+  display: none;
+}
+
+#ai-chat-toggle {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: rgba(var(--theme-default), 1);
+  border: 0;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(var(--theme-default), 0.45);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s;
+}
+
+#ai-chat-toggle:hover {
+  transform: scale(1.08);
+}
+
+#ai-chat-panel {
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  background: rgba(var(--white), 1);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#ai-chat-header {
+  background: rgba(var(--theme-default), 1);
+  color: #fff;
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+#ai-chat-header .ai-chat-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#ai-chat-header svg {
+  width: 18px;
+  height: 18px;
+}
+
+#ai-chat-close {
+  background: none;
+  border: 0;
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+#ai-chat-messages {
+  height: 300px;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(var(--light-semi-gray), 0.4);
+}
+
+.ai-msg {
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 90%;
+  word-break: break-word;
+  white-space: pre-line;
+}
+
+.ai-msg--user {
+  background: rgba(var(--theme-default), 1);
+  color: #fff;
+  align-self: flex-end;
+  border-bottom-right-radius: 3px;
+}
+
+.ai-msg--bot {
+  background: rgba(var(--white), 1);
+  color: rgba(var(--theme-body-font-color), 1);
+  align-self: flex-start;
+  border: 1px solid rgba(var(--light-semi-gray), 1);
+  border-bottom-left-radius: 3px;
+}
+
+.ai-msg--typing {
+  opacity: 0.65;
+  font-style: italic;
+}
+
+.ai-msg-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ai-msg-links a {
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: rgba(var(--theme-default), 0.1);
+  color: rgba(var(--theme-default), 1);
+  text-decoration: none;
+}
+
+.ai-msg-links a:hover {
+  background: rgba(var(--theme-default), 0.2);
+}
+
+#ai-chat-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 14px 8px;
+}
+
+#ai-chat-suggestions:empty {
+  display: none;
+}
+
+.ai-suggestion {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(var(--theme-default), 0.4);
+  background: rgba(var(--white), 1);
+  color: rgba(var(--theme-default), 1);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.ai-suggestion:hover {
+  background: rgba(var(--theme-default), 0.08);
+}
+
+#ai-chat-form {
+  padding: 10px 12px 12px;
+  display: flex;
+  gap: 6px;
+  border-top: 1px solid rgba(var(--light-semi-gray), 1);
+}
+
+#ai-chat-input {
+  flex: 1;
+  border: 1px solid rgba(var(--light-semi-gray), 1);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  outline: none;
+  background: rgba(var(--white), 1);
+  color: rgba(var(--theme-body-font-color), 1);
+}
+
+#ai-chat-input:focus {
+  border-color: rgba(var(--theme-default), 1);
+}
+
+#ai-chat-send {
+  background: rgba(var(--theme-default), 1);
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 13px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+#ai-chat-send:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Widget: live-agent + system message variants. */
+.ai-msg--agent {
+  background: rgba(var(--success-color), 1);
+  color: #fff;
+  align-self: flex-start;
+  border-bottom-left-radius: 3px;
+}
+
+.ai-msg--system {
+  align-self: center;
+  background: transparent;
+  color: rgba(var(--theme-body-sub-title-color), 1);
+  font-size: 11px;
+  font-style: italic;
+  text-align: center;
+  max-width: 100%;
+}
+
+#ai-chat-escalate {
+  width: 100%;
+  margin-top: 6px;
+  font-size: 12px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--warning-color), 0.6);
+  background: rgba(var(--warning-color), 0.1);
+  color: rgba(var(--warning-color), 1);
+  cursor: pointer;
+}
+
+#ai-chat-escalate:hover {
+  background: rgba(var(--warning-color), 0.2);
+}
+
+/* ── Checkout wizard (Cuba stepper + summary, consumes Cuba vars) ── */
+.stepper-horizontal { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.stepper-horizontal .step { flex: 1; position: relative; text-align: center; }
+.stepper-horizontal .step-circle {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 6px; font-weight: 600; font-size: 15px;
+  background: rgba(var(--light-background), 1); color: var(--body-font-color);
+  border: 2px solid rgba(var(--light-background), 1);
+}
+.stepper-horizontal .step.active .step-circle,
+.stepper-horizontal .step.editing .step-circle {
+  background: rgba(var(--theme-default), 1); color: #fff; border-color: rgba(var(--theme-default), 1);
+}
+.stepper-horizontal .step.done .step-circle {
+  background: rgba(var(--success-color), 1); color: #fff; border-color: rgba(var(--success-color), 1);
+}
+.stepper-horizontal .step-title { font-size: 13px; color: var(--body-font-color); }
+.stepper-horizontal .step-bar-right { position: absolute; top: 20px; right: 0; width: 50%; height: 2px; background: rgba(var(--light-background), 1); }
+.stepper-horizontal .step-bar-left { position: absolute; top: 20px; left: 0; width: 50%; height: 2px; background: rgba(var(--light-background), 1); }
+.stepper-horizontal .step:first-child .step-bar-left { display: none; }
+.stepper-horizontal .step:last-child .step-bar-right { display: none; }
+
+.card-wrapper { border: 1px solid rgba(var(--light-background), 1); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+.card-wrapper.light-card { background: rgba(var(--light-background), 0.4); }
+.collect-address { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.shipping-address span { display: block; font-size: 12px; color: var(--body-font-color); margin-bottom: 4px; }
+
+.summery-contain li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(var(--light-background), 1); }
+.summery-contain li h6 { flex: 1; margin: 0; }
+.summery-contain li h6 span { display: block; font-size: 11px; font-weight: 400; color: var(--body-font-color); opacity: 0.7; }
+.summery-contain li h6.price { flex: 0; white-space: nowrap; color: rgba(var(--theme-default), 1); }
+.summary-total li { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(var(--light-background), 1); }
+.summary-total li:last-child { border: none; }
+.summary-total h6.price { color: rgba(var(--theme-default), 1); font-weight: 600; }
+
+/* ── Admin live-chat thread ─────────────────────────────────── */
+.chat-thread {
+  max-height: 460px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 2px;
+}
+
+.chat-msg {
+  padding: 10px 13px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 78%;
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+.chat-msg .chat-author {
+  display: block;
+  font-size: 10px;
+  opacity: 0.7;
+  margin-bottom: 2px;
+}
+
+.chat-msg--in {
+  align-self: flex-start;
+  background: rgba(var(--light-semi-gray), 1);
+  color: rgba(var(--theme-body-font-color), 1);
+  border-bottom-left-radius: 3px;
+}
+
+.chat-msg--bot {
+  align-self: flex-start;
+  background: rgba(var(--theme-default), 0.08);
+  color: rgba(var(--theme-body-font-color), 1);
+  border-bottom-left-radius: 3px;
+}
+
+.chat-msg--out {
+  align-self: flex-end;
+  background: rgba(var(--theme-default), 1);
+  color: #fff;
+  border-bottom-right-radius: 3px;
+}
+
+.chat-system {
+  align-self: center;
+  text-align: center;
+  font-size: 11px;
+  font-style: italic;
+  color: rgba(var(--theme-body-sub-title-color), 1);
+  padding: 2px 0;
+}
+
+/* ── A25: respect reduced-motion (bell swing, hover transforms, transitions) ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  #ai-chat-toggle:hover,
+  .notification-box svg { transform: none !important; }
+}
+
+/* ── A26: print styles — hide app chrome, print clean content ── */
+@media print {
+  .sidebar-wrapper,
+  .page-header,
+  .footer,
+  .tap-top,
+  .loader-wrapper,
+  #ai-chat-widget,
+  .maintenance-banner,
+  .announcement-banner,
+  .breadcrumb-wrapper,
+  .impersonation-banner { display: none !important; }
+
+  .page-body { margin: 0 !important; padding: 0 !important; }
+  .page-body-wrapper .page-body { min-height: auto !important; }
+  .card { box-shadow: none !important; border: 1px solid #e6e6e6 !important; break-inside: avoid; }
+  a[href]::after { content: ""; } /* don't print raw URLs */
+  body { background: #fff !important; }
 }

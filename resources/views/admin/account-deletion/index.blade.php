@@ -32,12 +32,12 @@
                         <td class="text-muted small">{{ $req->created_at?->format('d.m.Y') }}</td>
                         <td>
                             @if($req->status === 'pending')
-                            <form method="POST" action="{{ route('admin.account-deletion.approve', $req) }}" class="d-inline">
+                            <form method="POST" action="{{ route('admin.account-deletion.approve', $req) }}" class="inline">
                                 @csrf @method('PATCH')
                                 <input type="hidden" name="admin_note" value="">
                                 <button class="btn btn-sm btn-outline-danger">Schválit</button>
                             </form>
-                            <form method="POST" action="{{ route('admin.account-deletion.reject', $req) }}" class="d-inline ms-1">
+                            <form method="POST" action="{{ route('admin.account-deletion.reject', $req) }}" class="inline ms-1">
                                 @csrf @method('PATCH')
                                 <input type="hidden" name="admin_note" value="Zamítnuto administrátorem.">
                                 <button class="btn btn-sm btn-outline-secondary">Zamítnout</button>

@@ -20,7 +20,7 @@
                         @csrf
                         @method('PUT')
 
-                        <div class="d-flex gap-4 mb-3">
+                        <div class="flex gap-4 mb-3">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" name="is_active" value="1" id="int-active" @checked($integration->is_active)>
                                 <label class="form-check-label" for="int-active">{{ __('panel.admin.active') }}</label>

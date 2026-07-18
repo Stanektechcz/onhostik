@@ -40,7 +40,7 @@
         </div>
 
         <x-panel.card :title="__('panel.nav.admin_invoices')">
-            <form method="GET" action="{{ route('admin.invoices.index') }}" class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+            <form method="GET" action="{{ route('admin.invoices.index') }}" class="flex gap-2 mb-3 flex-wrap items-center">
                 <select name="status" class="form-select" style="max-width: 180px;">
                     <option value="">{{ __('panel.admin.all') }}</option>
                     @foreach(\App\Domains\Billing\Enums\InvoiceStatus::cases() as $s)
@@ -86,7 +86,7 @@
             @else
                 <form id="batch-invoices-form" method="POST" action="{{ route('admin.invoices.batch-mark-paid') }}">
                     @csrf
-                    <div class="d-flex align-items-center gap-2 mb-2 p-2 bg-light rounded" id="batch-toolbar" style="display:none!important;">
+                    <div class="flex items-center gap-2 mb-2 p-2 bg-light rounded" id="batch-toolbar" style="display:none!important;">
                         <input type="checkbox" id="select-all-invoices" class="form-check-input mt-0" title="Vybrat vše">
                         <span id="selected-count" class="f-12 f-light">0 vybráno</span>
                         <button type="submit" class="btn btn-success btn-sm ms-2"

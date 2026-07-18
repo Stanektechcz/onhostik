@@ -3,8 +3,8 @@
 @section('content')
 <div class="container-fluid">
     <x-panel.flash />
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="Migrační dávky služeb">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
@@ -50,7 +50,7 @@
                 <div class="mt-3">{{ $batches->links() }}</div>
             </x-panel.card>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Nová migrační dávka">
                 <form method="POST" action="{{ route('admin.service-migration-batches.store') }}">
                     @csrf
@@ -73,9 +73,9 @@
                         <label class="form-label">ID služeb (čárkou oddělená)</label>
                         <input type="text" name="service_ids_raw" class="form-control @error('service_ids') is-invalid @enderror" value="{{ old('service_ids_raw') }}" placeholder="1,2,3,4" required>
                         <div class="form-text">Zadejte ID služeb oddělená čárkou.</div>
-                        @error('service_ids')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
+                        @error('service_ids')<div class="invalid-feedback block">{{ $message }}</div>@enderror
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Vytvořit dávku</button>
+                    <button type="submit" class="btn btn-primary w-full">Vytvořit dávku</button>
                 </form>
             </x-panel.card>
         </div>

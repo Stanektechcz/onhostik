@@ -25,7 +25,7 @@
     <div class="grid grid-cols-12 mb-2" style="gap:6px;">
       @if($overdueInvoices > 0)
         <div class="col-span-12 md:col-span-6">
-          <div class="alert alert-danger d-flex align-items-center gap-2 py-2 px-3 mb-0">
+          <div class="alert alert-danger flex items-center gap-2 py-2 px-3 mb-0">
             <i data-feather="alert-octagon" style="width:15px;height:15px;flex-shrink:0;"></i>
             <span class="f-13"><strong>{{ $overdueInvoices }} faktur po splatnosti</strong></span>
             <a href="{{ route('admin.invoices.index', ['status' => 'overdue']) }}" class="btn btn-danger btn-sm ms-auto">Zobrazit</a>
@@ -34,7 +34,7 @@
       @endif
       @if($failedTasks > 0)
         <div class="col-span-12 md:col-span-6">
-          <div class="alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mb-0">
+          <div class="alert alert-warning flex items-center gap-2 py-2 px-3 mb-0">
             <i data-feather="alert-triangle" style="width:15px;height:15px;flex-shrink:0;"></i>
             <span class="f-13"><strong>{{ $failedTasks }} selhání provisioningu</strong></span>
             <a href="{{ route('admin.provisioning.index') }}" class="btn btn-warning btn-sm ms-auto">Zobrazit</a>
@@ -43,7 +43,7 @@
       @endif
       @if($aiApprovals > 0)
         <div class="col-span-12 md:col-span-6">
-          <div class="alert alert-info d-flex align-items-center gap-2 py-2 px-3 mb-0">
+          <div class="alert alert-info flex items-center gap-2 py-2 px-3 mb-0">
             <i data-feather="cpu" style="width:15px;height:15px;flex-shrink:0;"></i>
             <span class="f-13"><strong>{{ $aiApprovals }} AI akcí čeká na schválení</strong></span>
             <a href="{{ route('admin.ai.index') }}" class="btn btn-primary btn-sm ms-auto">Schválit</a>
@@ -58,7 +58,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  1. Profile / Greeting card                     col-span-4     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-4 xxl:col-span-6 sm:col-span-12 box-col-6">
+    <div class="col-span-4 xxl:col-span-6 sm:col-span-12 box-col-span-6">
       <div class="card profile-box">
         <div class="card-body">
           <div class="flex media-wrapper justify-between">
@@ -106,7 +106,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  2. 4 KPI mini-cards                            col-span-5     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-5 xxl:col-span-6 xl:col-span-12 box-col-6 ord-md-2 ord-custom-2">
+    <div class="col-span-5 xxl:col-span-6 xl:col-span-12 box-col-span-6 ord-md-2 ord-custom-2">
       <div class="grid grid-cols-12 card-gap">
 
         {{-- Revenue --}}
@@ -211,7 +211,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  2b. Today at a glance                          col-span-3     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-3 xxl:col-span-4 xl:col-span-6 sm:col-span-12 box-col-4 ord-md-1 box-ord-1 ord-xl-5 box-ord-5 ord-custom-1">
+    <div class="col-span-3 xxl:col-span-4 xl:col-span-6 sm:col-span-12 box-col-span-4 ord-md-1 box-ord-1 ord-xl-5 box-ord-5 ord-custom-1">
       <div class="card">
         <div class="card-header card-no-border pb-0">
           <div class="header-top">
@@ -221,29 +221,29 @@
         </div>
         <div class="card-body pt-2">
           <ul class="flex flex-col gap-2">
-            <li class="d-flex justify-content-between align-items-center py-1 border-bottom">
-              <span class="f-light f-13 d-flex align-items-center gap-2">
+            <li class="flex justify-between items-center py-1 border-bottom">
+              <span class="f-light f-13 flex items-center gap-2">
                 <i data-feather="shopping-bag" style="width:14px;height:14px;" class="txt-primary"></i>
                 Nové objednávky
               </span>
               <span class="badge badge-light-primary f-13 f-w-600">{{ $todayOrders }}</span>
             </li>
-            <li class="d-flex justify-content-between align-items-center py-1 border-bottom">
-              <span class="f-light f-13 d-flex align-items-center gap-2">
+            <li class="flex justify-between items-center py-1 border-bottom">
+              <span class="f-light f-13 flex items-center gap-2">
                 <i data-feather="credit-card" style="width:14px;height:14px;" class="txt-success"></i>
                 Příjmy (CZK)
               </span>
               <span class="badge badge-light-success f-13 f-w-600">{{ number_format($todayRevenueCzk / 100, 0, ',', ' ') }} Kč</span>
             </li>
-            <li class="d-flex justify-content-between align-items-center py-1 border-bottom">
-              <span class="f-light f-13 d-flex align-items-center gap-2">
+            <li class="flex justify-between items-center py-1 border-bottom">
+              <span class="f-light f-13 flex items-center gap-2">
                 <i data-feather="user-plus" style="width:14px;height:14px;" class="txt-info"></i>
                 Noví zákazníci
               </span>
               <span class="badge badge-light-info f-13 f-w-600">{{ $todayCustomers }}</span>
             </li>
-            <li class="d-flex justify-content-between align-items-center py-1">
-              <span class="f-light f-13 d-flex align-items-center gap-2">
+            <li class="flex justify-between items-center py-1">
+              <span class="f-light f-13 flex items-center gap-2">
                 <i data-feather="file-text" style="width:14px;height:14px;" class="txt-warning"></i>
                 Vystavené faktury
               </span>
@@ -257,7 +257,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  3. Visitor / Orders chart                      col-span-3     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-3 xxl:col-span-4 xl:col-span-6 sm:col-span-12 box-col-4 ord-md-1 box-ord-1 ord-xl-5 box-ord-5 ord-custom-1">
+    <div class="col-span-3 xxl:col-span-4 xl:col-span-6 sm:col-span-12 box-col-span-4 ord-md-1 box-ord-1 ord-xl-5 box-ord-5 ord-custom-1">
       <div class="card">
         <div class="card-header card-no-border pb-2">
           <div class="header-top">
@@ -285,7 +285,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  4. Top Customers table                         col-span-4     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-4 xxl:col-span-6 sm:col-span-12 ord-xl-1 ord-md-3 box-ord-1 box-col-6 ord-custom-3">
+    <div class="col-span-4 xxl:col-span-6 sm:col-span-12 ord-xl-1 ord-md-3 box-ord-1 box-col-span-6 ord-custom-3">
       <div class="card">
         <div class="card-header card-no-border">
           <div class="header-top">
@@ -343,7 +343,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  5. Sales Statistical Overview (Přehled příjmů) col-span-5    ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-5 xxl:col-span-6 lg:col-span-12 box-col-6 ord-xl-2 ord-md-5 box-ord-2 ord-custom-4">
+    <div class="col-span-5 xxl:col-span-6 lg:col-span-12 box-col-span-6 ord-xl-2 ord-md-5 box-ord-2 ord-custom-4">
       <div class="card">
         <div class="card-header card-no-border">
           <div class="header-top">
@@ -565,7 +565,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  9. Quick actions / Doctor CTA card             col-span-3     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-3 xxl:col-span-4 lg:col-span-6 sm:col-span-12 box-col-4 ord-xl-7 ord-md-4 box-ord-7 ord-custom-8">
+    <div class="col-span-3 xxl:col-span-4 lg:col-span-6 sm:col-span-12 box-col-span-4 ord-xl-7 ord-md-4 box-ord-7 ord-custom-8">
       <div class="card buy-card text-center">
         <img class="max-w-full" src="{{ asset('panel/images/dashboard/purchase1.png') }}" alt="system check"/>
         <div class="card-body [@media(max-width:1700px)]:!mx-[0]">
@@ -584,7 +584,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  10. Sales Report chart (Přehled plateb)        col-span-5     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-5 xxl:col-span-6 lg:col-span-12 ord-xl-9 ord-md-9 box-ord-7 box-col-6 ord-custom-9">
+    <div class="col-span-5 xxl:col-span-6 lg:col-span-12 ord-xl-9 ord-md-9 box-ord-7 box-col-span-6 ord-custom-9">
       <div class="card sales-report">
         <div class="card-header card-no-border">
           <div class="header-top">
@@ -611,7 +611,7 @@
     {{-- ╔══════════════════════════════════════════════════════════════════╗
          ║  11. Nadcházející obnovy (Appointments)         col-span-4     ║
          ╚══════════════════════════════════════════════════════════════════╝ --}}
-    <div class="col-span-4 xxl:col-span-6 lg:col-span-12 ord-xl-10 ord-md-10 box-ord-7 box-col-6 ord-custom-10">
+    <div class="col-span-4 xxl:col-span-6 lg:col-span-12 ord-xl-10 ord-md-10 box-ord-7 box-col-span-6 ord-custom-10">
       <div class="card">
         <div class="card-header card-no-border">
           <div class="header-top">

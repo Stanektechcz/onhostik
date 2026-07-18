@@ -12,29 +12,29 @@
     <x-panel.flash />
 
     {{-- KPI strip --}}
-    <div class="row g-3 mb-4">
-        <div class="col-xl-3 col-md-6">
+    <div class="grid grid-cols-12 gap-3 mb-4">
+        <div class="col-span-12 xl:col-span-3 col-span-12 md:col-span-6">
             <x-panel.stat-widget
                 label="Celkem po splatnosti"
                 :value="$stats['total']"
                 icon="alert-triangle"
                 color="danger" />
         </div>
-        <div class="col-xl-3 col-md-6">
+        <div class="col-span-12 xl:col-span-3 col-span-12 md:col-span-6">
             <x-panel.stat-widget
                 label="Pozastavený dunning"
                 :value="$stats['paused']"
                 icon="pause-circle"
                 color="secondary" />
         </div>
-        <div class="col-xl-3 col-md-6">
+        <div class="col-span-12 xl:col-span-3 col-span-12 md:col-span-6">
             <x-panel.stat-widget
                 label="Kritické (>7 dní)"
                 :value="$stats['critical']"
                 icon="alert-octagon"
                 color="warning" />
         </div>
-        <div class="col-xl-3 col-md-6">
+        <div class="col-span-12 xl:col-span-3 col-span-12 md:col-span-6">
             <x-panel.stat-widget
                 label="1–3 dny po splatnosti"
                 :value="$stats['stage1']"
@@ -50,14 +50,14 @@
                     <tr>
                         <th>Faktura</th>
                         <th>Zákazník</th>
-                        <th class="text-end">Částka</th>
+                        <th class="text-right">Částka</th>
                         <th>Splatnost</th>
                         <th>Dní po spl.</th>
                         <th class="text-center">1d</th>
                         <th class="text-center">3d</th>
                         <th class="text-center">7d</th>
                         <th>Dunning</th>
-                        <th class="text-end">Akce</th>
+                        <th class="text-right">Akce</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -81,7 +81,7 @@
                                     <span class="f-light f-12">—</span>
                                 @endif
                             </td>
-                            <td class="text-end f-w-600 f-12">
+                            <td class="text-right f-w-600 f-12">
                                 <x-panel.money :money="$invoice->total" />
                             </td>
                             <td class="f-12">{{ $invoice->due_date?->format('d.m.Y') ?? '—' }}</td>
@@ -125,9 +125,9 @@
                                     </span>
                                 @endif
                             </td>
-                            <td class="text-end">
+                            <td class="text-right">
                                 @if($paused)
-                                    <form method="POST" action="{{ route('admin.dunning.resume', $invoice) }}" class="d-inline">
+                                    <form method="POST" action="{{ route('admin.dunning.resume', $invoice) }}" class="inline">
                                         @csrf
                                         <button type="submit" class="btn btn-xs btn-outline-success">
                                             <i data-feather="play" style="width:11px;height:11px;"></i> Obnovit

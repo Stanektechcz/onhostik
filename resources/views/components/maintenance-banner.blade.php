@@ -9,10 +9,10 @@
 
 @if($style === 'admin')
 <div class="container-fluid py-0 maintenance-banner">
-    <div class="alert alert-{{ $maint->color }} mb-0 py-2 d-flex align-items-center gap-3" role="alert"
+    <div class="alert alert-{{ $maint->color }} mb-0 py-2 flex items-center gap-3" role="alert"
          style="border-radius:0;border-left:0;border-right:0;border-top:0;">
         <i data-feather="{{ $isActive ? 'tool' : 'clock' }}" style="width:16px;height:16px;flex-shrink:0;"></i>
-        <span class="f-13 flex-1">
+        <span class="f-13 grow">
             <strong>{{ $maint->title }}</strong>
             @if(!$isActive)
                 &nbsp;<span class="badge badge-light-{{ $maint->color }}">Plánovaná od {{ $maint->starts_at->format('d.m.Y H:i') }}</span>
@@ -20,7 +20,7 @@
             &mdash; {{ $maint->message }}
         </span>
         @if($isActive)
-        <span class="f-11 flex-shrink-0 f-light">do {{ $maint->ends_at->format('d.m.Y H:i') }}</span>
+        <span class="f-11 shrink-0 f-light">do {{ $maint->ends_at->format('d.m.Y H:i') }}</span>
         @endif
     </div>
 </div>

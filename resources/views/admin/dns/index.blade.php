@@ -4,15 +4,15 @@
 @section('content')
 <div class="container-fluid">
     <div class="page-header">
-        <div class="row align-items-center">
-            <div class="col-sm-6">
+        <div class="grid grid-cols-12 items-center">
+            <div class="col-span-12 sm:col-span-6">
                 <h3>DNS Zóny</h3>
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{{ route('admin.dashboard') }}">Přehled</a></li>
                     <li class="breadcrumb-item active">DNS Zóny</li>
                 </ol>
             </div>
-            <div class="col-sm-6 text-end">
+            <div class="col-span-12 sm:col-span-6 text-right">
                 <span class="badge bg-primary fs-6">{{ $zones->total() }} zón</span>
             </div>
         </div>
@@ -35,7 +35,7 @@
                     <tbody>
                     @forelse ($zones as $zone)
                     <tr>
-                        <td class="font-monospace fw-semibold">{{ $zone->domain }}</td>
+                        <td class="font-monospace font-semibold">{{ $zone->domain }}</td>
                         <td>
                             @if ($zone->customer)
                                 <a href="{{ route('admin.customers.show', $zone->customer) }}" class="text-decoration-none">
@@ -52,7 +52,7 @@
                         </td>
                         <td class="text-muted">{{ $zone->records_count }}</td>
                         <td class="text-muted f-12">{{ $zone->created_at->format('d.m.Y H:i') }}</td>
-                        <td class="text-end">
+                        <td class="text-right">
                             <a href="{{ route('admin.dns.show', $zone) }}" class="btn btn-outline-primary btn-sm">
                                 <i data-feather="eye" style="width:13px;height:13px"></i>
                             </a>

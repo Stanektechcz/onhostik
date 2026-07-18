@@ -12,8 +12,8 @@
     @endif
 
     {{-- Stats --}}
-    <div class="row g-3 mb-4">
-        <div class="col-md-4">
+    <div class="grid grid-cols-12 gap-3 mb-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card text-center border-danger">
                 <div class="card-body py-3">
                     <div class="h3 mb-0 text-danger">{{ $stats['suspended'] }}</div>
@@ -21,7 +21,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card text-center border-warning">
                 <div class="card-body py-3">
                     <div class="h3 mb-0 text-warning">{{ $stats['expiring_soon'] }}</div>
@@ -29,7 +29,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card text-center">
                 <div class="card-body py-3">
                     <div class="h3 mb-0 text-secondary">{{ $stats['overdue'] }}</div>
@@ -73,7 +73,7 @@
                         @else
                             <th>Příští platba</th>
                         @endif
-                        <th class="text-end">Akce</th>
+                        <th class="text-right">Akce</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -93,19 +93,19 @@
                                 {{ $service->next_due_date?->format('d.m.Y') ?? '—' }}
                             </td>
                         @endif
-                        <td class="text-end text-nowrap">
+                        <td class="text-right text-nowrap">
                             @if($service->status->value === 'suspended')
-                                <form action="{{ route('admin.lifecycle.unsuspend', $service) }}" method="POST" class="d-inline">
+                                <form action="{{ route('admin.lifecycle.unsuspend', $service) }}" method="POST" class="inline">
                                     @csrf
                                     <button class="btn btn-xs btn-outline-success">Obnovit</button>
                                 </form>
-                                <form action="{{ route('admin.lifecycle.terminate', $service) }}" method="POST" class="d-inline"
+                                <form action="{{ route('admin.lifecycle.terminate', $service) }}" method="POST" class="inline"
                                       onsubmit="return confirm('Opravdu ukončit tuto službu?')">
                                     @csrf
                                     <button class="btn btn-xs btn-outline-danger">Ukončit</button>
                                 </form>
                             @elseif($service->status->value === 'active')
-                                <form action="{{ route('admin.lifecycle.suspend', $service) }}" method="POST" class="d-inline">
+                                <form action="{{ route('admin.lifecycle.suspend', $service) }}" method="POST" class="inline">
                                     @csrf
                                     <input type="hidden" name="reason" value="manual_admin">
                                     <button class="btn btn-xs btn-outline-warning">Pozastavit</button>

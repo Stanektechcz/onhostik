@@ -4,15 +4,15 @@
 @section('content')
 <div class="container-fluid">
     <div class="page-header">
-        <div class="row">
-            <div class="col-sm-6">
+        <div class="grid grid-cols-12">
+            <div class="col-span-12 sm:col-span-6">
                 <h3>Devizové kurzy</h3>
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{{ route('admin.dashboard') }}">Přehled</a></li>
                     <li class="breadcrumb-item active">Kurzy</li>
                 </ol>
             </div>
-            <div class="col-sm-6 text-end">
+            <div class="col-span-12 sm:col-span-6 text-right">
                 <a href="{{ route('admin.dac7.export', ['year' => now()->year]) }}"
                    class="btn btn-outline-secondary btn-sm">
                     <i data-feather="download" class="me-1"></i>DAC7 {{ now()->year }}
@@ -23,9 +23,9 @@
 
     <x-panel.flash />
 
-    <div class="row">
+    <div class="grid grid-cols-12">
         @foreach ([['EUR', '€', 'Euro'], ['USD', '$', 'Americký dolar']] as [$code, $symbol, $label])
-        <div class="col-md-6">
+        <div class="col-span-12 md:col-span-6">
             <div class="card">
                 <div class="card-header">
                     <h5><span class="badge bg-primary me-2">{{ $symbol }}</span>{{ $label }} ({{ $code }}/CZK)</h5>
@@ -41,7 +41,7 @@
                     <p class="mb-2 text-warning">Kurz nebyl nastaven.</p>
                     @endif
 
-                    <form method="POST" action="{{ route('admin.exchange-rates.update', $code) }}" class="row g-2 align-items-end">
+                    <form method="POST" action="{{ route('admin.exchange-rates.update', $code) }}" class="grid grid-cols-12 gap-2 items-end">
                         @csrf @method('PUT')
                         <div class="col-auto">
                             <label class="form-label small">Nový kurz (CZK)</label>

@@ -40,8 +40,8 @@
                     <hr class="my-3">
                     <h6 class="f-12 f-w-600 mb-3">Filtr příjemců</h6>
 
-                    <div class="row g-2 mb-3">
-                        <div class="col-md-6">
+                    <div class="grid grid-cols-12 gap-2 mb-3">
+                        <div class="col-span-12 md:col-span-6">
                             <label class="form-label f-12">Segment</label>
                             <select name="filter_segment" class="form-select form-select-sm filter-input">
                                 <option value="">— Všechny segmenty —</option>
@@ -51,7 +51,7 @@
                                 <option value="churned" {{ old('filter_segment') === 'churned'  ? 'selected' : '' }}>Churned</option>
                             </select>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-span-12 md:col-span-6">
                             <label class="form-label f-12">Země</label>
                             <select name="filter_country_code" class="form-select form-select-sm filter-input">
                                 <option value="">— Všechny země —</option>
@@ -60,7 +60,7 @@
                                 @endforeach
                             </select>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-span-12 md:col-span-6">
                             <label class="form-label f-12">Štítek zákazníka</label>
                             <select name="filter_tag_id" class="form-select form-select-sm filter-input">
                                 <option value="">— Všechny štítky —</option>
@@ -69,7 +69,7 @@
                                 @endforeach
                             </select>
                         </div>
-                        <div class="col-md-6 d-flex align-items-end">
+                        <div class="col-span-12 md:col-span-6 flex items-end">
                             <div class="form-check mb-1">
                                 <input class="form-check-input filter-input" type="checkbox" name="filter_has_overdue"
                                        value="1" id="filterOverdue"
@@ -81,7 +81,7 @@
                         </div>
                     </div>
 
-                    <div class="mb-3 d-flex gap-2 align-items-center">
+                    <div class="mb-3 flex gap-2 items-center">
                         <button type="button" id="previewCountBtn" class="btn btn-outline-secondary btn-sm">
                             <i data-feather="users" style="width:12px;height:12px;"></i>
                             Náhled počtu příjemců

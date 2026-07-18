@@ -33,7 +33,7 @@
 
         @if($campaigns->isEmpty())
             <div class="text-center py-5">
-                <i data-feather="mail" style="width:48px;height:48px;" class="text-muted mb-3 d-block mx-auto"></i>
+                <i data-feather="mail" style="width:48px;height:48px;" class="text-muted mb-3 block mx-auto"></i>
                 <h6 class="f-light mt-2">Žádné kampaně</h6>
                 <p class="f-light f-12 mb-3">Začněte vytvořením první e-mailové kampaně.</p>
                 <a href="{{ route('admin.newsletter.create') }}" class="btn btn-primary btn-sm text-white">
@@ -70,7 +70,7 @@
                         <td class="f-light f-12">{{ $campaign->author?->name ?? '—' }}</td>
                         <td class="f-light f-12">{{ $campaign->created_at->format('d.m.Y') }}</td>
                         <td>
-                            <div class="d-flex gap-1">
+                            <div class="flex gap-1">
                                 <a href="{{ route('admin.newsletter.show', $campaign) }}"
                                    class="btn btn-outline-primary btn-xs" title="Detail">
                                     <i data-feather="eye" style="width:11px;height:11px;"></i>

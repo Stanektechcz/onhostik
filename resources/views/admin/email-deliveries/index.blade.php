@@ -6,9 +6,9 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row g-3 mb-3">
-        <div class="col-md-6">
-            <form method="GET" class="d-flex gap-2">
+    <div class="grid grid-cols-12 gap-3 mb-3">
+        <div class="col-span-12 md:col-span-6">
+            <form method="GET" class="flex gap-2">
                 <input type="text" name="recipient" class="form-control form-control-sm"
                     placeholder="Příjemce…" value="{{ request('recipient') }}">
                 <select name="status" class="form-select form-select-sm" style="max-width:140px">

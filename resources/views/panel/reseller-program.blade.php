@@ -26,17 +26,17 @@
             </div>
             <div class="card-body pt-0">
                 <ul class="list-group list-group-flush mb-3">
-                    <li class="list-group-item d-flex justify-content-between px-0">
+                    <li class="list-group-item flex justify-between px-0">
                         <span class="f-light">Obchodní jméno</span>
                         <strong>{{ $profile->business_name }}</strong>
                     </li>
                     @if($profile->custom_domain)
-                    <li class="list-group-item d-flex justify-content-between px-0">
+                    <li class="list-group-item flex justify-between px-0">
                         <span class="f-light">Vlastní doména</span>
                         <strong>{{ $profile->custom_domain }}</strong>
                     </li>
                     @endif
-                    <li class="list-group-item d-flex justify-content-between px-0">
+                    <li class="list-group-item flex justify-between px-0">
                         <span class="f-light">Stav</span>
                         <span class="badge badge-light-{{ $statusBadges[$profile->status] ?? 'secondary' }}">
                             {{ $statusLabels[$profile->status] ?? $profile->status }}
@@ -60,8 +60,8 @@
 
     @else
         {{-- No profile yet — show program info + apply form --}}
-        <div class="row g-3">
-            <div class="col-lg-7">
+        <div class="grid grid-cols-12 gap-3">
+            <div class="col-span-12 lg:col-span-7">
                 <div class="card">
                     <div class="card-header card-no-border">
                         <h5>Žádost o reseller program</h5>
@@ -112,26 +112,26 @@
                 </div>
             </div>
 
-            <div class="col-lg-5">
+            <div class="col-span-12 lg:col-span-5">
                 <div class="card">
                     <div class="card-header card-no-border">
                         <h6>Výhody reseller programu</h6>
                     </div>
                     <div class="card-body pt-0">
                         <ul class="list-unstyled">
-                            <li class="mb-2 d-flex align-items-start gap-2">
+                            <li class="mb-2 flex items-start gap-2">
                                 <i data-feather="check-circle" style="width:14px;height:14px;color:rgba(var(--success-color),1);flex-shrink:0;margin-top:2px;"></i>
                                 <span class="f-light f-13">Vlastní cenový markup na všechny produkty</span>
                             </li>
-                            <li class="mb-2 d-flex align-items-start gap-2">
+                            <li class="mb-2 flex items-start gap-2">
                                 <i data-feather="check-circle" style="width:14px;height:14px;color:rgba(var(--success-color),1);flex-shrink:0;margin-top:2px;"></i>
                                 <span class="f-light f-13">Možnost prodeje pod vlastní doménou</span>
                             </li>
-                            <li class="mb-2 d-flex align-items-start gap-2">
+                            <li class="mb-2 flex items-start gap-2">
                                 <i data-feather="check-circle" style="width:14px;height:14px;color:rgba(var(--success-color),1);flex-shrink:0;margin-top:2px;"></i>
                                 <span class="f-light f-13">Plná technická podpora pro vaše zákazníky</span>
                             </li>
-                            <li class="mb-2 d-flex align-items-start gap-2">
+                            <li class="mb-2 flex items-start gap-2">
                                 <i data-feather="check-circle" style="width:14px;height:14px;color:rgba(var(--success-color),1);flex-shrink:0;margin-top:2px;"></i>
                                 <span class="f-light f-13">Flexibilní branding a nastavení</span>
                             </li>

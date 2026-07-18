@@ -183,6 +183,8 @@ Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('pane
     Route::get('/ai', [Panel\AiController::class, 'index'])->name('ai.index');
     Route::post('/ai', [Panel\AiController::class, 'run'])->name('ai.run');
     Route::post('/ai/chat', [Panel\AiController::class, 'chat'])->name('ai.chat');
+    Route::post('/ai/eskalovat', [Panel\AiController::class, 'escalate'])->name('ai.escalate');
+    Route::get('/ai/poll', [Panel\AiController::class, 'poll'])->name('ai.poll');
 
     Route::get('/notifikace', [Panel\NotificationController::class, 'index'])->name('notifications.index');
     Route::post('/notifikace/{id}/precist', [Panel\NotificationController::class, 'markRead'])->name('notifications.read');
@@ -458,6 +460,8 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
     Route::post('/zakaznici/{customer}/kredit', [Admin\CustomerController::class, 'adjustCredit'])->name('customers.credit');
     Route::put('/zakaznici/{customer}/poznamky', [Admin\CustomerController::class, 'updateNotes'])->name('customers.notes');
     Route::patch('/zakaznici/{customer}/prefkontakt', [Admin\CustomerController::class, 'updatePreferredContact'])->name('customers.preferred-contact');
+    Route::patch('/zakaznici/{customer}', [Admin\CustomerController::class, 'update'])->name('customers.update');
+    Route::post('/zakaznici/{customer}/prepnout-aktivni', [Admin\CustomerController::class, 'toggleActive'])->name('customers.toggle-active');
     Route::post('/zakaznici/{customer}/interni-poznamky', [Admin\CustomerInternalNoteController::class, 'store'])->name('customers.internal-notes.store');
     Route::delete('/zakaznici/{customer}/interni-poznamky/{note}', [Admin\CustomerInternalNoteController::class, 'destroy'])->name('customers.internal-notes.destroy');
     Route::post('/zakaznici/{customer}/interni-poznamky/{note}/pripnout', [Admin\CustomerInternalNoteController::class, 'pin'])->name('customers.internal-notes.pin');
@@ -481,6 +485,10 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
     Route::get('/objednavky', [Admin\OrderController::class, 'index'])->name('orders.index');
     Route::get('/objednavky/export', [Admin\OrderController::class, 'export'])->name('orders.export');
     Route::get('/objednavky/{order}', [Admin\OrderController::class, 'show'])->name('orders.show');
+    Route::post('/objednavky/{order}/akceptovat', [Admin\OrderController::class, 'accept'])->name('orders.accept');
+    Route::post('/objednavky/{order}/zrusit', [Admin\OrderController::class, 'cancel'])->name('orders.cancel');
+    Route::post('/objednavky/{order}/zridit', [Admin\OrderController::class, 'provision'])->name('orders.provision');
+    Route::patch('/objednavky/{order}', [Admin\OrderController::class, 'update'])->name('orders.update');
 
     Route::get('/faktury', [Admin\InvoiceController::class, 'index'])->name('invoices.index');
     Route::get('/faktury/export', [Admin\InvoiceController::class, 'export'])->name('invoices.export');
@@ -534,6 +542,8 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
     Route::get('/sluzby/export', [Admin\ServiceController::class, 'export'])->name('services.export');
     Route::post('/sluzby/hromadne-pozastavit', [Admin\ServiceController::class, 'batchSuspend'])->name('services.batch-suspend');
     Route::post('/sluzby/hromadne-reaktivovat', [Admin\ServiceController::class, 'batchUnsuspend'])->name('services.batch-unsuspend');
+    Route::get('/sluzby/vytvorit', [Admin\ServiceController::class, 'create'])->name('services.create');
+    Route::post('/sluzby', [Admin\ServiceController::class, 'store'])->name('services.store');
     Route::get('/sluzby/stitky', [Admin\ServiceTagController::class, 'index'])->name('services.tags.index');
     Route::post('/sluzby/stitky', [Admin\ServiceTagController::class, 'store'])->name('services.tags.store');
     Route::delete('/sluzby/stitky/{serviceTag}', [Admin\ServiceTagController::class, 'destroy'])->name('services.tags.destroy');
@@ -671,6 +681,11 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
     Route::get('/integrace/{integration}', [Admin\IntegrationController::class, 'edit'])->name('integrations.edit');
     Route::put('/integrace/{integration}', [Admin\IntegrationController::class, 'update'])->name('integrations.update');
     Route::post('/integrace/{integration}/test', [Admin\IntegrationController::class, 'test'])->name('integrations.test');
+
+    Route::get('/chat', [Admin\ChatController::class, 'index'])->name('chat.index');
+    Route::get('/chat/{conversation}', [Admin\ChatController::class, 'show'])->name('chat.show');
+    Route::post('/chat/{conversation}/odpoved', [Admin\ChatController::class, 'reply'])->name('chat.reply');
+    Route::post('/chat/{conversation}/uzavrit', [Admin\ChatController::class, 'close'])->name('chat.close');
 
     Route::get('/podpora', [Admin\SupportController::class, 'index'])->name('support.index');
     Route::get('/podpora/sla-monitor', [Admin\SupportController::class, 'slaMonitor'])->name('support.sla-monitor');

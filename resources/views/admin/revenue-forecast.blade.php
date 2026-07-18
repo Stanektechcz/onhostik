@@ -12,8 +12,8 @@
     <x-panel.flash />
 
     {{-- KPI cards --}}
-    <div class="row g-3 mb-4">
-        <div class="col-sm-4">
+    <div class="grid grid-cols-12 gap-3 mb-4">
+        <div class="col-span-12 sm:col-span-4">
             <div class="card widget-flat text-center">
                 <div class="card-body py-3">
                     <p class="text-muted f-12 mb-1">Průměr posledních 3 měsíců</p>
@@ -21,7 +21,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-sm-4">
+        <div class="col-span-12 sm:col-span-4">
             <div class="card widget-flat text-center">
                 <div class="card-body py-3">
                     <p class="text-muted f-12 mb-1">Celkem YTD</p>
@@ -29,7 +29,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-sm-4">
+        <div class="col-span-12 sm:col-span-4">
             <div class="card widget-flat text-center">
                 <div class="card-body py-3">
                     <p class="text-muted f-12 mb-1">Prognóza (příštích 3 měs.)</p>
@@ -40,9 +40,9 @@
         </div>
     </div>
 
-    <div class="row g-3">
+    <div class="grid grid-cols-12 gap-3">
         {{-- Historical revenue bar chart --}}
-        <div class="col-lg-7">
+        <div class="col-span-12 lg:col-span-7">
             <div class="card">
                 <div class="card-header py-3">
                     <h6 class="mb-0">Skutečné příjmy <small class="text-muted">(posledních 12 měsíců, dokončené platby)</small></h6>
@@ -51,17 +51,17 @@
                     @php
                         $maxHistorical = $historical->max('czk') ?: 1;
                     @endphp
-                    <div class="d-flex align-items-end gap-1" style="height:120px;">
+                    <div class="flex items-end gap-1" style="height:120px;">
                         @foreach($historical as $m)
                             @php $pct = max(2, (int) round($m['czk'] / $maxHistorical * 100)); @endphp
-                            <div class="flex-fill d-flex flex-column align-items-center"
+                            <div class="flex-fill flex flex-col items-center"
                                  title="{{ $m['label'] }}: {{ number_format($m['czk'], 0, ',', ' ') }} Kč">
-                                <div class="{{ $m['czk'] > 0 ? 'bg-primary' : 'bg-light border' }} rounded-top w-100"
+                                <div class="{{ $m['czk'] > 0 ? 'bg-primary' : 'bg-light border' }} rounded w-full"
                                      style="height:{{ $pct }}%;min-height:3px;"></div>
                             </div>
                         @endforeach
                     </div>
-                    <div class="d-flex gap-1 mt-1">
+                    <div class="flex gap-1 mt-1">
                         @foreach($historical as $m)
                             <div class="flex-fill text-center f-10 text-muted" style="overflow:hidden;white-space:nowrap;">
                                 {{ $m['label'] }}
@@ -75,7 +75,7 @@
                                     <tr>
                                         @foreach($row as $m)
                                             <td class="text-muted">{{ $m['label'] }}</td>
-                                            <td class="fw-semibold">{{ number_format($m['czk'], 0, ',', ' ') }}&nbsp;Kč</td>
+                                            <td class="font-semibold">{{ number_format($m['czk'], 0, ',', ' ') }}&nbsp;Kč</td>
                                         @endforeach
                                     </tr>
                                 @endforeach
@@ -87,7 +87,7 @@
         </div>
 
         {{-- Forecast table --}}
-        <div class="col-lg-5">
+        <div class="col-span-12 lg:col-span-5">
             <div class="card">
                 <div class="card-header py-3">
                     <h6 class="mb-0">Prognóza <small class="text-muted">(příštích 6 měsíců, otevřené faktury)</small></h6>
@@ -98,8 +98,8 @@
                             <thead class="table-light">
                                 <tr>
                                     <th>Měsíc</th>
-                                    <th class="text-end">Prognózované příjmy</th>
-                                    <th class="text-end">vs. průměr 3m</th>
+                                    <th class="text-right">Prognózované příjmy</th>
+                                    <th class="text-right">vs. průměr 3m</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -112,8 +112,8 @@
                                     @endphp
                                     <tr>
                                         <td class="f-12 f-w-500">{{ $m['label'] }}</td>
-                                        <td class="text-end f-12">{{ number_format($m['czk'], 0, ',', ' ') }}&nbsp;Kč</td>
-                                        <td class="text-end f-12">
+                                        <td class="text-right f-12">{{ number_format($m['czk'], 0, ',', ' ') }}&nbsp;Kč</td>
+                                        <td class="text-right f-12">
                                             @if($last3Avg > 0)
                                                 <span class="txt-{{ $color }}">{{ $arrow }} {{ abs($diffPct) }}&nbsp;%</span>
                                             @else

@@ -25,7 +25,7 @@
         <x-panel.flash />
 
         @if($isMock)
-            <div class="alert alert-light-warning d-flex gap-2 align-items-center py-2 px-3 mb-3 f-12">
+            <div class="alert alert-light-warning flex gap-2 items-center py-2 px-3 mb-3 f-12">
                 <i data-feather="alert-triangle" style="width:14px;height:14px;flex-shrink:0" class="font-warning"></i>
                 <span>{{ __('panel.dns.mock_notice') }}</span>
             </div>
@@ -120,7 +120,7 @@
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-sm w-100">
+                        <button type="submit" class="btn btn-primary btn-sm w-full">
                             <i data-feather="plus" style="width:13px;height:13px"></i>
                             {{ __('panel.dns.save') }}
                         </button>

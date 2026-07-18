@@ -14,10 +14,17 @@ class NewIpLoginNotification extends Notification
         private readonly string $userAgent,
     ) {}
 
-    /** @return list<string> */
+    /**
+     * In-app only. A login from a new IP is surfaced in the notification
+     * bell and the security log — we deliberately do NOT e-mail it, since a
+     * mail on every new-IP login is noise (and fires spuriously in local /
+     * proxied setups where the remote IP flips between requests).
+     *
+     * @return list<string>
+     */
     public function via(mixed $notifiable): array
     {
-        return ['mail', 'database'];
+        return ['database'];
     }
 
     public function toMail(mixed $notifiable): MailMessage

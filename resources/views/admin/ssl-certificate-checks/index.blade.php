@@ -3,11 +3,11 @@
 @section('content')
 <div class="container-fluid">
     <x-panel.flash />
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="SSL certifikáty – kontroly">
                 <form method="GET" action="{{ route('admin.ssl-certificate-checks.index') }}" class="mb-3">
-                    <div class="d-flex gap-2 align-items-center">
+                    <div class="flex gap-2 items-center">
                         <select name="status" class="form-select form-select-sm" style="max-width:200px">
                             <option value="">-- všechny stavy --</option>
                             @foreach($statuses as $s)
@@ -65,7 +65,7 @@
                 <div class="mt-3">{{ $checks->links() }}</div>
             </x-panel.card>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Přidat kontrolu">
                 <form method="POST" action="{{ route('admin.ssl-certificate-checks.store') }}">
                     @csrf
@@ -109,7 +109,7 @@
                         <textarea name="error" class="form-control @error('error') is-invalid @enderror" rows="2" maxlength="500">{{ old('error') }}</textarea>
                         @error('error')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Přidat</button>
+                    <button type="submit" class="btn btn-primary w-full">Přidat</button>
                 </form>
             </x-panel.card>
         </div>

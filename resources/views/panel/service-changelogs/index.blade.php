@@ -6,7 +6,7 @@
 <x-panel.flash />
 
 <x-panel.card title="Výběr služby">
-    <form method="GET" action="{{ route('panel.service-changelogs.index') }}" class="row g-2 align-items-end">
+    <form method="GET" action="{{ route('panel.service-changelogs.index') }}" class="grid grid-cols-12 gap-2 items-end">
         <div class="col-auto">
             <label for="service_id" class="form-label">Služba</label>
             <select id="service_id" name="service_id" class="form-select" onchange="this.form.submit()">

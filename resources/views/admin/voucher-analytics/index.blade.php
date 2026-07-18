@@ -6,8 +6,8 @@
 <x-panel.flash />
 
 <x-panel.card title="Analytika voucherů">
-    <div class="row g-3 mb-4">
-        <div class="col-md-4">
+    <div class="grid grid-cols-12 gap-3 mb-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card text-center border-0 bg-light">
                 <div class="card-body">
                     <h5 class="card-title">Celkem voucherů</h5>
@@ -15,7 +15,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card text-center border-0 bg-light">
                 <div class="card-body">
                     <h5 class="card-title">Aktivních</h5>
@@ -23,7 +23,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <div class="card text-center border-0 bg-light">
                 <div class="card-body">
                     <h5 class="card-title">Celkem použití</h5>

@@ -20,11 +20,11 @@
                 <h5>Dvoufázové ověření (2FA)</h5>
             </div>
             <div class="card-body">
-                <div class="row g-3">
+                <div class="grid grid-cols-12 gap-3">
                     {{-- Require customer 2FA --}}
-                    <div class="col-12">
+                    <div class="col-span-12">
                         <div class="card bg-light border-0">
-                            <div class="card-body d-flex justify-content-between align-items-start gap-3">
+                            <div class="card-body flex justify-between items-start gap-3">
                                 <div>
                                     <h6 class="mb-1">Vyžadovat 2FA od zákazníků</h6>
                                     <p class="f-12 f-light mb-0">
@@ -43,9 +43,9 @@
                     </div>
 
                     {{-- Require admin 2FA (informational - enforced by RequireAdminTwoFactor middleware) --}}
-                    <div class="col-12">
+                    <div class="col-span-12">
                         <div class="card bg-light border-0">
-                            <div class="card-body d-flex justify-content-between align-items-start gap-3">
+                            <div class="card-body flex justify-between items-start gap-3">
                                 <div>
                                     <h6 class="mb-1">Vyžadovat 2FA od administrátorů</h6>
                                     <p class="f-12 f-light mb-0">

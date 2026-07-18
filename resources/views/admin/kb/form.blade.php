@@ -50,7 +50,7 @@
                                 <textarea name="excerpt" rows="2" class="form-control">{{ old('excerpt', $article->excerpt) }}</textarea>
                             </div>
                             <div class="col-span-12">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="flex justify-between items-center mb-2">
                                     <label class="form-label f-w-500 mb-0">Obsah (HTML)</label>
                                     <button type="button" class="btn btn-outline-secondary btn-sm"
                                             onclick="togglePreview('body-editor', 'body-preview')">
@@ -71,7 +71,7 @@
                             </div>
                         </div>
 
-                        <div class="mt-4 d-flex gap-2">
+                        <div class="mt-4 flex gap-2">
                             <button type="submit" class="btn btn-primary">
                                 <i data-feather="save" style="width:14px;height:14px"></i> Uložit
                             </button>

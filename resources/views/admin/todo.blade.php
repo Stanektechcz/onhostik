@@ -23,27 +23,27 @@
                         <p class="f-light f-12">admin@onhost.cz</p>
                     </div>
                     <hr>
-                    <ul class="nav flex-column">
+                    <ul class="nav flex-col">
                         <li class="nav-item">
-                            <a class="nav-link active d-flex justify-content-between" href="#">
+                            <a class="nav-link active flex justify-between" href="#">
                                 <span><i data-feather="list" style="width:14px;height:14px;margin-right:8px;"></i>Vše</span>
                                 <span class="badge badge-primary text-white" id="all-count">6</span>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link d-flex justify-content-between" href="#">
+                            <a class="nav-link flex justify-between" href="#">
                                 <span><i data-feather="check-circle" style="width:14px;height:14px;margin-right:8px;"></i>Dokončené</span>
                                 <span class="badge badge-light-success" id="done-count">2</span>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link d-flex justify-content-between" href="#">
+                            <a class="nav-link flex justify-between" href="#">
                                 <span><i data-feather="clock" style="width:14px;height:14px;margin-right:8px;"></i>Čekající</span>
                                 <span class="badge badge-light-warning" id="pending-count">3</span>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link d-flex justify-content-between" href="#">
+                            <a class="nav-link flex justify-between" href="#">
                                 <span><i data-feather="refresh-cw" style="width:14px;height:14px;margin-right:8px;"></i>Probíhá</span>
                                 <span class="badge badge-light-primary" id="inprog-count">1</span>
                             </a>
@@ -59,7 +59,7 @@
                         <div class="header-top">
                             <h5>To-Do seznam</h5>
                         </div>
-                        <div class="d-flex gap-2 mt-2">
+                        <div class="flex gap-2 mt-2">
                             <input type="text" class="form-control form-control-sm" id="new-todo" placeholder="Přidat nový úkol…">
                             <button class="btn btn-primary btn-sm text-white" onclick="addTodo()">Přidat</button>
                         </div>
@@ -74,7 +74,7 @@
                                 ['Přezkoumat partnerské provize', false, 'Nízká'],
                                 ['Backup konfigurace serverů', true, 'Normální'],
                             ] as [$todo, $done, $priority])
-                            <li class="task-item d-flex align-items-center gap-3 py-2 border-bottom {{ $done ? 'task-done' : '' }}">
+                            <li class="task-item flex items-center gap-3 py-2 border-bottom {{ $done ? 'task-done' : '' }}">
                                 <div class="form-check mb-0">
                                     <input class="form-check-input checkbox-primary" type="checkbox" {{ $done ? 'checked' : '' }}
                                            onchange="toggleTodo(this)">
@@ -103,7 +103,7 @@ function addTodo() {
     var val = input.value.trim();
     if (!val) return;
     var li = document.createElement('li');
-    li.className = 'task-item d-flex align-items-center gap-3 py-2 border-bottom';
+    li.className = 'task-item flex items-center gap-3 py-2 border-bottom';
     li.innerHTML = '<div class="form-check mb-0"><input class="form-check-input checkbox-primary" type="checkbox" onchange="toggleTodo(this)"></div>' +
         '<span class="flex-1">' + val + '</span>' +
         '<span class="badge badge-light-secondary f-11 ms-auto">Normální</span>' +

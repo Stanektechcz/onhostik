@@ -28,8 +28,8 @@
         </div>
     @endif
 
-    <div class="row g-3">
-        <div class="col-lg-8">
+    <div class="grid grid-cols-12 gap-3">
+        <div class="col-span-12 lg:col-span-8">
             <div class="card">
                 <div class="card-header py-3">
                     <h6 class="mb-0">Povolené IP adresy a rozsahy</h6>
@@ -37,7 +37,7 @@
                 <div class="card-body p-0">
                     @if($entries->isEmpty())
                         <div class="text-center py-4 text-muted f-12">
-                            <i data-feather="shield-off" style="width:28px;height:28px;" class="mb-2 d-block mx-auto"></i>
+                            <i data-feather="shield-off" style="width:28px;height:28px;" class="mb-2 block mx-auto"></i>
                             Žádné záznamy — ochrana není aktivní.
                         </div>
                     @else
@@ -55,7 +55,7 @@
                                 <tbody>
                                     @foreach($entries as $entry)
                                         <tr>
-                                            <td class="font-monospace fw-semibold f-12">{{ $entry->cidr }}</td>
+                                            <td class="font-monospace font-semibold f-12">{{ $entry->cidr }}</td>
                                             <td class="f-12">{{ $entry->label ?? '—' }}</td>
                                             <td class="f-12 text-muted">{{ $entry->createdBy?->name ?? '—' }}</td>
                                             <td>
@@ -66,7 +66,7 @@
                                                 @endif
                                             </td>
                                             <td>
-                                                <div class="d-flex gap-1">
+                                                <div class="flex gap-1">
                                                     <form method="POST" action="{{ route('admin.ip-allowlist.update', $entry) }}">
                                                         @csrf @method('PUT')
                                                         <input type="hidden" name="is_active" value="{{ $entry->is_active ? '0' : '1' }}">
@@ -94,7 +94,7 @@
             </div>
         </div>
 
-        <div class="col-lg-4">
+        <div class="col-span-12 lg:col-span-4">
             <div class="card">
                 <div class="card-header py-3">
                     <h6 class="mb-0">Přidat IP / rozsah</h6>
@@ -118,7 +118,7 @@
                                 placeholder="Např. Kancelář Praha">
                             @error('label')<div class="invalid-feedback f-12">{{ $message }}</div>@enderror
                         </div>
-                        <button type="submit" class="btn btn-primary btn-sm w-100">
+                        <button type="submit" class="btn btn-primary btn-sm w-full">
                             <i data-feather="plus" style="width:13px;height:13px"></i>
                             Přidat
                         </button>

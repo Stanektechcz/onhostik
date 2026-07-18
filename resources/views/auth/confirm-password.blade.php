@@ -4,8 +4,8 @@
 @section('content')
 <div class="authentication-main mt-0">
     <div class="container-fluid p-0">
-        <div class="row m-0 justify-content-center align-items-center min-vh-100">
-            <div class="col-12 col-md-6 col-lg-4">
+        <div class="grid grid-cols-12 m-0 justify-center items-center min-h-screen">
+            <div class="col-span-12 col-span-12 md:col-span-6 col-span-12 lg:col-span-4">
                 <div class="login-card login-dark">
                     <div>
                         <div class="text-center mb-3">
@@ -37,7 +37,7 @@
                                 @csrf
                                 <div class="form-group mb-3">
                                     <label class="col-form-label">Heslo</label>
-                                    <div class="form-input position-relative">
+                                    <div class="form-input relative">
                                         <input class="form-control" type="password" name="password"
                                                placeholder="Zadejte heslo" required autofocus>
                                         <div class="show-hide"><span class="show"></span></div>

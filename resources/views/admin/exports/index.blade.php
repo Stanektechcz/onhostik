@@ -5,7 +5,7 @@
 @section('content')
 <div class="container-fluid py-4">
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="flex justify-between items-center mb-4">
         <h1 class="h4 mb-0">Finanční exporty</h1>
         <a href="{{ route('admin.exports.create') }}" class="btn btn-primary btn-sm">+ Nový export</a>
     </div>
@@ -53,12 +53,12 @@
                         <td class="small text-muted">{{ $job->row_count ?? '—' }}</td>
                         <td class="small text-muted">{{ $job->creator?->name ?? '—' }}</td>
                         <td class="small text-muted">{{ $job->created_at->format('d.m.Y H:i') }}</td>
-                        <td class="text-end text-nowrap">
+                        <td class="text-right text-nowrap">
                             @if($job->isDownloadable())
                                 <a href="{{ route('admin.exports.download', $job) }}"
                                    class="btn btn-xs btn-outline-success">Stáhnout</a>
                             @endif
-                            <form action="{{ route('admin.exports.destroy', $job) }}" method="POST" class="d-inline"
+                            <form action="{{ route('admin.exports.destroy', $job) }}" method="POST" class="inline"
                                   onsubmit="return confirm('Smazat export?')">
                                 @csrf @method('DELETE')
                                 <button class="btn btn-xs btn-outline-danger">Smazat</button>

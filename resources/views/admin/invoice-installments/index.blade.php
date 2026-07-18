@@ -15,7 +15,7 @@
                         <th>Faktura</th>
                         <th>Zákazník</th>
                         <th>Splátka</th>
-                        <th class="text-end">Částka</th>
+                        <th class="text-right">Částka</th>
                         <th>Splatnost</th>
                         <th>Stav</th>
                     </tr>
@@ -26,7 +26,7 @@
                         <td class="f-w-500">{{ $inst->invoice?->number ?? '—' }}</td>
                         <td>{{ $inst->customer?->display_name ?? '—' }}</td>
                         <td>{{ $inst->installment_number }} / {{ $inst->total_count }}</td>
-                        <td class="text-end">{{ number_format($inst->amount_minor / 100, 2, ',', ' ') }} Kč</td>
+                        <td class="text-right">{{ number_format($inst->amount_minor / 100, 2, ',', ' ') }} Kč</td>
                         <td>{{ $inst->due_date->format('d.m.Y') }}</td>
                         <td>
                             @if($inst->status === 'paid')

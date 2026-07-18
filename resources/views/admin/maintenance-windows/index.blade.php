@@ -57,7 +57,7 @@
             <x-panel.card title="Okna údržby">
 
                 {{-- Filter --}}
-                <form method="GET" action="{{ route('admin.maintenance-windows.index') }}" class="d-flex gap-2 mb-3">
+                <form method="GET" action="{{ route('admin.maintenance-windows.index') }}" class="flex gap-2 mb-3">
                     <select name="status" class="form-select form-select-sm w-auto">
                         <option value="">Všechny statusy</option>
                         @foreach(['scheduled','in_progress','completed','cancelled'] as $s)
@@ -116,9 +116,9 @@
                                     </span>
                                 </td>
                                 <td>
-                                    <div class="d-flex gap-2 align-items-center flex-wrap">
+                                    <div class="flex gap-2 items-center flex-wrap">
                                         {{-- Inline status PATCH --}}
-                                        <form method="POST" action="{{ route('admin.maintenance-windows.update', $window) }}" class="d-flex gap-1">
+                                        <form method="POST" action="{{ route('admin.maintenance-windows.update', $window) }}" class="flex gap-1">
                                             @csrf
                                             @method('PATCH')
                                             <select name="status" class="form-select form-select-sm" style="width:130px">

@@ -32,7 +32,7 @@
     <x-panel.flash />
 
     {{-- ── Filter bar ─────────────────────────────────────────────────────── --}}
-    <div class="d-flex flex-wrap gap-2 mb-4">
+    <div class="flex flex-wrap gap-2 mb-4">
         @foreach($filters as $val => $label)
             <a href="{{ route('panel.activity-feed') . ($val ? '?filter=' . $val : '') }}"
                class="btn btn-sm {{ $filter === $val ? 'btn-primary' : 'btn-outline-secondary' }}">
@@ -64,7 +64,7 @@
 
                     @if($eventDate !== $lastDate)
                         @php $lastDate = $eventDate; @endphp
-                        <div class="activity-date-divider d-flex align-items-center gap-3 my-3">
+                        <div class="activity-date-divider flex items-center gap-3 my-3">
                             <span class="badge bg-light text-dark border f-12 px-3 py-2">
                                 {{ $event['date']?->translatedFormat('j. F Y') ?? '—' }}
                             </span>
@@ -72,22 +72,22 @@
                         </div>
                     @endif
 
-                    <div class="d-flex align-items-start gap-3 py-2 activity-item">
+                    <div class="flex items-start gap-3 py-2 activity-item">
                         {{-- Icon dot --}}
-                        <div class="flex-shrink-0 d-flex align-items-center justify-content-center rounded-circle"
+                        <div class="shrink-0 flex items-center justify-center rounded-full"
                              style="width:36px;height:36px;background:{{ $bg }};">
                             <i data-feather="{{ $event['icon'] }}" style="width:16px;height:16px;color:rgba(var(--white),1);"></i>
                         </div>
 
                         {{-- Content --}}
-                        <div class="flex-grow-1" style="min-width:0;">
-                            <div class="d-flex align-items-baseline gap-2 flex-wrap">
+                        <div class="grow" style="min-width:0;">
+                            <div class="flex items-baseline gap-2 flex-wrap">
                                 @if($event['url'])
-                                    <a href="{{ $event['url'] }}" class="fw-semibold text-dark f-15 text-decoration-none hover-underline">
+                                    <a href="{{ $event['url'] }}" class="font-semibold text-dark f-15 text-decoration-none hover-underline">
                                         {{ $event['title'] }}
                                     </a>
                                 @else
-                                    <span class="fw-semibold f-15">{{ $event['title'] }}</span>
+                                    <span class="font-semibold f-15">{{ $event['title'] }}</span>
                                 @endif
 
                                 @if($event['badge'])
@@ -103,7 +103,7 @@
                         </div>
 
                         {{-- Timestamp --}}
-                        <div class="flex-shrink-0 text-end">
+                        <div class="shrink-0 text-right">
                             <span class="f-12 text-muted">{{ $event['date']?->format('H:i') }}</span>
                         </div>
                     </div>

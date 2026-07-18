@@ -21,7 +21,7 @@
     </div>
 
     <x-panel.card title="Partnerské profily">
-        <div class="d-flex justify-content-end mb-3">
+        <div class="flex justify-end mb-3">
             <a href="{{ route('admin.partners.create') }}" class="btn btn-primary btn-sm">
                 <i data-feather="plus" style="width:13px;height:13px;"></i>
                 Nový partner

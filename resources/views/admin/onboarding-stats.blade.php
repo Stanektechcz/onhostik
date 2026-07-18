@@ -12,30 +12,30 @@
     <x-panel.flash />
 
     {{-- Summary cards --}}
-    <div class="row g-3 mb-3">
-        <div class="col-md-3">
+    <div class="grid grid-cols-12 gap-3 mb-3">
+        <div class="col-span-12 md:col-span-3">
             <x-panel.stat-widget label="Celkem zákazníků" :value="$stats['total']" icon="users" />
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <x-panel.stat-widget label="Dokončili onboarding" :value="$stats['fullyComplete']" icon="check-circle" color="success" />
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <x-panel.stat-widget label="Rozepsáno" :value="$stats['inProgress']" icon="loader" color="warning" />
         </div>
-        <div class="col-md-3">
+        <div class="col-span-12 md:col-span-3">
             <x-panel.stat-widget label="Nezačali" :value="$stats['notStarted']" icon="user-x" color="secondary" />
         </div>
     </div>
 
-    <div class="row g-3">
+    <div class="grid grid-cols-12 gap-3">
         {{-- Step completion rates --}}
-        <div class="col-lg-4">
+        <div class="col-span-12 lg:col-span-4">
             <div class="card">
                 <div class="card-header card-no-border"><h5>Dokončení kroků</h5></div>
                 <div class="card-body">
                     @forelse($stats['stepRates'] as $step => $pct)
                     <div class="mb-3">
-                        <div class="d-flex justify-content-between mb-1">
+                        <div class="flex justify-between mb-1">
                             <span class="f-13">{{ $stepLabels[$step] ?? $step }}</span>
                             <span class="f-12 f-light">{{ $pct }}%</span>
                         </div>
@@ -52,7 +52,7 @@
         </div>
 
         {{-- Incomplete customers --}}
-        <div class="col-lg-8">
+        <div class="col-span-12 lg:col-span-8">
             <div class="card">
                 <div class="card-header card-no-border">
                     <h5>Zákazníci bez dokončeného onboardingu</h5>

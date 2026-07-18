@@ -50,7 +50,7 @@
                                     <h5>{{ $post->title }}</h5>
 
                                     {{-- Action buttons --}}
-                                    <div class="d-flex gap-2 flex-wrap mt-3">
+                                    <div class="flex gap-2 flex-wrap mt-3">
                                         <a href="{{ route('admin.blog.edit', $post) }}" class="btn btn-primary btn-sm">
                                             <i data-feather="edit-2" style="width:13px;height:13px;"></i> Upravit
                                         </a>

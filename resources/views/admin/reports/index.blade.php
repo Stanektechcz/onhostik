@@ -9,10 +9,10 @@
 
 @section('content')
 <div class="container-fluid">
-    <div class="row g-3">
+    <div class="grid grid-cols-12 gap-3">
 
         {{-- Filters --}}
-        <div class="col-lg-3">
+        <div class="col-span-12 lg:col-span-3">
             <div class="card">
                 <div class="card-header card-no-border"><h5>Parametry reportu</h5></div>
                 <div class="card-body">
@@ -49,10 +49,10 @@
                             <input type="text" name="status" class="form-control form-control-sm"
                                    value="{{ $params['status'] ?? '' }}" placeholder="paid, active…">
                         </div>
-                        <button type="submit" class="btn btn-primary btn-sm w-100 mb-2">Sestavit report</button>
+                        <button type="submit" class="btn btn-primary btn-sm w-full mb-2">Sestavit report</button>
                         @if($hasQuery)
                         <a href="{{ route('admin.reports.download', $params) }}"
-                           class="btn btn-outline-secondary btn-sm w-100">
+                           class="btn btn-outline-secondary btn-sm w-full">
                             <i data-feather="download" style="width:12px;height:12px;"></i>
                             Stáhnout CSV
                         </a>
@@ -63,18 +63,18 @@
         </div>
 
         {{-- Report output --}}
-        <div class="col-lg-9">
+        <div class="col-span-12 lg:col-span-9">
             @if(!$hasQuery)
                 <div class="card">
                     <div class="card-body text-center py-5">
-                        <i data-feather="bar-chart-2" style="width:48px;height:48px;" class="text-muted mb-3 d-block mx-auto"></i>
+                        <i data-feather="bar-chart-2" style="width:48px;height:48px;" class="text-muted mb-3 block mx-auto"></i>
                         <h5 class="f-light">Zvolte typ reportu a zadejte parametry</h5>
                         <p class="f-light f-12">Report se zobrazí zde po kliknutí na Sestavit report.</p>
                     </div>
                 </div>
             @elseif($report && $report['rows']->isNotEmpty())
                 <div class="card">
-                    <div class="card-header card-no-border d-flex align-items-center gap-2">
+                    <div class="card-header card-no-border flex items-center gap-2">
                         <h5 class="mb-0">{{ $report['title'] }}</h5>
                         <span class="badge bg-secondary ms-2">{{ $report['rows']->count() }} řádků</span>
                         <a href="{{ route('admin.reports.download', $params) }}"

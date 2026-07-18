@@ -5,8 +5,8 @@
 @section('content')
 <div class="container-fluid">
 
-    <div class="row mb-3">
-        <div class="col-md-4">
+    <div class="grid grid-cols-12 mb-3">
+        <div class="col-span-12 md:col-span-4">
             <div class="card">
                 <div class="card-body text-center">
                     <h4 class="f-w-700">{{ $totalUsed }} / {{ $totalMax }}</h4>
@@ -30,7 +30,7 @@
                     <tr>
                         <th>Server</th>
                         <th>Driver</th>
-                        <th class="text-end">Služby</th>
+                        <th class="text-right">Služby</th>
                         <th>Obsazenost</th>
                         <th>CPU</th>
                         <th>RAM</th>
@@ -43,7 +43,7 @@
                     <tr class="{{ $row['alert'] ? 'table-warning' : '' }}">
                         <td class="f-w-500">{{ $row['server']->name }}</td>
                         <td class="f-12 text-muted">{{ $row['server']->driver->value }}</td>
-                        <td class="text-end">{{ $row['used'] }} / {{ $row['max'] }}</td>
+                        <td class="text-right">{{ $row['used'] }} / {{ $row['max'] }}</td>
                         <td style="min-width:120px">
                             <div class="progress" style="height:8px">
                                 <div class="progress-bar {{ $row['alert'] ? 'bg-danger' : 'bg-success' }}"

@@ -52,7 +52,7 @@
                                     <span class="badge badge-light-secondary">Jiná</span>
                                 @endif
                             </td>
-                            <td class="text-end">
+                            <td class="text-right">
                                 @if(!$isCurrent)
                                     <form method="POST" action="{{ route('panel.account.sessions.destroy', $session->id) }}">
                                         @csrf

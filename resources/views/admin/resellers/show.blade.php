@@ -25,11 +25,11 @@
     @endif
 
     {{-- Action bar --}}
-    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <div class="flex items-center gap-2 mb-3 flex-wrap">
         <span class="{{ $badgeClass }}">{{ ucfirst($reseller->status) }}</span>
 
         @if($reseller->status === 'pending' || $reseller->status === 'suspended' || $reseller->status === 'rejected')
-            <form method="POST" action="{{ route('admin.resellers.approve', $reseller) }}" class="d-inline">
+            <form method="POST" action="{{ route('admin.resellers.approve', $reseller) }}" class="inline">
                 @csrf
                 <button type="submit" class="btn btn-outline-success btn-sm">
                     <i data-feather="check" style="width:13px;height:13px;"></i> Schválit
@@ -38,7 +38,7 @@
         @endif
 
         @if($reseller->status === 'pending' || $reseller->status === 'active')
-            <form method="POST" action="{{ route('admin.resellers.reject', $reseller) }}" class="d-inline"
+            <form method="POST" action="{{ route('admin.resellers.reject', $reseller) }}" class="inline"
                   onsubmit="return confirm('Opravdu zamítnout resellera?')">
                 @csrf
                 <button type="submit" class="btn btn-outline-secondary btn-sm">
@@ -48,14 +48,14 @@
         @endif
 
         @if($reseller->status === 'active')
-            <form method="POST" action="{{ route('admin.resellers.suspend', $reseller) }}" class="d-inline"
+            <form method="POST" action="{{ route('admin.resellers.suspend', $reseller) }}" class="inline"
                   onsubmit="return confirm('Opravdu pozastavit resellera?')">
                 @csrf
                 <button type="submit" class="btn btn-outline-warning btn-sm">
                     <i data-feather="pause" style="width:13px;height:13px;"></i> Pozastavit
                 </button>
             </form>
-            <form method="POST" action="{{ route('admin.resellers.revoke', $reseller) }}" class="d-inline"
+            <form method="POST" action="{{ route('admin.resellers.revoke', $reseller) }}" class="inline"
                   onsubmit="return confirm('Opravdu odebrat resellerovi přístup? Uživatel ztratí reseller oprávnění.')">
                 @csrf
                 <button type="submit" class="btn btn-outline-danger btn-sm">

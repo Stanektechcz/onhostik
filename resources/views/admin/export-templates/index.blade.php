@@ -6,8 +6,8 @@
 <div class="container-fluid">
     <x-panel.flash />
 
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="Šablony exportu zákazníků">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
@@ -54,7 +54,7 @@
             </x-panel.card>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Vytvořit šablonu">
                 <form method="POST" action="{{ route('admin.export-templates.store') }}">
                     @csrf
@@ -90,7 +90,7 @@
                         <input type="checkbox" name="is_shared" class="form-check-input" id="tpl_shared" value="1" @checked(old('is_shared'))>
                         <label class="form-check-label" for="tpl_shared">Sdílet s ostatními adminy</label>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Vytvořit</button>
+                    <button type="submit" class="btn btn-primary w-full">Vytvořit</button>
                 </form>
             </x-panel.card>
         </div>

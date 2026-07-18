@@ -35,7 +35,7 @@
 
                 <div class="mb-3">
                     <label class="form-label">Štítky</label>
-                    <div class="d-flex flex-wrap gap-2">
+                    <div class="flex flex-wrap gap-2">
                         @foreach($allLabels as $label)
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox"
@@ -53,7 +53,7 @@
                     </div>
                 </div>
             </div>
-            <div class="card-footer d-flex gap-2">
+            <div class="card-footer flex gap-2">
                 <button type="submit" class="btn btn-primary">Uložit</button>
                 <a href="{{ route('admin.services.show', $service) }}" class="btn btn-outline-secondary">Zrušit</a>
             </div>

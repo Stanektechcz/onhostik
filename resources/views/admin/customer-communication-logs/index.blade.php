@@ -8,7 +8,7 @@
 
     {{-- Filter --}}
     <x-panel.card title="Filtr">
-        <form method="GET" action="{{ route('admin.customer-communication-logs.index') }}" class="d-flex gap-2 align-items-end">
+        <form method="GET" action="{{ route('admin.customer-communication-logs.index') }}" class="flex gap-2 items-end">
             <div>
                 <label class="form-label mb-1 small">Customer ID</label>
                 <input type="number" name="customer_id" class="form-control form-control-sm" value="{{ $customerId }}" placeholder="všichni" style="width:140px">
@@ -58,7 +58,7 @@
                                 {{ $log->direction === 'inbound' ? 'Příchozí' : 'Odchozí' }}
                             </span>
                         </td>
-                        <td class="text-truncate" style="max-width:260px">{{ $log->subject ?? '—' }}</td>
+                        <td class="truncate" style="max-width:260px">{{ $log->subject ?? '—' }}</td>
                         <td class="text-nowrap">{{ $log->created_at->format('d.m.Y H:i') }}</td>
                     </tr>
                     @endforeach
@@ -71,17 +71,17 @@
 
     {{-- Create form --}}
     <x-panel.card title="Nový záznam komunikace">
-        <form method="POST" action="{{ route('admin.customer-communication-logs.store') }}" class="row g-3">
+        <form method="POST" action="{{ route('admin.customer-communication-logs.store') }}" class="grid grid-cols-12 gap-3">
             @csrf
 
-            <div class="col-md-2">
+            <div class="col-span-12 md:col-span-2">
                 <label class="form-label">Customer ID <span class="text-danger">*</span></label>
                 <input type="number" name="customer_id" class="form-control @error('customer_id') is-invalid @enderror"
                        value="{{ old('customer_id', $customerId) }}" required>
                 @error('customer_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
 
-            <div class="col-md-2">
+            <div class="col-span-12 md:col-span-2">
                 <label class="form-label">Kanál <span class="text-danger">*</span></label>
                 <select name="channel" class="form-select @error('channel') is-invalid @enderror" required>
                     <option value="">— vyberte —</option>
@@ -92,7 +92,7 @@
                 @error('channel')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
 
-            <div class="col-md-2">
+            <div class="col-span-12 md:col-span-2">
                 <label class="form-label">Směr <span class="text-danger">*</span></label>
                 <select name="direction" class="form-select @error('direction') is-invalid @enderror" required>
                     <option value="">— vyberte —</option>
@@ -102,20 +102,20 @@
                 @error('direction')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
 
-            <div class="col-md-6">
+            <div class="col-span-12 md:col-span-6">
                 <label class="form-label">Předmět</label>
                 <input type="text" name="subject" class="form-control @error('subject') is-invalid @enderror"
                        value="{{ old('subject') }}" maxlength="255">
                 @error('subject')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
 
-            <div class="col-12">
+            <div class="col-span-12">
                 <label class="form-label">Zpráva / tělo <span class="text-danger">*</span></label>
                 <textarea name="body" rows="5" class="form-control @error('body') is-invalid @enderror" required>{{ old('body') }}</textarea>
                 @error('body')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
 
-            <div class="col-12">
+            <div class="col-span-12">
                 <button type="submit" class="btn btn-primary">Uložit záznam</button>
             </div>
         </form>

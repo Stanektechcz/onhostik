@@ -4,10 +4,10 @@
 <div class="container py-4">
     <x-panel.flash />
 
-    <div class="row g-4">
-        <div class="col-md-5">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-5">
             <div class="card shadow-sm">
-                <div class="card-header fw-semibold">Nový webhook</div>
+                <div class="card-header font-semibold">Nový webhook</div>
                 <div class="card-body">
                     <form method="POST" action="{{ route('panel.webhook-subscriptions.store') }}">
                         @csrf
@@ -27,20 +27,20 @@
                             </div>
                             @endforeach
                         </div>
-                        <button class="btn btn-primary w-100">Přidat webhook</button>
+                        <button class="btn btn-primary w-full">Přidat webhook</button>
                     </form>
                 </div>
             </div>
         </div>
 
-        <div class="col-md-7">
+        <div class="col-span-12 md:col-span-7">
             <div class="card shadow-sm">
-                <div class="card-header fw-semibold">Aktivní webhooky</div>
+                <div class="card-header font-semibold">Aktivní webhooky</div>
                 <div class="card-body p-0">
                     @forelse($subscriptions as $sub)
-                    <div class="d-flex align-items-start justify-content-between p-3 border-bottom">
+                    <div class="flex items-start justify-between p-3 border-bottom">
                         <div>
-                            <div class="fw-semibold text-break">{{ $sub->url }}</div>
+                            <div class="font-semibold text-break">{{ $sub->url }}</div>
                             <div class="mt-1">
                                 @foreach((array)($sub->events ?? []) as $ev)
                                     <span class="badge bg-secondary me-1">{{ $ev }}</span>
@@ -53,7 +53,7 @@
                                 @endif
                             </div>
                         </div>
-                        <form method="POST" action="{{ route('panel.webhook-subscriptions.destroy', $sub) }}" class="ms-3 flex-shrink-0">
+                        <form method="POST" action="{{ route('panel.webhook-subscriptions.destroy', $sub) }}" class="ms-3 shrink-0">
                             @csrf @method('DELETE')
                             <button class="btn btn-sm btn-outline-danger" onclick="return confirm('Smazat webhook?')">Smazat</button>
                         </form>

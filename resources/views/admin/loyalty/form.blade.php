@@ -20,21 +20,21 @@
                     </div>
                 @endif
 
-                <div class="row g-3">
-                    <div class="col-md-8">
+                <div class="grid grid-cols-12 gap-3">
+                    <div class="col-span-12 md:col-span-8">
                         <label class="form-label">Název *</label>
                         <input type="text" name="name" value="{{ old('name', $milestone->name) }}"
                                class="form-control @error('name') is-invalid @enderror" required>
                         @error('name')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-span-12 md:col-span-4">
                         <label class="form-label">Slug *</label>
                         <input type="text" name="slug" value="{{ old('slug', $milestone->slug) }}"
                                class="form-control @error('slug') is-invalid @enderror" required>
                         @error('slug')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
 
-                    <div class="col-md-6">
+                    <div class="col-span-12 md:col-span-6">
                         <label class="form-label">Typ podmínky *</label>
                         <select name="trigger_type" class="form-select @error('trigger_type') is-invalid @enderror" required>
                             @foreach(['account_age_days' => 'Věk účtu (dní)', 'order_count' => 'Počet objednávek', 'total_spent_czk' => 'Celkem utraceno (haléře)'] as $v => $l)
@@ -43,7 +43,7 @@
                         </select>
                         @error('trigger_type')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-span-12 md:col-span-6">
                         <label class="form-label">Hodnota podmínky *</label>
                         <input type="number" name="trigger_value" min="1"
                                value="{{ old('trigger_value', $milestone->trigger_value) }}"
@@ -51,7 +51,7 @@
                         @error('trigger_value')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
 
-                    <div class="col-md-6">
+                    <div class="col-span-12 md:col-span-6">
                         <label class="form-label">Typ odměny *</label>
                         <select name="reward_type" class="form-select @error('reward_type') is-invalid @enderror" required>
                             @foreach(['credit_czk' => 'Kredit (haléře)', 'badge' => 'Odznak (ID)', 'discount_percent' => 'Sleva (%)'] as $v => $l)
@@ -60,7 +60,7 @@
                         </select>
                         @error('reward_type')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-span-12 md:col-span-6">
                         <label class="form-label">Hodnota odměny *</label>
                         <input type="number" name="reward_value" min="1"
                                value="{{ old('reward_value', $milestone->reward_value) }}"
@@ -68,20 +68,20 @@
                         @error('reward_value')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
 
-                    <div class="col-12">
+                    <div class="col-span-12">
                         <label class="form-label">Popis</label>
                         <textarea name="description" rows="2"
                                   class="form-control @error('description') is-invalid @enderror">{{ old('description', $milestone->description) }}</textarea>
                         @error('description')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
 
-                    <div class="col-md-4">
+                    <div class="col-span-12 md:col-span-4">
                         <label class="form-label">Pořadí</label>
                         <input type="number" name="sort_order" min="0"
                                value="{{ old('sort_order', $milestone->sort_order ?? 0) }}"
                                class="form-control">
                     </div>
-                    <div class="col-md-4 d-flex align-items-end">
+                    <div class="col-span-12 md:col-span-4 flex items-end">
                         <div class="form-check">
                             <input type="hidden" name="is_active" value="0">
                             <input class="form-check-input" type="checkbox" name="is_active" value="1" id="is_active"
@@ -91,7 +91,7 @@
                     </div>
                 </div>
 
-                <div class="mt-4 d-flex gap-2">
+                <div class="mt-4 flex gap-2">
                     <button type="submit" class="btn btn-primary btn-sm">Uložit</button>
                     <a href="{{ route('admin.loyalty.index') }}" class="btn btn-outline-secondary btn-sm">Zpět</a>
                 </div>

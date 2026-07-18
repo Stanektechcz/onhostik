@@ -5,7 +5,7 @@
 @section('content')
 <div class="container-fluid py-4">
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="flex justify-between items-center mb-4">
         <h1 class="h4 mb-0">SLA Tiery</h1>
         <a href="{{ route('admin.sla-tiers.create') }}" class="btn btn-sm btn-primary">+ Nový tier</a>
     </div>
@@ -33,7 +33,7 @@
                 <tbody>
                     @forelse($tiers as $tier)
                     <tr>
-                        <td class="fw-semibold">{{ $tier->name }}</td>
+                        <td class="font-semibold">{{ $tier->name }}</td>
                         <td class="text-muted small font-monospace">{{ $tier->slug }}</td>
                         <td>{{ $tier->uptimeLabel() }}</td>
                         <td>{{ $tier->response_time_minutes }} min</td>
@@ -47,9 +47,9 @@
                                 <span class="badge bg-secondary">Neaktivní</span>
                             @endif
                         </td>
-                        <td class="text-end text-nowrap">
+                        <td class="text-right text-nowrap">
                             <a href="{{ route('admin.sla-tiers.edit', $tier) }}" class="btn btn-xs btn-outline-secondary">Upravit</a>
-                            <form action="{{ route('admin.sla-tiers.destroy', $tier) }}" method="POST" class="d-inline"
+                            <form action="{{ route('admin.sla-tiers.destroy', $tier) }}" method="POST" class="inline"
                                   onsubmit="return confirm('Smazat tier?')">
                                 @csrf @method('DELETE')
                                 <button class="btn btn-xs btn-outline-danger">Smazat</button>

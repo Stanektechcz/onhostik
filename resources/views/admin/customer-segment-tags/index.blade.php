@@ -3,8 +3,8 @@
 @section('content')
 <div class="container-fluid">
     <x-panel.flash />
-    <div class="row g-4">
-        <div class="col-md-8">
+    <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 md:col-span-8">
             <x-panel.card title="Segmentační štítky zákazníků">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
@@ -19,7 +19,7 @@
                             @forelse($tags as $tag)
                             <tr>
                                 <td>
-                                    <span class="d-inline-flex align-items-center gap-2">
+                                    <span class="inline-flex items-center gap-2">
                                         <span style="display:inline-block;width:14px;height:14px;border-radius:50%;background-color:{{ $tag->color }};"></span>
                                         <strong>{{ $tag->name }}</strong>
                                     </span>
@@ -43,7 +43,7 @@
                 <div class="mt-3">{{ $tags->links() }}</div>
             </x-panel.card>
         </div>
-        <div class="col-md-4">
+        <div class="col-span-12 md:col-span-4">
             <x-panel.card title="Přidat štítek">
                 <form method="POST" action="{{ route('admin.customer-segment-tags.store') }}">
                     @csrf
@@ -54,18 +54,18 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Barva</label>
-                        <div class="d-flex gap-2 align-items-center">
+                        <div class="flex gap-2 items-center">
                             <input type="color" name="color" class="form-control form-control-color @error('color') is-invalid @enderror" value="{{ old('color', '#3b82f6') }}" required>
                             <span class="text-muted small">Vyberte barvu štítku</span>
                         </div>
-                        @error('color')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
+                        @error('color')<div class="invalid-feedback block">{{ $message }}</div>@enderror
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Popis</label>
                         <input type="text" name="description" class="form-control @error('description') is-invalid @enderror" value="{{ old('description') }}" maxlength="255">
                         @error('description')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Přidat</button>
+                    <button type="submit" class="btn btn-primary w-full">Přidat</button>
                 </form>
             </x-panel.card>
         </div>

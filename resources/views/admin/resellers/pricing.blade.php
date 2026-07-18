@@ -30,9 +30,9 @@
                             <thead>
                                 <tr>
                                     <th>Tarif</th>
-                                    <th class="text-end">CZK (haléře)</th>
-                                    <th class="text-end">EUR (centy)</th>
-                                    <th class="text-end">USD (centy)</th>
+                                    <th class="text-right">CZK (haléře)</th>
+                                    <th class="text-right">EUR (centy)</th>
+                                    <th class="text-right">USD (centy)</th>
                                     <th>Stav</th>
                                     <th></th>
                                 </tr>
@@ -43,9 +43,9 @@
                                     <td>
                                         <span class="f-w-500">{{ $override->pricingPlan?->name ?? 'Tarif #' . $override->pricing_plan_id }}</span>
                                     </td>
-                                    <td class="text-end">{{ $override->price_czk !== null ? number_format($override->price_czk) : '—' }}</td>
-                                    <td class="text-end">{{ $override->price_eur !== null ? number_format($override->price_eur) : '—' }}</td>
-                                    <td class="text-end">{{ $override->price_usd !== null ? number_format($override->price_usd) : '—' }}</td>
+                                    <td class="text-right">{{ $override->price_czk !== null ? number_format($override->price_czk) : '—' }}</td>
+                                    <td class="text-right">{{ $override->price_eur !== null ? number_format($override->price_eur) : '—' }}</td>
+                                    <td class="text-right">{{ $override->price_usd !== null ? number_format($override->price_usd) : '—' }}</td>
                                     <td>
                                         @if($override->is_active)
                                             <span class="badge badge-light-success">Aktivní</span>
@@ -53,10 +53,10 @@
                                             <span class="badge badge-light-secondary">Neaktivní</span>
                                         @endif
                                     </td>
-                                    <td class="text-end">
+                                    <td class="text-right">
                                         <form method="POST"
                                               action="{{ route('admin.resellers.pricing.destroy', [$reseller, $override]) }}"
-                                              class="d-inline"
+                                              class="inline"
                                               onsubmit="return confirm('Smazat override?')">
                                             @csrf @method('DELETE')
                                             <button class="btn btn-xs btn-outline-danger">

@@ -13,9 +13,9 @@
             <div class="col-span-8 xl:col-span-12">
                 {{-- Conversation timeline --}}
                 <div class="card">
-                    <div class="card-header card-no-border d-flex justify-content-between align-items-center">
+                    <div class="card-header card-no-border flex justify-between items-center">
                         <h5 class="mb-0">{{ $ticket->subject }}</h5>
-                        <div class="d-flex gap-2 align-items-center">
+                        <div class="flex gap-2 items-center">
                             <x-panel.status-badge :status="$ticket->priority" />
                             <x-panel.status-badge :status="$ticket->status" />
                         </div>
@@ -29,8 +29,8 @@
                                         <li>
                                             <div class="timeline-dot-{{ $isStaff ? 'success' : 'primary' }}"></div>
                                             <div class="ms-4 pb-2">
-                                                <div class="d-flex justify-content-between align-items-start mb-1">
-                                                    <div class="d-flex align-items-center gap-2">
+                                                <div class="flex justify-between items-start mb-1">
+                                                    <div class="flex items-center gap-2">
                                                         <span class="f-w-600 f-14">
                                                             @if($isStaff)
                                                                 <i data-feather="headphones" style="width:13px;height:13px" class="font-success"></i>
@@ -69,7 +69,7 @@
                                                   placeholder="{{ __('panel.support.reply') }}…"></textarea>
                                         @error('message')<div class="text-danger f-12 mt-1">{{ $message }}</div>@enderror
                                     </div>
-                                    <div class="d-flex gap-2">
+                                    <div class="flex gap-2">
                                         <button type="submit" class="btn btn-primary">
                                             <i data-feather="send" style="width:14px;height:14px"></i>
                                             {{ __('panel.support.reply') }}
@@ -186,7 +186,7 @@
                         @endif
                         <form action="{{ route('panel.support.rate', $ticket) }}" method="POST">
                             @csrf
-                            <div class="d-flex gap-3 align-items-center mb-2">
+                            <div class="flex gap-3 items-center mb-2">
                                 @for($i = 1; $i <= 5; $i++)
                                     <div class="form-check">
                                         <input class="form-check-input" type="radio" name="score" id="score_{{ $i }}" value="{{ $i }}" required>

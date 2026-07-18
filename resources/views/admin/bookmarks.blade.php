@@ -18,10 +18,10 @@
                     <button class="btn btn-primary w-full text-white mb-3" data-bs-toggle="modal" data-bs-target="#addBookmarkModal">
                         <i data-feather="plus" style="width:13px;height:13px;"></i> Přidat záložku
                     </button>
-                    <ul class="nav flex-column">
+                    <ul class="nav flex-col">
                         @foreach([['Moje záložky','bookmark'],['Oblíbené','heart'],['Sdílené','share-2'],['Archiv','archive']] as [$label, $icon])
                         <li class="nav-item">
-                            <a class="nav-link {{ $loop->first ? 'active' : '' }} d-flex align-items-center gap-2" href="#">
+                            <a class="nav-link {{ $loop->first ? 'active' : '' }} flex items-center gap-2" href="#">
                                 <i data-feather="{{ $icon }}" style="width:14px;height:14px;"></i>{{ $label }}
                             </a>
                         </li>
@@ -57,12 +57,12 @@
                                         <i data-feather="link" style="width:24px;height:24px;color:rgba(var(--theme-default),1);"></i>
                                     </div>
                                     <h6>{{ $title }}</h6>
-                                    <a href="{{ $bmUrl }}" class="details-website f-12 f-light d-block mb-2">{{ parse_url($bmUrl, PHP_URL_PATH) }}</a>
+                                    <a href="{{ $bmUrl }}" class="details-website f-12 f-light block mb-2">{{ parse_url($bmUrl, PHP_URL_PATH) }}</a>
                                     <p class="f-light f-12 mb-2">{{ $desc }}</p>
                                     <span class="badge badge-light-{{ $color }}">{{ $collection }}</span>
                                 </div>
                                 <div class="hover-block">
-                                    <ul class="list-unstyled d-flex gap-2 justify-content-center mt-3">
+                                    <ul class="list-unstyled flex gap-2 justify-center mt-3">
                                         <li><a href="{{ $bmUrl }}" class="square-white"><i data-feather="external-link" style="width:14px;height:14px;"></i></a></li>
                                         <li><a href="#" class="square-white"><i data-feather="share-2" style="width:14px;height:14px;"></i></a></li>
                                         <li><a href="#" class="square-white trash-3"><i data-feather="trash-2" style="width:14px;height:14px;"></i></a></li>

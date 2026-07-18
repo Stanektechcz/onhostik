@@ -10,13 +10,13 @@
 @section('content')
     <div class="container-fluid">
 
-        {{-- KPI row --}}
+        {{-- KPI grid grid-cols-12 --}}
         <div class="grid grid-cols-12 card-gap">
             <div class="col-span-6 sm:col-span-12 md:col-span-3">
                 <div class="card small-widget">
                     <div class="card-body {{ $failedCount > 0 ? 'danger' : 'success' }}">
                         <span class="f-light">{{ __('panel.admin.failed_backups') }}</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>{{ $failedCount }}</h4>
                         </div>
                         <div class="bg-gradient"><i data-feather="alert-triangle"></i></div>
@@ -27,7 +27,7 @@
                 <div class="card small-widget">
                     <div class="card-body {{ $runningCount > 0 ? 'info' : 'secondary' }}">
                         <span class="f-light">Probíhající zálohy</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>{{ $runningCount }}</h4>
                         </div>
                         <div class="bg-gradient"><i data-feather="loader"></i></div>
@@ -38,7 +38,7 @@
                 <div class="card small-widget">
                     <div class="card-body primary">
                         <span class="f-light">Aktivní politiky</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>{{ $policyCount }}</h4>
                         </div>
                         <div class="bg-gradient"><i data-feather="shield"></i></div>
@@ -49,7 +49,7 @@
                 <div class="card small-widget">
                     <div class="card-body success">
                         <span class="f-light">Celková velikost záloh</span>
-                        <div class="d-flex align-items-end gap-1">
+                        <div class="flex items-end gap-1">
                             <h4>
                                 @if($totalSizeMb >= 1024)
                                     {{ number_format($totalSizeMb / 1024, 1) }} GB
@@ -130,7 +130,7 @@
                     @else
                         @foreach($policies as $policy)
                             <div class="border rounded p-3 mb-2">
-                                <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex justify-between items-start">
                                     <div>
                                         <p class="f-w-600 mb-0">
                                             @if($policy->service)
@@ -149,7 +149,7 @@
                                         <span class="badge badge-light-secondary">neaktivní</span>
                                     @endif
                                 </div>
-                                <div class="d-flex gap-3 mt-2 f-12 f-light">
+                                <div class="flex gap-3 mt-2 f-12 f-light">
                                     <span><i data-feather="clock" style="width:11px;height:11px"></i> {{ $policy->frequency }}</span>
                                     <span><i data-feather="trash-2" style="width:11px;height:11px"></i> {{ $policy->retention_days }}d</span>
                                     <span><i data-feather="server" style="width:11px;height:11px"></i> {{ $policy->provider }}</span>

@@ -69,7 +69,7 @@
                                 @foreach ($types as $type)
                                     <tr>
                                         <td>
-                                            <div class="d-flex align-items-center gap-2">
+                                            <div class="flex items-center gap-2">
                                                 <i data-feather="{{ $typeIcons[$type] }}" style="width:16px;height:16px;" class="text-primary"></i>
                                                 {{ $typeLabels[$type] }}
                                             </div>
@@ -80,7 +80,7 @@
                                                 $checked = ! in_array($type, (array) $optOut, true);
                                             @endphp
                                             <td class="text-center">
-                                                <div class="form-check d-flex justify-content-center m-0">
+                                                <div class="form-check flex justify-center m-0">
                                                     <input class="form-check-input"
                                                            type="checkbox"
                                                            name="{{ $channel }}[]"
@@ -95,7 +95,7 @@
                         </table>
                     </div>
 
-                    <div class="mt-3 d-flex gap-2 align-items-center">
+                    <div class="mt-3 flex gap-2 items-center">
                         <button type="submit" class="btn btn-primary text-white">
                             <i data-feather="save" class="me-1" style="width:14px;height:14px;"></i>
                             Uložit předvolby
@@ -112,7 +112,7 @@
         {{-- Info card --}}
         <div class="card mt-4">
             <div class="card-body">
-                <div class="d-flex gap-3 align-items-start">
+                <div class="flex gap-3 items-start">
                     <i data-feather="info" class="text-info mt-1" style="width:18px;height:18px;flex-shrink:0;"></i>
                     <div>
                         <strong>Jak notifikace fungují</strong>

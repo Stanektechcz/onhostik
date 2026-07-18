@@ -5,7 +5,7 @@
 @section('content')
 <div class="container-fluid py-4">
 
-    <div class="d-flex align-items-center justify-content-between mb-4">
+    <div class="flex items-center justify-between mb-4">
         <h1 class="h4 mb-0">GDPR Žádosti</h1>
         @if($pendingCount > 0)
             <span class="badge bg-warning text-dark fs-6">{{ $pendingCount }} čeká na vyřízení</span>
@@ -34,7 +34,7 @@
                     @forelse($requests as $req)
                     <tr class="{{ $req->isPending() ? 'table-warning' : '' }}">
                         <td>
-                            <div class="fw-semibold small">{{ $req->customer->user->name ?? '—' }}</div>
+                            <div class="font-semibold small">{{ $req->customer->user->name ?? '—' }}</div>
                             <div class="text-muted" style="font-size:11px">{{ $req->customer->user->email ?? '' }}</div>
                         </td>
                         <td>
@@ -48,7 +48,7 @@
                         <td class="small text-muted">{{ $req->completed_at?->format('d.m.Y') ?? '—' }}</td>
                         <td>
                             @if($req->isPending())
-                                <div class="d-flex gap-1">
+                                <div class="flex gap-1">
                                     <button type="button" class="btn btn-xs btn-success btn-sm"
                                             data-bs-toggle="collapse"
                                             data-bs-target="#approve-{{ $req->id }}">
@@ -65,7 +65,7 @@
                                         @csrf @method('PATCH')
                                         <input type="text" name="admin_note" class="form-control form-control-sm mb-1"
                                                placeholder="Poznámka (nepovinné)">
-                                        <button class="btn btn-success btn-sm w-100">Potvrdit schválení</button>
+                                        <button class="btn btn-success btn-sm w-full">Potvrdit schválení</button>
                                     </form>
                                 </div>
                                 <div class="collapse mt-2" id="reject-{{ $req->id }}">
@@ -73,7 +73,7 @@
                                         @csrf @method('PATCH')
                                         <input type="text" name="admin_note" class="form-control form-control-sm mb-1"
                                                placeholder="Důvod zamítnutí">
-                                        <button class="btn btn-danger btn-sm w-100">Potvrdit zamítnutí</button>
+                                        <button class="btn btn-danger btn-sm w-full">Potvrdit zamítnutí</button>
                                     </form>
                                 </div>
                             @else

@@ -34,14 +34,14 @@
                     </div>
                 </div>
 
-                <div class="row g-3 mb-3">
-                    <div class="col-md-6">
+                <div class="grid grid-cols-12 gap-3 mb-3">
+                    <div class="col-span-12 md:col-span-6">
                         <label class="form-label">Datum od</label>
                         <input type="date" name="date_from" value="{{ old('date_from') }}"
                                class="form-control @error('date_from') is-invalid @enderror">
                         @error('date_from')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-span-12 md:col-span-6">
                         <label class="form-label">Datum do</label>
                         <input type="date" name="date_to" value="{{ old('date_to') }}"
                                class="form-control @error('date_to') is-invalid @enderror">
@@ -61,7 +61,7 @@
                     <div class="form-text">Platí pouze pro formáty CSV – Faktury a POHODA XML.</div>
                 </div>
 
-                <div class="d-flex gap-2">
+                <div class="flex gap-2">
                     <button type="submit" class="btn btn-primary btn-sm">Generovat export</button>
                     <a href="{{ route('admin.exports.index') }}" class="btn btn-outline-secondary btn-sm">Zpět</a>
                 </div>

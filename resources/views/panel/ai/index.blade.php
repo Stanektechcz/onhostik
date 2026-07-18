@@ -53,7 +53,7 @@
                                         @endphp
                                         <li>
                                             <div class="timeline-dot timeline-dot-primary"></div>
-                                            <div class="d-flex justify-content-between align-items-start mb-1">
+                                            <div class="flex justify-between items-start mb-1">
                                                 <span class="f-w-600 f-14">{{ __("panel.ai.features.{$run->feature}") }}</span>
                                                 <span class="f-light f-11 ms-2 text-nowrap">{{ $run->created_at?->format('d.m.Y H:i') }}</span>
                                             </div>

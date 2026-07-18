@@ -59,7 +59,7 @@
 <div class="grid grid-cols-12 card-gap">
 
 {{-- ── Widget cards ────────────────────────────────────────────── --}}
-<div class="col-span-4 xl:col-span-12 box-col-6">
+<div class="col-span-4 xl:col-span-12 box-col-span-6">
     <div class="card bg-primary">
         <div class="card-body">
             <div class="flex faq-widgets">
@@ -72,7 +72,7 @@
         </div>
     </div>
 </div>
-<div class="col-span-4 xl:col-span-6 sm:col-span-12 box-col-6">
+<div class="col-span-4 xl:col-span-6 sm:col-span-12 box-col-span-6">
     <div class="card bg-primary">
         <div class="card-body">
             <div class="flex faq-widgets">
@@ -85,7 +85,7 @@
         </div>
     </div>
 </div>
-<div class="col-span-4 xl:col-span-6 sm:col-span-12 box-col-12">
+<div class="col-span-4 xl:col-span-6 sm:col-span-12 box-col-span-12">
     <div class="card bg-primary">
         <div class="card-body">
             <div class="flex faq-widgets">
@@ -242,7 +242,7 @@
                     <div class="card">
                         <div class="card-header faq-header !pb-0">
                             <h5 class="inline-block">Poslední aktivity</h5>
-                            <a class="pull-right d-inline-block f-12 text-primary" href="{{ route('panel.support.index') }}">Zobrazit vše</a>
+                            <a class="pull-right inline-block f-12 text-primary" href="{{ route('panel.support.index') }}">Zobrazit vše</a>
                         </div>
                         <div class="card-body faq-body">
                             @if($recentTickets && count($recentTickets) > 0)
@@ -313,7 +313,7 @@
     </div>
     <div class="grid grid-cols-12 card-gap">
         @forelse($kbArticles as $article)
-        <div class="col-span-3 xxl:col-span-6 md:col-span-12 box-col-6">
+        <div class="col-span-3 xxl:col-span-6 md:col-span-12 box-col-span-6">
             <div class="card features-faq product-box">
                 <div class="faq-image product-img">
                     <div style="height:160px;background:linear-gradient(135deg,rgba(var(--theme-default),.12),rgba(var(--theme-default),.03));display:flex;align-items:center;justify-content:center;">
@@ -352,7 +352,7 @@
             ['icon' => 'server', 'cat' => 'DNS', 'title' => 'Jak správně nastavit DNS záznamy?', 'desc' => 'Vysvětlení typů DNS záznamů (A, CNAME, MX, TXT) a praktický postup jejich nastavení.'],
             ['icon' => 'shield', 'cat' => 'Zabezpečení', 'title' => 'SSL certifikát a HTTPS — průvodce', 'desc' => 'Jak nainstalovat bezplatný Let\'s Encrypt SSL certifikát a přesměrovat HTTP na HTTPS.'],
         ] as $t)
-        <div class="col-span-3 xxl:col-span-6 md:col-span-12 box-col-6">
+        <div class="col-span-3 xxl:col-span-6 md:col-span-12 box-col-span-6">
             <div class="card features-faq product-box">
                 <div class="faq-image product-img">
                     <div style="height:160px;background:linear-gradient(135deg,rgba(var(--theme-default),.12),rgba(var(--theme-default),.03));display:flex;align-items:center;justify-content:center;">

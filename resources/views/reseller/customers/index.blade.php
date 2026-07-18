@@ -29,7 +29,7 @@
             <div class="card small-widget">
                 <div class="card-body primary">
                     <span class="f-light">Celkem zákazníků</span>
-                    <div class="d-flex align-items-end gap-1">
+                    <div class="flex items-end gap-1">
                         <h4>{{ $customers instanceof \Illuminate\Pagination\LengthAwarePaginator ? $customers->total() : $customers->count() }}</h4>
                     </div>
                     <div class="bg-gradient"><i data-feather="users"></i></div>
@@ -40,7 +40,7 @@
             <div class="card small-widget">
                 <div class="card-body success">
                     <span class="f-light">Markup</span>
-                    <div class="d-flex align-items-end gap-1">
+                    <div class="flex items-end gap-1">
                         <h4>{{ number_format($profile->markup_percent, 1) }} %</h4>
                     </div>
                     <div class="bg-gradient"><i data-feather="percent"></i></div>
@@ -51,8 +51,8 @@
             <div class="card small-widget">
                 <div class="card-body secondary">
                     <span class="f-light">Obchodní jméno</span>
-                    <div class="d-flex align-items-end gap-1">
-                        <h4 class="text-truncate" style="max-width:160px;font-size:1.1rem;">{{ $profile->business_name }}</h4>
+                    <div class="flex items-end gap-1">
+                        <h4 class="truncate" style="max-width:160px;font-size:1.1rem;">{{ $profile->business_name }}</h4>
                     </div>
                     <div class="bg-gradient"><i data-feather="briefcase"></i></div>
                 </div>

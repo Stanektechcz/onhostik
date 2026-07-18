@@ -29,7 +29,7 @@
                 @if($items->isEmpty())
                     <div class="card">
                         <div class="card-body text-center py-5">
-                            <i data-feather="heart" style="width:48px;height:48px;" class="text-muted mb-3 d-block mx-auto"></i>
+                            <i data-feather="heart" style="width:48px;height:48px;" class="text-muted mb-3 block mx-auto"></i>
                             <h5 class="f-light">Nemáte žádné oblíbené tarify</h5>
                             <p class="f-light f-12 mb-3">Přidejte tarify pomocí tlačítka ♡ na stránce s výběrem tarifů.</p>
                             <a href="{{ route('panel.orders.create') }}" class="btn btn-primary text-white">
@@ -40,7 +40,7 @@
                 @else
                     <div class="grid grid-cols-12 gap-3 [@media(max-width:1875px)]:!mb-[20px]">
                         @foreach($items as $item)
-                        <div class="col-span-4 xxl:col-span-6 sm:col-span-12 box-col-6 inbox-data">
+                        <div class="col-span-4 xxl:col-span-6 sm:col-span-12 box-col-span-6 inbox-data">
                             <div class="card mb-0 h-full">
                                 <div class="wishlist-box card-body">
                                     <div>

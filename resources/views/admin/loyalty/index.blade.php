@@ -5,7 +5,7 @@
 @section('content')
 <div class="container-fluid py-4">
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="flex justify-between items-center mb-4">
         <h1 class="h4 mb-0">Věrnostní milníky & Odměny</h1>
         <a href="{{ route('admin.loyalty.create') }}" class="btn btn-primary btn-sm">+ Nový milník</a>
     </div>
@@ -52,9 +52,9 @@
                                 <span class="badge bg-secondary">Ne</span>
                             @endif
                         </td>
-                        <td class="text-end">
+                        <td class="text-right">
                             <a href="{{ route('admin.loyalty.edit', $m) }}" class="btn btn-xs btn-outline-secondary">Upravit</a>
-                            <form action="{{ route('admin.loyalty.destroy', $m) }}" method="POST" class="d-inline"
+                            <form action="{{ route('admin.loyalty.destroy', $m) }}" method="POST" class="inline"
                                   onsubmit="return confirm('Smazat milník?')">
                                 @csrf @method('DELETE')
                                 <button class="btn btn-xs btn-outline-danger">Smazat</button>
@@ -73,7 +73,7 @@
     <div class="card mb-4">
         <div class="card-header"><strong>Ruční kontrola zákazníka</strong></div>
         <div class="card-body">
-            <form action="{{ route('admin.loyalty.check') }}" method="POST" class="row g-2 align-items-end">
+            <form action="{{ route('admin.loyalty.check') }}" method="POST" class="grid grid-cols-12 gap-2 items-end">
                 @csrf
                 <div class="col-auto">
                     <label class="form-label small">ID zákazníka</label>
