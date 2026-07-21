@@ -41,7 +41,7 @@
                                     <i data-feather="edit-2" style="width:12px;height:12px"></i>
                                 </button>
                                 <form method="POST" action="{{ route('admin.support.macros.destroy', $macro) }}" class="inline"
-                                      onsubmit="return confirm('Smazat makro?')">
+                                      data-confirm="Smazat makro?">
                                     @csrf
                                     @method('DELETE')
                                     <button type="submit" class="btn btn-outline-danger btn-sm">

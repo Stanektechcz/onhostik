@@ -55,7 +55,7 @@
                         <td class="text-right">
                             <a href="{{ route('admin.loyalty.edit', $m) }}" class="btn btn-xs btn-outline-secondary">Upravit</a>
                             <form action="{{ route('admin.loyalty.destroy', $m) }}" method="POST" class="inline"
-                                  onsubmit="return confirm('Smazat milník?')">
+                                  data-confirm="Smazat milník?">
                                 @csrf @method('DELETE')
                                 <button class="btn btn-xs btn-outline-danger">Smazat</button>
                             </form>

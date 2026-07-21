@@ -53,7 +53,7 @@
                                 <div class="flex justify-between items-center mb-2">
                                     <label class="form-label f-w-500 mb-0">Obsah (HTML)</label>
                                     <button type="button" class="btn btn-outline-secondary btn-sm"
-                                            onclick="togglePreview('body-editor', 'body-preview')">
+                                            data-call="togglePreview" data-call-args='["body-editor","body-preview"]'>
                                         <i data-feather="eye" style="width:13px;height:13px"></i> Náhled
                                     </button>
                                 </div>
@@ -124,7 +124,7 @@
 @endsection
 
 @push('scripts')
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 function togglePreview(editorId, previewId) {
     const editor  = document.getElementById(editorId);
     const preview = document.getElementById(previewId);

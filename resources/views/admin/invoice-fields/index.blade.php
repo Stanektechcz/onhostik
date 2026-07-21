@@ -106,7 +106,7 @@
                                                 Upravit
                                             </button>
                                             <form method="POST" action="{{ route('admin.invoice-fields.destroy', $def) }}"
-                                                  class="inline" onsubmit="return confirm('Smazat pole?')">
+                                                  class="inline" data-confirm="Smazat pole?">
                                                 @csrf @method('DELETE')
                                                 <button type="submit" class="btn btn-outline-danger btn-xs">×</button>
                                             </form>

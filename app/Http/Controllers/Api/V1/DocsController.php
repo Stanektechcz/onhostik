@@ -27,7 +27,16 @@ class DocsController extends Controller
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>OnHost API — Dokumentace</title>
-            <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+            <!--
+                Audit C25: pinned to an exact version, not a floating @5 tag.
+                A floating tag lets the CDN serve different bytes on any request
+                (a supply-chain foothold on the docs page); an exact version is
+                immutable on unpkg. crossorigin=anonymous is the prerequisite
+                for adding a Subresource-Integrity hash once the version is
+                locked for a release.
+            -->
+            <link rel="stylesheet" crossorigin="anonymous"
+                  href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css">
             <style nonce="{$nonce}">
                 body { margin: 0; }
                 .swagger-ui .topbar { display: none; }
@@ -35,7 +44,8 @@ class DocsController extends Controller
         </head>
         <body>
             <div id="swagger-ui"></div>
-            <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+            <script crossorigin="anonymous"
+                    src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
             <script nonce="{$nonce}">
                 SwaggerUIBundle({
                     url: "{$specUrl}",
@@ -55,7 +65,7 @@ class DocsController extends Controller
     /** @return array<string, mixed> */
     private function buildSpec(): array
     {
-        $base = url('/api/v1');
+        $base = url('/api');
 
         return [
             'openapi' => '3.1.0',
@@ -69,12 +79,26 @@ class DocsController extends Controller
                     "| `write:credit` | Dobíjení kreditu |\n" .
                     "| `write:orders` | Vytvořit nové objednávky |\n" .
                     "| `manage:tokens` | Správa vlastních API tokenů |\n\n" .
-                    "Endpointy označené `🔒` vyžadují příslušnou ability. Bez ní vrátí `403 Forbidden`.",
-                'version'     => '1.0.0',
+                    "Endpointy označené `🔒` vyžadují příslušnou ability. Bez ní vrátí `403 Forbidden`.\n\n" .
+                    "## Opakování požadavků (idempotence)\n\n" .
+                    "Zápisové operace přijímají hlavičku `Idempotency-Key`. Pokud vám spadne spojení a nevíte, " .
+                    "jestli požadavek prošel, zopakujte ho **se stejným klíčem** — server vrátí původní odpověď " .
+                    "a akci neprovede podruhé (odpověď pak nese `Idempotent-Replay: true`).\n\n" .
+                    "Stejný klíč s **jiným tělem** vrátí `422` — to je chyba na straně klienta a tiché přehrání " .
+                    "by ji zamaskovalo. Klíč rozpracovaného požadavku vrátí `409`. Neúspěšné požadavky se neukládají, " .
+                    "takže po opravě lze stejný klíč použít znovu.\n\n" .
+                    "## Limity\n\n" .
+                    "Limit je **per token**, ne per účet — jedna splašená integrace tedy nevyhladoví ostatní. " .
+                    "Zbývající rozpočet najdete v hlavičkách `X-RateLimit-Limit` a `X-RateLimit-Remaining`; " .
+                    "při vyčerpání přijde `429`.",
+                'version'     => '1.1.0',
                 'contact'     => ['email' => 'api@onhost.cz'],
             ],
             'servers' => [
-                ['url' => $base, 'description' => 'API v1'],
+                // A single /api base with versioned path keys. Two version-prefixed
+                // servers would make every path resolve under BOTH of them, which
+                // is not what is deployed.
+                ['url' => $base, 'description' => 'OnHost API'],
             ],
             'components' => [
                 'securitySchemes' => [
@@ -83,6 +107,25 @@ class DocsController extends Controller
                         'scheme' => 'bearer',
                         'bearerFormat' => 'PAT',
                         'description'  => 'Personal Access Token — vytvořte na /panel/ucet/api-tokeny',
+                    ],
+                ],
+                'parameters' => [
+                    'IdempotencyKey' => [
+                        'name'        => 'Idempotency-Key',
+                        'in'          => 'header',
+                        'required'    => false,
+                        'schema'      => ['type' => 'string', 'maxLength' => 128],
+                        'description' => 'Volitelný klíč pro bezpečné opakování zápisu po výpadku spojení.',
+                    ],
+                ],
+                'headers' => [
+                    'X-RateLimit-Limit' => [
+                        'schema'      => ['type' => 'integer'],
+                        'description' => 'Počet požadavků povolených tomuto tokenu za minutu.',
+                    ],
+                    'X-RateLimit-Remaining' => [
+                        'schema'      => ['type' => 'integer'],
+                        'description' => 'Kolik požadavků v aktuálním okně ještě zbývá.',
                     ],
                 ],
                 'schemas' => $this->schemas(),
@@ -194,7 +237,114 @@ class DocsController extends Controller
         $auth = [['bearerAuth' => []]];
 
         return [
-            '/profile' => [
+            '/up' => [
+                'get' => [
+                    'tags'        => ['Provoz'],
+                    'summary'     => 'Health check',
+                    'description' => 'Stav aplikace a databáze. Bez autentizace — health probe, která potřebuje '
+                        . 'credentials, je jen další věc, co se rozbije ve tři ráno. Vrací **503**, pokud aplikace '
+                        . 'běží, ale nevidí databázi: takový proces patří z rotace ven, ne mezi zdravé.',
+                    'operationId' => 'health',
+                    'security'    => [],
+                    'responses'   => [
+                        '200' => [
+                            'description' => 'Vše v pořádku',
+                            'content'     => ['application/json' => ['schema' => [
+                                'type'       => 'object',
+                                'properties' => [
+                                    'status' => ['type' => 'string', 'example' => 'ok'],
+                                    'checks' => ['type' => 'object'],
+                                    'time'   => ['type' => 'string', 'format' => 'date-time'],
+                                ],
+                            ]]],
+                        ],
+                        '503' => ['description' => 'Databáze nedostupná — vyřadit z rotace'],
+                    ],
+                ],
+            ],
+
+            '/v2/services' => [
+                'get' => [
+                    'tags'        => ['Služby'],
+                    'summary'     => 'Služby včetně dat monitoringu (v2)',
+                    'description' => 'Jako v1, ale s vloženými daty monitoru a vyšším výchozím limitem.',
+                    'operationId' => 'listServicesV2',
+                    'security'    => $auth,
+                    'responses'   => [
+                        '200' => ['description' => 'OK'],
+                        '429' => ['description' => 'Vyčerpaný limit tokenu'],
+                    ],
+                ],
+            ],
+
+            '/v2/services/{id}' => [
+                'get' => [
+                    'tags'        => ['Služby'],
+                    'summary'     => 'Detail služby včetně monitoringu (v2)',
+                    'operationId' => 'getServiceV2',
+                    'security'    => $auth,
+                    'parameters'  => [
+                        ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']],
+                    ],
+                    'responses'   => [
+                        '200' => ['description' => 'OK'],
+                        '404' => ['description' => 'Služba nenalezena, nebo nepatří tomuto zákazníkovi'],
+                    ],
+                ],
+            ],
+
+            '/v2/webhooks' => [
+                'get' => [
+                    'tags'        => ['Webhooky'],
+                    'summary'     => 'Seznam odběrů webhooků',
+                    'operationId' => 'listWebhooks',
+                    'security'    => $auth,
+                    'responses'   => ['200' => ['description' => 'OK']],
+                ],
+                'post' => [
+                    'tags'        => ['Webhooky'],
+                    'summary'     => 'Vytvořit odběr webhooku',
+                    'operationId' => 'createWebhook',
+                    'security'    => $auth,
+                    'parameters'  => [['$ref' => '#/components/parameters/IdempotencyKey']],
+                    'responses'   => [
+                        '201' => ['description' => 'Vytvořeno'],
+                        '409' => ['description' => 'Požadavek se stejným Idempotency-Key se právě zpracovává'],
+                        '422' => ['description' => 'Chyba validace, nebo stejný klíč s jiným tělem'],
+                    ],
+                ],
+            ],
+
+            '/v2/webhooks/{id}' => [
+                'delete' => [
+                    'tags'        => ['Webhooky'],
+                    'summary'     => 'Zrušit odběr webhooku',
+                    'operationId' => 'deleteWebhook',
+                    'security'    => $auth,
+                    'parameters'  => [
+                        ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']],
+                        ['$ref' => '#/components/parameters/IdempotencyKey'],
+                    ],
+                    'responses'   => ['204' => ['description' => 'Zrušeno']],
+                ],
+            ],
+
+            '/v2/webhooks/{id}/deliveries' => [
+                'get' => [
+                    'tags'        => ['Webhooky'],
+                    'summary'     => 'Historie doručení webhooku',
+                    'description' => 'Pokusy o doručení včetně stavového kódu a případné chyby — '
+                        . 'sem se dívejte, když endpoint „nic nedostal“.',
+                    'operationId' => 'listWebhookDeliveries',
+                    'security'    => $auth,
+                    'parameters'  => [
+                        ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']],
+                    ],
+                    'responses'   => ['200' => ['description' => 'OK']],
+                ],
+            ],
+
+            '/v1/profile' => [
                 'get' => [
                     'tags'        => ['Profil'],
                     'summary'     => 'Informace o přihlášeném uživateli',
@@ -206,7 +356,7 @@ class DocsController extends Controller
                     ],
                 ],
             ],
-            '/services' => [
+            '/v1/services' => [
                 'get' => [
                     'tags'        => ['Služby'],
                     'summary'     => 'Seznam hosting služeb',
@@ -217,7 +367,7 @@ class DocsController extends Controller
                     ],
                 ],
             ],
-            '/services/{id}' => [
+            '/v1/services/{id}' => [
                 'get' => [
                     'tags'        => ['Služby'],
                     'summary'     => 'Detail služby',
@@ -231,7 +381,7 @@ class DocsController extends Controller
                     ],
                 ],
             ],
-            '/invoices' => [
+            '/v1/invoices' => [
                 'get' => [
                     'tags'        => ['Faktury'],
                     'summary'     => 'Seznam faktur zákazníka',
@@ -242,7 +392,7 @@ class DocsController extends Controller
                     ],
                 ],
             ],
-            '/domains' => [
+            '/v1/domains' => [
                 'get' => [
                     'tags'        => ['Domény'],
                     'summary'     => 'Seznam domén zákazníka',
@@ -253,7 +403,7 @@ class DocsController extends Controller
                     ],
                 ],
             ],
-            '/billing/credit' => [
+            '/v1/billing/credit' => [
                 'get' => [
                     'tags'        => ['Kredit'],
                     'summary'     => 'Kreditní zůstatek',
@@ -265,12 +415,13 @@ class DocsController extends Controller
                     ],
                 ],
             ],
-            '/billing/credit/topup' => [
+            '/v1/billing/credit/topup' => [
                 'post' => [
                     'tags'        => ['Kredit'],
                     'summary'     => '🔒 Dobít kredit — vytvoří fakturu (vyžaduje write:credit)',
                     'operationId' => 'creditTopup',
                     'security'    => $auth,
+                    'parameters'  => [['$ref' => '#/components/parameters/IdempotencyKey']],
                     'requestBody' => [
                         'required' => true,
                         'content'  => ['application/json' => ['schema' => ['type' => 'object', 'required' => ['amount'], 'properties' => ['amount' => ['type' => 'number', 'minimum' => 1, 'example' => 500]]]]],
@@ -282,7 +433,7 @@ class DocsController extends Controller
                     ],
                 ],
             ],
-            '/support/tickets' => [
+            '/v1/support/tickets' => [
                 'get' => [
                     'tags'        => ['Podpora'],
                     'summary'     => 'Seznam support ticketů',
@@ -297,6 +448,7 @@ class DocsController extends Controller
                     'summary'     => '🔒 Vytvořit ticket (vyžaduje write:tickets)',
                     'operationId' => 'createTicket',
                     'security'    => $auth,
+                    'parameters'  => [['$ref' => '#/components/parameters/IdempotencyKey']],
                     'requestBody' => [
                         'required' => true,
                         'content'  => ['application/json' => ['schema' => ['type' => 'object', 'required' => ['subject', 'message'], 'properties' => [
@@ -312,7 +464,7 @@ class DocsController extends Controller
                     ],
                 ],
             ],
-            '/support/tickets/{id}' => [
+            '/v1/support/tickets/{id}' => [
                 'get' => [
                     'tags'        => ['Podpora'],
                     'summary'     => 'Detail ticketu včetně zpráv',
@@ -326,13 +478,13 @@ class DocsController extends Controller
                     ],
                 ],
             ],
-            '/support/tickets/{id}/reply' => [
+            '/v1/support/tickets/{id}/reply' => [
                 'post' => [
                     'tags'        => ['Podpora'],
                     'summary'     => '🔒 Odpovědět na ticket (vyžaduje write:tickets)',
                     'operationId' => 'replyTicket',
                     'security'    => $auth,
-                    'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']]],
+                    'parameters'  => [['$ref' => '#/components/parameters/IdempotencyKey'], ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']]],
                     'requestBody' => [
                         'required' => true,
                         'content'  => ['application/json' => ['schema' => ['type' => 'object', 'required' => ['message'], 'properties' => ['message' => ['type' => 'string', 'minLength' => 1]]]]],
@@ -344,13 +496,13 @@ class DocsController extends Controller
                     ],
                 ],
             ],
-            '/support/tickets/{id}/close' => [
+            '/v1/support/tickets/{id}/close' => [
                 'post' => [
                     'tags'        => ['Podpora'],
                     'summary'     => '🔒 Uzavřít ticket (vyžaduje write:tickets)',
                     'operationId' => 'closeTicket',
                     'security'    => $auth,
-                    'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']]],
+                    'parameters'  => [['$ref' => '#/components/parameters/IdempotencyKey'], ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']]],
                     'responses'   => [
                         '200' => ['description' => 'Ticket uzavřen'],
                         '403' => ['description' => 'Chybějící ability write:tickets'],
@@ -358,7 +510,7 @@ class DocsController extends Controller
                     ],
                 ],
             ],
-            '/monitors' => [
+            '/v1/monitors' => [
                 'get' => [
                     'tags'        => ['Monitoring'],
                     'summary'     => 'Monitory dostupnosti pro vaše služby',
@@ -369,13 +521,14 @@ class DocsController extends Controller
                     ],
                 ],
             ],
-            '/tokens' => [
+            '/v1/tokens' => [
                 'post' => [
                     'tags'        => ['Tokeny'],
                     'summary'     => 'Vytvořit nový API token',
                     'description' => 'Vyžaduje `read` nebo `manage:tokens` ability. Ability `read` je vždy zahrnuta. Limit: 5 tokenů na účet.',
                     'operationId' => 'createToken',
                     'security'    => $auth,
+                    'parameters'  => [['$ref' => '#/components/parameters/IdempotencyKey']],
                     'requestBody' => [
                         'required' => true,
                         'content'  => ['application/json' => ['schema' => ['type' => 'object', 'required' => ['name'], 'properties' => [
@@ -394,13 +547,13 @@ class DocsController extends Controller
                     ],
                 ],
             ],
-            '/tokens/{id}' => [
+            '/v1/tokens/{id}' => [
                 'delete' => [
                     'tags'        => ['Tokeny'],
                     'summary'     => 'Smazat API token',
                     'operationId' => 'deleteToken',
                     'security'    => $auth,
-                    'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']]],
+                    'parameters'  => [['$ref' => '#/components/parameters/IdempotencyKey'], ['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']]],
                     'responses'   => [
                         '200' => ['description' => 'Token smazán'],
                         '404' => ['description' => 'Token nenalezen'],

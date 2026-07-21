@@ -24,7 +24,7 @@
                     <div class="input-group mb-2">
                         <input type="text" class="form-control f-w-500" id="referral-url-input"
                                value="{{ $referralUrl }}" readonly>
-                        <button class="btn btn-primary" type="button" onclick="copyReferralUrl(this)">
+                        <button class="btn btn-primary" type="button" data-call="copyReferralUrl">
                             <i data-feather="copy" style="width:14px;height:14px;"></i>
                             Kopírovat
                         </button>
@@ -60,7 +60,7 @@
                 <h6 class="f-light mt-2">Zatím žádní referral zákazníci</h6>
                 <p class="f-light f-12 mb-4">Sdílejte svůj referral odkaz. Zákazníci, kteří se zaregistrují, se zobrazí zde.</p>
                 @if($referralUrl)
-                    <button class="btn btn-primary btn-sm" onclick="copyReferralUrl(document.querySelector('#copy-btn-fallback'))">
+                    <button class="btn btn-primary btn-sm" data-call="copyReferralUrl">
                         <i data-feather="copy" style="width:13px;height:13px;"></i>
                         Zkopírovat referral odkaz
                     </button>
@@ -95,7 +95,7 @@
     </x-panel.card>
 </div>
 
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 function copyReferralUrl(btn) {
     const input = document.getElementById('referral-url-input');
     if (!input) return;

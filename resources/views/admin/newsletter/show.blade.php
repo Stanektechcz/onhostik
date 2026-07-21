@@ -82,7 +82,7 @@
 
                         @if($activeCount > 0)
                             <form method="POST" action="{{ route('admin.newsletter.send', $campaign) }}"
-                                  onsubmit="return confirm('Opravdu odeslat tuto kampaň {{ $activeCount }} odběratelům? Tato akce nelze vrátit.')">
+                                  data-confirm="Opravdu odeslat tuto kampaň {{ $activeCount }} odběratelům? Tato akce nelze vrátit.">
                                 @csrf
                                 <button class="btn btn-danger w-full text-white">
                                     <i data-feather="send" style="width:14px;height:14px;"></i>
@@ -112,7 +112,7 @@
                     @if($campaign->isDraft())
                         <hr>
                         <form method="POST" action="{{ route('admin.newsletter.destroy', $campaign) }}"
-                              onsubmit="return confirm('Smazat tuto kampaň?')">
+                              data-confirm="Smazat tuto kampaň?">
                             @csrf @method('DELETE')
                             <button class="btn btn-outline-danger btn-sm w-full">
                                 <i data-feather="trash-2" style="width:13px;height:13px;"></i> Smazat kampaň

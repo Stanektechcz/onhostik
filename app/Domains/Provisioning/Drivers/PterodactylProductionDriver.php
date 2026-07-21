@@ -81,6 +81,19 @@ final class PterodactylProductionDriver implements ProvisioningDriverInterface
             );
         }
 
+        // Orphan recovery (audit E70): a previous attempt may have created the
+        // server remotely and then died before external_id was saved. Adopt it
+        // instead of creating a second one — aaPanel already did this, the
+        // other drivers leaked duplicates.
+        $orphanId = $this->findServerIdByName((string) ($service->label ?? ''));
+
+        if ($orphanId !== null) {
+            return ProvisioningResult::ok(
+                externalId: (string) $orphanId,
+                metadata: ['recovered_orphan' => true, 'driver' => 'pterodactyl'],
+            );
+        }
+
         /** @var array<string, mixed> $resources */
         $resources = is_array($service->resources) ? $service->resources : [];
 
@@ -301,6 +314,40 @@ final class PterodactylProductionDriver implements ProvisioningDriverInterface
         return $ok
             ? ProvisioningResult::ok(externalId: (string) $serverId, metadata: ['operation' => $operation])
             : ProvisioningResult::failure("Pterodactyl {$operation} failed.");
+    }
+
+    /**
+     * Find an existing server by name so an orphaned create can be adopted
+     * rather than duplicated. Returns null on any lookup failure — a failed
+     * search must never block provisioning, it just means no recovery.
+     */
+    private function findServerIdByName(string $name): ?int
+    {
+        if ($name === '') {
+            return null;
+        }
+
+        try {
+            for ($page = 1; $page <= 10; $page++) {
+                $servers = $this->client->listServers($page);
+
+                if ($servers === []) {
+                    return null;
+                }
+
+                foreach ($servers as $server) {
+                    if (strcasecmp((string) $server['name'], $name) === 0) {
+                        $id = (int) $server['id'];
+
+                        return $id > 0 ? $id : null;
+                    }
+                }
+            }
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return null;
     }
 
     private function pickFreeAllocation(int $nodeId): int

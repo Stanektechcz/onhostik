@@ -144,9 +144,9 @@
 
                         @if($ticket->ai_draft)
                             <p class="f-11 f-light mb-2">Navržená odpověď AI:</p>
-                            <div class="rounded p-2 bg-light-primary f-12" style="white-space:pre-line;max-height:140px;overflow-y:auto;font-size:11px;">{{ $ticket->ai_draft }}</div>
+                            <div id="ai-draft-text" class="rounded p-2 bg-light-primary f-12" style="white-space:pre-line;max-height:140px;overflow-y:auto;font-size:11px;">{{ $ticket->ai_draft }}</div>
                             <button type="button" class="btn btn-sm btn-outline-primary mt-2 f-12"
-                                    onclick="document.getElementById('admin-reply').value = {{ Js::from($ticket->ai_draft) }}; document.getElementById('admin-reply').scrollIntoView({behavior:'smooth'});">
+                                    data-fill-from="#ai-draft-text" data-fill-target="#admin-reply">
                                 <i data-feather="copy" style="width:12px;height:12px;"></i>
                                 Použít jako odpověď
                             </button>

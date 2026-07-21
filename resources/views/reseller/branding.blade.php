@@ -51,14 +51,14 @@
                     <div class="mb-3">
                         <label class="form-label">Primární barva</label>
                         <div class="flex items-center gap-2">
-                            <input type="color" name="primary_color"
+                            <input type="color" name="primary_color" id="primary-color-picker"
                                    value="{{ old('primary_color', $branding['primary_color'] ?? '#4B6EF5') }}"
                                    style="width:48px;height:36px;padding:2px;border-radius:4px;">
                             <input class="form-control @error('primary_color') is-invalid @enderror"
                                    type="text" name="primary_color_text"
                                    value="{{ old('primary_color', $branding['primary_color'] ?? '#4B6EF5') }}"
                                    placeholder="#4B6EF5" maxlength="7" style="max-width:120px;"
-                                   oninput="this.previousElementSibling.value=this.value">
+                                   data-mirror="#primary-color-picker">
                         </div>
                         @error('primary_color')<div class="text-danger f-12 mt-1">{{ $message }}</div>@enderror
                     </div>
@@ -209,7 +209,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 document.addEventListener('DOMContentLoaded', function () {
     const colorPicker = document.querySelector('input[type="color"]');
     const colorText = document.querySelector('input[name="primary_color_text"]');

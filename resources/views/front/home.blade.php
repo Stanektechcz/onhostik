@@ -32,8 +32,8 @@ $orgSchema = json_encode([
     ],
     'sameAs' => [],
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-echo '<script type="application/ld+json">' . $websiteSchema . '</script>';
-echo '<script type="application/ld+json">' . $orgSchema . '</script>';
+echo '<script type="application/ld+json" nonce="' . ($cspNonce ?? '') . '">' . $websiteSchema . '</script>';
+echo '<script type="application/ld+json" nonce="' . ($cspNonce ?? '') . '">' . $orgSchema . '</script>';
 @endphp
 @endpush
 
@@ -505,7 +505,7 @@ echo '<script type="application/ld+json">' . $orgSchema . '</script>';
     </section>
 
     @push('scripts')
-    <script>
+    <script nonce="{{ $cspNonce ?? '' }}">
     (function () {
         var PLANS = {
             web: {

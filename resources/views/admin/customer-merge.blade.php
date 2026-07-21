@@ -12,7 +12,7 @@
         </div>
 
         <form method="POST" action="{{ route('admin.customers.merge', $customer) }}"
-              onsubmit="return confirm('Skutečně sloučit zákazníky? Tato akce je nevratná.')">
+              data-confirm="Skutečně sloučit zákazníky? Tato akce je nevratná.">
             @csrf
             <div class="mb-3">
                 <label class="form-label">ID zdrojového zákazníka (bude smazán)</label>

@@ -36,7 +36,7 @@
                             <form method="POST" action="{{ route('admin.proforma-batch.convert', $inv) }}">
                                 @csrf
                                 @method('PATCH')
-                                <button type="submit" class="btn btn-xs btn-outline-primary" onclick="return confirm('Převést na daňový doklad?')">
+                                <button type="submit" class="btn btn-xs btn-outline-primary" data-confirm="Převést na daňový doklad?">
                                     Převést na DD
                                 </button>
                             </form>

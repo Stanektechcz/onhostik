@@ -107,28 +107,67 @@
         </div>
 
         {{-- Payout settings --}}
+        @php
+            $payoutDetails = $partnerProfile?->getPayoutDetails() ?? [];
+            $savedAccount  = $payoutDetails['account_number'] ?? null;
+            $maskedAccount = $savedAccount
+                ? str_repeat('•', max(0, strlen($savedAccount) - 4)) . substr($savedAccount, -4)
+                : null;
+        @endphp
         <div class="col-span-12">
             <div class="card">
                 <div class="card-header card-no-border pb-0">
                     <div class="header-top">
                         <h5>Výplatní údaje</h5>
-                        <div class="card-header-right-icon">
-                            <span class="badge badge-light-warning">MANUAL</span>
-                        </div>
                     </div>
                 </div>
                 <div class="card-body">
-                    <div class="alert alert-light-warning mb-3">
-                        <i data-feather="alert-triangle" style="width:14px;height:14px;" class="me-2"></i>
-                        Výplaty provizí jsou aktuálně manuální. Bankovní spojení pro výplatu provizí
-                        prosím zašlete na <a href="mailto:partner@onhost.cz" class="txt-primary f-w-500">partner@onhost.cz</a>.
-                        Automatická správa výplatních údajů bude dostupná v dalším vydání.
-                    </div>
-                    <div class="text-center py-3">
-                        <i data-feather="credit-card" style="width:36px;height:36px;" class="text-muted mb-2"></i>
-                        <p class="f-light f-12 mb-0">Správa výplatních údajů přímo v panelu — připravujeme.</p>
-                        <span class="badge badge-light-warning mt-2">PŘIPRAVUJEME</span>
-                    </div>
+                    @if(!$partnerProfile)
+                        <p class="f-light f-12 mb-0">Výplatní údaje budou dostupné po aktivaci partnerského profilu.</p>
+                    @else
+                        <p class="f-light f-12 mb-3">
+                            Zadejte účet, na který vám budeme vyplácet provize. Údaje jsou uloženy šifrovaně.
+                        </p>
+                        @if($maskedAccount)
+                            <div class="alert alert-light-success f-12 mb-3">
+                                <i data-feather="check-circle" style="width:14px;height:14px;" class="me-1"></i>
+                                Uložený účet: <strong class="font-monospace">{{ $maskedAccount }}</strong>
+                            </div>
+                        @endif
+                        <form method="POST" action="{{ route('partner.profile.payout') }}">
+                            @csrf
+                            <div class="grid grid-cols-12 gap-3">
+                                <div class="col-span-12 md:col-span-4">
+                                    <label class="form-label f-12 f-light">Způsob výplaty</label>
+                                    <select name="payout_method" class="form-select form-select-sm @error('payout_method') is-invalid @enderror">
+                                        @foreach(['bank_transfer' => 'Bankovní převod', 'paypal' => 'PayPal'] as $val => $label)
+                                            <option value="{{ $val }}" {{ ($partnerProfile->payout_method ?? old('payout_method')) === $val ? 'selected' : '' }}>{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                    @error('payout_method')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                                <div class="col-span-12 md:col-span-4">
+                                    <label class="form-label f-12 f-light">Majitel účtu</label>
+                                    <input type="text" name="account_holder" maxlength="120"
+                                           value="{{ old('account_holder', $payoutDetails['account_holder'] ?? '') }}"
+                                           class="form-control form-control-sm @error('account_holder') is-invalid @enderror">
+                                    @error('account_holder')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                                <div class="col-span-12 md:col-span-4">
+                                    <label class="form-label f-12 f-light">Číslo účtu / IBAN</label>
+                                    <input type="text" name="account_number" maxlength="64"
+                                           value="{{ old('account_number') }}" autocomplete="off"
+                                           placeholder="{{ $maskedAccount ?? 'CZ...' }}"
+                                           class="form-control form-control-sm font-monospace @error('account_number') is-invalid @enderror">
+                                    @error('account_number')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-sm mt-3">
+                                <i data-feather="save" style="width:13px;height:13px;"></i>
+                                Uložit výplatní údaje
+                            </button>
+                        </form>
+                    @endif
                 </div>
             </div>
         </div>

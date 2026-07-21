@@ -49,7 +49,7 @@
                         </form>
                         <form method="POST" action="{{ route('admin.invoice-reminder-rules.destroy', $rule) }}">
                             @csrf @method('DELETE')
-                            <button class="btn btn-sm btn-outline-danger" onclick="return confirm('Smazat?')">✕</button>
+                            <button class="btn btn-sm btn-outline-danger" data-confirm="Smazat?">✕</button>
                         </form>
                     </div>
                 </div>

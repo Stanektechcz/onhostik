@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Crypt;
  * Plaintext secrets are NEVER stored, logged or returned via API.
  *
  * @property-read array<string,string> $api_credentials  Decrypted credential map (via Attribute accessor)
+ * @property ProvisioningDriver $driver
  * @property array<string,mixed>|null $capacity_meta
  * @property int|null $max_services
  * @property int $current_services

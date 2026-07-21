@@ -61,7 +61,7 @@
                                             {{ $banner->is_active ? 'Deaktivovat' : 'Aktivovat' }}
                                         </button>
                                     </form>
-                                    <form method="POST" action="{{ route('admin.promotional-banners.destroy', $banner) }}" class="inline" onsubmit="return confirm('Opravdu smazat tento banner?')">
+                                    <form method="POST" action="{{ route('admin.promotional-banners.destroy', $banner) }}" class="inline" data-confirm="Opravdu smazat tento banner?">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="btn btn-sm btn-outline-danger">Smazat</button>

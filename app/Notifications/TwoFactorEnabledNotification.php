@@ -6,16 +6,19 @@ namespace App\Notifications;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\RespectsNotificationPreferences;
 use Illuminate\Notifications\Notification;
 
 class TwoFactorEnabledNotification extends Notification
 {
+    use RespectsNotificationPreferences;
+
     use Queueable;
 
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return $this->channelsFor($notifiable, 'security', ['mail']);
     }
 
     public function toMail(object $notifiable): MailMessage

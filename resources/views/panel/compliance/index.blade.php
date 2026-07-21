@@ -90,6 +90,21 @@
                 </div>
             </div>
 
+            {{-- 178: Data Processing Agreement (GDPR art. 28) --}}
+            <div class="card card-no-border">
+                <div class="card-header"><h6 class="mb-0">Zpracovatelská smlouva (DPA)</h6></div>
+                <div class="card-body">
+                    <p class="small text-muted">
+                        Smlouva o zpracování osobních údajů dle čl. 28 GDPR mezi vámi (správce)
+                        a naší společností (zpracovatel). Stáhněte si ji pro vlastní compliance.
+                    </p>
+                    <a href="{{ route('panel.compliance.dpa') }}" class="btn btn-outline-primary btn-sm w-full">
+                        <i data-feather="file-text" style="width:13px;height:13px"></i>
+                        Stáhnout DPA (PDF)
+                    </a>
+                </div>
+            </div>
+
             {{-- Account Deletion --}}
             <div class="card card-no-border border-danger">
                 <div class="card-header bg-danger bg-opacity-10">
@@ -101,7 +116,7 @@
                         Žádost bude zpracována do 30 dnů. Aktivní služby musí být nejprve ukončeny.
                     </p>
                     <form method="POST" action="{{ route('panel.compliance.deletion') }}"
-                          onsubmit="return confirm('Opravdu chcete požádat o smazání účtu? Tato akce je nevratná.')">
+                          data-confirm="Opravdu chcete požádat o smazání účtu? Tato akce je nevratná.">
                         @csrf
                         <button type="submit" class="btn btn-outline-danger btn-sm w-full">
                             Požádat o smazání účtu

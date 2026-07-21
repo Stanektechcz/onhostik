@@ -39,7 +39,7 @@
                                         Upravit
                                     </button>
                                     <form method="POST" action="{{ route('admin.customer-tags.destroy', $tag) }}"
-                                          onsubmit="return confirm('Smazat štítek?')">
+                                          data-confirm="Smazat štítek?">
                                         @csrf @method('DELETE')
                                         <button type="submit" class="btn btn-outline-danger btn-xs">×</button>
                                     </form>
@@ -104,7 +104,7 @@
                                 <div class="flex gap-1 flex-wrap">
                                     @foreach(['#0d6efd','#198754','#dc3545','#ffc107','#6f42c1','#fd7e14','#20c997','#6c757d'] as $preset)
                                         <button type="button" class="btn btn-xs" style="background:{{ $preset }};width:22px;height:22px;padding:0;"
-                                                onclick="this.closest('form').querySelector('[type=color]').value='{{ $preset }}'"></button>
+                                                data-set-value="{{ $preset }}" data-set-within="[type=color]"></button>
                                     @endforeach
                                 </div>
                             </div>

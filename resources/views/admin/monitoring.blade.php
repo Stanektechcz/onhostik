@@ -99,7 +99,7 @@
                     {{-- Filters --}}
                     <form method="GET" action="{{ route('admin.monitoring.index') }}" class="grid grid-cols-12 gap-2 mb-3">
                         <div class="col-auto">
-                            <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                            <select name="status" class="form-select form-select-sm" data-auto-submit>
                                 <option value="">Všechny stavy</option>
                                 @foreach(\App\Domains\Monitoring\Enums\MonitorStatus::cases() as $s)
                                     <option value="{{ $s->value }}" {{ $filterStatus === $s->value ? 'selected' : '' }}>
@@ -109,7 +109,7 @@
                             </select>
                         </div>
                         <div class="col-auto">
-                            <select name="type" class="form-select form-select-sm" onchange="this.form.submit()">
+                            <select name="type" class="form-select form-select-sm" data-auto-submit>
                                 <option value="">Všechny typy</option>
                                 @foreach($monitorTypes as $t)
                                     <option value="{{ $t }}" {{ $filterType === $t ? 'selected' : '' }}>{{ $t }}</option>

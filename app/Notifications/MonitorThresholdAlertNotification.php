@@ -6,10 +6,13 @@ namespace App\Notifications;
 
 use App\Domains\Monitoring\Models\MonitorAlert;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\RespectsNotificationPreferences;
 use Illuminate\Notifications\Notification;
 
 class MonitorThresholdAlertNotification extends Notification
 {
+    use RespectsNotificationPreferences;
+
     public function __construct(
         private readonly MonitorAlert $alert,
     ) {}
@@ -17,7 +20,7 @@ class MonitorThresholdAlertNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail', 'database'];
+        return $this->channelsFor($notifiable, 'monitor', ['mail', 'database']);
     }
 
     /** @return array<string, mixed> */

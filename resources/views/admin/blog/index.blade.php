@@ -91,7 +91,7 @@
                                 <i data-feather="edit" style="width:12px;height:12px;"></i>
                             </a>
                             <form method="POST" action="{{ route('admin.blog.destroy', $post) }}" style="display:inline;"
-                                  onsubmit="return confirm('Smazat příspěvek?')">
+                                  data-confirm="Smazat příspěvek?">
                                 @csrf @method('DELETE')
                                 <button type="submit" class="btn btn-sm btn-danger">
                                     <i data-feather="trash-2" style="width:12px;height:12px;"></i>
@@ -136,7 +136,7 @@
                                         <a href="{{ route('admin.blog.show', $post) }}" class="btn btn-outline-secondary btn-xs">Náhled</a>
                                         <a href="{{ route('admin.blog.edit', $post) }}" class="btn btn-outline-primary btn-xs">Upravit</a>
                                         <form method="POST" action="{{ route('admin.blog.destroy', $post) }}" style="display:inline;"
-                                              onsubmit="return confirm('Smazat?')">
+                                              data-confirm="Smazat?">
                                             @csrf @method('DELETE')
                                             <button type="submit" class="btn btn-outline-danger btn-xs">Smazat</button>
                                         </form>
@@ -182,7 +182,7 @@
                                 <i data-feather="edit-2" style="width:11px;height:11px;"></i>
                             </a>
                             <form method="POST" action="{{ route('admin.blog.destroy', $post) }}" style="display:inline;"
-                                  onsubmit="return confirm('Smazat?')">
+                                  data-confirm="Smazat?">
                                 @csrf @method('DELETE')
                                 <button type="submit" class="btn btn-sm btn-danger py-1 px-2">
                                     <i data-feather="x" style="width:11px;height:11px;"></i>

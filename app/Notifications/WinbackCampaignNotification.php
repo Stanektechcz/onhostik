@@ -6,16 +6,19 @@ namespace App\Notifications;
 
 use App\Models\WinbackCampaign;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\RespectsNotificationPreferences;
 use Illuminate\Notifications\Notification;
 
 class WinbackCampaignNotification extends Notification
 {
+    use RespectsNotificationPreferences;
+
     public function __construct(private readonly WinbackCampaign $campaign) {}
 
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return $this->channelsFor($notifiable, 'marketing', ['mail']);
     }
 
     public function toMail(object $notifiable): MailMessage

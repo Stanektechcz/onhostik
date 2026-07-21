@@ -40,6 +40,7 @@ class ResellerProfile extends Model
         'support_email',
         'support_phone',
         'panel_title',
+        'max_customers',
     ];
 
     protected function casts(): array
@@ -68,6 +69,34 @@ class ResellerProfile extends Model
     public function pricingOverrides(): HasMany
     {
         return $this->hasMany(ResellerPricingOverride::class, 'reseller_id');
+    }
+
+    /**
+     * Sub-customer cap (audit K109).
+     *
+     * A NULL cap means unlimited — that is the pre-existing behaviour and the
+     * default for every reseller created before the column existed, so adding
+     * the limit never retroactively locks anyone out.
+     */
+    public function hasCustomerLimit(): bool
+    {
+        return $this->max_customers !== null;
+    }
+
+    public function customerSlotsRemaining(): ?int
+    {
+        if (! $this->hasCustomerLimit()) {
+            return null;
+        }
+
+        return max(0, (int) $this->max_customers - $this->customers()->count());
+    }
+
+    public function canAddCustomer(): bool
+    {
+        $remaining = $this->customerSlotsRemaining();
+
+        return $remaining === null || $remaining > 0;
     }
 
     public function isActive(): bool

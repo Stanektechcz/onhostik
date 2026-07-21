@@ -48,7 +48,7 @@
                                     Upravit
                                 </a>
                                 <form method="POST" action="{{ route('admin.game-presets.destroy', $preset) }}"
-                                      class="inline" onsubmit="return confirm('Opravdu smazat preset {{ $preset->name }}?')">
+                                      class="inline" data-confirm="Opravdu smazat preset {{ $preset->name }}?">
                                     @csrf
                                     @method('DELETE')
                                     <button type="submit" class="btn btn-outline-danger btn-sm ms-1">

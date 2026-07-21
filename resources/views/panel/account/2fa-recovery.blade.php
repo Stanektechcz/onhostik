@@ -24,7 +24,7 @@
         @endif
 
         <form method="POST" action="{{ route('panel.account.2fa-recovery.regenerate') }}"
-              onsubmit="return confirm('Tím zneplatníte všechny stávající kódy. Pokračovat?')">
+              data-confirm="Tím zneplatníte všechny stávající kódy. Pokračovat?">
             @csrf
             <button type="submit" class="btn btn-outline-warning btn-sm">Vygenerovat nové kódy</button>
         </form>

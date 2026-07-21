@@ -77,4 +77,53 @@ class DomainController extends Controller
 
         return back()->with('status', __('panel.domains.nameservers_updated'));
     }
+
+    /**
+     * Point several domains at the same nameservers in one go (audit F90).
+     *
+     * Migrating DNS provider means touching every domain you own; doing that
+     * one at a time is where records get missed.
+     */
+    public function bulkNameservers(Request $request): RedirectResponse
+    {
+        $customer = $request->user()?->customer;
+
+        abort_if($customer === null, 403);
+
+        $validated = $request->validate([
+            'domain_ids'    => ['required', 'array', 'min:1'],
+            'domain_ids.*'  => ['required', 'integer'],
+            'nameservers'   => ['required', 'array', 'min:1', 'max:4'],
+            'nameservers.*' => [
+                'required',
+                'string',
+                'max:253',
+                'regex:/^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$/',
+            ],
+        ]);
+
+        $nameservers = array_values(array_filter($validated['nameservers'], static fn (string $ns): bool => $ns !== ''));
+
+        // Scope to the caller's own domains — never trust ids from the form.
+        $domains = DomainRegistration::query()
+            ->whereIn('id', $validated['domain_ids'])
+            ->whereHas('service', fn ($q) => $q->where('customer_id', $customer->id))
+            ->get();
+
+        if ($domains->isEmpty()) {
+            return back()->withErrors(['domain_ids' => 'Nebyla vybrána žádná vaše doména.']);
+        }
+
+        foreach ($domains as $domain) {
+            $domain->update(['nameservers' => $nameservers]);
+
+            activity('domain')
+                ->performedOn($domain)
+                ->causedBy($request->user())
+                ->withProperties(['nameservers' => $nameservers, 'bulk' => true])
+                ->log('domain.nameservers_updated');
+        }
+
+        return back()->with('status', "Nameservery byly změněny u {$domains->count()} domén.");
+    }
 }

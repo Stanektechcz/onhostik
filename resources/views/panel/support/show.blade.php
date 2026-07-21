@@ -78,7 +78,7 @@
                                 </form>
                                 <div class="mt-3">
                                     <form method="POST" action="{{ route('panel.support.close', $ticket) }}"
-                                          onsubmit="return confirm('{{ __('panel.support.close_confirm') }}')">
+                                          data-confirm="{{ __('panel.support.close_confirm') }}">
                                         @csrf
                                         <button type="submit" class="btn btn-outline-secondary btn-sm">
                                             <i data-feather="x" style="width:13px;height:13px"></i>

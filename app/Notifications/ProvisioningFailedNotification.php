@@ -8,11 +8,13 @@ use App\Domains\Provisioning\Models\ProvisioningTask;
 use App\Domains\Provisioning\Models\Service;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\RespectsNotificationPreferences;
 use Illuminate\Notifications\Notification;
 
 final class ProvisioningFailedNotification extends Notification
 {
     use Queueable;
+    use RespectsNotificationPreferences;
 
     public function __construct(
         private readonly ProvisioningTask $task,
@@ -22,7 +24,7 @@ final class ProvisioningFailedNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail', 'database'];
+        return $this->channelsFor($notifiable, 'service_critical', ['mail', 'database']);
     }
 
     public function toMail(object $notifiable): MailMessage

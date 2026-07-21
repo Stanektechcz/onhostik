@@ -55,7 +55,7 @@
                         </div>
                         <form method="POST" action="{{ route('panel.webhook-subscriptions.destroy', $sub) }}" class="ms-3 shrink-0">
                             @csrf @method('DELETE')
-                            <button class="btn btn-sm btn-outline-danger" onclick="return confirm('Smazat webhook?')">Smazat</button>
+                            <button class="btn btn-sm btn-outline-danger" data-confirm="Smazat webhook?">Smazat</button>
                         </form>
                     </div>
                     @empty

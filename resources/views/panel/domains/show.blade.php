@@ -161,7 +161,7 @@
                                    value="{{ $domain->auth_code }}"
                                    readonly>
                             <button class="btn btn-outline-secondary" type="button"
-                                    onclick="var i=document.getElementById('auth-code-input');i.type=i.type==='password'?'text':'password'">
+                                    data-toggle-visibility="#auth-code-input">
                                 <i data-feather="eye" style="width:13px;height:13px"></i>
                             </button>
                         </div>

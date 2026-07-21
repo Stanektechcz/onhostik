@@ -44,7 +44,7 @@
                                 <td>
                                     <form method="POST" action="{{ route('admin.payment-retry-schedules.destroy', $retry) }}">
                                         @csrf @method('DELETE')
-                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Opravdu smazat?')">Smazat</button>
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Opravdu smazat?">Smazat</button>
                                     </form>
                                 </td>
                             </tr>

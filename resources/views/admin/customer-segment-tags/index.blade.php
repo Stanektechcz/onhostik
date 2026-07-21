@@ -28,7 +28,7 @@
                                 <td>
                                     <form method="POST" action="{{ route('admin.customer-segment-tags.destroy', $tag) }}">
                                         @csrf @method('DELETE')
-                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Opravdu smazat štítek?')">Smazat</button>
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Opravdu smazat štítek?">Smazat</button>
                                     </form>
                                 </td>
                             </tr>

@@ -7,10 +7,13 @@ namespace App\Notifications;
 use App\Domains\Billing\Models\Invoice;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\RespectsNotificationPreferences;
 use Illuminate\Notifications\Notification;
 
 class InvoiceReminderNotification extends Notification
 {
+    use RespectsNotificationPreferences;
+
     use Queueable;
 
     public function __construct(
@@ -21,7 +24,7 @@ class InvoiceReminderNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return $this->channelsFor($notifiable, 'payment', ['mail']);
     }
 
     public function toMail(object $notifiable): MailMessage

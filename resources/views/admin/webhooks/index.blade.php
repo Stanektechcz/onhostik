@@ -81,7 +81,7 @@
                                 <i data-feather="list" style="width:12px;height:12px;"></i>
                                 {{ $webhook->deliveries_count }} doručení
                             </a>
-                            <form method="POST" action="{{ route('admin.outgoing-webhooks.destroy', $webhook) }}" onsubmit="return confirm('Opravdu smazat?')">
+                            <form method="POST" action="{{ route('admin.outgoing-webhooks.destroy', $webhook) }}" data-confirm="Opravdu smazat?">
                                 @csrf @method('DELETE')
                                 <button type="submit" class="btn btn-sm btn-outline-danger f-11">
                                     <i data-feather="trash-2" style="width:12px;height:12px;"></i>

@@ -39,7 +39,7 @@
 
         @if($reseller->status === 'pending' || $reseller->status === 'active')
             <form method="POST" action="{{ route('admin.resellers.reject', $reseller) }}" class="inline"
-                  onsubmit="return confirm('Opravdu zamítnout resellera?')">
+                  data-confirm="Opravdu zamítnout resellera?">
                 @csrf
                 <button type="submit" class="btn btn-outline-secondary btn-sm">
                     <i data-feather="x" style="width:13px;height:13px;"></i> Zamítnout
@@ -49,14 +49,14 @@
 
         @if($reseller->status === 'active')
             <form method="POST" action="{{ route('admin.resellers.suspend', $reseller) }}" class="inline"
-                  onsubmit="return confirm('Opravdu pozastavit resellera?')">
+                  data-confirm="Opravdu pozastavit resellera?">
                 @csrf
                 <button type="submit" class="btn btn-outline-warning btn-sm">
                     <i data-feather="pause" style="width:13px;height:13px;"></i> Pozastavit
                 </button>
             </form>
             <form method="POST" action="{{ route('admin.resellers.revoke', $reseller) }}" class="inline"
-                  onsubmit="return confirm('Opravdu odebrat resellerovi přístup? Uživatel ztratí reseller oprávnění.')">
+                  data-confirm="Opravdu odebrat resellerovi přístup? Uživatel ztratí reseller oprávnění.">
                 @csrf
                 <button type="submit" class="btn btn-outline-danger btn-sm">
                     <i data-feather="shield-off" style="width:13px;height:13px;"></i> Odebrat přístup

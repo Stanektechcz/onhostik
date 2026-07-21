@@ -68,7 +68,7 @@
                                     @if($campaign->sent_at === null)
                                     <form method="POST" action="{{ route('admin.winback-campaigns.send', $campaign) }}">
                                         @csrf
-                                        <button type="submit" class="btn btn-xs btn-outline-success" onclick="return confirm('Odeslat kampaň?')">
+                                        <button type="submit" class="btn btn-xs btn-outline-success" data-confirm="Odeslat kampaň?">
                                             Odeslat
                                         </button>
                                     </form>

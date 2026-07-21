@@ -5,41 +5,71 @@ declare(strict_types=1);
 namespace App\Domains\Billing\Actions;
 
 use App\Domains\Billing\Enums\PaymentStatus;
+use App\Domains\Billing\Enums\RefundDestination;
 use App\Domains\Billing\Models\Payment;
+use App\Domains\Billing\Services\CreditLedger;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 /**
- * Records a MANUAL refund against a completed payment.
+ * Records a refund against a completed payment.
  *
- * No payment gateway wired into this system currently exposes a refund
- * API (ComgateGateway has createPayment/getStatus/verifyWebhookSource —
- * no refund() method). This action therefore never calls out to a
- * gateway; it only marks the payment as PaymentStatus::ManualRefund and
- * records who/when/why in the audit log. The admin must still issue the
- * real money movement through the gateway's own dashboard.
+ * No payment gateway wired into this system exposes a refund API
+ * (ComgateGateway has createPayment/getStatus/verifyWebhookSource — no
+ * refund()). So returning money to the original card is necessarily a
+ * manual step the admin performs in the gateway's own dashboard; this
+ * action records that obligation rather than pretending to fulfil it.
  *
- * Kept distinct from PaymentStatus::Refunded on purpose: that status is
- * reserved for a future real gateway-refund integration, so the two can
- * never be confused once one exists.
+ * The credit destination, by contrast, IS fully automatic: the amount is
+ * deposited to the customer's credit balance here and now.
+ *
+ * PaymentStatus::Refunded stays reserved for a future gateway-confirmed
+ * refund, so it can never be confused with ManualRefund.
  */
 final class RefundPaymentAction
 {
-    public function execute(Payment $payment, User $actor, string $reason): Payment
-    {
+    public function __construct(
+        private readonly CreditLedger $creditLedger,
+    ) {}
+
+    public function execute(
+        Payment $payment,
+        User $actor,
+        string $reason,
+        RefundDestination $destination = RefundDestination::OriginalMethod,
+    ): Payment {
         if ($payment->status !== PaymentStatus::Completed) {
             throw new InvalidArgumentException('Only completed payments can be refunded.');
         }
 
-        $payment->update(['status' => PaymentStatus::ManualRefund]);
+        DB::transaction(function () use ($payment, $reason, $destination): void {
+            $payment->update([
+                'status'             => PaymentStatus::ManualRefund,
+                'refund_destination' => $destination->value,
+                'refund_reason'      => mb_substr($reason, 0, 500),
+                'refunded_at'        => now(),
+            ]);
+
+            // Credit is the one destination we can actually settle ourselves.
+            if ($destination === RefundDestination::Credit && $payment->customer !== null) {
+                $this->creditLedger->deposit(
+                    $payment->customer,
+                    $payment->amount,
+                    "Refundace platby #{$payment->id}: {$reason}",
+                );
+            }
+        });
 
         activity('payment')
             ->performedOn($payment)
             ->causedBy($actor)
             ->withProperties([
-                'reason'      => $reason,
-                'refund_type' => 'manual',
-                'gateway_call' => false,
+                'reason'          => $reason,
+                'refund_type'     => 'manual',
+                'destination'     => $destination->value,
+                'gateway_call'    => false,
+                'manual_action_required' => $destination->requiresManualAction(),
             ])
             ->log('payment.manual_refund_recorded');
 

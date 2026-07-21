@@ -13,16 +13,15 @@ use App\Domains\Billing\Exceptions\IncompleteBillingDetailsException;
 use App\Domains\Billing\Models\CreditTransaction;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Models\Order;
-use App\Domains\Billing\Models\OrderItem;
 use App\Domains\Billing\Services\CreditLedger;
-use App\Domains\Provisioning\Enums\ProvisioningDriver;
+use App\Domains\Customer\Models\Customer;
+use App\Domains\Provisioning\Actions\EnsureOrderProvisionedAction;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Jobs\ChangeServiceStateJob;
-use App\Domains\Provisioning\Jobs\ProvisionHostingServiceJob;
-use App\Domains\Provisioning\Jobs\RegisterDomainJob;
-use App\Domains\Provisioning\Models\Server;
 use App\Domains\Provisioning\Models\Service;
 use App\Notifications\InvoicePaidNotification;
+use Brick\Math\RoundingMode;
+use Brick\Money\Money;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -146,30 +145,9 @@ final class HandleInvoicePaid
 
     private function provisionOrderItems(Order $order): void
     {
-        foreach ($order->items as $item) {
-            $service = $this->ensureService($order, $item);
-
-            if ($service === null) {
-                continue;
-            }
-
-            /** @var array<string, mixed> $config */
-            $config = $item->config ?? [];
-
-            if (in_array($service->provisioning_driver, [
-                ProvisioningDriver::AAPanel,
-                ProvisioningDriver::Proxmox,
-                ProvisioningDriver::Pterodactyl,
-            ], true)) {
-                ProvisionHostingServiceJob::dispatch($service->id);
-            }
-
-            $domain = $config['domain'] ?? null;
-
-            if (is_string($domain) && $domain !== '' && ($config['register_domain'] ?? false) === true) {
-                RegisterDomainJob::dispatch($service->id, $domain);
-            }
-        }
+        // Single source of truth — also used by the queue-worker fallback
+        // command to heal orders whose provisioning was lost.
+        app(EnsureOrderProvisionedAction::class)->execute($order);
     }
 
     /**
@@ -210,6 +188,69 @@ final class HandleInvoicePaid
                 'amount'                => $total->getMinorAmount()->toInt(),
             ])
             ->log('credit.topup_completed');
+
+        $this->creditVolumeBonus($invoice, $customer, $total);
+    }
+
+    /**
+     * Deposits the volume bonus for a paid top-up (audit D58).
+     *
+     * Booked as a separate Bonus ledger entry so the customer's own money and
+     * the promotional credit stay distinguishable in the history and in
+     * accounting. The Deposit-based replay guard above already prevents this
+     * from running twice for one invoice.
+     */
+    private function creditVolumeBonus(Invoice $invoice, Customer $customer, Money $paid): void
+    {
+        $percent = $this->bonusPercentFor($paid->getMinorAmount()->toInt());
+
+        if ($percent <= 0.0) {
+            return;
+        }
+
+        $bonus = $paid->multipliedBy($percent / 100, RoundingMode::HALF_UP);
+
+        if ($bonus->isZero()) {
+            return;
+        }
+
+        $entry = app(CreditLedger::class)->deposit(
+            customer: $customer,
+            amount: $bonus,
+            description: sprintf('Bonus %s %% k dobití dle %s', rtrim(rtrim(number_format($percent, 2, ',', ' '), '0'), ','), $invoice->number),
+            reference: $invoice,
+        );
+
+        activity('credit')
+            ->performedOn($invoice)
+            ->withProperties([
+                'credit_transaction_id' => $entry->id,
+                'bonus_percent'         => $percent,
+                'amount'                => $bonus->getMinorAmount()->toInt(),
+            ])
+            ->log('credit.topup_bonus_granted');
+    }
+
+    /** Highest matching bonus band for a paid amount, or 0.0 when none apply. */
+    private function bonusPercentFor(int $paidMinor): float
+    {
+        /** @var array<int, array{min_minor?: mixed, percent?: mixed}> $tiers */
+        $tiers = (array) config('billing.credit_topup.bonus_tiers', []);
+
+        $best = 0.0;
+        $bestThreshold = -1;
+
+        foreach ($tiers as $tier) {
+            $threshold = (int) ($tier['min_minor'] ?? 0);
+            $percent   = (float) ($tier['percent'] ?? 0);
+
+            if ($paidMinor >= $threshold && $threshold > $bestThreshold) {
+                $best          = $percent;
+                $bestThreshold = $threshold;
+            }
+        }
+
+        return $best;
     }
 
     /**
@@ -260,48 +301,4 @@ final class HandleInvoicePaid
         });
     }
 
-    private function ensureService(Order $order, OrderItem $item): ?Service
-    {
-        $plan    = $item->pricingPlan;
-        $product = $plan?->product;
-
-        if ($plan === null || $product === null) {
-            return null; // defensive — Phase 2 items always reference a plan
-        }
-
-        $driver = $product->provisioning_driver ?? ProvisioningDriver::AAPanel;
-
-        /** @var array<string, mixed> $config */
-        $config = $item->config ?? [];
-        $domain = is_string($config['domain'] ?? null) ? $config['domain'] : null;
-
-        $server = Server::query()
-            ->where('driver', $driver->value)
-            ->where('status', 'active')
-            ->orderByDesc('is_default')
-            ->first();
-
-        $service = Service::firstOrCreate(
-            ['order_item_id' => $item->id],
-            [
-                'customer_id'         => $order->customer_id,
-                'product_id'          => $product->id,
-                'server_id'           => $server?->id,
-                'provisioning_driver' => $driver,
-                'status'              => ServiceStatus::Pending,
-                'label'               => $domain ?? mb_strtolower((string) $plan->name) . '-' . $item->id,
-                'resources'           => $plan->resources,
-                'next_due_date'       => $item->period_to,
-            ],
-        );
-
-        if ($service->wasRecentlyCreated) {
-            activity('service')
-                ->performedOn($service)
-                ->withProperties(['order_id' => $order->id, 'order_item_id' => $item->id])
-                ->log('service.created');
-        }
-
-        return $service;
-    }
 }

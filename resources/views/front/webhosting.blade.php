@@ -4,7 +4,7 @@
 
 @push('jsonld')
 @php
-echo '<script type="application/ld+json">' . json_encode([
+echo '<script type="application/ld+json" nonce="' . ($cspNonce ?? '') . '">' . json_encode([
     '@context'    => 'https://schema.org',
     '@type'       => 'Product',
     'name'        => 'Webhosting — Onhost.cz',
@@ -24,7 +24,7 @@ echo '<script type="application/ld+json">' . json_encode([
 @endpush
 
 @push('scripts')
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 function moveScroll() {
     var scroll = $(window).scrollTop();
     if (typeof $('#maintable').offset() === 'undefined') return;

@@ -81,7 +81,7 @@
                                         <i data-feather="edit-2" style="width:11px;height:11px;"></i>
                                     </a>
                                     <form method="POST" action="{{ route('admin.newsletter.destroy', $campaign) }}"
-                                          onsubmit="return confirm('Smazat kampaň?')">
+                                          data-confirm="Smazat kampaň?">
                                         @csrf @method('DELETE')
                                         <button class="btn btn-outline-danger btn-xs" title="Smazat">
                                             <i data-feather="trash-2" style="width:11px;height:11px;"></i>

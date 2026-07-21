@@ -146,7 +146,7 @@
                                                             <i data-feather="edit-2" style="width:14px;height:14px;"></i>
                                                         </button>
                                                         <form method="POST" action="{{ route('admin.tasks.destroy', $task) }}" class="inline"
-                                                              onsubmit="return confirm('Smazat úkol?')">
+                                                              data-confirm="Smazat úkol?">
                                                             @csrf @method('DELETE')
                                                             <button type="submit" class="square-white trash-3" title="Smazat">
                                                                 <svg><use href="{{ asset('panel/svg/icon-sprite.svg#trash1') }}"></use></svg>

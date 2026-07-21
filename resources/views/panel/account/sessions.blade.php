@@ -8,17 +8,37 @@
 
     <x-panel.card title="Aktivní relace">
         <x-slot name="headerRight">
-            <form method="POST" action="{{ route('panel.account.sessions.destroy-others') }}">
+            {{-- Password required: this also rotates the remember-me token, so
+                 someone on a stolen session must not be able to trigger it. --}}
+            <form method="POST" action="{{ route('panel.account.sessions.destroy-others') }}"
+                  class="flex items-end gap-2">
                 @csrf
                 @method('DELETE')
+                <div>
+                    <label class="form-label f-11 mb-1" for="sessions-password">Vaše heslo</label>
+                    <input type="password" name="password" id="sessions-password"
+                           class="form-control form-control-sm @error('password') is-invalid @enderror"
+                           autocomplete="current-password" required style="width:180px">
+                </div>
                 <button type="submit"
                         class="btn btn-outline-danger btn-sm"
-                        onclick="return confirm('Ukončit všechny ostatní relace?')">
+                        data-confirm="Ukončit všechny ostatní relace? Budete odhlášeni na všech ostatních zařízeních.">
                     <i data-feather="log-out" style="width:13px;height:13px"></i>
                     Ukončit ostatní
                 </button>
             </form>
         </x-slot>
+        @error('password')<div class="alert alert-light-danger f-12">{{ $message }}</div>@enderror
+
+        @php $sessionCap = (int) config('auth.max_concurrent_sessions', 0); @endphp
+        @if($sessionCap > 0)
+            <div class="alert alert-light-primary f-12 flex items-center gap-2">
+                <i data-feather="shield" style="width:14px;height:14px"></i>
+                <span>Z bezpečnostních důvodů může být současně přihlášeno nejvýše
+                    <strong>{{ $sessionCap }}</strong> {{ trans_choice('zařízení|zařízení|zařízení', $sessionCap) }}.
+                    Při dalším přihlášení se nejstarší relace automaticky ukončí.</span>
+            </div>
+        @endif
 
         @if($sessions->isEmpty())
             <p class="text-muted mb-0">Žádné aktivní relace.</p>

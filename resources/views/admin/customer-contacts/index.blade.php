@@ -119,7 +119,7 @@
                                 </button>
                                 <form method="POST"
                                       action="{{ route('admin.customer-contacts.destroy', [$customer, $contact]) }}"
-                                      onsubmit="return confirm('Smazat kontakt?')">
+                                      data-confirm="Smazat kontakt?">
                                     @csrf @method('DELETE')
                                     <button type="submit" class="btn btn-outline-danger btn-xs">×</button>
                                 </form>

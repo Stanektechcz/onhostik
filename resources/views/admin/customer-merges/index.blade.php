@@ -93,7 +93,7 @@
                 </div>
 
                 <button type="submit" class="btn btn-warning w-full"
-                    onclick="return confirm('Opravdu zahájit sloučení zákazníků?')">
+                    data-confirm="Opravdu zahájit sloučení zákazníků?">
                     Vytvořit žádost o sloučení
                 </button>
             </form>

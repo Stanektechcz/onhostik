@@ -79,19 +79,19 @@
                                 <div class="flex gap-2 flex-wrap mt-1">
                                     <form method="GET" action="{{ route('admin.kb.index') }}" class="flex gap-2">
                                         @if($categories->isNotEmpty())
-                                        <select name="cat" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+                                        <select name="cat" class="form-select form-select-sm w-auto" data-auto-submit>
                                             <option value="">Všechny kategorie</option>
                                             @foreach($categories as $cat)
                                                 <option value="{{ $cat }}" @selected($category === $cat)>{{ $cat }}</option>
                                             @endforeach
                                         </select>
                                         @endif
-                                        <select name="status" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+                                        <select name="status" class="form-select form-select-sm w-auto" data-auto-submit>
                                             <option value="">Vše</option>
                                             <option value="published" @selected($status === 'published')>Publikovaný</option>
                                             <option value="draft" @selected($status === 'draft')>Skrytý</option>
                                         </select>
-                                        <select name="locale" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+                                        <select name="locale" class="form-select form-select-sm w-auto" data-auto-submit>
                                             <option value="">Všechny jazyky</option>
                                             <option value="cs" @selected(request('locale') === 'cs')>🇨🇿 CS</option>
                                             <option value="en" @selected(request('locale') === 'en')>🇬🇧 EN</option>

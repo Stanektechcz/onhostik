@@ -137,7 +137,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 document.addEventListener('DOMContentLoaded', function () {
     var btn = document.getElementById('previewCountBtn');
     var result = document.getElementById('previewCountResult');

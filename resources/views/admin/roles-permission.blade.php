@@ -60,7 +60,7 @@
                                                 <div class="common-align gap-2 justify-start">
                                                     <a class="square-white trash-6" href="#"
                                                        data-bs-toggle="tooltip" data-tooltip="Smazat"
-                                                       onclick="return confirm('Smazat roli?')">
+                                                       data-confirm="Smazat roli?">
                                                         <svg><use href="{{ asset('panel/svg/icon-sprite.svg#trash1') }}"></use></svg>
                                                     </a>
                                                 </div>

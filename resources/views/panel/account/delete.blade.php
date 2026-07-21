@@ -27,7 +27,7 @@
 
             <div class="card">
                 <div class="card-body">
-                    <form method="POST" action="{{ route('panel.account.delete.store') }}" onsubmit="return confirm('Opravdu chcete požádat o smazání účtu? Tato akce je nevratná.')">
+                    <form method="POST" action="{{ route('panel.account.delete.store') }}" data-confirm="Opravdu chcete požádat o smazání účtu? Tato akce je nevratná.">
                         @csrf
 
                         <div class="mb-3">

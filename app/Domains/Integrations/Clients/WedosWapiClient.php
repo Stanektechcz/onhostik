@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domains\Integrations\Clients;
 
+use App\Domains\Shared\Support\SecretRedactor;
 use App\Domains\Integrations\Clients\Concerns\GuardsRealCalls;
 use App\Domains\Integrations\Models\IntegrationSetting;
 use Illuminate\Support\Facades\Config;
@@ -139,6 +140,113 @@ final class WedosWapiClient
         return $this->dryRunOr('setAutoRenew', ['name' => $fqdn, 'autorenew' => $autoRenew ? 1 : 0], 'domain-autorenew');
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | DNSSEC (audit F87)
+    |--------------------------------------------------------------------------
+    | DS records published at the registry prove the zone's signing key. Every
+    | call goes through dryRunOr like the rest of the client, so in mock mode
+    | nothing is sent and the payload is echoed back.
+    */
+
+    /** @return array<string, mixed> */
+    public function getDnssecKeys(string $fqdn): array
+    {
+        return $this->dryRunOr('getDnssecKeys', ['name' => $fqdn], 'domain-dnssec-list');
+    }
+
+    /**
+     * Publish a DS record.
+     *
+     * @param  array{key_tag: int, algorithm: int, digest_type: int, digest: string}  $dsRecord
+     * @return array<string, mixed>
+     */
+    public function addDnssecKey(string $fqdn, array $dsRecord): array
+    {
+        return $this->dryRunOr('addDnssecKey', ['name' => $fqdn] + $dsRecord, 'domain-dnssec-add');
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteDnssecKey(string $fqdn, int $keyTag): array
+    {
+        return $this->dryRunOr('deleteDnssecKey', ['name' => $fqdn, 'key_tag' => $keyTag], 'domain-dnssec-delete');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | WHOIS contacts + privacy (audit F89)
+    |--------------------------------------------------------------------------
+    */
+
+    /** @return array<string, mixed> */
+    public function getDomainContacts(string $fqdn): array
+    {
+        return $this->dryRunOr('getDomainContacts', ['name' => $fqdn], 'domain-contacts-list');
+    }
+
+    /**
+     * @param  array<string, mixed>  $contact
+     * @return array<string, mixed>
+     */
+    public function updateDomainContact(string $fqdn, string $type, array $contact): array
+    {
+        return $this->dryRunOr(
+            'updateDomainContact',
+            ['name' => $fqdn, 'type' => $type, 'contact' => $contact],
+            'domain-contact-update',
+        );
+    }
+
+    /**
+     * Toggle WHOIS privacy — hides the registrant's personal details from
+     * public WHOIS. Not offered by every TLD; the registry decides.
+     *
+     * @return array<string, mixed>
+     */
+    public function setWhoisPrivacy(string $fqdn, bool $enabled): array
+    {
+        return $this->dryRunOr(
+            'setWhoisPrivacy',
+            ['name' => $fqdn, 'privacy' => $enabled ? 1 : 0],
+            'domain-privacy-set',
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Glue records / vanity nameservers (audit F92)
+    |--------------------------------------------------------------------------
+    | A glue record is the A/AAAA of a nameserver that lives INSIDE the zone it
+    | serves (ns1.example.cz for example.cz) — without it the zone cannot be
+    | resolved at all. Resellers need these to run branded nameservers.
+    */
+
+    /** @return array<string, mixed> */
+    public function getGlueRecords(string $fqdn): array
+    {
+        return $this->dryRunOr('getGlueRecords', ['name' => $fqdn], 'host-list');
+    }
+
+    /** @return array<string, mixed> */
+    public function addGlueRecord(string $fqdn, string $hostname, string $ipAddress): array
+    {
+        return $this->dryRunOr(
+            'addGlueRecord',
+            ['name' => $fqdn, 'host' => $hostname, 'ip' => $ipAddress],
+            'host-add',
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteGlueRecord(string $fqdn, string $hostname): array
+    {
+        return $this->dryRunOr(
+            'deleteGlueRecord',
+            ['name' => $fqdn, 'host' => $hostname],
+            'host-delete',
+        );
+    }
+
     // ---------------------------------------------------------------- internals
 
     /**
@@ -148,20 +256,39 @@ final class WedosWapiClient
     private function dryRunOr(string $operation, array $payload, string $command): array
     {
         if ($this->isDryRun($this->setting)) {
-            Log::info("wedos.dry_run.{$operation}", ['payload' => $payload]);
+            // The echo is logged AND returned to the caller, so credentials in
+            // the payload (transfer auth codes, contact secrets) must be
+            // masked before either happens.
+            $safe = self::redactSecrets($payload);
+
+            Log::info("wedos.dry_run.{$operation}", ['payload' => $safe]);
 
             return [
                 'ok'         => true,
                 'dry_run'    => true,
                 'operation'  => $operation,
                 'would_call' => $command,
-                'payload'    => $payload,
+                'payload'    => $safe,
             ];
         }
 
         $this->assertRealCallAllowed($this->setting, self::GATE, $operation, self::REQUIRED);
 
         return $this->realRequest($command, $payload);
+    }
+
+    /**
+     * Mask credential-bearing keys before a payload is logged or returned.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private static function redactSecrets(array $payload): array
+    {
+        /** @var array<string, mixed> $redacted */
+        $redacted = SecretRedactor::redact($payload);
+
+        return $redacted;
     }
 
     /**

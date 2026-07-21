@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Panel;
 
+use App\Domains\Communication\Support\NotificationCatalog;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Support\Enums\TicketPriority;
 use App\Domains\Support\Services\TicketService;
@@ -36,10 +37,16 @@ class AccountController extends Controller
         abort_if($user === null, 403);
 
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:100'],
+            'name'                => ['required', 'string', 'max:100'],
+            'preferred_currency'  => ['nullable', 'in:CZK,EUR,USD'],
         ]);
 
         $user->update(['name' => $validated['name']]);
+
+        // Preferred currency lives on the customer profile and drives pricing.
+        if (! empty($validated['preferred_currency']) && $user->customer !== null) {
+            $user->customer->update(['preferred_currency' => $validated['preferred_currency']]);
+        }
 
         activity()->causedBy($user)->log('profile_name_changed');
 
@@ -186,11 +193,11 @@ class AccountController extends Controller
         $user = $request->user();
         abort_if($user === null, 403);
 
-        $channels = ['mail', 'database'];
-        $types    = ['renewal', 'invoice', 'payment', 'support', 'backup', 'monitor'];
+        $channels = NotificationCatalog::channels();
+        $grouped  = NotificationCatalog::grouped();
         $prefs    = $user->notification_preferences ?? [];
 
-        return view('panel.account.notification-preferences', compact('user', 'channels', 'types', 'prefs'));
+        return view('panel.account.notification-preferences', compact('user', 'channels', 'grouped', 'prefs'));
     }
 
     public function updateNotificationPreferences(Request $request): RedirectResponse
@@ -198,15 +205,38 @@ class AccountController extends Controller
         $user = $request->user();
         abort_if($user === null, 403);
 
-        $channels = ['mail', 'database'];
-        $types    = ['renewal', 'invoice', 'payment', 'support', 'backup', 'monitor'];
+        $channels = NotificationCatalog::channels();
 
-        // Build opt-out map: if a checkbox is missing from POST it is unchecked → user wants to opt out
+        /*
+         | Two maps, because two kinds of switch (audit I132):
+         |
+         |  - Opt-OUT (the default): a type is wanted unless it is in the list.
+         |    Built by diffing the submitted checkboxes against the optional
+         |    types — and it must be the OPTIONAL types, not every type. The
+         |    old code diffed against a hardcoded list that had drifted from
+         |    the keys the notifications actually check, so `credit` could
+         |    never be switched off and `backup` switched off nothing.
+         |
+         |  - Opt-IN: security e-mail is off until asked for, so here the
+         |    submitted boxes ARE the list.
+         */
+        $optional = NotificationCatalog::optionalKeys();
+
         $prefs = [];
+
         foreach ($channels as $channel) {
-            $submitted = $request->input($channel, []);
-            $optOut    = array_values(array_diff($types, (array) $submitted));
-            $prefs[$channel] = $optOut;
+            $submitted = array_map('strval', (array) $request->input($channel, []));
+
+            $prefs[$channel] = array_values(array_diff($optional, $submitted));
+
+            $optIn = array_values(array_filter(
+                $submitted,
+                static fn (string $key): bool => NotificationCatalog::isOptIn($key, $channel),
+            ));
+
+            if ($optIn !== []) {
+                $prefs['opt_in'][$channel] = $optIn;
+            }
         }
 
         $user->update(['notification_preferences' => $prefs]);

@@ -21,7 +21,7 @@
                                 <p class="f-12 f-light mb-0">{{ $sub->addon->priceFormatted() }}</p>
                             </div>
                             <form action="{{ route('panel.services.addons.cancel', [$service, $sub]) }}" method="POST"
-                                  onsubmit="return confirm('Zrušit doplněk?')">
+                                  data-confirm="Zrušit doplněk?">
                                 @csrf
                                 <button type="submit" class="btn btn-sm btn-outline-danger">Zrušit</button>
                             </form>

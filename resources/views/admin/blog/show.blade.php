@@ -58,7 +58,7 @@
                                             <i data-feather="external-link" style="width:13px;height:13px;"></i> Zobrazit na webu
                                         </a>
                                         <form method="POST" action="{{ route('admin.blog.destroy', $post) }}"
-                                              onsubmit="return confirm('Opravdu smazat tento příspěvek?')">
+                                              data-confirm="Opravdu smazat tento příspěvek?">
                                             @csrf @method('DELETE')
                                             <button type="submit" class="btn btn-outline-danger btn-sm">
                                                 <i data-feather="trash-2" style="width:13px;height:13px;"></i> Smazat

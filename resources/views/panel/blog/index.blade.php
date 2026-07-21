@@ -18,7 +18,7 @@
                 <input type="text" name="q" class="form-control form-control-sm" style="max-width:260px;"
                        placeholder="Hledat příspěvek…" value="{{ $search }}">
                 @if($categories->isNotEmpty())
-                    <select name="cat" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+                    <select name="cat" class="form-select form-select-sm w-auto" data-auto-submit>
                         <option value="">Všechny kategorie</option>
                         @foreach($categories as $cat)
                             <option value="{{ $cat }}" @selected($category === $cat)>{{ $cat }}</option>

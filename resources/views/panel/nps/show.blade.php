@@ -73,7 +73,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 document.querySelectorAll('.nps-btn').forEach(btn => {
     btn.addEventListener('click', function() {
         document.querySelectorAll('.nps-btn').forEach(b => b.classList.remove('selected'));

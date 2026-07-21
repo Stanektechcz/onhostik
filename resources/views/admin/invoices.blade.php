@@ -67,7 +67,7 @@
                 </a>
                 @if($countOverdue > 0)
                     <form method="POST" action="{{ route('admin.invoices.bulk-payment-reminder') }}" class="ms-1"
-                          onsubmit="return confirm('{{ __('panel.admin.bulk_reminder_confirm', ['count' => $countOverdue]) }}')">
+                          data-confirm="{{ __('panel.admin.bulk_reminder_confirm', ['count' => $countOverdue]) }}">
                         @csrf
                         <button type="submit" class="btn btn-warning btn-sm">
                             <i data-feather="alert-triangle" style="width:13px;height:13px;"></i>
@@ -90,7 +90,7 @@
                         <input type="checkbox" id="select-all-invoices" class="form-check-input mt-0" title="Vybrat vše">
                         <span id="selected-count" class="f-12 f-light">0 vybráno</span>
                         <button type="submit" class="btn btn-success btn-sm ms-2"
-                                onclick="return confirm('Označit vybrané faktury jako zaplacené?')"
+                                data-confirm="Označit vybrané faktury jako zaplacené?"
                                 id="batch-paid-btn" disabled>
                             <i data-feather="check-circle" style="width:13px;height:13px;"></i>
                             Označit jako zaplacené
@@ -157,7 +157,7 @@
 @endsection
 
 @push('scripts')
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 (function() {
     const toolbar   = document.getElementById('batch-toolbar');
     const selectAll = document.getElementById('select-all-invoices');

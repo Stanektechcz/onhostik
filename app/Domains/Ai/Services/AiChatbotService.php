@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Domains\Ai\Services;
 
+use App\Domains\Ai\Contracts\AiProviderInterface;
+use App\Domains\Ai\Providers\ClaudeProvider;
 use App\Domains\Billing\Enums\InvoiceStatus;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Services\CreditLedger;
+use App\Domains\Integrations\Models\IntegrationSetting;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Models\Service;
@@ -77,12 +80,60 @@ final class AiChatbotService
                 ? $category
                 : $this->guessCategory($message);
 
-            return $cat !== null
+            $result = $cat !== null
                 ? $this->category($cat, $customer)
                 : $this->fallback();
+        } else {
+            $result = $this->answer($entry, $customer);
         }
 
-        return $this->answer($entry, $customer);
+        // Optionally let a real AI provider phrase the answer (keeping the KB
+        // routing, quick-replies and deep links). Off unless a provider is
+        // enabled + configured — deterministic KB otherwise.
+        return $this->maybePhraseWithProvider($message, $result);
+    }
+
+    /**
+     * @param  Reply  $result
+     * @return Reply
+     */
+    private function maybePhraseWithProvider(string $message, array $result): array
+    {
+        $provider = $this->realProvider();
+
+        if ($provider === null) {
+            return $result;
+        }
+
+        try {
+            $response = $provider->chat($message, [
+                'topic'   => $result['category'] ?? 'general',
+                'kb_hint' => $result['reply'],
+            ]);
+
+            $content = trim($response->content);
+
+            if ($content !== '') {
+                $result['reply'] = $content;
+            }
+        } catch (\Throwable $e) {
+            report($e); // fall back to the deterministic KB answer
+        }
+
+        return $result;
+    }
+
+    private function realProvider(): ?AiProviderInterface
+    {
+        if (! config('ai.allow_real_calls', false)) {
+            return null;
+        }
+
+        $integration = IntegrationSetting::where('provider', 'claude')
+            ->where('is_active', true)
+            ->first();
+
+        return ClaudeProvider::fromIntegration($integration);
     }
 
     // ── Opening menu ────────────────────────────────────────────────────────────

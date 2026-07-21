@@ -93,7 +93,7 @@
                             <a href="{{ route('admin.products.index') }}" class="btn btn-outline-secondary">{{ __('panel.common.back') }}</a>
                             @if(!$isNew)
                                 <form method="POST" action="{{ route('admin.products.destroy', $product) }}" class="ms-auto"
-                                      onsubmit="return confirm('Smazat produkt {{ $product->name }}?')">
+                                      data-confirm="Smazat produkt {{ $product->name }}?">
                                     @csrf @method('DELETE')
                                     <button type="submit" class="btn btn-outline-danger btn-sm">Smazat produkt</button>
                                 </form>
@@ -114,7 +114,7 @@
                         @csrf @method('PUT')
                     </form>
                     <form id="plan-del-{{ $plan->id }}" method="POST" action="{{ route('admin.products.plans.delete', $plan) }}"
-                          onsubmit="return confirm('Smazat plán {{ $plan->name }}?')">
+                          data-confirm="Smazat plán {{ $plan->name }}?">
                         @csrf @method('DELETE')
                     </form>
                 @endforeach

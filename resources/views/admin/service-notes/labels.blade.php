@@ -63,7 +63,7 @@
                                     <td class="f-12">{{ $label->services_count }}</td>
                                     <td class="text-right">
                                         <form method="POST" action="{{ route('admin.service-labels.destroy', $label) }}"
-                                              onsubmit="return confirm('Smazat štítek?')">
+                                              data-confirm="Smazat štítek?">
                                             @csrf @method('DELETE')
                                             <button type="submit" class="btn btn-sm btn-outline-danger">Smazat</button>
                                         </form>

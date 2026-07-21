@@ -50,7 +50,7 @@
                         <td class="text-right text-nowrap">
                             <a href="{{ route('admin.sla-tiers.edit', $tier) }}" class="btn btn-xs btn-outline-secondary">Upravit</a>
                             <form action="{{ route('admin.sla-tiers.destroy', $tier) }}" method="POST" class="inline"
-                                  onsubmit="return confirm('Smazat tier?')">
+                                  data-confirm="Smazat tier?">
                                 @csrf @method('DELETE')
                                 <button class="btn btn-xs btn-outline-danger">Smazat</button>
                             </form>

@@ -157,6 +157,39 @@
                     </div>
                 </div>
             </div>
+
+            {{-- K149: MRR and margin — recurring economics, not just historical totals. --}}
+            <div class="col-span-12 xl:col-span-3 col-span-12 md:col-span-6">
+                <div class="card o-hidden">
+                    <div class="card-body">
+                        <div class="flex items-center gap-3">
+                            <div class="shrink-0" style="width:48px;height:48px;border-radius:12px;background:rgba(var(--theme-default),.1);display:flex;align-items:center;justify-content:center;">
+                                <i data-feather="repeat" style="width:22px;height:22px;color:rgba(var(--theme-default),1);"></i>
+                            </div>
+                            <div>
+                                <p class="f-light f-12 mb-1">MRR (měsíční)</p>
+                                <h5 class="mb-0">{{ number_format(($mrrMinor ?? 0) / 100, 0, ',', ' ') }} Kč</h5>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-12 xl:col-span-3 col-span-12 md:col-span-6">
+                <div class="card o-hidden">
+                    <div class="card-body">
+                        <div class="flex items-center gap-3">
+                            <div class="shrink-0" style="width:48px;height:48px;border-radius:12px;background:rgba(30,215,96,.12);display:flex;align-items:center;justify-content:center;">
+                                <i data-feather="dollar-sign" style="width:22px;height:22px;color:#1ed760;"></i>
+                            </div>
+                            <div>
+                                <p class="f-light f-12 mb-1">Marže (měsíční)</p>
+                                <h5 class="mb-0">{{ number_format(($marginMinor ?? 0) / 100, 0, ',', ' ') }} Kč</h5>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         {{-- Revenue chart + info --}}
@@ -259,7 +292,7 @@
         @endif
 
         @push('scripts')
-        <script>
+        <script nonce="{{ $cspNonce ?? '' }}">
         (function() {
             var labels  = @json($chartLabels);
             var revenue = @json($chartRevenue);

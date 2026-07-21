@@ -6,16 +6,19 @@ namespace App\Notifications;
 
 use App\Domains\Provisioning\Models\Service;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\RespectsNotificationPreferences;
 use Illuminate\Notifications\Notification;
 
 class ServiceActivatedNotification extends Notification
 {
+    use RespectsNotificationPreferences;
+
     public function __construct(private readonly Service $service) {}
 
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail', 'database'];
+        return $this->channelsFor($notifiable, 'service', ['mail', 'database']);
     }
 
     /** @return array<string, mixed> */

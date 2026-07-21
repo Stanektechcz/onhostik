@@ -35,7 +35,7 @@
                                 </form>
                                 <form method="POST" action="{{ route('admin.kb-comments.destroy', $c) }}">
                                     @csrf @method('DELETE')
-                                    <button class="btn btn-sm btn-outline-danger" onclick="return confirm('Smazat?')">Zamítnout</button>
+                                    <button class="btn btn-sm btn-outline-danger" data-confirm="Smazat?">Zamítnout</button>
                                 </form>
                             </div>
                         </td>

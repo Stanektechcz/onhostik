@@ -32,7 +32,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 document.getElementById('saveWidgets').addEventListener('click', async function() {
     const items = document.querySelectorAll('.widget-item');
     const widgets = Array.from(items).map((item, i) => ({

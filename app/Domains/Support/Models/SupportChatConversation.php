@@ -23,6 +23,9 @@ use Illuminate\Support\Carbon;
  * @property ChatConversationStatus $status
  * @property Carbon|null $last_message_at
  * @property Carbon|null $closed_at
+ * @property \App\Domains\Customer\Models\Customer|null $customer
+ * @property \App\Models\User|null $startedBy
+ * @property \App\Models\User|null $agent
  */
 class SupportChatConversation extends Model
 {

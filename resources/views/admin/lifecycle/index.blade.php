@@ -100,7 +100,7 @@
                                     <button class="btn btn-xs btn-outline-success">Obnovit</button>
                                 </form>
                                 <form action="{{ route('admin.lifecycle.terminate', $service) }}" method="POST" class="inline"
-                                      onsubmit="return confirm('Opravdu ukončit tuto službu?')">
+                                      data-confirm="Opravdu ukončit tuto službu?">
                                     @csrf
                                     <button class="btn btn-xs btn-outline-danger">Ukončit</button>
                                 </form>

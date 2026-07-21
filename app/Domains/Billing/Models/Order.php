@@ -30,6 +30,7 @@ use Spatie\Activitylog\Traits\LogsActivity;
  */
 class Order extends Model
 {
+    use \App\Models\Concerns\HasEntityNotes;
     use HasUuid;
     use LogsActivity;
 

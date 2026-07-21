@@ -18,6 +18,8 @@ use App\Console\Commands\DetectChurnSignalsCommand;
 use App\Console\Commands\CreateRenewalInvoicesCommand;
 use App\Console\Commands\MarkOverdueInvoicesCommand;
 use App\Console\Commands\ProcessDomainRenewalsCommand;
+use App\Console\Commands\ProvisionPendingServicesCommand;
+use App\Console\Commands\SyncRemoteServicesCommand;
 use App\Console\Commands\RunMonitorChecksCommand;
 use App\Console\Commands\SendDomainExpiringRemindersCommand;
 use App\Console\Commands\SendPaymentOverdueRemindersCommand;
@@ -38,10 +40,31 @@ use Illuminate\Support\Facades\Schedule;
 |--------------------------------------------------------------------------
 */
 
+// Safety net: provision paid services still stuck in Pending (queue worker
+// down / never ran). Synchronous, so it works even without a worker.
+Schedule::command(ProvisionPendingServicesCommand::class)
+    ->everyMinute()
+    ->withoutOverlapping();
+
+// Read-only reconciliation against the backend panels: catches a service the
+// customer paid for that never actually got created (or that was changed
+// outside the system). Never writes to the panel.
+Schedule::command(SyncRemoteServicesCommand::class)
+    ->hourly()
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // Issue renewal proformas before the overdue/suspend jobs run, so a service
 // renewing today never gets flagged overdue for yesterday's old due date.
 Schedule::command(CreateRenewalInvoicesCommand::class)
     ->dailyAt('00:30')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// D39: settle those renewals for customers who set up auto-pay. Runs after the
+// invoices exist; everyone without a saved method is untouched and pays by hand.
+Schedule::command(\App\Console\Commands\AutoChargeRenewalsCommand::class)
+    ->dailyAt('01:00')
     ->withoutOverlapping()
     ->runInBackground();
 
@@ -197,6 +220,20 @@ Schedule::command(SendMaintenanceRemindersCommand::class)
 // Apply flat late fee to overdue invoices after the configured grace period.
 Schedule::command(ApplyLateFeesCommand::class)
     ->dailyAt('07:10')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// P195: expire unpaid proforma orders past their validity window so they stop
+// sitting in Pending forever and skewing the open-orders metrics.
+Schedule::command(\App\Console\Commands\ExpireUnpaidOrdersCommand::class)
+    ->dailyAt('06:40')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// E52: warn while there is still time to rack another server, rather than
+// discovering the fleet is full when a paid order lands on it.
+Schedule::command(\App\Console\Commands\CheckFleetCapacityCommand::class)
+    ->dailyAt('08:15')
     ->withoutOverlapping()
     ->runInBackground();
 

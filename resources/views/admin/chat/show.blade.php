@@ -36,6 +36,16 @@
                             <div class="chat-msg {{ $bubble }}">
                                 <span class="chat-author">{{ $author }}</span>
                                 {{ $m->body }}
+                                @if(is_array($m->meta) && !empty($m->meta['attachment']['url']))
+                                    @php $att = $m->meta['attachment']; @endphp
+                                    <div class="chat-attach">
+                                        @if(!empty($att['mime']) && str_starts_with($att['mime'], 'image/'))
+                                            <a href="{{ $att['url'] }}" target="_blank"><img src="{{ $att['url'] }}" alt="{{ $att['name'] ?? 'příloha' }}"></a>
+                                        @else
+                                            <a href="{{ $att['url'] }}" target="_blank">📎 {{ $att['name'] ?? 'příloha' }}</a>
+                                        @endif
+                                    </div>
+                                @endif
                             </div>
                         @endif
                     @endforeach
@@ -73,9 +83,16 @@
                     <li class="mb-2"><span class="f-light f-12 block">Poslední aktivita</span>{{ $conversation->last_message_at?->diffForHumans() ?? '—' }}</li>
                 </ul>
 
+                <form method="POST" action="{{ route('admin.chat.to-ticket', $conversation) }}" class="mt-3">
+                    @csrf
+                    <button type="submit" class="btn btn-outline-primary w-full">
+                        <i data-feather="file-plus" style="width:14px;height:14px;"></i> Vytvořit ticket z konverzace
+                    </button>
+                </form>
+
                 @if($conversation->status->isOpen())
-                    <form method="POST" action="{{ route('admin.chat.close', $conversation) }}" class="mt-3"
-                          onsubmit="return confirm('Uzavřít konverzaci?');">
+                    <form method="POST" action="{{ route('admin.chat.close', $conversation) }}" class="mt-2"
+                          data-confirm="Uzavřít konverzaci?">
                         @csrf
                         <button type="submit" class="btn btn-outline-danger w-full">
                             <i data-feather="check-circle" style="width:14px;height:14px;"></i> Uzavřít konverzaci

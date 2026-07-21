@@ -82,11 +82,24 @@
                             <td><x-panel.money :money="$payment->amount" /></td>
                             <td>
                                 @if($payment->status === \App\Domains\Billing\Enums\PaymentStatus::Completed)
+                                    {{-- data-prompt is handled by the delegated listener in the
+                                         layout; an inline onsubmit would be dropped under CSP enforce. --}}
                                     <form method="POST" action="{{ route('admin.payments.refund', $payment) }}"
-                                          onsubmit="return onhostConfirmManualRefund(this, {{ $payment->id }})"
-                                          title="{{ __('panel.admin.refund_warning') }}">
+                                          data-prompt="{{ __('panel.admin.refund_reason_prompt') }}"
+                                          data-prompt-target="reason"
+                                          data-prompt-min="3"
+                                          data-prompt-error="{{ __('panel.admin.refund_reason_required') }}"
+                                          title="{{ __('panel.admin.refund_warning') }}"
+                                          class="flex items-center gap-1">
                                         @csrf
                                         <input type="hidden" name="reason" value="">
+                                        {{-- Where the money goes must be an explicit choice, never a default assumption --}}
+                                        <select name="destination" class="form-select form-select-sm"
+                                                aria-label="Způsob refundace" style="width:auto">
+                                            @foreach(\App\Domains\Billing\Enums\RefundDestination::cases() as $dest)
+                                                <option value="{{ $dest->value }}">{{ $dest->label() }}</option>
+                                            @endforeach
+                                        </select>
                                         <button type="submit" class="btn btn-outline-warning btn-xs">
                                             {{ __('panel.admin.refund') }}
                                         </button>
@@ -94,6 +107,12 @@
                                 @elseif($payment->status === \App\Domains\Billing\Enums\PaymentStatus::ManualRefund)
                                     <span class="f-light f-12" title="{{ __('panel.admin.refund_warning') }}">
                                         {{ __('panel.admin.payment_refunded') }}
+                                        @if($payment->refund_destination)
+                                            <br><span class="badge badge-light-secondary">{{ $payment->refund_destination->label() }}</span>
+                                            @if($payment->refund_destination->requiresManualAction())
+                                                <br><span class="txt-warning f-11">Vrácení proveďte v bráně</span>
+                                            @endif
+                                        @endif
                                     </span>
                                 @else
                                     —
@@ -131,22 +150,4 @@
         </x-panel.card>
     </div>
 
-    <script>
-        function onhostConfirmManualRefund(form, paymentId) {
-            const reason = prompt(@json(__('panel.admin.refund_reason_prompt')));
-
-            if (reason === null) {
-                return false;
-            }
-
-            if (reason.trim().length < 3) {
-                alert(@json(__('panel.admin.refund_reason_required')));
-                return false;
-            }
-
-            form.querySelector('input[name="reason"]').value = reason.trim();
-
-            return confirm(@json(__('panel.admin.refund_warning')) + '\n\n#' + paymentId);
-        }
-    </script>
 @endsection

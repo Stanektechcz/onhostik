@@ -32,7 +32,7 @@
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Typ slevy *</label>
-                                <select class="form-select" name="type" id="discount-type" onchange="toggleCurrency()">
+                                <select class="form-select" name="type" id="discount-type" data-call-on-change="toggleCurrency">
                                     <option value="percent">Procentuální (%)</option>
                                     <option value="fixed">Pevná částka (Kč/€)</option>
                                 </select>
@@ -94,7 +94,7 @@
                         <form method="GET" action="{{ route('admin.discount-codes.index') }}" class="flex gap-2 mt-2">
                             <input type="text" name="q" class="form-control form-control-sm"
                                    style="max-width:200px;" placeholder="Hledat kód…" value="{{ request('q') }}">
-                            <select name="status" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+                            <select name="status" class="form-select form-select-sm w-auto" data-auto-submit>
                                 <option value="">Všechny</option>
                                 <option value="active" @selected(request('status')==='active')>Aktivní</option>
                             </select>
@@ -169,7 +169,7 @@
                                                 </form>
                                                 <form method="POST" action="{{ route('admin.discount-codes.destroy', $code) }}"
                                                       style="display:inline;"
-                                                      onsubmit="return confirm('Smazat kód {{ $code->code }}?')">
+                                                      data-confirm="Smazat kód {{ $code->code }}?">
                                                     @csrf @method('DELETE')
                                                     <button type="submit" class="square-white trash-3">
                                                         <svg><use href="{{ asset('panel/svg/icon-sprite.svg#trash1') }}"></use></svg>
@@ -199,7 +199,7 @@
 @endsection
 
 @push('scripts')
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 function toggleCurrency() {
     var type = document.getElementById('discount-type').value;
     document.getElementById('currency-field').style.display = type === 'fixed' ? '' : 'none';

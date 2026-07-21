@@ -176,6 +176,38 @@
                     </div>
                     @endif
 
+                    {{-- Order history (customer-facing status log) --}}
+                    @if(($history ?? collect())->isNotEmpty())
+                    <div class="col-span-12">
+                        <div class="card">
+                            <div class="card-header card-no-border"><div class="header-top"><h5>Historie objednávky</h5></div></div>
+                            <div class="card-body pt-0">
+                                @php
+                                    $labels = [
+                                        'order.created' => ['Objednávka vytvořena', 'primary'],
+                                        'order.created_from_cart' => ['Objednávka vytvořena', 'primary'],
+                                        'order.paid' => ['Platba přijata', 'success'],
+                                        'order.activated' => ['Služby aktivovány', 'success'],
+                                        'order.cancelled_by_customer' => ['Zrušeno zákazníkem', 'danger'],
+                                        'order.cancelled_by_admin' => ['Zrušeno administrátorem', 'danger'],
+                                        'order.accepted_by_admin' => ['Akceptováno podporou', 'success'],
+                                        'order.updated_by_admin' => ['Upraveno podporou', 'info'],
+                                    ];
+                                @endphp
+                                <ul class="list-none p-0 m-0">
+                                    @foreach($history as $log)
+                                        @php [$lbl, $color] = $labels[$log->description] ?? [$log->description, 'secondary']; @endphp
+                                        <li class="flex items-center gap-3 py-2 border-b">
+                                            <span class="badge badge-light-{{ $color }}">{{ $lbl }}</span>
+                                            <span class="f-light f-12 ms-auto">{{ $log->created_at?->format('d.m.Y H:i') }}</span>
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    @endif
+
                 </div>
             </div>
 
@@ -267,10 +299,20 @@
                                 </a>
                                 @if($latestInvoice && $latestInvoice->status->isOpen())
                                 <a href="{{ route('panel.billing.invoices.show', $latestInvoice) }}"
-                                   class="btn btn-primary w-full text-white">
+                                   class="btn btn-primary w-full text-white mb-2">
                                     <i data-feather="credit-card" style="width:14px;height:14px;"></i>
                                     Zaplatit fakturu
                                 </a>
+                                @endif
+                                @if($order->status->value === 'pending' && $order->paid_at === null)
+                                <form method="POST" action="{{ route('panel.orders.cancel', $order) }}"
+                                      data-confirm="Opravdu zrušit tuto nezaplacenou objednávku?">
+                                    @csrf
+                                    <button type="submit" class="btn btn-outline-danger w-full">
+                                        <i data-feather="x-circle" style="width:14px;height:14px;"></i>
+                                        Zrušit objednávku
+                                    </button>
+                                </form>
                                 @endif
                             </div>
                         </div>

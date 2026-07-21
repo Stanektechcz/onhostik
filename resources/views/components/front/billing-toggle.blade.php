@@ -38,7 +38,7 @@
 [data-billing="annual"]  .plan-monthly { display:none; }
 </style>
 
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 (function(){
     var toggle = document.getElementById('billing-cycle-toggle');
     var wrap   = document.querySelector('[data-billing-wrapper]');

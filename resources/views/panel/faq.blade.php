@@ -175,7 +175,7 @@
                             <div class="navigation-btn">
                                 <a class="btn btn-primary text-white hover:text-white"
                                    href="{{ route('panel.support.store') }}"
-                                   onclick="event.preventDefault(); document.getElementById('quick-ticket-form').submit();">
+                                   data-submit-form="quick-ticket-form">
                                     <i class="m-r-10" data-feather="message-square"></i>Otevřít ticket
                                 </a>
                                 <form id="quick-ticket-form" method="GET" action="{{ route('panel.support.index') }}" style="display:none;"></form>

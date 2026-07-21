@@ -321,7 +321,7 @@
                             @csrf
                             <button type="submit"
                                     class="btn btn-outline-{{ $service->auto_renew ? 'warning' : 'success' }} btn-sm"
-                                    onclick="return confirm('{{ $service->auto_renew ? 'Vypnout automatickou obnovu?' : 'Zapnout automatickou obnovu?' }}')">
+                                    data-confirm="{{ $service->auto_renew ? 'Vypnout automatickou obnovu?' : 'Zapnout automatickou obnovu?' }}">
                                 <i data-feather="{{ $service->auto_renew ? 'toggle-right' : 'toggle-left' }}" style="width:13px;height:13px"></i>
                                 {{ $service->auto_renew ? 'Vypnout' : 'Zapnout' }}
                             </button>
@@ -562,7 +562,7 @@
 
                         @if($service->status === \App\Domains\Provisioning\Enums\ServiceStatus::Active)
                             <form method="POST" action="{{ route('panel.services.game-action', $service) }}"
-                                  onsubmit="return confirm('POZOR: Reinstalace smaže všechna data serveru a obnoví výchozí instalaci. Opravdu pokračovat?')">
+                                  data-confirm="POZOR: Reinstalace smaže všechna data serveru a obnoví výchozí instalaci. Opravdu pokračovat?">
                                 @csrf
                                 <input type="hidden" name="action" value="reinstall">
                                 <button type="submit" class="btn btn-outline-danger btn-sm">
@@ -659,7 +659,7 @@
                                     </select>
                                 </div>
                                 <button type="submit" class="btn btn-primary btn-sm"
-                                        onclick="return confirm('Změnit PHP verzi webu?')">
+                                        data-confirm="Změnit PHP verzi webu?">
                                     <i data-feather="refresh-cw" style="width:13px;height:13px"></i> Změnit
                                 </button>
                             </form>
@@ -693,7 +693,7 @@
                                     </button>
                                 </form>
                                 <form method="POST" action="{{ route('panel.services.vps-action', $service) }}"
-                                      onsubmit="return confirm('Opravdu vypnout VPS?')">
+                                      data-confirm="Opravdu vypnout VPS?">
                                     @csrf
                                     <input type="hidden" name="action" value="stop">
                                     <button type="submit" class="btn btn-danger btn-sm">
@@ -701,7 +701,7 @@
                                     </button>
                                 </form>
                                 <form method="POST" action="{{ route('panel.services.vps-action', $service) }}"
-                                      onsubmit="return confirm('Opravdu restartovat VPS?')">
+                                      data-confirm="Opravdu restartovat VPS?">
                                     @csrf
                                     <input type="hidden" name="action" value="restart">
                                     <button type="submit" class="btn btn-warning btn-sm">
@@ -794,7 +794,7 @@
                                         </td>
                                         <td class="text-right">
                                             <form method="POST" action="{{ route('panel.service-firewall-rules.destroy', $rule) }}" class="inline"
-                                                  onsubmit="return confirm('Odstranit pravidlo?')">
+                                                  data-confirm="Odstranit pravidlo?">
                                                 @csrf
                                                 @method('DELETE')
                                                 <button type="submit" class="btn btn-outline-danger btn-xs">
@@ -964,7 +964,11 @@
                         if (!data.ok) {
                             badge.className = 'badge badge-light-danger';
                             badge.textContent = 'Stav nedostupný';
-                            body.innerHTML = '';
+                            // Say WHY — a blank box is indistinguishable from
+                            // "nothing here" and leaves the customer guessing.
+                            body.innerHTML = '<span class="f-12 f-light">'
+                                + esc(data.error || 'Nepodařilo se spojit se serverem. Zkuste to prosím za chvíli nebo kontaktujte podporu.')
+                                + '</span>';
                             return;
                         }
 
@@ -1015,7 +1019,9 @@
                         if (!data.ok) {
                             badge.className = 'badge badge-light-danger';
                             badge.textContent = 'Stav nedostupný';
-                            body.innerHTML = '';
+                            body.innerHTML = '<span class="f-12 f-light">'
+                                + esc(data.error || 'Nepodařilo se spojit se serverem. Zkuste to prosím za chvíli nebo kontaktujte podporu.')
+                                + '</span>';
                             return;
                         }
 

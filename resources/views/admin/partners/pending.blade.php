@@ -57,7 +57,7 @@
                                         <form method="POST" action="{{ route('admin.partners.approve', $partner) }}" class="inline">
                                             @csrf
                                             <button type="submit" class="btn btn-xs btn-sm btn-success"
-                                                    onclick="return confirm('Schválit partnera {{ addslashes($partner->user?->name ?? '') }}?')">
+                                                    data-confirm="Schválit partnera {{ addslashes($partner->user?->name ?? '') }}?">
                                                 Schválit
                                             </button>
                                         </form>

@@ -25,6 +25,19 @@ return [
     'credit_topup' => [
         'min_minor' => env('BILLING_TOPUP_MIN', 10_000),     // 100 CZK
         'max_minor' => env('BILLING_TOPUP_MAX', 5_000_000),  // 50 000 CZK
+
+        /*
+         | Volume bonus bands. When a top-up is PAID, the customer receives an
+         | extra credit deposit of `percent` of the paid amount. Bands are
+         | matched highest-threshold-first, so only one band ever applies.
+         | Set to [] to switch bonuses off entirely.
+         */
+        'bonus_tiers' => [
+            ['min_minor' => 1_000_000, 'percent' => 10.0], // 10 000 CZK+ → +10 %
+            ['min_minor' =>   500_000, 'percent' =>  7.0], //  5 000 CZK+ →  +7 %
+            ['min_minor' =>   200_000, 'percent' =>  5.0], //  2 000 CZK+ →  +5 %
+            ['min_minor' =>   100_000, 'percent' =>  2.0], //  1 000 CZK+ →  +2 %
+        ],
     ],
 
     /*
@@ -34,6 +47,13 @@ return [
     */
     'invoice_due_days'        => (int) env('BILLING_INVOICE_DUE_DAYS', 14),
     'proforma_validity_days'  => (int) env('BILLING_PROFORMA_VALIDITY_DAYS', 10),
+
+    /*
+     | L120 — how long a generated export stays downloadable. These archives
+     | contain complete invoice data for many customers, so they expire rather
+     | than accumulating on disk forever.
+     */
+    'export_retention_days'   => (int) env('BILLING_EXPORT_RETENTION_DAYS', 7),
 
     'supplier' => [
         'name'    => env('BILLING_COMPANY_NAME', 'Onhost.cz s.r.o.'),

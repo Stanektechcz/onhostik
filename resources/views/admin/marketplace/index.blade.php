@@ -55,7 +55,7 @@
                                 <td class="text-right">
                                     <form method="POST" action="{{ route('admin.marketplace.destroy', $app) }}"
                                           class="inline"
-                                          onsubmit="return confirm('Smazat?')">
+                                          data-confirm="Smazat?">
                                         @csrf @method('DELETE')
                                         <button type="submit" class="btn btn-outline-danger btn-xs">
                                             <i data-feather="trash-2" style="width:12px;height:12px"></i>

@@ -18,7 +18,7 @@
             <div class="flex items-center gap-3">
                 <div class="fs-3 font-bold font-monospace text-primary border rounded px-4 py-2 bg-light">{{ $code }}</div>
                 <button class="btn btn-outline-secondary btn-sm"
-                        onclick="navigator.clipboard.writeText('{{ $code }}').then(()=>alert('Kód zkopírován!'))">
+                        data-copy-text="{{ $code }}">
                     Kopírovat
                 </button>
             </div>

@@ -68,7 +68,18 @@ final class IssueProformaInvoiceAction
                 'variable_symbol' => mb_substr(preg_replace('/\D/', '', $number) ?? '', 0, 10),
 
                 'issue_date' => now()->toDateString(),
-                'due_date'   => now()->addDays(Config::integer('billing.proforma_validity_days', 10))->toDateString(),
+                /*
+                 | Audit D41 — honour the customer's agreed payment terms.
+                 |
+                 | Everyone previously got the same proforma window, so a
+                 | corporate customer on net-30 was "overdue" from day 11:
+                 | dunning chased them and late fees applied for an invoice
+                 | that was contractually fine. NULL still means the default.
+                 */
+                'due_date'   => now()
+                    ->addDays($customer->payment_terms_days
+                        ?? Config::integer('billing.proforma_validity_days', 10))
+                    ->toDateString(),
 
                 // --- immutable billing snapshot ---
                 // Address may legitimately be empty on a proforma (not a tax

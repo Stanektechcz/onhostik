@@ -212,7 +212,7 @@
         </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="message-square" label="Komunikace"
-            :active="$p('admin.support') || $p('admin.chat') || $p('admin.mailbox') || $p('admin.newsletter') || $p('admin.subscribers') || $p('admin.drip')">
+            :active="$p('admin.support') || $p('admin.chat') || $p('admin.mailbox') || $p('admin.newsletter') || $p('admin.subscribers') || $p('admin.drip') || $p('admin.product-updates')">
             <x-panel.sidebar-link :href="route('admin.chat.index')" icon="message-circle" label="Živá podpora — Chat" />
             <x-panel.sidebar-link :href="route('admin.support.index')" icon="life-buoy" label="Podpora — Tickety" />
             <x-panel.sidebar-link :href="route('admin.mailbox')" icon="inbox" label="Pošta" />
@@ -220,6 +220,7 @@
             <x-panel.sidebar-link :href="route('admin.subscribers.index')" icon="users" label="Odběratelé" />
             <x-panel.sidebar-link :href="route('admin.drip.index')" icon="send" label="Drip sekvence" />
             <x-panel.sidebar-link :href="route('admin.ai.index')" icon="zap" label="AI asistent" />
+            <x-panel.sidebar-link :href="route('admin.product-updates.index')" icon="gift" label="Changelog" />
         </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="settings" label="Pracovní nástroje"
@@ -242,14 +243,16 @@
         </li>
 
         <x-panel.sidebar-submenu icon="sliders" label="Systém a nastavení"
-            :active="$p('admin.integrations') || $p('admin.settings') || $p('admin.system') || $p('admin.logs') || $p('admin.sitemap') || $p('admin.sample-page') || $p('admin.metrics') || $p('admin.bi') || $p('admin.security')">
+            :active="$p('admin.integrations') || $p('admin.settings') || $p('admin.system') || $p('admin.logs') || $p('admin.sitemap') || $p('admin.sample-page') || $p('admin.metrics') || $p('admin.bi') || $p('admin.security') || $p('admin.queue')">
             <x-panel.sidebar-link :href="route('admin.metrics.index')" icon="bar-chart-2" label="Obchodní metriky" />
             <x-panel.sidebar-link :href="route('admin.bi.index')" icon="cpu" label="BI &amp; Predikce" />
             <x-panel.sidebar-link :href="route('admin.security.index')" icon="shield" label="Bezp. audit" />
             <x-panel.sidebar-link :href="route('admin.integrations.index')" icon="link" label="Integrace" />
             <x-panel.sidebar-link :href="route('admin.settings.index')" icon="settings" label="Nastavení" />
             <x-panel.sidebar-link :href="route('admin.system.index')" icon="activity" label="Stav systému" />
+            <x-panel.sidebar-link :href="route('admin.queue.index')" icon="layers" label="Fronta úloh" />
             <x-panel.sidebar-link href="/horizon" icon="cpu" label="Horizon (queue)" />
+            <x-panel.sidebar-link :href="route('admin.approvals.index')" icon="check-square" label="Schvalování (4 oči)" />
             <x-panel.sidebar-link :href="route('admin.logs.audit')" icon="shield" label="Audit log" />
             <x-panel.sidebar-link :href="route('admin.sitemap')" icon="map" label="Mapa webu" />
             <x-panel.sidebar-link :href="route('admin.sample-page')" icon="file-plus" label="Ukázková stránka" />
@@ -272,6 +275,7 @@
             <x-panel.sidebar-link :href="route('panel.account.security')" icon="lock" label="Zabezpečení" />
             <x-panel.sidebar-link :href="route('panel.account.api-tokens')" icon="hash" label="API tokeny" />
             <x-panel.sidebar-link :href="route('panel.notifications.index')" icon="bell" label="Notifikace" />
+            <x-panel.sidebar-link :href="route('panel.changelog.index')" icon="gift" label="Co je nového" />
         </x-panel.sidebar-submenu>
 
         <x-panel.sidebar-submenu icon="life-buoy" label="Podpora"
@@ -301,10 +305,10 @@
         <li class="sidebar-main-title"><div><h6>Relace</h6></div></li>
         <li class="sidebar-list">
             <i class="fa-solid fa-thumbtack"></i>
-            <form method="POST" action="{{ route('logout') }}">
+            <form method="POST" action="{{ route('logout') }}" id="sidebar-logout-form">
                 @csrf
                 <a class="sidebar-link sidebar-title link-nav" href="{{ route('logout') }}"
-                   onclick="event.preventDefault(); this.closest('form').submit();">
+                   data-submit-form="sidebar-logout-form">
                     <i data-feather="log-out"></i><span>Odhlásit se</span>
                 </a>
             </form>

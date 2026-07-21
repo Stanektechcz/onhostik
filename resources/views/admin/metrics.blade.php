@@ -206,7 +206,7 @@
 @endsection
 
 @push('scripts')
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 (function() {
     var labels = @json($chartLabels);
     var revenue = @json($chartRevenue);

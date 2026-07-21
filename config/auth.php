@@ -114,4 +114,40 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Breached-password check (audit H116)
+    |--------------------------------------------------------------------------
+    |
+    | Rejects passwords that appear in public breach corpora via Have I Been
+    | Pwned. Uses k-anonymity — only the first 5 characters of the SHA-1 hash
+    | are sent, never the password itself.
+    |
+    | Requires outbound HTTPS, so it is off by default: an offline install or
+    | the test suite must not fail registration because an API is unreachable.
+    | Turn it on in production with AUTH_PASSWORD_BREACH_CHECK=true.
+    |
+    */
+    'password_breach_check' => (bool) env('AUTH_PASSWORD_BREACH_CHECK', false),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Concurrent session limit (audit 29)
+    |--------------------------------------------------------------------------
+    |
+    | The maximum number of simultaneous logged-in sessions a single user may
+    | hold. When a login would exceed this, the OLDEST sessions are evicted so
+    | the newest device wins — an attacker who logs in cannot silently coexist
+    | with the owner forever, and the owner's next login pushes the intruder
+    | out. Remember-me tokens are cycled at the same time so an evicted device
+    | cannot walk back in from its cookie.
+    |
+    | 0 disables the cap entirely (the previous behaviour), so existing
+    | installs are unaffected until they opt in. Requires the database session
+    | driver — with cookie/array drivers there is no server-side session table
+    | to count, and the limiter no-ops rather than pretending to enforce.
+    |
+    */
+    'max_concurrent_sessions' => (int) env('AUTH_MAX_CONCURRENT_SESSIONS', 0),
+
 ];

@@ -183,4 +183,17 @@ return [
 
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Slow query threshold (audit H81)
+    |--------------------------------------------------------------------------
+    |
+    | Any query taking longer than this many milliseconds within a single
+    | request is logged as `db.slow_query`. Zero disables the check (the
+    | default, so tests and local dev are unaffected). Set e.g. 500 in
+    | production to catch N+1s and missing indexes before customers do.
+    |
+    */
+    'slow_query_threshold_ms' => (int) env('DB_SLOW_QUERY_THRESHOLD_MS', 0),
+
 ];

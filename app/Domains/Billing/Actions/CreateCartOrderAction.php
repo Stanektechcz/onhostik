@@ -41,6 +41,7 @@ final class CreateCartOrderAction
 {
     public function __construct(
         private readonly VatResolver $vatResolver,
+        private readonly \App\Domains\Reseller\Services\ResellerPriceResolver $priceResolver,
     ) {}
 
     /**
@@ -73,6 +74,15 @@ final class CreateCartOrderAction
         $scenario = $this->vatResolver->resolveScenario($customer);
         $vatRate  = $this->vatResolver->resolveRate($customer);
 
+        // A reseller profile pins individual per-plan prices (K146) on top of
+        // the blanket markup. Passed by id rather than object so this action's
+        // signature stays serialisable; a bare markup_percent (no profile) is
+        // still honoured for legacy call sites.
+        $reseller = null;
+        if (is_int($config['reseller_profile_id'] ?? null)) {
+            $reseller = \App\Domains\Reseller\Models\ResellerProfile::find($config['reseller_profile_id']);
+        }
+
         $markupPercent = is_float($config['markup_percent'] ?? null) || is_int($config['markup_percent'] ?? null)
             ? (float) $config['markup_percent']
             : 0.0;
@@ -86,9 +96,7 @@ final class CreateCartOrderAction
             $plan = $line['plan'];
             $qty  = max(1, (int) ($line['qty'] ?? 1));
 
-            $unitPrice = $markupPercent > 0.0
-                ? $plan->priceWithMarkup($currency, $markupPercent)
-                : $plan->priceFor($currency);
+            $unitPrice = $this->priceResolver->unitPrice($reseller, $plan, $currency, $markupPercent);
 
             $lineTotal = $unitPrice->multipliedBy($qty, RoundingMode::HALF_UP);
             $subtotal  = $subtotal->plus($lineTotal);
@@ -171,6 +179,8 @@ final class CreateCartOrderAction
                 'currency' => $currency->value,
             ])
             ->log('order.created_from_cart');
+
+        $customer->user?->notify(new \App\Notifications\OrderReceivedNotification($order));
 
         return $order->load('items');
     }

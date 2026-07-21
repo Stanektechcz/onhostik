@@ -196,8 +196,38 @@ return [
     |
     */
 
+    /*
+     | Audit L156 — dedicated supervisors per workload.
+     |
+     | Provisioning jobs are dispatched to `provisioning-high` / `provisioning`
+     | / `provisioning-low`, but the old single supervisor only processed
+     | `default` — so on production those jobs sat on the queue forever and no
+     | service was ever activated by a worker. Beyond fixing that, provisioning
+     | gets its OWN supervisor so a backlog of marketing e-mails cannot delay a
+     | paid customer's service going live, and vice versa.
+     |
+     | The `provisioning-high` queue (payment webhook → activation) is listed
+     | first within its supervisor, so Horizon drains it before the slower
+     | default provisioning work.
+     */
     'defaults' => [
-        'supervisor-1' => [
+        // Provisioning: latency-sensitive, isolated from everything else.
+        'supervisor-provisioning' => [
+            'connection' => 'redis',
+            'queue' => ['provisioning-high', 'provisioning', 'provisioning-low'],
+            'balance' => 'auto',
+            'autoScalingStrategy' => 'time',
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 3,
+            'timeout' => 300,
+            'nice' => 0,
+        ],
+
+        // Everything else: e-mails, notifications, digests, exports.
+        'supervisor-default' => [
             'connection' => 'redis',
             'queue' => ['default'],
             'balance' => 'auto',
@@ -214,16 +244,24 @@ return [
 
     'environments' => [
         'production' => [
-            'supervisor-1' => [
-                'maxProcesses' => 10,
+            'supervisor-provisioning' => [
+                'maxProcesses' => 6,
+                'balanceMaxShift' => 1,
+                'balanceCooldown' => 3,
+            ],
+            'supervisor-default' => [
+                'maxProcesses' => 6,
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
             ],
         ],
 
         'local' => [
-            'supervisor-1' => [
-                'maxProcesses' => 3,
+            'supervisor-provisioning' => [
+                'maxProcesses' => 2,
+            ],
+            'supervisor-default' => [
+                'maxProcesses' => 2,
             ],
         ],
     ],

@@ -10,9 +10,41 @@ use App\Http\Controllers\Webhook\InboundWebhookController;
 use App\Http\Controllers\Webhook\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
+/*
+ | Health check (audit J142) — for load balancers and external monitoring.
+ |
+ | Deliberately reports the database as well: a process that is "up" but
+ | cannot reach its database should be taken out of rotation, not counted
+ | healthy. Returns 503 in that case so a monitor actually notices.
+ |
+ | No auth: a health probe that needs credentials is one more thing to break
+ | at 3am. It exposes nothing beyond up/down and a version string.
+ */
+Route::get('/up', function () {
+    $checks = ['app' => true];
+    $healthy = true;
+
+    try {
+        \Illuminate\Support\Facades\DB::connection()->getPdo();
+        $checks['database'] = true;
+    } catch (\Throwable) {
+        $checks['database'] = false;
+        $healthy = false;
+    }
+
+    return response()->json([
+        'status'  => $healthy ? 'ok' : 'degraded',
+        'checks'  => $checks,
+        'time'    => now()->toIso8601String(),
+    ], $healthy ? 200 : 503);
+})->name('api.health');
+
 // OpenAPI spec + Swagger UI — public, no auth
 Route::get('/openapi.json', [V1\DocsController::class, 'spec'])->name('api.openapi');
 Route::get('/docs',         [V1\DocsController::class, 'ui'])->name('api.docs');
+
+// API changelog + version lifecycle (audit 103) — public, no auth
+Route::get('/changelog', \App\Http\Controllers\Api\ChangelogController::class)->name('api.changelog');
 
 /*
 |--------------------------------------------------------------------------
@@ -30,6 +62,18 @@ Route::post('/webhooks/gopay',   GopayWebhookController::class)->name('webhooks.
 Route::post('/webhook/{source}', [InboundWebhookController::class, 'receive'])->name('webhooks.inbound');
 
 /*
+ | CSP violation reports (audit C24).
+ |
+ | Unauthenticated by necessity — a browser posts these without credentials,
+ | and a violation on a logged-out page still matters. Throttled because the
+ | endpoint is world-writable; the controller caps body size and truncates
+ | every field before logging.
+ */
+Route::post('/security/csp-report', \App\Http\Controllers\Security\CspReportController::class)
+    ->middleware('throttle:60,1')
+    ->name('security.csp-report');
+
+/*
 |--------------------------------------------------------------------------
 | REST API v1 — Sanctum PAT
 |--------------------------------------------------------------------------
@@ -37,7 +81,7 @@ Route::post('/webhook/{source}', [InboundWebhookController::class, 'receive'])->
 | Rate limit: 60 requests per minute per token.
 */
 
-Route::middleware(['auth:sanctum', 'throttle:60,1', 'log-api-usage'])->prefix('v1')->name('api.v1.')->group(function (): void {
+Route::middleware(['auth:sanctum', 'throttle:api', 'log-api-usage', 'idempotency', 'api-lifecycle:v1'])->prefix('v1')->name('api.v1.')->group(function (): void {
     // Profile
     Route::get('/profile', [V1\ProfileController::class, 'show'])->name('profile');
 
@@ -80,7 +124,7 @@ Route::middleware(['auth:sanctum', 'throttle:60,1', 'log-api-usage'])->prefix('v
 |  - Customer-facing webhook subscription management
 */
 
-Route::middleware(['auth:sanctum', 'throttle:120,1', 'log-api-usage'])->prefix('v2')->name('api.v2.')->group(function (): void {
+Route::middleware(['auth:sanctum', 'throttle:api', 'log-api-usage', 'idempotency', 'api-lifecycle:v2'])->prefix('v2')->name('api.v2.')->group(function (): void {
     // Enhanced services with monitor data
     Route::get('/services',           [V2\ServiceController::class, 'index'])->name('services.index');
     Route::get('/services/{service}', [V2\ServiceController::class, 'show'])->name('services.show');

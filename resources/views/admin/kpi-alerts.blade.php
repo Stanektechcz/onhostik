@@ -90,7 +90,7 @@
                                                     </form>
                                                     {{-- Delete --}}
                                                     <form method="POST" action="{{ route('admin.kpi-alerts.destroy', $alert) }}"
-                                                          onsubmit="return confirm('Smazat tento alert?')">
+                                                          data-confirm="Smazat tento alert?">
                                                         @csrf @method('DELETE')
                                                         <button type="submit" class="btn btn-xs btn-outline-danger" title="Smazat">
                                                             <i data-feather="trash-2" style="width:12px;height:12px"></i>

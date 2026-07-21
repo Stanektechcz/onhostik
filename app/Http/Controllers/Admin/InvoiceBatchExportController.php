@@ -4,43 +4,61 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
-use App\Domains\Billing\Models\Invoice;
 use App\Http\Controllers\Controller;
-use Barryvdh\DomPDF\Facade\Pdf;
+use App\Jobs\GenerateInvoiceBatchExportJob;
+use App\Models\ExportJob;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
-use ZipArchive;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
+/**
+ * Invoice batch export (audit L120).
+ *
+ * Used to render up to 50 PDFs synchronously inside the request — minutes of
+ * CPU against a request timeout, and a failure gave a blank error page with
+ * nothing to retry. Now it queues a tracked job and notifies when the archive
+ * is ready, which also lifts the cap from 50 to 500.
+ */
 class InvoiceBatchExportController extends Controller
 {
-    public function export(Request $request): Response
+    public function export(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'invoice_ids'   => ['required', 'array', 'max:50'],
+            'invoice_ids'   => ['required', 'array', 'max:500'],
             'invoice_ids.*' => ['integer', 'exists:invoices,id'],
         ]);
 
-        $invoices = Invoice::with('customer.user')
-            ->whereIn('id', $validated['invoice_ids'])
-            ->get();
+        $export = ExportJob::create([
+            'user_id'    => $request->user()->id,
+            'type'       => 'invoice_batch',
+            'format'     => 'zip',
+            'status'     => ExportJob::STATUS_PENDING,
+            'parameters' => ['invoice_ids' => $validated['invoice_ids']],
+        ]);
 
-        $zipPath = tempnam(sys_get_temp_dir(), 'invoices_') . '.zip';
-        $zip     = new ZipArchive();
-        $zip->open($zipPath, ZipArchive::CREATE);
+        GenerateInvoiceBatchExportJob::dispatch($export->id);
 
-        foreach ($invoices as $invoice) {
-            $pdf      = Pdf::loadView('pdf.invoice', compact('invoice'));
-            $filename = 'faktura-' . $invoice->number . '.pdf';
-            $zip->addFromString($filename, $pdf->output());
-        }
+        return back()->with(
+            'status',
+            'Export byl zařazen ke zpracování. Až bude hotový, dáme vám vědět.',
+        );
+    }
 
-        $zip->close();
+    public function download(Request $request, ExportJob $export): StreamedResponse
+    {
+        /*
+         | The archive holds complete invoice data for many customers, so it is
+         | scoped to the person who asked for it — an admin must not be able to
+         | pull another admin's export by guessing an id — and only while it is
+         | ready and unexpired.
+         */
+        abort_unless($export->user_id === $request->user()->id, 403);
+        abort_unless($export->isDownloadable(), 404);
 
-        $content = file_get_contents($zipPath);
-        @unlink($zipPath);
-
-        return response((string) $content)
-            ->header('Content-Type', 'application/zip')
-            ->header('Content-Disposition', 'attachment; filename="faktury-export-' . now()->format('Y-m-d') . '.zip"');
+        return Storage::disk('local')->download(
+            (string) $export->file_path,
+            'faktury-export-' . $export->created_at->format('Y-m-d') . '.zip',
+        );
     }
 }

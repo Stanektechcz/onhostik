@@ -62,6 +62,14 @@ final class ProcessGopayWebhookAction
 
                 $amount = Money::ofMinor((int) ($status['amount'] ?? 0), $status['currency'] ?? 'CZK');
 
+                // The reported amount must match the invoice exactly, otherwise a
+                // partial (or wrong-currency) payment would mark it fully Paid.
+                if (! $amount->isEqualTo($invoice->total)) {
+                    throw new \RuntimeException(
+                        "GoPay amount mismatch for invoice {$invoice->number}: expected {$invoice->total}, got {$amount}."
+                    );
+                }
+
                 $payment = $existing ?? new Payment();
                 $payment->fill([
                     'customer_id'            => $invoice->customer_id,
@@ -70,7 +78,7 @@ final class ProcessGopayWebhookAction
                     'status'                 => PaymentStatus::Completed,
                     'amount'                 => $amount,
                     'gateway_transaction_id' => $paymentId,
-                    'gateway_response'       => $status,
+                    'gateway_response'       => $this->sanitize($status),
                     'processed_at'           => now(),
                 ])->save();
 
@@ -91,5 +99,19 @@ final class ProcessGopayWebhookAction
             $log->update(['error_message' => $e->getMessage()]);
             throw $e;
         }
+    }
+
+    /**
+     * Strip credentials before the gateway response is persisted — secrets
+     * must never reach the payments table or the webhook log.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function sanitize(array $data): array
+    {
+        unset($data['secret'], $data['password'], $data['client_secret'], $data['access_token'], $data['token']);
+
+        return $data;
     }
 }

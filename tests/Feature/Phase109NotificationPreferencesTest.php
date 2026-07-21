@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Domains\Communication\Support\NotificationCatalog;
+
 use App\Models\User;
 use App\Notifications\LateFeeAppliedNotification;
 use Database\Factories\InvoiceFactory;
@@ -14,15 +16,17 @@ beforeEach(function (): void {
 
 // ── View renders all controls ─────────────────────────────────────────────────
 
-it('notification-preferences page renders all 6 type rows', function (): void {
+it('renders a row for every type in the catalogue', function (): void {
+    // Asserted against the catalogue rather than a copied list — a hardcoded
+    // list here is exactly the drift that let `credit` become unswitchable.
     $user = customerUser();
 
     $response = $this->actingAs($user)
         ->get(route('panel.account.notification-preferences'))
         ->assertOk();
 
-    foreach (['Obnovy služeb', 'Faktury', 'Platby', 'Podpora', 'Zálohy', 'Monitoring'] as $label) {
-        $response->assertSee($label);
+    foreach (NotificationCatalog::types() as $meta) {
+        $response->assertSee($meta['label'], false);
     }
 });
 

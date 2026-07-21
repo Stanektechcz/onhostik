@@ -21,7 +21,7 @@
             </a>
             <a href="{{ route('admin.impersonate.start', $customer->user_id) }}"
                class="btn btn-warning btn-xs text-white"
-               onclick="return confirm('Přihlásit se za zákazníka {{ addslashes($customer->user?->name) }}?')">
+               data-confirm="Přihlásit se za zákazníka {{ addslashes($customer->user?->name) }}?">
                 <i data-feather="log-in" style="width:12px;height:12px;"></i>
                 Přihlásit se za zákazníka
             </a>
@@ -168,7 +168,7 @@
                         </a>
                         @if($customer->user)
                             <form method="POST" action="{{ route('admin.customers.toggle-active', $customer) }}"
-                                  onsubmit="return confirm('Změnit stav přihlášení zákazníka?');">
+                                  data-confirm="Změnit stav přihlášení zákazníka?">
                                 @csrf
                                 <button type="submit" class="btn btn-sm {{ $customer->user->is_active ? 'btn-outline-danger' : 'btn-outline-success' }}">
                                     <i data-feather="{{ $customer->user->is_active ? 'user-x' : 'user-check' }}" style="width:13px;height:13px;"></i>
@@ -220,6 +220,25 @@
                         </button>
                     </form>
                 </x-panel.card>
+
+                {{-- Chat history --}}
+                @if(($chatConversations ?? collect())->isNotEmpty())
+                    <x-panel.card title="Historie chatu">
+                        <ul class="list-none p-0 m-0">
+                            @foreach($chatConversations as $conv)
+                                <li class="flex items-center justify-between py-2 border-b">
+                                    <div>
+                                        <a href="{{ route('admin.chat.show', $conv) }}" class="f-w-500 f-13">
+                                            Konverzace #{{ $conv->id }}
+                                        </a>
+                                        <p class="f-light f-11 mb-0">{{ $conv->messages_count }} zpráv · {{ $conv->last_message_at?->diffForHumans() }}</p>
+                                    </div>
+                                    <span class="badge badge-light-{{ $conv->status->color() }}">{{ $conv->status->label() }}</span>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </x-panel.card>
+                @endif
 
                 {{-- Credit adjustment --}}
                 <x-panel.card :title="__('panel.admin.adjust_credit')">
@@ -295,7 +314,7 @@
                                 <form method="POST" action="{{ route('admin.customers.internal-notes.destroy', [$customer, $note]) }}">
                                     @csrf
                                     @method('DELETE')
-                                    <button type="submit" class="btn btn-xs btn-outline-danger" onclick="return confirm('Smazat zápis?')">
+                                    <button type="submit" class="btn btn-xs btn-outline-danger" data-confirm="Smazat zápis?">
                                         <i data-feather="trash-2" style="width:10px;height:10px;"></i>
                                     </button>
                                 </form>

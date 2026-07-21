@@ -56,7 +56,7 @@
                                     <td class="f-12">{{ $tag->services_count }}</td>
                                     <td class="text-right">
                                         <form method="POST" action="{{ route('admin.services.tags.destroy', $tag) }}"
-                                              class="inline" onsubmit="return confirm('Smazat štítek?')">
+                                              class="inline" data-confirm="Smazat štítek?">
                                             @csrf
                                             @method('DELETE')
                                             <button type="submit" class="btn btn-outline-danger btn-sm">

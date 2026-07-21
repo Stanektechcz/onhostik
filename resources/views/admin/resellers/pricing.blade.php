@@ -57,7 +57,7 @@
                                         <form method="POST"
                                               action="{{ route('admin.resellers.pricing.destroy', [$reseller, $override]) }}"
                                               class="inline"
-                                              onsubmit="return confirm('Smazat override?')">
+                                              data-confirm="Smazat override?">
                                             @csrf @method('DELETE')
                                             <button class="btn btn-xs btn-outline-danger">
                                                 <i data-feather="trash-2" style="width:11px;height:11px"></i>

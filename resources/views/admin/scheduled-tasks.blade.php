@@ -30,7 +30,7 @@
             <p class="text-success">Žádné selhané úlohy.</p>
         @else
         <div class="mb-2">
-            <form method="POST" action="{{ route('admin.scheduled-tasks.clear') }}" onsubmit="return confirm('Smazat všechny selhané úlohy?')">
+            <form method="POST" action="{{ route('admin.scheduled-tasks.clear') }}" data-confirm="Smazat všechny selhané úlohy?">
                 @csrf
                 @method('DELETE')
                 <button class="btn btn-xs btn-outline-danger">Smazat vše</button>

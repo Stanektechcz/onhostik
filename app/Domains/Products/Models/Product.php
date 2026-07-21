@@ -58,6 +58,17 @@ class Product extends Model
     }
 
     /**
+     * Whether ordering this product provisions a distinct instance (web site,
+     * VPS, game server, domain) that is keyed 1:1 to its order item. For such
+     * products quantity must stay 1 — ordering three sites means three
+     * separate order lines, not qty=3 on one line (see audit C37).
+     */
+    public function provisionsInstance(): bool
+    {
+        return $this->provisioning_driver !== null;
+    }
+
+    /**
      * @param  \Illuminate\Database\Eloquent\Builder<Product>  $query
      * @return \Illuminate\Database\Eloquent\Builder<Product>
      */

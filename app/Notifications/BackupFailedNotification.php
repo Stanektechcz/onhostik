@@ -6,16 +6,19 @@ namespace App\Notifications;
 
 use App\Domains\Backups\Models\BackupJob;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\RespectsNotificationPreferences;
 use Illuminate\Notifications\Notification;
 
 class BackupFailedNotification extends Notification
 {
+    use RespectsNotificationPreferences;
+
     public function __construct(private readonly BackupJob $job) {}
 
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail', 'database'];
+        return $this->channelsFor($notifiable, 'backup', ['mail', 'database']);
     }
 
     /** @return array<string, mixed> */

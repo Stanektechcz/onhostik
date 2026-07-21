@@ -49,7 +49,7 @@
                                 <a href="{{ route('admin.automation.logs', $rule) }}" class="btn btn-xs btn-outline-secondary">Logy</a>
                                 <a href="{{ route('admin.automation.edit', $rule) }}" class="btn btn-xs btn-outline-primary">Upravit</a>
                                 <form action="{{ route('admin.automation.destroy', $rule) }}" method="POST" class="inline"
-                                      onsubmit="return confirm('Smazat pravidlo?')">
+                                      data-confirm="Smazat pravidlo?">
                                     @csrf @method('DELETE')
                                     <button type="submit" class="btn btn-xs btn-outline-danger">Smazat</button>
                                 </form>

@@ -160,6 +160,7 @@ it('stores the domain entered in the cart on the order item', function (): void 
     $this->actingAs($user)
         ->post(route('panel.cart.checkout'), [
             'payment_method' => 'bank',
+            'terms'          => '1',
             'domains'        => [$plan->id => 'mujweb.cz'],
         ])
         ->assertRedirect();
@@ -179,6 +180,7 @@ it('rejects an invalid domain in the cart checkout', function (): void {
     $this->actingAs($user)
         ->post(route('panel.cart.checkout'), [
             'payment_method' => 'bank',
+            'terms'          => '1',
             'domains'        => [$plan->id => 'not a domain'],
         ])
         ->assertSessionHasErrors('domains.' . $plan->id);

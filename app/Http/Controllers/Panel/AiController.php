@@ -15,6 +15,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 class AiController extends Controller
@@ -136,6 +137,55 @@ class AiController extends Controller
             'status'  => $conversation->fresh()?->status->value,
             'message' => 'Spojujeme vás s živou podporou. Operátor se ozve zde v chatu.',
         ]);
+    }
+
+    /** POST /panel/ai/priloha — attach a file (image / log) to the chat. */
+    public function upload(Request $request, SupportChatService $chatService): JsonResponse
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'max:5120', 'mimes:jpg,jpeg,png,gif,webp,pdf,txt,log,zip'],
+        ]);
+
+        $user = $request->user();
+        abort_if($user === null, 403);
+
+        $conversation = $chatService->openConversationFor($user);
+        $file         = $request->file('file');
+
+        $path = $file->store('chat-attachments/' . $conversation->id, 'local');
+
+        $message = $chatService->attachment($conversation, $user, [
+            'name' => $file->getClientOriginalName(),
+            'path' => $path,
+            'size' => $file->getSize(),
+            'mime' => $file->getMimeType(),
+        ]);
+
+        return response()->json([
+            'id'   => $message->id,
+            'role' => 'user',
+            'body' => $message->body,
+            'meta' => $message->meta,
+        ]);
+    }
+
+    /** GET /panel/ai/priloha/{message} — download an attachment (owner / admin). */
+    public function attachment(Request $request, SupportChatMessage $message): mixed
+    {
+        $user = $request->user();
+        abort_if($user === null, 403);
+
+        $message->loadMissing('conversation');
+        $isOwner = $message->conversation?->started_by === $user->id;
+        abort_unless($isOwner || $user->can('access-admin'), 403);
+
+        $path = is_array($message->meta) ? ($message->meta['attachment']['path'] ?? null) : null;
+        abort_if(! is_string($path) || ! Storage::disk('local')->exists($path), 404);
+
+        $attName = $message->meta['attachment']['name'] ?? null;
+        $name    = is_string($attName) ? $attName : 'priloha';
+
+        return Storage::disk('local')->download($path, $name);
     }
 
     /** GET /panel/ai/poll?after=ID — new agent/system messages for the widget. */

@@ -109,7 +109,7 @@
                         @endif
                         @if($invoice->status === \App\Domains\Billing\Enums\InvoiceStatus::Overdue && $invoice->customer?->user !== null)
                             <form method="POST" action="{{ route('admin.invoices.payment-reminder', $invoice) }}"
-                                  onsubmit="return confirm('{{ __('panel.admin.payment_reminder_confirm') }}')">
+                                  data-confirm="{{ __('panel.admin.payment_reminder_confirm') }}">
                                 @csrf
                                 <button type="submit" class="btn btn-warning btn-sm">
                                     <i data-feather="alert-triangle" style="width:13px;height:13px"></i>
@@ -160,7 +160,7 @@
                         @endif
                         @if($invoice->status->isOpen())
                             <form method="POST" action="{{ route('admin.invoices.cancel', $invoice) }}"
-                                  onsubmit="return confirm('Opravdu stornovat fakturu {{ $invoice->number }}?')">
+                                  data-confirm="Opravdu stornovat fakturu {{ $invoice->number }}?">
                                 @csrf
                                 <button type="submit" class="btn btn-outline-danger btn-sm">
                                     <i data-feather="x-circle" style="width:13px;height:13px"></i>
@@ -261,6 +261,9 @@
                         </x-panel.card>
                     @endif
                 @endif
+
+                {{-- 75: unified internal notes --}}
+                <x-panel.entity-notes :notable="$invoice" type="invoice" />
             </div>
         </div>
     </div>

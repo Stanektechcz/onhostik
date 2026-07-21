@@ -7,6 +7,7 @@ namespace App\Notifications;
 use App\Domains\Provisioning\Models\Service;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\RespectsNotificationPreferences;
 use Illuminate\Notifications\Notification;
 
 /**
@@ -16,6 +17,8 @@ use Illuminate\Notifications\Notification;
  */
 class ServiceQuotaBreachNotification extends Notification
 {
+    use RespectsNotificationPreferences;
+
     use Queueable;
 
     /**
@@ -29,7 +32,7 @@ class ServiceQuotaBreachNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail', 'database'];
+        return $this->channelsFor($notifiable, 'backup', ['mail', 'database']);
     }
 
     public function toMail(object $notifiable): MailMessage

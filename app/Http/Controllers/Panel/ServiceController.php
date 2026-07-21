@@ -243,19 +243,77 @@ class ServiceController extends Controller
             'changed_at'         => now(),
         ]);
 
+        // Settle the mid-period difference (audit D60). The unused remainder
+        // of the old plan is credited and the new plan charged only for the
+        // days that remain; the customer pays or receives just the delta.
+        $proration = app(\App\Domains\Billing\Actions\CalculatePlanChangeProrationAction::class)
+            ->execute($service, $plan);
+
+        $difference = $proration['difference'];
+        $settlement = $this->settleProration($request, $service, $plan, $difference);
+
         activity('billing')
             ->performedOn($service)
+            ->causedBy($request->user())
             ->withProperties([
-                'from_plan_id' => $fromPlanId,
-                'to_plan_id'   => $plan->id,
-                'plan_name'    => $plan->name,
+                'from_plan_id'    => $fromPlanId,
+                'to_plan_id'      => $plan->id,
+                'plan_name'       => $plan->name,
+                'days_remaining'  => $proration['days_remaining'],
+                'unused_credit'   => $proration['unused_credit']->getMinorAmount()->toInt(),
+                'prorated_charge' => $proration['prorated_charge']->getMinorAmount()->toInt(),
+                'difference'      => $difference->getMinorAmount()->toInt(),
             ])
             ->log('service.plan_change_requested');
 
         return redirect()
-            ->route('front.order', $plan)
-            ->with('service_change_id', $service->id)
-            ->with('info', __('panel.services.plan_change_redirect', ['plan' => $plan->name]));
+            ->route('panel.services.show', $service)
+            ->with('status', $settlement);
+    }
+
+    /**
+     * Turn the proration delta into money moving.
+     *
+     * Upgrade  → an ad-hoc invoice for the difference (service switches once paid).
+     * Downgrade→ the overpaid remainder goes straight onto the credit balance.
+     * Equal    → nothing to settle.
+     */
+    private function settleProration(
+        Request $request,
+        Service $service,
+        PricingPlan $plan,
+        \Brick\Money\Money $difference,
+    ): string {
+        $customer = $service->customer;
+
+        if ($customer === null || $difference->isZero()) {
+            return __('panel.services.plan_change_redirect', ['plan' => $plan->name]);
+        }
+
+        if ($difference->isNegative()) {
+            app(\App\Domains\Billing\Services\CreditLedger::class)->deposit(
+                customer: $customer,
+                amount: $difference->abs(),
+                description: "Vrácení poměrné části při změně tarifu na {$plan->name}",
+                reference: $service,
+            );
+
+            return 'Změna tarifu zaznamenána. Nevyčerpaná část byla vrácena na váš kredit.';
+        }
+
+        $invoice = app(\App\Domains\Billing\Actions\CreateAdHocInvoiceAction::class)->execute(
+            $customer,
+            [[
+                'description'      => "Doplatek při změně tarifu na {$plan->name}",
+                'quantity'         => 1,
+                'unit_price_minor' => $difference->getMinorAmount()->toInt(),
+                'vat_rate'         => app(\App\Domains\Billing\Services\VatResolver::class)->resolveRate($customer),
+            ]],
+            now()->addDays((int) config('billing.invoice_due_days', 14)),
+            "Poměrný doplatek při změně tarifu služby #{$service->id}.",
+        );
+
+        return "Změna tarifu zaznamenána. K úhradě je doplatek na faktuře {$invoice->number}.";
     }
 
     /** Customer requests service cancellation — opens a support ticket for admin review. */

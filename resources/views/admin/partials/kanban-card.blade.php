@@ -21,7 +21,7 @@
                 <li><hr class="dropdown-divider"></li>
                 <li>
                     <form method="POST" action="{{ route('admin.tasks.destroy', $task) }}"
-                          onsubmit="return confirm('Smazat úkol?')">
+                          data-confirm="Smazat úkol?">
                         @csrf @method('DELETE')
                         <button type="submit" class="dropdown-item text-danger f-12">
                             <i data-feather="trash-2" style="width:12px;height:12px;"></i> Smazat

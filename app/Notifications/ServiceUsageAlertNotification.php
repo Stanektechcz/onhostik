@@ -7,10 +7,13 @@ namespace App\Notifications;
 use App\Domains\Provisioning\Models\Service;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\RespectsNotificationPreferences;
 use Illuminate\Notifications\Notification;
 
 class ServiceUsageAlertNotification extends Notification
 {
+    use RespectsNotificationPreferences;
+
     use Queueable;
 
     public function __construct(public readonly Service $service, public readonly int $usagePct) {}
@@ -18,7 +21,7 @@ class ServiceUsageAlertNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return $this->channelsFor($notifiable, 'monitor', ['mail']);
     }
 
     public function toMail(object $notifiable): MailMessage

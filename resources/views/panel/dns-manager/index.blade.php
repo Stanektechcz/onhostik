@@ -61,7 +61,7 @@
                                         </a>
                                         <form method="POST" action="{{ route('panel.dns-manager.destroy', $zone) }}"
                                               class="inline"
-                                              onsubmit="return confirm('Smazat zónu {{ $zone->domain }} i se všemi záznamy?')">
+                                              data-confirm="Smazat zónu {{ $zone->domain }} i se všemi záznamy?">
                                             @csrf @method('DELETE')
                                             <button type="submit" class="btn btn-outline-danger btn-xs">
                                                 <svg data-feather="trash-2" style="width:12px;height:12px"></svg>

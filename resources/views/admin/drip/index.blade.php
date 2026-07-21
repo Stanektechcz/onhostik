@@ -62,7 +62,7 @@
                                         </a>
                                         <form method="POST" action="{{ route('admin.drip.destroy', $seq) }}"
                                               class="inline"
-                                              onsubmit="return confirm('Smazat sekvenci? Všechny kroky a zápisy budou odstraněny.')">
+                                              data-confirm="Smazat sekvenci? Všechny kroky a zápisy budou odstraněny.">
                                             @csrf @method('DELETE')
                                             <button class="btn btn-xs btn-outline-danger">
                                                 <i data-feather="trash-2" style="width:11px;height:11px"></i>

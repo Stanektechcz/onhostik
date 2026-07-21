@@ -5,7 +5,7 @@
 
 @push('jsonld')
 @php
-echo '<script type="application/ld+json">' . json_encode([
+echo '<script type="application/ld+json" nonce="' . ($cspNonce ?? '') . '">' . json_encode([
     '@context'    => 'https://schema.org',
     '@type'       => 'Article',
     'headline'    => $article->title,

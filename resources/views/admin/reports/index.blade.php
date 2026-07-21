@@ -20,7 +20,7 @@
                         <div class="mb-3">
                             <label class="form-label f-12">Typ reportu *</label>
                             <select class="form-select form-select-sm" name="type" id="report-type"
-                                    onchange="toggleGroupBy()">
+                                    data-call-on-change="toggleGroupBy">
                                 @foreach($types as $key => $label)
                                     <option value="{{ $key }}" @selected(($params['type'] ?? '') === $key)>{{ $label }}</option>
                                 @endforeach
@@ -119,7 +119,7 @@
 @endsection
 
 @push('scripts')
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 function toggleGroupBy() {
     var type = document.getElementById('report-type').value;
     var grouped = ['revenue', 'new_customers', 'cohort_revenue'];

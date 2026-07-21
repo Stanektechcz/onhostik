@@ -8,7 +8,10 @@ use App\Domains\Support\Enums\ChatConversationStatus;
 use App\Domains\Support\Models\SupportChatConversation;
 use App\Domains\Support\Models\SupportChatMessage;
 use App\Models\User;
+use App\Notifications\ChatEscalatedNotification;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Notification;
+use Throwable;
 
 /**
  * Owns the support-chat lifecycle: every message (customer, AI bot, live
@@ -54,6 +57,24 @@ final class SupportChatService
         return $this->append($c, 'system', $body, null);
     }
 
+    /**
+     * Attach an uploaded file to the conversation as a user message.
+     *
+     * @param  array{name: string, path: string, size: int|false, mime: string|null}  $file
+     */
+    public function attachment(SupportChatConversation $c, User $author, array $file): SupportChatMessage
+    {
+        $message = $this->append($c, 'user', '📎 ' . $file['name'], $author->id, ['attachment' => $file]);
+
+        // Add the auth-gated download URL now that the message has an id.
+        /** @var array<string, mixed> $meta */
+        $meta = $message->meta ?? [];
+        $meta['attachment']['url'] = route('panel.ai.attachment', $message->id);
+        $message->update(['meta' => $meta]);
+
+        return $message;
+    }
+
     public function agentMessage(SupportChatConversation $c, User $agent, string $body): SupportChatMessage
     {
         // First agent reply claims the conversation and makes it live.
@@ -75,6 +96,14 @@ final class SupportChatService
 
         $c->update(['status' => ChatConversationStatus::WaitingAgent, 'last_message_at' => now()]);
         $this->systemMessage($c, 'Konverzace byla předána živé podpoře. Operátor se vám ozve co nejdříve.');
+
+        // Ping operators so they can pick it up from the inbox (in-app only).
+        try {
+            $admins = User::role('admin')->get();
+            Notification::send($admins, new ChatEscalatedNotification($c));
+        } catch (Throwable $e) {
+            report($e); // never let a notification failure block the escalation
+        }
 
         activity('support')
             ->performedOn($c)

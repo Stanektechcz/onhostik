@@ -36,6 +36,29 @@
         </div>
         @endif
 
+        {{-- Read / unread filter (audit I128) --}}
+        <div class="col-span-12">
+            @php
+                $filters = [
+                    ''       => ['label' => __('panel.common.all'), 'count' => $unreadCount + $readCount],
+                    'unread' => ['label' => __('panel.notifications.unread'), 'count' => $unreadCount],
+                    'read'   => ['label' => __('panel.notifications.read'), 'count' => $readCount],
+                ];
+            @endphp
+            <div class="flex gap-2 flex-wrap" role="group" aria-label="{{ __('panel.notifications.filter') }}">
+                @foreach($filters as $value => $filter)
+                    <a href="{{ request()->fullUrlWithQuery(['status' => $value ?: null, 'page' => null]) }}"
+                       class="btn btn-sm {{ $activeStatus === $value ? 'btn-primary text-white' : 'btn-outline-primary' }}"
+                       @if($activeStatus === $value) aria-current="page" @endif>
+                        {{ $filter['label'] }}
+                        <span class="badge {{ $activeStatus === $value ? 'badge-light-primary' : 'badge-light-secondary' }} f-10 ms-1">
+                            {{ $filter['count'] }}
+                        </span>
+                    </a>
+                @endforeach
+            </div>
+        </div>
+
         {{-- Notifications list --}}
         <div class="col-span-12">
             <x-panel.card :title="__('panel.nav.notifications')">

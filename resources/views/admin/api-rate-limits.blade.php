@@ -148,7 +148,7 @@
                                 <td>
                                     <form method="POST"
                                           action="{{ route('admin.api-rate-limits.destroy', $cfg) }}"
-                                          onsubmit="return confirm('Odebrat konfiguraci limitů?')">
+                                          data-confirm="Odebrat konfiguraci limitů?">
                                         @csrf @method('DELETE')
                                         <button type="submit" class="btn btn-outline-danger btn-xs">×</button>
                                     </form>

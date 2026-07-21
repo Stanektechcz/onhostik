@@ -45,6 +45,9 @@ class Payment extends Model
         'gateway_transaction_id',
         'gateway_response',     // sanitized JSON — no card data ever
         'processed_at',
+        'refund_destination',
+        'refund_reason',
+        'refunded_at',
     ];
 
     protected function casts(): array
@@ -56,6 +59,8 @@ class Payment extends Model
             'amount'           => MoneyCast::class . ':currency',
             'gateway_response' => 'array',
             'processed_at'     => 'datetime',
+            'refund_destination' => \App\Domains\Billing\Enums\RefundDestination::class,
+            'refunded_at'        => 'datetime',
         ];
     }
 

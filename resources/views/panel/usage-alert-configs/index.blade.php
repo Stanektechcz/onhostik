@@ -43,7 +43,7 @@
                                 <td>
                                     <form method="POST" action="{{ route('panel.usage-alert-configs.destroy', $alert) }}">
                                         @csrf @method('DELETE')
-                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Opravdu smazat upozornění?')">Smazat</button>
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Opravdu smazat upozornění?">Smazat</button>
                                     </form>
                                 </td>
                             </tr>

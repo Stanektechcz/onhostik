@@ -29,19 +29,28 @@ class PaymentController extends Controller
         }
 
         $validated = $request->validate([
-            'reason' => ['required', 'string', 'min:3', 'max:500'],
+            'reason'      => ['required', 'string', 'min:3', 'max:500'],
+            'destination' => ['nullable', \Illuminate\Validation\Rule::enum(\App\Domains\Billing\Enums\RefundDestination::class)],
         ]);
 
         $admin = $request->user();
         abort_if($admin === null, 403);
 
+        $destination = \App\Domains\Billing\Enums\RefundDestination::tryFrom(
+            is_string($validated['destination'] ?? null) ? $validated['destination'] : '',
+        ) ?? \App\Domains\Billing\Enums\RefundDestination::OriginalMethod;
+
         try {
-            $refundPayment->execute($payment, $admin, $validated['reason']);
+            $refundPayment->execute($payment, $admin, $validated['reason'], $destination);
         } catch (InvalidArgumentException $e) {
             return back()->withErrors(['payment' => $e->getMessage()]);
         }
 
-        return back()->with('status', __('panel.admin.payment_refunded'));
+        // Returning money to the card is not something we can do for the
+        // operator — say so plainly instead of implying it is done.
+        return back()->with('status', $destination->requiresManualAction()
+            ? 'Refundace zaznamenána. Vrácení peněz proveďte v administraci platební brány.'
+            : 'Refundace zaznamenána a částka byla připsána na kredit zákazníka.');
     }
 
     /** Stream payments as CSV for accounting/export. */

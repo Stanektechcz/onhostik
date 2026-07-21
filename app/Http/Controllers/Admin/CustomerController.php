@@ -127,6 +127,8 @@ class CustomerController extends Controller
             'balance'       => $ledger->getBalance($customer),
             'ledger'        => $ledger->getHistory($customer, 10),
             'tickets'       => $customer->supportTickets()->latest('id')->limit(5)->get(),
+            'chatConversations' => \App\Domains\Support\Models\SupportChatConversation::where('customer_id', $customer->id)
+                ->withCount('messages')->latest('id')->limit(5)->get(),
             'internalNotes' => \App\Models\CustomerInternalNote::where('customer_id', $customer->id)
                 ->with('admin')
                 ->orderByDesc('is_pinned')

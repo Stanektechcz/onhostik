@@ -87,6 +87,8 @@ class Customer extends Model
         'referral_code',
         'referred_by_customer_id',
         'credit_auto_topup',
+        'payment_terms_days',
+        'credit_limit',
     ];
 
     protected function casts(): array
@@ -103,6 +105,38 @@ class Customer extends Model
         ];
     }
 
+    /**
+     * Audit K109 — enforce the reseller's sub-customer cap.
+     *
+     * Guarded at the model rather than in a controller because nothing in the
+     * app currently assigns `reseller_id` through a single entry point; a
+     * controller-level check would leave every other path (seeder, console,
+     * future signup flow) unguarded.
+     *
+     * Only fires when the customer is being ATTACHED to a reseller — editing
+     * an already-attached customer must never be blocked by a cap that was
+     * lowered after the fact, or an admin could not even fix their data.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $customer): void {
+            if (! $customer->isDirty('reseller_id') || $customer->reseller_id === null) {
+                return;
+            }
+
+            $reseller = \App\Domains\Reseller\Models\ResellerProfile::find($customer->reseller_id);
+
+            if ($reseller === null || $reseller->canAddCustomer()) {
+                return;
+            }
+
+            throw \App\Domains\Reseller\Exceptions\ResellerCustomerLimitReached::forReseller(
+                (int) $reseller->id,
+                (int) $reseller->max_customers,
+            );
+        });
+    }
+
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
@@ -113,6 +147,21 @@ class Customer extends Model
     }
 
     // ---------------------------------------------------------------- relations
+
+    /**
+     * Segment tags used for grouping customers in the admin.
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsToMany<\App\Models\CustomerSegmentTag, $this>
+     */
+    public function segmentTags(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(
+            \App\Models\CustomerSegmentTag::class,
+            'customer_segment_tag_pivot',
+            'customer_id',
+            'segment_tag_id',
+        )->withTimestamps();
+    }
 
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo

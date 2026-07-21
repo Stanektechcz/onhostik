@@ -86,7 +86,7 @@
                         <input type="text" name="_ids" class="form-control form-control-sm flex-1" placeholder="ID: 1,2,3" required>
                         <input type="text" name="reason" class="form-control form-control-sm flex-1" placeholder="Důvod" required>
                         <button class="btn btn-outline-danger btn-sm text-nowrap"
-                                onclick="return confirm('Opravdu ukončit vybrané služby?')">Ukončit</button>
+                                data-confirm="Opravdu ukončit vybrané služby?">Ukončit</button>
                     </div>
                 </form>
             </x-panel.card>

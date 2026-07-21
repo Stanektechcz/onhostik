@@ -9,7 +9,7 @@
     <form method="GET" action="{{ route('panel.service-changelogs.index') }}" class="grid grid-cols-12 gap-2 items-end">
         <div class="col-auto">
             <label for="service_id" class="form-label">Služba</label>
-            <select id="service_id" name="service_id" class="form-select" onchange="this.form.submit()">
+            <select id="service_id" name="service_id" class="form-select" data-auto-submit>
                 <option value="">Vyberte službu</option>
                 @foreach ($services as $service)
                     <option value="{{ $service->id }}" @selected(request('service_id') == $service->id)>

@@ -43,6 +43,21 @@ class SendWeeklyDigestCommand extends Command
                     return;
                 }
 
+                /*
+                 | Audit I127. `digest_frequency` had a settings screen and a
+                 | database column, and nothing ever read it — a customer who
+                 | picked "never" kept receiving the digest every Monday. An
+                 | opt-out that does not opt you out is worse than none, because
+                 | the customer believes they have already handled it.
+                 |
+                 | The digest type in the notification catalogue is the other,
+                 | coarser control; this is the explicit per-user choice and it
+                 | wins.
+                 */
+                if ($user->digest_frequency === 'never') {
+                    return;
+                }
+
                 $overdueInvoices = Invoice::query()
                     ->where('customer_id', $customer->id)
                     ->where('status', InvoiceStatus::Overdue)

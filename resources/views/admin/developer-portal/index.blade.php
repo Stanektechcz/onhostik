@@ -47,7 +47,7 @@
                         <td class="small text-muted">{{ $app->created_at->format('d.m.Y') }}</td>
                         <td class="text-right">
                             <form method="POST" action="{{ route('admin.developer.oauth-apps.destroy', $app) }}"
-                                  onsubmit="return confirm('Smazat OAuth aplikaci?')">
+                                  data-confirm="Smazat OAuth aplikaci?">
                                 @csrf @method('DELETE')
                                 <button class="btn btn-xs btn-sm btn-outline-danger">Smazat</button>
                             </form>

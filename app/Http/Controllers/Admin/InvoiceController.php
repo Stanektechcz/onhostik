@@ -173,11 +173,19 @@ class InvoiceController extends Controller
     }
 
     /** Stream invoices as CSV for accounting/export. */
-    public function export(Request $request): StreamedResponse
+    /** Column headers shared by every export format. */
+    private const EXPORT_HEADERS = [
+        'Číslo faktury', 'Typ', 'Status', 'Datum vystavení', 'Splatnost',
+        'Datum platby', 'Zákazník', 'E-mail', 'IČO', 'DIČ',
+        'Základ', 'DPH', 'Celkem', 'Měna',
+    ];
+
+    public function export(Request $request): StreamedResponse|Response
     {
         $status    = $request->string('status')->toString();
         $dateFrom  = $request->string('from')->toString();
         $dateTo    = $request->string('to')->toString();
+        $format    = $request->string('format')->toString();
 
         $query = Invoice::query()
             ->with('customer')
@@ -185,6 +193,10 @@ class InvoiceController extends Controller
             ->when($dateFrom !== '', fn ($q) => $q->whereDate('issue_date', '>=', $dateFrom))
             ->when($dateTo !== '', fn ($q) => $q->whereDate('issue_date', '<=', $dateTo))
             ->orderBy('id');
+
+        if ($format === 'xlsx') {
+            return $this->exportXlsx($query);
+        }
 
         $filename = 'faktury-' . now()->format('Y-m-d') . '.csv';
 
@@ -196,11 +208,7 @@ class InvoiceController extends Controller
 
             fprintf($out, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
 
-            fputcsv($out, [
-                'Číslo faktury', 'Typ', 'Status', 'Datum vystavení', 'Splatnost',
-                'Datum platby', 'Zákazník', 'E-mail', 'IČO', 'DIČ',
-                'Základ', 'DPH', 'Celkem', 'Měna',
-            ], ';');
+            fputcsv($out, self::EXPORT_HEADERS, ';');
 
             $query->chunk(200, function ($invoices) use ($out): void {
                 foreach ($invoices as $invoice) {
@@ -229,6 +237,51 @@ class InvoiceController extends Controller
         }, $filename, [
             'Content-Type'        => 'text/csv; charset=UTF-8',
             'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ]);
+    }
+
+    /**
+     * Same data as the CSV export, as a real spreadsheet (audit D63).
+     *
+     * Amounts go out as numbers so the accountant can sum them without
+     * re-typing; identifiers (invoice number, IČO, DIČ) stay text so leading
+     * zeros survive and long digit strings are not mangled into scientific
+     * notation.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<Invoice>  $query
+     */
+    private function exportXlsx(\Illuminate\Database\Eloquent\Builder $query): Response
+    {
+        $rows = [];
+
+        $query->chunk(200, function ($invoices) use (&$rows): void {
+            foreach ($invoices as $invoice) {
+                $rows[] = [
+                    (string) $invoice->number,
+                    $invoice->type->label(),
+                    $invoice->status->label(),
+                    $invoice->issue_date?->format('d.m.Y') ?? '',
+                    $invoice->due_date?->format('d.m.Y') ?? '',
+                    $invoice->paid_at?->format('d.m.Y') ?? '',
+                    $invoice->customer->company_name ?: ($invoice->snapshot_name ?: ''),
+                    (string) $invoice->customer->email,
+                    (string) ($invoice->customer->registration_number ?: ''),
+                    (string) ($invoice->customer->vat_number ?: ''),
+                    $invoice->subtotal->getMinorAmount()->toInt() / 100,
+                    $invoice->tax_amount->getMinorAmount()->toInt() / 100,
+                    $invoice->total->getMinorAmount()->toInt() / 100,
+                    $invoice->total->getCurrency()->getCurrencyCode(),
+                ];
+            }
+        });
+
+        $filename = 'faktury-' . now()->format('Y-m-d') . '.xlsx';
+        $binary   = \App\Domains\Shared\Support\XlsxWriter::build(self::EXPORT_HEADERS, $rows, 'Faktury');
+
+        return response($binary, 200, [
+            'Content-Type'        => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+            'Content-Length'      => (string) strlen($binary),
         ]);
     }
 

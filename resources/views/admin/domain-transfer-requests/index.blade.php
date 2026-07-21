@@ -21,7 +21,9 @@
                     @forelse($requests as $transferRequest)
                     <tr>
                         <td>{{ $transferRequest->customer?->name ?? '—' }}</td>
-                        <td>{{ $transferRequest->domain }}</td>
+                        {{-- Column is domain_name; `domain` rendered blank, so the
+                             admin could not tell which domain a request was for. --}}
+                        <td class="f-w-500">{{ $transferRequest->domain_name }}</td>
                         <td>
                             @php
                                 $badgeClass = match($transferRequest->status) {

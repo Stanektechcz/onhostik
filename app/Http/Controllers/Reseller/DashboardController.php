@@ -73,15 +73,85 @@ class DashboardController extends Controller
             ->limit(8)
             ->get();
 
+        /*
+         | K149 — MRR and margin.
+         |
+         | MRR is normalised recurring revenue: a service billed annually
+         | contributes a twelfth of its price each month, so a portfolio mixing
+         | monthly and annual plans is comparable at a glance. It is derived
+         | from ACTIVE services (what will bill next month), not from historical
+         | invoices (what already billed).
+         |
+         | Margin is the reseller's cut — the markup they charge on top of the
+         | wholesale price — expressed against that MRR.
+         */
+        [$mrrMinor, $marginMinor] = $this->recurringMetrics($customerIds, $profile);
+
         return view('reseller.dashboard', [
             'profile'         => $profile,
             'user'            => $user,
             'customerCount'   => $customerCount,
             'orderCount'      => $orderCount,
             'revenueMinor'    => $revenueMinor,
+            'mrrMinor'        => $mrrMinor,
+            'marginMinor'     => $marginMinor,
             'chartLabels'     => $chartLabels->values(),
             'chartRevenue'    => $chartRevenue,
             'recentCustomers' => $recentCustomers,
         ]);
+    }
+
+    /**
+     * Monthly-recurring revenue and reseller margin, in minor units.
+     *
+     * MRR normalises every active service to a monthly figure: an annual plan
+     * counts as a twelfth of its price per month. That makes a portfolio of
+     * mixed billing cycles comparable, which a raw "sum of invoices" cannot.
+     *
+     * Margin is the slice the reseller keeps — the difference between what the
+     * end customer pays (the order-item price) and the wholesale base price,
+     * summed across the same active services.
+     *
+     * @param  list<int>  $customerIds
+     * @return array{0: int, 1: int}
+     */
+    private function recurringMetrics(array $customerIds, ResellerProfile $profile): array
+    {
+        if ($customerIds === []) {
+            return [0, 0];
+        }
+
+        $services = \App\Domains\Provisioning\Models\Service::query()
+            ->whereIn('customer_id', $customerIds)
+            ->where('status', \App\Domains\Provisioning\Enums\ServiceStatus::Active->value)
+            ->with(['orderItem.pricingPlan'])
+            ->get();
+
+        $mrrMinor    = 0;
+        $marginMinor = 0;
+
+        foreach ($services as $service) {
+            $item = $service->orderItem;
+            $plan = $item?->pricingPlan;
+
+            if ($item === null || $plan === null) {
+                continue;
+            }
+
+            $months = max(1, $plan->billing_cycle->months());
+
+            $chargedMinor = $item->unit_price->getMinorAmount()->toInt();
+
+            // Base wholesale price in the same currency the customer was billed.
+            $currency = \App\Domains\Shared\Enums\Currency::from((string) $item->currency);
+            $baseMinor = $plan->supportsCurrency($currency)
+                ? $plan->priceFor($currency)->getMinorAmount()->toInt()
+                : $chargedMinor;
+
+            $mrrMinor    += intdiv($chargedMinor, $months);
+            $marginMinor += intdiv(max(0, $chargedMinor - $baseMinor), $months);
+        }
+
+        return [$mrrMinor, $marginMinor];
     }
 }

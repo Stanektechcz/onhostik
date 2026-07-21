@@ -59,7 +59,7 @@
                                    class="btn btn-xs btn-outline-success">Stáhnout</a>
                             @endif
                             <form action="{{ route('admin.exports.destroy', $job) }}" method="POST" class="inline"
-                                  onsubmit="return confirm('Smazat export?')">
+                                  data-confirm="Smazat export?">
                                 @csrf @method('DELETE')
                                 <button class="btn btn-xs btn-outline-danger">Smazat</button>
                             </form>

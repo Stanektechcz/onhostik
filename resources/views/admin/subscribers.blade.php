@@ -81,7 +81,7 @@
                                     </button>
                                 </form>
                                 <form method="POST" action="{{ route('admin.subscribers.destroy', $sub) }}"
-                                      onsubmit="return confirm('Smazat odběratele {{ $sub->email }}?')">
+                                      data-confirm="Smazat odběratele {{ $sub->email }}?">
                                     @csrf @method('DELETE')
                                     <button type="submit" class="btn btn-outline-danger btn-xs">
                                         <i data-feather="trash-2" style="width:11px;height:11px;"></i>

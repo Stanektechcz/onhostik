@@ -134,7 +134,7 @@
                                 </td>
                                 <td>
                                     <form method="POST" action="{{ route('admin.portal-announcements.destroy', $announcement) }}"
-                                        onsubmit="return confirm('Smazat oznámení?')">
+                                        data-confirm="Smazat oznámení?">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="btn btn-xs btn-outline-danger">Smazat</button>

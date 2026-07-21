@@ -63,7 +63,7 @@
                                        placeholder="např. PARTNER01">
                                 @if($isNew)
                                     <button type="button" class="btn btn-outline-secondary"
-                                            onclick="generateCode()">
+                                            data-call="generateCode">
                                         <i data-feather="refresh-cw" style="width:13px;height:13px;"></i>
                                         Generovat
                                     </button>
@@ -167,7 +167,7 @@
                         <input type="text" id="ref-url-preview" class="form-control f-12"
                                value="{{ url('/') }}?ref={{ $partner->referral_code }}" readonly>
                         <button class="btn btn-outline-primary" type="button"
-                                onclick="navigator.clipboard.writeText(document.getElementById('ref-url-preview').value)">
+                                data-copy="#ref-url-preview">
                             <i data-feather="copy" style="width:13px;height:13px;"></i>
                         </button>
                     </div>
@@ -179,7 +179,7 @@
 </div>
 
 @if($isNew)
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 async function generateCode() {
     try {
         const r = await fetch('{{ route('admin.partners.generate-code') }}');

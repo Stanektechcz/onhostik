@@ -13,6 +13,9 @@ use Illuminate\Support\Facades\Session;
 
 class ImpersonateController extends Controller
 {
+    /** How long an impersonation session may stay open. */
+    public const MAX_MINUTES = 30;
+
     public function start(User $user): RedirectResponse
     {
         $admin = Auth::user();
@@ -28,6 +31,9 @@ class ImpersonateController extends Controller
 
         Session::put('_impersonated_by', $admin->id);
         Session::put('_impersonating_as', $user->id);
+        // Time-boxed (audit G98): an impersonation session left open is an
+        // admin-privileged login sitting on a customer account indefinitely.
+        Session::put('_impersonation_expires_at', now()->addMinutes(self::MAX_MINUTES)->timestamp);
 
         Auth::loginUsingId($user->id);
 
@@ -49,6 +55,7 @@ class ImpersonateController extends Controller
     {
         $adminId = Session::pull('_impersonated_by');
         Session::forget('_impersonating_as');
+        Session::forget('_impersonation_expires_at');
 
         if (!$adminId) {
             return redirect()->route('panel.dashboard');

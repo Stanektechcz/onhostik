@@ -53,6 +53,7 @@ use Spatie\Activitylog\Traits\LogsActivity;
  */
 class Invoice extends Model
 {
+    use \App\Models\Concerns\HasEntityNotes;
     /** @use HasFactory<\Database\Factories\InvoiceFactory> */
     use HasFactory;
     use HasUuid;

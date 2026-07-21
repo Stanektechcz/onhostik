@@ -19,7 +19,7 @@
                     {{ session('new_token') }}
                 </code>
                 <button class="btn btn-sm btn-outline-success"
-                        onclick="navigator.clipboard.writeText('{{ session('new_token') }}');this.textContent='Zkopírováno!'">
+                        data-copy-text="{{ session('new_token') }}">
                     Kopírovat
                 </button>
             </div>
@@ -35,7 +35,7 @@
                     {{ session('new_secret') }}
                 </code>
                 <button class="btn btn-sm btn-outline-warning"
-                        onclick="navigator.clipboard.writeText('{{ session('new_secret') }}');this.textContent='Zkopírováno!'">
+                        data-copy-text="{{ session('new_secret') }}">
                     Kopírovat
                 </button>
             </div>
@@ -63,7 +63,7 @@
                                 </div>
                             </div>
                             <form method="POST" action="{{ route('panel.account.api-tokens.destroy', $token->id) }}"
-                                  onsubmit="return confirm('Smazat token?')">
+                                  data-confirm="Smazat token?">
                                 @csrf @method('DELETE')
                                 <button class="btn btn-sm btn-outline-danger">Zrušit</button>
                             </form>
@@ -133,12 +133,12 @@
                                 <form method="POST" action="{{ route('panel.developer.oauth-apps.regen', $app) }}">
                                     @csrf @method('PATCH')
                                     <button class="btn btn-xs btn-outline-warning btn-sm"
-                                            onclick="return confirm('Obnovit secret? Starý přestane fungovat.')">
+                                            data-confirm="Obnovit secret? Starý přestane fungovat.">
                                         Obnovit secret
                                     </button>
                                 </form>
                                 <form method="POST" action="{{ route('panel.developer.oauth-apps.destroy', $app) }}"
-                                      onsubmit="return confirm('Smazat aplikaci?')">
+                                      data-confirm="Smazat aplikaci?">
                                     @csrf @method('DELETE')
                                     <button class="btn btn-xs btn-outline-danger btn-sm">Smazat</button>
                                 </form>

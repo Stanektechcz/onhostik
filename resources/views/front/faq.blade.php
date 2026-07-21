@@ -174,7 +174,7 @@
 @endsection
 
 @push('scripts')
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 /* Antler showSingle/gocheck sidebar category filter */
 (function() {
     var allLinks = document.querySelectorAll('.gocheck');

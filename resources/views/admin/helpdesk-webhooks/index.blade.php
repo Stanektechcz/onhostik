@@ -126,7 +126,7 @@
                                         <form method="POST"
                                               action="{{ route('admin.helpdesk-webhooks.destroy', $wh) }}"
                                               class="inline"
-                                              onsubmit="return confirm('Smazat webhook?')">
+                                              data-confirm="Smazat webhook?">
                                             @csrf @method('DELETE')
                                             <button type="submit" class="btn btn-outline-danger btn-xs">×</button>
                                         </form>

@@ -22,6 +22,36 @@
 
   @include('panel.partials.onboarding-checklist')
 
+  {{-- ── O189: one-glance service health ─────────────────────────────────── --}}
+  @if(($serviceHealth['total'] ?? 0) > 0)
+    @php
+      $health = $serviceHealth;
+      $verdictMeta = [
+        'ok'        => ['color' => 'success', 'icon' => 'check-circle',  'label' => 'Vše v pořádku'],
+        'attention' => ['color' => 'warning', 'icon' => 'alert-triangle','label' => 'Vyžaduje pozornost'],
+        'critical'  => ['color' => 'danger',  'icon' => 'alert-octagon', 'label' => 'Kritický stav'],
+      ][$health['verdict']] ?? ['color' => 'secondary', 'icon' => 'server', 'label' => 'Stav služeb'];
+    @endphp
+    <div class="card mb-3">
+      <div class="card-body py-3">
+        <div class="flex items-center gap-3 flex-wrap">
+          <span class="badge badge-light-{{ $verdictMeta['color'] }} flex items-center gap-2 f-14 px-3 py-2">
+            <i data-feather="{{ $verdictMeta['icon'] }}" style="width:16px;height:16px;"></i>
+            {{ $verdictMeta['label'] }}
+          </span>
+          <div class="flex items-center gap-3 f-13 f-light flex-wrap">
+            <span><strong class="txt-success">{{ $health['active'] }}</strong> aktivních</span>
+            @if($health['pending'] > 0)<span><strong>{{ $health['pending'] }}</strong> se zřizuje</span>@endif
+            @if($health['suspended'] > 0)<span><strong class="txt-warning">{{ $health['suspended'] }}</strong> pozastaveno</span>@endif
+            @if($health['failed'] > 0)<span><strong class="txt-danger">{{ $health['failed'] }}</strong> selhalo</span>@endif
+            @if($health['open_incidents'] > 0)<span><strong class="txt-danger">{{ $health['open_incidents'] }}</strong> otevřených incidentů</span>@endif
+          </div>
+          <a href="{{ route('panel.services.index') }}" class="btn btn-outline-primary btn-sm ms-auto">Moje služby</a>
+        </div>
+      </div>
+    </div>
+  @endif
+
   {{-- ── Urgent alert strip ──────────────────────────────────────────────── --}}
   @php
     $criticalRenewals = $upcomingRenewals->filter(fn($s) => (int) now()->diffInDays($s->next_due_date, false) <= 3);
@@ -662,7 +692,7 @@
 <script src="{{ asset('panel/js/clock.js') }}"></script>
 <script src="{{ asset('panel/js/chart/apex-chart/apex-chart.js') }}"></script>
 <script src="{{ asset('panel/js/counter/counter-custom.js') }}"></script>
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 (function () {
   // ── 3. visitor_chart — orders per month ──────────────────────────────
   new ApexCharts(document.querySelector("#visitor_chart"), {

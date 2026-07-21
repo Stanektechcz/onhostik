@@ -246,7 +246,7 @@
                         </p>
                         @error('service')<div class="alert alert-danger py-1 px-2 mb-2 f-12">{{ $message }}</div>@enderror
                         <form method="POST" action="{{ route('admin.services.manual-renewal', $service) }}"
-                              onsubmit="return confirm('{{ __('panel.admin.manual_renewal_confirm') }}')">
+                              data-confirm="{{ __('panel.admin.manual_renewal_confirm') }}">
                             @csrf
                             <button type="submit" class="btn btn-outline-success btn-sm">
                                 <i data-feather="file-plus" style="width:13px;height:13px"></i>
@@ -419,6 +419,294 @@
 
                 {{-- Phase 272: live status from the backend panel --}}
                 @if($service->provisioning_driver !== null)
+                    {{-- Full aaPanel-parity configuration: same surface the panel itself offers --}}
+                    @if(($hostingConfig['supported'] ?? false) === true)
+                        @php
+                            $cfg = $hostingConfig;
+                        @endphp
+                        <x-panel.card title="Konfigurace webhostingu (aaPanel)" :subtitle="$cfg['site']">
+                            @if($cfg['dry_run'])
+                                <div class="alert alert-light-warning f-12 mb-3">
+                                    Integrace je v mock/dry-run režimu — zobrazená data jsou simulovaná a změny se do panelu nezapíší.
+                                </div>
+                            @endif
+
+                            {{-- PHP version: options come from the panel, never a hardcoded list --}}
+                            <h6 class="f-14 mb-2">PHP verze</h6>
+                            @if($cfg['php']['error'])
+                                <div class="alert alert-light-danger f-12">Nelze načíst verze PHP: {{ $cfg['php']['error'] }}</div>
+                            @else
+                                <form method="POST" action="{{ route('admin.services.php-version', $service) }}" class="flex gap-2 items-end mb-3">
+                                    @csrf
+                                    <div>
+                                        <select name="php_version" class="form-select form-select-sm">
+                                            @foreach($cfg['php']['available'] as $ver => $label)
+                                                <option value="{{ $ver }}" @selected($cfg['php']['current'] === $ver)>{{ $label }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <button type="submit" class="btn btn-outline-primary btn-sm">Změnit PHP</button>
+                                    <span class="f-light f-12">Aktuálně: {{ $cfg['php']['current'] ?? '—' }}</span>
+                                </form>
+                            @endif
+
+                            {{-- SSL --}}
+                            <h6 class="f-14 mb-2 border-top pt-3">SSL certifikát</h6>
+                            @if($cfg['ssl']['error'])
+                                <div class="alert alert-light-danger f-12">Nelze načíst stav SSL: {{ $cfg['ssl']['error'] }}</div>
+                            @else
+                                <div class="flex items-center gap-2 mb-3">
+                                    <span class="badge {{ $cfg['ssl']['active'] ? 'badge-light-success' : 'badge-light-secondary' }}">
+                                        {{ $cfg['ssl']['active'] ? 'Aktivní' : 'Nevydáno' }}
+                                    </span>
+                                    <form method="POST" action="{{ route('admin.services.config', $service) }}">
+                                        @csrf
+                                        <input type="hidden" name="action" value="issue_ssl">
+                                        <button type="submit" class="btn btn-outline-primary btn-xs">
+                                            {{ $cfg['ssl']['active'] ? 'Obnovit certifikát' : 'Vydat certifikát' }}
+                                        </button>
+                                    </form>
+                                </div>
+                            @endif
+
+                            {{-- Databases --}}
+                            <h6 class="f-14 mb-2 border-top pt-3">Databáze</h6>
+                            @if($cfg['databases']['error'])
+                                <div class="alert alert-light-danger f-12">Nelze načíst databáze: {{ $cfg['databases']['error'] }}</div>
+                            @elseif(count($cfg['databases']['items']) === 0)
+                                <p class="f-light f-12">Zatím žádná databáze.</p>
+                            @else
+                                <div class="table-responsive theme-scrollbar mb-2">
+                                    <table class="table table-sm">
+                                        <thead><tr><th>Název</th><th>Uživatel</th><th></th></tr></thead>
+                                        <tbody>
+                                        @foreach($cfg['databases']['items'] as $db)
+                                            <tr>
+                                                <td class="f-w-500">{{ $db['name'] ?? '—' }}</td>
+                                                <td>{{ $db['username'] ?? '—' }}</td>
+                                                <td class="text-right">
+                                                    <form method="POST" action="{{ route('admin.services.config', $service) }}"
+                                                          data-confirm="Smazat databázi {{ $db['name'] ?? '' }}? Data budou nenávratně ztracena.">
+                                                        @csrf
+                                                        <input type="hidden" name="action" value="delete_database">
+                                                        <input type="hidden" name="name" value="{{ $db['name'] ?? '' }}">
+                                                        <button type="submit" class="btn btn-outline-danger btn-xs">Smazat</button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @endif
+                            <form method="POST" action="{{ route('admin.services.config', $service) }}" class="flex gap-2 items-end mb-3">
+                                @csrf
+                                <input type="hidden" name="action" value="create_database">
+                                <div><label class="form-label f-12 mb-1">Název</label>
+                                    <input type="text" name="name" class="form-control form-control-sm" placeholder="web_db" required></div>
+                                <div><label class="form-label f-12 mb-1">Uživatel</label>
+                                    <input type="text" name="username" class="form-control form-control-sm" placeholder="web_user" required></div>
+                                <button type="submit" class="btn btn-outline-primary btn-sm">Vytvořit databázi</button>
+                            </form>
+
+                            {{-- FTP accounts --}}
+                            <h6 class="f-14 mb-2 border-top pt-3">FTP účty</h6>
+                            @if($cfg['ftp']['error'])
+                                <div class="alert alert-light-danger f-12">Nelze načíst FTP účty: {{ $cfg['ftp']['error'] }}</div>
+                            @elseif(count($cfg['ftp']['items']) === 0)
+                                <p class="f-light f-12">Zatím žádný FTP účet.</p>
+                            @else
+                                <div class="table-responsive theme-scrollbar mb-2">
+                                    <table class="table table-sm">
+                                        <thead><tr><th>Uživatel</th><th>Cesta</th><th></th></tr></thead>
+                                        <tbody>
+                                        @foreach($cfg['ftp']['items'] as $ftp)
+                                            <tr>
+                                                <td class="f-w-500">{{ $ftp['name'] ?? '—' }}</td>
+                                                <td class="f-12">{{ $ftp['path'] ?? '—' }}</td>
+                                                <td class="text-right">
+                                                    <form method="POST" action="{{ route('admin.services.config', $service) }}"
+                                                          data-confirm="Smazat FTP účet {{ $ftp['name'] ?? '' }}?">
+                                                        @csrf
+                                                        <input type="hidden" name="action" value="delete_ftp">
+                                                        <input type="hidden" name="username" value="{{ $ftp['name'] ?? '' }}">
+                                                        <button type="submit" class="btn btn-outline-danger btn-xs">Smazat</button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @endif
+                            <form method="POST" action="{{ route('admin.services.config', $service) }}" class="flex gap-2 items-end mb-3">
+                                @csrf
+                                <input type="hidden" name="action" value="create_ftp">
+                                <div><label class="form-label f-12 mb-1">Uživatel</label>
+                                    <input type="text" name="username" class="form-control form-control-sm" placeholder="web_ftp" required></div>
+                                <div><label class="form-label f-12 mb-1">Cesta (nepovinné)</label>
+                                    <input type="text" name="path" class="form-control form-control-sm" placeholder="/www/wwwroot/{{ $cfg['site'] }}"></div>
+                                <button type="submit" class="btn btn-outline-primary btn-sm">Vytvořit FTP</button>
+                            </form>
+
+                            {{-- Mailboxes (needs aaPanel's mail_sys plugin) --}}
+                            <h6 class="f-14 mb-2 border-top pt-3">E-mailové schránky</h6>
+                            @if($cfg['mailboxes']['error'])
+                                <div class="alert alert-light-warning f-12">
+                                    Schránky nelze načíst: {{ $cfg['mailboxes']['error'] }}
+                                    <br><span class="f-11">Vyžaduje v aaPanelu nainstalovaný plugin „Mail Server".</span>
+                                </div>
+                            @elseif(count($cfg['mailboxes']['items']) === 0)
+                                <p class="f-light f-12">Zatím žádná schránka.</p>
+                            @else
+                                <div class="table-responsive theme-scrollbar mb-2">
+                                    <table class="table table-sm">
+                                        <thead><tr><th>Schránka</th><th>Kvóta</th><th></th></tr></thead>
+                                        <tbody>
+                                        @foreach($cfg['mailboxes']['items'] as $box)
+                                            <tr>
+                                                <td class="f-w-500">{{ $box['username'] ?? '—' }}</td>
+                                                <td class="f-12">{{ $box['quota'] ?? '—' }} MB</td>
+                                                <td class="text-right">
+                                                    <form method="POST" action="{{ route('admin.services.config', $service) }}"
+                                                          data-confirm="Smazat schránku {{ $box['username'] ?? '' }}? Veškerá pošta bude ztracena.">
+                                                        @csrf
+                                                        <input type="hidden" name="action" value="delete_mailbox">
+                                                        <input type="hidden" name="username" value="{{ $box['username'] ?? '' }}">
+                                                        <button type="submit" class="btn btn-outline-danger btn-xs">Smazat</button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @endif
+                            <form method="POST" action="{{ route('admin.services.config', $service) }}" class="flex gap-2 items-end flex-wrap mb-3">
+                                @csrf
+                                <input type="hidden" name="action" value="create_mailbox">
+                                <div><label class="form-label f-12 mb-1">Schránka</label>
+                                    <input type="text" name="username" class="form-control form-control-sm" placeholder="info" required></div>
+                                <div><label class="form-label f-12 mb-1">Heslo</label>
+                                    <input type="password" name="password" class="form-control form-control-sm"
+                                           minlength="10" maxlength="128" autocomplete="new-password" required></div>
+                                <div><label class="form-label f-12 mb-1">Kvóta (MB)</label>
+                                    <input type="number" name="quota_mb" class="form-control form-control-sm" value="1024" min="0" style="width:110px"></div>
+                                <button type="submit" class="btn btn-outline-primary btn-sm">Vytvořit schránku</button>
+                            </form>
+
+                            {{-- Cron --}}
+                            <h6 class="f-14 mb-2 border-top pt-3">Cron úlohy</h6>
+                            @if($cfg['cron']['error'])
+                                <div class="alert alert-light-danger f-12">Nelze načíst cron úlohy: {{ $cfg['cron']['error'] }}</div>
+                            @elseif(count($cfg['cron']['items']) === 0)
+                                <p class="f-light f-12">Zatím žádná cron úloha.</p>
+                            @else
+                                <div class="table-responsive theme-scrollbar mb-2">
+                                    <table class="table table-sm">
+                                        <thead><tr><th>Název</th><th>Typ</th><th></th></tr></thead>
+                                        <tbody>
+                                        @foreach($cfg['cron']['items'] as $cron)
+                                            <tr>
+                                                <td class="f-w-500">{{ $cron['name'] ?? '—' }}</td>
+                                                <td class="f-12">{{ $cron['type'] ?? '—' }}</td>
+                                                <td class="text-right">
+                                                    <form method="POST" action="{{ route('admin.services.config', $service) }}"
+                                                          data-confirm="Smazat cron úlohu?">
+                                                        @csrf
+                                                        <input type="hidden" name="action" value="delete_cron">
+                                                        <input type="hidden" name="cron_id" value="{{ $cron['id'] ?? '' }}">
+                                                        <button type="submit" class="btn btn-outline-danger btn-xs">Smazat</button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @endif
+                            <form method="POST" action="{{ route('admin.services.config', $service) }}" class="flex gap-2 items-end flex-wrap">
+                                @csrf
+                                <input type="hidden" name="action" value="create_cron">
+                                <div><label class="form-label f-12 mb-1">Název</label>
+                                    <input type="text" name="name" class="form-control form-control-sm" placeholder="Záloha" required></div>
+                                <div class="grow" style="min-width:220px"><label class="form-label f-12 mb-1">Příkaz</label>
+                                    <input type="text" name="command" class="form-control form-control-sm" placeholder="php /www/wwwroot/{{ $cfg['site'] }}/artisan schedule:run" required></div>
+                                <div><label class="form-label f-12 mb-1">Hodina</label>
+                                    <input type="number" name="hour" class="form-control form-control-sm" value="3" min="0" max="23" style="width:80px"></div>
+                                <div><label class="form-label f-12 mb-1">Minuta</label>
+                                    <input type="number" name="minute" class="form-control form-control-sm" value="0" min="0" max="59" style="width:80px"></div>
+                                <button type="submit" class="btn btn-outline-primary btn-sm">Přidat cron</button>
+                            </form>
+                        </x-panel.card>
+                    @endif
+
+                    {{-- Reconciliation with the backend panel: proves the service really exists there --}}
+                    <x-panel.card title="Synchronizace s panelem">
+                        @php
+                            $syncState = $service->sync_state;
+                        @endphp
+                        <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+                            <div class="flex items-center gap-2">
+                                @if($syncState !== null)
+                                    <span class="badge {{ $syncState->badgeClass() }}">{{ $syncState->label() }}</span>
+                                @else
+                                    <span class="badge badge-light-secondary">Zatím neověřeno</span>
+                                @endif
+                                <span class="f-light f-12">
+                                    @if($service->last_synced_at)
+                                        Ověřeno {{ $service->last_synced_at->format('d.m.Y H:i') }}
+                                    @else
+                                        Služba ještě nebyla proti panelu ověřena.
+                                    @endif
+                                </span>
+                            </div>
+                            <form method="POST" action="{{ route('admin.services.sync-remote', $service) }}">
+                                @csrf
+                                <button type="submit" class="btn btn-outline-primary btn-sm">
+                                    <i data-feather="refresh-cw" style="width:13px;height:13px"></i>
+                                    Ověřit v panelu
+                                </button>
+                            </form>
+                        </div>
+
+                        @if($service->sync_message)
+                            <div class="alert {{ $syncState?->needsAttention() ? 'alert-light-danger' : 'alert-light-success' }} f-12 mb-0">
+                                {{ $service->sync_message }}
+                            </div>
+                        @endif
+
+                        @if($syncState === \App\Domains\Provisioning\Enums\ServiceSyncState::MissingRemote)
+                            <div class="border-top pt-3 mt-3">
+                                <p class="f-12 mb-2">
+                                    Zákazník má službu zaplacenou, ale v panelu neexistuje. Zřiďte ji znovu —
+                                    provisioning je idempotentní, takže duplicitu nevytvoří.
+                                </p>
+                                <form method="POST" action="{{ route('admin.services.reprovision', $service) }}"
+                                      data-confirm="Spustit zřízení služby v panelu?">
+                                    @csrf
+                                    <button type="submit" class="btn btn-primary btn-sm text-white">
+                                        <i data-feather="play" style="width:13px;height:13px"></i>
+                                        Zřídit službu nyní
+                                    </button>
+                                </form>
+                            </div>
+                        @endif
+
+                        <p class="f-light f-11 mb-0 mt-3">
+                            Ověření je pouze čtecí — do panelu nic nezapisuje.
+                        </p>
+
+                        {{-- 56: dry-run preview of what a (re)provision would do --}}
+                        <div class="border-top pt-3 mt-3">
+                            <button type="button" id="provision-preview-btn" class="btn btn-outline-secondary btn-sm">
+                                <i data-feather="eye" style="width:13px;height:13px"></i>
+                                Náhled zřízení (bez zápisu)
+                            </button>
+                            <div id="provision-preview-body" class="mt-2"></div>
+                        </div>
+                    </x-panel.card>
+
                     <x-panel.card title="Živý stav — {{ $service->provisioning_driver->label() }}">
                         <div class="flex items-center gap-2 mb-3">
                             <button type="button" id="live-status-btn" class="btn btn-outline-primary btn-sm">
@@ -450,7 +738,7 @@
                                     </select>
                                 </div>
                                 <button type="submit" class="btn btn-outline-primary btn-sm"
-                                        onclick="return confirm('Změnit PHP verzi webu?')">
+                                        data-confirm="Změnit PHP verzi webu?">
                                     <i data-feather="refresh-cw" style="width:13px;height:13px"></i> Změnit PHP
                                 </button>
                             </form>
@@ -458,13 +746,25 @@
 
                         {{-- Phase 278: game server actions (Pterodactyl) --}}
                         @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::Pterodactyl)
-                            <div class="flex gap-2 flex-wrap mt-3 border-top pt-3">
+                            {{-- Pterodactyl reinstall always resets files to the egg, so
+                                 "zachovat data" means: take a backup first, then reinstall. --}}
+                            <div class="flex gap-2 flex-wrap items-end mt-3 border-top pt-3">
                                 <form method="POST" action="{{ route('admin.services.game-action', $service) }}"
-                                      onsubmit="return confirm('POZOR: Reinstalace smaže všechna data game serveru. Opravdu pokračovat?')">
+                                      data-confirm="Reinstalace přepíše soubory game serveru. Nejprve proběhne záloha. Pokračovat?">
                                     @csrf
                                     <input type="hidden" name="action" value="reinstall">
+                                    <input type="hidden" name="mode" value="backup_first">
+                                    <button type="submit" class="btn btn-outline-primary btn-sm">
+                                        <i data-feather="shield" style="width:13px;height:13px"></i> Reinstalovat se zálohou
+                                    </button>
+                                </form>
+                                <form method="POST" action="{{ route('admin.services.game-action', $service) }}"
+                                      data-confirm="POZOR: Reinstalace bez zálohy smaže všechna data game serveru nenávratně. Opravdu pokračovat?">
+                                    @csrf
+                                    <input type="hidden" name="action" value="reinstall">
+                                    <input type="hidden" name="mode" value="wipe">
                                     <button type="submit" class="btn btn-outline-danger btn-sm">
-                                        <i data-feather="refresh-ccw" style="width:13px;height:13px"></i> Reinstalovat server
+                                        <i data-feather="refresh-ccw" style="width:13px;height:13px"></i> Reinstalovat bez zálohy
                                     </button>
                                 </form>
                             </div>
@@ -497,7 +797,7 @@
                                     </button>
                                 </form>
                                 <form method="POST" action="{{ route('admin.services.vps-action', $service) }}"
-                                      onsubmit="return confirm('Opravdu vypnout VM?')">
+                                      data-confirm="Opravdu vypnout VM?">
                                     @csrf
                                     <input type="hidden" name="action" value="stop">
                                     <button type="submit" class="btn btn-danger btn-sm">
@@ -505,7 +805,7 @@
                                     </button>
                                 </form>
                                 <form method="POST" action="{{ route('admin.services.vps-action', $service) }}"
-                                      onsubmit="return confirm('Opravdu restartovat VM?')">
+                                      data-confirm="Opravdu restartovat VM?">
                                     @csrf
                                     <input type="hidden" name="action" value="restart">
                                     <button type="submit" class="btn btn-warning btn-sm">
@@ -567,7 +867,7 @@
                                                 </td>
                                                 <td class="text-right">
                                                     <form method="POST" action="{{ route('admin.service-firewall-rules.destroy', $rule) }}" class="inline"
-                                                          onsubmit="return confirm('Odstranit pravidlo?')">
+                                                          data-confirm="Odstranit pravidlo?">
                                                         @csrf
                                                         @method('DELETE')
                                                         <button type="submit" class="btn btn-outline-danger btn-xs">
@@ -788,6 +1088,54 @@
                     .catch(() => {
                         btn.disabled = false;
                         body.innerHTML = '<div class="alert alert-light-danger f-12 mb-0">Požadavek selhal.</div>';
+                    });
+                });
+            });
+        </script>
+
+        {{-- 56: provisioning dry-run preview --}}
+        <script nonce="{{ $cspNonce ?? '' }}">
+            document.addEventListener('DOMContentLoaded', function () {
+                const pbtn = document.getElementById('provision-preview-btn');
+                const pbody = document.getElementById('provision-preview-body');
+                if (!pbtn) return;
+
+                const esc = s => String(s ?? '—').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+
+                pbtn.addEventListener('click', function () {
+                    pbtn.disabled = true;
+                    pbody.innerHTML = '<p class="f-light f-12 mb-0">Načítám náhled…</p>';
+
+                    fetch('{{ route('admin.services.provision-preview', $service) }}', {
+                        headers: { 'Accept': 'application/json' }
+                    })
+                    .then(r => r.json())
+                    .then(d => {
+                        pbtn.disabled = false;
+                        const modeBadge = d.mode === 'live'
+                            ? '<span class="badge badge-light-danger">ŽIVÝ ZÁPIS</span>'
+                            : '<span class="badge badge-light-warning">' + esc(d.mode).toUpperCase() + '</span>';
+                        const conn = d.connection_ok === null ? '—'
+                            : (d.connection_ok ? '<span class="font-success">OK</span>' : '<span class="font-danger">selhává</span>');
+                        const srv = d.target_server ? (esc(d.target_server.name) + ' (volných: ' + esc(d.target_server.free_slots) + ')') : '—';
+
+                        let html = '<div class="table-responsive"><table class="table table-sm table-borderless mb-0">';
+                        html += '<tr><td class="f-light f-12 ps-0" style="width:40%">Režim</td><td class="f-12">' + modeBadge + '</td></tr>';
+                        html += '<tr><td class="f-light f-12 ps-0">Driver</td><td class="f-12 f-w-600">' + esc(d.driver) + (d.driver_class ? ' <span class="f-light">(' + esc(d.driver_class) + ')</span>' : '') + '</td></tr>';
+                        html += '<tr><td class="f-light f-12 ps-0">Cílový server</td><td class="f-12 f-w-600">' + srv + '</td></tr>';
+                        html += '<tr><td class="f-light f-12 ps-0">Test spojení</td><td class="f-12">' + conn + '</td></tr>';
+                        html += '</table></div>';
+
+                        if (Array.isArray(d.notes) && d.notes.length) {
+                            html += '<ul class="f-light f-11 mb-0 mt-1" style="padding-left:16px">';
+                            d.notes.forEach(n => { html += '<li>' + esc(n) + '</li>'; });
+                            html += '</ul>';
+                        }
+                        pbody.innerHTML = html;
+                    })
+                    .catch(() => {
+                        pbtn.disabled = false;
+                        pbody.innerHTML = '<div class="alert alert-light-danger f-12 mb-0">Náhled se nepodařilo načíst.</div>';
                     });
                 });
             });

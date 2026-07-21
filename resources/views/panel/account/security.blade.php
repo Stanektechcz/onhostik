@@ -141,7 +141,7 @@
                                         </button>
                                         {{-- Cannot nest <form> inside <form> — use a separate form below --}}
                                         <button type="button" class="btn btn-outline-danger btn-sm"
-                                                onclick="document.getElementById('cancel-2fa-form').submit()">
+                                                data-submit-form="cancel-2fa-form">
                                             Zrušit nastavení
                                         </button>
                                     </div>
@@ -188,7 +188,7 @@
                             </form>
                             {{-- Disable 2FA --}}
                             <form method="POST" action="{{ url('/user/two-factor-authentication') }}"
-                                  onsubmit="return confirm('Opravdu chcete vypnout 2FA? Váš účet bude méně bezpečný.')">
+                                  data-confirm="Opravdu chcete vypnout 2FA? Váš účet bude méně bezpečný.">
                                 @csrf @method('DELETE')
                                 <button type="submit" class="btn btn-outline-danger btn-sm">
                                     <i data-feather="shield-off" style="width:13px;height:13px;"></i>
@@ -337,7 +337,7 @@
                                                 <td class="pe-0 py-2 text-right" style="white-space:nowrap;">
                                                     <form method="POST"
                                                           action="{{ route('panel.account.api-tokens.destroy', $token->id) }}"
-                                                          onsubmit="return confirm('Opravdu chcete odvolat token \'{{ addslashes($token->name) }}\'?')">
+                                                          data-confirm="Opravdu chcete odvolat token \'{{ addslashes($token->name) }}\'?">
                                                         @csrf @method('DELETE')
                                                         <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1">
                                                             <i data-feather="trash-2" style="width:12px;height:12px;"></i>
@@ -419,7 +419,7 @@
                                 <div class="alert alert-danger py-1 px-2 mb-2 f-12">{{ $message }}</div>
                             @enderror
                             <form method="POST" action="{{ route('panel.account.delete-request') }}"
-                                  onsubmit="return confirm('Opravdu chcete požádat o smazání účtu? Tuto akci nelze vzít zpět.')">
+                                  data-confirm="Opravdu chcete požádat o smazání účtu? Tuto akci nelze vzít zpět.">
                                 @csrf
                                 <div class="mb-2">
                                     <input type="text" name="reason" class="form-control form-control-sm"
@@ -442,7 +442,7 @@
 @endsection
 
 @push('scripts')
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 @if($showingQrCode ?? false)
 (function() {
     var csrf = document.querySelector('meta[name="csrf-token"]')?.content ?? '';

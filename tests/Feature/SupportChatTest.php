@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 use App\Domains\Support\Enums\ChatConversationStatus;
 use App\Domains\Support\Models\SupportChatConversation;
+use App\Domains\Support\Models\SupportTicket;
 use App\Domains\Support\Services\SupportChatService;
+use App\Notifications\ChatEscalatedNotification;
 use Database\Seeders\IntegrationSeeder;
 use Database\Seeders\MockServerSeeder;
 use Database\Seeders\ProductCatalogSeeder;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Database-backed support chat: AI bot turns are persisted, the customer can
@@ -116,4 +121,60 @@ it('forbids a customer from the admin chat inbox', function (): void {
     $this->actingAs(customerUser())
         ->get(route('admin.chat.index'))
         ->assertForbidden();
+});
+
+// ── Phase B extensions ──────────────────────────────────────────────────────────
+
+it('notifies operators when a chat is escalated', function (): void {
+    Notification::fake();
+    $admin = adminUser(); // ensures the admin role exists + a recipient
+    $user  = customerUser();
+
+    app(SupportChatService::class)->escalate(app(SupportChatService::class)->openConversationFor($user));
+
+    Notification::assertSentTo($admin, ChatEscalatedNotification::class);
+});
+
+it('converts a conversation into a support ticket with the transcript', function (): void {
+    $user = customerUser();
+    $chat = app(SupportChatService::class);
+    $conversation = $chat->openConversationFor($user);
+    $chat->userMessage($conversation, 'Web nefunguje', $user);
+    $chat->botMessage($conversation, 'Zkontrolujte prosím…');
+
+    $this->actingAs(adminUser())
+        ->post(route('admin.chat.to-ticket', $conversation))
+        ->assertRedirect();
+
+    $ticket = SupportTicket::where('customer_id', $user->customer->id)->latest('id')->firstOrFail();
+    expect($ticket->subject)->toContain('Web nefunguje')
+        ->and($ticket->messages()->count())->toBe(2)
+        ->and($conversation->fresh()->status)->toBe(ChatConversationStatus::Closed);
+});
+
+it('lets a customer attach a file to the chat and download it', function (): void {
+    Storage::fake('local');
+    $user = customerUser();
+
+    $response = $this->actingAs($user)
+        ->post(route('panel.ai.upload'), ['file' => UploadedFile::fake()->image('screenshot.png')])
+        ->assertOk()
+        ->assertJsonPath('meta.attachment.name', 'screenshot.png');
+
+    $messageId = $response->json('id');
+
+    // Owner can download.
+    $this->actingAs($user)->get(route('panel.ai.attachment', $messageId))->assertOk();
+
+    // A different customer cannot.
+    $this->actingAs(customerUser())->get(route('panel.ai.attachment', $messageId))->assertForbidden();
+});
+
+it('rejects an over-sized or disallowed attachment', function (): void {
+    Storage::fake('local');
+    $user = customerUser();
+
+    $this->actingAs($user)
+        ->post(route('panel.ai.upload'), ['file' => UploadedFile::fake()->create('malware.exe', 100)])
+        ->assertSessionHasErrors('file');
 });

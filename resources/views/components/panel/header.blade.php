@@ -108,7 +108,7 @@
                                 <div class="toast-body p-3"><p class="f-light f-12 mb-0">Načítání…</p></div>
                             </li>
                             <li class="notif-actions">
-                                <button class="btn btn-primary btn-xs text-white" id="notif-mark-all-btn" onclick="markAllNotifRead()">
+                                <button class="btn btn-primary btn-xs text-white" id="notif-mark-all-btn" data-call="markAllNotifRead">
                                     Označit vše přečtené
                                 </button>
                                 <a href="{{ route('panel.notifications.index') }}" class="btn btn-outline-primary btn-xs">
@@ -119,11 +119,16 @@
                     </div>
                 </li>
 
-                {{-- Dark mode --}}
+                {{-- Dark mode — persisted per user (N176). The delegated
+                     handler in layouts/panel.blade.php flips body.dark-only
+                     immediately and posts to remember the choice. --}}
                 <li>
-                    <div class="mode">
+                    <button type="button" class="mode" id="dark-mode-toggle"
+                            aria-label="Přepnout tmavý režim"
+                            aria-pressed="{{ auth()->user()?->dark_mode ? 'true' : 'false' }}"
+                            data-dark-toggle="{{ route('panel.account.dark-mode.toggle') }}">
                         <svg><use href="{{ asset('panel/svg/icon-sprite.svg') }}#moon"></use></svg>
-                    </div>
+                    </button>
                 </li>
 
                 {{-- Profile — Cuba .profile-media > .profile-content --}}

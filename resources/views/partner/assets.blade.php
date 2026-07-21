@@ -43,7 +43,7 @@
                         <input type="text" class="form-control f-w-500" id="referral-url"
                                value="{{ $referralUrl }}" readonly>
                         <button class="btn btn-primary" type="button" id="copy-url-btn"
-                                onclick="onhostCopy('referral-url', this)">
+                                data-call="onhostCopy" data-call-args='["referral-url"]'>
                             <i data-feather="copy" style="width:14px;height:14px;"></i>
                             Kopírovat URL
                         </button>
@@ -54,7 +54,7 @@
                         <input type="text" class="form-control f-w-600" id="referral-code"
                                value="{{ $referralCode }}" readonly style="max-width:200px;">
                         <button class="btn btn-outline-primary" type="button"
-                                onclick="onhostCopy('referral-code', this)">
+                                data-call="onhostCopy" data-call-args='["referral-code"]'>
                             <i data-feather="copy" style="width:14px;height:14px;"></i>
                             Kopírovat kód
                         </button>
@@ -85,41 +85,79 @@
                         </li>
                         <li class="flex justify-between py-2 border-bottom">
                             <span class="f-light f-14">Sazba provize</span>
-                            <span class="f-w-600">Kontaktujte nás <span class="badge badge-light-warning">MANUAL</span></span>
+                            @if($commissionRate !== null)
+                                <span class="f-w-600">{{ rtrim(rtrim(number_format($commissionRate, 2, ',', ' '), '0'), ',') }} %</span>
+                            @else
+                                <span class="f-light">Kontaktujte nás</span>
+                            @endif
                         </li>
                         <li class="flex justify-between py-2 border-bottom">
                             <span class="f-light f-14">Výplatní cyklus</span>
-                            <span class="f-light">Měsíční <span class="badge badge-light-warning">MANUAL</span></span>
+                            <span class="f-light">Měsíční (manuální)</span>
                         </li>
                         <li class="flex justify-between py-2">
-                            <span class="f-light f-14">Sledování konverzí</span>
-                            <span class="badge badge-light-warning">PŘIPRAVUJEME</span>
+                            <span class="f-light f-14">Sledované referraly</span>
+                            <span class="f-w-600">
+                                {{ $referralCount }}
+                                @if($convertedCount > 0)
+                                    <span class="badge badge-light-success ms-1">{{ $convertedCount }} konverzí</span>
+                                @endif
+                            </span>
                         </li>
                     </ul>
                 </div>
             </div>
         </div>
 
-        {{-- Banner materials --}}
+        {{-- 112: Referral banners --}}
         <div class="col-span-12">
             <div class="card">
                 <div class="card-header card-no-border pb-0">
                     <div class="header-top">
-                        <h5>Propagační materiály</h5>
-                        <div class="card-header-right-icon">
-                            <span class="badge badge-light-warning">PŘIPRAVUJEME</span>
-                        </div>
+                        <h5>Propagační bannery</h5>
                     </div>
                 </div>
                 <div class="card-body">
-                    <div class="text-center py-4">
-                        <i data-feather="image" style="width:40px;height:40px;" class="text-muted mb-3"></i>
-                        <h6 class="f-light mt-2">Bannery a grafické materiály</h6>
-                        <p class="f-light f-12 mb-0">
-                            Připravujeme sadu bannerů, logotypů a marketingových textů pro partnerský program.
-                            Dostupné v dalším vydání.
+                    @if(count($banners) === 0)
+                        <div class="text-center py-4">
+                            <i data-feather="image" style="width:40px;height:40px;" class="text-muted mb-3"></i>
+                            <p class="f-light f-12 mb-0">Bannery budou dostupné po aktivaci partnerského profilu.</p>
+                        </div>
+                    @else
+                        <p class="f-light f-12 mb-3">
+                            Vložte kód banneru na svůj web. Každý banner už obsahuje váš referral odkaz —
+                            kliknutí návštěvníka se počítá do vašich provizí.
                         </p>
-                    </div>
+                        <div class="grid grid-cols-12 gap-3">
+                            @foreach($banners as $i => $banner)
+                                <div class="col-span-12 md:col-span-6">
+                                    <div class="border rounded p-3 h-full">
+                                        <div class="flex justify-between items-center mb-2">
+                                            <span class="f-w-600 f-12">{{ $banner['label'] }}</span>
+                                            <span class="badge badge-light-secondary">{{ $banner['size'] }}</span>
+                                        </div>
+                                        <div class="overflow-x-auto mb-2" style="background:#f6f6f8;border-radius:6px;padding:8px;text-align:center;">
+                                            <div style="display:inline-block;max-width:100%;">{!! $banner['svg'] !!}</div>
+                                        </div>
+                                        <label class="form-label f-11 f-light mb-1">Kód pro vložení</label>
+                                        <textarea class="form-control form-control-sm f-11 font-monospace mb-2" id="embed-{{ $i }}" rows="2" readonly>{{ $banner['embed'] }}</textarea>
+                                        <div class="flex gap-2">
+                                            <button class="btn btn-outline-primary btn-sm" type="button"
+                                                    data-call="onhostCopy" data-call-args='["embed-{{ $i }}"]'>
+                                                <i data-feather="copy" style="width:13px;height:13px;"></i>
+                                                Kopírovat kód
+                                            </button>
+                                            <a class="btn btn-outline-secondary btn-sm" download="onhost-banner-{{ $banner['size'] }}.svg"
+                                               href="{{ $banner['download'] }}">
+                                                <i data-feather="download" style="width:13px;height:13px;"></i>
+                                                Stáhnout SVG
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
                 </div>
             </div>
         </div>
@@ -127,7 +165,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 function onhostCopy(inputId, btn) {
     const el = document.getElementById(inputId);
     if (!el) return;

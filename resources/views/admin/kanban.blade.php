@@ -57,7 +57,7 @@
                     <p class="f-light f-12 text-center py-3 mb-0">Žádné úkoly</p>
                 @endforelse
                 <div class="kanban-add-btn" data-bs-toggle="modal" data-bs-target="#addKanbanTaskModal"
-                     onclick="document.getElementById('kanban-default-status').value='pending'">
+                     data-set-value="pending" data-set-target="#kanban-default-status">
                     <i data-feather="plus" style="width:12px;height:12px;"></i> Přidat úkol
                 </div>
             </div>
@@ -76,7 +76,7 @@
                     <p class="f-light f-12 text-center py-3 mb-0">Žádné úkoly</p>
                 @endforelse
                 <div class="kanban-add-btn" data-bs-toggle="modal" data-bs-target="#addKanbanTaskModal"
-                     onclick="document.getElementById('kanban-default-status').value='inprogress'">
+                     data-set-value="inprogress" data-set-target="#kanban-default-status">
                     <i data-feather="plus" style="width:12px;height:12px;"></i> Přidat úkol
                 </div>
             </div>

@@ -61,7 +61,7 @@
                         </div>
                         <div class="flex gap-2 mt-2">
                             <input type="text" class="form-control form-control-sm" id="new-todo" placeholder="Přidat nový úkol…">
-                            <button class="btn btn-primary btn-sm text-white" onclick="addTodo()">Přidat</button>
+                            <button class="btn btn-primary btn-sm text-white" data-call="addTodo">Přidat</button>
                         </div>
                     </div>
                     <div class="card-body pt-0">
@@ -77,11 +77,11 @@
                             <li class="task-item flex items-center gap-3 py-2 border-bottom {{ $done ? 'task-done' : '' }}">
                                 <div class="form-check mb-0">
                                     <input class="form-check-input checkbox-primary" type="checkbox" {{ $done ? 'checked' : '' }}
-                                           onchange="toggleTodo(this)">
+                                           data-call-on-change="toggleTodo">
                                 </div>
                                 <span class="flex-1 {{ $done ? 'text-decoration-line-through f-light' : '' }}">{{ $todo }}</span>
                                 <span class="badge badge-light-{{ $priority === 'Vysoká' ? 'danger' : ($priority === 'Střední' ? 'warning' : 'secondary') }} f-11 ms-auto">{{ $priority }}</span>
-                                <a href="#" class="trash-3" onclick="this.closest('li').remove();return false;">
+                                <a href="#" class="trash-3" data-call="removeTodoRow">
                                     <i data-feather="x" style="width:14px;height:14px;opacity:.4;"></i>
                                 </a>
                             </li>
@@ -97,20 +97,24 @@
 @endsection
 
 @push('scripts')
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 function addTodo() {
     var input = document.getElementById('new-todo');
     var val = input.value.trim();
     if (!val) return;
     var li = document.createElement('li');
     li.className = 'task-item flex items-center gap-3 py-2 border-bottom';
-    li.innerHTML = '<div class="form-check mb-0"><input class="form-check-input checkbox-primary" type="checkbox" onchange="toggleTodo(this)"></div>' +
+    li.innerHTML = '<div class="form-check mb-0"><input class="form-check-input checkbox-primary" type="checkbox" data-call-on-change="toggleTodo"></div>' +
         '<span class="flex-1">' + val + '</span>' +
         '<span class="badge badge-light-secondary f-11 ms-auto">Normální</span>' +
-        '<a href="#" class="trash-3" onclick="this.closest(\'li\').remove();return false;"><i data-feather="x" style="width:14px;height:14px;opacity:.4;"></i></a>';
+        '<a href="#" class="trash-3" data-call="removeTodoRow"><i data-feather="x" style="width:14px;height:14px;opacity:.4;"></i></a>';
     document.getElementById('task-list').appendChild(li);
     input.value = '';
     if (typeof feather !== 'undefined') feather.replace();
+}
+function removeTodoRow(link) {
+    var row = link.closest('li');
+    if (row) row.remove();
 }
 function toggleTodo(cb) {
     var span = cb.closest('li').querySelector('span.flex-1');

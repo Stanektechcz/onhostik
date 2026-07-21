@@ -62,7 +62,7 @@
                                     <form method="POST"
                                           action="{{ route('admin.status-page.components.destroy', $comp) }}"
                                           class="inline"
-                                          onsubmit="return confirm('Smazat?')">
+                                          data-confirm="Smazat?">
                                         @csrf @method('DELETE')
                                         <button type="submit" class="btn btn-outline-danger btn-xs">
                                             <i data-feather="trash-2" style="width:12px;height:12px"></i>
@@ -160,7 +160,7 @@
                                     <form method="POST"
                                           action="{{ route('admin.status-page.maintenances.destroy', $maint) }}"
                                           class="inline"
-                                          onsubmit="return confirm('Smazat?')">
+                                          data-confirm="Smazat?">
                                         @csrf @method('DELETE')
                                         <button type="submit" class="btn btn-outline-danger btn-xs">
                                             <i data-feather="trash-2" style="width:12px;height:12px"></i>

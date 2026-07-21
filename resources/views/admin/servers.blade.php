@@ -142,7 +142,7 @@
                                         <button type="submit" class="btn btn-outline-primary btn-sm">{{ __('panel.admin.test_connection') }}</button>
                                     </form>
                                     <form method="POST" action="{{ route('admin.servers.destroy', $server) }}"
-                                          onsubmit="return confirm('Smazat server {{ $server->name }}?')">
+                                          data-confirm="Smazat server {{ $server->name }}?">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="btn btn-outline-danger btn-sm">Smazat</button>

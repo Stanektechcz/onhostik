@@ -581,7 +581,7 @@
 <script src="{{ asset('panel/js/clock.js') }}"></script>
 <script src="{{ asset('panel/js/chart/apex-chart/apex-chart.js') }}"></script>
 <script src="{{ asset('panel/js/counter/counter-custom.js') }}"></script>
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 (function () {
   // ── 3. visitor_chart — referrals per month ────────────────────────
   new ApexCharts(document.querySelector("#visitor_chart"), {

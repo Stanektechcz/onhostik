@@ -45,7 +45,7 @@
                             <td class="text-right">
                                 <a href="{{ route('admin.service-addons.edit', $addon) }}" class="btn btn-xs btn-outline-primary">Upravit</a>
                                 <form action="{{ route('admin.service-addons.destroy', $addon) }}" method="POST" class="inline"
-                                      onsubmit="return confirm('Smazat?')">
+                                      data-confirm="Smazat?">
                                     @csrf @method('DELETE')
                                     <button type="submit" class="btn btn-xs btn-outline-danger">Smazat</button>
                                 </form>

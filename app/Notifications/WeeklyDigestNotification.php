@@ -8,11 +8,14 @@ use App\Domains\Billing\Models\Invoice;
 use App\Domains\Shared\Support\MoneyFormatter;
 use Brick\Money\Money;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\RespectsNotificationPreferences;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Collection;
 
 class WeeklyDigestNotification extends Notification
 {
+    use RespectsNotificationPreferences;
+
     /**
      * @param Collection<int, Invoice> $overdueInvoices
      * @param Collection<int, Invoice> $upcomingRenewals
@@ -28,7 +31,7 @@ class WeeklyDigestNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return $this->channelsFor($notifiable, 'digest', ['mail']);
     }
 
     public function toMail(object $notifiable): MailMessage

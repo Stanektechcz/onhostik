@@ -137,7 +137,7 @@
 
                     @if($order->status->value !== 'cancelled')
                         <form method="POST" action="{{ route('admin.orders.cancel', $order) }}"
-                              onsubmit="return confirm('Opravdu zrušit tuto objednávku?');">
+                              data-confirm="Opravdu zrušit tuto objednávku?">
                             @csrf
                             <button type="submit" class="btn btn-outline-danger w-full">
                                 <i data-feather="x-circle" style="width:14px;height:14px;"></i>
@@ -228,6 +228,9 @@
                         <p class="f-light mb-0">—</p>
                     @endif
                 </x-panel.card>
+
+                {{-- 75: unified internal notes --}}
+                <x-panel.entity-notes :notable="$order" type="order" />
             </div>
         </div>
     </div>

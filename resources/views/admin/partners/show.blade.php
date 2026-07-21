@@ -37,7 +37,7 @@
         @endif
         @if($partner->status->value !== 'banned')
             <form method="POST" action="{{ route('admin.partners.status', $partner) }}" class="inline"
-                  onsubmit="return confirm('Opravdu zablokovat partnera?')">
+                  data-confirm="Opravdu zablokovat partnera?">
                 @csrf <input type="hidden" name="status" value="banned">
                 <button type="submit" class="btn btn-outline-danger btn-sm">Zablokovat</button>
             </form>
@@ -98,7 +98,7 @@
                             <input type="text" id="admin-ref-url" class="form-control f-12"
                                    value="{{ url('/') }}?ref={{ $partner->referral_code }}" readonly>
                             <button class="btn btn-outline-secondary btn-sm" type="button"
-                                    onclick="navigator.clipboard.writeText(document.getElementById('admin-ref-url').value).then(()=>{this.textContent='✓'})">
+                                    data-copy="#admin-ref-url" data-copy-done="✓">
                                 <i data-feather="copy" style="width:12px;height:12px;"></i>
                             </button>
                         </div>
@@ -142,7 +142,7 @@
                                     <input class="form-check-input payout-commission-cb" type="checkbox"
                                            name="commission_ids[]" value="{{ $c->id }}"
                                            id="com_{{ $c->id }}" checked
-                                           onchange="updatePayoutTotal()">
+                                           data-call-on-change="updatePayoutTotal">
                                     <label class="form-check-label f-12" for="com_{{ $c->id }}">
                                         #{{ $c->id }}
                                         @if($c->invoice) — {{ $c->invoice->number ?? '' }} @endif
@@ -207,7 +207,7 @@
                                             <button type="submit" class="btn btn-outline-success btn-xs">Schválit</button>
                                         </form>
                                         <form method="POST" action="{{ route('admin.partners.commissions.reject', [$partner, $commission]) }}" class="inline ms-1"
-                                              onsubmit="return confirm('Opravdu zamítnout?')">
+                                              data-confirm="Opravdu zamítnout?">
                                             @csrf
                                             <input type="hidden" name="reason" value="Admin zamítl">
                                             <button type="submit" class="btn btn-outline-danger btn-xs">Zamítnout</button>
@@ -248,7 +248,7 @@
                                             <button type="submit" class="btn btn-outline-primary btn-xs">Zaplaceno</button>
                                         </form>
                                         <form method="POST" action="{{ route('admin.partners.payouts.cancel', [$partner, $payout]) }}" class="inline ms-1"
-                                              onsubmit="return confirm('Zrušit výplatu?')">
+                                              data-confirm="Zrušit výplatu?">
                                             @csrf
                                             <button type="submit" class="btn btn-outline-danger btn-xs">Zrušit</button>
                                         </form>
@@ -346,7 +346,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 function updatePayoutTotal() {
     const el = document.getElementById('commission-amounts');
     if (!el) return;

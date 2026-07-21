@@ -8,7 +8,7 @@
 
     <div class="mb-3 flex items-center gap-3">
         <form method="GET" class="flex items-center gap-2">
-            <select name="year" class="form-select form-select-sm" style="width:120px" onchange="this.form.submit()">
+            <select name="year" class="form-select form-select-sm" style="width:120px" data-auto-submit>
                 @foreach($availableYears as $y)
                     <option value="{{ $y }}" @selected($y == $year)>{{ $y }}</option>
                 @endforeach

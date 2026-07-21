@@ -60,11 +60,21 @@ class SecurityHeaders
 
         // CSP — enforce if env flag set, otherwise report-only
         $csp = $this->buildCsp($request, $nonce);
-        $cspHeader = (bool) config('app.security_csp_enforce', false)
+        // config/security.php — `app.security_csp_enforce` was never defined,
+        // so this branch could never be true no matter what .env said.
+        $cspHeader = (bool) config('security.csp_enforce', false)
             ? 'Content-Security-Policy'
             : 'Content-Security-Policy-Report-Only';
 
         $response->headers->set($cspHeader, $csp);
+
+        // Declares the named group `report-to csp-endpoint` refers to.
+        if ((bool) config('security.csp_report_enabled', true)) {
+            $response->headers->set(
+                'Reporting-Endpoints',
+                'csp-endpoint="' . route('security.csp-report') . '"',
+            );
+        }
 
         return $response;
     }
@@ -86,7 +96,7 @@ class SecurityHeaders
             'https://unpkg.com',
         ]);
 
-        return implode('; ', [
+        $directives = [
             "default-src {$self}",
             "script-src {$scriptSrc}",
             "style-src {$self} 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com",
@@ -96,7 +106,24 @@ class SecurityHeaders
             "frame-ancestors {$self}",
             "base-uri {$self}",
             "form-action {$self}",
-        ]);
+        ];
+
+        /*
+         | Audit C24 — collect violations before switching to enforce.
+         |
+         | Report-only is worthless without somewhere for the reports to land:
+         | the whole point is to learn what WOULD break. `report-uri` is the
+         | widely-supported directive; `report-to` is the modern replacement but
+         | needs a Reporting-Endpoints header and is not universal, so both are
+         | sent and browsers pick what they understand.
+         */
+        if ((bool) config('security.csp_report_enabled', true)) {
+            $reportUrl = route('security.csp-report');
+            $directives[] = "report-uri {$reportUrl}";
+            $directives[] = 'report-to csp-endpoint';
+        }
+
+        return implode('; ', $directives);
     }
 
     private function reverbWsOrigin(): string

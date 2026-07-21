@@ -63,7 +63,7 @@
                                     <td class="text-right">
                                         <form method="POST" action="{{ route('admin.drip.step.destroy', [$drip, $step]) }}"
                                               class="inline"
-                                              onsubmit="return confirm('Smazat krok?')">
+                                              data-confirm="Smazat krok?">
                                             @csrf @method('DELETE')
                                             <button class="btn btn-xs btn-outline-danger">
                                                 <i data-feather="trash-2" style="width:11px;height:11px"></i>

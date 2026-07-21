@@ -6,16 +6,19 @@ namespace App\Notifications;
 
 use App\Models\User;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\RespectsNotificationPreferences;
 use Illuminate\Notifications\Notification;
 
 class WelcomeUserNotification extends Notification
 {
+    use RespectsNotificationPreferences;
+
     public function __construct(private readonly User $user) {}
 
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail', 'database'];
+        return $this->channelsFor($notifiable, 'account', ['mail', 'database']);
     }
 
     /** @return array<string, mixed> */

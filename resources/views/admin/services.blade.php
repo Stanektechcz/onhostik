@@ -139,11 +139,11 @@
                         @csrf
                         <div id="batch-unsuspend-ids"></div>
                         <button type="submit" class="btn btn-success btn-sm text-white"
-                                onclick="return confirm('Reaktivovat vybrané služby?')">
+                                data-confirm="Reaktivovat vybrané služby?">
                             <i data-feather="play" style="width:12px;height:12px;"></i> Reaktivovat
                         </button>
                     </form>
-                    <a href="#" class="f-light f-12 ms-auto" onclick="uncheckAll();return false;">Zrušit výběr</a>
+                    <a href="#" class="f-light f-12 ms-auto" data-call="uncheckAll">Zrušit výběr</a>
                 </div>
 
                 <form id="services-table-form">
@@ -247,7 +247,7 @@
 @endsection
 
 @push('scripts')
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 (function () {
     var checkboxes = document.querySelectorAll('.service-check');
     var selectAll  = document.getElementById('select-all-services');

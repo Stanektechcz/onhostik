@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Domains\Provisioning\Jobs;
 
+use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Enums\TaskStatus;
 use App\Domains\Provisioning\Models\DomainRegistration;
 use App\Domains\Provisioning\Models\ProvisioningTask;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Provisioning\Services\DriverResolver;
+use App\Domains\Provisioning\Services\ServiceActivationHooks;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -105,6 +107,12 @@ final class RegisterDomainJob implements ShouldQueue
                 ->withProperties(['task_id' => $task->id, 'domain' => $this->fqdn, 'external_id' => $result->externalId, 'mock' => true])
                 ->log('domain.registered');
 
+            // A registered domain IS the delivered service. Without this the
+            // service stayed Pending and SyncOrderCompletionAction — which
+            // waits for every service to be Active — left domain-only orders
+            // stuck in Processing forever (audit E68).
+            $this->activate($service);
+
             return;
         }
 
@@ -121,6 +129,28 @@ final class RegisterDomainJob implements ShouldQueue
             ->performedOn($service)
             ->withProperties(['task_id' => $task->id, 'domain' => $this->fqdn, 'error' => $result->errorMessage, 'mock' => true])
             ->log('domain.registration_failed');
+    }
+
+    /**
+     * Marks a successfully registered domain service live and runs the shared
+     * post-activation hooks (monitor, backup policy, customer notification,
+     * order completion) — the same contract ProvisionHostingServiceJob uses.
+     *
+     * Idempotent: an already-Active service is left alone, so a replayed job
+     * never re-notifies the customer.
+     */
+    private function activate(Service $service): void
+    {
+        if ($service->status === ServiceStatus::Active) {
+            return;
+        }
+
+        $service->update([
+            'status'      => ServiceStatus::Active,
+            'external_id' => $service->external_id ?: $service->domainRegistration?->wedos_domain_id,
+        ]);
+
+        app(ServiceActivationHooks::class)->handle($service->fresh() ?? $service);
     }
 
     private function resolveTask(Service $service): ?ProvisioningTask

@@ -66,6 +66,8 @@ Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('pane
         Route::post('/export', [Panel\ComplianceController::class, 'requestExport'])->name('export');
         Route::post('/deletion', [Panel\ComplianceController::class, 'requestDeletion'])->name('deletion');
         Route::get('/download/{customer}', [Panel\ComplianceController::class, 'downloadExport'])->name('download');
+        /* ── 178: on-demand GDPR art. 28 Data Processing Agreement ── */
+        Route::get('/dpa', [Panel\ComplianceController::class, 'downloadDpa'])->name('dpa');
     });
 
     Route::get('/developer', [Panel\DeveloperPortalController::class, 'index'])->name('developer.index');
@@ -81,16 +83,27 @@ Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('pane
     Route::patch('/sluzby/{service}/waf/{rule}', [Panel\WafController::class, 'toggle'])->name('waf.toggle');
 
     Route::get('/domeny', [Panel\DomainController::class, 'index'])->name('domains.index');
+    /* ── F90: static route MUST precede the /domeny/{domain} wildcard ── */
+    Route::post('/domeny/hromadne-nameservery', [Panel\DomainController::class, 'bulkNameservers'])->name('domains.bulk-nameservers');
     Route::get('/domeny/{domain}', [Panel\DomainController::class, 'show'])->name('domains.show');
     Route::post('/domeny/{domain}/auto-renew', [Panel\DomainController::class, 'toggleAutoRenew'])->name('domains.auto-renew');
     Route::put('/domeny/{domain}/nameservery', [Panel\DomainController::class, 'updateNameservers'])->name('domains.nameservers');
     Route::get('/domeny/{domain}/dns', [Panel\DnsController::class, 'show'])->name('domains.dns');
     Route::post('/domeny/{domain}/dns', [Panel\DnsController::class, 'store'])->name('domains.dns.store');
+    /* ── F83: the editor could only ADD records; update/delete were missing ── */
+    Route::put('/domeny/{domain}/dns', [Panel\DnsController::class, 'update'])->name('domains.dns.update');
+    Route::delete('/domeny/{domain}/dns', [Panel\DnsController::class, 'destroy'])->name('domains.dns.destroy');
+    /* ── F91: one-click provider record sets ── */
+    Route::post('/domeny/{domain}/dns/sablona', [Panel\DnsController::class, 'applyTemplate'])->name('domains.dns.template');
+    /* ── 64: DNSSEC (DS record) management — the client spoke it, the UI didn't ── */
+    Route::post('/domeny/{domain}/dnssec', [Panel\DnsController::class, 'dnssecStore'])->name('domains.dnssec.store');
+    Route::delete('/domeny/{domain}/dnssec', [Panel\DnsController::class, 'dnssecDestroy'])->name('domains.dnssec.destroy');
 
     Route::get('/objednavky', [Panel\OrderController::class, 'index'])->name('orders.index');
     Route::get('/objednavky/nova', [Panel\OrderController::class, 'create'])->name('orders.create');
     Route::post('/objednavky', [Panel\OrderController::class, 'store'])->name('orders.store');
     Route::get('/objednavky/{order}', [Panel\OrderController::class, 'show'])->name('orders.show');
+    Route::post('/objednavky/{order}/zrusit', [Panel\OrderController::class, 'cancel'])->name('orders.cancel');
 
     Route::get('/pokladna', [Panel\CheckoutController::class, 'index'])->name('checkout.index');
     Route::post('/sleva/validovat', [Panel\DiscountCodeController::class, 'validate'])->name('discount.validate');
@@ -182,13 +195,19 @@ Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('pane
 
     Route::get('/ai', [Panel\AiController::class, 'index'])->name('ai.index');
     Route::post('/ai', [Panel\AiController::class, 'run'])->name('ai.run');
-    Route::post('/ai/chat', [Panel\AiController::class, 'chat'])->name('ai.chat');
-    Route::post('/ai/eskalovat', [Panel\AiController::class, 'escalate'])->name('ai.escalate');
-    Route::get('/ai/poll', [Panel\AiController::class, 'poll'])->name('ai.poll');
+    // Chat endpoints are user-facing and abusable — throttle them.
+    Route::post('/ai/chat', [Panel\AiController::class, 'chat'])->middleware('throttle:30,1')->name('ai.chat');
+    Route::post('/ai/eskalovat', [Panel\AiController::class, 'escalate'])->middleware('throttle:10,1')->name('ai.escalate');
+    Route::post('/ai/priloha', [Panel\AiController::class, 'upload'])->middleware('throttle:20,1')->name('ai.upload');
+    Route::get('/ai/priloha/{message}', [Panel\AiController::class, 'attachment'])->name('ai.attachment');
+    Route::get('/ai/poll', [Panel\AiController::class, 'poll'])->middleware('throttle:120,1')->name('ai.poll');
 
     Route::get('/notifikace', [Panel\NotificationController::class, 'index'])->name('notifications.index');
     Route::post('/notifikace/{id}/precist', [Panel\NotificationController::class, 'markRead'])->name('notifications.read');
     Route::post('/notifikace/precist-vse', [Panel\NotificationController::class, 'markAllRead'])->name('notifications.read-all');
+
+    /* ── I130: in-app changelog „co je nového“ ── */
+    Route::get('/novinky', [Panel\ChangelogController::class, 'index'])->name('changelog.index');
 
     Route::get('/reseller-program', [Panel\ResellerController::class, 'index'])->name('reseller-program');
     Route::post('/reseller-program', [Panel\ResellerController::class, 'store'])->name('reseller-program.apply');
@@ -411,6 +430,7 @@ Route::middleware(['auth', 'can:access-partner'])->prefix('partner')->name('part
     Route::get('/vyplaty', [Partner\PartnerController::class, 'payouts'])->name('payouts');
     Route::get('/materialy', [Partner\PartnerController::class, 'assets'])->name('assets');
     Route::get('/nastaveni', [Partner\PartnerController::class, 'profile'])->name('profile');
+    Route::post('/nastaveni/vyplaty', [Partner\PartnerController::class, 'updatePayout'])->name('profile.payout');
     Route::post('/vyplata/zadost', [Panel\PartnerRegistrationController::class, 'requestPayout'])->name('payout.request');
 });
 
@@ -466,6 +486,16 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
     Route::delete('/zakaznici/{customer}/interni-poznamky/{note}', [Admin\CustomerInternalNoteController::class, 'destroy'])->name('customers.internal-notes.destroy');
     Route::post('/zakaznici/{customer}/interni-poznamky/{note}/pripnout', [Admin\CustomerInternalNoteController::class, 'pin'])->name('customers.internal-notes.pin');
     Route::post('/zakaznici/{customer}/stitky', [Admin\CustomerTagController::class, 'assign'])->name('customers.tags.assign');
+
+    /* ── 75: unified internal notes on any entity (order/invoice/…) ── */
+    Route::post('/poznamky/{type}/{id}', [Admin\EntityNoteController::class, 'store'])->name('entity-notes.store');
+    Route::delete('/poznamky/{type}/{id}/{note}', [Admin\EntityNoteController::class, 'destroy'])->name('entity-notes.destroy');
+    Route::post('/poznamky/{type}/{id}/{note}/pripnout', [Admin\EntityNoteController::class, 'pin'])->name('entity-notes.pin');
+
+    /* ── 74: four-eyes approval review queue ── */
+    Route::get('/schvalovani', [Admin\ApprovalRequestController::class, 'index'])->name('approvals.index');
+    Route::post('/schvalovani/{approvalRequest}/schvalit', [Admin\ApprovalRequestController::class, 'approve'])->name('approvals.approve');
+    Route::post('/schvalovani/{approvalRequest}/zamitnout', [Admin\ApprovalRequestController::class, 'reject'])->name('approvals.reject');
     Route::prefix('/zakaznici/{customer}/kontakty')->name('customer-contacts.')->group(function (): void {
         Route::get('/', [Admin\CustomerContactController::class, 'index'])->name('index');
         Route::post('/', [Admin\CustomerContactController::class, 'store'])->name('store');
@@ -562,12 +592,56 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
     Route::delete('/sluzby/{service}/stitky/{serviceTag}', [Admin\ServiceTagController::class, 'detach'])->name('services.tags.detach');
     /* ── Phase 272: Service 360° — read-only live status from backend panel ── */
     Route::get('/sluzby/{service}/zivy-stav', Admin\ServiceLiveStatusController::class)->name('services.live-status');
+    /* ── Read-only reconciliation with the backend panel (drift detection) ── */
+    Route::post('/sluzby/{service}/synchronizovat', [Admin\ServiceController::class, 'syncRemote'])->name('services.sync-remote');
+    Route::get('/sluzby/{service}/nahled-zrizeni', [Admin\ServiceController::class, 'provisionPreview'])->name('services.provision-preview');
+    Route::post('/sluzby/{service}/zridit-znovu', [Admin\ServiceController::class, 'reprovision'])->name('services.reprovision');
+    /* ── Full aaPanel-parity configuration (databases, FTP, cron, SSL, quota) ── */
+    Route::post('/sluzby/{service}/konfigurace', [Admin\ServiceConfigController::class, 'store'])->name('services.config');
+
+    /* ── G95: full line-item editing on an order ── */
+    Route::post('/objednavky/{order}/polozky', [Admin\OrderItemController::class, 'store'])->name('orders.items.store');
+    Route::put('/objednavky/{order}/polozky/{item}', [Admin\OrderItemController::class, 'update'])->name('orders.items.update');
+    Route::delete('/objednavky/{order}/polozky/{item}', [Admin\OrderItemController::class, 'destroy'])->name('orders.items.destroy');
+
+    /* ── G96: roles and permissions editable from the UI ── */
+    Route::post('/role-opravneni/role', [Admin\RolePermissionController::class, 'store'])->name('roles.store');
+    Route::delete('/role-opravneni/role/{role}', [Admin\RolePermissionController::class, 'destroy'])->name('roles.destroy');
+    Route::post('/role-opravneni/role/{role}/opravneni', [Admin\RolePermissionController::class, 'syncPermissions'])->name('roles.permissions');
+    Route::post('/role-opravneni/opravneni', [Admin\RolePermissionController::class, 'storePermission'])->name('permissions.store');
+    Route::post('/role-opravneni/uzivatel/{user}', [Admin\RolePermissionController::class, 'assign'])->name('roles.assign');
+
+    /* ── G99: bulk actions over selected customers ── */
+    Route::post('/zakaznici/hromadna-akce', Admin\CustomerBulkActionController::class)->name('customers.bulk-action');
+
+    /* ── G97: admin-side account recovery for a customer ── */
+    Route::post('/uzivatele/{user}/obnova-hesla', [Admin\CustomerSecurityController::class, 'sendPasswordReset'])->name('users.password-reset');
+    Route::post('/uzivatele/{user}/zrusit-2fa', [Admin\CustomerSecurityController::class, 'resetTwoFactor'])->name('users.reset-2fa');
+    Route::post('/uzivatele/{user}/odhlasit-vse', [Admin\CustomerSecurityController::class, 'logoutEverywhere'])->name('users.logout-everywhere');
+
+    /* ── Snapshot restore: customer requests, admin approves (overwrites data) ── */
+    Route::get('/pozadavky-obnova', [Admin\SnapshotRestoreRequestController::class, 'index'])->name('snapshot-restore-requests.index');
+    Route::post('/pozadavky-obnova/{snapshotRestoreRequest}/schvalit', [Admin\SnapshotRestoreRequestController::class, 'approve'])->name('snapshot-restore-requests.approve');
+    Route::post('/pozadavky-obnova/{snapshotRestoreRequest}/zamitnout', [Admin\SnapshotRestoreRequestController::class, 'reject'])->name('snapshot-restore-requests.reject');
+
+    /* ── Queue health: a stalled worker means paid orders never provision ── */
+    Route::get('/fronta-uloh', [Admin\QueueController::class, 'index'])->name('queue.index');
+    Route::post('/fronta-uloh/opakovat', [Admin\QueueController::class, 'retry'])->name('queue.retry');
+    Route::post('/fronta-uloh/smazat', [Admin\QueueController::class, 'forget'])->name('queue.forget');
     /* ── Phase 276: admin VPS power actions ── */
     Route::post('/sluzby/{service}/vps-akce', Admin\ServiceVpsPowerController::class)->name('services.vps-action');
     /* ── Phase 277: admin webhosting PHP version ── */
     Route::post('/sluzby/{service}/php-verze', Admin\ServicePhpVersionController::class)->name('services.php-version');
     /* ── Phase 278: admin game server actions ── */
     Route::post('/sluzby/{service}/game-akce', Admin\ServiceGameActionController::class)->name('services.game-action');
+
+    /* ── E53: přeřazení služby na jiný server (vyprázdnění plného serveru) ── */
+    Route::post('/sluzby/{service}/migrace', Admin\ServiceMigrateController::class)->name('services.migrate');
+
+    /* ── L120: stažení dokončeného dávkového exportu faktur ──
+       Vlastní název, aby nekolidoval s admin.exports.* (finanční exporty). */
+    Route::get('/faktury/batch-export/{export}/stahnout', [Admin\InvoiceBatchExportController::class, 'download'])
+        ->name('invoice-batch.download');
 
     Route::resource('/service-addons', Admin\ServiceAddonController::class)->names('service-addons');
 
@@ -685,6 +759,7 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
     Route::get('/chat', [Admin\ChatController::class, 'index'])->name('chat.index');
     Route::get('/chat/{conversation}', [Admin\ChatController::class, 'show'])->name('chat.show');
     Route::post('/chat/{conversation}/odpoved', [Admin\ChatController::class, 'reply'])->name('chat.reply');
+    Route::post('/chat/{conversation}/ticket', [Admin\ChatController::class, 'toTicket'])->name('chat.to-ticket');
     Route::post('/chat/{conversation}/uzavrit', [Admin\ChatController::class, 'close'])->name('chat.close');
 
     Route::get('/podpora', [Admin\SupportController::class, 'index'])->name('support.index');
@@ -1289,6 +1364,14 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
     Route::delete('/opakovani-plateb/{paymentRetrySchedule}', [Admin\PaymentRetryScheduleController::class, 'destroy'])->name('payment-retry-schedules.destroy');
 
     /* ── Phase 223: Admin Price Change Notifications ── */
+    /* ── I130: správa changelogu ── */
+    Route::get('/novinky', [Admin\ProductUpdateController::class, 'index'])->name('product-updates.index');
+    Route::get('/novinky/nova', [Admin\ProductUpdateController::class, 'create'])->name('product-updates.create');
+    Route::post('/novinky', [Admin\ProductUpdateController::class, 'store'])->name('product-updates.store');
+    Route::get('/novinky/{productUpdate}/upravit', [Admin\ProductUpdateController::class, 'edit'])->name('product-updates.edit');
+    Route::put('/novinky/{productUpdate}', [Admin\ProductUpdateController::class, 'update'])->name('product-updates.update');
+    Route::delete('/novinky/{productUpdate}', [Admin\ProductUpdateController::class, 'destroy'])->name('product-updates.destroy');
+
     Route::get('/oznameni-zdrazeni', [Admin\PriceChangeNotificationController::class, 'index'])->name('price-change-notifications.index');
     Route::post('/oznameni-zdrazeni', [Admin\PriceChangeNotificationController::class, 'store'])->name('price-change-notifications.store');
     Route::delete('/oznameni-zdrazeni/{priceChangeNotification}', [Admin\PriceChangeNotificationController::class, 'destroy'])->name('price-change-notifications.destroy');

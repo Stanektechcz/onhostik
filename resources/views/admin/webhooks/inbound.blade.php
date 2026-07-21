@@ -44,7 +44,7 @@
                             </button>
                         </form>
                         <form action="{{ route('admin.webhooks.endpoint.destroy', $ep) }}" method="POST" class="inline"
-                              onsubmit="return confirm('Smazat endpoint?')">
+                              data-confirm="Smazat endpoint?">
                             @csrf @method('DELETE')
                             <button class="btn btn-xs btn-outline-danger">Smazat</button>
                         </form>

@@ -16,6 +16,23 @@ trait PasswordValidationRules
      */
     protected function passwordRules(): array
     {
-        return ['required', 'string', Password::min(8), new StrongPassword(), 'confirmed'];
+        $strength = Password::min(8);
+
+        /*
+         | Reject passwords known from public breaches (audit H116).
+         |
+         | Complexity rules alone are not enough — "Password1!" satisfies every
+         | one of them and appears in essentially every breach corpus.
+         |
+         | Laravel checks this against Have I Been Pwned using k-anonymity:
+         | only the first 5 characters of the password's SHA-1 hash leave the
+         | server, never the password. Configurable so an offline install (or
+         | the test suite) is not blocked on an outbound HTTP call.
+         */
+        if ((bool) config('auth.password_breach_check', false)) {
+            $strength = $strength->uncompromised();
+        }
+
+        return ['required', 'string', $strength, new StrongPassword(), 'confirmed'];
     }
 }

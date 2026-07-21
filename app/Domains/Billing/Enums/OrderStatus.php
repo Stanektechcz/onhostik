@@ -11,6 +11,12 @@ enum OrderStatus: string
     case Active     = 'active';
     case Cancelled  = 'cancelled';
     case Fraud      = 'fraud';
+    // Audit P195: an unpaid proforma order used to sit in Pending forever.
+    // Expired is a TERMINAL state the expiry command actually transitions to —
+    // added because it is set, not to fill a gap in the list. (`unpaid` was
+    // NOT added: that phantom state was resolved by InvoiceStatus::isOpen(),
+    // and `refunded` lives on the Chargeback model, not the order.)
+    case Expired    = 'expired';
 
     public function label(): string
     {
@@ -20,6 +26,7 @@ enum OrderStatus: string
             self::Active     => 'Aktivní',
             self::Cancelled  => 'Zrušena',
             self::Fraud      => 'Podvodná',
+            self::Expired    => 'Vypršela',
         };
     }
 
@@ -31,6 +38,16 @@ enum OrderStatus: string
             self::Active     => 'success',
             self::Cancelled  => 'gray',
             self::Fraud      => 'danger',
+            self::Expired    => 'gray',
+        };
+    }
+
+    /** A terminal state accepts no further transitions. */
+    public function isTerminal(): bool
+    {
+        return match ($this) {
+            self::Active, self::Cancelled, self::Fraud, self::Expired => true,
+            self::Pending, self::Processing => false,
         };
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domains\Integrations\Clients;
 
+use App\Domains\Shared\Support\SecretRedactor;
 use App\Domains\Integrations\Clients\Concerns\GuardsRealCalls;
 use App\Domains\Integrations\Models\IntegrationSetting;
 use Illuminate\Support\Facades\Config;
@@ -267,6 +268,192 @@ final class AapanelClient
         return $this->dryRunOr('setDomainBindings', ['site' => $siteId, 'domains' => $domains], '/site?action=AddDomain');
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Site configuration — reads
+    |--------------------------------------------------------------------------
+    | These back the "complete configuration" view of a service. They are pure
+    | GETs and deliberately use assertReadyForReadCall (NOT the write gate), so
+    | showing a customer their own configuration never needs write access.
+    */
+
+    /**
+     * Databases belonging to a site.
+     *
+     * @return array<string, mixed>
+     */
+    public function listDatabases(string $siteName): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'data' => [
+                ['name' => str_replace('.', '_', $siteName) . '_db', 'username' => str_replace('.', '_', $siteName), 'ps' => 'mock'],
+            ]];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'listDatabases');
+
+        return $this->realRequest('/data?action=getData&table=databases', ['search' => $siteName, 'limit' => 100, 'p' => 1]);
+    }
+
+    /**
+     * FTP accounts belonging to a site.
+     *
+     * @return array<string, mixed>
+     */
+    public function listFtpAccounts(string $siteName): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'data' => [
+                ['name' => str_replace('.', '_', $siteName), 'path' => "/www/wwwroot/{$siteName}", 'status' => '1'],
+            ]];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'listFtpAccounts');
+
+        return $this->realRequest('/data?action=getData&table=ftps', ['search' => $siteName, 'limit' => 100, 'p' => 1]);
+    }
+
+    /**
+     * Scheduled (cron) tasks configured on the panel.
+     *
+     * @return array<string, mixed>
+     */
+    public function listCronJobs(): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'data' => []];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'listCronJobs');
+
+        return $this->realRequest('/crontab?action=GetCrontab', ['limit' => 100, 'p' => 1]);
+    }
+
+    /**
+     * SSL certificate state for a site (issuer, validity, auto-renew).
+     *
+     * @return array<string, mixed>
+     */
+    public function getSslInfo(string $siteName): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'status' => false, 'msg' => 'mock — no certificate'];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'getSslInfo');
+
+        return $this->realRequest('/site?action=GetSSL', ['siteName' => $siteName]);
+    }
+
+    /**
+     * PHP versions actually installed on the panel.
+     *
+     * Returns aaPanel's raw list; the caller filters out non-PHP builds
+     * (version '00' is "Static"). Used instead of a hardcoded list so the
+     * UI can never offer a version the server does not have (audit E78).
+     *
+     * @return array<string, mixed>
+     */
+    public function getPhpVersions(): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'data' => [
+                ['version' => '74', 'name' => 'PHP-74'],
+                ['version' => '82', 'name' => 'PHP-82'],
+                ['version' => '83', 'name' => 'PHP-83'],
+            ]];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'getPhpVersions');
+
+        return $this->realRequest('/site?action=GetPHPVersion', []);
+    }
+
+    /**
+     * Mailboxes on a domain (audit E80 / F88).
+     *
+     * aaPanel exposes mail through its mail_sys plugin; when the plugin is not
+     * installed the panel answers with an error, which the caller surfaces as
+     * a section error rather than an empty list.
+     *
+     * @return array<string, mixed>
+     */
+    public function listMailboxes(string $domain): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'data' => [
+                ['username' => "info@{$domain}", 'quota' => 1024, 'is_active' => true],
+            ]];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'listMailboxes');
+
+        return $this->realRequest('/plugin?action=a&name=mail_sys&s=get_mailboxes', ['domain' => $domain]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Site configuration — writes (all behind the AAPANEL_ALLOW_REAL_WRITES gate)
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Create a mailbox.
+     *
+     * The password is passed straight through to the panel and is NEVER
+     * returned, logged or stored — callers must not persist it either.
+     *
+     * @return array<string, mixed>
+     */
+    public function createMailbox(string $domain, string $username, string $password, int $quotaMb = 1024): array
+    {
+        return $this->dryRunOr('createMailbox', [
+            'domain'   => $domain,
+            'username' => $username,
+            'password' => $password,
+            'quota'    => $quotaMb,
+        ], '/plugin?action=a&name=mail_sys&s=add_mailbox');
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteMailbox(string $domain, string $username): array
+    {
+        return $this->dryRunOr('deleteMailbox', [
+            'domain'   => $domain,
+            'username' => $username,
+        ], '/plugin?action=a&name=mail_sys&s=delete_mailbox');
+    }
+
+    /** @return array<string, mixed> */
+    public function setMailboxQuota(string $domain, string $username, int $quotaMb): array
+    {
+        return $this->dryRunOr('setMailboxQuota', [
+            'domain'   => $domain,
+            'username' => $username,
+            'quota'    => $quotaMb,
+        ], '/plugin?action=a&name=mail_sys&s=set_mailbox_quota');
+    }
+
+    /** @return array<string, mixed> */
+    public function createCronJob(string $name, string $command, string $type = 'day', int $hour = 3, int $minute = 0): array
+    {
+        return $this->dryRunOr('createCronJob', [
+            'name'    => $name,
+            'type'    => $type,
+            'where1'  => '',
+            'hour'    => $hour,
+            'minute'  => $minute,
+            'sType'   => 'toShell',
+            'sBody'   => $command,
+        ], '/crontab?action=AddCrontab');
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteCronJob(string $cronId): array
+    {
+        return $this->dryRunOr('deleteCronJob', ['id' => $cronId], '/crontab?action=DelCrontab');
+    }
+
     // ---------------------------------------------------------------- internals
 
     /**
@@ -276,20 +463,39 @@ final class AapanelClient
     private function dryRunOr(string $operation, array $payload, string $endpoint): array
     {
         if ($this->isDryRun($this->setting)) {
-            Log::info("aapanel.dry_run.{$operation}", ['payload' => $payload]);
+            // The dry-run echo is written to the log AND handed back to the
+            // caller (who may persist it on a ProvisioningTask), so secrets in
+            // the payload — e.g. a new mailbox password — must be masked here.
+            $safe = self::redactSecrets($payload);
+
+            Log::info("aapanel.dry_run.{$operation}", ['payload' => $safe]);
 
             return [
                 'ok'       => true,
                 'dry_run'  => true,
                 'operation' => $operation,
                 'would_call' => $endpoint,
-                'payload'  => $payload,
+                'payload'  => $safe,
             ];
         }
 
         $this->assertRealCallAllowed($this->setting, self::GATE, $operation, self::REQUIRED);
 
         return $this->realRequest($endpoint, $payload);
+    }
+
+    /**
+     * Mask credential-bearing keys before a payload is logged or returned.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private static function redactSecrets(array $payload): array
+    {
+        /** @var array<string, mixed> $redacted */
+        $redacted = SecretRedactor::redact($payload);
+
+        return $redacted;
     }
 
     /**

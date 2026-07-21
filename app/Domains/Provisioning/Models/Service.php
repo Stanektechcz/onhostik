@@ -44,6 +44,9 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property Carbon|null $billing_pause_requested_at
  * @property \Carbon\Carbon|null $billing_paused_until
  * @property Carbon|null $quota_breach_alerted_at
+ * @property Carbon|null $last_synced_at
+ * @property \App\Domains\Provisioning\Enums\ServiceSyncState|null $sync_state
+ * @property string|null $sync_message
  */
 class Service extends Model
 {
@@ -98,6 +101,9 @@ class Service extends Model
         'renewal_notice_days',
         'usage_alert_threshold',
         'usage_alert_sent_at',
+        'last_synced_at',
+        'sync_state',
+        'sync_message',
     ];
 
     protected function casts(): array
@@ -105,6 +111,8 @@ class Service extends Model
         return [
             'provisioning_driver'  => ProvisioningDriver::class,
             'status'               => ServiceStatus::class,
+            'sync_state'           => \App\Domains\Provisioning\Enums\ServiceSyncState::class,
+            'last_synced_at'       => 'datetime',
             'resources'            => 'array',
             'next_due_date'        => 'date',
             'suspended_at'         => 'datetime',

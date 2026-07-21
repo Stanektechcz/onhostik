@@ -93,7 +93,7 @@
     </section>
 
     @push('scripts')
-    <script>
+    <script nonce="{{ $cspNonce ?? '' }}">
     (function () {
         const btn      = document.getElementById('bulk-check-btn');
         const nameInput= document.getElementById('bulk-domain-name');

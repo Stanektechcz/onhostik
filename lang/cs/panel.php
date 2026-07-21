@@ -447,6 +447,9 @@ return [
         'title' => 'Obchodní metriky',
     ],
     'notifications' => [
+        'read'            => 'Přečtené',
+        'all'             => 'Vše',
+        'filter'          => 'Filtr notifikací',
         'unread'          => 'Nepřečtené',
         'mark_all_read'   => 'Označit vše jako přečtené',
         'mark_read'       => 'Označit jako přečtené',

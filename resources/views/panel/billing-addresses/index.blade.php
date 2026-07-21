@@ -22,7 +22,7 @@
                                 <a href="{{ route('panel.billing-addresses.edit', $address) }}" class="btn btn-sm btn-outline-secondary">Upravit</a>
                                 <form method="POST" action="{{ route('panel.billing-addresses.destroy', $address) }}">
                                     @csrf @method('DELETE')
-                                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Opravdu smazat adresu?')">Smazat</button>
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Opravdu smazat adresu?">Smazat</button>
                                 </form>
                             </div>
                         </div>

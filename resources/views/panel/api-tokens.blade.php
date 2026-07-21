@@ -21,7 +21,7 @@
                 <code class="grow p-2 rounded" style="background:rgba(0,0,0,.06);word-break:break-all;font-size:13px;">
                     {{ session('new_token') }}
                 </code>
-                <button class="btn btn-sm btn-outline-success" onclick="navigator.clipboard.writeText('{{ session('new_token') }}');this.textContent='Zkopírováno!'">
+                <button class="btn btn-sm btn-outline-success" data-copy-text="{{ session('new_token') }}">
                     Kopírovat
                 </button>
             </div>
@@ -85,7 +85,7 @@
                                             <td>
                                                 <form method="POST"
                                                       action="{{ route('panel.account.api-tokens.destroy', $token->id) }}"
-                                                      onsubmit="return confirm('Smazat token {{ $token->name }}?')">
+                                                      data-confirm="Smazat token {{ $token->name }}?">
                                                     @csrf @method('DELETE')
                                                     <button class="btn btn-outline-danger btn-xs">
                                                         <i data-feather="trash-2" style="width:11px;height:11px;"></i>

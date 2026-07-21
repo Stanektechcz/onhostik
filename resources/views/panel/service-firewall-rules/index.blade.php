@@ -85,7 +85,7 @@
                             <td class="f-12 text-muted">{{ Str::limit($rule->description, 60) ?? '—' }}</td>
                             <td>
                                 <form method="POST" action="{{ route('panel.service-firewall-rules.destroy', $rule) }}"
-                                    onsubmit="return confirm('Odstranit pravidlo?')">
+                                    data-confirm="Odstranit pravidlo?">
                                     @csrf
                                     @method('DELETE')
                                     <button type="submit" class="btn btn-sm btn-outline-danger">Odstranit</button>

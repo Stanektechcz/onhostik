@@ -32,7 +32,7 @@
                 @if($bulkEmail->isDraft())
                     <div class="flex gap-2">
                         <form method="POST" action="{{ route('admin.bulk-email.send', $bulkEmail) }}"
-                              onsubmit="return confirm('Odeslat e-mail {{ $recipientCount }} zákazníkům?')">
+                              data-confirm="Odeslat e-mail {{ $recipientCount }} zákazníkům?">
                             @csrf
                             <button type="submit" class="btn btn-primary btn-sm">
                                 <i data-feather="send" style="width:13px;height:13px;"></i>
@@ -40,7 +40,7 @@
                             </button>
                         </form>
                         <form method="POST" action="{{ route('admin.bulk-email.destroy', $bulkEmail) }}"
-                              onsubmit="return confirm('Smazat kampaň?')">
+                              data-confirm="Smazat kampaň?">
                             @csrf @method('DELETE')
                             <button type="submit" class="btn btn-outline-danger btn-sm">
                                 <i data-feather="trash-2" style="width:13px;height:13px;"></i>
@@ -62,7 +62,7 @@
         {{-- Sidebar: filters --}}
         <div class="col-span-4 xl:col-span-12">
             <x-panel.card title="Filtr příjemců">
-                @php $filters = $bulkEmail->filters ?? []; @endphp
+                @php($filters = $bulkEmail->filters ?? [])
                 @if(empty($filters))
                     <p class="f-12 f-light mb-0">Žádné filtry — všichni zákazníci s e-mailem.</p>
                 @else

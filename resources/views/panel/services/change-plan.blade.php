@@ -118,7 +118,7 @@
                     </div>
 
                     @push('scripts')
-                    <script>
+                    <script nonce="{{ $cspNonce ?? '' }}">
                     document.querySelectorAll('.plan-change-btn').forEach(function(btn) {
                         btn.addEventListener('click', function() {
                             var planId      = this.dataset.planId;

@@ -64,7 +64,7 @@
                                         </button>
                                     </form>
                                     <form method="POST" action="{{ route('admin.waf.destroy', $rule) }}" class="inline"
-                                          onsubmit="return confirm('Smazat pravidlo?')">
+                                          data-confirm="Smazat pravidlo?">
                                         @csrf @method('DELETE')
                                         <button class="btn btn-xs btn-sm btn-outline-danger">Smazat</button>
                                     </form>

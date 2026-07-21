@@ -59,6 +59,15 @@ return [
         'timeout' => (int) env('PTERODACTYL_TIMEOUT', 30),
     ],
 
+    /*
+     | Audit E52 — warn when the fleet is filling up.
+     |
+     | At or above this percentage of total capacity for a driver, the daily
+     | check alerts admins. 80% leaves room to order and rack a new server
+     | before provisioning starts landing on over-committed boxes.
+     */
+    'capacity_warn_percent' => (float) env('PROVISIONING_CAPACITY_WARN_PERCENT', 80),
+
     'queues' => [
         'high'    => 'provisioning-high',   // payment webhooks → activation
         'default' => 'provisioning',

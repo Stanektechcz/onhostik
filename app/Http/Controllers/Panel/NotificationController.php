@@ -43,11 +43,31 @@ class NotificationController extends Controller
             $query->where('data->type', $type);
         }
 
-        $notifications  = $query->paginate(25)->withQueryString();
-        $unreadCount    = $user->unreadNotifications()->count();
-        $activeType     = $request->string('type', '')->toString();
+        // Read/unread filter (audit I128). Anything other than the two known
+        // values is ignored rather than returning nothing — a mistyped query
+        // string should not look like an empty inbox.
+        $activeStatus = $request->string('status', '')->toString();
 
-        return view('panel.notifications.index', compact('notifications', 'unreadCount', 'activeType'));
+        if ($activeStatus === 'unread') {
+            $query->whereNull('read_at');
+        } elseif ($activeStatus === 'read') {
+            $query->whereNotNull('read_at');
+        } else {
+            $activeStatus = '';
+        }
+
+        $notifications = $query->paginate(25)->withQueryString();
+        $unreadCount   = $user->unreadNotifications()->count();
+        $readCount     = $user->notifications()->whereNotNull('read_at')->count();
+        $activeType    = $request->string('type', '')->toString();
+
+        return view('panel.notifications.index', compact(
+            'notifications',
+            'unreadCount',
+            'readCount',
+            'activeType',
+            'activeStatus',
+        ));
     }
 
     public function markRead(Request $request, string $id): JsonResponse|RedirectResponse

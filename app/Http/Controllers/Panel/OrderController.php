@@ -108,7 +108,8 @@ class OrderController extends Controller
             $order = $createOrder->execute($customer, $plan, [
                 'domain'           => $domain,
                 'register_domain'  => $registerDomain,
-                'markup_percent'   => $resellerProfile ? (float) $resellerProfile->markup_percent : 0.0,
+                'markup_percent'      => $resellerProfile ? (float) $resellerProfile->markup_percent : 0.0,
+                'reseller_profile_id' => $resellerProfile?->id, // K146: individual per-plan prices
                 // Only honoured in mock mode — never forwarded otherwise.
                 'simulate_failure' => (bool) config('provisioning.mock_mode', true) && $request->boolean('simulate_failure'),
             ]);
@@ -144,9 +145,49 @@ class OrderController extends Controller
     {
         $this->authorize('view', $order);
 
+        $history = \Spatie\Activitylog\Models\Activity::query()
+            ->where('subject_type', Order::class)
+            ->where('subject_id', $order->id)
+            ->latest('id')
+            ->limit(15)
+            ->get();
+
         return view('panel.orders.show', [
-            'order' => $order->load(['items.pricingPlan', 'invoices.payments']),
+            'order'   => $order->load(['items.pricingPlan', 'invoices.payments']),
+            'history' => $history,
         ]);
+    }
+
+    /** Customer cancels their own still-unpaid order (+ its open proforma). */
+    public function cancel(Request $request, Order $order): RedirectResponse
+    {
+        $this->authorize('view', $order);
+
+        if ($order->status !== \App\Domains\Billing\Enums\OrderStatus::Pending || $order->paid_at !== null) {
+            return back()->withErrors(['order' => 'Tuto objednávku již nelze zrušit — je zaplacená nebo zpracovaná.']);
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($order): void {
+            $order->update([
+                'status'       => \App\Domains\Billing\Enums\OrderStatus::Cancelled,
+                'cancelled_at' => now(),
+            ]);
+
+            $order->invoices()
+                ->whereIn('status', [
+                    \App\Domains\Billing\Enums\InvoiceStatus::Sent->value,
+                    \App\Domains\Billing\Enums\InvoiceStatus::Overdue->value,
+                ])
+                ->update(['status' => \App\Domains\Billing\Enums\InvoiceStatus::Cancelled->value]);
+        });
+
+        activity('order')
+            ->performedOn($order)
+            ->causedBy($request->user())
+            ->withProperties(['transition' => 'cancelled_by_customer'])
+            ->log('order.cancelled_by_customer');
+
+        return redirect()->route('panel.orders.index')->with('status', 'Objednávka byla zrušena.');
     }
 
     private function customer(Request $request): Customer

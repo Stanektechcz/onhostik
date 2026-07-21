@@ -7,10 +7,13 @@ namespace App\Notifications;
 use App\Domains\Support\Models\SupportTicket;
 use App\Models\NpsResponse;
 use Illuminate\Notifications\Messages\MailMessage;
+use App\Notifications\Concerns\RespectsNotificationPreferences;
 use Illuminate\Notifications\Notification;
 
 class NpsSurveyNotification extends Notification
 {
+    use RespectsNotificationPreferences;
+
     public function __construct(
         private readonly NpsResponse $npsResponse,
         private readonly SupportTicket $ticket,
@@ -19,7 +22,7 @@ class NpsSurveyNotification extends Notification
     /** @return list<string> */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return $this->channelsFor($notifiable, 'marketing', ['mail']);
     }
 
     public function toMail(object $notifiable): MailMessage

@@ -25,7 +25,7 @@
     </x-panel.card>
 </div>
 
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 document.getElementById('whoisForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     const domain = document.getElementById('domainInput').value.trim();

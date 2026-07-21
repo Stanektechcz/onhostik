@@ -135,7 +135,7 @@
                                         <form method="POST"
                                               action="{{ route('admin.maintenance-banners.destroy', $maint) }}"
                                               class="inline"
-                                              onsubmit="return confirm('Smazat okno údržby?')">
+                                              data-confirm="Smazat okno údržby?">
                                             @csrf @method('DELETE')
                                             <button type="submit" class="btn btn-outline-danger btn-xs">×</button>
                                         </form>

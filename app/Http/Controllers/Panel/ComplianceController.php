@@ -89,6 +89,34 @@ class ComplianceController extends Controller
         );
     }
 
+    /**
+     * Download the customer's Data Processing Agreement (audit 178).
+     *
+     * A business customer is the controller of the personal data in their
+     * services and routinely needs a signed-shape DPA for their own art. 28
+     * compliance. Generating it on demand beats "email support and wait".
+     */
+    public function downloadDpa(Request $request): Response
+    {
+        $customer = $request->user()?->customer;
+        abort_if($customer === null, 403);
+
+        $result = app(\App\Domains\Compliance\Services\DpaPdfService::class)->generate($customer);
+
+        // A DPA names the parties and the processing terms — worth an audit
+        // trail of who generated which version and when.
+        activity('compliance')
+            ->performedOn($customer)
+            ->causedBy($request->user())
+            ->withProperties(['dpa_version' => $result['version']])
+            ->log('dpa.generated');
+
+        return response($result['pdf'], 200, [
+            'Content-Type'        => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="' . $result['filename'] . '"',
+        ]);
+    }
+
     /** @return array<string, mixed> */
     private function buildExportData(Customer $customer): array
     {

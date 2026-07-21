@@ -810,3 +810,12 @@
   a[href]::after { content: ""; } /* don't print raw URLs */
   body { background: #fff !important; }
 }
+
+/* ── Chat attachments (widget + admin thread) ── */
+#ai-chat-attach { display: flex; align-items: center; cursor: pointer; padding: 6px 4px; color: rgba(var(--theme-body-sub-title-color), 1); }
+#ai-chat-attach svg { width: 18px; height: 18px; }
+#ai-chat-attach:hover { color: rgba(var(--theme-default), 1); }
+.ai-msg-attach, .chat-attach { margin-top: 6px; }
+.ai-msg-attach img, .chat-attach img { max-width: 100%; max-height: 180px; border-radius: 8px; display: block; }
+.ai-msg-attach a, .chat-attach a { font-size: 12px; color: rgba(var(--theme-default), 1); text-decoration: none; }
+.ai-msg-attach a:hover, .chat-attach a:hover { text-decoration: underline; }

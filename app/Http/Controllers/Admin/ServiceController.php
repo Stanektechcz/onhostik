@@ -184,6 +184,9 @@ class ServiceController extends Controller
             'audit'        => $audit,
             'planChanges'  => $service->planChanges,
             'backupPolicy' => BackupPolicy::query()->where('service_id', $service->id)->first(),
+            // Full aaPanel configuration (databases/FTP/PHP/SSL/cron). Each
+            // section degrades independently and reports its own error.
+            'hostingConfig' => app(\App\Domains\Provisioning\Services\WebhostingConfigService::class)->forService($service),
         ]);
     }
 
@@ -240,6 +243,72 @@ class ServiceController extends Controller
 
         return redirect()->route('admin.services.show', $service)
             ->with('status', 'Služba byla vytvořena.');
+    }
+
+    /**
+     * Reconcile this service against its backend panel (read-only).
+     *
+     * Answers "was this actually created in aaPanel?" — the check that used
+     * to be impossible from the UI, so a paid-but-never-provisioned service
+     * looked healthy.
+     */
+    public function syncRemote(
+        Request $request,
+        Service $service,
+        \App\Domains\Provisioning\Services\ServiceRemoteSyncService $sync,
+    ): RedirectResponse {
+        $result = $sync->sync($service);
+        $state  = $result['state'];
+
+        activity('provisioning')
+            ->performedOn($service)
+            ->causedBy($request->user())
+            ->withProperties(['sync_state' => $state->value, 'message' => $result['message']])
+            ->log('service.sync_checked');
+
+        return $state->needsAttention()
+            ? back()->withErrors(['sync' => $state->label() . ' — ' . $result['message']])
+            : back()->with('status', $state->label() . ' — ' . $result['message']);
+    }
+
+    /**
+     * Re-run provisioning for a service that is missing in the panel.
+     *
+     * Idempotent: the drivers check for an existing external_id before any
+     * remote create, so this cannot produce a duplicate site. If the driver's
+     * write gate (e.g. AAPANEL_ALLOW_REAL_WRITES) is closed, the driver
+     * refuses and reports it — this action never opens that gate.
+     */
+    /**
+     * Read-only preview of what a (re)provision would do (audit 56).
+     *
+     * Returns the resolved driver, target server, whether real writes are on,
+     * and a live connection probe — WITHOUT touching the backend. Lets an admin
+     * see "if I press provision now, this is what happens" before committing.
+     */
+    public function provisionPreview(Service $service): \Illuminate\Http\JsonResponse
+    {
+        $preview = app(\App\Domains\Provisioning\Services\ProvisioningPreviewService::class)
+            ->forService($service);
+
+        return response()->json($preview);
+    }
+
+    public function reprovision(Request $request, Service $service): RedirectResponse
+    {
+        if ($service->status === ServiceStatus::Terminated) {
+            return back()->withErrors(['service' => 'Ukončenou službu nelze znovu zřídit.']);
+        }
+
+        \App\Domains\Provisioning\Jobs\ProvisionHostingServiceJob::dispatchSync($service->id);
+
+        activity('provisioning')
+            ->performedOn($service)
+            ->causedBy($request->user())
+            ->withProperties(['operation' => 'reprovision', 'reason' => 'missing_remote'])
+            ->log('service.reprovision_requested');
+
+        return back()->with('status', 'Zřízení služby bylo spuštěno — ověřte stav tlačítkem „Ověřit v panelu".');
     }
 
     public function suspend(Request $request, Service $service): RedirectResponse

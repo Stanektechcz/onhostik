@@ -213,7 +213,7 @@
                 @if(!$isNew && $preset !== null)
                     <x-panel.card title="Nebezpečná zóna">
                         <form method="POST" action="{{ route('admin.game-presets.destroy', $preset) }}"
-                              onsubmit="return confirm('Opravdu smazat preset {{ addslashes($preset->name) }}?')">
+                              data-confirm="Opravdu smazat preset {{ addslashes($preset->name) }}?">
                             @csrf
                             @method('DELETE')
                             <p class="seccolor f-13 mb-2">Smazání je nevratné. Existující služby nejsou dotčeny.</p>
@@ -229,7 +229,7 @@
     </div>
 
     @push('scripts')
-    <script>
+    <script nonce="{{ $cspNonce ?? '' }}">
     (function () {
         function mb2gb(el, label) {
             el.addEventListener('input', function () {

@@ -148,7 +148,7 @@
                                     <i data-feather="external-link" style="width:14px;height:14px;"></i> Zobrazit na webu
                                 </a>
                                 <form method="POST" action="{{ route('admin.kb.destroy', $article) }}"
-                                      onsubmit="return confirm('Opravdu smazat tento článek?')">
+                                      data-confirm="Opravdu smazat tento článek?">
                                     @csrf @method('DELETE')
                                     <button type="submit" class="btn btn-outline-danger">
                                         <i data-feather="trash-2" style="width:14px;height:14px;"></i> Smazat
@@ -233,7 +233,7 @@
                                                     </form>
                                                     @endif
                                                     <form method="POST" action="{{ route('admin.kb.review.delete', $review) }}"
-                                                          style="display:inline;" onsubmit="return confirm('Smazat komentář?')">
+                                                          style="display:inline;" data-confirm="Smazat komentář?">
                                                         @csrf @method('DELETE')
                                                         <button type="submit" class="square-white trash-3" title="Smazat">
                                                             <svg><use href="{{ asset('panel/svg/icon-sprite.svg#trash1') }}"></use></svg>

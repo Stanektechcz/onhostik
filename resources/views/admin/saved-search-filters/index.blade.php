@@ -47,7 +47,7 @@
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="btn btn-sm btn-outline-danger"
-                                            onclick="return confirm('Smazat filtr?')">
+                                            data-confirm="Smazat filtr?">
                                             Smazat
                                         </button>
                                     </form>

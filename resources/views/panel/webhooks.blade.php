@@ -74,7 +74,7 @@
                                                         </button>
                                                     </form>
                                                     <form method="POST" action="{{ route('panel.webhooks.destroy', $webhook) }}"
-                                                          onsubmit="return confirm('Smazat webhook {{ $webhook->name }}?')">
+                                                          data-confirm="Smazat webhook {{ $webhook->name }}?">
                                                         @csrf @method('DELETE')
                                                         <button type="submit" class="btn btn-xs btn-outline-danger"
                                                                 title="Smazat">

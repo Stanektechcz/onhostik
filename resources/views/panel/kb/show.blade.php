@@ -116,13 +116,13 @@
                                     <div class="flex items-center gap-3">
                                         <button type="button" id="vote-helpful"
                                                 class="btn {{ ($userVote ?? '') === 'helpful' ? 'btn-success' : 'btn-outline-success' }} btn-sm"
-                                                onclick="castVote(true)">
+                                                data-call="castVote" data-call-args='[true]'>
                                             <i data-feather="thumbs-up" style="width:14px;height:14px;"></i>
                                             Ano <span class="ms-1 badge bg-white text-success" id="helpful-count">{{ $voteStats['helpful'] }}</span>
                                         </button>
                                         <button type="button" id="vote-not-helpful"
                                                 class="btn {{ ($userVote ?? '') === 'not_helpful' ? 'btn-danger' : 'btn-outline-danger' }} btn-sm"
-                                                onclick="castVote(false)">
+                                                data-call="castVote" data-call-args='[false]'>
                                             <i data-feather="thumbs-down" style="width:14px;height:14px;"></i>
                                             Ne <span class="ms-1 badge bg-white text-danger" id="not-helpful-count">{{ $voteStats['not_helpful'] }}</span>
                                         </button>
@@ -242,7 +242,7 @@
 @endsection
 
 @push('scripts')
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 var _voteUrl = '{{ route('panel.kb.vote', $article->slug) }}';
 var _csrfToken = '{{ csrf_token() }}';
 

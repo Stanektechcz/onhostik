@@ -64,7 +64,7 @@
                                 Nainstalováno
                             </span>
                             <form method="POST" action="{{ route('panel.marketplace.remove', [$service, $app]) }}"
-                                  onsubmit="return confirm('Odinstalovat {{ $app->name }}?')">
+                                  data-confirm="Odinstalovat {{ $app->name }}?">
                                 @csrf @method('DELETE')
                                 <button type="submit" class="btn btn-outline-danger btn-xs w-full">
                                     Odinstalovat

@@ -48,9 +48,17 @@
                         <tr>
                             <td>
                                 <span class="f-w-600">{{ $c->customer?->company_name ?? $c->startedBy?->name ?? 'Neznámý' }}</span>
+                                @if($c->unread_count > 0)
+                                    <span class="badge badge-danger rounded-full ms-1">{{ $c->unread_count }} nové</span>
+                                @endif
                                 <p class="f-light f-12 mb-0">{{ $c->startedBy?->email }}</p>
                             </td>
-                            <td><span class="badge badge-light-{{ $c->status->color() }}">{{ $c->status->label() }}</span></td>
+                            <td>
+                                <span class="badge badge-light-{{ $c->status->color() }}">{{ $c->status->label() }}</span>
+                                @if($c->status->value === 'waiting_agent')
+                                    <span class="f-11 f-light block mt-1">čeká {{ $c->last_message_at?->diffForHumans(null, true) }}</span>
+                                @endif
+                            </td>
                             <td class="f-12">{{ $c->agent?->name ?? '—' }}</td>
                             <td>{{ $c->messages_count }}</td>
                             <td class="f-12">{{ $c->last_message_at?->diffForHumans() ?? '—' }}</td>

@@ -10,6 +10,7 @@ use App\Domains\Provisioning\Models\ProvisioningTask;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Provisioning\Services\DriverResolver;
 use App\Domains\Provisioning\Services\ServiceActivationHooks;
+use App\Domains\Shared\Support\LogContext;
 use App\Models\User;
 use App\Notifications\ProvisioningFailedNotification;
 use App\Services\WebhookDispatcher;
@@ -52,6 +53,19 @@ final class ProvisionHostingServiceJob implements ShouldQueue
             return;
         }
 
+        // Audit M166: stamp every log line in this job with who/what/where, so
+        // a failure at 02:00 answers "whose service, which server?" from the
+        // log line itself instead of a grep expedition.
+        LogContext::with([
+            'service_id'  => $service->id,
+            'customer_id' => $service->customer_id,
+            'server_id'   => $service->server_id,
+            'driver'      => $service->provisioning_driver?->value,
+        ], fn () => $this->provision($service, $drivers, $webhooks));
+    }
+
+    private function provision(Service $service, DriverResolver $drivers, WebhookDispatcher $webhooks): void
+    {
         // Idempotency: never provision twice.
         if ($service->external_id !== null && $service->status === ServiceStatus::Active) {
             return;

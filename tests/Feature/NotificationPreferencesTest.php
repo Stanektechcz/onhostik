@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Domains\Communication\Support\NotificationCatalog;
+
 use App\Domains\Billing\Enums\InvoiceSeries;
 use App\Domains\Billing\Enums\InvoiceStatus;
 use App\Domains\Billing\Enums\InvoiceType;
@@ -247,20 +249,75 @@ it('PUT /panel/ucet/notifikace saves notification preferences', function (): voi
         ->and($user->notification_preferences['database'])->toContain('invoice');
 });
 
-it('PUT /panel/ucet/notifikace with empty body opts out of all notification types', function (): void {
+it('PUT /panel/ucet/notifikace with empty body opts out of every optional type', function (): void {
     $user = customerUser();
 
-    // No checkboxes submitted → ALL types become opt-out
+    // No checkboxes submitted → every OPTIONAL type becomes opt-out.
     $this->actingAs($user)
         ->put(route('panel.account.notification-preferences.update'), [])
         ->assertRedirect();
 
     $user->refresh();
 
-    $allTypes = ['renewal', 'invoice', 'payment', 'support', 'backup', 'monitor'];
+    $optional = NotificationCatalog::optionalKeys();
 
-    expect($user->notification_preferences['mail'])->toBe($allTypes)
-        ->and($user->notification_preferences['database'])->toBe($allTypes);
+    expect($user->notification_preferences['mail'])->toBe($optional)
+        ->and($user->notification_preferences['database'])->toBe($optional);
+});
+
+it('cannot switch off a mandatory type by submitting nothing', function (): void {
+    $user = customerUser();
+
+    $this->actingAs($user)
+        ->put(route('panel.account.notification-preferences.update'), [])
+        ->assertRedirect();
+
+    // "Your service was suspended" and "your 2FA was disabled" are not
+    // preferences — an empty form must not be able to silence them.
+    expect($user->refresh()->wantsNotification('service_critical', 'mail'))->toBeTrue()
+        ->and($user->wantsNotification('security', 'mail'))->toBeTrue();
+});
+
+it('keeps new-IP e-mail off until it is explicitly asked for', function (): void {
+    $user = customerUser();
+
+    expect($user->wantsNotification('new_ip_login', 'mail'))->toBeFalse()
+        // …while the in-app alert is never suppressed.
+        ->and($user->wantsNotification('new_ip_login', 'database'))->toBeTrue();
+
+    $this->actingAs($user)
+        ->put(route('panel.account.notification-preferences.update'), ['mail' => ['new_ip_login']])
+        ->assertRedirect();
+
+    expect($user->refresh()->wantsNotification('new_ip_login', 'mail'))->toBeTrue();
+});
+
+it('lets a previously opted-in user turn new-IP e-mail back off', function (): void {
+    $user = customerUser();
+    $user->update(['notification_preferences' => ['opt_in' => ['mail' => ['new_ip_login']]]]);
+
+    $this->actingAs($user)
+        ->put(route('panel.account.notification-preferences.update'), ['mail' => []])
+        ->assertRedirect();
+
+    expect($user->refresh()->wantsNotification('new_ip_login', 'mail'))->toBeFalse();
+});
+
+it('honours a credit opt-out, which the old hardcoded list could not', function (): void {
+    /*
+     | Regression: the opt-out map was built by diffing against a hardcoded
+     | list of six types that did not include `credit`, even though
+     | CreditExpiryReminderNotification checked for it. A key absent from that
+     | list never landed in the opt-out array, so the switch always read "yes".
+     */
+    $user = customerUser();
+
+    $this->actingAs($user)
+        ->put(route('panel.account.notification-preferences.update'), ['mail' => ['invoice']])
+        ->assertRedirect();
+
+    expect($user->refresh()->wantsNotification('credit', 'mail'))->toBeFalse()
+        ->and($user->wantsNotification('invoice', 'mail'))->toBeTrue();
 });
 
 it('wantsNotification reflects updated preferences after PUT', function (): void {

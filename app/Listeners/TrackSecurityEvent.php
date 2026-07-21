@@ -25,9 +25,7 @@ final class TrackSecurityEvent
         $user      = $event->user;
         $currentIp = $this->request->ip() ?? '0.0.0.0';
 
-        // Detect new IP: compare against stored last_login_ip BEFORE RecordUserLogin updates it
-        $isNewIp = $user->last_login_ip !== null
-            && $user->last_login_ip !== $currentIp;
+        $isNewIp = $user->last_login_ip !== null && $this->isUnfamiliar($user, $currentIp);
 
         $eventType = $isNewIp ? 'new_ip_login' : 'login';
 
@@ -46,6 +44,28 @@ final class TrackSecurityEvent
                 (string) $this->request->userAgent(),
             ));
         }
+    }
+
+    /**
+     * Has this account signed in from this address before, recently?
+     *
+     * The old check compared against `last_login_ip` alone, so a user who
+     * alternates between two addresses — phone and wifi, or a dual-homed
+     * upstream proxy — was "on a new IP" at every single login, forever. That
+     * is why the alert was in-app only: it was too noisy to mail. Checking the
+     * login history instead makes the signal mean something, which is what
+     * makes offering it by e-mail (audit I125) defensible.
+     */
+    private function isUnfamiliar(User $user, string $ip): bool
+    {
+        $days = (int) config('security.known_ip_retention_days', 90);
+
+        return ! SecurityEvent::query()
+            ->where('user_id', $user->id)
+            ->where('ip_address', $ip)
+            ->whereIn('event_type', ['login', 'new_ip_login'])
+            ->where('created_at', '>=', now()->subDays($days))
+            ->exists();
     }
 
     public function handleFailed(Failed $event): void

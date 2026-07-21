@@ -105,7 +105,7 @@
                                         <div class="input-group">
                                             <input class="form-control uppercase" type="text" id="discount-input"
                                                    placeholder="PROMO2026" maxlength="32">
-                                            <button class="btn btn-outline-primary" type="button" onclick="applyDiscount()">
+                                            <button class="btn btn-outline-primary" type="button" data-call="applyDiscount">
                                                 Použít
                                             </button>
                                         </div>
@@ -212,10 +212,10 @@
 
                         {{-- Wizard nav --}}
                         <div class="wizard-footer flex gap-2 justify-end mt-3">
-                            <button class="btn button-light-primary" id="backbtn" onclick="wizardBack()" style="display:none;">
+                            <button class="btn button-light-primary" id="backbtn" data-call="wizardBack" style="display:none;">
                                 Zpět
                             </button>
-                            <button class="btn btn-primary text-white" id="nextbtn" onclick="wizardNext()">
+                            <button class="btn btn-primary text-white" id="nextbtn" data-call="wizardNext">
                                 Další
                             </button>
                         </div>
@@ -291,7 +291,7 @@
 @endsection
 
 @push('scripts')
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
 /* Discount code AJAX validation */
 function applyDiscount() {
     var code = document.getElementById('discount-input').value.trim().toUpperCase();

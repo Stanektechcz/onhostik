@@ -56,7 +56,7 @@
                                 <a href="{{ route('admin.announcements.edit', $a) }}" class="btn btn-xs btn-outline-secondary">Upravit</a>
                             @endif
                             <form action="{{ route('admin.announcements.destroy', $a) }}" method="POST" class="inline"
-                                  onsubmit="return confirm('Smazat oznámení?')">
+                                  data-confirm="Smazat oznámení?">
                                 @csrf @method('DELETE')
                                 <button class="btn btn-xs btn-outline-danger">Smazat</button>
                             </form>

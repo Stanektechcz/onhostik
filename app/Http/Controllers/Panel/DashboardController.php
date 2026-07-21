@@ -21,8 +21,12 @@ use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
-    public function index(Request $request, CreditLedger $ledger, OnboardingService $onboarding): View
-    {
+    public function index(
+        Request $request,
+        CreditLedger $ledger,
+        OnboardingService $onboarding,
+        \App\Domains\Provisioning\Services\ServiceHealthSummary $health,
+    ): View {
         $customer = $request->user()?->customer;
 
         abort_if($customer === null, 403, 'No customer profile attached to this account.');
@@ -160,6 +164,8 @@ class DashboardController extends Controller
             'ordersThisMonth'  => $orderCountsData->last() ?? 0,
             // incident
             'latestIncident'   => $latestIncident,
+            // O189: one-glance health of the whole service portfolio
+            'serviceHealth'    => $health->forCustomer($customer),
             // onboarding checklist
             'onboardingSteps'    => $onboarding->steps($customer),
             'onboardingPercent'  => $onboarding->percent($customer),

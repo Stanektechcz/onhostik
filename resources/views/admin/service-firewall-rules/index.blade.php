@@ -70,7 +70,7 @@
                         </td>
                         <td class="truncate" style="max-width:200px">{{ $rule->description ?? '—' }}</td>
                         <td>
-                            <form method="POST" action="{{ route('admin.service-firewall-rules.destroy', $rule->id) }}" onsubmit="return confirm('Opravdu smazat pravidlo #{{ $rule->id }}?')">
+                            <form method="POST" action="{{ route('admin.service-firewall-rules.destroy', $rule->id) }}" data-confirm="Opravdu smazat pravidlo #{{ $rule->id }}?">
                                 @csrf @method('DELETE')
                                 <button type="submit" class="btn btn-sm btn-outline-danger">Smazat</button>
                             </form>

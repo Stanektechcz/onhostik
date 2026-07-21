@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Listeners;
 
+use App\Domains\Communication\Services\CriticalAlertDispatcher;
 use App\Models\User;
 use Illuminate\Contracts\Queue\Job;
 use Illuminate\Mail\Message;
@@ -30,6 +31,18 @@ class NotifyAdminOnFailedJob
         }
 
         cache()->put($cacheKey, true, now()->addHour());
+
+        /*
+         | Slack first (audit I126). A provisioning job dying at 02:00 is the
+         | textbook case for an alert that does not wait for someone to open
+         | their inbox — and it is dispatched before the mail loop so a broken
+         | mailer cannot swallow it.
+         */
+        app(CriticalAlertDispatcher::class)->send(
+            "Selhání jobu: {$jobName}",
+            $errorMsg,
+            ['Queue' => $event->job->getQueue(), 'Job' => $jobName],
+        );
 
         $admins = User::whereHas('roles', fn ($q) => $q->where('name', 'admin'))->get();
 

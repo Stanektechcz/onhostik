@@ -76,7 +76,7 @@
                                                         </button>
                                                     </form>
                                                     <form method="POST" action="{{ route('admin.ip-allowlist.destroy', $entry) }}"
-                                                          onsubmit="return confirm('Smazat tento záznam?')">
+                                                          data-confirm="Smazat tento záznam?">
                                                         @csrf @method('DELETE')
                                                         <button type="submit" class="btn btn-xs btn-outline-danger">
                                                             <i data-feather="trash-2" style="width:12px;height:12px"></i>

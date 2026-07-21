@@ -66,6 +66,15 @@
                                    required maxlength="100">
                             @error('name')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
+                        <div class="mb-2">
+                            <label class="form-label f-12 f-light" for="prof-currency">Preferovaná měna</label>
+                            <select id="prof-currency" name="preferred_currency" class="form-select form-select-sm">
+                                @foreach(['CZK', 'EUR', 'USD'] as $cur)
+                                    <option value="{{ $cur }}" @selected($customer?->preferred_currency->value === $cur)>{{ $cur }}</option>
+                                @endforeach
+                            </select>
+                            <span class="f-11 f-light">Ovlivňuje ceny tarifů a faktury.</span>
+                        </div>
                         <button type="submit" class="btn btn-outline-primary btn-sm">
                             <i data-feather="save" style="width:13px;height:13px"></i>
                             {{ __('panel.common.save') }}

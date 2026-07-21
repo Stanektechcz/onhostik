@@ -178,6 +178,39 @@
         </tr>
     </table>
 
+    {{-- ── Platební údaje + QR Platba (audit D45) ──────────
+         SPAYD je řetězec, který čtou všechny české bankovní aplikace.
+         Vykreslení do QR obrázku vyžaduje QR knihovnu (endroid/qr-code) —
+         dokud není nainstalovaná, tiskneme aspoň úplné platební údaje,
+         ať zákazník nemusí nic dohledávat. --}}
+    @php($spayd = $invoice->paid_at === null
+        ? app(\App\Domains\Billing\Services\QrPaymentGenerator::class)->forInvoice($invoice)
+        : null)
+    @if($spayd !== null)
+        <table class="info-boxes" data-spayd="{{ $spayd }}">
+            <tr>
+                <td class="info-box">
+                    <p class="info-box-label">Číslo účtu:</p>
+                    <span class="info-box-value">
+                        {{ ($invoice->currency->value ?? '') === 'EUR'
+                            ? config('billing.supplier.bank_account_eur')
+                            : config('billing.supplier.bank_account_czk') }}
+                    </span>
+                </td>
+                <td class="info-box">
+                    <p class="info-box-label">Variabilní symbol:</p>
+                    <span class="info-box-value">{{ $invoice->variable_symbol }}</span>
+                </td>
+                <td class="info-box">
+                    <p class="info-box-label">Částka:</p>
+                    <span class="info-box-value">
+                        {{ \App\Domains\Shared\Support\MoneyFormatter::format($invoice->total) }}
+                    </span>
+                </td>
+            </tr>
+        </table>
+    @endif
+
     {{-- ── Items table ─────────────────────────────────── --}}
     <table class="items">
         <thead>
@@ -248,7 +281,7 @@
             </td>
             <td style="text-align:right;">
                 @unless($isPdf ?? false)
-                <a class="btn-print" href="{{ route('panel.billing.invoices.print', $invoice) }}" onclick="window.print()">
+                <a class="btn-print" id="invoice-print" href="{{ route('panel.billing.invoices.print', $invoice) }}">
                     Vytisknout &rsaquo;
                 </a>
                 @endunless
@@ -277,5 +310,20 @@
     @endif
 
 </div>
+
+@unless($isPdf ?? false)
+{{--
+    This template is also served as a normal HTML page (the "Vytisknout" route),
+    where CSP applies and an inline onclick would never fire. The href stays as
+    the fallback: worst case the user lands on the print view and prints from
+    the browser menu.
+--}}
+<script nonce="{{ $cspNonce ?? '' }}">
+document.getElementById('invoice-print').addEventListener('click', function (event) {
+    event.preventDefault();
+    window.print();
+});
+</script>
+@endunless
 </body>
 </html>
