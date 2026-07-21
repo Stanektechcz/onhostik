@@ -46,15 +46,18 @@ final class IssueProformaInvoiceAction
             ?? throw new InvalidArgumentException("Order [{$order->id}] has no customer.");
 
         $scenario = VatScenario::from((string) $order->vat_scenario);
-        $number   = $this->numbers->next($scenario->invoiceSeries());
-        $address  = $customer->billingAddress();
+        // Audit 111 — a reseller with its own series prefix numbers its
+        // customers' invoices under that prefix; otherwise the global series.
+        $seriesKey = $customer->reseller?->invoiceSeriesPrefix() ?? $scenario->invoiceSeries()->value;
+        $number    = $this->numbers->nextForKey($seriesKey);
+        $address   = $customer->billingAddress();
 
-        $invoice = DB::transaction(function () use ($order, $customer, $scenario, $number, $address): Invoice {
+        $invoice = DB::transaction(function () use ($order, $customer, $scenario, $seriesKey, $number, $address): Invoice {
             $invoice = Invoice::create([
                 'customer_id'  => $customer->id,
                 'order_id'     => $order->id,
                 'type'         => InvoiceType::Proforma,
-                'series'       => $scenario->invoiceSeries()->value,
+                'series'       => $seriesKey,
                 'number'       => $number,
                 'status'       => InvoiceStatus::Sent,
                 'vat_scenario' => $scenario,

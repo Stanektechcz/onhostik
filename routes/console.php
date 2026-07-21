@@ -266,3 +266,9 @@ Schedule::command(\App\Console\Commands\ApplyDataRetentionCommand::class)
     ->dailyAt('03:30')
     ->withoutOverlapping()
     ->runInBackground();
+
+// Auto-healing (opt-in): re-provision services that went MissingRemote.
+Schedule::command(\App\Console\Commands\HealMissingServicesCommand::class)
+    ->hourly()
+    ->withoutOverlapping()
+    ->runInBackground();

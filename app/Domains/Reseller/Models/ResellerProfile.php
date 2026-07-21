@@ -108,4 +108,25 @@ class ResellerProfile extends Model
     {
         $this->update(['status' => 'active', 'approved_at' => now()]);
     }
+
+    /**
+     * Optional own invoice-series prefix (audit 111).
+     *
+     * When set, invoices for this reseller's customers are numbered under this
+     * prefix instead of the global series — the reseller acting as its own
+     * invoicing entity. Sanitised to A–Z0–9 (max 8) to stay a valid series key;
+     * empty/unset means "use the global series" (the default behaviour).
+     */
+    public function invoiceSeriesPrefix(): ?string
+    {
+        $raw = $this->branding['invoice_series'] ?? null;
+
+        if (! is_string($raw) || trim($raw) === '') {
+            return null;
+        }
+
+        $key = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $raw) ?? '');
+
+        return $key === '' ? null : substr($key, 0, 8);
+    }
 }

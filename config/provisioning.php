@@ -16,6 +16,10 @@ return [
     // Hours between repeated quota-breach alerts for the same service.
     'quota_breach_cooldown_hours' => (int) env('QUOTA_BREACH_COOLDOWN_HOURS', 24),
 
+    // Auto-healing: automatically re-provision services that went MissingRemote.
+    // Opt-in — a write, gated by the same mock/real-writes switches as provisioning.
+    'auto_heal' => (bool) env('PROVISIONING_AUTO_HEAL', false),
+
     'wedos' => [
         'user'             => env('WAPI_USER'),
         'password'         => env('WAPI_PASSWORD'),

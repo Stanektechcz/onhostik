@@ -66,16 +66,18 @@ final class IssueTaxDocumentAction
         }
 
         $scenario = $proforma->vat_scenario;
-        $number   = $this->numbers->next($scenario->invoiceSeries());
+        // Audit 111 — the reseller's own series prefix wins, else the global.
+        $seriesKey = $customer->reseller?->invoiceSeriesPrefix() ?? $scenario->invoiceSeries()->value;
+        $number    = $this->numbers->nextForKey($seriesKey);
 
-        $invoice = DB::transaction(function () use ($proforma, $customer, $scenario, $number, $address, $name): Invoice {
+        $invoice = DB::transaction(function () use ($proforma, $customer, $scenario, $seriesKey, $number, $address, $name): Invoice {
             $invoice = Invoice::create([
                 'customer_id'       => $customer->id,
                 'order_id'          => $proforma->order_id,
                 'parent_invoice_id' => $proforma->id,
                 'type'              => InvoiceType::Invoice,
                 'purpose'           => $proforma->purpose,
-                'series'            => $scenario->invoiceSeries()->value,
+                'series'            => $seriesKey,
                 'number'            => $number,
                 'status'            => InvoiceStatus::Paid,
                 'vat_scenario'      => $scenario,

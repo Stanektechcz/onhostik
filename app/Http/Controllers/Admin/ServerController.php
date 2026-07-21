@@ -146,6 +146,28 @@ class ServerController extends Controller
         );
     }
 
+    /**
+     * Drain a server — move its live services to other nodes (autoscaling/maint).
+     */
+    public function drain(Request $request, Server $server): RedirectResponse
+    {
+        $result = app(\App\Domains\Provisioning\Actions\DrainServerAction::class)
+            ->execute($server, 'admin drain');
+
+        activity('provisioning')
+            ->performedOn($server)
+            ->causedBy($request->user())
+            ->withProperties($result)
+            ->log('server.drain_requested');
+
+        $msg = "Server vyprázdněn: přesunuto {$result['moved']}, přeskočeno {$result['skipped']}";
+        if ($result['no_target'] > 0) {
+            $msg .= ", bez cíle {$result['no_target']} (žádný jiný aktivní server)";
+        }
+
+        return back()->with($result['no_target'] > 0 ? 'integration_error' : 'status', $msg . '.');
+    }
+
     /** @return array<string, mixed> */
     private function validateServer(Request $request): array
     {

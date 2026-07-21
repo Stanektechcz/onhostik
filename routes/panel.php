@@ -689,6 +689,7 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
     Route::put('/servery/{server}', [Admin\ServerController::class, 'update'])->name('servers.update');
     Route::delete('/servery/{server}', [Admin\ServerController::class, 'destroy'])->name('servers.destroy');
     Route::post('/servery/{server}/test', [Admin\ServerController::class, 'test'])->name('servers.test');
+    Route::post('/servery/{server}/vyprazdnit', [Admin\ServerController::class, 'drain'])->name('servers.drain');
 
     /* ── Game server presets (Pterodactyl) ── */
     Route::get('/game-presety', [Admin\GameServerPresetController::class, 'index'])->name('game-presets.index');
