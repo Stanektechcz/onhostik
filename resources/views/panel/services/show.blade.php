@@ -893,6 +893,53 @@
                         </div>
                     </x-panel.card>
                 @endif
+
+                {{-- Reviews module: rate this service --}}
+                <x-panel.card title="Ohodnotit službu">
+                    @if($myReview)
+                        @php($statusMap = [
+                            'pending'  => ['badge' => 'warning', 'label' => 'Čeká na schválení'],
+                            'approved' => ['badge' => 'success', 'label' => 'Zveřejněno'],
+                            'rejected' => ['badge' => 'secondary', 'label' => 'Zamítnuto'],
+                        ][$myReview->status] ?? ['badge' => 'secondary', 'label' => $myReview->status])
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-warning" style="letter-spacing:1px;">{{ str_repeat('★', $myReview->rating) }}<span class="text-muted">{{ str_repeat('☆', 5 - $myReview->rating) }}</span></span>
+                            <span class="badge badge-light-{{ $statusMap['badge'] }}">{{ $statusMap['label'] }}</span>
+                        </div>
+                        <p class="f-light f-12 mb-3">Svou recenzi můžete kdykoliv upravit — po úpravě projde znovu schválením.</p>
+                    @else
+                        <p class="f-light f-12 mb-3">Podělte se o zkušenost s touto službou. Recenze se zobrazí po schválení.</p>
+                    @endif
+
+                    <form method="POST" action="{{ route('panel.services.review', $service) }}">
+                        @csrf
+                        <div class="grid grid-cols-12 gap-2 mb-2">
+                            <div class="col-span-4">
+                                <label class="form-label f-11 f-light">Hodnocení</label>
+                                <select name="rating" class="form-select form-select-sm @error('rating') is-invalid @enderror">
+                                    @for($r = 5; $r >= 1; $r--)
+                                        <option value="{{ $r }}" {{ (int) old('rating', $myReview->rating ?? 5) === $r ? 'selected' : '' }}>{{ str_repeat('★', $r) }} ({{ $r }})</option>
+                                    @endfor
+                                </select>
+                            </div>
+                            <div class="col-span-8">
+                                <label class="form-label f-11 f-light">Nadpis (nepovinné)</label>
+                                <input type="text" name="title" maxlength="150" value="{{ old('title', $myReview->title ?? '') }}"
+                                       class="form-control form-control-sm @error('title') is-invalid @enderror">
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label f-11 f-light">Vaše recenze</label>
+                            <textarea name="body" rows="3" maxlength="2000"
+                                      class="form-control form-control-sm @error('body') is-invalid @enderror">{{ old('body', $myReview->body ?? '') }}</textarea>
+                            @error('body')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            <i data-feather="star" style="width:13px;height:13px;"></i>
+                            {{ $myReview ? 'Aktualizovat recenzi' : 'Odeslat recenzi' }}
+                        </button>
+                    </form>
+                </x-panel.card>
             </div>
         </div>
     </div>

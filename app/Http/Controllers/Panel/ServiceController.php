@@ -93,6 +93,10 @@ class ServiceController extends Controller
                 ->orderBy('starts_at')
                 ->limit(3)
                 ->get(),
+            // Reviews module: the customer's own review of this service, if any.
+            'myReview' => \App\Models\ServiceReview::where('service_id', $service->id)
+                ->where('customer_id', $service->customer_id)
+                ->first(),
         ]);
     }
 

@@ -254,3 +254,15 @@ Schedule::command(CheckServiceQuotaBreachesCommand::class)
     ->hourly()
     ->withoutOverlapping()
     ->runInBackground();
+
+// Offsite database backup (audit INFRA #7): dump + gzip + upload to backup-s3.
+Schedule::command(\App\Console\Commands\BackupDatabaseCommand::class)
+    ->dailyAt('03:00')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Data retention (audit INFRA #180): prune old logs/history/expired exports.
+Schedule::command(\App\Console\Commands\ApplyDataRetentionCommand::class)
+    ->dailyAt('03:30')
+    ->withoutOverlapping()
+    ->runInBackground();

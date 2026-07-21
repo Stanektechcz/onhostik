@@ -38,6 +38,7 @@ Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('pane
     /* ── Phase 278: game server actions ── */
     Route::post('/sluzby/{service}/game-akce', Panel\GameServerActionController::class)->name('services.game-action');
     Route::post('/sluzby/{service}/zaloha', [Panel\ServiceController::class, 'requestBackup'])->name('services.backup');
+    Route::post('/sluzby/{service}/recenze', [Panel\ServiceReviewController::class, 'store'])->name('services.review');
     Route::put('/sluzby/{service}/zaloha-plan', [Panel\ServiceController::class, 'updateBackupSchedule'])->name('services.backup-schedule');
     Route::post('/sluzby/{service}/wordpress', [Panel\ServiceController::class, 'installWordpress'])->name('services.wordpress');
     Route::get('/sluzby/{service}/export-pouziti', [Panel\ServiceUsageExportController::class, 'export'])->name('services.usage-export');
@@ -916,8 +917,10 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
     Route::post('/slevy/{code}/toggle', [Admin\DiscountCodeController::class, 'toggle'])->name('discount-codes.toggle');
     Route::delete('/slevy/{code}', [Admin\DiscountCodeController::class, 'destroy'])->name('discount-codes.destroy');
 
-    /* ── Reviews ── */
-    Route::get('/recenze', [Admin\PageController::class, 'reviews'])->name('reviews');
+    /* ── Reviews (service reviews module) ── */
+    Route::get('/recenze', [Admin\ServiceReviewController::class, 'index'])->name('reviews');
+    Route::post('/recenze/{review}/schvalit', [Admin\ServiceReviewController::class, 'approve'])->name('reviews.approve');
+    Route::post('/recenze/{review}/zamitnout', [Admin\ServiceReviewController::class, 'reject'])->name('reviews.reject');
 
     /* ── Mailbox ── */
     Route::get('/posta', [Admin\PageController::class, 'mailbox'])->name('mailbox');

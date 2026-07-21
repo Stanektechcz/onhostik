@@ -9,65 +9,78 @@
 
 @section('content')
 <div class="container-fluid">
-    <div class="container manage-review-wrapper">
-        <div class="grid grid-cols-12 card-gap">
-            <div class="col-span-12">
-                <div class="card">
-                    <div class="card-header card-no-border">
-                        <div class="header-top">
-                            <h5>Správa recenzí zákazníků</h5>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        {{-- Filters --}}
-                        <div class="flex gap-3 mb-3 flex-wrap">
-                            <select class="form-select w-auto form-select-sm">
-                                <option>Hodnocení</option>
-                                <option>★★★★★ (5)</option>
-                                <option>★★★★ (4)</option>
-                                <option>★★★ (3)</option>
-                                <option>★★ (2)</option>
-                                <option>★ (1)</option>
-                            </select>
-                            <select class="form-select w-auto form-select-sm">
-                                <option>Stav</option>
-                                <option>Schválená</option>
-                                <option>Čeká</option>
-                                <option>Zamítnuta</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="card-body pt-0 px-0">
-                        <div class="manage-review">
-                            <div class="recent-table overflow-x-auto custom-scrollbar">
-                                <table class="table" id="manage-review-table">
-                                    <thead>
-                                        <tr>
-                                            <th><span class="f-light font-semibold">Zákazník</span></th>
-                                            <th><span class="f-light font-semibold">Služba</span></th>
-                                            <th><span class="f-light font-semibold">Hodnocení</span></th>
-                                            <th><span class="f-light font-semibold">Recenze</span></th>
-                                            <th><span class="f-light font-semibold">Datum</span></th>
-                                            <th><span class="f-light font-semibold">Stav</span></th>
-                                            <th><span class="f-light font-semibold">Akce</span></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr class="inbox-data">
-                                            <td colspan="7" class="text-center py-5 f-light">
-                                                <i data-feather="star" style="width:40px;height:40px;" class="block mx-auto mb-3 text-muted"></i>
-                                                Modul recenzí bude implementován v dalším vydání.
-                                                <br><small>Aktuálně zákazníci mohou hodnotit přes e-mail nebo tickety.</small>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+    <x-panel.flash />
+
+    <x-panel.card title="Recenze zákazníků">
+        <x-slot name="headerRight">
+            <div class="flex gap-1">
+                @foreach(['pending' => 'Čekající', 'approved' => 'Schválené', 'rejected' => 'Zamítnuté'] as $key => $label)
+                    <a href="{{ route('admin.reviews', ['status' => $key]) }}"
+                       class="btn btn-sm {{ $status === $key ? 'btn-primary' : 'btn-outline-secondary' }}">
+                        {{ $label }} <span class="badge badge-light-secondary ms-1">{{ $counts[$key] }}</span>
+                    </a>
+                @endforeach
             </div>
-        </div>
-    </div>
+        </x-slot>
+
+        @if($reviews->isEmpty())
+            <x-panel.empty-state icon="star" title="Žádné recenze"
+                subtitle="V tomto stavu nejsou žádné recenze." />
+        @else
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Zákazník</th>
+                            <th>Produkt</th>
+                            <th>Hodnocení</th>
+                            <th>Recenze</th>
+                            <th>Datum</th>
+                            <th class="text-right">Akce</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($reviews as $review)
+                            <tr>
+                                <td class="f-12">{{ $review->customer?->company_name ?? $review->customer?->user?->name ?? '—' }}</td>
+                                <td class="f-12">{{ $review->product?->name ?? '—' }}</td>
+                                <td class="text-warning" style="white-space:nowrap;letter-spacing:1px;" title="{{ $review->rating }}/5">
+                                    {{ str_repeat('★', $review->rating) }}<span class="text-muted">{{ str_repeat('☆', 5 - $review->rating) }}</span>
+                                </td>
+                                <td style="max-width:320px;">
+                                    @if($review->title)<div class="f-w-600 f-12">{{ $review->title }}</div>@endif
+                                    <div class="f-light f-12" style="white-space:pre-wrap;">{{ \Illuminate\Support\Str::limit($review->body, 180) }}</div>
+                                </td>
+                                <td class="f-light f-12">{{ $review->created_at->format('d.m.Y') }}</td>
+                                <td class="text-right">
+                                    @if($review->status === \App\Models\ServiceReview::STATUS_PENDING)
+                                        <div class="flex gap-1 justify-end">
+                                            <form method="POST" action="{{ route('admin.reviews.approve', $review) }}">
+                                                @csrf
+                                                <button type="submit" class="btn btn-sm btn-success text-white">Schválit</button>
+                                            </form>
+                                            <form method="POST" action="{{ route('admin.reviews.reject', $review) }}"
+                                                  data-confirm="Zamítnout tuto recenzi?">
+                                                @csrf
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">Zamítnout</button>
+                                            </form>
+                                        </div>
+                                    @else
+                                        @php($badge = $review->status === 'approved' ? 'success' : 'secondary')
+                                        <span class="badge badge-light-{{ $badge }}">{{ $review->status === 'approved' ? 'Schváleno' : 'Zamítnuto' }}</span>
+                                        @if($review->moderator)
+                                            <div class="f-light f-11">{{ $review->moderator->name }}</div>
+                                        @endif
+                                    @endif
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mt-3">{{ $reviews->links() }}</div>
+        @endif
+    </x-panel.card>
 </div>
 @endsection

@@ -220,7 +220,9 @@ Kód je hotový nebo není potřeba; chybí přístup. **Standing rule zakazuje 
 | # | Bod |
 |---|---|
 | 6 | Ověřit route/config/view cache na produkčním PHP |
-| 7 | **Offsite DB zálohy** — pozor: `docs/backups.md` popisuje zálohy ZÁKAZNICKÝCH služeb (mock), DB dump offsite skutečně chybí |
+| 7 | ✅ **HOTOVO (kód)** — offsite DB záloha: `db:backup` + `DatabaseBackupService` (mysqldump přes defaults-file, gzip → `backup-s3`, prune, denně). Zbývá jen vyplnit `S3_BACKUP_*` + otestovat restore. |
+| 180 | ✅ **HOTOVO (kód)** — data retention: `retention:apply` + `config/retention.php` (operační tabulky; obchodní/účetní záznamy vyloučeny). |
+| — | **Go-live hand-off:** [`docs/GO-LIVE-CHECKLIST.md`](GO-LIVE-CHECKLIST.md) + rozšířený `.env.production.example` (mapuje každý EXTERNÍ+INFRA bod na konkrétní krok). |
 | 8 | Redis jako cache/session/queue (`.env.example` má `database`) |
 | 10 | Napojení `/api/up` na externí uptime službu |
 | 11 | CDN + Cache-Control hlavičky |
