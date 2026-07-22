@@ -166,6 +166,7 @@ Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('pane
     Route::get('/ucet/profil', [Panel\AccountController::class, 'profile'])->name('account.profile');
     Route::put('/ucet/profil', [Panel\AccountController::class, 'updateProfile'])->name('account.profile.update');
     Route::post('/ucet/smazat', [Panel\AccountController::class, 'requestDeletion'])->name('account.delete-request');
+    Route::post('/tour/dokoncit', [Panel\OnboardingTourController::class, 'complete'])->name('tour.complete');
     Route::get('/ucet/export-dat', [Panel\AccountController::class, 'exportData'])->name('account.data-export');
     Route::get('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'billing'])->name('account.billing');
     Route::put('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'updateBilling'])->name('account.billing.update');

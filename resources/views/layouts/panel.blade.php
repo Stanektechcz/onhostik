@@ -1007,5 +1007,76 @@
     </div>
 </div>
 @endauth
+
+{{-- First-login guided tour (dashboard only, once per user; CSP-safe) --}}
+@auth
+@if(request()->routeIs('panel.dashboard') && auth()->user()?->onboarding_tour_completed_at === null && ! session()->has('_impersonated_by'))
+<div id="onhost-tour" class="onhost-tour-overlay" hidden>
+    <div class="onhost-tour-spot" id="onhost-tour-spot"></div>
+    <div class="onhost-tour-pop" id="onhost-tour-pop">
+        <h6 class="onhost-tour-title" id="onhost-tour-title"></h6>
+        <p class="onhost-tour-text f-12" id="onhost-tour-text"></p>
+        <div class="flex justify-between items-center mt-2">
+            <button type="button" class="btn btn-link btn-sm p-0 f-11" id="onhost-tour-skip">Přeskočit</button>
+            <div class="flex items-center gap-2">
+                <span class="f-light f-11" id="onhost-tour-count"></span>
+                <button type="button" class="btn btn-primary btn-sm" id="onhost-tour-next">Další</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script nonce="{{ $cspNonce ?? '' }}">
+(function(){
+    var steps = [
+        {sel: '.sidebar-links', title: 'Navigace', text: 'Odtud se dostanete ke svým službám, doménám, fakturám a nastavení účtu.'},
+        {sel: '.notification-box', title: 'Oznámení', text: 'Tady vás upozorníme na faktury, obnovy a stav služeb.'},
+        {sel: '.cart-box', title: 'Košík', text: 'Objednané služby přidáte do košíku a projdete pokladnou.'},
+        {sel: '#ai-chat-toggle', title: 'Podpora', text: 'Kdykoliv nám napište — chatbot i živá podpora jsou po ruce.'}
+    ].filter(function(s){ return document.querySelector(s.sel); });
+
+    if (!steps.length) return;
+
+    var overlay = document.getElementById('onhost-tour'),
+        spot = document.getElementById('onhost-tour-spot'),
+        pop = document.getElementById('onhost-tour-pop'),
+        titleEl = document.getElementById('onhost-tour-title'),
+        textEl = document.getElementById('onhost-tour-text'),
+        countEl = document.getElementById('onhost-tour-count'),
+        nextBtn = document.getElementById('onhost-tour-next'),
+        skipBtn = document.getElementById('onhost-tour-skip'),
+        meta = document.querySelector('meta[name="csrf-token"]'),
+        csrf = meta ? meta.content : '',
+        i = 0;
+
+    function place(){
+        var s = steps[i], el = document.querySelector(s.sel);
+        if (!el){ i++; return i < steps.length ? place() : finish(); }
+        var r = el.getBoundingClientRect(), pad = 6;
+        spot.style.top = (r.top - pad) + 'px';
+        spot.style.left = (r.left - pad) + 'px';
+        spot.style.width = (r.width + pad*2) + 'px';
+        spot.style.height = (r.height + pad*2) + 'px';
+        titleEl.textContent = s.title;
+        textEl.textContent = s.text;
+        countEl.textContent = (i+1) + ' / ' + steps.length;
+        nextBtn.textContent = (i === steps.length-1) ? 'Hotovo' : 'Další';
+        var pt = Math.min(r.bottom + 12, window.innerHeight - 160);
+        pop.style.top = pt + 'px';
+        pop.style.left = Math.max(12, Math.min(r.left, window.innerWidth - 320)) + 'px';
+    }
+    function finish(){
+        overlay.hidden = true;
+        fetch('{{ route('panel.tour.complete') }}', {method:'POST', headers:{'X-CSRF-TOKEN':csrf, 'Accept':'application/json'}}).catch(function(){});
+    }
+    nextBtn.addEventListener('click', function(){ i++; if (i >= steps.length) finish(); else place(); });
+    skipBtn.addEventListener('click', finish);
+    window.addEventListener('resize', function(){ if (!overlay.hidden) place(); });
+
+    // Give the layout a beat to settle, then start.
+    setTimeout(function(){ overlay.hidden = false; place(); }, 600);
+})();
+</script>
+@endif
+@endauth
 </body>
 </html>

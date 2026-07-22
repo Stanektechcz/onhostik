@@ -1,0 +1,16 @@
+{
+    "name": "onhost/sdk-php",
+    "description": "Official PHP client for the OnHost REST API",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "guzzlehttp/guzzle": "^7.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "OnHost\\Sdk\\": "src/"
+        }
+    },
+    "minimum-stability": "stable"
+}

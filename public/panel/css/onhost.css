@@ -846,3 +846,25 @@
 @media (prefers-reduced-motion: reduce) { .skeleton::after { animation: none; } }
 .dark-only .skeleton { background: rgba(255,255,255,.07); }
 .dark-only .skeleton::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent); }
+
+/* ── First-login guided tour ─────────────────────────────────────────────── */
+.onhost-tour-overlay { position: fixed; inset: 0; z-index: 20000; }
+.onhost-tour-spot {
+    position: absolute;
+    border-radius: 8px;
+    box-shadow: 0 0 0 4000px rgba(0,0,0,.55);
+    transition: all .25s ease;
+    pointer-events: none;
+}
+.onhost-tour-pop {
+    position: absolute;
+    width: 300px;
+    max-width: calc(100vw - 24px);
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.25);
+    padding: 14px 16px;
+    transition: all .25s ease;
+}
+.onhost-tour-title { margin: 0 0 4px; font-weight: 700; }
+.dark-only .onhost-tour-pop { background: #262b3c; color: #cfd3e0; }

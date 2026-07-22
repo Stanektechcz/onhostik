@@ -65,6 +65,7 @@ class User extends Authenticatable
         'digest_frequency',
         'dark_mode',
         'changelog_seen_at',
+        'onboarding_tour_completed_at',
     ];
 
     protected $hidden = [
@@ -85,6 +86,7 @@ class User extends Authenticatable
             'two_factor_confirmed_at'    => 'datetime',
             'email_suppressed_at'        => 'datetime',
             'changelog_seen_at'          => 'datetime',
+            'onboarding_tour_completed_at' => 'datetime',
             'dark_mode'                  => 'boolean',
         ];
     }
