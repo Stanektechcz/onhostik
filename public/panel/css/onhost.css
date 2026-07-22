@@ -819,3 +819,30 @@
 .ai-msg-attach img, .chat-attach img { max-width: 100%; max-height: 180px; border-radius: 8px; display: block; }
 .ai-msg-attach a, .chat-attach a { font-size: 12px; color: rgba(var(--theme-default), 1); text-decoration: none; }
 .ai-msg-attach a:hover, .chat-attach a:hover { text-decoration: underline; }
+
+/* ── Skeleton loaders (loading placeholders) ─────────────────────────────── */
+.skeleton {
+    position: relative;
+    overflow: hidden;
+    background: rgba(var(--theme-body-sub-title-color, 108,117,125), .12);
+    border-radius: 6px;
+}
+.skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent);
+    animation: onhost-skeleton-shimmer 1.3s infinite;
+}
+.skeleton-line { height: 12px; margin-bottom: 10px; }
+.skeleton-line:last-child { margin-bottom: 0; }
+.skeleton-line.w-60 { width: 60%; }
+.skeleton-line.w-40 { width: 40%; }
+.skeleton-title { height: 20px; width: 45%; margin-bottom: 14px; }
+.skeleton-block { height: 90px; }
+.skeleton-avatar { width: 40px; height: 40px; border-radius: 50%; }
+@keyframes onhost-skeleton-shimmer { 100% { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .skeleton::after { animation: none; } }
+.dark-only .skeleton { background: rgba(255,255,255,.07); }
+.dark-only .skeleton::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent); }

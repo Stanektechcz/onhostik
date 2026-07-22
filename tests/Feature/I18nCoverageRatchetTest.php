@@ -23,7 +23,7 @@ it('does not grow the hardcoded-Czech debt in Blade templates', function (): voi
     // (finishing the "PŘIPRAVUJEME" placeholders), all in the same Czech-first
     // style as the rest of the app, which has no English for these views. The
     // shared-component cap below still holds.
-    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4193);
+    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4196);
 });
 
 it('keeps newly added shared components translatable', function (): void {

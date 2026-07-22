@@ -894,6 +894,66 @@
                     </x-panel.card>
                 @endif
 
+                {{-- Email hosting: mailbox self-service --}}
+                @if($mailboxes !== null)
+                    <x-panel.card title="E-mailové schránky">
+                        @if($mailboxes['error'])
+                            <div class="alert alert-light-danger f-12 mb-3">Schránky nelze načíst: {{ $mailboxes['error'] }}</div>
+                        @elseif(count($mailboxes['items']) === 0)
+                            <p class="f-light f-12 mb-3">Zatím žádná schránka. Vytvořte první níže.</p>
+                        @else
+                            <div class="table-responsive mb-3">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead><tr><th>Schránka</th><th>Kvóta</th><th class="text-right"></th></tr></thead>
+                                    <tbody>
+                                        @foreach($mailboxes['items'] as $box)
+                                            <tr>
+                                                <td class="font-monospace f-12">{{ $box['username'] ?? ($box['full_name'] ?? '—') }}</td>
+                                                <td class="f-12">{{ $box['quota_mb'] ?? $box['quota'] ?? '—' }}</td>
+                                                <td class="text-right">
+                                                    <form method="POST" action="{{ route('panel.services.mailboxes', $service) }}"
+                                                          data-confirm="Smazat schránku {{ $box['username'] ?? '' }}? Veškerá pošta bude ztracena.">
+                                                        @csrf
+                                                        <input type="hidden" name="action" value="delete_mailbox">
+                                                        <input type="hidden" name="username" value="{{ $box['username'] ?? '' }}">
+                                                        <button type="submit" class="btn btn-xs btn-outline-danger">
+                                                            <i data-feather="trash-2" style="width:11px;height:11px;"></i>
+                                                        </button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
+
+                        <form method="POST" action="{{ route('panel.services.mailboxes', $service) }}">
+                            @csrf
+                            <input type="hidden" name="action" value="create_mailbox">
+                            <div class="grid grid-cols-12 gap-2 mb-2">
+                                <div class="col-span-5">
+                                    <label class="form-label f-11 f-light">Jméno schránky</label>
+                                    <input type="text" name="username" class="form-control form-control-sm @error('username') is-invalid @enderror" placeholder="info">
+                                </div>
+                                <div class="col-span-4">
+                                    <label class="form-label f-11 f-light">Heslo</label>
+                                    <input type="password" name="password" autocomplete="new-password" class="form-control form-control-sm @error('password') is-invalid @enderror">
+                                    @error('password')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                                <div class="col-span-3">
+                                    <label class="form-label f-11 f-light">Kvóta (MB)</label>
+                                    <input type="number" name="quota_mb" value="1024" min="0" max="51200" class="form-control form-control-sm">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-sm">
+                                <i data-feather="mail" style="width:13px;height:13px;"></i>
+                                Vytvořit schránku
+                            </button>
+                        </form>
+                    </x-panel.card>
+                @endif
+
                 {{-- Reviews module: rate this service --}}
                 <x-panel.card title="Ohodnotit službu">
                     @if($myReview)

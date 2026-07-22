@@ -39,6 +39,7 @@ Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('pane
     Route::post('/sluzby/{service}/game-akce', Panel\GameServerActionController::class)->name('services.game-action');
     Route::post('/sluzby/{service}/zaloha', [Panel\ServiceController::class, 'requestBackup'])->name('services.backup');
     Route::post('/sluzby/{service}/recenze', [Panel\ServiceReviewController::class, 'store'])->name('services.review');
+    Route::post('/sluzby/{service}/schranky', [Panel\ServiceMailboxController::class, 'store'])->name('services.mailboxes');
     Route::put('/sluzby/{service}/zaloha-plan', [Panel\ServiceController::class, 'updateBackupSchedule'])->name('services.backup-schedule');
     Route::post('/sluzby/{service}/wordpress', [Panel\ServiceController::class, 'installWordpress'])->name('services.wordpress');
     Route::get('/sluzby/{service}/export-pouziti', [Panel\ServiceUsageExportController::class, 'export'])->name('services.usage-export');
