@@ -102,6 +102,8 @@ class Customer extends Model
             'onboarding_completed_at'  => 'datetime',
             'risk_alert_sent_at'       => 'datetime',
             'credit_auto_topup'        => 'array',
+            // Audit 31 — PII encrypted at rest; searchable via phone_bidx.
+            'phone'                    => 'encrypted',
         ];
     }
 
@@ -119,6 +121,14 @@ class Customer extends Model
      */
     protected static function booted(): void
     {
+        // Keep the phone blind index in step with the (encrypted) phone so an
+        // exact-match search keeps working without storing the plaintext.
+        static::saving(function (self $customer): void {
+            if ($customer->isDirty('phone')) {
+                $customer->phone_bidx = \App\Domains\Shared\Support\BlindIndex::of($customer->phone);
+            }
+        });
+
         static::saving(function (self $customer): void {
             if (! $customer->isDirty('reseller_id') || $customer->reseller_id === null) {
                 return;
@@ -139,8 +149,10 @@ class Customer extends Model
 
     public function getActivitylogOptions(): LogOptions
     {
+        // `phone` is deliberately NOT logged — it is encrypted at rest, and the
+        // activity log would otherwise capture the decrypted plaintext (audit 31).
         return LogOptions::defaults()
-            ->logOnly(['email', 'phone', 'company_name', 'vat_number', 'registration_number', 'country_code'])
+            ->logOnly(['email', 'company_name', 'vat_number', 'registration_number', 'country_code'])
             ->logOnlyDirty()
             ->dontSubmitEmptyLogs()
             ->useLogName('customer');
@@ -173,6 +185,19 @@ class Customer extends Model
     public function reseller(): BelongsTo
     {
         return $this->belongsTo(ResellerProfile::class, 'reseller_id');
+    }
+
+    /**
+     * Exact-match search by phone via the blind index (audit 31).
+     *
+     * The plaintext is encrypted, so a LIKE/substring search is impossible;
+     * this matches the whole number (any formatting) through the keyed index.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<Customer>  $query
+     */
+    public function scopeWherePhone(\Illuminate\Database\Eloquent\Builder $query, string $phone): void
+    {
+        $query->where('phone_bidx', \App\Domains\Shared\Support\BlindIndex::of($phone));
     }
 
     /** @return HasMany<CustomerAddress, $this> */

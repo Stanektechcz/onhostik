@@ -28,12 +28,13 @@ class GlobalSearchController extends Controller
         $like    = '%' . $q . '%';
         $results = [];
 
-        // Customers
+        // Customers — phone is encrypted at rest (audit 31), so it can only be
+        // matched EXACTLY via its blind index, not by LIKE/substring.
         Customer::query()
             ->where(fn ($w) => $w
                 ->where('company_name', 'like', $like)
                 ->orWhere('email', 'like', $like)
-                ->orWhere('phone', 'like', $like))
+                ->orWhere('phone_bidx', \App\Domains\Shared\Support\BlindIndex::of($q)))
             ->limit(self::MAX_PER_TYPE)
             ->get()
             ->each(function (Customer $c) use (&$results): void {

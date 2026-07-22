@@ -37,6 +37,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | PII blind-index key (audit 31)
+    |--------------------------------------------------------------------------
+    | Keyed HMAC secret for the sidecar index columns that make encrypted PII
+    | (e.g. customer phone) searchable by exact match. Defaults to a derivation
+    | of APP_KEY; set explicitly to rotate independently. Changing it requires
+    | re-indexing (php artisan pii:reindex).
+    */
+    'pii_index_key' => env('SECURITY_PII_INDEX_KEY', ''),
+
+    /*
+    |--------------------------------------------------------------------------
     | CSP violation reporting (audit C24)
     |--------------------------------------------------------------------------
     |
