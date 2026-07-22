@@ -8,6 +8,7 @@ use App\Domains\Billing\Events\InvoicePaid;
 use App\Domains\Billing\Listeners\HandleInvoicePaid;
 use App\Domains\Partner\Listeners\CreateCommissionOnInvoicePaid;
 use App\Listeners\BroadcastNotificationReceived;
+use App\Listeners\SendWebPushForNotification;
 use App\Listeners\EnforceConcurrentSessionLimit;
 use App\Listeners\LogSentEmail;
 use Illuminate\Mail\Events\MessageSent;
@@ -150,6 +151,7 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(Failed::class, [TrackSecurityEvent::class, 'handleFailed']);
         Event::listen(Logout::class, [TrackSecurityEvent::class, 'handleLogout']);
         Event::listen(NotificationSent::class, BroadcastNotificationReceived::class);
+        Event::listen(NotificationSent::class, SendWebPushForNotification::class);
         Event::listen(JobFailed::class, NotifyAdminOnFailedJob::class);
         Event::listen(FortifyTwoFactorConfirmed::class, HandleTwoFactorAuthenticationConfirmed::class);
         Event::listen(FortifyTwoFactorDisabled::class, HandleTwoFactorAuthenticationDisabled::class);

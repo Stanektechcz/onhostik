@@ -23,7 +23,10 @@ it('does not grow the hardcoded-Czech debt in Blade templates', function (): voi
     // (finishing the "PŘIPRAVUJEME" placeholders), all in the same Czech-first
     // style as the rest of the app, which has no English for these views. The
     // shared-component cap below still holds.
-    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4198);
+    // Baseline raised 4198 → 4204 (2026-07-22): the web-push opt-in card on the
+    // notification-preferences screen (audit 92) — enable/disable buttons plus
+    // unsupported/disabled notices, same Czech-first style.
+    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4204);
 });
 
 it('keeps newly added shared components translatable', function (): void {

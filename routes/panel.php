@@ -167,6 +167,10 @@ Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('pane
     Route::put('/ucet/profil', [Panel\AccountController::class, 'updateProfile'])->name('account.profile.update');
     Route::post('/ucet/smazat', [Panel\AccountController::class, 'requestDeletion'])->name('account.delete-request');
     Route::post('/tour/dokoncit', [Panel\OnboardingTourController::class, 'complete'])->name('tour.complete');
+    /* ── 92: web push subscriptions ── */
+    Route::get('/push/klic', [Panel\PushSubscriptionController::class, 'key'])->name('push.key');
+    Route::post('/push/prihlasit', [Panel\PushSubscriptionController::class, 'store'])->name('push.subscribe');
+    Route::post('/push/odhlasit', [Panel\PushSubscriptionController::class, 'destroy'])->name('push.unsubscribe');
     Route::get('/ucet/export-dat', [Panel\AccountController::class, 'exportData'])->name('account.data-export');
     Route::get('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'billing'])->name('account.billing');
     Route::put('/ucet/fakturacni-udaje', [Panel\AccountController::class, 'updateBilling'])->name('account.billing.update');

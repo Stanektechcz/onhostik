@@ -139,6 +139,45 @@
 
         </form>
 
+        {{-- Browser push (audit 92) --}}
+        <div class="card mt-4" id="push-card" data-key-url="{{ route('panel.push.key') }}"
+             data-subscribe-url="{{ route('panel.push.subscribe') }}"
+             data-unsubscribe-url="{{ route('panel.push.unsubscribe') }}">
+            <div class="card-header card-no-border">
+                <div class="header-top">
+                    <h5>Oznámení v prohlížeči</h5>
+                    <p class="f-m-light mt-1">
+                        Dostávejte upozornění přímo na plochu, i když zrovna nemáte panel otevřený.
+                        Fungují na tomto zařízení a prohlížeči; kdykoli je můžete zase vypnout.
+                    </p>
+                </div>
+            </div>
+            <div class="card-body">
+                {{-- Shown when the browser cannot do web push. --}}
+                <div id="push-unsupported" class="alert alert-light-secondary hidden" role="alert">
+                    <i data-feather="alert-circle" class="me-1" style="width:16px;height:16px;"></i>
+                    Tento prohlížeč oznámení na plochu nepodporuje.
+                </div>
+                {{-- Shown when an operator has not configured VAPID keys yet. --}}
+                <div id="push-disabled" class="alert alert-light-secondary hidden" role="alert">
+                    <i data-feather="alert-circle" class="me-1" style="width:16px;height:16px;"></i>
+                    Oznámení v prohlížeči zatím nejsou k dispozici.
+                </div>
+
+                <div id="push-controls" class="hidden flex gap-2 items-center">
+                    <button type="button" id="push-enable" class="btn btn-primary text-white">
+                        <i data-feather="bell" class="me-1" style="width:14px;height:14px;"></i>
+                        Zapnout oznámení
+                    </button>
+                    <button type="button" id="push-disable" class="btn btn-light hidden">
+                        <i data-feather="bell-off" class="me-1" style="width:14px;height:14px;"></i>
+                        Vypnout oznámení
+                    </button>
+                    <span id="push-status" class="f-12 f-light" role="status" aria-live="polite"></span>
+                </div>
+            </div>
+        </div>
+
         {{-- Info card --}}
         <div class="card mt-4">
             <div class="card-body">
@@ -161,3 +200,114 @@
     </div>
 </div>
 @endsection
+
+@push('scripts')
+{{-- Browser web-push opt-in (audit 92). CSP-safe: nonced block, addEventListener,
+     route URLs from data-* on #push-card. No secrets here — only the public VAPID key. --}}
+<script nonce="{{ $cspNonce ?? '' }}">
+(function () {
+    var card = document.getElementById('push-card');
+    if (!card) { return; }
+
+    var elUnsupported = document.getElementById('push-unsupported');
+    var elDisabled    = document.getElementById('push-disabled');
+    var elControls    = document.getElementById('push-controls');
+    var btnEnable     = document.getElementById('push-enable');
+    var btnDisable    = document.getElementById('push-disable');
+    var elStatus      = document.getElementById('push-status');
+
+    var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+
+    function show(el) { if (el) { el.classList.remove('hidden'); } }
+    function hide(el) { if (el) { el.classList.add('hidden'); } }
+    function status(text) { if (elStatus) { elStatus.textContent = text || ''; } }
+
+    // Base64url → Uint8Array, as the PushManager wants the applicationServerKey.
+    function urlB64ToUint8Array(base64String) {
+        var padding = '='.repeat((4 - base64String.length % 4) % 4);
+        var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        var raw = window.atob(base64);
+        var out = new Uint8Array(raw.length);
+        for (var i = 0; i < raw.length; i++) { out[i] = raw.charCodeAt(i); }
+        return out;
+    }
+
+    function post(url, body) {
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(body || {}),
+        });
+    }
+
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        show(elUnsupported);
+        return;
+    }
+
+    var publicKey = null;
+
+    fetch(card.getAttribute('data-key-url'), { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (cfg) {
+            if (!cfg || !cfg.enabled || !cfg.publicKey) {
+                show(elDisabled);
+                return;
+            }
+            publicKey = cfg.publicKey;
+            show(elControls);
+            return navigator.serviceWorker.register('/sw.js').then(function (reg) {
+                return reg.pushManager.getSubscription().then(function (sub) {
+                    reflect(!!sub);
+                });
+            });
+        })
+        .catch(function () { show(elDisabled); });
+
+    function reflect(subscribed) {
+        if (subscribed) { hide(btnEnable); show(btnDisable); status('Oznámení jsou zapnutá na tomto zařízení.'); }
+        else { show(btnEnable); hide(btnDisable); status(''); }
+    }
+
+    function enable() {
+        if (!publicKey) { return; }
+        btnEnable.setAttribute('disabled', 'disabled');
+        status('Žádám o povolení…');
+        Notification.requestPermission().then(function (perm) {
+            if (perm !== 'granted') { btnEnable.removeAttribute('disabled'); status('Povolení bylo zamítnuto v prohlížeči.'); return; }
+            return navigator.serviceWorker.ready.then(function (reg) {
+                return reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlB64ToUint8Array(publicKey),
+                });
+            }).then(function (sub) {
+                var json = sub.toJSON();
+                return post(card.getAttribute('data-subscribe-url'), {
+                    endpoint: sub.endpoint,
+                    publicKey: json.keys ? json.keys.p256dh : '',
+                    authToken: json.keys ? json.keys.auth : '',
+                });
+            }).then(function () { reflect(true); }).finally(function () { btnEnable.removeAttribute('disabled'); });
+        }).catch(function () { btnEnable.removeAttribute('disabled'); status('Oznámení se nepodařilo zapnout.'); });
+    }
+
+    function disable() {
+        btnDisable.setAttribute('disabled', 'disabled');
+        navigator.serviceWorker.ready.then(function (reg) {
+            return reg.pushManager.getSubscription().then(function (sub) {
+                if (!sub) { reflect(false); return; }
+                var endpoint = sub.endpoint;
+                return sub.unsubscribe().then(function () {
+                    return post(card.getAttribute('data-unsubscribe-url'), { endpoint: endpoint });
+                }).then(function () { reflect(false); });
+            });
+        }).catch(function () { status('Oznámení se nepodařilo vypnout.'); })
+          .finally(function () { btnDisable.removeAttribute('disabled'); });
+    }
+
+    if (btnEnable) { btnEnable.addEventListener('click', enable); }
+    if (btnDisable) { btnDisable.addEventListener('click', disable); }
+})();
+</script>
+@endpush
