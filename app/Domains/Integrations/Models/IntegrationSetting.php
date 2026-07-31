@@ -117,6 +117,21 @@ class IntegrationSetting extends Model
 
     // ---------------------------------------------------------------- helpers
 
+    /**
+     * The admin-managed credentials for a provider (decrypted), or an empty
+     * array when the provider has no row / no credentials. One query; callers
+     * pick the keys they need and fall back to config/env for any that are
+     * blank — so moving a credential into the admin never breaks a .env deploy.
+     *
+     * @return array<string, string>
+     */
+    public static function credentialsFor(string $provider): array
+    {
+        $row = static::query()->where('provider', $provider)->first();
+
+        return $row === null ? [] : $row->credentials;
+    }
+
     public function healthStatus(): string
     {
         if (!$this->is_active) {

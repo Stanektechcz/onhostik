@@ -33,11 +33,17 @@ final class StripeGateway
         private readonly string $baseUrl,
     ) {}
 
+    /**
+     * Admin-managed credentials (set at /admin/integrace) take precedence;
+     * .env is the fallback so existing deployments keep working.
+     */
     public static function fromConfig(): self
     {
+        $creds = \App\Domains\Integrations\Models\IntegrationSetting::credentialsFor('stripe');
+
         return new self(
-            apiKey:        (string) config('stripe.api_key'),
-            webhookSecret: (string) config('stripe.webhook_secret'),
+            apiKey:        ($creds['secret_key'] ?? '') ?: (string) config('stripe.api_key'),
+            webhookSecret: ($creds['webhook_secret'] ?? '') ?: (string) config('stripe.webhook_secret'),
             baseUrl:       (string) config('stripe.base_url'),
         );
     }

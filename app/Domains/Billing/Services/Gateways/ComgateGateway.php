@@ -27,11 +27,17 @@ final class ComgateGateway
         private readonly string $baseUrl,
     ) {}
 
+    /**
+     * Admin-managed credentials (set at /admin/integrace) take precedence;
+     * .env is the fallback so existing deployments keep working.
+     */
     public static function fromConfig(): self
     {
+        $creds = \App\Domains\Integrations\Models\IntegrationSetting::credentialsFor('comgate');
+
         return new self(
-            merchantId: (string) config('comgate.merchant_id'),
-            secret: (string) config('comgate.secret'),
+            merchantId: ($creds['merchant_id'] ?? '') ?: (string) config('comgate.merchant_id'),
+            secret: ($creds['secret'] ?? '') ?: (string) config('comgate.secret'),
             testMode: (bool) config('comgate.test_mode'),
             baseUrl: (string) config('comgate.base_url'),
         );

@@ -35,12 +35,18 @@ final class GopayGateway
         private readonly string $baseUrl,
     ) {}
 
+    /**
+     * Admin-managed credentials (set at /admin/integrace) take precedence;
+     * .env is the fallback so existing deployments keep working.
+     */
     public static function fromConfig(): self
     {
+        $creds = \App\Domains\Integrations\Models\IntegrationSetting::credentialsFor('gopay');
+
         return new self(
-            clientId:     (string) config('gopay.client_id'),
-            clientSecret: (string) config('gopay.client_secret'),
-            goId:         (string) config('gopay.go_id'),
+            clientId:     ($creds['client_id'] ?? '') ?: (string) config('gopay.client_id'),
+            clientSecret: ($creds['client_secret'] ?? '') ?: (string) config('gopay.client_secret'),
+            goId:         ($creds['goid'] ?? '') ?: (string) config('gopay.go_id'),
             baseUrl:      (string) config('gopay.base_url'),
         );
     }

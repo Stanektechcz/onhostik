@@ -32,9 +32,11 @@ function apiRoutes(): array
          |  - gateway callbacks are called by Comgate/Stripe/GoPay,
          |  - the CSP report collector is posted to by BROWSERS (audit C24) —
          |    documenting it would invite clients to call it, which is the
-         |    opposite of what it is for.
+         |    opposite of what it is for,
+         |  - the GraphQL endpoint is self-documenting via introspection and does
+         |    not map onto OpenAPI's per-path REST operation model.
          */
-        if (in_array($uri, ['api/docs', 'api/openapi.json', 'api/changelog', 'api/security/csp-report'], true)
+        if (in_array($uri, ['api/docs', 'api/openapi.json', 'api/changelog', 'api/security/csp-report', 'api/graphql'], true)
             || str_starts_with($uri, 'api/webhook/')
             || str_starts_with($uri, 'api/webhooks/')) {
             continue;

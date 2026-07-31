@@ -39,7 +39,8 @@ return [
         'stripe' => [
             'label'    => 'Stripe (platby) — placeholder',
             'category' => 'payments',
-            'fields'   => ['publishable_key', 'secret_key'],
+            // secret_key → apiKey, webhook_secret → webhookSecret in StripeGateway.
+            'fields'   => ['secret_key', 'webhook_secret', 'publishable_key'],
         ],
         'uptime_kuma' => [
             'label'    => 'Uptime Kuma (monitoring) — placeholder',
