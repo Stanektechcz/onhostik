@@ -90,3 +90,17 @@ Route::middleware('throttle:10,1')->group(function (): void {
     Route::post('/magic-link', [\App\Http\Controllers\Auth\MagicLinkController::class, 'sendLink'])->name('magic-link.send');
     Route::get('/magic-link/{token}', [\App\Http\Controllers\Auth\MagicLinkController::class, 'login'])->name('magic-link.login');
 });
+
+/*
+ | OAuth2 authorization-code grant (+ PKCE). Clients are registered in the
+ | developer portal; the consent screen runs behind the session guard, the
+ | token endpoint is CSRF-exempt (see bootstrap/app.php) and client-authenticated.
+ */
+Route::middleware('auth')->group(function (): void {
+    Route::get('/oauth/authorize', [\App\Http\Controllers\OAuth\AuthorizationController::class, 'show'])->name('oauth.authorize');
+    Route::post('/oauth/authorize', [\App\Http\Controllers\OAuth\AuthorizationController::class, 'approve'])->name('oauth.authorize.approve');
+    Route::post('/oauth/authorize/deny', [\App\Http\Controllers\OAuth\AuthorizationController::class, 'deny'])->name('oauth.authorize.deny');
+});
+Route::post('/oauth/token', [\App\Http\Controllers\OAuth\TokenController::class, 'issue'])
+    ->middleware('throttle:api')
+    ->name('oauth.token');

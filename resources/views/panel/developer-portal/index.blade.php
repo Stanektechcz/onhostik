@@ -164,6 +164,21 @@
                             <button type="submit" class="btn btn-primary btn-sm">Přidat aplikaci</button>
                         </form>
                     @endif
+
+                    <hr>
+                    <h6 class="mb-2">OAuth2 endpointy</h6>
+                    <p class="text-muted" style="font-size:11px">
+                        Grant <code>authorization_code</code> (+ PKCE S256 pro veřejné klienty)
+                        a <code>refresh_token</code>. Vydaný access token je běžný Bearer token
+                        pro REST i GraphQL API. Scopes: <code>read</code>, <code>write:tickets</code>,
+                        <code>write:credit</code>, <code>write:orders</code>, <code>manage:tokens</code>.
+                    </p>
+                    <div style="font-size:11px">
+                        <div class="mb-1"><span class="f-w-600">Authorize:</span>
+                            <code>{{ url('/oauth/authorize') }}</code></div>
+                        <div><span class="f-w-600">Token:</span>
+                            <code>{{ url('/oauth/token') }}</code></div>
+                    </div>
                 </div>
             </div>
         </div>

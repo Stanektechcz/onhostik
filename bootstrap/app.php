@@ -38,6 +38,11 @@ $app = Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\StopExpiredImpersonation::class,
         ]);
 
+        // The OAuth2 token endpoint is called by external clients with no
+        // session cookie — it authenticates by client credentials / PKCE, so
+        // CSRF does not apply.
+        $middleware->validateCsrfTokens(except: ['oauth/token']);
+
         $middleware->alias([
             'require-admin-2fa'    => RequireAdminTwoFactor::class,
             'idempotency'          => \App\Http\Middleware\EnforceIdempotency::class,

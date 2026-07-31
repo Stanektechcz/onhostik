@@ -26,7 +26,9 @@ it('does not grow the hardcoded-Czech debt in Blade templates', function (): voi
     // Baseline raised 4198 → 4204 (2026-07-22): the web-push opt-in card on the
     // notification-preferences screen (audit 92) — enable/disable buttons plus
     // unsupported/disabled notices, same Czech-first style.
-    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4204);
+    // Baseline raised 4204 → 4213 (2026-07-22): the OAuth2 consent screen and the
+    // developer-portal OAuth2 endpoint reference, same Czech-first style.
+    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4213);
 });
 
 it('keeps newly added shared components translatable', function (): void {
