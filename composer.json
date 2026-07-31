@@ -27,7 +27,8 @@
         "spatie/laravel-permission": "^6.10",
         "spatie/laravel-query-builder": "^6.3",
         "spatie/laravel-settings": "^3.4",
-        "spatie/laravel-translatable": "^6.9"
+        "spatie/laravel-translatable": "^6.9",
+        "webonyx/graphql-php": "^15.34"
     },
     "require-dev": {
         "barryvdh/laravel-debugbar": "^3.15",

@@ -135,3 +135,15 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'log-api-usage', 'idempotency
     Route::delete('/webhooks/{webhook}',                   [V2\WebhookController::class, 'destroy'])->name('webhooks.destroy');
     Route::get('/webhooks/{webhook}/deliveries',           [V2\WebhookController::class, 'deliveries'])->name('webhooks.deliveries');
 });
+
+/*
+|--------------------------------------------------------------------------
+| GraphQL — read-only, same Sanctum token as the REST API
+|--------------------------------------------------------------------------
+| A single POST endpoint over App\GraphQL\ApiSchema. Every resolver is scoped
+| to the authenticated user's customer. Query-only by design; writes stay on
+| the REST API where idempotency and per-token abilities already live.
+*/
+Route::post('/graphql', \App\Http\Controllers\Api\GraphQLController::class)
+    ->middleware(['auth:sanctum', 'throttle:api', 'log-api-usage'])
+    ->name('api.graphql');
