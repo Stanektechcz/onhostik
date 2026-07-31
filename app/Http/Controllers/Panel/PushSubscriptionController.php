@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Panel;
 
+use App\Domains\Communication\Services\WebPushService;
 use App\Http\Controllers\Controller;
 use App\Models\PushSubscription;
 use Illuminate\Http\JsonResponse;
@@ -16,11 +17,11 @@ use Illuminate\Http\Request;
 final class PushSubscriptionController extends Controller
 {
     /** Public VAPID key the browser needs to create a subscription. */
-    public function key(): JsonResponse
+    public function key(WebPushService $webPush): JsonResponse
     {
         return response()->json([
-            'enabled'   => (bool) config('webpush.enabled', false),
-            'publicKey' => config('webpush.vapid.public_key'),
+            'enabled'   => $webPush->enabled(),
+            'publicKey' => $webPush->publicKey(),
         ]);
     }
 

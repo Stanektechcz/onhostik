@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domains\Communication\Services;
 
+use App\Domains\Integrations\Models\IntegrationSetting;
 use App\Models\PushSubscription;
 use App\Models\User;
 use Minishlink\WebPush\Subscription;
@@ -24,11 +25,35 @@ use Throwable;
  */
 class WebPushService
 {
+    /**
+     * VAPID identity, resolved from the admin credential vault
+     * (/admin/integrace → "Web push") first, then .env. Lets an operator turn
+     * push on from the admin without editing server env files.
+     *
+     * @return array{subject: string, public_key: string, private_key: string}
+     */
+    public function vapid(): array
+    {
+        $creds = IntegrationSetting::credentialsFor('web_push');
+
+        return [
+            'subject'     => ($creds['subject'] ?? '') ?: (string) config('webpush.vapid.subject'),
+            'public_key'  => ($creds['public_key'] ?? '') ?: (string) config('webpush.vapid.public_key'),
+            'private_key' => ($creds['private_key'] ?? '') ?: (string) config('webpush.vapid.private_key'),
+        ];
+    }
+
+    /** The public VAPID key the browser needs to create a subscription. */
+    public function publicKey(): string
+    {
+        return $this->vapid()['public_key'];
+    }
+
     public function enabled(): bool
     {
-        return (bool) config('webpush.enabled', false)
-            && config('webpush.vapid.public_key') !== null
-            && config('webpush.vapid.private_key') !== null;
+        $vapid = $this->vapid();
+
+        return $vapid['public_key'] !== '' && $vapid['private_key'] !== '';
     }
 
     /**
@@ -48,10 +73,12 @@ class WebPushService
             return 0;
         }
 
+        $vapid = $this->vapid();
+
         $webPush = new WebPush(['VAPID' => [
-            'subject'    => (string) config('webpush.vapid.subject'),
-            'publicKey'  => (string) config('webpush.vapid.public_key'),
-            'privateKey' => (string) config('webpush.vapid.private_key'),
+            'subject'    => $vapid['subject'],
+            'publicKey'  => $vapid['public_key'],
+            'privateKey' => $vapid['private_key'],
         ]]);
 
         $payload = json_encode(array_filter([

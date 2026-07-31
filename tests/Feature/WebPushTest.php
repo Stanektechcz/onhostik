@@ -72,12 +72,47 @@ it('unsubscribes an endpoint', function (): void {
 });
 
 it('exposes the enabled flag and public key to the browser', function (): void {
-    config(['webpush.enabled' => true, 'webpush.vapid.public_key' => 'BPub']);
+    config(['webpush.vapid.public_key' => 'BPub', 'webpush.vapid.private_key' => 'priv']);
 
     $this->actingAs(customerUser())
         ->getJson(route('panel.push.key'))
         ->assertOk()
         ->assertJson(['enabled' => true, 'publicKey' => 'BPub']);
+});
+
+it('prefers admin-vault VAPID keys over env', function (): void {
+    config(['webpush.vapid.public_key' => 'EnvPub', 'webpush.vapid.private_key' => 'EnvPriv']);
+    \App\Domains\Integrations\Models\IntegrationSetting::create([
+        'provider'    => 'web_push',
+        'label'       => 'Web push',
+        'credentials' => ['subject' => 'mailto:a@b.cz', 'public_key' => 'AdminPub', 'private_key' => 'AdminPriv'],
+        'is_active'   => true,
+        'mock_mode'   => false,
+        'dry_run'     => false,
+    ]);
+
+    expect(app(WebPushService::class)->publicKey())->toBe('AdminPub')
+        ->and(app(WebPushService::class)->enabled())->toBeTrue();
+});
+
+it('generates and stores a VAPID keypair via the console command', function (): void {
+    // VAPID keys are EC (prime256v1); some minimal PHP builds can't generate EC
+    // keys (no openssl.cnf). Skip there — the command is exercised wherever
+    // OpenSSL EC is available (CI/production).
+    if (@openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']) === false) {
+        $this->markTestSkipped('OpenSSL EC key generation unavailable in this environment.');
+    }
+
+    $this->artisan('webpush:vapid', ['--subject' => 'mailto:ops@onhost.cz'])->assertExitCode(0);
+
+    $creds = \App\Domains\Integrations\Models\IntegrationSetting::credentialsFor('web_push');
+
+    // Keys are generated and stored; the private key value is never surfaced to
+    // the browser key endpoint.
+    expect($creds['public_key'] ?? '')->not->toBe('')
+        ->and($creds['private_key'] ?? '')->not->toBe('')
+        ->and(app(WebPushService::class)->enabled())->toBeTrue()
+        ->and(app(WebPushService::class)->publicKey())->toBe($creds['public_key']);
 });
 
 // ── send path ────────────────────────────────────────────────────────────────────

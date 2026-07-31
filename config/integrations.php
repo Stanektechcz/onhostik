@@ -52,6 +52,12 @@ return [
             'category' => 'monitoring',
             'fields'   => [],
         ],
+        'web_push' => [
+            'label'    => 'Web push (VAPID)',
+            'category' => 'notifications',
+            // Generate a keypair with `php artisan webpush:vapid`.
+            'fields'   => ['subject', 'public_key', 'private_key'],
+        ],
         's3_backups' => [
             'label'    => 'S3-kompatibilní úložiště záloh — placeholder',
             'category' => 'backups',
