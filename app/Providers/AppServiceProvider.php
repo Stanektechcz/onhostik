@@ -155,6 +155,7 @@ class AppServiceProvider extends ServiceProvider
     {
         Event::listen(InvoicePaid::class, HandleInvoicePaid::class);
         Event::listen(InvoicePaid::class, CreateCommissionOnInvoicePaid::class);
+        Event::listen(InvoicePaid::class, \App\Domains\Loyalty\Listeners\AwardLoyaltyPointsOnInvoicePaid::class);
         // TrackSecurityEvent must run BEFORE RecordUserLogin to see the old last_login_ip
         Event::listen(Login::class, [TrackSecurityEvent::class, 'handleLogin']);
         Event::listen(Login::class, RecordUserLogin::class);

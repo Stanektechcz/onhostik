@@ -127,6 +127,7 @@ Route::middleware(['auth', 'require-customer-2fa', 'resolve-member-customer', 'r
     Route::delete('/kosik', [Panel\CartController::class, 'clear'])->name('cart.clear');
 
     Route::get('/vernostni-program', [Panel\LoyaltyController::class, 'index'])->name('loyalty.index');
+    Route::post('/vernostni-program/uplatnit/{reward}', [Panel\LoyaltyController::class, 'redeem'])->name('loyalty.redeem');
     Route::get('/udrzba', [Panel\ServiceMaintenanceController::class, 'index'])->name('maintenance.index');
     Route::get('/referral', [Panel\ReferralController::class, 'index'])->name('referral.index');
 
@@ -887,6 +888,14 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
         Route::put('/{milestone}',                   [Admin\LoyaltyController::class, 'update'])->name('update');
         Route::delete('/{milestone}',                [Admin\LoyaltyController::class, 'destroy'])->name('destroy');
         Route::post('/zkontrolovat',                 [Admin\LoyaltyController::class, 'checkCustomer'])->name('check');
+    });
+
+    // Loyalty reward catalog — redeemable rewards (admin)
+    Route::prefix('/vernostni-odmeny')->name('loyalty-rewards.')->group(function (): void {
+        Route::get('/',              [Admin\LoyaltyRewardController::class, 'index'])->name('index');
+        Route::post('/',             [Admin\LoyaltyRewardController::class, 'store'])->name('store');
+        Route::put('/{reward}',      [Admin\LoyaltyRewardController::class, 'update'])->name('update');
+        Route::delete('/{reward}',   [Admin\LoyaltyRewardController::class, 'destroy'])->name('destroy');
     });
 
     // Automation rules

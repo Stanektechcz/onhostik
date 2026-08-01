@@ -7,6 +7,22 @@
 
     <h2 class="mb-4">Věrnostní program</h2>
 
+    <x-panel.flash />
+
+    {{-- Points balance --}}
+    <div class="card mb-4">
+        <div class="card-body flex items-center justify-between">
+            <div>
+                <div class="f-w-600">Věrnostní body</div>
+                <div class="text-muted small">Získávejte body za zaplacené faktury a uplatněte je za kredit.</div>
+            </div>
+            <div class="text-right">
+                <div class="f-w-700" style="font-size:1.6rem">{{ number_format($pointsBalance, 0, ',', ' ') }}</div>
+                <div class="text-muted small">bodů</div>
+            </div>
+        </div>
+    </div>
+
     {{-- Next milestone progress --}}
     @if($next)
     <div class="card mb-4">
@@ -71,6 +87,38 @@
         </div>
         @endif
     </div>
+
+    {{-- Redeemable reward catalog --}}
+    @if($catalog->isNotEmpty())
+    <div class="card mt-4">
+        <div class="card-header"><strong>Katalog odměn</strong></div>
+        <div class="card-body">
+            <div class="grid grid-cols-12 gap-3">
+                @foreach($catalog as $reward)
+                <div class="col-span-12 md:col-span-6">
+                    <div class="border rounded p-3 h-full flex flex-col gap-2">
+                        <div class="flex items-center justify-between">
+                            <span class="f-w-600">{{ $reward->name }}</span>
+                            <span class="badge badge-light-primary">{{ number_format($reward->points_cost, 0, ',', ' ') }} b.</span>
+                        </div>
+                        @if($reward->description)
+                            <p class="text-muted small mb-0 grow">{{ $reward->description }}</p>
+                        @endif
+                        <div class="small text-muted">Získáte: {{ $reward->rewardLabel() }}</div>
+                        <form method="POST" action="{{ route('panel.loyalty.redeem', $reward) }}"
+                              data-confirm="Uplatnit {{ $reward->points_cost }} bodů za {{ $reward->rewardLabel() }}?">
+                            @csrf
+                            <button type="submit" class="btn btn-primary btn-sm w-full" @disabled($pointsBalance < $reward->points_cost)>
+                                @if($pointsBalance < $reward->points_cost) Nedostatek bodů @else Uplatnit @endif
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                @endforeach
+            </div>
+        </div>
+    </div>
+    @endif
 
 </div>
 @endsection

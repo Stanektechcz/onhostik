@@ -21,8 +21,8 @@ příkazů, 387 testovacích souborů, 457 Blade šablon, 27 domén.
 
 | Klasifikace | Počet | Podíl |
 |---|---|---|
-| HOTOVO | **159** | 79 % |
-| CHYBÍ | **11** | 6 % |
+| HOTOVO | **161** | 80 % |
+| CHYBÍ | **9** | 5 % |
 | EXTERNÍ | **18** | 9 % |
 | INFRA | **12** | 6 % |
 | **Celkem** | **200** | 100 % |
@@ -221,6 +221,8 @@ Skutečných kódových mezer je 14 a jsou drobné / rozšiřující.
 | 145 | Health score zákazníka | HOTOVO | `HealthScore` |
 | 146 | Loyalty / věrnostní program | HOTOVO | doména `Loyalty` |
 | 147 | Marketplace (doplňky) | HOTOVO | doména `Marketplace`, `panel.marketplace.*` |
+| 147b | **Placené doplňky marketplace** | HOTOVO | cena aplikace, strhne z kreditu při instalaci (`MarketplaceController`) |
+| 147c | **Věrnostní body + katalog odměn + uplatnění** | HOTOVO | `LoyaltyPointsService`, body za faktury, redeem za kredit |
 | 148 | Empty-state komponenta | HOTOVO | audit A23 |
 
 ## I. Zákaznické sub-účty (149–158)
@@ -302,10 +304,10 @@ Skutečných kódových mezer je 14 a jsou drobné / rozšiřující.
 
 ---
 
-## Skutečné kódové mezery (CHYBÍ) — 11
+## Skutečné kódové mezery (CHYBÍ) — 9
 
-Drobné / rozšiřující, žádná není blokátor MVP. *(Aktualizováno: SMTP z administrace
-doplněno; B2 a audit členů přeřazeny — viz níže.)*
+Drobné / rozšiřující, žádná není blokátor MVP. *(Aktualizováno: SMTP, placené
+doplňky marketplace a věrnostní body/katalog doplněny; B2 a audit členů přeřazeny.)*
 
 1. **Přepínač aktivního účtu** — uživatel, který je vlastníkem i členem jiného účtu, nemá v panelu přepínač (v1 sub-účtů řeší jen jeden účet na uživatele).
 2. **Sub-účty — granularita rolí** — zatím owner/member; role „účetní" (jen faktury) nebo „technik" (jen služby) nejsou.
@@ -314,13 +316,13 @@ doplněno; B2 a audit členů přeřazeny — viz níže.)*
 5. **Web push — cílené kampaně** — push zrcadlí notifikace; hromadné marketingové push kampaně nejsou.
 6. **Mailbox — autoresponder / přesměrování** — self-service schránky mají create/delete/quota, ne pravidla (vyžaduje reálné aaPanel mail API).
 7. **Uptime Kuma / n8n / Cloudflare klienti** — v katalogu jako placeholder, reálné klienty neimplementované.
-8. **Marketplace — platby za doplňky** — doména existuje, monetizace doplňků neúplná.
-9. **Loyalty — odměny/uplatnění** — body se počítají, katalog odměn je základní.
-10. **API GraphQL — perzistentní dotazy** — bez persisted-query cache (výkonová optimalizace).
-11. **Web push — ikony notifikace** — service worker odkazuje `/panel/svg/icon-192.png`; produkční ikony dodat.
+8. **API GraphQL — perzistentní dotazy** — bez persisted-query cache (výkonová optimalizace).
+9. **Web push — ikony notifikace** — service worker odkazuje `/panel/svg/icon-192.png`; produkční ikony dodat.
 
-**Přeřazeno (nebyla to mezera):**
+**Přeřazeno / doplněno (už nejsou mezera):**
 - *SMTP z administrace* → HOTOVO (`MailConfigurator`, viz bod 60b).
+- *Placené doplňky marketplace* → HOTOVO (cena + strhnutí z kreditu, bod 147b).
+- *Věrnostní odměny / uplatnění* → HOTOVO (body + katalog + redeem, bod 147c).
 - *Backblaze B2* → funguje přes S3-kompatibilní `backup-s3` disk (`S3_BACKUP_ENDPOINT` na B2); zvláštní driver není potřeba.
 - *Audit akcí členů* → již pokryto: activity log loguje `causer_id` = přihlášený člen.
 

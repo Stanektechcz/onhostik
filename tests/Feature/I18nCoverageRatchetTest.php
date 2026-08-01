@@ -33,7 +33,9 @@ it('does not grow the hardcoded-Czech debt in Blade templates', function (): voi
     // Czech-first style.
     // Baseline raised 4231 → 4232 (2026-07-22): paid marketplace add-ons — price
     // labels on the panel + admin marketplace screens.
-    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4232);
+    // Baseline raised 4232 → 4247 (2026-07-22): loyalty points + redeemable reward
+    // catalog — the panel points/catalog section and the admin catalog screen.
+    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4247);
 });
 
 it('keeps newly added shared components translatable', function (): void {
