@@ -20,8 +20,8 @@ Každý bod **ověřený proti kódu** (grep + testy), ne dopředně. Nahrazuje
 
 | Klasifikace | Počet | Podíl |
 |---|---|---|
-| HOTOVO | **165** | 82 % |
-| CHYBÍ | **5** | 3 % |
+| HOTOVO | **166** | 83 % |
+| CHYBÍ | **4** | 2 % |
 | EXTERNÍ | **18** | 9 % |
 | INFRA | **12** | 6 % |
 | **Celkem** | **200** | 100 % |
@@ -184,7 +184,7 @@ Zbytek zbývající práce je **externí** (reálné klíče) a **infra** (serve
 | 100 | Per-token limity + analytika | HOTOVO | `LogApiUsage` |
 | 101 | OpenAPI + Swagger | HOTOVO | `OpenApiSpecCoverageTest` |
 | 102 | Idempotence | HOTOVO | `EnforceIdempotency` |
-| 103 | **GraphQL (read + mutace)** | HOTOVO | `ApiSchema` + createTicket/replyTicket |
+| 103 | **GraphQL (read + mutace + APQ)** | HOTOVO | `ApiSchema` + createTicket/replyTicket + persisted queries |
 | 104 | **OAuth2 authz_code + PKCE + refresh** | HOTOVO | `OAuthGrantService` |
 | 105 | OAuth2 na existujícím registru | HOTOVO | vydává Sanctum tokeny |
 | 106 | Vývojářský portál | HOTOVO | `DeveloperPortalController` |
@@ -320,19 +320,19 @@ Zbytek zbývající práce je **externí** (reálné klíče) a **infra** (serve
 
 ---
 
-## Skutečné kódové mezery (CHYBÍ) — 5
+## Skutečné kódové mezery (CHYBÍ) — 4
 
-Rozšiřující nebo závislé na živých API/assetech; žádná není blokátor:
+Všechny čtyři závisí na živých API/assetech třetích stran — nelze je poctivě
+dokončit ani ověřit bez externího prostředí; žádná není blokátor:
 
 1. **Reálné Stripe/GoPay produkční toky** — brány čtou credentials, ale 3-D Secure návraty jsou vedle Comgate na placeholder úrovni. *(Vyžaduje sandbox bran.)*
 2. **Mailbox — autoresponder / přesměrování** — schránky mají create/delete/quota, ne pravidla. *(Vyžaduje reálné aaPanel mail API.)*
 3. **Cloudflare / Uptime Kuma / n8n klienti** — v katalogu placeholder; reálné klienty neimplementované. *(Bez živé služby netestovatelné.)*
-4. **GraphQL — perzistentní dotazy** — bez persisted-query cache. *(Výkonová optimalizace.)*
-5. **Web push — grafické ikony** — SW odkazuje `/panel/svg/icon-192.png`; dodat produkční brand ikony. *(Design asset.)*
+4. **Web push — grafické ikony** — SW odkazuje `/panel/svg/icon-192.png`; dodat produkční brand ikony. *(Design asset.)*
 
-**Doplněno od finálního auditu:** *Sub-účty — jemnější role* → HOTOVO: přidána role
-**Účetní** (member + přístup k fakturaci, ne mazání účtu/správa členů); „technik"
-= běžný člen (služby, bez fakturace).
+**Doplněno od finálního auditu:**
+- *Sub-účty — jemnější role* → HOTOVO: přidána role **Účetní** (member + fakturace, ne mazání účtu/správa členů); „technik" = běžný člen.
+- *GraphQL perzistentní dotazy* → HOTOVO: Apollo APQ (hash lookup + registrace + validace) v `GraphQLController`.
 
 ## Externí / produkční blokátory (EXTERNÍ) — 18
 

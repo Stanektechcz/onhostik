@@ -156,3 +156,40 @@ it('cannot reply to another customer\'s ticket', function (): void {
         ->assertJsonStructure(['errors'])
         ->assertJsonPath('data.replyTicket', null);
 });
+
+// ── persisted queries (Apollo APQ) ────────────────────────────────────────────
+
+it('returns PersistedQueryNotFound for an unknown hash', function (): void {
+    $token = customerUser()->createToken('gql')->plainTextToken;
+
+    test()->withToken($token)->postJson('/api/graphql', [
+        'extensions' => ['persistedQuery' => ['version' => 1, 'sha256Hash' => str_repeat('a', 64)]],
+    ])->assertOk()->assertJsonPath('errors.0.extensions.code', 'PERSISTED_QUERY_NOT_FOUND');
+});
+
+it('registers a persisted query then serves it by hash alone', function (): void {
+    $user  = customerUser();
+    $token = $user->createToken('gql')->plainTextToken;
+    $q     = '{ viewer { id } }';
+    $hash  = hash('sha256', $q);
+
+    // 1) register: hash + query
+    test()->withToken($token)->postJson('/api/graphql', [
+        'query'      => $q,
+        'extensions' => ['persistedQuery' => ['version' => 1, 'sha256Hash' => $hash]],
+    ])->assertOk()->assertJsonPath('data.viewer.id', $user->id);
+
+    // 2) subsequent call: hash only, no query text
+    test()->withToken($token)->postJson('/api/graphql', [
+        'extensions' => ['persistedQuery' => ['version' => 1, 'sha256Hash' => $hash]],
+    ])->assertOk()->assertJsonPath('data.viewer.id', $user->id);
+});
+
+it('rejects a persisted-query hash that does not match the query', function (): void {
+    $token = customerUser()->createToken('gql')->plainTextToken;
+
+    test()->withToken($token)->postJson('/api/graphql', [
+        'query'      => '{ viewer { id } }',
+        'extensions' => ['persistedQuery' => ['version' => 1, 'sha256Hash' => str_repeat('b', 64)]],
+    ])->assertOk()->assertJsonPath('errors.0.extensions.code', 'PERSISTED_QUERY_HASH_MISMATCH');
+});
