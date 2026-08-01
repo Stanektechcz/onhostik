@@ -107,3 +107,52 @@ it('rejects an over-deep query with a validation error', function (): void {
         ->assertOk()
         ->assertJsonStructure(['errors']);
 });
+
+// ── mutations ─────────────────────────────────────────────────────────────────
+
+it('creates a support ticket via mutation with the write:tickets ability', function (): void {
+    $user  = customerUser();
+    $token = $user->createToken('gql', ['write:tickets'])->plainTextToken;
+
+    $res = gql($token, 'mutation { createTicket(subject: "Pomoc", message: "Prosím o pomoc") { id subject status } }')
+        ->assertOk();
+
+    expect($res->json('data.createTicket.subject'))->toBe('Pomoc')
+        ->and($res->json('data.createTicket.id'))->toBeGreaterThan(0);
+
+    $this->assertDatabaseHas('support_tickets', ['customer_id' => $user->customer->id, 'subject' => 'Pomoc']);
+});
+
+it('refuses a mutation from a token without write:tickets', function (): void {
+    $token = customerUser()->createToken('gql', ['read'])->plainTextToken;
+
+    gql($token, 'mutation { createTicket(subject: "X", message: "Y") { id } }')
+        ->assertOk()
+        ->assertJsonStructure(['errors'])
+        ->assertJsonPath('data.createTicket', null);
+});
+
+it('replies to a ticket via mutation', function (): void {
+    $user  = customerUser();
+    $token = $user->createToken('gql', ['write:tickets'])->plainTextToken;
+
+    $id = gql($token, 'mutation { createTicket(subject: "S", message: "M") { id } }')->json('data.createTicket.id');
+
+    gql($token, 'mutation { replyTicket(ticketId: ' . $id . ', message: "Doplnění") { id status } }')
+        ->assertOk()
+        ->assertJsonPath('data.replyTicket.id', $id);
+});
+
+it('cannot reply to another customer\'s ticket', function (): void {
+    $mine  = customerUser();
+    $other = customerUser();
+    $token = $mine->createToken('gql', ['write:tickets'])->plainTextToken;
+
+    $otherId = app(\App\Domains\Support\Services\TicketService::class)
+        ->open($other->customer, $other, 'Cizí', 'tiket')->id;
+
+    gql($token, 'mutation { replyTicket(ticketId: ' . $otherId . ', message: "hack") { id } }')
+        ->assertOk()
+        ->assertJsonStructure(['errors'])
+        ->assertJsonPath('data.replyTicket', null);
+});

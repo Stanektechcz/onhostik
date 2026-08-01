@@ -10,7 +10,11 @@ use App\Domains\Customer\Models\Customer;
 use App\Domains\Provisioning\Models\DomainRegistration;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Shared\Support\MoneyFormatter;
+use App\Domains\Support\Enums\TicketPriority;
+use App\Domains\Support\Models\SupportTicket;
+use App\Domains\Support\Services\TicketService;
 use App\Models\User;
+use GraphQL\Error\Error;
 use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\Type;
 use GraphQL\Type\Schema;
@@ -28,7 +32,10 @@ use GraphQL\Type\Schema;
  */
 final class ApiSchema
 {
-    public function __construct(private readonly CreditLedger $ledger) {}
+    public function __construct(
+        private readonly CreditLedger $ledger,
+        private readonly TicketService $tickets,
+    ) {}
 
     public function make(): Schema
     {
@@ -103,6 +110,16 @@ final class ApiSchema
             ],
         ]);
 
+        $ticket = new ObjectType([
+            'name'   => 'Ticket',
+            'fields' => [
+                'id'        => ['type' => Type::int()],
+                'subject'   => ['type' => Type::string()],
+                'status'    => ['type' => Type::string()],
+                'createdAt' => ['type' => Type::string()],
+            ],
+        ]);
+
         $query = new ObjectType([
             'name'   => 'Query',
             'fields' => [
@@ -134,7 +151,30 @@ final class ApiSchema
             ],
         ]);
 
-        return new Schema(['query' => $query]);
+        $mutation = new ObjectType([
+            'name'   => 'Mutation',
+            'fields' => [
+                'createTicket' => [
+                    'type' => $ticket,
+                    'args' => [
+                        'subject'  => ['type' => Type::nonNull(Type::string())],
+                        'message'  => ['type' => Type::nonNull(Type::string())],
+                        'priority' => ['type' => Type::string()],
+                    ],
+                    'resolve' => fn ($root, array $args, $ctx) => $this->createTicket($this->user($ctx), $args),
+                ],
+                'replyTicket' => [
+                    'type' => $ticket,
+                    'args' => [
+                        'ticketId' => ['type' => Type::nonNull(Type::int())],
+                        'message'  => ['type' => Type::nonNull(Type::string())],
+                    ],
+                    'resolve' => fn ($root, array $args, $ctx) => $this->replyTicket($this->user($ctx), (int) $args['ticketId'], (string) $args['message']),
+                ],
+            ],
+        ]);
+
+        return new Schema(['query' => $query, 'mutation' => $mutation]);
     }
 
     private function user(mixed $ctx): ?User
@@ -293,6 +333,76 @@ final class ApiSchema
             'amount'    => $balance->getMinorAmount()->toInt(),
             'currency'  => $balance->getCurrency()->getCurrencyCode(),
             'formatted' => MoneyFormatter::format($balance),
+        ];
+    }
+
+    // ── mutations ────────────────────────────────────────────────────────────────
+
+    /**
+     * @param array<string, mixed> $args
+     * @return array<string, mixed>
+     */
+    private function createTicket(?User $user, array $args): array
+    {
+        $customer = $this->requireWriteTickets($user);
+
+        $ticket = $this->tickets->open(
+            $customer,
+            $user,
+            subject: (string) $args['subject'],
+            message: (string) $args['message'],
+            priority: TicketPriority::tryFrom((string) ($args['priority'] ?? '')) ?? TicketPriority::Normal,
+        );
+
+        return $this->ticketRow($ticket);
+    }
+
+    /** @return array<string, mixed> */
+    private function replyTicket(?User $user, int $ticketId, string $message): array
+    {
+        $customer = $this->requireWriteTickets($user);
+
+        $ticket = SupportTicket::query()
+            ->where('customer_id', $customer->id)
+            ->where('id', $ticketId)
+            ->first();
+
+        if ($ticket === null) {
+            throw new Error('Tiket nebyl nalezen.');
+        }
+
+        $this->tickets->reply($ticket, $user, $message, isStaff: false);
+
+        return $this->ticketRow($ticket->refresh());
+    }
+
+    /**
+     * Authorise a write mutation: a valid token with the write:tickets ability
+     * and a customer account. Throws a client-visible GraphQL error otherwise.
+     */
+    private function requireWriteTickets(?User $user): Customer
+    {
+        if ($user === null || ! $user->tokenCan('write:tickets')) {
+            throw new Error('Token nemá oprávnění write:tickets.');
+        }
+
+        $customer = $user->customer;
+
+        if ($customer === null) {
+            throw new Error('Účet nemá zákaznický profil.');
+        }
+
+        return $customer;
+    }
+
+    /** @return array<string, mixed> */
+    private function ticketRow(SupportTicket $ticket): array
+    {
+        return [
+            'id'        => $ticket->id,
+            'subject'   => $ticket->subject,
+            'status'    => $ticket->status->value,
+            'createdAt' => $ticket->created_at?->toIso8601String(),
         ];
     }
 }
