@@ -21,8 +21,8 @@ příkazů, 387 testovacích souborů, 457 Blade šablon, 27 domén.
 
 | Klasifikace | Počet | Podíl |
 |---|---|---|
-| HOTOVO | **156** | 78 % |
-| CHYBÍ | **14** | 7 % |
+| HOTOVO | **159** | 79 % |
+| CHYBÍ | **11** | 6 % |
 | EXTERNÍ | **18** | 9 % |
 | INFRA | **12** | 6 % |
 | **Celkem** | **200** | 100 % |
@@ -108,6 +108,7 @@ Skutečných kódových mezer je 14 a jsou drobné / rozšiřující.
 | 58 | QR platba | HOTOVO | audit 45 |
 | 59 | Opakované platby | HOTOVO | audit 39 |
 | 60 | Reálné credentials bran | EXTERNÍ | merchant_id/secret zadat v administraci před go-live |
+| 60b | **SMTP z administrace** (transakční e-mail) | HOTOVO | `MailConfigurator` čte vault (host/port/user/heslo), fallback .env |
 
 ## D. Provisioning a služby (61–82)
 
@@ -301,24 +302,27 @@ Skutečných kódových mezer je 14 a jsou drobné / rozšiřující.
 
 ---
 
-## Skutečné kódové mezery (CHYBÍ) — 14
+## Skutečné kódové mezery (CHYBÍ) — 11
 
-Drobné / rozšiřující, žádná není blokátor MVP:
+Drobné / rozšiřující, žádná není blokátor MVP. *(Aktualizováno: SMTP z administrace
+doplněno; B2 a audit členů přeřazeny — viz níže.)*
 
 1. **Přepínač aktivního účtu** — uživatel, který je vlastníkem i členem jiného účtu, nemá v panelu přepínač (v1 sub-účtů řeší jen jeden účet na uživatele).
 2. **Sub-účty — granularita rolí** — zatím owner/member; role „účetní" (jen faktury) nebo „technik" (jen služby) nejsou.
 3. **Reálné Stripe/GoPay klienty** — brány jsou napojené na credentials, ale plné produkční toky (3-D Secure návraty) jsou placeholder úrovně vedle Comgate.
 4. **GraphQL mutace** — endpoint je záměrně jen pro čtení; zápisy zůstávají na REST.
 5. **Web push — cílené kampaně** — push zrcadlí notifikace; hromadné marketingové push kampaně nejsou.
-6. **Mailbox — autoresponder / přesměrování** — self-service schránky mají create/delete/quota, ne pravidla.
-7. **SMTP z administrace** — katalog má `smtp`, ale mailer stále čte `config('mail')`; napojení na vault jako u bran chybí.
-8. **Uptime Kuma / n8n / Cloudflare klienti** — v katalogu jako placeholder, reálné klienty neimplementované.
-9. **Backblaze B2 driver** — v katalogu, S3 driver hotový, B2 ne.
-10. **Sub-účty — audit akcí členů** — akce členů se logují jako uživatel, ne explicitně „člen účtu X".
-11. **Marketplace — platby za doplňky** — doména existuje, monetizace doplňků neúplná.
-12. **Loyalty — odměny/uplatnění** — body se počítají, katalog odměn je základní.
-13. **API GraphQL — perzistentní dotazy** — bez persisted-query cache (výkonová optimalizace).
-14. **Web push — ikony notifikace** — service worker odkazuje `/panel/svg/icon-192.png`; produkční ikony dodat.
+6. **Mailbox — autoresponder / přesměrování** — self-service schránky mají create/delete/quota, ne pravidla (vyžaduje reálné aaPanel mail API).
+7. **Uptime Kuma / n8n / Cloudflare klienti** — v katalogu jako placeholder, reálné klienty neimplementované.
+8. **Marketplace — platby za doplňky** — doména existuje, monetizace doplňků neúplná.
+9. **Loyalty — odměny/uplatnění** — body se počítají, katalog odměn je základní.
+10. **API GraphQL — perzistentní dotazy** — bez persisted-query cache (výkonová optimalizace).
+11. **Web push — ikony notifikace** — service worker odkazuje `/panel/svg/icon-192.png`; produkční ikony dodat.
+
+**Přeřazeno (nebyla to mezera):**
+- *SMTP z administrace* → HOTOVO (`MailConfigurator`, viz bod 60b).
+- *Backblaze B2* → funguje přes S3-kompatibilní `backup-s3` disk (`S3_BACKUP_ENDPOINT` na B2); zvláštní driver není potřeba.
+- *Audit akcí členů* → již pokryto: activity log loguje `causer_id` = přihlášený člen.
 
 ## Externí / produkční blokátory (EXTERNÍ) — 18
 

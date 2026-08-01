@@ -76,6 +76,18 @@ class AppServiceProvider extends ServiceProvider
         $this->configureViewComposers();
         $this->configureSlowQueryLogging();
         $this->configureImpersonationAudit();
+        $this->configureMailFromVault();
+    }
+
+    /**
+     * Point the mailer at admin-managed SMTP credentials when configured,
+     * falling back to .env. Deferred to `booted` so config + DB are ready.
+     */
+    private function configureMailFromVault(): void
+    {
+        $this->app->booted(function (): void {
+            app(\App\Domains\Integrations\Services\MailConfigurator::class)->apply();
+        });
     }
 
     /**
