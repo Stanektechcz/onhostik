@@ -28,7 +28,10 @@ it('does not grow the hardcoded-Czech debt in Blade templates', function (): voi
     // unsupported/disabled notices, same Czech-first style.
     // Baseline raised 4204 → 4213 (2026-07-22): the OAuth2 consent screen and the
     // developer-portal OAuth2 endpoint reference, same Czech-first style.
-    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4213);
+    // Baseline raised 4213 → 4231 (2026-07-22): customer sub-accounts — the
+    // owner's member-management screen and the invitation accept page, same
+    // Czech-first style.
+    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4231);
 });
 
 it('keeps newly added shared components translatable', function (): void {

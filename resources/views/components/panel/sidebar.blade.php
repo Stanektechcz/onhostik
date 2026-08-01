@@ -11,6 +11,8 @@
     $canPartner      = $sidebarUser?->can('access-partner');
     $canReseller     = $sidebarUser?->can('access-reseller');
     $hasCustomer     = $sidebarUser?->customer !== null;
+    // Sub-accounts: invited members see the account but not billing/payments.
+    $isAccountOwner  = $sidebarUser?->isCustomerOwner() ?? false;
     $isImpersonating = session()->has('_impersonated_by');
 @endphp
 
@@ -79,12 +81,14 @@
             <x-panel.sidebar-link :href="route('panel.wishlist.index')" icon="heart" label="Oblíbené" />
         </x-panel.sidebar-submenu>
 
+        @if($isAccountOwner)
         <x-panel.sidebar-submenu icon="file-text" label="Fakturace"
             :active="$p('panel.billing')">
             <x-panel.sidebar-link :href="route('panel.billing.invoices')" icon="file-text" label="Faktury" />
             <x-panel.sidebar-link :href="route('panel.billing.payments')" icon="credit-card" label="Platby" />
             <x-panel.sidebar-link :href="route('panel.billing.credits')" icon="dollar-sign" label="Kredit" />
         </x-panel.sidebar-submenu>
+        @endif
         @endif
 
 {{-- ══════════════════════════════════════════════════════
@@ -269,8 +273,9 @@
         <x-panel.sidebar-submenu icon="user" label="Můj účet"
             :active="$p('panel.account') || $p('panel.notifications')">
             <x-panel.sidebar-link :href="route('panel.account.profile')" icon="user" label="Profil" />
-            @if($hasCustomer)
+            @if($isAccountOwner)
                 <x-panel.sidebar-link :href="route('panel.account.billing')" icon="dollar-sign" label="Fakturační údaje" />
+                <x-panel.sidebar-link :href="route('panel.account.members.index')" icon="users" label="Členové účtu" />
             @endif
             <x-panel.sidebar-link :href="route('panel.account.security')" icon="lock" label="Zabezpečení" />
             <x-panel.sidebar-link :href="route('panel.account.api-tokens')" icon="hash" label="API tokeny" />

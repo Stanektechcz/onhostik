@@ -19,7 +19,7 @@ use App\Http\Controllers\Admin\SiteContentController;
 | header and front components.
 */
 
-Route::middleware(['auth', 'require-customer-2fa', 'resolve-member-customer'])->prefix('panel')->name('panel.')->group(function (): void {
+Route::middleware(['auth', 'require-customer-2fa', 'resolve-member-customer', 'restrict-member-billing'])->prefix('panel')->name('panel.')->group(function (): void {
     Route::get('/', [Panel\DashboardController::class, 'index'])->name('dashboard');
     Route::post('/onboarding/dismiss', [Panel\OnboardingController::class, 'dismiss'])->name('onboarding.dismiss');
     Route::post('/oznameni/{announcement}/skryt', [Panel\AnnouncementDismissController::class, 'dismiss'])->name('announcements.dismiss');
@@ -77,6 +77,15 @@ Route::middleware(['auth', 'require-customer-2fa', 'resolve-member-customer'])->
         Route::post('/', [Panel\DeveloperPortalController::class, 'storeOAuthApp'])->name('store');
         Route::patch('/{oauthApp}', [Panel\DeveloperPortalController::class, 'regenSecret'])->name('regen');
         Route::delete('/{oauthApp}', [Panel\DeveloperPortalController::class, 'destroyOAuthApp'])->name('destroy');
+    });
+
+    // Sub-accounts: the owner manages members + invitations (owner-only enforced
+    // in the controller — members legitimately reach the rest of the panel).
+    Route::prefix('/ucet/clenove')->name('account.members.')->group(function (): void {
+        Route::get('/', [Panel\CustomerMemberController::class, 'index'])->name('index');
+        Route::post('/pozvat', [Panel\CustomerMemberController::class, 'invite'])->name('invite');
+        Route::delete('/{member}', [Panel\CustomerMemberController::class, 'removeMember'])->name('remove');
+        Route::delete('/pozvanky/{invitation}', [Panel\CustomerMemberController::class, 'revokeInvitation'])->name('invitations.revoke');
     });
 
     Route::get('/sluzby/{service}/waf', [Panel\WafController::class, 'index'])->name('waf.index');

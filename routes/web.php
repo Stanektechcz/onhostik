@@ -104,3 +104,13 @@ Route::middleware('auth')->group(function (): void {
 Route::post('/oauth/token', [\App\Http\Controllers\OAuth\TokenController::class, 'issue'])
     ->middleware('throttle:api')
     ->name('oauth.token');
+
+/*
+ | Customer sub-account invitations — accepting a link. Guest-accessible (the
+ | invitee may not have an account yet); the token is the credential. Throttled
+ | against token guessing.
+ */
+Route::middleware('throttle:20,1')->group(function (): void {
+    Route::get('/pozvanka/{token}', [\App\Http\Controllers\CustomerInvitationController::class, 'show'])->name('invitation.accept');
+    Route::post('/pozvanka/{token}', [\App\Http\Controllers\CustomerInvitationController::class, 'accept'])->name('invitation.accept.store');
+});
