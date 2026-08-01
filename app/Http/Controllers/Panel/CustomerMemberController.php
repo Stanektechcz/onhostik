@@ -45,8 +45,14 @@ final class CustomerMemberController extends Controller
     {
         $customer = $this->ownedCustomer($request);
 
-        $validated = $request->validate(['email' => ['required', 'email', 'max:255']]);
-        $email     = mb_strtolower(trim($validated['email']));
+        $assignable = array_map(fn (CustomerRole $r): string => $r->value, CustomerRole::assignable());
+
+        $validated = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+            'role'  => ['nullable', 'in:' . implode(',', $assignable)],
+        ]);
+        $email = mb_strtolower(trim($validated['email']));
+        $role  = CustomerRole::tryFrom((string) ($validated['role'] ?? '')) ?? CustomerRole::Member;
 
         if ($customer->members()->where('users.email', $email)->exists()) {
             return back()->withErrors(['email' => 'Tento uživatel už má k účtu přístup.']);
@@ -69,7 +75,7 @@ final class CustomerMemberController extends Controller
             'customer_id'        => $customer->id,
             'invited_by_user_id' => $request->user()?->id,
             'email'              => $email,
-            'role'               => CustomerRole::Member->value,
+            'role'               => $role->value,
             'token_hash'         => hash('sha256', $raw),
             'expires_at'         => now()->addDays(7),
         ]);

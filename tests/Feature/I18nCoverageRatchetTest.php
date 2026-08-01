@@ -37,7 +37,9 @@ it('does not grow the hardcoded-Czech debt in Blade templates', function (): voi
     // catalog — the panel points/catalog section and the admin catalog screen.
     // Baseline raised 4247 → 4248 (2026-07-22): sub-account switcher label in the
     // sidebar ("Aktivní účet").
-    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4248);
+    // Baseline raised 4248 → 4251 (2026-08-02): accountant sub-account role — role
+    // selector + updated member-page copy + pending-invite role column.
+    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4251);
 });
 
 it('keeps newly added shared components translatable', function (): void {

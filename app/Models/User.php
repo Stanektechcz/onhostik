@@ -210,4 +210,19 @@ class User extends Authenticatable
 
         return $customer !== null && $customer->user_id === $this->id;
     }
+
+    /**
+     * May this user reach billing/payments on the given (or accessible) account?
+     * True for the owner and for members with the accountant role.
+     */
+    public function canAccessBilling(?Customer $customer = null): bool
+    {
+        $customer ??= $this->accessibleCustomer();
+
+        if ($customer === null) {
+            return false;
+        }
+
+        return $this->customerRoleFor($customer)?->canAccessBilling() ?? false;
+    }
 }

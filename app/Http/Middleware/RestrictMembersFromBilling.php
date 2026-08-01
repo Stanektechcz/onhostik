@@ -20,15 +20,19 @@ use Symfony\Component\HttpFoundation\Response;
  */
 final class RestrictMembersFromBilling
 {
-    /** Route-name prefixes only the account owner may reach. */
-    private const OWNER_ONLY = [
+    /** Billing areas: reachable by the owner OR an accountant member. */
+    private const BILLING = [
         'panel.billing.',
         'panel.billing-addresses.',
         'panel.payment-methods.',
         'panel.account.billing',
+        'panel.services.billing-pause',
+    ];
+
+    /** Strictly owner-only: account deletion and personal-data export. */
+    private const OWNER_STRICT = [
         'panel.account.delete',
         'panel.gdpr.export',
-        'panel.services.billing-pause',
     ];
 
     public function handle(Request $request, Closure $next): Response
@@ -36,16 +40,23 @@ final class RestrictMembersFromBilling
         $user = $request->user();
         $name = $request->route()?->getName() ?? '';
 
-        if ($user !== null && $this->isOwnerOnly($name) && ! $user->isCustomerOwner()) {
-            abort(403, 'Tato sekce je dostupná pouze vlastníkovi účtu.');
+        if ($user !== null) {
+            if ($this->matches($name, self::OWNER_STRICT) && ! $user->isCustomerOwner()) {
+                abort(403, 'Tato sekce je dostupná pouze vlastníkovi účtu.');
+            }
+
+            if ($this->matches($name, self::BILLING) && ! $user->canAccessBilling()) {
+                abort(403, 'Tato sekce je dostupná vlastníkovi nebo účetnímu.');
+            }
         }
 
         return $next($request);
     }
 
-    private function isOwnerOnly(string $name): bool
+    /** @param list<string> $prefixes */
+    private function matches(string $name, array $prefixes): bool
     {
-        foreach (self::OWNER_ONLY as $prefix) {
+        foreach ($prefixes as $prefix) {
             if (str_starts_with($name, $prefix)) {
                 return true;
             }

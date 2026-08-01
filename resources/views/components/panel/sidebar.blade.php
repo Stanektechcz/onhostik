@@ -11,8 +11,10 @@
     $canPartner      = $sidebarUser?->can('access-partner');
     $canReseller     = $sidebarUser?->can('access-reseller');
     $hasCustomer     = $sidebarUser?->customer !== null;
-    // Sub-accounts: invited members see the account but not billing/payments.
+    // Sub-accounts: invited members see the account but not billing/payments;
+    // an accountant member additionally sees billing.
     $isAccountOwner  = $sidebarUser?->isCustomerOwner() ?? false;
+    $canBilling      = $sidebarUser?->canAccessBilling() ?? false;
     // Accounts this user can act on; a switcher appears when there is more than one.
     $accessibleAccounts = $sidebarUser ? $sidebarUser->memberCustomers()->get() : collect();
     $activeCustomerId   = $sidebarUser?->customer?->id;
@@ -100,7 +102,7 @@
             <x-panel.sidebar-link :href="route('panel.wishlist.index')" icon="heart" label="Oblíbené" />
         </x-panel.sidebar-submenu>
 
-        @if($isAccountOwner)
+        @if($canBilling)
         <x-panel.sidebar-submenu icon="file-text" label="Fakturace"
             :active="$p('panel.billing')">
             <x-panel.sidebar-link :href="route('panel.billing.invoices')" icon="file-text" label="Faktury" />
@@ -292,8 +294,10 @@
         <x-panel.sidebar-submenu icon="user" label="Můj účet"
             :active="$p('panel.account') || $p('panel.notifications')">
             <x-panel.sidebar-link :href="route('panel.account.profile')" icon="user" label="Profil" />
-            @if($isAccountOwner)
+            @if($canBilling)
                 <x-panel.sidebar-link :href="route('panel.account.billing')" icon="dollar-sign" label="Fakturační údaje" />
+            @endif
+            @if($isAccountOwner)
                 <x-panel.sidebar-link :href="route('panel.account.members.index')" icon="users" label="Členové účtu" />
             @endif
             <x-panel.sidebar-link :href="route('panel.account.security')" icon="lock" label="Zabezpečení" />

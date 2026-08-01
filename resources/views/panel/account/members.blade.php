@@ -19,8 +19,9 @@
                 <div class="header-top">
                     <h5>Pozvat člena</h5>
                     <p class="f-m-light mt-1">
-                        Pozvaný uživatel získá přístup ke správě služeb, domén a tiketů.
-                        Fakturaci, platební metody a zrušení účtu spravuje pouze vlastník.
+                        <strong>Člen</strong> získá přístup ke správě služeb, domén a tiketů.
+                        <strong>Účetní</strong> navíc vidí fakturaci, platby a faktury.
+                        Zrušení účtu a správu členů spravuje pouze vlastník.
                     </p>
                 </div>
             </div>
@@ -32,6 +33,13 @@
                                placeholder="email@firma.cz" value="{{ old('email') }}" required
                                aria-label="E-mail pozvaného">
                         @error('email')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    </div>
+                    <div style="min-width:160px;">
+                        <select name="role" class="form-select" aria-label="Role">
+                            @foreach (\App\Domains\Customer\Enums\CustomerRole::assignable() as $assignable)
+                                <option value="{{ $assignable->value }}">{{ $assignable->label() }}</option>
+                            @endforeach
+                        </select>
                     </div>
                     <button type="submit" class="btn btn-primary text-white">
                         <i data-feather="user-plus" class="me-1" style="width:14px;height:14px;"></i>
@@ -102,6 +110,7 @@
                             <thead class="table-light">
                                 <tr>
                                     <th>E-mail</th>
+                                    <th>Role</th>
                                     <th>Platnost do</th>
                                     <th class="text-right">Akce</th>
                                 </tr>
@@ -110,6 +119,7 @@
                                 @foreach ($invitations as $invitation)
                                     <tr>
                                         <td class="f-w-500">{{ $invitation->email }}</td>
+                                        <td class="f-12">{{ CustomerRole::tryFrom($invitation->role)?->label() ?? $invitation->role }}</td>
                                         <td class="f-light">{{ $invitation->expires_at->format('d.m.Y H:i') }}</td>
                                         <td class="text-right">
                                             <form method="POST" action="{{ route('panel.account.members.invitations.revoke', $invitation) }}"

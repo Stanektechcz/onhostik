@@ -20,8 +20,8 @@ Každý bod **ověřený proti kódu** (grep + testy), ne dopředně. Nahrazuje
 
 | Klasifikace | Počet | Podíl |
 |---|---|---|
-| HOTOVO | **164** | 82 % |
-| CHYBÍ | **6** | 3 % |
+| HOTOVO | **165** | 82 % |
+| CHYBÍ | **5** | 3 % |
 | EXTERNÍ | **18** | 9 % |
 | INFRA | **12** | 6 % |
 | **Celkem** | **200** | 100 % |
@@ -248,7 +248,7 @@ Zbytek zbývající práce je **externí** (reálné klíče) a **infra** (serve
 | 149 | Členská vazba user↔customer | HOTOVO | `customer_user` |
 | 150 | Vlastník i členové v jedné vazbě | HOTOVO | backfill + `Customer::created` |
 | 151 | Resolver členů | HOTOVO | `ResolveMemberCustomer` |
-| 152 | `accessibleCustomer`/`isCustomerOwner` | HOTOVO | `User` + `CustomerRole` |
+| 152 | Role: owner / member / **účetní** | HOTOVO | `CustomerRole`, účetní vidí fakturaci |
 | 153 | Pozvánky e-mailem | HOTOVO | `CustomerInvitation` |
 | 154 | Přijetí pozvánky | HOTOVO | `CustomerInvitationController` |
 | 155 | Správa členů (vlastník) | HOTOVO | `CustomerMemberController` |
@@ -320,16 +320,19 @@ Zbytek zbývající práce je **externí** (reálné klíče) a **infra** (serve
 
 ---
 
-## Skutečné kódové mezery (CHYBÍ) — 6
+## Skutečné kódové mezery (CHYBÍ) — 5
 
 Rozšiřující nebo závislé na živých API/assetech; žádná není blokátor:
 
-1. **Sub-účty — jemnější role** — dnes owner/member; role „účetní" (jen faktury) / „technik" (jen služby) nejsou. *(Rozšíření; owner/member + omezení fakturace hotové.)*
-2. **Reálné Stripe/GoPay produkční toky** — brány čtou credentials, ale 3-D Secure návraty jsou vedle Comgate na placeholder úrovni. *(Vyžaduje sandbox bran.)*
-3. **Mailbox — autoresponder / přesměrování** — schránky mají create/delete/quota, ne pravidla. *(Vyžaduje reálné aaPanel mail API.)*
-4. **Cloudflare / Uptime Kuma / n8n klienti** — v katalogu placeholder; reálné klienty neimplementované. *(Bez živé služby netestovatelné.)*
-5. **GraphQL — perzistentní dotazy** — bez persisted-query cache. *(Výkonová optimalizace.)*
-6. **Web push — grafické ikony** — SW odkazuje `/panel/svg/icon-192.png`; dodat produkční brand ikony. *(Design asset.)*
+1. **Reálné Stripe/GoPay produkční toky** — brány čtou credentials, ale 3-D Secure návraty jsou vedle Comgate na placeholder úrovni. *(Vyžaduje sandbox bran.)*
+2. **Mailbox — autoresponder / přesměrování** — schránky mají create/delete/quota, ne pravidla. *(Vyžaduje reálné aaPanel mail API.)*
+3. **Cloudflare / Uptime Kuma / n8n klienti** — v katalogu placeholder; reálné klienty neimplementované. *(Bez živé služby netestovatelné.)*
+4. **GraphQL — perzistentní dotazy** — bez persisted-query cache. *(Výkonová optimalizace.)*
+5. **Web push — grafické ikony** — SW odkazuje `/panel/svg/icon-192.png`; dodat produkční brand ikony. *(Design asset.)*
+
+**Doplněno od finálního auditu:** *Sub-účty — jemnější role* → HOTOVO: přidána role
+**Účetní** (member + přístup k fakturaci, ne mazání účtu/správa členů); „technik"
+= běžný člen (služby, bez fakturace).
 
 ## Externí / produkční blokátory (EXTERNÍ) — 18
 
