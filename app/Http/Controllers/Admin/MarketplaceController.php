@@ -28,19 +28,21 @@ class MarketplaceController extends Controller
             'description' => ['nullable', 'string', 'max:1000'],
             'icon'        => ['nullable', 'string', 'max:50'],
             'min_disk_gb' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'price_czk'   => ['nullable', 'numeric', 'min:0', 'max:1000000'],
             'sort_order'  => ['nullable', 'integer', 'min:0'],
             'is_active'   => ['boolean'],
         ]);
 
         MarketplaceApp::create([
-            'slug'        => $validated['slug'],
-            'name'        => $validated['name'],
-            'category'    => $validated['category'],
-            'description' => $validated['description'] ?? null,
-            'icon'        => $validated['icon'] ?? 'package',
-            'min_disk_gb' => (int) ($validated['min_disk_gb'] ?? 1),
-            'sort_order'  => (int) ($validated['sort_order'] ?? 0),
-            'is_active'   => (bool) ($validated['is_active'] ?? true),
+            'slug'         => $validated['slug'],
+            'name'         => $validated['name'],
+            'category'     => $validated['category'],
+            'description'  => $validated['description'] ?? null,
+            'icon'         => $validated['icon'] ?? 'package',
+            'min_disk_gb'  => (int) ($validated['min_disk_gb'] ?? 1),
+            'price_halere' => (int) round(((float) ($validated['price_czk'] ?? 0)) * 100),
+            'sort_order'   => (int) ($validated['sort_order'] ?? 0),
+            'is_active'    => (bool) ($validated['is_active'] ?? true),
         ]);
 
         return back()->with('status', 'Aplikace přidána do marketplace.');
@@ -54,18 +56,20 @@ class MarketplaceController extends Controller
             'description' => ['nullable', 'string', 'max:1000'],
             'icon'        => ['nullable', 'string', 'max:50'],
             'min_disk_gb' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'price_czk'   => ['nullable', 'numeric', 'min:0', 'max:1000000'],
             'sort_order'  => ['nullable', 'integer', 'min:0'],
             'is_active'   => ['boolean'],
         ]);
 
         $app->update([
-            'name'        => $validated['name'],
-            'category'    => $validated['category'],
-            'description' => $validated['description'] ?? null,
-            'icon'        => $validated['icon'] ?? 'package',
-            'min_disk_gb' => (int) ($validated['min_disk_gb'] ?? 1),
-            'sort_order'  => (int) ($validated['sort_order'] ?? 0),
-            'is_active'   => (bool) ($validated['is_active'] ?? true),
+            'name'         => $validated['name'],
+            'category'     => $validated['category'],
+            'description'  => $validated['description'] ?? null,
+            'icon'         => $validated['icon'] ?? 'package',
+            'min_disk_gb'  => (int) ($validated['min_disk_gb'] ?? 1),
+            'price_halere' => (int) round(((float) ($validated['price_czk'] ?? 0)) * 100),
+            'sort_order'   => (int) ($validated['sort_order'] ?? 0),
+            'is_active'    => (bool) ($validated['is_active'] ?? true),
         ]);
 
         return back()->with('status', 'Aplikace aktualizována.');

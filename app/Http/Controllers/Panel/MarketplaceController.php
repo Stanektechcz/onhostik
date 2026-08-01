@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Panel;
 
+use App\Domains\Billing\Services\CreditLedger;
 use App\Domains\Marketplace\Models\AppInstallation;
 use App\Domains\Marketplace\Models\MarketplaceApp;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Enums\TaskStatus;
 use App\Domains\Provisioning\Models\Service;
+use App\Domains\Shared\Support\MoneyFormatter;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -35,7 +37,7 @@ class MarketplaceController extends Controller
         return view('panel.marketplace.index', compact('service', 'apps', 'installed'));
     }
 
-    public function install(Request $request, Service $service, MarketplaceApp $app): RedirectResponse
+    public function install(Request $request, Service $service, MarketplaceApp $app, CreditLedger $ledger): RedirectResponse
     {
         $this->authorize('view', $service);
 
@@ -58,11 +60,40 @@ class MarketplaceController extends Controller
             return back()->with('status', "{$app->name} je již nainstalována nebo se instaluje.");
         }
 
+        // Paid add-on: charge the customer's credit up front. Fail fast — we
+        // must not install if we cannot bill.
+        $customer = $service->customer;
+
+        if ($app->isPaid()) {
+            if ($customer === null) {
+                return back()->withErrors(['install' => 'Účet nemá zákaznický profil pro platbu.']);
+            }
+
+            $price   = $app->priceMoney($customer->preferred_currency);
+            $balance = $ledger->getBalance($customer);
+
+            if ($balance->isLessThan($price)) {
+                return back()->withErrors([
+                    'install' => 'Nedostatek kreditu pro instalaci (' . MoneyFormatter::format($price) . '). Dobijte prosím kredit.',
+                ]);
+            }
+        }
+
         $installation = AppInstallation::create([
             'service_id'          => $service->id,
             'marketplace_app_id'  => $app->id,
             'status'              => 'installing',
         ]);
+
+        if ($app->isPaid() && $customer !== null) {
+            $ledger->deduct(
+                $customer,
+                $app->priceMoney($customer->preferred_currency),
+                "Marketplace: {$app->name}",
+                $installation,
+            );
+            $installation->price_halere_paid = $app->price_halere;
+        }
 
         // Mock provisioning task (same pattern as WordPress install)
         $service->provisioningTasks()->create([

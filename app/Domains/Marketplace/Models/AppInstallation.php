@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
  * @property int $marketplace_app_id
  * @property string $status
  * @property string|null $version
+ * @property int|null $price_halere_paid
  * @property Carbon|null $installed_at
  */
 class AppInstallation extends Model
@@ -24,13 +25,15 @@ class AppInstallation extends Model
         'marketplace_app_id',
         'status',
         'version',
+        'price_halere_paid',
         'installed_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'installed_at' => 'datetime',
+            'price_halere_paid' => 'integer',
+            'installed_at'      => 'datetime',
         ];
     }
 

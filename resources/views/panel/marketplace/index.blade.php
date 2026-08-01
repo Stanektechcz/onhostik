@@ -58,6 +58,14 @@
                         @endif
                         <p class="text-muted f-11 mb-0">Min. disk: {{ $app->min_disk_gb }} GB</p>
 
+                        @if ($app->isPaid())
+                            <p class="f-w-600 f-12 mb-0 text-primary">
+                                {{ number_format($app->price_halere / 100, 0, ',', ' ') }} Kč jednorázově
+                            </p>
+                        @else
+                            <span class="badge badge-light-success f-10">Zdarma</span>
+                        @endif
+
                         @if ($isActive)
                             <span class="badge badge-light-success f-11">
                                 <svg data-feather="check-circle" style="width:11px;height:11px" class="me-1"></svg>
@@ -75,7 +83,11 @@
                                 @csrf
                                 <button type="submit" class="btn btn-primary btn-sm w-full">
                                     <svg data-feather="download" style="width:13px;height:13px" class="me-1"></svg>
-                                    Instalovat
+                                    @if ($app->isPaid())
+                                        Koupit a instalovat
+                                    @else
+                                        Instalovat
+                                    @endif
                                 </button>
                             </form>
                         @endif

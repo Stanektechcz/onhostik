@@ -31,7 +31,9 @@ it('does not grow the hardcoded-Czech debt in Blade templates', function (): voi
     // Baseline raised 4213 → 4231 (2026-07-22): customer sub-accounts — the
     // owner's member-management screen and the invitation accept page, same
     // Czech-first style.
-    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4231);
+    // Baseline raised 4231 → 4232 (2026-07-22): paid marketplace add-ons — price
+    // labels on the panel + admin marketplace screens.
+    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4232);
 });
 
 it('keeps newly added shared components translatable', function (): void {

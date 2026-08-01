@@ -31,6 +31,7 @@
                                     <th>Název</th>
                                     <th>Slug</th>
                                     <th>Kategorie</th>
+                                    <th>Cena</th>
                                     <th>Instalace</th>
                                     <th>Aktivní</th>
                                     <th></th>
@@ -43,6 +44,7 @@
                                 <td class="font-semibold">{{ $app->name }}</td>
                                 <td class="font-monospace f-12 text-muted">{{ $app->slug }}</td>
                                 <td><span class="badge bg-secondary f-11">{{ $app->categoryLabel() }}</span></td>
+                                <td class="f-12">{{ $app->isPaid() ? number_format($app->price_halere / 100, 0, ',', ' ') . ' Kč' : 'Zdarma' }}</td>
                                 <td class="text-muted f-12">{{ $app->installations_count }}</td>
                                 <td>
                                     <form method="POST" action="{{ route('admin.marketplace.toggle', $app) }}" class="inline">
@@ -65,7 +67,7 @@
                             </tr>
                             @empty
                             <tr>
-                                <td colspan="7" class="text-center text-muted py-4">Žádné aplikace.</td>
+                                <td colspan="8" class="text-center text-muted py-4">Žádné aplikace.</td>
                             </tr>
                             @endforelse
                             </tbody>
@@ -114,10 +116,16 @@
                                 <input type="text" name="icon" class="form-control form-control-sm"
                                        value="{{ old('icon', 'package') }}" maxlength="50">
                             </div>
-                            <div class="col-span-6">
+                            <div class="col-span-3">
                                 <label class="form-label f-12">Min. disk (GB)</label>
                                 <input type="number" name="min_disk_gb" class="form-control form-control-sm"
                                        value="{{ old('min_disk_gb', 1) }}" min="1" max="100">
+                            </div>
+                            <div class="col-span-3">
+                                <label class="form-label f-12">Cena (Kč, 0 = zdarma)</label>
+                                <input type="number" name="price_czk" class="form-control form-control-sm @error('price_czk') is-invalid @enderror"
+                                       value="{{ old('price_czk', 0) }}" min="0" step="0.01">
+                                @error('price_czk')<div class="invalid-feedback">{{ $message }}</div>@enderror
                             </div>
                         </div>
                         <div class="grid grid-cols-12 gap-2 mb-3">
