@@ -24,7 +24,29 @@ final class ResolveMemberCustomer
     {
         $user = $request->user();
 
-        if ($user !== null && $user->customer === null) {
+        if ($user === null) {
+            return $next($request);
+        }
+
+        // A user who belongs to several accounts can pick the active one; honour
+        // that selection when it is still a valid membership.
+        $active = $request->hasSession() ? $request->session()->get('active_customer_id') : null;
+
+        if ($active !== null) {
+            $selected = $user->memberCustomers()->where('customers.id', $active)->first();
+
+            if ($selected !== null) {
+                $user->setRelation('customer', $selected);
+
+                return $next($request);
+            }
+
+            $request->session()->forget('active_customer_id'); // stale selection
+        }
+
+        // No selection: a member (who owns no account) falls back to their single
+        // membership. Owners keep their owned account untouched.
+        if ($user->customer === null) {
             $membership = $user->memberCustomers()->first();
 
             if ($membership !== null) {

@@ -79,6 +79,9 @@ Route::middleware(['auth', 'require-customer-2fa', 'resolve-member-customer', 'r
         Route::delete('/{oauthApp}', [Panel\DeveloperPortalController::class, 'destroyOAuthApp'])->name('destroy');
     });
 
+    // Sub-accounts: switch the active account (for users belonging to several).
+    Route::post('/prepnout-ucet/{customer}', [Panel\CustomerSwitchController::class, 'switch'])->name('account.switch');
+
     // Sub-accounts: the owner manages members + invitations (owner-only enforced
     // in the controller — members legitimately reach the rest of the panel).
     Route::prefix('/ucet/clenove')->name('account.members.')->group(function (): void {

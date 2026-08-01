@@ -35,7 +35,9 @@ it('does not grow the hardcoded-Czech debt in Blade templates', function (): voi
     // labels on the panel + admin marketplace screens.
     // Baseline raised 4232 → 4247 (2026-07-22): loyalty points + redeemable reward
     // catalog — the panel points/catalog section and the admin catalog screen.
-    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4247);
+    // Baseline raised 4247 → 4248 (2026-07-22): sub-account switcher label in the
+    // sidebar ("Aktivní účet").
+    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4248);
 });
 
 it('keeps newly added shared components translatable', function (): void {

@@ -13,6 +13,9 @@
     $hasCustomer     = $sidebarUser?->customer !== null;
     // Sub-accounts: invited members see the account but not billing/payments.
     $isAccountOwner  = $sidebarUser?->isCustomerOwner() ?? false;
+    // Accounts this user can act on; a switcher appears when there is more than one.
+    $accessibleAccounts = $sidebarUser ? $sidebarUser->memberCustomers()->get() : collect();
+    $activeCustomerId   = $sidebarUser?->customer?->id;
     $isImpersonating = session()->has('_impersonated_by');
 @endphp
 
@@ -51,6 +54,22 @@
         <li class="pin-title sidebar-main-title">
             <div><h6>Oblíbené</h6></div>
         </li>
+
+{{-- Account switcher — only when the user can act on more than one account. --}}
+        @if($accessibleAccounts->count() > 1)
+        <li class="sidebar-list px-3 py-2">
+            <div class="f-10 text-muted uppercase mb-1">Aktivní účet</div>
+            @foreach($accessibleAccounts as $acc)
+                <form method="POST" action="{{ route('panel.account.switch', $acc) }}" class="mb-1">
+                    @csrf
+                    <button type="submit"
+                            class="btn btn-xs w-full text-left {{ $acc->id === $activeCustomerId ? 'btn-primary text-white' : 'btn-light' }}">
+                        {{ $acc->company_name ?: $acc->user?->name ?: ('Účet #' . $acc->id) }}
+                    </button>
+                </form>
+            @endforeach
+        </li>
+        @endif
 
 {{-- ══════════════════════════════════════════════════════
      ZÁKAZNÍK — commerce agenda; only for accounts that
