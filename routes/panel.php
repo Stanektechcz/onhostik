@@ -19,7 +19,7 @@ use App\Http\Controllers\Admin\SiteContentController;
 | header and front components.
 */
 
-Route::middleware(['auth', 'require-customer-2fa'])->prefix('panel')->name('panel.')->group(function (): void {
+Route::middleware(['auth', 'require-customer-2fa', 'resolve-member-customer'])->prefix('panel')->name('panel.')->group(function (): void {
     Route::get('/', [Panel\DashboardController::class, 'index'])->name('dashboard');
     Route::post('/onboarding/dismiss', [Panel\OnboardingController::class, 'dismiss'])->name('onboarding.dismiss');
     Route::post('/oznameni/{announcement}/skryt', [Panel\AnnouncementDismissController::class, 'dismiss'])->name('announcements.dismiss');

@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Domains\Communication\Support\NotificationCatalog;
+use App\Domains\Customer\Enums\CustomerRole;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Shared\Traits\HasUuid;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -153,10 +155,59 @@ class User extends Authenticatable
         return $this->hasOne(Customer::class);
     }
 
+    /**
+     * Customers this user can access — the one they own plus any they've been
+     * invited to as a member (sub-accounts). Carries the pivot role.
+     *
+     * @return BelongsToMany<Customer, $this>
+     */
+    public function memberCustomers(): BelongsToMany
+    {
+        return $this->belongsToMany(Customer::class, 'customer_user')
+            ->withPivot('role')
+            ->withTimestamps();
+    }
+
     // ---------------------------------------------------------------- helpers
 
     public function isAdmin(): bool
     {
         return $this->hasRole('admin');
+    }
+
+    /** Does this user own a customer account of their own? */
+    public function ownsCustomer(): bool
+    {
+        return $this->customer()->exists();
+    }
+
+    /**
+     * The customer this user acts on in the panel: the one they own, otherwise
+     * the (single) account they've been invited to as a member.
+     */
+    public function accessibleCustomer(): ?Customer
+    {
+        return $this->customer ?? $this->memberCustomers()->first();
+    }
+
+    /** The user's role within a customer, or null if they have no access. */
+    public function customerRoleFor(Customer $customer): ?CustomerRole
+    {
+        if ($customer->user_id === $this->id) {
+            return CustomerRole::Owner;
+        }
+
+        $member = $this->memberCustomers()->where('customers.id', $customer->id)->first();
+        $role   = $member?->getAttribute('pivot')?->getAttribute('role');
+
+        return is_string($role) ? CustomerRole::tryFrom($role) : null;
+    }
+
+    /** Is this user the owner of the given (or their accessible) customer? */
+    public function isCustomerOwner(?Customer $customer = null): bool
+    {
+        $customer ??= $this->accessibleCustomer();
+
+        return $customer !== null && $customer->user_id === $this->id;
     }
 }

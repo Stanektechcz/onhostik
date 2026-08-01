@@ -47,6 +47,7 @@ $app = Application::configure(basePath: dirname(__DIR__))
             'require-admin-2fa'    => RequireAdminTwoFactor::class,
             'idempotency'          => \App\Http\Middleware\EnforceIdempotency::class,
             'require-customer-2fa' => \App\Http\Middleware\RequireCustomerTwoFactor::class,
+            'resolve-member-customer' => \App\Http\Middleware\ResolveMemberCustomer::class,
             'log-api-usage'        => LogApiUsage::class,
             'admin-ip-allowlist'   => \App\Http\Middleware\CheckAdminIpAllowlist::class,
             'api-lifecycle'        => \App\Http\Middleware\AnnounceApiLifecycle::class,

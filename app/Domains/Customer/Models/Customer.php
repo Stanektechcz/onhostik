@@ -145,6 +145,14 @@ class Customer extends Model
                 (int) $reseller->max_customers,
             );
         });
+
+        // Sub-accounts: the owner is always a membership too, so members()
+        // holds every user with access. Kept idempotent for existing accounts.
+        static::created(function (self $customer): void {
+            if (! $customer->members()->where('users.id', $customer->user_id)->exists()) {
+                $customer->members()->attach($customer->user_id, ['role' => \App\Domains\Customer\Enums\CustomerRole::Owner->value]);
+            }
+        });
     }
 
     public function getActivitylogOptions(): LogOptions
@@ -179,6 +187,19 @@ class Customer extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * All login users with access to this account — the owner plus invited
+     * members (sub-accounts). Carries the pivot role.
+     *
+     * @return BelongsToMany<User, $this>
+     */
+    public function members(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'customer_user')
+            ->withPivot('role')
+            ->withTimestamps();
     }
 
     /** @return BelongsTo<ResellerProfile, $this> */
