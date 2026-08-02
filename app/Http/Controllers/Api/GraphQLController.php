@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use GraphQL\Error\DebugFlag;
 use GraphQL\GraphQL;
 use GraphQL\Validator\DocumentValidator;
+use GraphQL\Validator\Rules\DisableIntrospection;
 use GraphQL\Validator\Rules\QueryComplexity;
 use GraphQL\Validator\Rules\QueryDepth;
 use Illuminate\Http\JsonResponse;
@@ -64,6 +65,13 @@ final class GraphQLController extends Controller
         $rules                        = DocumentValidator::allRules();
         $rules[QueryDepth::class]      = new QueryDepth(10);
         $rules[QueryComplexity::class] = new QueryComplexity(200);
+
+        // Introspection maps the whole schema; useful in development, but in
+        // production it hands an attacker the full attack surface for free
+        // (audit 500 #164). The published docs remain the contract.
+        if (config('graphql.introspection', config('app.debug') === true) !== true) {
+            $rules[DisableIntrospection::class] = new DisableIntrospection(DisableIntrospection::ENABLED);
+        }
 
         $result = GraphQL::executeQuery(
             schema: $this->schema->make(),

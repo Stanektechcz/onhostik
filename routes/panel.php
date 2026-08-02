@@ -194,7 +194,12 @@ Route::middleware(['auth', 'require-customer-2fa', 'resolve-member-customer', 'r
     Route::get('/ucet/relace', [Panel\SessionController::class, 'index'])->name('account.sessions');
     Route::delete('/ucet/relace/{sessionId}', [Panel\SessionController::class, 'destroy'])->name('account.sessions.destroy');
     Route::delete('/ucet/relace', [Panel\SessionController::class, 'destroyOthers'])->name('account.sessions.destroy-others');
-    Route::put('/ucet/zmena-hesla', [Panel\AccountController::class, 'updatePassword'])->name('account.password.update');
+    // Credential change is a high-value target — throttle it like a login
+    // (audit 500 #151), so a hijacked session can't brute-force the current
+    // password to take the account over.
+    Route::put('/ucet/zmena-hesla', [Panel\AccountController::class, 'updatePassword'])
+        ->middleware('throttle:6,1')
+        ->name('account.password.update');
     Route::get('/ucet/notifikace', [Panel\AccountController::class, 'notificationPreferences'])->name('account.notification-preferences');
     Route::put('/ucet/notifikace', [Panel\AccountController::class, 'updateNotificationPreferences'])->name('account.notification-preferences.update');
 
@@ -280,14 +285,20 @@ Route::middleware(['auth', 'require-customer-2fa', 'resolve-member-customer', 'r
 
     /* ── Phase 183: Saved Payment Methods ── */
     Route::get('/platebni-metody', [Panel\SavedPaymentMethodController::class, 'index'])->name('payment-methods.index');
-    Route::post('/platebni-metody', [Panel\SavedPaymentMethodController::class, 'store'])->name('payment-methods.store');
+    // Money-adjacent writes are throttled (audit 500 #151).
+    Route::post('/platebni-metody', [Panel\SavedPaymentMethodController::class, 'store'])
+        ->middleware('throttle:20,1')->name('payment-methods.store');
     Route::patch('/platebni-metody/{method}/vychozi', [Panel\SavedPaymentMethodController::class, 'setDefault'])->name('payment-methods.default');
-    Route::delete('/platebni-metody/{method}', [Panel\SavedPaymentMethodController::class, 'destroy'])->name('payment-methods.destroy');
+    Route::delete('/platebni-metody/{method}', [Panel\SavedPaymentMethodController::class, 'destroy'])
+        ->middleware('throttle:20,1')->name('payment-methods.destroy');
 
     /* ── Phase 189: Account Deletion Request ── */
     Route::get('/ucet/smazat', [Panel\AccountDeletionController::class, 'create'])->name('account.delete.create');
-    Route::post('/ucet/smazat', [Panel\AccountDeletionController::class, 'store'])->name('account.delete.store');
-    Route::post('/ucet/zadost-smazani', [Panel\AccountDeletionController::class, 'store'])->name('account.delete-request');
+    // Irreversible — throttled so it can't be script-triggered repeatedly.
+    Route::post('/ucet/smazat', [Panel\AccountDeletionController::class, 'store'])
+        ->middleware('throttle:5,1')->name('account.delete.store');
+    Route::post('/ucet/zadost-smazani', [Panel\AccountDeletionController::class, 'store'])
+        ->middleware('throttle:5,1')->name('account.delete-request');
 
     /* ── Phase 191: Dashboard Widget Config ── */
     Route::get('/widgety', [Panel\DashboardWidgetController::class, 'index'])->name('dashboard-widgets.index');
