@@ -39,6 +39,20 @@ Route::get('/up', function () {
     ], $healthy ? 200 : 503);
 })->name('api.health');
 
+/*
+ | Readiness probe — deeper than /up (liveness). Round-trips DB, cache, queue and
+ | storage so a load balancer / k8s readiness gate only sends traffic once the
+ | app can actually serve it. Public + unauthenticated; leaks no error detail.
+ */
+Route::get('/ready', function (\App\Domains\Monitoring\Services\HealthChecker $health) {
+    $result = $health->readiness();
+
+    return response()->json(
+        $result + ['time' => now()->toIso8601String()],
+        $result['status'] === 'ready' ? 200 : 503,
+    );
+})->name('api.ready');
+
 // OpenAPI spec + Swagger UI — public, no auth
 Route::get('/openapi.json', [V1\DocsController::class, 'spec'])->name('api.openapi');
 Route::get('/docs',         [V1\DocsController::class, 'ui'])->name('api.docs');

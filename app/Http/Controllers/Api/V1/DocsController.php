@@ -263,6 +263,32 @@ class DocsController extends Controller
                 ],
             ],
 
+            '/ready' => [
+                'get' => [
+                    'tags'        => ['Provoz'],
+                    'summary'     => 'Readiness probe',
+                    'description' => 'Hlubší kontrola než /up (liveness): ověří databázi, cache, frontu a úložiště '
+                        . 'reálným round-tripem. Bez autentizace, neúnikuje žádné detaily. **503**, dokud aplikace '
+                        . 'není připravena obsluhovat provoz — vhodné pro k8s readiness / load balancer.',
+                    'operationId' => 'readiness',
+                    'security'    => [],
+                    'responses'   => [
+                        '200' => [
+                            'description' => 'Připraveno',
+                            'content'     => ['application/json' => ['schema' => [
+                                'type'       => 'object',
+                                'properties' => [
+                                    'status' => ['type' => 'string', 'example' => 'ready'],
+                                    'checks' => ['type' => 'object'],
+                                    'time'   => ['type' => 'string', 'format' => 'date-time'],
+                                ],
+                            ]]],
+                        ],
+                        '503' => ['description' => 'Některá závislost nedostupná — ještě neposílat provoz'],
+                    ],
+                ],
+            ],
+
             '/v2/services' => [
                 'get' => [
                     'tags'        => ['Služby'],
