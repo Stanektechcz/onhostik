@@ -47,6 +47,9 @@ class ApiTokenController extends Controller
             'name'        => ['required', 'string', 'max:80'],
             'abilities'   => ['sometimes', 'array'],
             'abilities.*' => ['string', 'in:' . implode(',', TokenController::ALLOWED_ABILITIES)],
+            // Optional lifetime (audit 500 #140). A token that never expires is
+            // a credential that outlives the reason it was issued.
+            'expires_in_days' => ['nullable', 'integer', 'min:1', 'max:730'],
         ]);
 
         $user = $request->user();
@@ -61,10 +64,17 @@ class ApiTokenController extends Controller
             $abilities[] = 'read';
         }
 
-        $plainToken = $user->createToken($validated['name'], $abilities)->plainTextToken;
+        $days      = $validated['expires_in_days'] ?? null;
+        $expiresAt = $days !== null ? now()->addDays((int) $days) : null;
+
+        $plainToken = $user->createToken($validated['name'], $abilities, $expiresAt)->plainTextToken;
+
+        $note = $expiresAt !== null
+            ? ' Platnost do ' . $expiresAt->format('d.m.Y') . '.'
+            : '';
 
         return back()->with('new_token', $plainToken)
-                     ->with('status', 'API token byl vytvořen. Zkopírujte ho — nebude znovu zobrazen.');
+                     ->with('status', 'API token byl vytvořen. Zkopírujte ho — nebude znovu zobrazen.' . $note);
     }
 
     public function destroy(Request $request, int $tokenId): RedirectResponse

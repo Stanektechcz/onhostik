@@ -81,7 +81,18 @@
                                             <td class="f-light f-12">
                                                 {{ $token->last_used_at?->diffForHumans() ?? 'Nikdy' }}
                                             </td>
-                                            <td class="f-light f-12">{{ $token->created_at->format('d.m.Y') }}</td>
+                                            <td class="f-light f-12">
+                                                {{ $token->created_at->format('d.m.Y') }}
+                                                @if($token->expires_at)
+                                                    <div class="f-11 {{ $token->expires_at->isPast() ? 'text-danger' : ($token->expires_at->diffInDays(now()) <= 14 ? 'text-warning' : 'f-light') }}">
+                                                        @if($token->expires_at->isPast())
+                                                            vypršel {{ $token->expires_at->format('d.m.Y') }}
+                                                        @else
+                                                            platí do {{ $token->expires_at->format('d.m.Y') }}
+                                                        @endif
+                                                    </div>
+                                                @endif
+                                            </td>
                                             <td>
                                                 <form method="POST"
                                                       action="{{ route('panel.account.api-tokens.destroy', $token->id) }}"
@@ -120,6 +131,18 @@
                                 @error('name')
                                     <div class="invalid-feedback">{{ $message }}</div>
                                 @enderror
+                            </div>
+                            <div class="mb-3 custom-input">
+                                <label class="form-label">Platnost</label>
+                                <select name="expires_in_days" class="form-select">
+                                    <option value="">Bez expirace</option>
+                                    <option value="30">30 dní</option>
+                                    <option value="90">90 dní</option>
+                                    <option value="365">1 rok</option>
+                                </select>
+                                <div class="f-11 f-light mt-1">
+                                    Token bez expirace přežije důvod, proč byl vydán — u skriptů volte raději omezenou platnost.
+                                </div>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Oprávnění</label>
