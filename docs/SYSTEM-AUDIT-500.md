@@ -692,3 +692,45 @@ Na rozdíl od `SYSTEM-AUDIT-200-FINAL.md` (stav 200 funkčních bodů) je tohle
 *Poznámka: body ✅ jsou kontext (implementováno), 🟡/🔴/➕ jsou práce v kódu,
 🔑 čeká na údaje, 🏗 je serverové zajištění. Většina bodů je dopředné vylepšení pro
 maximalizaci výkonu/efektivity/funkčnosti/rozšířenosti, ne defekty.*
+
+---
+
+## Zapracováno ve fázích 1–4 (2026-08-02)
+
+Fázový průchod auditem — **API robustnost → funkce → výkon → bezpečnost**.
+
+### Fáze 1 — API robustnost
+- **#206** RFC 7807 `problem+json` pro celé API (`ProblemDetails`): jednotný tvar
+  chyby (type/title/status/detail/instance/request_id), validace nese `errors`,
+  auth/authz/404 explicitně mapované, throttle hlavičky zachované. `message`
+  ponecháno vedle `detail` kvůli zpětné kompatibilitě.
+- **#202/#203** `ApiQuery`: kurzorová paginace, whitelistované `?sort=`,
+  `?filter[]=`, sparse fieldsets `?fields=`, strop `?per_page`.
+- **#197/#198** Nové v2 kolekce: faktury (+detail), objednávky (+položky),
+  domény (+dny do expirace), tikety; v2 služby převedeny na stejnou sémantiku.
+  GraphQL: `orders`, `paymentMethods`, `monitors`, mutace `topUpCredit`,
+  `updateProfile`.
+- **#205** `Retry-After` + `X-RateLimit-*` zachovány i v problem+json.
+- **#227** Vše zdokumentováno v OpenAPI vč. sdílených parametrů kolekcí.
+
+### Fáze 2 — rozvoj funkcí
+- **#110/#383** Feature flags: procentuální rollout se stabilním zařazením
+  zákazníka, allow-list, `@feature` direktiva, admin UI, fail-safe „vypnuto".
+- **#346** Globální hledání v panelu (služby/faktury/domény/tikety).
+- **#514** Věrnostní úrovně (Bronze–Platinum) z *celoživotně získaných* bodů —
+  uplatnění odměn nikdy nesnižuje úroveň; progress bar v panelu.
+
+### Fáze 3 — výkon
+- **#4/#5/#6** Kompozitní indexy (filtr + řazení) pro služby, faktury,
+  objednávky, tikety, activity log, API telemetrii, expiraci domén.
+- **#29/#30** `LogApiUsage` přesunut do `terminate()` — telemetrie mimo kritickou
+  cestu requestu; requesty odmítnuté dříve se neloguji.
+- **#10** Cache šestiměsíčních agregací admin dashboardu.
+- **#17** Cache veřejného katalogu (produkt + plány) s invalidací přes observery.
+
+### Fáze 4 — bezpečnost
+- **#164** GraphQL introspection vypnuta mimo debug (`GRAPHQL_INTROSPECTION`).
+- **#151** Throttle na citlivé akce: změna hesla 6/min, platební metody 20/min,
+  smazání účtu 5/min.
+- **#140** Volitelná expirace API tokenů (30/90/365 dní) + zvýraznění v UI.
+- **#169** Ochrana proti enumeraci ověřena (magic link už vrací neutrální hlášku).
