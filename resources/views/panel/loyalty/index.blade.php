@@ -9,17 +9,46 @@
 
     <x-panel.flash />
 
-    {{-- Points balance --}}
+    {{-- Points balance + tier --}}
     <div class="card mb-4">
-        <div class="card-body flex items-center justify-between">
-            <div>
-                <div class="f-w-600">Věrnostní body</div>
-                <div class="text-muted small">Získávejte body za zaplacené faktury a uplatněte je za kredit.</div>
+        <div class="card-body">
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <div class="f-w-600">
+                        Věrnostní body
+                        <span class="badge {{ $tier['tier']->badgeClass() }} ms-2">{{ $tier['tier']->label() }}</span>
+                    </div>
+                    <div class="text-muted small">
+                        Získávejte body za zaplacené faktury a uplatněte je za kredit.
+                        @if($tier['tier']->discountPercent() > 0)
+                            Vaše úroveň zahrnuje slevu {{ $tier['tier']->discountPercent() }} %.
+                        @endif
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div class="f-w-700" style="font-size:1.6rem">{{ number_format($pointsBalance, 0, ',', ' ') }}</div>
+                    <div class="text-muted small">bodů k uplatnění</div>
+                </div>
             </div>
-            <div class="text-right">
-                <div class="f-w-700" style="font-size:1.6rem">{{ number_format($pointsBalance, 0, ',', ' ') }}</div>
-                <div class="text-muted small">bodů</div>
-            </div>
+
+            @if($tier['next'] !== null)
+                <div class="flex justify-between small mb-1">
+                    <span>Do úrovně {{ $tier['next']->label() }}</span>
+                    <span>{{ number_format($tier['to_next'], 0, ',', ' ') }} bodů</span>
+                </div>
+                <div class="progress" style="height:14px">
+                    <div class="progress-bar bg-primary" role="progressbar" style="width:{{ $tier['percent'] }}%"
+                         aria-valuenow="{{ $tier['percent'] }}" aria-valuemin="0" aria-valuemax="100">
+                        {{ $tier['percent'] }} %
+                    </div>
+                </div>
+                <div class="text-muted small mt-1">
+                    Celkem získáno za celou dobu: {{ number_format($tier['lifetime'], 0, ',', ' ') }} bodů
+                    (uplatnění bodů úroveň nesnižuje).
+                </div>
+            @else
+                <div class="text-muted small">Máte nejvyšší úroveň — děkujeme za přízeň!</div>
+            @endif
         </div>
     </div>
 

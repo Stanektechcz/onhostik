@@ -24,6 +24,7 @@ use App\Domains\Support\Enums\TicketStatus;
 use App\Domains\Support\Models\SupportTicket;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 
@@ -40,14 +41,20 @@ class DashboardController extends Controller
             ->where('currency', 'CZK')
             ->sum('amount');
 
-        // Revenue per month last 6 months
-        $revenueRaw = DB::table('payments')
-            ->where('status', PaymentStatus::Completed->value)
-            ->where('currency', 'CZK')
-            ->where('created_at', '>=', now()->subMonths(5)->startOfMonth())
-            ->select(DB::raw("$monthExpr as month"), DB::raw('SUM(amount) as total'))
-            ->groupBy('month')->orderBy('month')
-            ->pluck('total', 'month');
+        // Revenue per month last 6 months. Cached briefly (audit 500 #10):
+        // a six-month GROUP BY over payments is the heaviest query on this page
+        // and its result barely moves minute to minute.
+        $revenueRaw = Cache::remember(
+            'admin:dashboard:revenue-6m:' . now()->format('Y-m-d-H'),
+            300,
+            fn () => DB::table('payments')
+                ->where('status', PaymentStatus::Completed->value)
+                ->where('currency', 'CZK')
+                ->where('created_at', '>=', now()->subMonths(5)->startOfMonth())
+                ->select(DB::raw("$monthExpr as month"), DB::raw('SUM(amount) as total'))
+                ->groupBy('month')->orderBy('month')
+                ->pluck('total', 'month'),
+        );
 
         // Revenue last month vs 2 months ago (trend %)
         $revLastMonth  = (int) ($revenueRaw[now()->subMonths(1)->format('Y-m')] ?? 0);
@@ -64,11 +71,15 @@ class DashboardController extends Controller
         $chartData   = $months->values()->map(fn ($v) => round($v / 100, 2))->values();
 
         // ── Order counts per month (visitor_chart) ───────────────────────────
-        $orderCountsRaw = DB::table('orders')
-            ->where('created_at', '>=', now()->subMonths(5)->startOfMonth())
-            ->select(DB::raw("$monthExpr as month"), DB::raw('COUNT(*) as total'))
-            ->groupBy('month')->orderBy('month')
-            ->pluck('total', 'month');
+        $orderCountsRaw = Cache::remember(
+            'admin:dashboard:orders-6m:' . now()->format('Y-m-d-H'),
+            300,
+            fn () => DB::table('orders')
+                ->where('created_at', '>=', now()->subMonths(5)->startOfMonth())
+                ->select(DB::raw("$monthExpr as month"), DB::raw('COUNT(*) as total'))
+                ->groupBy('month')->orderBy('month')
+                ->pluck('total', 'month'),
+        );
         $orderCountsFilled = collect();
         for ($i = 5; $i >= 0; $i--) {
             $key = now()->subMonths($i)->format('Y-m');

@@ -27,8 +27,9 @@ class LoyaltyController extends Controller
 
         $pointsBalance = $this->points->balance($customer);
         $catalog       = LoyaltyReward::query()->where('is_active', true)->orderBy('points_cost')->get();
+        $tier          = $this->points->tierProgress($customer);
 
-        return view('panel.loyalty.index', compact('rewards', 'next', 'pointsBalance', 'catalog'));
+        return view('panel.loyalty.index', compact('rewards', 'next', 'pointsBalance', 'catalog', 'tier'));
     }
 
     public function redeem(Request $request, LoyaltyReward $reward): RedirectResponse
