@@ -15,7 +15,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="OnHost">
-    <link rel="apple-touch-icon" href="{{ asset('panel/images/logo/logo-icon.png') }}">
+    <link rel="apple-touch-icon" href="{{ asset('panel/images/pwa/icon-192.png') }}">
 
     {{-- Cuba CSS stack --}}
     <link href="https://fonts.googleapis.com/css?family=Rubik:400,400i,500,500i,700,700i&display=swap" rel="stylesheet">
@@ -1091,62 +1091,6 @@
 {{-- App-like bottom tab bar on phones (hidden from tablets up). --}}
 <x-panel.mobile-nav />
 
-{{-- PWA: register the service worker and offer an install button (A2HS).
-     CSP-safe: nonced block, addEventListener, no inline attributes. --}}
-<div id="pwa-install" class="hidden" style="position:fixed;bottom:18px;left:18px;z-index:1040;">
-    <button type="button" id="pwa-install-btn" class="btn btn-primary btn-sm text-white shadow">
-        <i data-feather="download" class="me-1" style="width:14px;height:14px;"></i>
-        Nainstalovat aplikaci
-    </button>
-</div>
-
-<script nonce="{{ $cspNonce ?? '' }}">
-(function () {
-    if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function () {
-            navigator.serviceWorker.register('/sw.js').then(function (reg) {
-                // A new worker took over after a deploy — activate it right away
-                // so users aren't stuck on stale assets.
-                if (reg.waiting) { reg.waiting.postMessage('skip-waiting'); }
-                reg.addEventListener('updatefound', function () {
-                    var sw = reg.installing;
-                    if (!sw) { return; }
-                    sw.addEventListener('statechange', function () {
-                        if (sw.state === 'installed' && navigator.serviceWorker.controller) {
-                            sw.postMessage('skip-waiting');
-                        }
-                    });
-                });
-            }).catch(function () { /* SW is an enhancement; never block the page. */ });
-        });
-    }
-
-    // Install prompt — browsers only fire this when the PWA criteria are met.
-    var deferred = null;
-    var wrap = document.getElementById('pwa-install');
-    var btn  = document.getElementById('pwa-install-btn');
-
-    window.addEventListener('beforeinstallprompt', function (e) {
-        e.preventDefault();
-        deferred = e;
-        if (wrap) { wrap.classList.remove('hidden'); }
-    });
-
-    if (btn) {
-        btn.addEventListener('click', function () {
-            if (!deferred) { return; }
-            deferred.prompt();
-            deferred.userChoice.finally(function () {
-                deferred = null;
-                if (wrap) { wrap.classList.add('hidden'); }
-            });
-        });
-    }
-
-    window.addEventListener('appinstalled', function () {
-        if (wrap) { wrap.classList.add('hidden'); }
-    });
-})();
-</script>
+<x-pwa-bootstrap />
 </body>
 </html>

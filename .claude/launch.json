@@ -4,7 +4,7 @@
     {
       "name": "onhost-dev",
       "runtimeExecutable": "cmd",
-      "runtimeArgs": ["/c", "set PHP_CLI_SERVER_WORKERS=8&& php -S 127.0.0.1:8000 server-preview.php"],
+      "runtimeArgs": ["/c", "set PHP_CLI_SERVER_WORKERS=8&& C:\\php\\php.exe -S 127.0.0.1:8000 server-external.php"],
       "port": 8000
     }
   ]

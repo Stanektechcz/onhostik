@@ -17,7 +17,7 @@ var OFFLINE_URL  = '/offline';
 
 var SHELL = [
   OFFLINE_URL,
-  '/panel/images/logo/logo-icon.png',
+  '/panel/images/pwa/icon-192.png',
 ];
 
 // ── lifecycle ───────────────────────────────────────────────────────────────
@@ -120,8 +120,8 @@ self.addEventListener('push', function (event) {
   var title = data.title || 'OnHost';
   var options = {
     body: data.body || '',
-    icon: '/panel/images/logo/logo-icon.png',
-    badge: '/panel/images/logo/logo-icon.png',
+    icon: '/panel/images/pwa/icon-192.png',
+    badge: '/panel/images/pwa/icon-192.png',
     data: { url: data.url || '/panel' },
   };
   event.waitUntil(self.registration.showNotification(title, options));

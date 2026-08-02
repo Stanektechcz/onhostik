@@ -9,6 +9,16 @@
     <link href="{{ asset('front/img/favicon.ico') }}" rel="shortcut icon">
     <title>@yield('title', 'Onhost.cz') — Onhost.cz</title>
 
+    {{-- PWA: the manifest must be present on the page the user actually lands
+         on. Logged-out users arrive here, so without this the app is not
+         installable until after login. --}}
+    <link rel="manifest" href="{{ asset('manifest.json') }}">
+    <meta name="theme-color" content="#7366ff">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="OnHost">
+    <link rel="apple-touch-icon" href="{{ asset('panel/images/pwa/icon-192.png') }}">
+
     <link href="{{ asset('front/fonts/fontawesome/css/all.min.css') }}" rel="stylesheet">
     <link href="{{ asset('front/fonts/fonts.min.css') }}" rel="stylesheet">
     <link href="{{ asset('front/css/bootstrap.min.css') }}" rel="stylesheet">
@@ -60,5 +70,7 @@
     </div>
 
 </div>
+
+<x-pwa-bootstrap />
 </body>
 </html>
