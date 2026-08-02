@@ -932,6 +932,14 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
 
     Route::get('/system', [Admin\SystemHealthController::class, 'index'])->name('system.index');
 
+    // Curated chatbot answers — extend the knowledge base without a deploy.
+    Route::prefix('/odpovedi-chatu')->name('chat-answers.')->group(function (): void {
+        Route::get('/',                [Admin\ChatAnswerController::class, 'index'])->name('index');
+        Route::post('/',               [Admin\ChatAnswerController::class, 'store'])->name('store');
+        Route::put('/{chatAnswer}',    [Admin\ChatAnswerController::class, 'update'])->name('update');
+        Route::delete('/{chatAnswer}', [Admin\ChatAnswerController::class, 'destroy'])->name('destroy');
+    });
+
     // Feature flags — enable functionality without a deploy (audit 500 #383).
     Route::prefix('/feature-flags')->name('feature-flags.')->group(function (): void {
         Route::get('/',                 [Admin\FeatureFlagController::class, 'index'])->name('index');
