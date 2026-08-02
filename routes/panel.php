@@ -916,6 +916,14 @@ Route::middleware(['auth', 'can:access-admin', 'require-admin-2fa', 'admin-ip-al
 
     Route::get('/system', [Admin\SystemHealthController::class, 'index'])->name('system.index');
 
+    // Feature flags — enable functionality without a deploy (audit 500 #383).
+    Route::prefix('/feature-flags')->name('feature-flags.')->group(function (): void {
+        Route::get('/',                 [Admin\FeatureFlagController::class, 'index'])->name('index');
+        Route::post('/',                [Admin\FeatureFlagController::class, 'store'])->name('store');
+        Route::put('/{featureFlag}',    [Admin\FeatureFlagController::class, 'update'])->name('update');
+        Route::delete('/{featureFlag}', [Admin\FeatureFlagController::class, 'destroy'])->name('destroy');
+    });
+
     Route::get('/audit', [Admin\AuditLogController::class, 'index'])->name('logs.audit');
     Route::get('/audit/export', [Admin\AuditLogController::class, 'export'])->name('logs.audit.export');
 

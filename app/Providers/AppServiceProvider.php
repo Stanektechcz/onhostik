@@ -74,9 +74,22 @@ class AppServiceProvider extends ServiceProvider
         $this->configureRateLimiters();
         $this->configureEvents();
         $this->configureViewComposers();
+        $this->configureFeatureFlags();
         $this->configureSlowQueryLogging();
         $this->configureImpersonationAudit();
         $this->configureMailFromVault();
+    }
+
+    /**
+     * `@feature('key') … @endfeature` — guards a block behind a feature flag,
+     * evaluated for the current user's customer (audit 500 #110).
+     */
+    private function configureFeatureFlags(): void
+    {
+        \Illuminate\Support\Facades\Blade::if('feature', function (string $key): bool {
+            return app(\App\Domains\Shared\Services\Features::class)
+                ->enabled($key, auth()->user()?->customer);
+        });
     }
 
     /**
