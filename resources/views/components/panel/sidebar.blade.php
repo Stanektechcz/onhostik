@@ -275,6 +275,9 @@
             <x-panel.sidebar-link :href="route('admin.integrations.index')" icon="link" label="Integrace" />
             <x-panel.sidebar-link :href="route('admin.settings.index')" icon="settings" label="Nastavení" />
             <x-panel.sidebar-link :href="route('admin.system.index')" icon="activity" label="Stav systému" />
+            <x-panel.sidebar-link :href="route('admin.feature-flags.index')" icon="toggle-right" label="Feature flags" />
+            <x-panel.sidebar-link :href="route('admin.chat-answers.index')" icon="message-circle" label="Odpovědi chatu" />
+            <x-panel.sidebar-link :href="route('admin.loyalty-rewards.index')" icon="award" label="Věrnostní odměny" />
             <x-panel.sidebar-link :href="route('admin.queue.index')" icon="layers" label="Fronta úloh" />
             <x-panel.sidebar-link href="/horizon" icon="cpu" label="Horizon (queue)" />
             <x-panel.sidebar-link :href="route('admin.approvals.index')" icon="check-square" label="Schvalování (4 oči)" />
