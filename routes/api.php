@@ -53,6 +53,15 @@ Route::get('/ready', function (\App\Domains\Monitoring\Services\HealthChecker $h
     );
 })->name('api.ready');
 
+/*
+ | Prometheus metrics — operational gauges for scraping. Self-gated: 404 until
+ | METRICS_TOKEN is set, then token-authenticated (Bearer or ?token=). Not part
+ | of the customer API surface (see the OpenAPI coverage exclusion).
+ */
+Route::get('/metrics', \App\Http\Controllers\Api\MetricsController::class)
+    ->middleware('throttle:60,1')
+    ->name('api.metrics');
+
 // OpenAPI spec + Swagger UI — public, no auth
 Route::get('/openapi.json', [V1\DocsController::class, 'spec'])->name('api.openapi');
 Route::get('/docs',         [V1\DocsController::class, 'ui'])->name('api.docs');

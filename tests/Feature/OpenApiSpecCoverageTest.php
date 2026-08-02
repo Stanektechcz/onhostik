@@ -36,7 +36,7 @@ function apiRoutes(): array
          |  - the GraphQL endpoint is self-documenting via introspection and does
          |    not map onto OpenAPI's per-path REST operation model.
          */
-        if (in_array($uri, ['api/docs', 'api/openapi.json', 'api/changelog', 'api/security/csp-report', 'api/graphql'], true)
+        if (in_array($uri, ['api/docs', 'api/openapi.json', 'api/changelog', 'api/security/csp-report', 'api/graphql', 'api/metrics'], true)
             || str_starts_with($uri, 'api/webhook/')
             || str_starts_with($uri, 'api/webhooks/')) {
             continue;

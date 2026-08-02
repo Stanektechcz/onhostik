@@ -50,6 +50,16 @@ Zbytek zbývající práce je **externí** (reálné klíče) a **infra** (serve
 | `5fcc324` | **GraphQL** (read) |
 | `de8e3e7` | **Web push** (audit 92) |
 | + | **Přepínač aktivního účtu** (multi-account sub-účty) |
+| + | **Účetní role** sub-účtu + **GraphQL mutace/APQ** + **Cloudflare klient** |
+
+**Provozní vylepšení pro moderní provoz (bez credentials):**
+
+| Přínos | Detail |
+|---|---|
+| **Readiness probe** `/api/ready` | Hluboká kontrola DB/cache/fronta/úložiště (k8s liveness/readiness split) |
+| **Scheduler heartbeat** | Reálná detekce mrtvého cronu na system-health stránce (dřív napevno „ok") |
+| **Prometheus `/metrics`** | Token-gated operační gauge (fronta, scheduler, health integrací) |
+| **GraphQL rozšíření** | `tickets` dotaz + `loyaltyPoints` na viewer |
 
 ---
 
