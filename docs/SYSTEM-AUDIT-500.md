@@ -20,7 +20,7 @@ Na rozdíl od `SYSTEM-AUDIT-200-FINAL.md` (stav 200 funkčních bodů) je tohle
 
 1. 🟡 Zapnout `Model::preventLazyLoading()` mimo produkci pro odhalení N+1 v testech/dev.
 2. ➕ Zavést `Model::preventSilentlyDiscardingAttributes()` a `preventAccessingMissingAttributes()`.
-3. 🔴 Audit N+1 dotazů napříč admin výpisy (objednávky, faktury, služby, zákazníci) + `->with()`.
+3. 🟡 N+1: většina výpisů už `->with()`; systematické dořešení = `preventLazyLoading` (větší úklid, viz #1).
 4. ➕ Kompozitní indexy pro časté filtry: `services(customer_id,status)`, `invoices(customer_id,status,due_date)`.
 5. ➕ Index na `activity_log(subject_type,subject_id,created_at)` pro timeline.
 6. ➕ Index na `api_usage_logs(token_id,created_at)` a `(user_id,created_at)` pro analytiku.
@@ -35,7 +35,7 @@ Na rozdíl od `SYSTEM-AUDIT-200-FINAL.md` (stav 200 funkčních bodů) je tohle
 15. 🟡 Zkrátit `select *` na konkrétní sloupce v horkých cestách (velké modely, encrypted).
 16. ➕ Zvážit přechod encrypted PII na deterministické šifrování jen kde je nutné hledat.
 17. ➕ Přidat `->remember()`/cache na číselníky (produkty, ceny, země, měny).
-18. 🔴 Batch-insert pro hromadné operace (import, seed, notifikace) místo per-row.
+18. 🟡 Batch-insert: migrace používají `insertOrIgnore` dávky a `Notification::send` batchuje — bez jednoho hotspotu.
 19. ➕ Fulltextový index pro globální vyhledávání (dnes LIKE) — MySQL FULLTEXT / Meilisearch.
 20. ➕ Meilisearch/Typesense pro škálovatelné vyhledávání zákazníků/služeb/KB.
 21. 🟡 Optimalizovat `whereHas` s poddotazy → `whereExists`/joins kde je to horké.
@@ -43,7 +43,7 @@ Na rozdíl od `SYSTEM-AUDIT-200-FINAL.md` (stav 200 funkčních bodů) je tohle
 23. ➕ Soft-delete cleanup příkaz (pruning starých soft-deleted řádků).
 24. ➕ Pruning `api_usage_logs`, `activity_log`, `failed_jobs`, `sessions` (retence + index).
 25. ➕ `MassPrunable` na log modely (Laravel prune scheduling).
-26. 🔴 Partitioning velkých tabulek (api_usage_logs, activity_log) po měsících (infra).
+26. 🏗 Partitioning velkých tabulek (api_usage_logs, activity_log) — DB-engine DDL, serverová úloha.
 27. ➕ Query result cache invalidace přes model events (observery).
 28. ➕ Kontrola `updated_at` touchování v horkých relacích (zbytečné zápisy).
 29. ➕ Deferred/queued zápis analytiky (api usage) místo synchronního insertu v requestu.
@@ -64,7 +64,7 @@ Na rozdíl od `SYSTEM-AUDIT-200-FINAL.md` (stav 200 funkčních bodů) je tohle
 41. ➕ Unique jobs (`ShouldBeUnique`) pro provisioning/sync aby se neduplikovaly.
 42. ➕ Backoff + `retryUntil` konzistentně na všech externích jobech.
 43. ➕ Dead-letter handling: přesun trvale selhaných jobů + admin akce retry/zahodit.
-44. 🟡 Failed job alert existuje — přidat i alert na rostoucí frontu (queue depth).
+44. ✅ Queue health alert (`queue:health-check`) — pending+failed prahy, notifikuje adminy (scheduled).
 45. ➕ Cache warming po deploy (číselníky, homepage, ceny).
 46. ➕ Response cache pro veřejné stránky (homepage, ceník, KB) s ETag/Cache-Control.
 47. ➕ HTTP cache hlavičky (`Cache-Control`, `ETag`, `Last-Modified`) na read API.
@@ -81,7 +81,7 @@ Na rozdíl od `SYSTEM-AUDIT-200-FINAL.md` (stav 200 funkčních bodů) je tohle
 
 ## C. Výkon — HTTP, assety, frontend (58–82)
 
-58. 🔴 Obnovit smazané frontend assety (`public/panel/*`, `public/front/*`) — dnes chybí v repu.
+58. 🔑 Obnovit smazané frontend assety (`public/panel/*`, `public/front/*`) — akce uživatele (restore / `npm build`).
 59. ➕ Vite build pipeline + hashované assety + long-term cache.
 60. ➕ Code-splitting a lazy-load JS panelu (per-page bundly).
 61. ➕ Odstranit jQuery závislost kde možné (moderní vanilla/Alpine).

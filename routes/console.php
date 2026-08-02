@@ -48,6 +48,9 @@ Schedule::command(\App\Console\Commands\SchedulerHeartbeatCommand::class)->every
 // so late payments are picked up).
 Schedule::command(\App\Console\Commands\RollupDailyRevenueCommand::class)->dailyAt('00:15');
 
+// Queue health: alert admins if jobs back up or accumulate failures (dead worker).
+Schedule::command(\App\Console\Commands\CheckQueueHealthCommand::class)->everyThirtyMinutes();
+
 // Safety net: provision paid services still stuck in Pending (queue worker
 // down / never ran). Synchronous, so it works even without a worker.
 Schedule::command(ProvisionPendingServicesCommand::class)

@@ -122,4 +122,16 @@ return [
         'table' => 'failed_jobs',
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Queue health thresholds (audit 500 #44)
+    |--------------------------------------------------------------------------
+    | queue:health-check alerts admins when pending or failed jobs exceed these.
+    */
+
+    'health' => [
+        'max_pending' => (int) env('QUEUE_MAX_PENDING', 500),
+        'max_failed'  => (int) env('QUEUE_MAX_FAILED', 25),
+    ],
+
 ];
