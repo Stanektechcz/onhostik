@@ -90,6 +90,7 @@
                 </div>
             </div>
             @endif
+            <x-pwa-bootstrap />
             <x-panel.breadcrumb :title="$breadcrumbTitle ?? null" :items="$breadcrumbItems ?? []" />
             @yield('content')
         </div>
@@ -1088,9 +1089,6 @@
 @endif
 @endauth
 
-{{-- App-like bottom tab bar on phones (hidden from tablets up). --}}
-<x-panel.mobile-nav />
 
-<x-pwa-bootstrap />
 </body>
 </html>

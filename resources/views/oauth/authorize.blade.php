@@ -10,8 +10,8 @@
 
 @section('content')
 <div class="container-fluid">
-    <div class="flex justify-center">
-        <div style="width:100%;max-width:640px;">
+    <div class="grid grid-cols-12">
+        <div class="col-span-12 md:col-span-8 lg:col-span-6 md:col-start-3 lg:col-start-4">
             <div class="card">
                 <div class="card-header card-no-border">
                     <div class="header-top">

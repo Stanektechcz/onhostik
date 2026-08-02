@@ -26,25 +26,29 @@
                 </div>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ route('panel.account.members.invite') }}" class="flex gap-2 items-start flex-wrap">
+                <form method="POST" action="{{ route('panel.account.members.invite') }}">
                     @csrf
-                    <div class="flex-1" style="min-width:240px;">
-                        <input type="email" name="email" class="form-control @error('email') is-invalid @enderror"
-                               placeholder="email@firma.cz" value="{{ old('email') }}" required
-                               aria-label="E-mail pozvaného">
-                        @error('email')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    <div class="grid grid-cols-12 gap-2 items-start">
+                        <div class="col-span-12 md:col-span-6">
+                            <input type="email" name="email" class="form-control @error('email') is-invalid @enderror"
+                                   placeholder="email@firma.cz" value="{{ old('email') }}" required
+                                   aria-label="E-mail pozvaného">
+                            @error('email')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                        <div class="col-span-12 md:col-span-3">
+                            <select name="role" class="form-select" aria-label="Role">
+                                @foreach (\App\Domains\Customer\Enums\CustomerRole::assignable() as $assignable)
+                                    <option value="{{ $assignable->value }}">{{ $assignable->label() }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="col-span-12 md:col-span-3">
+                            <button type="submit" class="btn btn-primary text-white w-full">
+                                <i data-feather="user-plus" class="me-1" style="width:14px;height:14px;"></i>
+                                Odeslat pozvánku
+                            </button>
+                        </div>
                     </div>
-                    <div style="min-width:160px;">
-                        <select name="role" class="form-select" aria-label="Role">
-                            @foreach (\App\Domains\Customer\Enums\CustomerRole::assignable() as $assignable)
-                                <option value="{{ $assignable->value }}">{{ $assignable->label() }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <button type="submit" class="btn btn-primary text-white">
-                        <i data-feather="user-plus" class="me-1" style="width:14px;height:14px;"></i>
-                        Odeslat pozvánku
-                    </button>
                 </form>
             </div>
         </div>
