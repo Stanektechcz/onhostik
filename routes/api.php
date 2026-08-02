@@ -152,6 +152,15 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'log-api-usage', 'idempotency
     Route::get('/services',           [V2\ServiceController::class, 'index'])->name('services.index');
     Route::get('/services/{service}', [V2\ServiceController::class, 'show'])->name('services.show');
 
+    // Cursor-paginated collections (audit 500 #202/#203): ?sort=-created_at
+    // &filter[status]=paid&fields=id,total&per_page=50&cursor=…
+    Route::get('/invoices',           [V2\InvoiceController::class, 'index'])->name('invoices.index');
+    Route::get('/invoices/{invoice}', [V2\InvoiceController::class, 'show'])->name('invoices.show');
+    Route::get('/orders',             [V2\OrderController::class, 'index'])->name('orders.index');
+    Route::get('/orders/{order}',     [V2\OrderController::class, 'show'])->name('orders.show');
+    Route::get('/domains',            [V2\DomainController::class, 'index'])->name('domains.index');
+    Route::get('/support/tickets',    [V2\SupportTicketController::class, 'index'])->name('support.tickets.index');
+
     // Webhook subscriptions
     Route::get('/webhooks',                                [V2\WebhookController::class, 'index'])->name('webhooks.index');
     Route::post('/webhooks',                               [V2\WebhookController::class, 'store'])->name('webhooks.store');

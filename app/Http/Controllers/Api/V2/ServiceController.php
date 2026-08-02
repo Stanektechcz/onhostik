@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V2;
 
+use App\Domains\Api\Support\ApiQuery;
 use App\Domains\Monitoring\Models\Monitor;
 use App\Domains\Provisioning\Models\Service;
 use App\Http\Controllers\Controller;
@@ -20,11 +21,23 @@ class ServiceController extends Controller
             return response()->json(['error' => 'No customer account.'], 403);
         }
 
-        $services = Service::query()
+        // Cursor pagination + whitelisted sort/filter + sparse fieldsets
+        // (audit 500 #202/#203) — stable on deep pages, unlike OFFSET.
+        $query = Service::query()
             ->where('customer_id', $customer->id)
-            ->with(['product', 'monitors'])
-            ->get()
-            ->map(fn (Service $s) => [
+            ->with(['product', 'monitors']);
+
+        $query = ApiQuery::apply(
+            $query,
+            $request,
+            sortable: ['id', 'label', 'status', 'next_due_date', 'created_at'],
+            filterable: ['status', 'provisioning_driver'],
+        );
+
+        $paginator = ApiQuery::paginate($query, $request);
+
+        $rows = collect($paginator->items())
+            ->map(fn (Service $s): array => [
                 'id'            => $s->id,
                 'uuid'          => $s->uuid,
                 'label'         => $s->label,
@@ -39,9 +52,11 @@ class ServiceController extends Controller
                     'uptime_percent' => $m->uptime_percent,
                     'last_check_at'  => $m->last_check_at?->toIso8601String(),
                 ])->values()->all(),
-            ]);
+            ])
+            ->values()
+            ->all();
 
-        return response()->json(['data' => $services]);
+        return response()->json(ApiQuery::envelope($paginator, ApiQuery::sparse($rows, $request)));
     }
 
     public function show(Request $request, Service $service): JsonResponse

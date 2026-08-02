@@ -73,6 +73,20 @@ $app = Application::configure(basePath: dirname(__DIR__))
          */
         $exceptions->context(fn (): array => \App\Domains\Shared\Support\ErrorContext::current());
 
+        /*
+         | RFC 7807 problem+json for the API (audit 500 #206). One predictable
+         | error shape across every endpoint — clients branch on type/status
+         | instead of parsing prose. Web routes keep Laravel's HTML/redirect
+         | behaviour; only api/* JSON responses are converted.
+         */
+        $exceptions->render(function (\Throwable $e, \Illuminate\Http\Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return \App\Domains\Api\Support\ProblemDetails::fromThrowable($e, $request);
+        });
+
         // Expected, high-volume, and not a defect: logging them buries the
         // reports that do matter.
         $exceptions->dontReport([

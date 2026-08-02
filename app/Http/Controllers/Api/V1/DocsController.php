@@ -236,6 +236,19 @@ class DocsController extends Controller
     {
         $auth = [['bearerAuth' => []]];
 
+        // Shared query parameters for cursor-paginated v2 collections.
+        $collectionParams = [
+            ['name' => 'cursor', 'in' => 'query', 'schema' => ['type' => 'string'],
+                'description' => 'Kurzor z `meta.next_cursor` předchozí odpovědi.'],
+            ['name' => 'per_page', 'in' => 'query', 'schema' => ['type' => 'integer', 'maximum' => 100, 'default' => 25]],
+            ['name' => 'sort', 'in' => 'query', 'schema' => ['type' => 'string'],
+                'description' => 'Např. `-created_at,name`. Prefix `-` = sestupně. Jen povolené sloupce.'],
+            ['name' => 'filter', 'in' => 'query', 'style' => 'deepObject', 'explode' => true,
+                'schema' => ['type' => 'object'], 'description' => 'Např. `filter[status]=paid`.'],
+            ['name' => 'fields', 'in' => 'query', 'schema' => ['type' => 'string'],
+                'description' => 'Sparse fieldset, např. `id,total`.'],
+        ];
+
         return [
             '/up' => [
                 'get' => [
@@ -286,6 +299,69 @@ class DocsController extends Controller
                         ],
                         '503' => ['description' => 'Některá závislost nedostupná — ještě neposílat provoz'],
                     ],
+                ],
+            ],
+
+            '/v2/invoices' => [
+                'get' => [
+                    'tags'        => ['Fakturace'],
+                    'summary'     => 'Faktury (v2, kurzorová paginace)',
+                    'description' => 'Podporuje `?sort=-created_at`, `?filter[status]=paid`, `?fields=id,total`, '
+                        . '`?per_page=50` a `?cursor=…`. Kurzor je stabilní i při souběžných zápisech.',
+                    'operationId' => 'listInvoicesV2',
+                    'security'    => $auth,
+                    'parameters'  => $collectionParams,
+                    'responses'   => ['200' => ['description' => 'OK'], '403' => ['description' => 'Bez zákaznického účtu']],
+                ],
+            ],
+            '/v2/invoices/{id}' => [
+                'get' => [
+                    'tags'        => ['Fakturace'],
+                    'summary'     => 'Detail faktury (v2)',
+                    'operationId' => 'getInvoiceV2',
+                    'security'    => $auth,
+                    'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']]],
+                    'responses'   => ['200' => ['description' => 'OK'], '403' => ['description' => 'Cizí faktura']],
+                ],
+            ],
+            '/v2/orders' => [
+                'get' => [
+                    'tags'        => ['Objednávky'],
+                    'summary'     => 'Objednávky (v2, kurzorová paginace)',
+                    'operationId' => 'listOrdersV2',
+                    'security'    => $auth,
+                    'parameters'  => $collectionParams,
+                    'responses'   => ['200' => ['description' => 'OK'], '403' => ['description' => 'Bez zákaznického účtu']],
+                ],
+            ],
+            '/v2/orders/{id}' => [
+                'get' => [
+                    'tags'        => ['Objednávky'],
+                    'summary'     => 'Detail objednávky včetně položek (v2)',
+                    'operationId' => 'getOrderV2',
+                    'security'    => $auth,
+                    'parameters'  => [['name' => 'id', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'integer']]],
+                    'responses'   => ['200' => ['description' => 'OK'], '403' => ['description' => 'Cizí objednávka']],
+                ],
+            ],
+            '/v2/domains' => [
+                'get' => [
+                    'tags'        => ['Domény'],
+                    'summary'     => 'Domény včetně expirace (v2, kurzorová paginace)',
+                    'operationId' => 'listDomainsV2',
+                    'security'    => $auth,
+                    'parameters'  => $collectionParams,
+                    'responses'   => ['200' => ['description' => 'OK'], '403' => ['description' => 'Bez zákaznického účtu']],
+                ],
+            ],
+            '/v2/support/tickets' => [
+                'get' => [
+                    'tags'        => ['Podpora'],
+                    'summary'     => 'Tikety podpory (v2, kurzorová paginace)',
+                    'operationId' => 'listTicketsV2',
+                    'security'    => $auth,
+                    'parameters'  => $collectionParams,
+                    'responses'   => ['200' => ['description' => 'OK'], '403' => ['description' => 'Bez zákaznického účtu']],
                 ],
             ],
 
