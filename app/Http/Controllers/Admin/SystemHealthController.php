@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Domains\Integrations\Models\IntegrationSetting;
+use App\Domains\Monitoring\Services\SchedulerHeartbeat;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
@@ -72,10 +73,16 @@ class SystemHealthController extends Controller
         }
 
         // ── Scheduler ────────────────────────────────────────────
+        // Real dead-cron detection via the per-minute heartbeat (not a hardcoded
+        // "ok" that would hide a scheduler that stopped weeks ago).
+        $heartbeat = app(SchedulerHeartbeat::class);
+        $lastRun   = $heartbeat->lastRunAt();
         $checks[] = [
             'name'   => 'scheduler',
-            'ok'     => true,
-            'detail' => 'billing:create-renewals @ 00:30 | billing:mark-overdue @ 01:00 | billing:suspend-overdue @ 01:15 | cron: * * * * * php artisan schedule:run',
+            'ok'     => ! $heartbeat->isStale(),
+            'detail' => $lastRun === null
+                ? 'nikdy neběžel — cron/supervisor nejspíš neběží (* * * * * php artisan schedule:run)'
+                : 'poslední běh ' . $lastRun->diffForHumans(),
         ];
 
         // ── Storage ──────────────────────────────────────────────

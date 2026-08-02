@@ -40,6 +40,10 @@ use Illuminate\Support\Facades\Schedule;
 |--------------------------------------------------------------------------
 */
 
+// Dead-cron detection: a per-minute heartbeat. If it stops, the admin
+// system-health page flags the scheduler as stale (cron/supervisor is down).
+Schedule::command(\App\Console\Commands\SchedulerHeartbeatCommand::class)->everyMinute();
+
 // Safety net: provision paid services still stuck in Pending (queue worker
 // down / never ran). Synchronous, so it works even without a worker.
 Schedule::command(ProvisionPendingServicesCommand::class)
