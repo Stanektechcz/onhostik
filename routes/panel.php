@@ -79,6 +79,9 @@ Route::middleware(['auth', 'require-customer-2fa', 'resolve-member-customer', 'r
         Route::delete('/{oauthApp}', [Panel\DeveloperPortalController::class, 'destroyOAuthApp'])->name('destroy');
     });
 
+    // Customer-facing global search across services/invoices/domains/tickets.
+    Route::get('/hledat', Panel\GlobalSearchController::class)->name('search');
+
     // Sub-accounts: switch the active account (for users belonging to several).
     Route::post('/prepnout-ucet/{customer}', [Panel\CustomerSwitchController::class, 'switch'])->name('account.switch');
 
