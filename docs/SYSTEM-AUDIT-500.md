@@ -41,7 +41,7 @@ Na rozdíl od `SYSTEM-AUDIT-200-FINAL.md` (stav 200 funkčních bodů) je tohle
 21. 🟡 Optimalizovat `whereHas` s poddotazy → `whereExists`/joins kde je to horké.
 22. ➕ Databázové transakce kolem multi-write akcí (objednávka→služba→faktura) auditovat.
 23. ➕ Soft-delete cleanup příkaz (pruning starých soft-deleted řádků).
-24. ➕ Pruning `api_usage_logs`, `activity_log`, `failed_jobs`, `sessions` (retence + index).
+24. ✅ Pruning: `retention:apply` pokrývá activity_log/login_history/incidents/export_jobs + nově `api_usage_logs`.
 25. ➕ `MassPrunable` na log modely (Laravel prune scheduling).
 26. 🏗 Partitioning velkých tabulek (api_usage_logs, activity_log) — DB-engine DDL, serverová úloha.
 27. ➕ Query result cache invalidace přes model events (observery).

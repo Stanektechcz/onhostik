@@ -48,6 +48,13 @@ return [
             'days'   => (int) env('RETENTION_RESOLVED_INCIDENTS_DAYS', 180),
             'where'  => ['status' => 'resolved'],
         ],
+
+        // High-growth API telemetry — analytics keep aggregates, raw rows expire.
+        'api_usage_logs' => [
+            'table'  => 'api_usage_logs',
+            'column' => 'created_at',
+            'days'   => (int) env('RETENTION_API_USAGE_DAYS', 90),
+        ],
     ],
 
 ];
