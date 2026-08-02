@@ -134,6 +134,30 @@ final class ApiSchema
             ],
         ]);
 
+        $paymentMethod = new ObjectType([
+            'name'   => 'PaymentMethod',
+            'fields' => [
+                'id'        => ['type' => Type::int()],
+                'provider'  => ['type' => Type::string()],
+                'label'     => ['type' => Type::string()],
+                'cardBrand' => ['type' => Type::string()],
+                'expiresAt' => ['type' => Type::string()],
+                'isDefault' => ['type' => Type::boolean()],
+            ],
+        ]);
+
+        $monitor = new ObjectType([
+            'name'   => 'Monitor',
+            'fields' => [
+                'id'            => ['type' => Type::int()],
+                'name'          => ['type' => Type::string()],
+                'status'        => ['type' => Type::string()],
+                'uptimePercent' => ['type' => Type::float()],
+                'lastCheckAt'   => ['type' => Type::string()],
+                'serviceId'     => ['type' => Type::int()],
+            ],
+        ]);
+
         $query = new ObjectType([
             'name'   => 'Query',
             'fields' => [
@@ -170,6 +194,14 @@ final class ApiSchema
                     'type'    => Type::listOf($order),
                     'resolve' => fn ($root, array $args, $ctx) => $this->orders($this->user($ctx)),
                 ],
+                'paymentMethods' => [
+                    'type'    => Type::listOf($paymentMethod),
+                    'resolve' => fn ($root, array $args, $ctx) => $this->paymentMethods($this->user($ctx)),
+                ],
+                'monitors' => [
+                    'type'    => Type::listOf($monitor),
+                    'resolve' => fn ($root, array $args, $ctx) => $this->monitors($this->user($ctx)),
+                ],
             ],
         ]);
 
@@ -192,6 +224,27 @@ final class ApiSchema
                         'message'  => ['type' => Type::nonNull(Type::string())],
                     ],
                     'resolve' => fn ($root, array $args, $ctx) => $this->replyTicket($this->user($ctx), (int) $args['ticketId'], (string) $args['message']),
+                ],
+                'topUpCredit' => [
+                    'type' => new ObjectType([
+                        'name'   => 'TopUpResult',
+                        'fields' => [
+                            'invoiceId'     => ['type' => Type::int()],
+                            'invoiceNumber' => ['type' => Type::string()],
+                            'total'         => ['type' => Type::string()],
+                            'payUrl'        => ['type' => Type::string()],
+                        ],
+                    ]),
+                    'args'    => ['amount' => ['type' => Type::nonNull(Type::float())]],
+                    'resolve' => fn ($root, array $args, $ctx) => $this->topUpCredit($this->user($ctx), (float) $args['amount']),
+                ],
+                'updateProfile' => [
+                    'type' => $viewer,
+                    'args' => [
+                        'name'   => ['type' => Type::string()],
+                        'locale' => ['type' => Type::string()],
+                    ],
+                    'resolve' => fn ($root, array $args, $ctx) => $this->updateProfile($this->user($ctx), $args),
                 ],
             ],
         ]);
@@ -402,6 +455,55 @@ final class ApiSchema
         ];
     }
 
+    /** @return list<array<string, mixed>> */
+    private function paymentMethods(?User $user): array
+    {
+        $customer = $this->customer($user);
+
+        if ($customer === null) {
+            return [];
+        }
+
+        return \App\Models\SavedPaymentMethod::query()
+            ->where('customer_id', $customer->id)
+            ->orderByDesc('is_default')
+            ->get()
+            ->map(fn (\App\Models\SavedPaymentMethod $m): array => [
+                'id'        => $m->id,
+                'provider'  => $m->provider,
+                'label'     => $m->label,
+                'cardBrand' => $m->card_brand,
+                'expiresAt' => $m->expires_at,
+                'isDefault' => $m->is_default,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function monitors(?User $user): array
+    {
+        $customer = $this->customer($user);
+
+        if ($customer === null) {
+            return [];
+        }
+
+        return \App\Domains\Monitoring\Models\Monitor::query()
+            ->whereHas('service', fn ($q) => $q->where('customer_id', $customer->id))
+            ->get()
+            ->map(fn (\App\Domains\Monitoring\Models\Monitor $m): array => [
+                'id'            => $m->id,
+                'name'          => $m->name,
+                'status'        => $m->status->value,
+                'uptimePercent' => $m->uptime_percent,
+                'lastCheckAt'   => $m->last_check_at?->toIso8601String(),
+                'serviceId'     => $m->service_id,
+            ])
+            ->values()
+            ->all();
+    }
+
     // ── mutations ────────────────────────────────────────────────────────────────
 
     /**
@@ -440,6 +542,71 @@ final class ApiSchema
         $this->tickets->reply($ticket, $user, $message, isStaff: false);
 
         return $this->ticketRow($ticket->refresh());
+    }
+
+    /**
+     * Credit top-up mutation — mirrors the REST endpoint, including its
+     * write:credit ability gate.
+     *
+     * @return array<string, mixed>
+     */
+    private function topUpCredit(?User $user, float $amount): array
+    {
+        if ($user === null || ! $user->tokenCan('write:credit')) {
+            throw new Error('Token nemá oprávnění write:credit.');
+        }
+
+        $customer = $user->customer;
+
+        if ($customer === null) {
+            throw new Error('Účet nemá zákaznický profil.');
+        }
+
+        if ($amount < 1 || $amount > 1_000_000) {
+            throw new Error('Částka musí být mezi 1 a 1 000 000.');
+        }
+
+        $invoice = app(\App\Domains\Billing\Actions\CreateCreditTopUpInvoiceAction::class)->execute(
+            $customer,
+            \Brick\Money\Money::of($amount, $customer->preferred_currency->value),
+        );
+
+        return [
+            'invoiceId'     => $invoice->id,
+            'invoiceNumber' => $invoice->number,
+            'total'         => MoneyFormatter::format($invoice->total),
+            'payUrl'        => route('panel.billing.invoices.show', $invoice),
+        ];
+    }
+
+    /**
+     * Profile mutation — name/locale only; e-mail changes stay in the panel
+     * where they require re-verification.
+     *
+     * @param array<string, mixed> $args
+     * @return array<string, mixed>
+     */
+    private function updateProfile(?User $user, array $args): array
+    {
+        if ($user === null) {
+            throw new Error('Vyžadováno přihlášení.');
+        }
+
+        $name = isset($args['name']) ? trim((string) $args['name']) : null;
+
+        if ($name !== null && $name !== '') {
+            $user->name = mb_substr($name, 0, 255);
+        }
+
+        $locale = isset($args['locale']) ? (string) $args['locale'] : null;
+
+        if ($locale !== null && in_array($locale, ['cs', 'en'], true)) {
+            $user->locale = $locale;
+        }
+
+        $user->save();
+
+        return $this->viewer($user->refresh()) ?? [];
     }
 
     /**

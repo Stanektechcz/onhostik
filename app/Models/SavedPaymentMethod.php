@@ -8,6 +8,16 @@ use App\Domains\Customer\Models\Customer;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property int $id
+ * @property int $customer_id
+ * @property string $provider
+ * @property string|null $label
+ * @property string|null $last4
+ * @property string|null $card_brand
+ * @property string|null $expires_at  Card expiry as stored (MM/YY or Y-m-d), not a date cast.
+ * @property bool $is_default
+ */
 class SavedPaymentMethod extends Model
 {
     protected $fillable = [
