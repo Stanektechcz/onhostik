@@ -29,6 +29,9 @@ $app = Application::configure(basePath: dirname(__DIR__))
         $middleware->web(prepend: [\App\Http\Middleware\AssignRequestId::class]);
         $middleware->api(prepend: [\App\Http\Middleware\AssignRequestId::class]);
 
+        // ETag / 304 on successful API GETs — saves re-transferring unchanged bodies.
+        $middleware->api(append: [\App\Http\Middleware\HandleConditionalGet::class]);
+
         $middleware->web(append: [
             SetLocale::class,
             HandleReferralCookie::class,

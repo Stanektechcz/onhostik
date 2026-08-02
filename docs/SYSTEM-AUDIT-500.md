@@ -67,8 +67,8 @@ Na rozdíl od `SYSTEM-AUDIT-200-FINAL.md` (stav 200 funkčních bodů) je tohle
 44. ✅ Queue health alert (`queue:health-check`) — pending+failed prahy, notifikuje adminy (scheduled).
 45. ➕ Cache warming po deploy (číselníky, homepage, ceny).
 46. ➕ Response cache pro veřejné stránky (homepage, ceník, KB) s ETag/Cache-Control.
-47. ➕ HTTP cache hlavičky (`Cache-Control`, `ETag`, `Last-Modified`) na read API.
-48. ➕ Conditional GET (304) pro read endpointy (šetří přenos).
+47. ✅ ETag na úspěšných API GET (`HandleConditionalGet` middleware).
+48. ✅ Conditional GET (304 na `If-None-Match`) — šetří přenos těla.
 49. ➕ Cache invalidace při změně cen/produktů (observer → forget tagů).
 50. ✅ Distribuovaný lock (`Cache::lock`) pro výběr serveru — `ServerSelector::pickAndReserve` (select+reserve atomicky).
 51. ✅ Číselná řada faktur — `lockForUpdate` v transakci + `unique(series,year)` uzavírá i insert-race.
