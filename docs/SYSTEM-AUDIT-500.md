@@ -28,7 +28,7 @@ Na rozdíl od `SYSTEM-AUDIT-200-FINAL.md` (stav 200 funkčních bodů) je tohle
 8. ➕ Přidat `chunkById`/`lazy()` do všech dávkových příkazů místo `get()` (paměť).
 9. ➕ Kurzorová paginace (`cursorPaginate`) pro velké seznamy (audit log, api usage, faktury).
 10. ➕ Cache agregací dashboardu (tržby, počty) s krátkou TTL místo dotazu na každý request.
-11. 🔴 Materializované/denormalizované souhrny pro reporting (denní tržby) přes scheduled rollup.
+11. ✅ Denní revenue rollup (`revenue_daily` + `reporting:rollup-revenue`, idempotentní, scheduled).
 12. ➕ `EXPLAIN` profiling nejpomalejších dotazů z `configureSlowQueryLogging`.
 13. ➕ Read-replica pro reporting/analytiku (`DB::connection('read')`).
 14. ➕ Připravit connection pooling / persistent connections (PgBouncer ekvivalent) na infra.

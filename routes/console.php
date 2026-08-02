@@ -44,6 +44,10 @@ use Illuminate\Support\Facades\Schedule;
 // system-health page flags the scheduler as stale (cron/supervisor is down).
 Schedule::command(\App\Console\Commands\SchedulerHeartbeatCommand::class)->everyMinute();
 
+// Materialized revenue rollup for fast dashboards (recomputes a trailing window
+// so late payments are picked up).
+Schedule::command(\App\Console\Commands\RollupDailyRevenueCommand::class)->dailyAt('00:15');
+
 // Safety net: provision paid services still stuck in Pending (queue worker
 // down / never ran). Synchronous, so it works even without a worker.
 Schedule::command(ProvisionPendingServicesCommand::class)
