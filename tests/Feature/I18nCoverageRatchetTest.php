@@ -39,7 +39,10 @@ it('does not grow the hardcoded-Czech debt in Blade templates', function (): voi
     // sidebar ("Aktivní účet").
     // Baseline raised 4248 → 4251 (2026-08-02): accountant sub-account role — role
     // selector + updated member-page copy + pending-invite role column.
-    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4251);
+    // Baseline raised 4251 → 4272 (2026-08-02): PWA + mobile shell — offline page,
+    // install prompt, mobile tab bar, feature-flag admin, panel search, loyalty
+    // tiers, API token expiry. Same Czech-first style as the rest of the app.
+    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4272);
 });
 
 it('keeps newly added shared components translatable', function (): void {

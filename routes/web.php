@@ -81,6 +81,9 @@ Route::get('/lang/{locale}', LocaleController::class)->name('locale.switch');
 
 Route::get('/sitemap.xml', [PageController::class, 'sitemap'])->name('front.sitemap');
 
+/* PWA offline fallback — served by the service worker when the network is down. */
+Route::view('/offline', 'offline')->name('offline');
+
 /* Security disclosure policy (RFC 9116). */
 Route::get('/.well-known/security.txt', function () {
     $lines = [

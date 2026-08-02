@@ -1,0 +1,62 @@
+{
+  "name": "OnHost — klientský panel",
+  "short_name": "OnHost",
+  "description": "Správa hostingu, domén, faktur a podpory OnHost.",
+  "id": "/panel",
+  "start_url": "/panel?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "browser"],
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#7366ff",
+  "lang": "cs",
+  "dir": "ltr",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/panel/images/logo/logo-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/panel/images/logo/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/panel/images/logo/logo-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Moje služby",
+      "short_name": "Služby",
+      "description": "Přehled objednaných služeb",
+      "url": "/panel/sluzby?source=pwa-shortcut"
+    },
+    {
+      "name": "Faktury",
+      "short_name": "Faktury",
+      "description": "Faktury a platby",
+      "url": "/panel/fakturace/faktury?source=pwa-shortcut"
+    },
+    {
+      "name": "Podpora",
+      "short_name": "Podpora",
+      "description": "Tikety podpory",
+      "url": "/panel/podpora?source=pwa-shortcut"
+    },
+    {
+      "name": "Domény",
+      "short_name": "Domény",
+      "description": "Správa domén a DNS",
+      "url": "/panel/domeny?source=pwa-shortcut"
+    }
+  ]
+}

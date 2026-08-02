@@ -868,3 +868,51 @@
 }
 .onhost-tour-title { margin: 0 0 4px; font-weight: 700; }
 .dark-only .onhost-tour-pop { background: #262b3c; color: #cfd3e0; }
+
+/* ── Mobile bottom navigation (PWA app shell) ────────────────────────────────
+   Phones get an app-like tab bar; tablets and up keep the Cuba sidebar.
+   Respects the iOS home-indicator inset so the bar never sits under it. */
+.onhost-mobile-nav { display: none; }
+
+@media (max-width: 767.98px) {
+    .onhost-mobile-nav {
+        display: flex;
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        z-index: 1030;
+        background: #fff;
+        border-top: 1px solid rgba(16, 24, 40, .08);
+        box-shadow: 0 -2px 12px rgba(16, 24, 40, .06);
+        padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+    .onhost-mobile-nav__item {
+        flex: 1 1 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        padding: 9px 4px 7px;
+        font-size: 11px;
+        line-height: 1;
+        color: #6b7280;
+        text-decoration: none;
+        /* Comfortable tap target — below ~44px thumbs start missing. */
+        min-height: 54px;
+    }
+    .onhost-mobile-nav__item svg { width: 20px; height: 20px; }
+    .onhost-mobile-nav__item.is-active { color: var(--theme-default, #7366ff); font-weight: 600; }
+    .onhost-mobile-nav__item:focus-visible { outline: 2px solid var(--theme-default, #7366ff); outline-offset: -2px; }
+
+    /* Keep page content clear of the fixed bar. */
+    .page-body { padding-bottom: 74px !important; }
+
+    .dark-only .onhost-mobile-nav { background: #262932; border-top-color: rgba(255,255,255,.08); }
+    .dark-only .onhost-mobile-nav__item { color: #9aa0ae; }
+}
+
+/* Standalone (installed) PWA: no browser chrome, so give the header breathing
+   room under the status bar. */
+@media (display-mode: standalone) {
+    .page-header { padding-top: env(safe-area-inset-top, 0); }
+}
