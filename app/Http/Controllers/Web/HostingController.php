@@ -9,16 +9,13 @@ use App\Domains\Shared\Enums\Currency;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class HostingController extends Controller
 {
     public function webhosting(Request $request): View
     {
-        $product = Product::query()
-            ->where('slug', 'webhosting')
-            ->where('is_active', true)
-            ->with(['pricingPlans' => fn ($query) => $query->where('is_active', true)])
-            ->first();
+        $product = $this->catalogProduct('webhosting');
 
         return view('front.webhosting', [
             'product'  => $product,
@@ -29,11 +26,7 @@ class HostingController extends Controller
 
     public function wordpress(Request $request): View
     {
-        $product = Product::query()
-            ->where('slug', 'webhosting')
-            ->where('is_active', true)
-            ->with(['pricingPlans' => fn ($query) => $query->where('is_active', true)])
-            ->first();
+        $product = $this->catalogProduct('webhosting');
 
         return view('front.wordpress-hosting', [
             'plans'    => $product->pricingPlans ?? collect(),
@@ -43,11 +36,7 @@ class HostingController extends Controller
 
     public function managed(Request $request): View
     {
-        $product = Product::query()
-            ->where('slug', 'managed-hosting')
-            ->where('is_active', true)
-            ->with(['pricingPlans' => fn ($query) => $query->where('is_active', true)->orderBy('sort_order')])
-            ->first();
+        $product = $this->catalogProduct('managed-hosting');
 
         return view('front.managed-hosting', [
             'product'  => $product,
@@ -58,11 +47,7 @@ class HostingController extends Controller
 
     public function gamehosting(Request $request): View
     {
-        $product = Product::query()
-            ->where('slug', 'gamehosting')
-            ->where('is_active', true)
-            ->with(['pricingPlans' => fn ($query) => $query->where('is_active', true)->orderBy('sort_order')])
-            ->first();
+        $product = $this->catalogProduct('gamehosting');
 
         return view('front.gamehosting', [
             'product'  => $product,
@@ -73,11 +58,7 @@ class HostingController extends Controller
 
     public function vps(Request $request): View
     {
-        $product = Product::query()
-            ->where('slug', 'vps')
-            ->where('is_active', true)
-            ->with(['pricingPlans' => fn ($query) => $query->where('is_active', true)->orderBy('sort_order')])
-            ->first();
+        $product = $this->catalogProduct('vps');
 
         return view('front.vps', [
             'product'  => $product,
@@ -88,11 +69,7 @@ class HostingController extends Controller
 
     public function mailhosting(Request $request): View
     {
-        $product = Product::query()
-            ->where('slug', 'mailhosting')
-            ->where('is_active', true)
-            ->with(['pricingPlans' => fn ($query) => $query->where('is_active', true)->orderBy('sort_order')])
-            ->first();
+        $product = $this->catalogProduct('mailhosting');
 
         return view('front.mailhosting', [
             'product'  => $product,
@@ -107,6 +84,25 @@ class HostingController extends Controller
     }
 
     /** Logged-in customers see their billing currency; guests see CZK. */
+    /**
+     * Active catalog product with its active pricing plans, cached (audit 500
+     * #17). These are the highest-traffic public pages and the catalog changes
+     * rarely — re-querying product + plans on every visit is pure waste. The
+     * cache is invalidated by the Product/PricingPlan observers on save.
+     */
+    private function catalogProduct(string $slug): ?Product
+    {
+        return Cache::remember(
+            'catalog:product:' . $slug,
+            600,
+            fn (): ?Product => Product::query()
+                ->where('slug', $slug)
+                ->where('is_active', true)
+                ->with(['pricingPlans' => fn ($query) => $query->where('is_active', true)->orderBy('sort_order')])
+                ->first(),
+        );
+    }
+
     private function displayCurrency(Request $request): Currency
     {
         $customer = $request->user()?->customer;

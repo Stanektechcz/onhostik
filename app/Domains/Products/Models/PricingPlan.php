@@ -28,6 +28,22 @@ use Spatie\Translatable\HasTranslations;
  */
 class PricingPlan extends Model
 {
+    protected static function booted(): void
+    {
+        // A price change must reach the public catalog immediately — the pages
+        // cache product+plans together (audit 500 #17).
+        $forget = static function (self $plan): void {
+            $slug = $plan->product?->slug;
+
+            if (is_string($slug)) {
+                \Illuminate\Support\Facades\Cache::forget('catalog:product:' . $slug);
+            }
+        };
+
+        static::saved($forget);
+        static::deleted($forget);
+    }
+
     /** @use HasFactory<\Database\Factories\PricingPlanFactory> */
     use HasFactory;
     use HasTranslations;

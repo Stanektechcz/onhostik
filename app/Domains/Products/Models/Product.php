@@ -23,6 +23,18 @@ class Product extends Model
 {
     /** @use HasFactory<\Database\Factories\ProductFactory> */
     use HasFactory;
+
+    protected static function booted(): void
+    {
+        // Public catalog pages cache product+plans (audit 500 #17); an admin
+        // edit must be visible immediately, not after the TTL.
+        $forget = static function (self $product): void {
+            \Illuminate\Support\Facades\Cache::forget('catalog:product:' . $product->slug);
+        };
+
+        static::saved($forget);
+        static::deleted($forget);
+    }
     use HasTranslations;
 
     /** @var array<int, string> Translatable attributes (cs, en). */
