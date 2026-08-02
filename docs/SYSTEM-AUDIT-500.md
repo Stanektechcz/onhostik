@@ -235,7 +235,7 @@ Na rozdíl od `SYSTEM-AUDIT-200-FINAL.md` (stav 200 funkčních bodů) je tohle
 ## H. API — REST, GraphQL, SDK (196–228)
 
 196. ✅ REST v1/v2, OpenAPI, idempotence, per-token limity, GraphQL (read+mutace+APQ), OAuth2.
-197. ➕ GraphQL: rozšířit o `orders`, `paymentMethods`, `domains` detaily, `monitors`.
+197. 🟡 GraphQL rozšířeno o `orders` (+ dříve `tickets`, `loyaltyPoints`); `paymentMethods`/`monitors` zbývají.
 198. ➕ GraphQL mutace: `topUpCredit`, `updateProfile`, `createOrder` (s idempotencí).
 199. ➕ GraphQL: DataLoader pro N+1 v resolverech (batch).
 200. ➕ GraphQL: query cost analýza dle polí (dnes depth+complexity).

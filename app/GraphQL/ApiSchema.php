@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\GraphQL;
 
 use App\Domains\Billing\Models\Invoice;
+use App\Domains\Billing\Models\Order;
 use App\Domains\Billing\Services\CreditLedger;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Loyalty\Services\LoyaltyPointsService;
@@ -123,6 +124,16 @@ final class ApiSchema
             ],
         ]);
 
+        $order = new ObjectType([
+            'name'   => 'Order',
+            'fields' => [
+                'id'        => ['type' => Type::int()],
+                'status'    => ['type' => Type::string()],
+                'total'     => ['type' => Type::string()],
+                'createdAt' => ['type' => Type::string()],
+            ],
+        ]);
+
         $query = new ObjectType([
             'name'   => 'Query',
             'fields' => [
@@ -154,6 +165,10 @@ final class ApiSchema
                 'tickets' => [
                     'type'    => Type::listOf($ticket),
                     'resolve' => fn ($root, array $args, $ctx) => $this->tickets($this->user($ctx)),
+                ],
+                'orders' => [
+                    'type'    => Type::listOf($order),
+                    'resolve' => fn ($root, array $args, $ctx) => $this->orders($this->user($ctx)),
                 ],
             ],
         ]);
@@ -233,6 +248,30 @@ final class ApiSchema
             ->limit(50)
             ->get()
             ->map(fn (SupportTicket $t): array => $this->ticketRow($t))
+            ->values()
+            ->all();
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function orders(?User $user): array
+    {
+        $customer = $this->customer($user);
+
+        if ($customer === null) {
+            return [];
+        }
+
+        return Order::query()
+            ->where('customer_id', $customer->id)
+            ->latest('id')
+            ->limit(50)
+            ->get()
+            ->map(fn (Order $o): array => [
+                'id'        => $o->id,
+                'status'    => $o->status->value,
+                'total'     => MoneyFormatter::format($o->total),
+                'createdAt' => $o->created_at?->toIso8601String(),
+            ])
             ->values()
             ->all();
     }

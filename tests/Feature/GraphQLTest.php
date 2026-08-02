@@ -220,3 +220,26 @@ it('lists the customer tickets, scoped to the account', function (): void {
     $subjects = collect($res->json('data.tickets'))->pluck('subject')->all();
     expect($subjects)->toContain('Můj tiket')->not->toContain('Cizí tiket');
 });
+
+it('lists the customer orders, scoped to the account', function (): void {
+    $mine  = customerUser();
+    $other = customerUser();
+    $token = $mine->createToken('gql')->plainTextToken;
+
+    $makeOrder = fn (int $customerId) => \App\Domains\Billing\Models\Order::create([
+        'customer_id'  => $customerId,
+        'status'       => \App\Domains\Billing\Enums\OrderStatus::Pending,
+        'currency'     => 'CZK',
+        'subtotal'     => \Brick\Money\Money::of(826, 'CZK'),
+        'tax_amount'   => \Brick\Money\Money::of(173, 'CZK'),
+        'total'        => \Brick\Money\Money::of(999, 'CZK'),
+        'vat_scenario' => 'domestic',
+    ]);
+    $mineOrder  = $makeOrder($mine->customer->id);
+    $otherOrder = $makeOrder($other->customer->id);
+
+    $res = gql($token, '{ orders { id status total } }')->assertOk();
+
+    $ids = collect($res->json('data.orders'))->pluck('id')->all();
+    expect($ids)->toContain($mineOrder->id)->not->toContain($otherOrder->id);
+});
