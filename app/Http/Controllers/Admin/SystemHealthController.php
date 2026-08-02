@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domains\Backups\Enums\BackupJobStatus;
+use App\Domains\Backups\Models\BackupJob;
 use App\Domains\Integrations\Models\IntegrationSetting;
 use App\Domains\Monitoring\Services\SchedulerHeartbeat;
 use App\Http\Controllers\Controller;
@@ -97,6 +99,31 @@ class SystemHealthController extends Controller
             ];
         } catch (Throwable $e) {
             $checks[] = ['name' => 'storage', 'ok' => false, 'detail' => mb_substr($e->getMessage(), 0, 120)];
+        }
+
+        // ── Backups ──────────────────────────────────────────────
+        // A silent backup failure is a classic disaster; surface the last
+        // success + any recent failures instead of assuming it works.
+        try {
+            $lastSuccess = BackupJob::query()
+                ->where('status', BackupJobStatus::Success)
+                ->latest('finished_at')
+                ->first()?->finished_at;
+            $recentFailures = BackupJob::query()
+                ->where('status', BackupJobStatus::Failed)
+                ->where('created_at', '>=', now()->subDay())
+                ->count();
+
+            $checks[] = [
+                'name'   => 'backups',
+                'ok'     => $lastSuccess !== null && $recentFailures === 0,
+                'detail' => $lastSuccess === null
+                    ? 'žádná úspěšná záloha nezaznamenána'
+                    : 'poslední úspěch ' . $lastSuccess->diffForHumans()
+                        . ($recentFailures > 0 ? " | {$recentFailures} selhání za 24 h" : ''),
+            ];
+        } catch (Throwable $e) {
+            $checks[] = ['name' => 'backups', 'ok' => false, 'detail' => mb_substr($e->getMessage(), 0, 120)];
         }
 
         // ── Provisioning ─────────────────────────────────────────
