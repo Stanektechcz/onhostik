@@ -193,3 +193,30 @@ it('rejects a persisted-query hash that does not match the query', function (): 
         'extensions' => ['persistedQuery' => ['version' => 1, 'sha256Hash' => str_repeat('b', 64)]],
     ])->assertOk()->assertJsonPath('errors.0.extensions.code', 'PERSISTED_QUERY_HASH_MISMATCH');
 });
+
+// ── expanded read schema ──────────────────────────────────────────────────────
+
+it('exposes the loyalty points balance on the viewer', function (): void {
+    $user = customerUser();
+    app(\App\Domains\Loyalty\Services\LoyaltyPointsService::class)->award($user->customer, 175, 'seed');
+    $token = $user->createToken('gql')->plainTextToken;
+
+    gql($token, '{ viewer { loyaltyPoints } }')
+        ->assertOk()
+        ->assertJsonPath('data.viewer.loyaltyPoints', 175);
+});
+
+it('lists the customer tickets, scoped to the account', function (): void {
+    $mine  = customerUser();
+    $other = customerUser();
+    $token = $mine->createToken('gql')->plainTextToken;
+
+    $svc = app(\App\Domains\Support\Services\TicketService::class);
+    $svc->open($mine->customer, $mine, 'Můj tiket', 'text');
+    $svc->open($other->customer, $other, 'Cizí tiket', 'text');
+
+    $res = gql($token, '{ tickets { id subject status } }')->assertOk();
+
+    $subjects = collect($res->json('data.tickets'))->pluck('subject')->all();
+    expect($subjects)->toContain('Můj tiket')->not->toContain('Cizí tiket');
+});

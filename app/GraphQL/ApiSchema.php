@@ -7,6 +7,7 @@ namespace App\GraphQL;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Services\CreditLedger;
 use App\Domains\Customer\Models\Customer;
+use App\Domains\Loyalty\Services\LoyaltyPointsService;
 use App\Domains\Provisioning\Models\DomainRegistration;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Shared\Support\MoneyFormatter;
@@ -35,6 +36,7 @@ final class ApiSchema
     public function __construct(
         private readonly CreditLedger $ledger,
         private readonly TicketService $tickets,
+        private readonly LoyaltyPointsService $loyaltyPoints,
     ) {}
 
     public function make(): Schema
@@ -54,11 +56,12 @@ final class ApiSchema
             'name'        => 'Viewer',
             'description' => 'The authenticated user behind the API token.',
             'fields'      => [
-                'id'       => ['type' => Type::int()],
-                'name'     => ['type' => Type::string()],
-                'email'    => ['type' => Type::string()],
-                'locale'   => ['type' => Type::string()],
-                'customer' => ['type' => $customer],
+                'id'            => ['type' => Type::int()],
+                'name'          => ['type' => Type::string()],
+                'email'         => ['type' => Type::string()],
+                'locale'        => ['type' => Type::string()],
+                'loyaltyPoints' => ['type' => Type::int()],
+                'customer'      => ['type' => $customer],
             ],
         ]);
 
@@ -148,6 +151,10 @@ final class ApiSchema
                     'type'    => $credit,
                     'resolve' => fn ($root, array $args, $ctx) => $this->creditBalance($this->user($ctx)),
                 ],
+                'tickets' => [
+                    'type'    => Type::listOf($ticket),
+                    'resolve' => fn ($root, array $args, $ctx) => $this->tickets($this->user($ctx)),
+                ],
             ],
         ]);
 
@@ -197,17 +204,37 @@ final class ApiSchema
         $customer = $user->customer;
 
         return [
-            'id'       => $user->id,
-            'name'     => $user->name,
-            'email'    => $user->email,
-            'locale'   => $user->locale,
-            'customer' => $customer === null ? null : [
+            'id'            => $user->id,
+            'name'          => $user->name,
+            'email'         => $user->email,
+            'locale'        => $user->locale,
+            'loyaltyPoints' => $customer === null ? 0 : $this->loyaltyPoints->balance($customer),
+            'customer'      => $customer === null ? null : [
                 'type'              => $customer->type,
                 'companyName'       => $customer->company_name,
                 'preferredCurrency' => $customer->preferred_currency->value,
                 'countryCode'       => $customer->country_code,
             ],
         ];
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function tickets(?User $user): array
+    {
+        $customer = $this->customer($user);
+
+        if ($customer === null) {
+            return [];
+        }
+
+        return SupportTicket::query()
+            ->where('customer_id', $customer->id)
+            ->latest('id')
+            ->limit(50)
+            ->get()
+            ->map(fn (SupportTicket $t): array => $this->ticketRow($t))
+            ->values()
+            ->all();
     }
 
     /** @return list<array<string, mixed>> */
