@@ -7,6 +7,8 @@ namespace App\Domains\Provisioning\Services;
 use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Models\Server;
+use Closure;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -61,6 +63,24 @@ class ServerSelector
         }
 
         return $this->leastLoaded($withRoom);
+    }
+
+    /**
+     * Select a server AND reserve it atomically. Without this, two concurrent
+     * provisions can both read the same server as having one free slot and both
+     * land on it, over-filling it. A per-driver distributed lock (Redis/DB/array
+     * cache) serialises select+create so the second sees the first's service in
+     * the live count.
+     *
+     * @template T
+     * @param  Closure(?Server): T  $reserve  receives the chosen server, creates the service
+     * @return T
+     */
+    public function pickAndReserve(ProvisioningDriver $driver, Closure $reserve): mixed
+    {
+        $lock = Cache::lock('provisioning:server-select:' . $driver->value, 10);
+
+        return $lock->block(5, fn () => $reserve($this->pick($driver)));
     }
 
     /**

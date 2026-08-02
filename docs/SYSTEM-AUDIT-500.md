@@ -70,8 +70,8 @@ Na rozdíl od `SYSTEM-AUDIT-200-FINAL.md` (stav 200 funkčních bodů) je tohle
 47. ➕ HTTP cache hlavičky (`Cache-Control`, `ETag`, `Last-Modified`) na read API.
 48. ➕ Conditional GET (304) pro read endpointy (šetří přenos).
 49. ➕ Cache invalidace při změně cen/produktů (observer → forget tagů).
-50. 🔴 Distribuovaný lock (Redis) pro kritické sekce (číselné řady, kapacita serverů).
-51. 🟡 Číselná řada faktur — ověřit zamykání proti souběhu (lock/transakce) při zátěži.
+50. ✅ Distribuovaný lock (`Cache::lock`) pro výběr serveru — `ServerSelector::pickAndReserve` (select+reserve atomicky).
+51. ✅ Číselná řada faktur — `lockForUpdate` v transakci + `unique(series,year)` uzavírá i insert-race.
 52. ➕ Queue metriky do Prometheus (throughput, wait time, failure rate).
 53. ➕ Scheduled task duration tracking + alert na pomalé/dlouhé běhy.
 54. ➕ Memoizace opakovaných výpočtů v rámci requestu (currency, settings).

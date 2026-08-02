@@ -10,6 +10,7 @@ use App\Domains\Provisioning\Enums\ProvisioningDriver;
 use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Jobs\ProvisionHostingServiceJob;
 use App\Domains\Provisioning\Jobs\RegisterDomainJob;
+use App\Domains\Provisioning\Models\Server;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Provisioning\Services\ServerSelector;
 
@@ -88,21 +89,23 @@ final class EnsureOrderProvisionedAction
         $domain = is_string($config['domain'] ?? null) ? $config['domain'] : null;
 
         // Spread load by free capacity instead of always filling the default
-        // server until it falls over (audit E69).
-        $server = app(ServerSelector::class)->pick($driver);
-
-        $service = Service::firstOrCreate(
-            ['order_item_id' => $item->id],
-            [
-                'customer_id'         => $order->customer_id,
-                'product_id'          => $product->id,
-                'server_id'           => $server?->id,
-                'provisioning_driver' => $driver,
-                'status'              => ServiceStatus::Pending,
-                'label'               => $domain ?? mb_strtolower((string) $plan->name) . '-' . $item->id,
-                'resources'           => $plan->resources,
-                'next_due_date'       => $item->period_to,
-            ],
+        // server until it falls over (audit E69). Select + create under a
+        // per-driver lock so concurrent orders can't over-fill the same server.
+        $service = app(ServerSelector::class)->pickAndReserve(
+            $driver,
+            fn (?Server $server): Service => Service::firstOrCreate(
+                ['order_item_id' => $item->id],
+                [
+                    'customer_id'         => $order->customer_id,
+                    'product_id'          => $product->id,
+                    'server_id'           => $server?->id,
+                    'provisioning_driver' => $driver,
+                    'status'              => ServiceStatus::Pending,
+                    'label'               => $domain ?? mb_strtolower((string) $plan->name) . '-' . $item->id,
+                    'resources'           => $plan->resources,
+                    'next_due_date'       => $item->period_to,
+                ],
+            ),
         );
 
         if ($service->wasRecentlyCreated) {
