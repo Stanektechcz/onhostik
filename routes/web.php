@@ -80,6 +80,18 @@ Route::get('/znalostni-baze/{slug}', [KbController::class, 'show'])->name('front
 Route::get('/lang/{locale}', LocaleController::class)->name('locale.switch');
 
 Route::get('/sitemap.xml', [PageController::class, 'sitemap'])->name('front.sitemap');
+
+/* Security disclosure policy (RFC 9116). */
+Route::get('/.well-known/security.txt', function () {
+    $lines = [
+        'Contact: mailto:' . config('security.disclosure_email', 'security@onhost.cz'),
+        'Expires: ' . now()->addYear()->startOfDay()->toIso8601ZuluString(),
+        'Preferred-Languages: cs, en',
+        'Canonical: ' . url('/.well-known/security.txt'),
+    ];
+
+    return response(implode("\n", $lines) . "\n", 200, ['Content-Type' => 'text/plain; charset=utf-8']);
+})->name('security-txt');
 Route::get('/stav', StatusController::class)->name('front.status');
 
 Route::get('/ref/{code}', AffiliateController::class)->name('front.affiliate');

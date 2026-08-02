@@ -191,7 +191,7 @@ Na rozdíl od `SYSTEM-AUDIT-200-FINAL.md` (stav 200 funkčních bodů) je tohle
 156. ➕ Dependency scanning (composer audit v CI existuje) + Dependabot/Renovate.
 157. ➕ SAST (statická bezpečnostní analýza) v CI.
 158. ➕ DAST/penetrační test před go-live.
-159. ➕ `security.txt` (RFC 9116) + kontakt pro disclosure.
+159. ✅ `/.well-known/security.txt` (RFC 9116) + konfigurovatelný disclosure kontakt.
 160. ➕ Bug bounty / responsible disclosure proces.
 161. ➕ Audit log neměnnost (append-only, hash chain) pro forenziku.
 162. ➕ Ochrana proti replay útokům na webhooky (nonce/timestamp) — HMAC existuje.

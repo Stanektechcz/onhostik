@@ -35,6 +35,9 @@ return [
     */
     'known_ip_retention_days' => (int) env('SECURITY_KNOWN_IP_RETENTION_DAYS', 90),
 
+    // Contact published in /.well-known/security.txt (RFC 9116).
+    'disclosure_email' => env('SECURITY_DISCLOSURE_EMAIL', 'security@onhost.cz'),
+
     /*
     |--------------------------------------------------------------------------
     | PII blind-index key (audit 31)
