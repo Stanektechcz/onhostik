@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Domains\Ai\Services;
 
 use App\Domains\Ai\Contracts\AiProviderInterface;
+use App\Domains\Ai\Models\ChatAnswer;
 use App\Domains\Ai\Providers\ClaudeProvider;
 use App\Domains\Billing\Enums\InvoiceStatus;
 use App\Domains\Billing\Models\Invoice;
@@ -15,6 +16,7 @@ use App\Domains\Provisioning\Enums\ServiceStatus;
 use App\Domains\Provisioning\Models\Service;
 use App\Domains\Shared\Support\MoneyFormatter;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Deterministic, intent-routing chatbot behind the floating panel widget.
@@ -446,24 +448,198 @@ final class AiChatbotService
     {
         $haystack = $this->normalize($message);
         $best     = null;
-        $bestHits = 0;
+        $bestScore = 0.0;
 
-        foreach ($this->knowledgeBase() as $entry) {
-            $hits = 0;
+        foreach ($this->allEntries() as $entry) {
+            $score = 0.0;
 
             foreach ($entry['kw'] as $keyword) {
-                if (str_contains($haystack, $this->normalize($keyword))) {
-                    $hits++;
+                $needle = $this->normalize($keyword);
+
+                if ($needle === '' || ! str_contains($haystack, $needle)) {
+                    continue;
                 }
+
+                // Longer keywords are more specific, so they weigh more than a
+                // stray two-letter hit; curated answers add their priority.
+                $score += 1 + (mb_strlen($needle) / 20);
             }
 
-            if ($hits > $bestHits) {
-                $bestHits = $hits;
-                $best     = $entry;
+            if ($score <= 0.0) {
+                continue;
+            }
+
+            $score += ($entry['priority'] ?? 0) / 10;
+
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $best      = $entry;
             }
         }
 
-        return $bestHits > 0 ? $best : null;
+        if ($best !== null && isset($best['db_id'])) {
+            // Cheap popularity signal for the admin list; never block a reply.
+            try {
+                ChatAnswer::whereKey($best['db_id'])->increment('hits');
+            } catch (\Throwable) {
+                // ignore
+            }
+        }
+
+        return $bestScore > 0.0 ? $best : null;
+    }
+
+    /**
+     * Built-in knowledge base plus admin-curated answers (audit: chat without an
+     * external LLM). Curated rows are appended so support can extend or override
+     * coverage without a deploy; ties are broken by their priority.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function allEntries(): array
+    {
+        return array_merge($this->knowledgeBase(), $this->curatedEntries());
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function curatedEntries(): array
+    {
+        try {
+            $rows = Cache::remember(
+                'chat:curated-answers',
+                300,
+                fn () => ChatAnswer::query()->where('is_active', true)->orderByDesc('priority')->get(),
+            );
+        } catch (\Throwable) {
+            return []; // table not migrated / DB down — built-in KB still answers
+        }
+
+        $out = [];
+
+        foreach ($rows as $row) {
+            $out[] = [
+                'id'       => 'db_' . $row->id,
+                'db_id'    => $row->id,
+                'cat'      => $row->category,
+                'question' => $row->question,
+                'kw'       => $row->keywordList(),
+                'a'        => $row->answer,
+                'links'    => $row->links ?? [],
+                'follow'   => $row->follow_ups ?? [],
+                'priority' => $row->priority,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Predictive suggestions while the user types (audit: chat predictions).
+     *
+     * Matches the partial input against question phrasings and keywords and
+     * returns the most relevant questions, so the user can pick a known-good
+     * question instead of guessing wording the matcher understands.
+     *
+     * @return list<array{label: string, message: string, category: string|null}>
+     */
+    public function predict(string $partial, int $limit = 6): array
+    {
+        $needle = $this->normalize(trim($partial));
+
+        if (mb_strlen($needle) < 2) {
+            return [];
+        }
+
+        $scored = [];
+        $seen   = [];
+
+        foreach ($this->candidateQuestions() as $candidate) {
+            $haystack = $this->normalize($candidate['label']);
+            $score    = 0.0;
+
+            if (str_contains($haystack, $needle)) {
+                // A prefix match is most likely what the user is typing.
+                $score += str_starts_with($haystack, $needle) ? 3.0 : 2.0;
+            }
+
+            foreach ($candidate['kw'] as $keyword) {
+                $kw = $this->normalize($keyword);
+
+                if ($kw !== '' && str_contains($kw, $needle)) {
+                    $score += 1.0;
+                    break;
+                }
+            }
+
+            if ($score <= 0.0) {
+                continue;
+            }
+
+            $key = mb_strtolower($candidate['label']);
+
+            if (isset($seen[$key])) {
+                continue; // the same question can appear as several follow-ups
+            }
+            $seen[$key] = true;
+
+            $scored[] = [
+                'score'    => $score + ($candidate['priority'] / 10),
+                'label'    => $candidate['label'],
+                'message'  => $candidate['label'],
+                'category' => $candidate['cat'],
+            ];
+        }
+
+        usort($scored, static fn (array $a, array $b): int => $b['score'] <=> $a['score']);
+
+        return array_map(
+            static fn (array $s): array => ['label' => $s['label'], 'message' => $s['message'], 'category' => $s['category']],
+            array_slice($scored, 0, $limit),
+        );
+    }
+
+    /**
+     * Natural-language questions the bot can answer well.
+     *
+     * Curated rows supply their own `question`; the built-in KB contributes its
+     * follow-up prompts, which are already phrased as real questions ("Jak
+     * porovnám tarify?"). Suggesting wording the matcher understands is the
+     * whole point — it stops users guessing phrasings that fall through.
+     *
+     * @return list<array{label: string, kw: list<string>, cat: string|null, priority: int}>
+     */
+    private function candidateQuestions(): array
+    {
+        $out = [];
+
+        foreach ($this->allEntries() as $entry) {
+            $cat      = isset($entry['cat']) ? (string) $entry['cat'] : null;
+            $priority = (int) ($entry['priority'] ?? 0);
+            /** @var list<string> $keywords */
+            $keywords = $entry['kw'] ?? [];
+
+            $question = isset($entry['question']) ? trim((string) $entry['question']) : '';
+
+            if ($question !== '') {
+                $out[] = ['label' => $question, 'kw' => $keywords, 'cat' => $cat, 'priority' => $priority];
+            }
+
+            /** @var list<array{label: string, message: string}> $follow */
+            $follow = $entry['follow'] ?? [];
+
+            foreach ($follow as $suggestion) {
+                $message = trim($suggestion['message']);
+
+                // Category chips ("kategorie:…") aren't questions.
+                if ($message === '' || str_starts_with($message, 'kategorie:')) {
+                    continue;
+                }
+
+                $out[] = ['label' => $message, 'kw' => $keywords, 'cat' => $cat, 'priority' => $priority];
+            }
+        }
+
+        return $out;
     }
 
     /**

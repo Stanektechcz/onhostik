@@ -61,6 +61,19 @@ class AiController extends Controller
      * customer has escalated to a live agent, the bot stays silent — the
      * message is stored and an agent answers from the admin inbox.
      */
+    /**
+     * Predictive question suggestions while the user types. Read-only, cheap and
+     * deterministic — no external AI involved.
+     */
+    public function predict(Request $request, AiChatbotService $chatbot): JsonResponse
+    {
+        $validated = $request->validate(['q' => ['nullable', 'string', 'max:200']]);
+
+        return response()->json([
+            'suggestions' => $chatbot->predict((string) ($validated['q'] ?? '')),
+        ]);
+    }
+
     public function chat(Request $request, AiChatbotService $chatbot, SupportChatService $chatService): JsonResponse
     {
         $validated = $request->validate([

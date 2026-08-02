@@ -225,6 +225,8 @@ Route::middleware(['auth', 'require-customer-2fa', 'resolve-member-customer', 'r
     Route::post('/ai', [Panel\AiController::class, 'run'])->name('ai.run');
     // Chat endpoints are user-facing and abusable — throttle them.
     Route::post('/ai/chat', [Panel\AiController::class, 'chat'])->middleware('throttle:30,1')->name('ai.chat');
+    // Predictive suggestions as the user types (deterministic, no external AI).
+    Route::get('/ai/napoveda', [Panel\AiController::class, 'predict'])->middleware('throttle:60,1')->name('ai.predict');
     Route::post('/ai/eskalovat', [Panel\AiController::class, 'escalate'])->middleware('throttle:10,1')->name('ai.escalate');
     Route::post('/ai/priloha', [Panel\AiController::class, 'upload'])->middleware('throttle:20,1')->name('ai.upload');
     Route::get('/ai/priloha/{message}', [Panel\AiController::class, 'attachment'])->name('ai.attachment');
