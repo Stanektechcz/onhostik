@@ -456,6 +456,315 @@ final class AapanelClient
 
     // ---------------------------------------------------------------- internals
 
+    // ── Backups ─────────────────────────────────────────────────────────────
+
+    /**
+     * Create a site backup (files).
+     *
+     * @return array<string, mixed>
+     */
+    public function createSiteBackup(int $siteId): array
+    {
+        return $this->dryRunOr('createSiteBackup', ['id' => $siteId, 'type' => 0], '/site?action=ToBackup');
+    }
+
+    /** Create a database backup. */
+    /** @return array<string, mixed> */
+    public function createDatabaseBackup(int $databaseId): array
+    {
+        return $this->dryRunOr('createDatabaseBackup', ['id' => $databaseId], '/database?action=ToBackup');
+    }
+
+    /** @return array<string, mixed> */
+    public function listSiteBackups(int $siteId): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'data' => []];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'listSiteBackups');
+
+        return $this->realRequest('/site?action=GetBackupList', ['id' => $siteId, 'limit' => 50, 'p' => 1]);
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteSiteBackup(int $backupId): array
+    {
+        return $this->dryRunOr('deleteSiteBackup', ['id' => $backupId], '/site?action=DelBackup');
+    }
+
+    /** Restore a database from a previously created backup file. */
+    /** @return array<string, mixed> */
+    public function restoreDatabaseBackup(int $databaseId, string $file): array
+    {
+        return $this->dryRunOr('restoreDatabaseBackup', [
+            'id'   => $databaseId,
+            'file' => $file,
+        ], '/database?action=InputSql');
+    }
+
+    // ── Mail: forwarding and aliases ────────────────────────────────────────
+
+    /**
+     * Forward a mailbox to another address (audit: aaPanel mail parity).
+     * `keep` decides whether a copy stays in the original mailbox.
+     */
+    /** @return array<string, mixed> */
+    public function createMailForward(string $mailbox, string $forwardTo, bool $keep = true): array
+    {
+        return $this->dryRunOr('createMailForward', [
+            'mail_from' => $mailbox,
+            'mail_to'   => $forwardTo,
+            'keep'      => $keep ? 1 : 0,
+        ], '/plugin?action=a&name=mail_sys&s=add_forward');
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteMailForward(string $mailbox, string $forwardTo): array
+    {
+        return $this->dryRunOr('deleteMailForward', [
+            'mail_from' => $mailbox,
+            'mail_to'   => $forwardTo,
+        ], '/plugin?action=a&name=mail_sys&s=delete_forward');
+    }
+
+    /** @return array<string, mixed> */
+    public function listMailForwards(string $domain): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'data' => []];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'listMailForwards');
+
+        return $this->realRequest('/plugin?action=a&name=mail_sys&s=get_forward_list', ['domain' => $domain]);
+    }
+
+    /** Auto-reply (vacation responder) for a mailbox. */
+    /** @return array<string, mixed> */
+    public function setMailAutoReply(string $mailbox, string $subject, string $body, bool $enabled = true): array
+    {
+        return $this->dryRunOr('setMailAutoReply', [
+            'mail_addr' => $mailbox,
+            'subject'   => $subject,
+            'body'      => $body,
+            'is_open'   => $enabled ? 1 : 0,
+        ], '/plugin?action=a&name=mail_sys&s=set_autoreply');
+    }
+
+    /** Change an existing mailbox password. */
+    /** @return array<string, mixed> */
+    public function setMailboxPassword(string $mailbox, string $password): array
+    {
+        return $this->dryRunOr('setMailboxPassword', [
+            'mail_addr' => $mailbox,
+            'password'  => $password,
+        ], '/plugin?action=a&name=mail_sys&s=modify_mailbox_password');
+    }
+
+    // ── Redirects and rewrites ──────────────────────────────────────────────
+
+    /** @return array<string, mixed> */
+    public function createRedirect(string $siteName, string $from, string $to, bool $keepPath = true, int $type = 301): array
+    {
+        return $this->dryRunOr('createRedirect', [
+            'sitename'    => $siteName,
+            'redirectname' => $from,
+            'tourl'       => $to,
+            'redirecttype' => $type,
+            'redirectpath' => $keepPath ? 1 : 0,
+            'type'        => 1,
+        ], '/site?action=CreateRedirect');
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteRedirect(string $siteName, string $redirectName): array
+    {
+        return $this->dryRunOr('deleteRedirect', [
+            'sitename'     => $siteName,
+            'redirectname' => $redirectName,
+        ], '/site?action=DeleteRedirect');
+    }
+
+    /** @return array<string, mixed> */
+    public function listRedirects(string $siteName): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'data' => []];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'listRedirects');
+
+        return $this->realRequest('/site?action=GetRedirectList', ['sitename' => $siteName]);
+    }
+
+    /** Read the site's rewrite (URL rules) configuration. */
+    /** @return array<string, mixed> */
+    public function getRewriteRules(string $siteName): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'data' => ''];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'getRewriteRules');
+
+        return $this->realRequest('/site?action=GetRewriteList', ['sitename' => $siteName]);
+    }
+
+    /** @return array<string, mixed> */
+    public function setRewriteRules(string $path, string $content): array
+    {
+        return $this->dryRunOr('setRewriteRules', [
+            'path'     => $path,
+            'data'     => $content,
+            'encoding' => 'utf-8',
+        ], '/files?action=SaveFileBody');
+    }
+
+    // ── Traffic and resource statistics ─────────────────────────────────────
+
+    /** @return array<string, mixed> */
+    public function getTrafficStats(string $siteName, int $days = 30): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'data' => []];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'getTrafficStats');
+
+        return $this->realRequest('/site?action=GetSiteLogsTraffic', [
+            'siteName' => $siteName,
+            'days'     => $days,
+        ]);
+    }
+
+    /**
+     * Network/CPU/memory time series for the server dashboard.
+     *
+     * @return array<string, mixed>
+     */
+    public function getServerLoadHistory(int $hours = 24): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'data' => []];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'getServerLoadHistory');
+
+        return $this->realRequest('/ajax?action=GetCpuIo', ['hours' => $hours]);
+    }
+
+    // ── Credentials ─────────────────────────────────────────────────────────
+
+    /** @return array<string, mixed> */
+    public function setFtpPassword(string $username, string $password): array
+    {
+        return $this->dryRunOr('setFtpPassword', [
+            'username' => $username,
+            'password' => $password,
+        ], '/ftp?action=SetUserPassword');
+    }
+
+    /** @return array<string, mixed> */
+    public function setDatabasePassword(string $databaseName, string $password): array
+    {
+        return $this->dryRunOr('setDatabasePassword', [
+            'name'     => $databaseName,
+            'password' => $password,
+        ], '/database?action=ResDatabasePassword');
+    }
+
+    /** Enable/disable an FTP account without deleting it. */
+    /** @return array<string, mixed> */
+    public function toggleFtpAccount(int $ftpId, bool $enabled): array
+    {
+        return $this->dryRunOr('toggleFtpAccount', [
+            'id'     => $ftpId,
+            'status' => $enabled ? 1 : 0,
+        ], '/ftp?action=SetStatus');
+    }
+
+    // ── SSL automation ──────────────────────────────────────────────────────
+
+    /** Request/renew a Let's Encrypt certificate for the site's domains. */
+    /**
+     * @param  list<string>  $domains
+     * @return array<string, mixed>
+     */
+    public function issueLetsEncrypt(string $siteName, array $domains, string $email): array
+    {
+        return $this->dryRunOr('issueLetsEncrypt', [
+            'domains'  => json_encode($domains),
+            'siteName' => $siteName,
+            'email'    => $email,
+            'auth_type' => 'http',
+        ], '/acme?action=apply_cert_api');
+    }
+
+    /** Force HTTPS (HTTP → HTTPS redirect) on a site. */
+    /** @return array<string, mixed> */
+    public function setForceHttps(string $siteName, bool $enabled): array
+    {
+        return $this->dryRunOr('setForceHttps', [
+            'siteName' => $siteName,
+        ], $enabled ? '/site?action=HttpToHttps' : '/site?action=CloseToHttps');
+    }
+
+    // ── Firewall ────────────────────────────────────────────────────────────
+
+    /** @return array<string, mixed> */
+    public function listFirewallRules(): array
+    {
+        if ($this->isDryRun($this->setting)) {
+            return ['dry_run' => true, 'data' => []];
+        }
+
+        $this->assertReadyForReadCall(self::REQUIRED, 'listFirewallRules');
+
+        return $this->realRequest('/safe?action=GetFireWallList', ['limit' => 100, 'p' => 1]);
+    }
+
+    /** @return array<string, mixed> */
+    public function addFirewallRule(string $port, string $protocol = 'tcp', string $note = ''): array
+    {
+        return $this->dryRunOr('addFirewallRule', [
+            'port'  => $port,
+            'type'  => $protocol,
+            'ps'    => $note,
+        ], '/safe?action=AddDropAddress');
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteFirewallRule(int $ruleId, string $port): array
+    {
+        return $this->dryRunOr('deleteFirewallRule', [
+            'id'   => $ruleId,
+            'port' => $port,
+        ], '/safe?action=DelDropAddress');
+    }
+
+    // ── Site lifecycle extras ───────────────────────────────────────────────
+
+    /** Change the document root of a site. */
+    /** @return array<string, mixed> */
+    public function setSiteDirectory(int $siteId, string $path): array
+    {
+        return $this->dryRunOr('setSiteDirectory', [
+            'id'   => $siteId,
+            'path' => $path,
+        ], '/site?action=SetPath');
+    }
+
+    /** Toggle the site's access log on/off. */
+    /** @return array<string, mixed> */
+    public function setSiteLogging(string $siteName, bool $enabled): array
+    {
+        return $this->dryRunOr('setSiteLogging', [
+            'siteName' => $siteName,
+            'status'   => $enabled ? 'open' : 'close',
+        ], '/site?action=logsOpen');
+    }
+
     /**
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
