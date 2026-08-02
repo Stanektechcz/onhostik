@@ -94,9 +94,9 @@ return [
             'fields'   => ['base_url', 'api_key'],
         ],
         'cloudflare' => [
-            'label'    => 'Cloudflare (DNS/CDN) — placeholder',
+            'label'    => 'Cloudflare (DNS/CDN)',
             'category' => 'dns',
-            'fields'   => ['api_token'],
+            'fields'   => ['api_token', 'zone_id'],
         ],
         'sitepro' => [
             'label'    => 'Site.pro website builder — placeholder',
@@ -126,8 +126,9 @@ return [
     | admin UI is never enough to let the platform touch real backends.
     */
     'real_write_gates' => [
-        'aapanel' => env('AAPANEL_ALLOW_REAL_WRITES', false),
-        'wedos'   => env('WAPI_ALLOW_REAL_WRITES', false),
-        'ai'      => env('AI_ALLOW_REAL_CALLS', false),
+        'aapanel'    => env('AAPANEL_ALLOW_REAL_WRITES', false),
+        'wedos'      => env('WAPI_ALLOW_REAL_WRITES', false),
+        'ai'         => env('AI_ALLOW_REAL_CALLS', false),
+        'cloudflare' => env('CLOUDFLARE_ALLOW_REAL_WRITES', false),
     ],
 ];

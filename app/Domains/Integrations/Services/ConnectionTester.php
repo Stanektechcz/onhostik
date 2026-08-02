@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Domains\Integrations\Services;
 
 use App\Domains\Integrations\Clients\AapanelClient;
+use App\Domains\Integrations\Clients\CloudflareClient;
 use App\Domains\Integrations\Clients\ProxmoxClient;
 use App\Domains\Integrations\Clients\PterodactylClient;
 use App\Domains\Integrations\Clients\WedosWapiClient;
@@ -60,6 +61,7 @@ final class ConnectionTester
             'wedos'       => (new WedosWapiClient($setting))->connectionTest(),
             'pterodactyl' => (new PterodactylClient($setting))->connectionTest(),
             'proxmox'     => (new ProxmoxClient($setting))->connectionTest(),
+            'cloudflare'  => (new CloudflareClient($setting))->connectionTest(),
             default       => null,
         };
 

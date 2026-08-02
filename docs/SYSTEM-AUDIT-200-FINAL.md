@@ -20,9 +20,9 @@ Každý bod **ověřený proti kódu** (grep + testy), ne dopředně. Nahrazuje
 
 | Klasifikace | Počet | Podíl |
 |---|---|---|
-| HOTOVO | **166** | 83 % |
+| HOTOVO | **167** | 83 % |
 | CHYBÍ | **4** | 2 % |
-| EXTERNÍ | **18** | 9 % |
+| EXTERNÍ | **17** | 9 % |
 | INFRA | **12** | 6 % |
 | **Celkem** | **200** | 100 % |
 
@@ -198,7 +198,7 @@ Zbytek zbývající práce je **externí** (reálné klíče) a **infra** (serve
 | 114 | Reálné AI volání gate | EXTERNÍ | `AI_ALLOW_REAL_CALLS=false` |
 | 115 | Uptime Kuma | EXTERNÍ | placeholder |
 | 116 | n8n automatizace | EXTERNÍ | placeholder |
-| 117 | Cloudflare DNS/CDN | EXTERNÍ | placeholder |
+| 117 | **Cloudflare DNS/CDN** | HOTOVO | `CloudflareClient` (mock-gated), token v administraci |
 | 118 | Sentry error tracking | EXTERNÍ | scaffold bez DSN |
 
 ## G. Notifikace a komunikace (119–132)
@@ -327,12 +327,13 @@ dokončit ani ověřit bez externího prostředí; žádná není blokátor:
 
 1. **Reálné Stripe/GoPay produkční toky** — brány čtou credentials, ale 3-D Secure návraty jsou vedle Comgate na placeholder úrovni. *(Vyžaduje sandbox bran.)*
 2. **Mailbox — autoresponder / přesměrování** — schránky mají create/delete/quota, ne pravidla. *(Vyžaduje reálné aaPanel mail API.)*
-3. **Cloudflare / Uptime Kuma / n8n klienti** — v katalogu placeholder; reálné klienty neimplementované. *(Bez živé služby netestovatelné.)*
+3. **Uptime Kuma / n8n klienti** — v katalogu placeholder; reálné klienty neimplementované. *(Bez živé služby netestovatelné.)*
 4. **Web push — grafické ikony** — SW odkazuje `/panel/svg/icon-192.png`; dodat produkční brand ikony. *(Design asset.)*
 
 **Doplněno od finálního auditu:**
 - *Sub-účty — jemnější role* → HOTOVO: přidána role **Účetní** (member + fakturace, ne mazání účtu/správa členů); „technik" = běžný člen.
 - *GraphQL perzistentní dotazy* → HOTOVO: Apollo APQ (hash lookup + registrace + validace) v `GraphQLController`.
+- *Cloudflare klient* → HOTOVO: `CloudflareClient` (DNS records, mock-gated jako aaPanel, credentials z vaultu, otestováno přes `Http::fake`, napojeno do `ConnectionTester`). Reálný token je EXTERNÍ.
 
 ## Externí / produkční blokátory (EXTERNÍ) — 18
 
