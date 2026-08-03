@@ -97,6 +97,8 @@ class ServiceController extends Controller
             'myReview' => \App\Models\ServiceReview::where('service_id', $service->id)
                 ->where('customer_id', $service->customer_id)
                 ->first(),
+            // Git deployment: the repository connected to this service, if any.
+            'gitRepository' => \App\Domains\Provisioning\Models\ServiceGitRepository::where('service_id', $service->id)->first(),
             // Email hosting: mailboxes for a webhosting service (self-service).
             'mailboxes' => $service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::AAPanel
                 ? app(\App\Domains\Provisioning\Services\WebhostingConfigService::class)->forService($service)['mailboxes']

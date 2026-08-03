@@ -44,7 +44,9 @@ it('does not grow the hardcoded-Czech debt in Blade templates', function (): voi
     // tiers, API token expiry. Same Czech-first style as the rest of the app.
     // Baseline raised 4272 → 4287 (2026-08-02): admin screen for curated chat
     // answers (knowledge base editable without a deploy).
-    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4287);
+    // Baseline raised 4287 → 4299 (2026-08-03): git deployment card on the
+    // service detail — repository, branch, webhook URL and deploy history.
+    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4299);
 });
 
 it('keeps newly added shared components translatable', function (): void {

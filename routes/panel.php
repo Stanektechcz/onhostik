@@ -94,6 +94,16 @@ Route::middleware(['auth', 'require-customer-2fa', 'resolve-member-customer', 'r
         Route::delete('/pozvanky/{invitation}', [Panel\CustomerMemberController::class, 'revokeInvitation'])->name('invitations.revoke');
     });
 
+    // Git deployment — connect a repository, deploy on demand, auto-deploy on push.
+    Route::prefix('/sluzby/{service}/git')->name('services.git.')->group(function (): void {
+        Route::post('/',        [Panel\ServiceGitController::class, 'store'])->name('store');
+        // Deploys run shell commands on the node — throttled so a stuck button
+        // can't queue dozens of concurrent checkouts.
+        Route::post('/nasadit', [Panel\ServiceGitController::class, 'deploy'])->middleware('throttle:10,1')->name('deploy');
+        Route::post('/token',   [Panel\ServiceGitController::class, 'rotateToken'])->name('rotate-token');
+        Route::delete('/',      [Panel\ServiceGitController::class, 'destroy'])->name('destroy');
+    });
+
     Route::get('/sluzby/{service}/waf', [Panel\WafController::class, 'index'])->name('waf.index');
     Route::post('/sluzby/{service}/waf', [Panel\WafController::class, 'store'])->name('waf.store');
     Route::delete('/sluzby/{service}/waf/{rule}', [Panel\WafController::class, 'destroy'])->name('waf.destroy');

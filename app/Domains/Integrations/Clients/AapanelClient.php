@@ -765,6 +765,42 @@ final class AapanelClient
         ], '/site?action=logsOpen');
     }
 
+    // ── Shell execution (git deployment) ────────────────────────────────────
+
+    /**
+     * Run a shell command on the panel host.
+     *
+     * DANGEROUS BY NATURE — this is the one call that can do anything on the
+     * server, so it is deliberately NOT a general-purpose helper: callers must
+     * build the command from validated, escaped parts (see GitDeployService).
+     * Never interpolate user input into $command without escapeshellarg().
+     *
+     * Passes through the same five-gate refusal as every other write.
+     *
+     * @return array<string, mixed>
+     */
+    public function runShellCommand(string $command, int $timeoutSeconds = 120): array
+    {
+        return $this->dryRunOr('runShellCommand', [
+            'shell'   => $command,
+            'timeout' => $timeoutSeconds,
+        ], '/files?action=ExecShell');
+    }
+
+    /**
+     * Generate an SSH deploy keypair on the panel host and return the public
+     * half, so a private repository can be cloned without a password.
+     *
+     * @return array<string, mixed>
+     */
+    public function generateDeployKey(string $keyName): array
+    {
+        return $this->dryRunOr('generateDeployKey', [
+            'name' => $keyName,
+            'type' => 'ed25519',
+        ], '/ssh?action=CreateKey');
+    }
+
     /**
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>

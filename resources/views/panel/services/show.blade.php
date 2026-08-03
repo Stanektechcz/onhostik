@@ -716,6 +716,132 @@
                     </x-panel.card>
                 @endif
 
+                {{-- Git deployment — connect a repository and deploy from it,
+                     the equivalent of aaPanel's own git feature. Webhosting only. --}}
+                @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::AAPanel)
+                    <x-panel.card title="Nasazení z Gitu">
+                        @if($gitRepository !== null)
+                            <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+                                <div>
+                                    <div class="f-w-600">{{ $gitRepository->shortName() }}</div>
+                                    <div class="f-12 f-light">
+                                        Větev <code>{{ $gitRepository->branch }}</code>
+                                        @if($gitRepository->deploy_path)
+                                            · cesta <code>{{ $gitRepository->deploy_path }}</code>
+                                        @endif
+                                    </div>
+                                </div>
+                                <span class="badge badge-light-{{ $gitRepository->statusColor() }}">
+                                    {{ $gitRepository->statusLabel() }}
+                                </span>
+                            </div>
+
+                            @if($gitRepository->last_deployed_at)
+                                <p class="f-12 f-light mb-2">
+                                    Naposledy nasazeno {{ $gitRepository->last_deployed_at->diffForHumans() }}
+                                    @if($gitRepository->last_commit) · commit <code>{{ $gitRepository->last_commit }}</code> @endif
+                                </p>
+                            @endif
+
+                            @if($gitRepository->last_error)
+                                <div class="alert alert-light-danger f-12" role="alert">
+                                    {{ $gitRepository->last_error }}
+                                </div>
+                            @endif
+
+                            <div class="flex gap-2 flex-wrap mb-3">
+                                <form method="POST" action="{{ route('panel.services.git.deploy', $service) }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-primary btn-sm text-white">
+                                        <i data-feather="download-cloud" class="me-1" style="width:14px;height:14px;"></i>
+                                        Nasadit nyní
+                                    </button>
+                                </form>
+                                <form method="POST" action="{{ route('panel.services.git.destroy', $service) }}"
+                                      data-confirm="Odpojit repozitář? Soubory na webu zůstanou beze změny.">
+                                    @csrf @method('DELETE')
+                                    <button type="submit" class="btn btn-light btn-sm">Odpojit</button>
+                                </form>
+                            </div>
+
+                            @if($gitRepository->auto_deploy)
+                                <div class="mb-2">
+                                    <label class="form-label f-12">Webhook URL (vložte u poskytovatele)</label>
+                                    <input type="text" class="form-control form-control-sm font-monospace" readonly
+                                           value="{{ route('webhooks.git', $gitRepository->webhook_token) }}"
+                                           onfocus="this.select()">
+                                    <div class="f-11 f-light mt-1">
+                                        Nasadí se jen push do větve <code>{{ $gitRepository->branch }}</code>.
+                                    </div>
+                                </div>
+                                <form method="POST" action="{{ route('panel.services.git.rotate-token', $service) }}"
+                                      data-confirm="Obnovit URL? Stará přestane fungovat.">
+                                    @csrf
+                                    <button type="submit" class="btn btn-light btn-xs">Obnovit webhook URL</button>
+                                </form>
+                            @endif
+
+                            @if($gitRepository->last_output)
+                                <details class="mt-3">
+                                    <summary class="f-12">Výstup posledního nasazení</summary>
+                                    <pre class="f-11 mt-2 mb-0">{{ Str::limit($gitRepository->last_output, 2000) }}</pre>
+                                </details>
+                            @endif
+                        @else
+                            <p class="f-m-light mb-3">
+                                Připojte git repozitář a nasazujte web přímo z něj — ručně tlačítkem,
+                                nebo automaticky při každém pushi.
+                            </p>
+                        @endif
+
+                        <hr>
+                        <form method="POST" action="{{ route('panel.services.git.store', $service) }}">
+                            @csrf
+                            <div class="grid grid-cols-12 gap-2 mb-2">
+                                <div class="col-span-12 md:col-span-8">
+                                    <label class="form-label f-12">Adresa repozitáře</label>
+                                    <input type="text" name="repository_url"
+                                           class="form-control form-control-sm @error('repository_url') is-invalid @enderror"
+                                           value="{{ old('repository_url', $gitRepository->repository_url ?? '') }}"
+                                           placeholder="https://github.com/uzivatel/projekt.git" required>
+                                    @error('repository_url')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                                <div class="col-span-12 md:col-span-4">
+                                    <label class="form-label f-12">Větev</label>
+                                    <input type="text" name="branch" class="form-control form-control-sm"
+                                           value="{{ old('branch', $gitRepository->branch ?? 'main') }}" required>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-12 gap-2 mb-2">
+                                <div class="col-span-12 md:col-span-6">
+                                    <label class="form-label f-12">Podsložka (nepovinné)</label>
+                                    <input type="text" name="deploy_path" class="form-control form-control-sm"
+                                           value="{{ old('deploy_path', $gitRepository->deploy_path ?? '') }}"
+                                           placeholder="např. public">
+                                </div>
+                                <div class="col-span-12 md:col-span-6">
+                                    <label class="form-label f-12">Příkazy po nasazení</label>
+                                    <textarea name="post_deploy_commands" class="form-control form-control-sm" rows="2"
+                                              placeholder="composer install --no-dev">{{ old('post_deploy_commands', $gitRepository->post_deploy_commands ?? '') }}</textarea>
+                                    <div class="f-11 f-light mt-1">
+                                        Jeden příkaz na řádek. Povoleno: composer, npm, yarn, pnpm, php, node, bun, make.
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" name="auto_deploy" value="1" id="git-auto"
+                                       @checked(old('auto_deploy', $gitRepository->auto_deploy ?? false))>
+                                <label class="form-check-label f-12" for="git-auto">
+                                    Automaticky nasadit při pushi (vygeneruje webhook URL)
+                                </label>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-sm text-white">
+                                {{ $gitRepository !== null ? 'Uložit nastavení' : 'Připojit repozitář' }}
+                            </button>
+                        </form>
+                    </x-panel.card>
+                @endif
+
                 {{-- Phase 274: planned maintenance affecting this service --}}
                 @if($maintenanceWindows->isNotEmpty())
                     <x-panel.card title="Plánovaná údržba">

@@ -81,6 +81,12 @@ Route::post('/webhooks/comgate', ComgateWebhookController::class)->name('webhook
 Route::post('/webhooks/stripe',  StripeWebhookController::class)->name('webhooks.stripe');
 Route::post('/webhooks/gopay',   GopayWebhookController::class)->name('webhooks.gopay');
 
+// Git auto-deploy: GitHub/GitLab/Bitbucket push callback. The token in the URL
+// is the credential; an unknown token gets the same 404 as a missing repo.
+Route::post('/webhooks/git/{token}', \App\Http\Controllers\Webhook\GitPushWebhookController::class)
+    ->middleware('throttle:30,1')
+    ->name('webhooks.git');
+
 // Generic inbound webhook bus — source is matched against webhook_endpoints table
 Route::post('/webhook/{source}', [InboundWebhookController::class, 'receive'])->name('webhooks.inbound');
 
