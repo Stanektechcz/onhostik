@@ -38,6 +38,64 @@
             </div>
         </div>
 
+        <div class="grid grid-cols-12 card-gap">
+            {{-- Credit that will be forfeited unless spent. The reminder e-mail
+                 already existed; the page it points at did not show this. --}}
+            @if($expiring->isNotEmpty())
+                <div class="col-span-6 md:col-span-12">
+                    <x-panel.card :title="__('panel.billing.expiring_title')" :subtitle="__('panel.billing.expiring_hint')">
+                        <x-panel.data-table :headers="[
+                            __('panel.billing.amount'),
+                            __('panel.billing.expiring_on'),
+                        ]">
+                            @foreach($expiring as $deposit)
+                                <tr>
+                                    <td><x-panel.money :money="$deposit->amount" /></td>
+                                    <td>
+                                        {{ $deposit->expires_at?->format('d.m.Y') }}
+                                        @if($deposit->expires_at?->isBefore(now()->addDays(30)))
+                                            <span class="badge badge-light-warning f-10">{{ __('panel.billing.expiring_soon') }}</span>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </x-panel.data-table>
+                    </x-panel.card>
+                </div>
+            @endif
+
+            <div class="col-span-{{ $expiring->isNotEmpty() ? '6' : '12' }} md:col-span-12">
+                <x-panel.card :title="__('panel.billing.auto_topup_title')">
+                    @if($autoTopup !== null && ($autoTopup['enabled'] ?? false))
+                        <p class="mb-2">
+                            {{ __('panel.billing.auto_topup_on', [
+                                'threshold' => \App\Domains\Shared\Support\MoneyFormatter::format(
+                                    \Brick\Money\Money::ofMinor((int) ($autoTopup['threshold_minor'] ?? 0), $balance->getCurrency()->getCurrencyCode())
+                                ),
+                                'amount' => \App\Domains\Shared\Support\MoneyFormatter::format(
+                                    \Brick\Money\Money::ofMinor((int) ($autoTopup['topup_minor'] ?? 0), $balance->getCurrency()->getCurrencyCode())
+                                ),
+                            ]) }}
+                        </p>
+                        @if($defaultCard !== null)
+                            <p class="f-12 f-light mb-3">
+                                {{ __('panel.billing.auto_topup_card', ['card' => '•••• ' . $defaultCard->last4]) }}
+                            </p>
+                        @else
+                            <div class="alert alert-light-warning f-12" role="alert">
+                                {{ __('panel.billing.auto_topup_no_card') }}
+                            </div>
+                        @endif
+                    @else
+                        <p class="f-m-light mb-3">{{ __('panel.billing.auto_topup_off') }}</p>
+                    @endif
+                    <a href="{{ route('panel.billing.auto-topup.show') }}" class="btn btn-light btn-sm">
+                        {{ __('panel.billing.auto_topup_manage') }}
+                    </a>
+                </x-panel.card>
+            </div>
+        </div>
+
         <x-panel.card :title="__('panel.billing.history')">
             @if($history->isEmpty())
                 <div class="text-center py-4">

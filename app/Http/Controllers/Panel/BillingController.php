@@ -99,9 +99,31 @@ class BillingController extends Controller
     {
         $customer = $this->customer($request);
 
+        /*
+         | Deposits that carry an expiry date and haven't been expired yet.
+         | Customers were told about this by e-mail but the page itself never
+         | showed it, so credit could silently evaporate between two visits.
+         */
+        $expiring = \App\Domains\Billing\Models\CreditTransaction::query()
+            ->where('customer_id', $customer->id)
+            ->where('type', \App\Domains\Billing\Enums\CreditTransactionType::Deposit)
+            ->whereNotNull('expires_at')
+            ->where('expires_at', '>', now())
+            ->whereDoesntHave('expiryDeductions')
+            ->orderBy('expires_at')
+            ->get();
+
         return view('panel.billing.credits', [
-            'balance' => $ledger->getBalance($customer),
-            'history' => $ledger->getHistory($customer),
+            'balance'      => $ledger->getBalance($customer),
+            'history'      => $ledger->getHistory($customer),
+            'expiring'     => $expiring,
+            // Auto top-up lives on its own page; surfacing its state here is
+            // what makes it discoverable at all.
+            'autoTopup'    => is_array($customer->credit_auto_topup) ? $customer->credit_auto_topup : null,
+            'defaultCard'  => \App\Models\SavedPaymentMethod::query()
+                ->where('customer_id', $customer->id)
+                ->where('is_default', true)
+                ->first(),
         ]);
     }
 

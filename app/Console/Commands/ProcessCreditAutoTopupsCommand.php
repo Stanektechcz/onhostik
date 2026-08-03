@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Domains\Billing\Actions\AutoChargeSavedMethodAction;
 use App\Domains\Billing\Actions\CreateCreditTopUpInvoiceAction;
 use App\Domains\Billing\Models\Invoice;
 use App\Domains\Billing\Services\CreditLedger;
@@ -17,13 +18,17 @@ class ProcessCreditAutoTopupsCommand extends Command
     protected $signature   = 'billing:process-auto-topups';
     protected $description = 'Issue topup invoices for customers whose credit balance is below their configured threshold.';
 
-    public function handle(CreditLedger $ledger, CreateCreditTopUpInvoiceAction $action): int
-    {
+    public function handle(
+        CreditLedger $ledger,
+        CreateCreditTopUpInvoiceAction $action,
+        AutoChargeSavedMethodAction $autoCharge,
+    ): int {
         $customers = Customer::query()
             ->whereNotNull('credit_auto_topup')
             ->get();
 
         $triggered = 0;
+        $charged   = 0;
         $skipped   = 0;
 
         foreach ($customers as $customer) {
@@ -66,16 +71,31 @@ class ProcessCreditAutoTopupsCommand extends Command
             }
 
             try {
-                $amount = Money::ofMinor($topupMinor, $currency);
-                $action->execute($customer, $amount);
+                $amount  = Money::ofMinor($topupMinor, $currency);
+                $invoice = $action->execute($customer, $amount);
                 $triggered++;
-                $this->line("Topup invoice issued for customer #{$customer->id}");
+
+                /*
+                 | Issuing the invoice was only half the job: a customer who
+                 | asked for automatic top-up did not ask for an e-mail telling
+                 | them to go and pay. Try their saved card — the action itself
+                 | is opt-in (default method only) and declines honestly when no
+                 | merchant-initiated API is wired, so nothing is ever marked
+                 | paid on a charge that did not happen.
+                 */
+                $outcome = $autoCharge->execute($invoice);
+
+                if ($outcome === 'charged') {
+                    $charged++;
+                }
+
+                $this->line("Topup invoice issued for customer #{$customer->id} (charge: {$outcome})");
             } catch (Throwable $e) {
                 $this->warn("Failed for customer #{$customer->id}: " . $e->getMessage());
             }
         }
 
-        $this->info("Done — {$triggered} invoices issued, {$skipped} skipped.");
+        $this->info("Done — {$triggered} invoices issued, {$charged} charged automatically, {$skipped} skipped.");
 
         return self::SUCCESS;
     }
