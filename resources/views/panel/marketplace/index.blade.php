@@ -66,18 +66,34 @@
                             <span class="badge badge-light-success f-10">Zdarma</span>
                         @endif
 
+                        @if ($app->docs_url)
+                            <a href="{{ $app->docs_url }}" target="_blank" rel="noopener noreferrer"
+                               class="f-11 font-primary">Dokumentace</a>
+                        @endif
+
                         @if ($isActive)
-                            <span class="badge badge-light-success f-11">
-                                <svg data-feather="check-circle" style="width:11px;height:11px" class="me-1"></svg>
-                                Nainstalováno
-                            </span>
+                            {{-- The badge reports the real state: an install that only ran as
+                                 a dry run has not put anything on the server yet. --}}
+                            @if ($status === 'installed')
+                                <span class="badge badge-light-success f-11">
+                                    <svg data-feather="check-circle" style="width:11px;height:11px" class="me-1"></svg>
+                                    Nainstalováno
+                                </span>
+                            @else
+                                <span class="badge badge-light-warning f-11">
+                                    <svg data-feather="clock" style="width:11px;height:11px" class="me-1"></svg>
+                                    Čeká na dokončení
+                                </span>
+                            @endif
                             <form method="POST" action="{{ route('panel.marketplace.remove', [$service, $app]) }}"
-                                  data-confirm="Odinstalovat {{ $app->name }}?">
+                                  data-confirm="Odinstalovat {{ $app->name }}? Soubory aplikace budou smazány.">
                                 @csrf @method('DELETE')
                                 <button type="submit" class="btn btn-outline-danger btn-xs w-full">
                                     Odinstalovat
                                 </button>
                             </form>
+                        @elseif (! $app->isInstallable())
+                            <span class="badge badge-light-secondary f-11">Připravujeme</span>
                         @else
                             <form method="POST" action="{{ route('panel.marketplace.install', [$service, $app]) }}">
                                 @csrf

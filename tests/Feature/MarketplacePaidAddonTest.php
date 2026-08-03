@@ -34,6 +34,8 @@ function paidApp(int $priceHalere = 19900): MarketplaceApp
         'icon'         => 'package',
         'price_halere' => $priceHalere,
         'is_active'    => true,
+        // Installable: without a recipe the marketplace now refuses up front.
+        'install_url'  => 'https://example.com/premium-app.tar.gz',
     ]);
 }
 
@@ -48,7 +50,7 @@ it('a free app installs without charging credit', function (): void {
     $currency = $user->customer->preferred_currency->value;
     app(CreditLedger::class)->deposit($user->customer, Money::of(100, $currency), 'seed');
 
-    $free = MarketplaceApp::create(['slug' => 'free-app', 'name' => 'Free', 'category' => 'other', 'icon' => 'package', 'price_halere' => 0, 'is_active' => true]);
+    $free = MarketplaceApp::create(['slug' => 'free-app', 'name' => 'Free', 'category' => 'other', 'icon' => 'package', 'price_halere' => 0, 'is_active' => true, 'install_url' => 'https://example.com/free-app.tar.gz']);
 
     $this->actingAs($user)->post(route('panel.marketplace.install', [$service, $free]))->assertRedirect()->assertSessionHasNoErrors();
 
@@ -68,7 +70,9 @@ it('a paid app charges credit and records what was paid', function (): void {
 
     $installation = AppInstallation::where('service_id', $service->id)->where('marketplace_app_id', $app->id)->first();
 
-    expect($installation?->status)->toBe('installed')
+    // With provisioning in mock/dry-run mode nothing reaches the node, so the
+    // installation stays pending — but the charge is real either way.
+    expect($installation?->status)->toBe('pending')
         ->and($installation?->price_halere_paid)->toBe(19900)
         ->and(balanceMinor($user->customer))->toBe(50000 - 19900);
 });

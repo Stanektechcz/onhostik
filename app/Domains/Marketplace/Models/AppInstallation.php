@@ -17,6 +17,11 @@ use Illuminate\Support\Carbon;
  * @property string|null $version
  * @property int|null $price_halere_paid
  * @property Carbon|null $installed_at
+ * @property string|null $install_path
+ * @property string|null $database_name
+ * @property string|null $last_output
+ * @property string|null $last_error
+ * @property bool $was_dry_run
  */
 class AppInstallation extends Model
 {
@@ -27,6 +32,11 @@ class AppInstallation extends Model
         'version',
         'price_halere_paid',
         'installed_at',
+        'install_path',
+        'database_name',
+        'last_output',
+        'last_error',
+        'was_dry_run',
     ];
 
     protected function casts(): array
@@ -34,6 +44,7 @@ class AppInstallation extends Model
         return [
             'price_halere_paid' => 'integer',
             'installed_at'      => 'datetime',
+            'was_dry_run'       => 'boolean',
         ];
     }
 

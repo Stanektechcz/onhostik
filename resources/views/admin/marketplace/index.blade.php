@@ -142,6 +142,54 @@
                                 </div>
                             </div>
                         </div>
+                        {{-- Install recipe: without it the app is listed but not
+                             installable, so the customer sees "Připravujeme". --}}
+                        <hr>
+                        <p class="f-w-600 f-12 mb-2">Instalační recept</p>
+                        <div class="mb-2">
+                            <label class="form-label f-12">Adresa balíčku (.tar.gz / .zip)</label>
+                            <input type="text" name="install_url"
+                                   class="form-control form-control-sm @error('install_url') is-invalid @enderror"
+                                   value="{{ old('install_url') }}" placeholder="https://wordpress.org/latest.tar.gz">
+                            @error('install_url')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                        <div class="grid grid-cols-12 gap-2 mb-2">
+                            <div class="col-span-6">
+                                <label class="form-label f-12">Složka v archivu</label>
+                                <input type="text" name="archive_subdir" class="form-control form-control-sm"
+                                       value="{{ old('archive_subdir') }}" placeholder="wordpress">
+                            </div>
+                            <div class="col-span-6">
+                                <label class="form-label f-12">Podsložka webu</label>
+                                <input type="text" name="install_path" class="form-control form-control-sm"
+                                       value="{{ old('install_path') }}" placeholder="prázdné = kořen webu">
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label f-12">Příkazy po instalaci</label>
+                            <textarea name="post_install_commands" class="form-control form-control-sm" rows="2"
+                                      placeholder="composer install --no-dev">{{ old('post_install_commands') }}</textarea>
+                            <div class="f-11 f-light mt-1">
+                                Jeden na řádek. Povoleno: composer, npm, yarn, pnpm, php, node, bun, make, chmod, mv.
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-12 gap-2 mb-3">
+                            <div class="col-span-6">
+                                <label class="form-label f-12">Odkaz na dokumentaci</label>
+                                <input type="text" name="docs_url" class="form-control form-control-sm"
+                                       value="{{ old('docs_url') }}" placeholder="https://…">
+                            </div>
+                            <div class="col-span-6 flex items-end">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="requires_database" value="1"
+                                           id="requires_database" @checked(old('requires_database'))>
+                                    <label class="form-check-label f-12" for="requires_database">
+                                        Vyžaduje databázi
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
                         <button type="submit" class="btn btn-primary btn-sm">Přidat</button>
                     </form>
                 </div>
