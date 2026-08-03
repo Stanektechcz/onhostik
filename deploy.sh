@@ -92,7 +92,7 @@ confirm() {
 
     local prompt="$1"
     read -p "$prompt (ano/ne): " -r
-    [[ $REPLY =~ ^[Yy]$ ]] || return 1
+    [[ $REPLY =~ ^[AaYy]$ ]] || return 1
 }
 
 ################################################################################
