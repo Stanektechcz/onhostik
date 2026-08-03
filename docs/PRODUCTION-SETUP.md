@@ -117,6 +117,46 @@ AI_ALLOW_REAL_CALLS=true
 Reálné volání projde **jen když platí všech pět** podmínek: poskytovatel aktivní
 + mock vypnutý + dry-run vypnutý + brána v `.env` + vyplněné údaje.
 
+Dokud je brána zavřená, tyto funkce **nic nezapíší na server** a hlásí to
+otevřeně místo předstíraného úspěchu:
+
+| Funkce | Chování při zavřené bráně |
+|---|---|
+| Nasazení z Gitu | Úloha se uloží, ale klon/pull se neprovede — karta hlásí simulovaný režim |
+| One-click instalace | Instalace zůstane ve stavu „Čeká na dokončení", soubory se nenahrají |
+| Databáze / FTP / cron / SSL | Provisioning úloha skončí s `dry_run: true` |
+
+## 7b. One-click instalace a Git 📄
+
+**Marketplace — instalační recepty.** Aplikace se instaluje jen tehdy, když má
+vyplněnou adresu balíčku. Nastavíte v administraci: **Marketplace → Přidat
+aplikaci → Instalační recept** (adresa `.tar.gz`/`.zip`, složka v archivu,
+podsložka webu, příkazy po instalaci, „vyžaduje databázi"). Seeder
+`MarketplaceAppSeeder` už recepty pro WordPress, Joomla, Drupal, WooCommerce,
+PrestaShop, phpMyAdmin a Roundcube obsahuje — zkontrolujte, že odkazované verze
+jsou stále aktuální:
+
+```bash
+php artisan db:seed --class=MarketplaceAppSeeder --force
+```
+
+Povolené příkazy po instalaci: `composer`, `npm`, `yarn`, `pnpm`, `php`, `node`,
+`bun`, `make`, `chmod`, `mv`. Cokoli jiného recept odmítne už při uložení.
+
+**Git — automatické nasazení při pushi.** Zákazník si repozitář připojí sám
+v detailu služby. Pro auto-deploy vloží vygenerovanou webhook URL u poskytovatele:
+
+- GitHub: *Settings → Webhooks → Add webhook*, Content type `application/json` —
+  <https://docs.github.com/en/webhooks/using-webhooks/creating-webhooks>
+- GitLab: *Settings → Webhooks*, událost *Push events* —
+  <https://docs.gitlab.com/ee/user/project/integrations/webhooks.html>
+- Bitbucket: *Repository settings → Webhooks* —
+  <https://support.atlassian.com/bitbucket-cloud/docs/manage-webhooks/>
+
+Nasazuje se **jen push do nastavené větve**; ostatní se potvrdí a ignorují.
+Pro privátní repozitáře přes `git@…` musí mít uživatel aaPanelu nahraný deploy
+klíč — veřejné `https://` repozitáře fungují bez konfigurace.
+
 ## 8. Web push notifikace 🖥
 
 ```bash
@@ -199,6 +239,8 @@ Ruční průchod:
 | Odpovědi AI chatu | **administrace** `/admin/odpovedi-chatu` | podpora je upravuje sama |
 | Feature flags | **administrace** `/admin/feature-flags` | zapínání funkcí bez deploye |
 | Věrnostní odměny | **administrace** `/admin/vernostni-odmeny` | katalog, ne kód |
+| Instalační recepty marketplace | **administrace** `/admin/marketplace` | verze aplikací se mění častěji než deploy |
+| Slevové kódy | **administrace** `/admin/slevy` | limity i minimální hodnota objednávky se vynucují při uplatnění |
 | Klíče aplikace, brány, DSN | **`.env`** | infrastruktura, mění se s deployem |
 | Cron, Horizon, TLS, firewall | **server** | mimo aplikaci |
 
@@ -209,6 +251,14 @@ Ruční průchod:
   `mail_sys` (forwardy, auto-reply), jehož API se mezi verzemi liší.
 - **Stripe/GoPay** mají hotové napojení na credentials, ale plné produkční
   3-D Secure návratové toky jsou vedle Comgate na placeholder úrovni.
+- **Automatické dobíjení kreditu** vystaví fakturu a pokusí se ji strhnout
+  z uložené karty. Skutečné merchant-initiated stržení ale žádná z bran zatím
+  nemá napojené — v ostrém režimu se proto pokus **čistě odmítne** a faktura
+  zůstane k ruční úhradě. Nikdy se neoznačí jako zaplacená bez platby.
+- **Instalační recepty marketplace** ukazují na „latest" endpointy tam, kde je
+  projekt nabízí; u Joomly, Drupalu, PrestaShopu, phpMyAdminu a Roundcube je
+  verze v URL napevno — po vydání nové verze je potřeba recept aktualizovat
+  v administraci (jinak se instaluje starší, potenciálně nezáplatovaná verze).
 - **Uptime Kuma** nemá REST API (socket.io) — dedikovaný klient neexistuje;
   napojte přes `/api/metrics` nebo `/api/ready`.
 - **n8n** je pokryté obecným webhook systémem, samostatný klient není potřeba.
