@@ -99,9 +99,14 @@ class ServiceController extends Controller
                 ->first(),
             // Git deployment: the repository connected to this service, if any.
             'gitRepository' => \App\Domains\Provisioning\Models\ServiceGitRepository::where('service_id', $service->id)->first(),
-            // Email hosting: mailboxes for a webhosting service (self-service).
-            'mailboxes' => $service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::AAPanel
-                ? app(\App\Domains\Provisioning\Services\WebhostingConfigService::class)->forService($service)['mailboxes']
+            /*
+             | Full webhosting configuration. This was already being fetched for
+             | the mailbox section and everything else in it — databases, FTP,
+             | cron, SSL — was thrown away, so customers had to open a ticket for
+             | changes they could make themselves.
+             */
+            'webhosting' => $service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::AAPanel
+                ? app(\App\Domains\Provisioning\Services\WebhostingConfigService::class)->forService($service)
                 : null,
         ]);
     }

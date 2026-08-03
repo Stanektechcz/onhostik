@@ -716,6 +716,206 @@
                     </x-panel.card>
                 @endif
 
+                {{-- Complete webhosting configuration: databases, FTP, cron, SSL.
+                     Same actions the admin screen has, scoped to this service. --}}
+                @if($webhosting !== null && $webhosting['supported'])
+                    <x-panel.card title="Konfigurace webhostingu">
+                        @error('webhosting')<div class="alert alert-light-danger py-2 f-12 mb-2">{{ $message }}</div>@enderror
+
+                        @if($webhosting['dry_run'])
+                            <div class="alert alert-light-warning f-12" role="alert">
+                                Provisioning běží v simulovaném režimu — změny se zapíší do fronty, ale na server se neodešlou.
+                            </div>
+                        @endif
+
+                        {{-- Block form on purpose: an inline @php() here would be
+                             swallowed by Blade's raw-block regex, which pairs it
+                             with the @endphp further down the file. --}}
+                        @php
+                            $isActive = $service->status === \App\Domains\Provisioning\Enums\ServiceStatus::Active;
+                        @endphp
+
+                        {{-- SSL --}}
+                        <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+                            <div>
+                                <span class="f-w-600">SSL certifikát</span>
+                                @if($webhosting['ssl']['error'])
+                                    <span class="badge badge-light-secondary">Nelze zjistit</span>
+                                @elseif($webhosting['ssl']['active'])
+                                    <span class="badge badge-light-success">Aktivní</span>
+                                @else
+                                    <span class="badge badge-light-warning">Neaktivní</span>
+                                @endif
+                            </div>
+                            @if($isActive && ! $webhosting['ssl']['active'])
+                                <form method="POST" action="{{ route('panel.services.webhosting.store', $service) }}">
+                                    @csrf
+                                    <input type="hidden" name="action" value="issue_ssl">
+                                    <button type="submit" class="btn btn-primary btn-sm text-white"
+                                            data-confirm="Vydat SSL certifikát pro tento web?">
+                                        Vydat certifikát
+                                    </button>
+                                </form>
+                            @endif
+                        </div>
+                        <hr>
+
+                        {{-- Databases --}}
+                        <p class="f-w-600 f-14 mb-2">Databáze</p>
+                        @if($webhosting['databases']['error'])
+                            <div class="alert alert-light-danger f-12">Databáze nelze načíst: {{ $webhosting['databases']['error'] }}</div>
+                        @elseif(count($webhosting['databases']['items']) === 0)
+                            <p class="f-light f-12 mb-2">Zatím žádná databáze.</p>
+                        @else
+                            <x-panel.data-table :headers="['Název', 'Uživatel', '']">
+                                @foreach($webhosting['databases']['items'] as $db)
+                                    <tr>
+                                        <td class="f-w-500">{{ $db['name'] ?? '—' }}</td>
+                                        <td class="f-12 f-light">{{ $db['username'] ?? '—' }}</td>
+                                        <td class="text-right">
+                                            @if($isActive)
+                                                <form method="POST" action="{{ route('panel.services.webhosting.store', $service) }}"
+                                                      data-confirm="Smazat databázi {{ $db['name'] ?? '' }} i s jejím obsahem?">
+                                                    @csrf
+                                                    <input type="hidden" name="action" value="delete_database">
+                                                    <input type="hidden" name="name" value="{{ $db['name'] ?? '' }}">
+                                                    <button type="submit" class="btn btn-outline-danger btn-xs">Smazat</button>
+                                                </form>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </x-panel.data-table>
+                        @endif
+                        @if($isActive)
+                            <form method="POST" action="{{ route('panel.services.webhosting.store', $service) }}"
+                                  class="grid grid-cols-12 gap-2 items-end mb-3">
+                                @csrf
+                                <input type="hidden" name="action" value="create_database">
+                                <div class="col-span-12 md:col-span-5">
+                                    <label class="form-label f-12">Název databáze</label>
+                                    <input type="text" name="name" class="form-control form-control-sm" required maxlength="64">
+                                </div>
+                                <div class="col-span-12 md:col-span-5">
+                                    <label class="form-label f-12">Uživatel</label>
+                                    <input type="text" name="username" class="form-control form-control-sm" required maxlength="32">
+                                </div>
+                                <div class="col-span-12 md:col-span-2">
+                                    <button type="submit" class="btn btn-primary btn-sm w-full text-white">Vytvořit</button>
+                                </div>
+                            </form>
+                            <p class="f-light f-11 mb-3">Heslo databáze najdete po vytvoření v úloze provisioningu.</p>
+                        @endif
+                        <hr>
+
+                        {{-- FTP --}}
+                        <p class="f-w-600 f-14 mb-2">FTP účty</p>
+                        @if($webhosting['ftp']['error'])
+                            <div class="alert alert-light-danger f-12">FTP účty nelze načíst: {{ $webhosting['ftp']['error'] }}</div>
+                        @elseif(count($webhosting['ftp']['items']) === 0)
+                            <p class="f-light f-12 mb-2">Zatím žádný FTP účet.</p>
+                        @else
+                            <x-panel.data-table :headers="['Uživatel', 'Cesta', '']">
+                                @foreach($webhosting['ftp']['items'] as $ftp)
+                                    <tr>
+                                        <td class="f-w-500">{{ $ftp['name'] ?? $ftp['username'] ?? '—' }}</td>
+                                        <td class="f-12 f-light">{{ $ftp['path'] ?? '—' }}</td>
+                                        <td class="text-right">
+                                            @if($isActive)
+                                                <form method="POST" action="{{ route('panel.services.webhosting.store', $service) }}"
+                                                      data-confirm="Smazat FTP účet?">
+                                                    @csrf
+                                                    <input type="hidden" name="action" value="delete_ftp">
+                                                    <input type="hidden" name="username" value="{{ $ftp['name'] ?? $ftp['username'] ?? '' }}">
+                                                    <button type="submit" class="btn btn-outline-danger btn-xs">Smazat</button>
+                                                </form>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </x-panel.data-table>
+                        @endif
+                        @if($isActive)
+                            <form method="POST" action="{{ route('panel.services.webhosting.store', $service) }}"
+                                  class="grid grid-cols-12 gap-2 items-end mb-3">
+                                @csrf
+                                <input type="hidden" name="action" value="create_ftp">
+                                <div class="col-span-12 md:col-span-5">
+                                    <label class="form-label f-12">FTP uživatel</label>
+                                    <input type="text" name="username" class="form-control form-control-sm" required maxlength="32">
+                                </div>
+                                <div class="col-span-12 md:col-span-5">
+                                    <label class="form-label f-12">Podsložka (nepovinné)</label>
+                                    <input type="text" name="path" class="form-control form-control-sm" placeholder="prázdné = kořen webu">
+                                </div>
+                                <div class="col-span-12 md:col-span-2">
+                                    <button type="submit" class="btn btn-primary btn-sm w-full text-white">Vytvořit</button>
+                                </div>
+                            </form>
+                        @endif
+                        <hr>
+
+                        {{-- Cron --}}
+                        <p class="f-w-600 f-14 mb-2">Naplánované úlohy</p>
+                        @if($webhosting['cron']['error'])
+                            <div class="alert alert-light-danger f-12">Úlohy nelze načíst: {{ $webhosting['cron']['error'] }}</div>
+                        @elseif(count($webhosting['cron']['items']) === 0)
+                            <p class="f-light f-12 mb-2">Zatím žádná naplánovaná úloha.</p>
+                        @else
+                            <x-panel.data-table :headers="['Název', 'Kdy', '']">
+                                @foreach($webhosting['cron']['items'] as $cron)
+                                    <tr>
+                                        <td class="f-w-500">{{ $cron['name'] ?? '—' }}</td>
+                                        <td class="f-12 f-light">{{ $cron['type'] ?? '—' }}</td>
+                                        <td class="text-right">
+                                            @if($isActive && isset($cron['id']))
+                                                <form method="POST" action="{{ route('panel.services.webhosting.store', $service) }}"
+                                                      data-confirm="Smazat úlohu {{ $cron['name'] ?? '' }}?">
+                                                    @csrf
+                                                    <input type="hidden" name="action" value="delete_cron">
+                                                    <input type="hidden" name="cron_id" value="{{ $cron['id'] }}">
+                                                    <button type="submit" class="btn btn-outline-danger btn-xs">Smazat</button>
+                                                </form>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </x-panel.data-table>
+                        @endif
+                        @if($isActive)
+                            <form method="POST" action="{{ route('panel.services.webhosting.store', $service) }}"
+                                  class="grid grid-cols-12 gap-2 items-end">
+                                @csrf
+                                <input type="hidden" name="action" value="create_cron">
+                                <div class="col-span-12 md:col-span-3">
+                                    <label class="form-label f-12">Název</label>
+                                    <input type="text" name="name" class="form-control form-control-sm" required maxlength="64">
+                                </div>
+                                <div class="col-span-12 md:col-span-4">
+                                    <label class="form-label f-12">Příkaz</label>
+                                    <input type="text" name="command" class="form-control form-control-sm" required maxlength="500">
+                                </div>
+                                <div class="col-span-6 md:col-span-2">
+                                    <label class="form-label f-12">Interval</label>
+                                    <select name="type" class="form-select form-select-sm">
+                                        <option value="day">Denně</option>
+                                        <option value="hour">Hodinově</option>
+                                        <option value="week">Týdně</option>
+                                        <option value="month">Měsíčně</option>
+                                    </select>
+                                </div>
+                                <div class="col-span-3 md:col-span-1">
+                                    <label class="form-label f-12">Hod.</label>
+                                    <input type="number" name="hour" class="form-control form-control-sm" value="3" min="0" max="23">
+                                </div>
+                                <div class="col-span-3 md:col-span-2">
+                                    <button type="submit" class="btn btn-primary btn-sm w-full text-white">Přidat</button>
+                                </div>
+                            </form>
+                        @endif
+                    </x-panel.card>
+                @endif
+
                 {{-- Git deployment — connect a repository and deploy from it,
                      the equivalent of aaPanel's own git feature. Webhosting only. --}}
                 @if($service->provisioning_driver === \App\Domains\Provisioning\Enums\ProvisioningDriver::AAPanel)
@@ -1021,7 +1221,10 @@
                 @endif
 
                 {{-- Email hosting: mailbox self-service --}}
-                @if($mailboxes !== null)
+                @if($webhosting !== null && $webhosting["supported"])
+                    @php
+                        $mailboxes = $webhosting['mailboxes'];
+                    @endphp
                     <x-panel.card title="E-mailové schránky">
                         @if($mailboxes['error'])
                             <div class="alert alert-light-danger f-12 mb-3">Schránky nelze načíst: {{ $mailboxes['error'] }}</div>

@@ -94,6 +94,11 @@ Route::middleware(['auth', 'require-customer-2fa', 'resolve-member-customer', 'r
         Route::delete('/pozvanky/{invitation}', [Panel\CustomerMemberController::class, 'revokeInvitation'])->name('invitations.revoke');
     });
 
+    // Self-service webhosting config: databases, FTP, cron, SSL. Throttled —
+    // each request queues a provisioning job against the hosting node.
+    Route::post('/sluzby/{service}/webhosting', [Panel\ServiceWebhostingController::class, 'store'])
+        ->middleware('throttle:20,1')->name('services.webhosting.store');
+
     // Git deployment — connect a repository, deploy on demand, auto-deploy on push.
     Route::prefix('/sluzby/{service}/git')->name('services.git.')->group(function (): void {
         Route::post('/',        [Panel\ServiceGitController::class, 'store'])->name('store');

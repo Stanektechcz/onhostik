@@ -44,11 +44,12 @@ it('does not grow the hardcoded-Czech debt in Blade templates', function (): voi
     // tiers, API token expiry. Same Czech-first style as the rest of the app.
     // Baseline raised 4272 → 4287 (2026-08-02): admin screen for curated chat
     // answers (knowledge base editable without a deploy).
-    // Baseline raised 4287 → 4308 (2026-08-03): git deployment card on the
+    // Baseline raised 4287 → 4332 (2026-08-03): git deployment card on the
     // service detail (repository, branch, webhook URL, deploy history), honest
     // install-state labels in the marketplace — a dry run no longer renders as
-    // "Nainstalováno" — and the admin install-recipe form.
-    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4308);
+    // "Nainstalováno" — the admin install-recipe form, and the self-service
+    // webhosting configuration card (databases, FTP, cron, SSL).
+    expect(hardcodedCzechCount())->toBeLessThanOrEqual(4332);
 });
 
 it('keeps newly added shared components translatable', function (): void {
