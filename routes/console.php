@@ -93,6 +93,21 @@ Schedule::command(AutoPayInvoicesFromCreditCommand::class)
     ->withoutOverlapping()
     ->runInBackground();
 
+/*
+ | Top up customers whose balance fell below their configured threshold.
+ |
+ | Runs BEFORE the credit auto-pay above would be useful again tomorrow and
+ | after mark-overdue, so a customer who opted into automatic top-up gets the
+ | balance restored rather than watching services suspend over an empty wallet.
+ |
+ | This command existed but was never scheduled — auto top-up only ever ran if
+ | somebody invoked it by hand, which is to say it never ran.
+ */
+Schedule::command(\App\Console\Commands\ProcessCreditAutoTopupsCommand::class)
+    ->dailyAt('01:10')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // Suspend services whose invoice is overdue beyond the grace period
 // (billing.suspension_grace_days, default 7 days).
 Schedule::command(SuspendOverdueServicesCommand::class)
@@ -281,5 +296,68 @@ Schedule::command(\App\Console\Commands\ApplyDataRetentionCommand::class)
 // Auto-healing (opt-in): re-provision services that went MissingRemote.
 Schedule::command(\App\Console\Commands\HealMissingServicesCommand::class)
     ->hourly()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+/*
+|--------------------------------------------------------------------------
+| Previously unscheduled features (2026-08-03 audit)
+|--------------------------------------------------------------------------
+| Each of these commands existed, was tested, and had UI or notifications
+| built on top of it — but nothing ever invoked it. A scheduled announcement
+| never published, a drip sequence never sent, a monitor threshold never
+| opened an alert. Wiring them here is the difference between "implemented"
+| and "working".
+*/
+
+// Announcements with a scheduled_at time — otherwise scheduling one means
+// it silently never appears.
+Schedule::command(\App\Console\Commands\PublishScheduledAnnouncementsCommand::class)
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Drip e-mail sequences: send whatever is due. Frequent, because "due at
+// 09:00" should not mean "delivered at midnight".
+Schedule::command(\App\Console\Commands\ProcessDripSequencesCommand::class)
+    ->everyFifteenMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Monitor thresholds → open/resolve alerts. Runs just after monitoring:run-checks
+// so it evaluates fresh samples rather than the previous cycle's.
+Schedule::command(\App\Console\Commands\EvaluateMonitorAlertsCommand::class)
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Escalating overdue-invoice reminders (D+7 / D+14 / D+30). Complements
+// billing:send-overdue-reminders, which only sends the first nudge.
+Schedule::command(\App\Console\Commands\EscalateInvoiceRemindersCommand::class)
+    ->dailyAt('08:30')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Churn-risk scores + segment labels, feeding the CRM screens.
+Schedule::command(\App\Console\Commands\ComputeCustomerInsightsCommand::class)
+    ->dailyAt('02:30')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Notify account managers about customers below the health-score threshold —
+// after the insights above have been recomputed.
+Schedule::command(\App\Console\Commands\AlertCustomerRisksCommand::class)
+    ->dailyAt('08:45')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Admin digests.
+Schedule::command(\App\Console\Commands\SendAdminDailyDigestCommand::class)
+    ->dailyAt('07:00')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+Schedule::command(\App\Console\Commands\SendAdminWeeklyReportCommand::class)
+    ->weeklyOn(1, '07:30')
     ->withoutOverlapping()
     ->runInBackground();
