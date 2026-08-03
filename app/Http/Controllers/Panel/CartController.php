@@ -26,8 +26,9 @@ use InvalidArgumentException;
  */
 class CartController extends Controller
 {
-    private const SESSION_KEY = 'panel_cart';
-    private const MAX_QTY     = 20;
+    private const SESSION_KEY  = 'panel_cart';
+    private const DISCOUNT_KEY = 'panel_cart_discount';
+    private const MAX_QTY      = 20;
 
     public function index(Request $request): View
     {
@@ -36,7 +37,20 @@ class CartController extends Controller
 
         $subtotal = (int) $items->sum('subtotal');
         $vatRate  = app(\App\Domains\Billing\Services\VatResolver::class)->resolveRate($customer);
-        $tax      = (int) round($subtotal * $vatRate / 100);
+
+        /*
+         | The discount used to be typed into a box at checkout and applied
+         | invisibly, so the total the customer confirmed was not the total they
+         | were charged. It is now applied here, against the same validator the
+         | order uses, and re-checked on every page load — a code that stops
+         | being valid (quota ran out, cart dropped below the minimum) falls out
+         | of the cart instead of surviving to checkout.
+         */
+        $discount     = $this->resolveDiscount($customer, $subtotal);
+        $discountCode = $discount['code'];
+        $discountAmount = $discount['amount'];
+
+        $tax = (int) round(($subtotal - $discountAmount) * $vatRate / 100);
 
         // Recurring cost grouped by billing cycle (the shown price IS the
         // renewal price), so the customer sees what they pay each period.
@@ -49,7 +63,7 @@ class CartController extends Controller
             ->values();
 
         $creditBalance = app(CreditLedger::class)->getBalance($customer);
-        $total         = $subtotal + $tax;
+        $total         = $subtotal - $discountAmount + $tax;
 
         // C43: show the reseller their configured markup, if any.
         $resellerMarkup = 0.0;
@@ -66,6 +80,9 @@ class CartController extends Controller
             'vatRate'        => $vatRate,
             'tax'            => $tax,
             'total'          => $total,
+            'discountCode'   => $discountCode,
+            'discountAmount' => $discountAmount,
+            'discountError'  => $discount['error'],
             'recurring'      => $recurring,
             'currency'       => $customer->preferred_currency->value,
             'customer'       => $customer,
@@ -73,6 +90,63 @@ class CartController extends Controller
             'creditCovers'   => $creditBalance->getMinorAmount()->toInt() >= $total,
             'resellerMarkup' => $resellerMarkup,
         ]);
+    }
+
+    /** Apply a discount code to the cart so its effect is visible before ordering. */
+    public function applyDiscount(Request $request, \App\Domains\Billing\Services\PromoCodeService $promoCodes): RedirectResponse
+    {
+        $validated = $request->validate([
+            'discount_code' => ['required', 'string', 'max:50'],
+        ]);
+
+        $customer = $this->customer($request);
+        $subtotal = (int) $this->items($customer)->sum('subtotal');
+
+        $check = $promoCodes->validate($validated['discount_code'], $customer->id, $subtotal);
+
+        if (! $check['valid']) {
+            return back()->withErrors(['discount_code' => $check['reason'] ?? 'Kód je neplatný.']);
+        }
+
+        session([self::DISCOUNT_KEY => strtoupper(trim($validated['discount_code']))]);
+
+        return back()->with('status', 'Slevový kód byl uplatněn.');
+    }
+
+    public function removeDiscount(): RedirectResponse
+    {
+        session()->forget(self::DISCOUNT_KEY);
+
+        return back()->with('status', 'Slevový kód byl odebrán.');
+    }
+
+    /**
+     * Re-validate the stored code against the current cart. Returns the code
+     * only when it still applies, so a stale code can never reach the total.
+     *
+     * @return array{code: \App\Models\DiscountCode|null, amount: int, error: string|null}
+     */
+    private function resolveDiscount(Customer $customer, int $subtotal): array
+    {
+        $stored = session(self::DISCOUNT_KEY);
+
+        if (! is_string($stored) || $stored === '' || $subtotal <= 0) {
+            return ['code' => null, 'amount' => 0, 'error' => null];
+        }
+
+        $check = app(\App\Domains\Billing\Services\PromoCodeService::class)
+            ->validate($stored, $customer->id, $subtotal);
+
+        if (! $check['valid'] || $check['code'] === null) {
+            return ['code' => null, 'amount' => 0, 'error' => $check['reason'] ?? 'Kód je neplatný.'];
+        }
+
+        $amount = $check['code']
+            ->calculateDiscount(\Brick\Money\Money::ofMinor($subtotal, $customer->preferred_currency->value))
+            ->getMinorAmount()
+            ->toInt();
+
+        return ['code' => $check['code'], 'amount' => $amount, 'error' => null];
     }
 
     public function add(Request $request, int $plan): RedirectResponse
@@ -145,7 +219,7 @@ class CartController extends Controller
 
     public function clear(): RedirectResponse
     {
-        session()->forget(self::SESSION_KEY);
+        session()->forget([self::SESSION_KEY, self::DISCOUNT_KEY]);
 
         return redirect()->route('panel.cart.index')->with('status', 'Košík byl vyprázdněn.');
     }
@@ -228,7 +302,11 @@ class CartController extends Controller
                     ];
                 })->all(),
                 [
-                    'discount_code'       => $validated['discount_code'] ?? null,
+                    // The code applied in the cart is authoritative — it is what
+                    // the customer saw in the total they just confirmed.
+                    'discount_code'       => is_string(session(self::DISCOUNT_KEY))
+                        ? session(self::DISCOUNT_KEY)
+                        : ($validated['discount_code'] ?? null),
                     'markup_percent'      => $reseller ? (float) $reseller->markup_percent : 0.0,
                     // K146: individual per-plan prices take precedence over the
                     // blanket markup; the action resolves them from this id.
@@ -240,7 +318,7 @@ class CartController extends Controller
         }
 
         $invoice = $issueProforma->execute($order);
-        session()->forget(self::SESSION_KEY);
+        session()->forget([self::SESSION_KEY, self::DISCOUNT_KEY]);
 
         if (($validated['payment_method'] ?? null) === 'credit') {
             try {

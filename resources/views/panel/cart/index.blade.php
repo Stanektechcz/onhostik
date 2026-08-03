@@ -109,6 +109,13 @@
 
             {{-- Summary + checkout --}}
             <div class="col-span-4 xl:col-span-12">
+                {{-- Discount forms live outside the checkout form (HTML forbids
+                     nesting) and are wired to their fields via the form= attribute. --}}
+                <form method="POST" action="{{ route('panel.cart.discount.apply') }}" id="cart-discount-form">@csrf</form>
+                <form method="POST" action="{{ route('panel.cart.discount.remove') }}" id="cart-discount-remove-form">
+                    @csrf @method('DELETE')
+                </form>
+
                 <form method="POST" action="{{ route('panel.cart.checkout') }}" id="cart-checkout-form">
                     @csrf
 
@@ -153,6 +160,17 @@
                                     {{ \App\Domains\Shared\Support\MoneyFormatter::format(\Brick\Money\Money::ofMinor($subtotal, $currency)) }}
                                 </td>
                             </tr>
+                            @if($discountCode !== null)
+                                <tr>
+                                    <td class="f-light ps-0">
+                                        Sleva
+                                        <span class="badge badge-light-success f-10">{{ $discountCode->code }}</span>
+                                    </td>
+                                    <td class="text-right f-w-500 txt-success">
+                                        −{{ \App\Domains\Shared\Support\MoneyFormatter::format(\Brick\Money\Money::ofMinor($discountAmount, $currency)) }}
+                                    </td>
+                                </tr>
+                            @endif
                             <tr>
                                 <td class="f-light ps-0">DPH ({{ rtrim(rtrim(number_format($vatRate, 2, ',', ' '), '0'), ',') }} %)</td>
                                 <td class="text-right f-w-500">
@@ -180,15 +198,30 @@
 
                         <div class="mb-3">
                             <label class="form-label f-12" for="cart-discount">Slevový kód</label>
-                            <div class="input-group">
-                                <input type="text" name="discount_code" id="cart-discount" class="form-control form-control-sm uppercase"
-                                       placeholder="Nepovinné" maxlength="50">
-                                <button class="btn btn-outline-primary btn-sm" type="button" id="cart-discount-btn">Ověřit</button>
-                            </div>
-                            <div id="cart-discount-msg" class="f-11 mt-1"></div>
+                            @if($discountCode !== null)
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="f-w-600">{{ $discountCode->code }}</span>
+                                    <button type="submit" form="cart-discount-remove-form" class="btn btn-light btn-xs">
+                                        Odebrat
+                                    </button>
+                                </div>
+                            @else
+                                <div class="input-group">
+                                    <input type="text" name="discount_code" id="cart-discount" form="cart-discount-form"
+                                           class="form-control form-control-sm uppercase @error('discount_code') is-invalid @enderror"
+                                           placeholder="Nepovinné" maxlength="50" value="{{ old('discount_code') }}">
+                                    <button class="btn btn-outline-primary btn-sm" type="submit" form="cart-discount-form">
+                                        Uplatnit
+                                    </button>
+                                </div>
+                                @error('discount_code')<div class="text-danger f-11 mt-1">{{ $message }}</div>@enderror
+                                @if($discountError !== null)
+                                    <div class="text-danger f-11 mt-1">{{ $discountError }}</div>
+                                @endif
+                            @endif
                         </div>
 
-                        <p class="f-light f-11 mb-0">Konečná DPH je dle vašich fakturačních údajů; slevu zohledníme na zálohové faktuře.</p>
+                        <p class="f-light f-11 mb-0">Konečná DPH je dle vašich fakturačních údajů.</p>
                     </x-panel.card>
 
                     <x-panel.card title="Způsob platby">
@@ -299,28 +332,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     sync();
 
-    // Discount code — live AJAX validation (same endpoint as the wizard).
-    var dBtn = document.getElementById('cart-discount-btn'),
-        dInput = document.getElementById('cart-discount'),
-        dMsg = document.getElementById('cart-discount-msg');
-    if (dBtn && dInput) {
-        dBtn.addEventListener('click', function () {
-            var code = (dInput.value || '').trim().toUpperCase();
-            if (!code) { dMsg.innerHTML = ''; return; }
-            fetch('{{ route('panel.discount.validate') }}', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' },
-                body: JSON.stringify({ code: code })
-            }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
-            .then(function (res) {
-                if (res.ok && res.d.valid) {
-                    dMsg.innerHTML = '<span class="txt-success">✓ ' + (res.d.message || 'Kód je platný') + '</span>';
-                } else {
-                    dMsg.innerHTML = '<span class="text-danger">✗ ' + (res.d.message || 'Neplatný kód') + '</span>';
-                }
-            }).catch(function () { dMsg.innerHTML = '<span class="text-danger">Chyba ověření.</span>'; });
-        });
-    }
+    // The discount code is applied server-side now (it has to change the total),
+    // so the old check-only AJAX call is gone.
 });
 </script>
 @endpush

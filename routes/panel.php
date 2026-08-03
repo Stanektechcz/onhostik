@@ -139,6 +139,11 @@ Route::middleware(['auth', 'require-customer-2fa', 'resolve-member-customer', 'r
     Route::post('/kosik/pridat/{plan}', [Panel\CartController::class, 'add'])->name('cart.add');
     Route::patch('/kosik/mnozstvi/{plan}', [Panel\CartController::class, 'update'])->name('cart.update');
     Route::post('/kosik/objednat', [Panel\CartController::class, 'checkout'])->name('cart.checkout');
+    // Discount codes are applied in the cart so the total the customer confirms
+    // is the total they are charged. Throttled — this endpoint is a code oracle.
+    Route::post('/kosik/sleva', [Panel\CartController::class, 'applyDiscount'])
+        ->middleware('throttle:10,1')->name('cart.discount.apply');
+    Route::delete('/kosik/sleva', [Panel\CartController::class, 'removeDiscount'])->name('cart.discount.remove');
     Route::delete('/kosik/odebrat/{plan}', [Panel\CartController::class, 'remove'])->name('cart.remove');
     Route::delete('/kosik', [Panel\CartController::class, 'clear'])->name('cart.clear');
 

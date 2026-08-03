@@ -42,6 +42,7 @@ final class CreateCartOrderAction
     public function __construct(
         private readonly VatResolver $vatResolver,
         private readonly \App\Domains\Reseller\Services\ResellerPriceResolver $priceResolver,
+        private readonly \App\Domains\Billing\Services\PromoCodeService $promoCodes,
     ) {}
 
     /**
@@ -64,12 +65,19 @@ final class CreateCartOrderAction
             }
         }
 
-        $discountCode = null;
-        if (is_string($config['discount_code'] ?? null) && $config['discount_code'] !== '') {
-            $discountCode = DiscountCode::valid()
-                ->where('code', strtoupper($config['discount_code']))
-                ->first();
-        }
+        /*
+         | The code has to be checked against the same rules the promo screen
+         | advertises. `DiscountCode::valid()` only covers active/expired/quota
+         | — it knows nothing about the per-customer usage limit or the minimum
+         | order value, so a code marked "one per customer" could be redeemed
+         | over and over, and a "spend 1000 Kč" code applied to a 100 Kč order.
+         |
+         | Validation needs the subtotal, so it happens after pricing (below);
+         | here we only remember what the customer asked for.
+         */
+        $requestedCode = is_string($config['discount_code'] ?? null) && $config['discount_code'] !== ''
+            ? trim($config['discount_code'])
+            : null;
 
         $scenario = $this->vatResolver->resolveScenario($customer);
         $vatRate  = $this->vatResolver->resolveRate($customer);
@@ -113,6 +121,27 @@ final class CreateCartOrderAction
             ];
         }
 
+        $discountCode = null;
+
+        if ($requestedCode !== null) {
+            $check = $this->promoCodes->validate(
+                $requestedCode,
+                $customer->id,
+                $subtotal->getMinorAmount()->toInt(),
+            );
+
+            // Silently dropping a rejected code is worse than refusing the
+            // order: the customer confirms a discounted total and is billed the
+            // full one. Say why instead.
+            if (! $check['valid']) {
+                throw new InvalidArgumentException(
+                    'Slevový kód nelze použít: ' . ($check['reason'] ?? 'kód je neplatný.'),
+                );
+            }
+
+            $discountCode = $check['code'];
+        }
+
         $discountAmount = $discountCode !== null
             ? $discountCode->calculateDiscount($subtotal)
             : Money::zero($currency->value);
@@ -139,12 +168,15 @@ final class CreateCartOrderAction
             ]);
 
             if ($discountCode !== null) {
-                DiscountCodeUsage::create([
-                    'discount_code_id' => $discountCode->id,
-                    'customer_id'      => $customer->id,
-                    'order_id'         => $order->id,
-                ]);
-                $discountCode->increment('used_count');
+                // Through the service so saved_haler / total_saved_haler stay
+                // populated — the promo reporting screen reads them, and the
+                // hand-rolled insert here left them empty.
+                $this->promoCodes->recordUsage(
+                    $discountCode,
+                    $customer->id,
+                    $order->id,
+                    $discountAmount->getMinorAmount()->toInt(),
+                );
             }
 
             foreach ($priced as $line) {
