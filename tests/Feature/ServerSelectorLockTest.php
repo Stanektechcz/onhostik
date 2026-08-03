@@ -20,7 +20,9 @@ beforeEach(function (): void {
  * atomic so two provisions can't over-fill the last free slot.
  */
 
-function makeServer(int $maxServices, bool $default = false): Server
+// Named for this file: a bare makeServer() collides with the one in
+// ServerCapacitySelectionTest and fatals the whole suite at load time.
+function makeLockTestServer(int $maxServices, bool $default = false): Server
 {
     return Server::create([
         'name'         => 'srv-' . uniqid(),
@@ -33,7 +35,7 @@ function makeServer(int $maxServices, bool $default = false): Server
 }
 
 it('reserves the chosen server through the lock', function (): void {
-    $server = makeServer(5);
+    $server = makeLockTestServer(5);
 
     $result = app(ServerSelector::class)->pickAndReserve(
         ProvisioningDriver::AAPanel,
@@ -44,7 +46,7 @@ it('reserves the chosen server through the lock', function (): void {
 });
 
 it('respects capacity across sequential reservations (no over-fill)', function (): void {
-    $server    = makeServer(2); // capacity 2
+    $server    = makeLockTestServer(2); // capacity 2
     $productId = \App\Domains\Products\Models\Product::value('id');
     $customerId = customerUser()->customer->id;
 
@@ -75,7 +77,7 @@ it('respects capacity across sequential reservations (no over-fill)', function (
 });
 
 it('spreads load to the least-loaded server', function (): void {
-    $full = makeServer(1);
+    $full = makeLockTestServer(1);
     Service::create([
         'customer_id'         => customerUser()->customer->id,
         'product_id'          => \App\Domains\Products\Models\Product::value('id'),
@@ -84,7 +86,7 @@ it('spreads load to the least-loaded server', function (): void {
         'status'              => ServiceStatus::Active,
         'label'               => 'filler',
     ]);
-    $empty = makeServer(5);
+    $empty = makeLockTestServer(5);
 
     $chosen = app(ServerSelector::class)->pickAndReserve(
         ProvisioningDriver::AAPanel,

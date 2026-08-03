@@ -52,11 +52,16 @@
             Tuto stránku se nepodařilo načíst, protože zařízení nemá připojení.
             Naposledy navštívené stránky panelu zůstávají dostupné i offline.
         </p>
-        <button type="button" onclick="location.reload()">Zkusit znovu</button>
+        <button type="button" id="offline-retry">Zkusit znovu</button>
         <div class="hint">Jakmile se připojení obnoví, stránka se načte normálně.</div>
     </div>
 
-    <script>
+    {{-- Nonced, no inline handlers: this page is served from the service worker
+         cache but still renders under the site's CSP. --}}
+    <script nonce="{{ $cspNonce ?? '' }}">
+        document.getElementById('offline-retry').addEventListener('click', function () {
+            location.reload();
+        });
         // Reload automatically the moment connectivity returns.
         window.addEventListener('online', function () { location.reload(); });
     </script>

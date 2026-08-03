@@ -728,9 +728,9 @@
                             </div>
                         @endif
 
-                        {{-- Block form on purpose: an inline @php() here would be
-                             swallowed by Blade's raw-block regex, which pairs it
-                             with the @endphp further down the file. --}}
+                        {{-- Block form on purpose: the paren form would be swallowed
+                             by Blade's raw-block regex, which pairs it with the
+                             block terminator further down the file. --}}
                         @php
                             $isActive = $service->status === \App\Domains\Provisioning\Enums\ServiceStatus::Active;
                         @endphp
@@ -967,9 +967,12 @@
                             @if($gitRepository->auto_deploy)
                                 <div class="mb-2">
                                     <label class="form-label f-12">Webhook URL (vložte u poskytovatele)</label>
+                                    {{-- No onfocus="this.select()": inline handlers are
+                                         blocked by our CSP. Click-to-select is wired in
+                                         the page's nonced script block instead. --}}
                                     <input type="text" class="form-control form-control-sm font-monospace" readonly
-                                           value="{{ route('webhooks.git', $gitRepository->webhook_token) }}"
-                                           onfocus="this.select()">
+                                           data-select-on-focus
+                                           value="{{ route('webhooks.git', $gitRepository->webhook_token) }}">
                                     <div class="f-11 f-light mt-1">
                                         Nasadí se jen push do větve <code>{{ $gitRepository->branch }}</code>.
                                     </div>
@@ -1286,11 +1289,13 @@
                 {{-- Reviews module: rate this service --}}
                 <x-panel.card title="Ohodnotit službu">
                     @if($myReview)
-                        @php($statusMap = [
-                            'pending'  => ['badge' => 'warning', 'label' => 'Čeká na schválení'],
-                            'approved' => ['badge' => 'success', 'label' => 'Zveřejněno'],
-                            'rejected' => ['badge' => 'secondary', 'label' => 'Zamítnuto'],
-                        ][$myReview->status] ?? ['badge' => 'secondary', 'label' => $myReview->status])
+                        @php
+                            $statusMap = [
+                                'pending'  => ['badge' => 'warning', 'label' => 'Čeká na schválení'],
+                                'approved' => ['badge' => 'success', 'label' => 'Zveřejněno'],
+                                'rejected' => ['badge' => 'secondary', 'label' => 'Zamítnuto'],
+                            ][$myReview->status] ?? ['badge' => 'secondary', 'label' => $myReview->status];
+                        @endphp
                         <div class="flex items-center gap-2 mb-2">
                             <span class="text-warning" style="letter-spacing:1px;">{{ str_repeat('★', $myReview->rating) }}<span class="text-muted">{{ str_repeat('☆', 5 - $myReview->rating) }}</span></span>
                             <span class="badge badge-light-{{ $statusMap['badge'] }}">{{ $statusMap['label'] }}</span>
@@ -1482,4 +1487,14 @@
             });
         </script>
     @endif
+
+    {{-- Select-all on focus for read-only fields (webhook URL). Delegated so it
+         works without an inline handler, which our CSP blocks. --}}
+    <script nonce="{{ $cspNonce ?? '' }}">
+        document.addEventListener('focusin', function (e) {
+            if (e.target.matches('[data-select-on-focus]')) {
+                e.target.select();
+            }
+        });
+    </script>
 @endsection

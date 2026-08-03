@@ -17,7 +17,7 @@ beforeEach(function (): void {
     $this->seed([ProductCatalogSeeder::class, IntegrationSeeder::class]);
 });
 
-function seedFailedJob(string $uuid = null): string
+function seedFailedJob(?string $uuid = null): string
 {
     $uuid ??= (string) Str::uuid();
 

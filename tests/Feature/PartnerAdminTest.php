@@ -230,7 +230,7 @@ it('admin partner management pages return 200', function (string $route): void {
 // Helpers
 // ────────────────────────────────────────────────────────────────────────
 
-function makePartnerUser(string $code = null): \App\Models\User
+function makePartnerUser(?string $code = null): \App\Models\User
 {
     Role::findOrCreate('partner', 'web');
     Permission::findOrCreate('access-partner', 'web');
