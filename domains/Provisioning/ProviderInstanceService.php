@@ -254,7 +254,7 @@ final class ProviderInstanceService
             $node->forceFill([
                 'region_code' => $node->region_code ?? $instance->region_code, 'role' => 'game',
                 'state' => $remote['maintenance'] ? 'maintenance' : ($node->exists && $node->state !== 'maintenance' ? $node->state : 'active'),
-                'capacity' => $capacity + ['cpu_cores' => (int) ($capacity['cpu_cores'] ?? 0), 'ram_mb' => (int) $remote['memory'], 'disk_gb' => (int) round($remote['disk'] / 1024)],
+                'capacity' => array_merge($capacity, ['cpu_cores' => (int) ($capacity['cpu_cores'] ?? 0), 'ram_mb' => (int) $remote['memory'], 'disk_gb' => (int) round($remote['disk'] / 1024)]), // the panel's limits win over what was stored (audit §5q follow-up: limits change from the console)
                 'usage' => ['cpu_pct' => (int) data_get($node->usage, 'cpu_pct', 0), 'ram_used_mb' => (int) $remote['allocated_memory'], 'disk_used_gb' => (int) round($remote['allocated_disk'] / 1024), 'io_wait_pct' => 0],
                 'remote_id' => (string) $remote['id'], 'last_seen_at' => now(), 'failure_domain' => $node->failure_domain ?? (string) $remote['name'], 'tags' => array_merge((array) ($node->tags ?? []), ['maintenance' => (bool) $remote['maintenance']]),
             ])->save();

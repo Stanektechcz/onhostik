@@ -26,6 +26,7 @@ use Onhost\Domain\Domains\RegistrarPriceScraper;
 use Onhost\Domain\Domains\RegistrarPricing;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\MaintenanceService;
+use Onhost\Domain\Incidents\OnCallService;
 use Onhost\Domain\Incidents\OrganizationStatusService;
 use Onhost\Domain\Incidents\SlaService;
 use Onhost\Domain\Integrations\DiscordService;
@@ -73,6 +74,7 @@ use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Files\FileStore;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Providers\Contracts\DnsProvider;
 
@@ -278,6 +280,18 @@ Artisan::command('onhost:webhooks:retry', function (WebhookDispatcher $webhooks)
     $this->table(['delivered', 'failed', 'dead'], [$webhooks->retryDue()]);
 })->purpose('Retry pending/failed webhook deliveries with backoff');
 
+Artisan::command('onhost:oncall:escalate', function (OnCallService $oncall, AutomationLedger $ledger) {
+    $stats = $oncall->escalateDue();
+    $ledger->record(OnCallService::RULE, $stats);
+    $this->table(['escalated', 'exhausted'], [$stats]);
+})->purpose('Re-page the on-call for alerts nobody acknowledged in time (audit §5q-1)');
+
+Artisan::command('onhost:files:prune', function (FileStore $files, AutomationLedger $ledger) {
+    $stats = $files->prune();
+    $ledger->record('files.prune', $stats);
+    $this->table(array_keys($stats), [$stats]);
+})->purpose('Delete marketplace evidence past its retention and expired data exports (audit §5q-4)');
+
 Artisan::command('onhost:support:sla', function (TicketService $tickets) {
     $this->table(['breached', 'closed'], [$tickets->tick()]);
 })->purpose('Detect support SLA breaches (escalate) and auto-close resolved tickets');
@@ -299,6 +313,8 @@ Artisan::command('onhost:ledger:verify', function (LedgerService $ledger) {
 Schedule::command('onhost:outbox:relay')->everyMinute()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:mail:send')->everyMinute()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:webhooks:retry')->everyMinute()->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:oncall:escalate')->everyMinute()->withoutOverlapping()->onOneServer(); // unacknowledged pages escalate (audit §5q-1)
+Schedule::command('onhost:files:prune')->dailyAt('04:25')->onOneServer(); // file retention (audit §5q-4)
 Schedule::command('onhost:support:sla')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:provisioning:tick')->everyMinute()->withoutOverlapping()->onOneServer();
 Schedule::job(new QueueHeartbeat)->everyMinute()->onOneServer(); // the worker's proof of life (audit §5g-6)

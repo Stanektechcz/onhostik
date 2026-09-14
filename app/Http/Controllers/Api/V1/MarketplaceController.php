@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Api\V1;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Onhost\Domain\Marketplace\Commands\MarketplaceCommand;
 use Onhost\Domain\Marketplace\MarketplaceService;
@@ -16,7 +15,8 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Onhost\Platform\Files\FileStore;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * The marketplace (audit §5j-1): public listings, the customer's orders (ordered from credit, accepted or disputed),
@@ -157,25 +157,25 @@ final class MarketplaceController extends ApiController
     }
 
     /** A file behind a checklist item of the running period (audit §5p-3): stored under a temporary name, moved by the command. */
-    public function uploadEvidence(Request $request, string $order): JsonResponse
+    public function uploadEvidence(Request $request, FileStore $files, string $order): JsonResponse
     {
         [$organization] = $this->partner($request);
         $data = $request->validate(['key' => ['required', 'string', 'max:31'], 'file' => ['required', 'file', 'max:10240', 'mimes:pdf,png,jpg,jpeg,txt,csv,zip,log']]);
         $upload = $data['file'];
-        $tmp = $upload->storeAs('marketplace-evidence/tmp', Str::lower(Str::random(16)).'.'.$upload->getClientOriginalExtension(), 'local');
+        $tmp = $upload->storeAs('marketplace-evidence/tmp', Str::lower(Str::random(16)).'.'.$upload->getClientOriginalExtension(), $files->diskName()); // local or S3 (audit §5q-4)
 
         return $this->dispatch(new MarketplaceCommand($organization->id, "marketplace.evidence:{$order}:{$data['key']}:".Str::lower(Str::random(16)), ['op' => 'order.evidence', 'order_id' => $order, 'key' => $data['key'], 'tmp_path' => $tmp, 'name' => $upload->getClientOriginalName(), 'mime' => (string) $upload->getClientMimeType(), 'size' => (int) $upload->getSize()]), $this->api->context($request, $organization), 201);
     }
 
     /** The customer downloads a file the period report carried (audit §5p-3). */
-    public function evidenceFile(Request $request, MarketplaceService $marketplace, string $order, int $entry, string $key): StreamedResponse
+    public function evidenceFile(Request $request, MarketplaceService $marketplace, FileStore $files, string $order, int $entry, string $key): Response
     {
         $organization = $this->api->organization($request);
         $this->api->authorize($request, 'organization.read', CommandScope::organization($organization->id));
         $model = MarketplaceOrder::query()->where('organization_id', $organization->id)->find($order) ?? throw DomainError::notFound('marketplace_order');
         $file = $marketplace->evidenceFile($model, $entry, $key);
 
-        return Storage::disk('local')->download($file['path'], $file['name'], ['Content-Type' => $file['mime']]);
+        return $files->download($file['path'], $file['name'], $file['mime']); // a signed S3 link or a stream (audit §5q-4)
     }
 
     /** @return array{0:Organization, 1:Partner} */

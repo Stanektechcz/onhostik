@@ -6,6 +6,7 @@ namespace Onhost\Domain\Provisioning;
 
 use Carbon\Carbon;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\OperationAttempt;
@@ -17,6 +18,7 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Observability\Tracer;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Platform\Redaction\Redactor;
 use Onhost\Platform\Resilience\RetryPolicy;
@@ -37,6 +39,7 @@ final class OperationRunner
         private readonly OutboxPublisher $outbox,
         private readonly FreezeSwitch $freeze,
         private readonly Redactor $redactor,
+        private readonly Tracer $tracer,
     ) {}
 
     /** Run as many steps as possible within the time budget. Returns the operation's new state. */
@@ -68,11 +71,12 @@ final class OperationRunner
             }
             $step = $steps[$operation->step];
             $attempt = $this->beginAttempt($operation, $step);
+            Context::add('operation', $operation->id);
             try {
                 $handle = $operation->external_handle;
-                $result = $handle !== null
+                $result = $this->tracer->span('operation.step '.$step->label(), ['onhost.operation' => $operation->id, 'onhost.workflow' => class_basename((string) $operation->workflow), 'onhost.step' => $operation->step, 'onhost.service_id' => $operation->service_id, 'onhost.poll' => $handle !== null], fn () => $handle !== null
                     ? $step->poll($context, AsyncHandle::fromArray($handle))
-                    : $step->run($context);
+                    : $step->run($context)); // one span per step (audit §5q-2)
             } catch (ProviderException $e) {
                 $result = StepResult::fail($e->getMessage(), $e->isRetryable(), $e->toArray(), $e->retryAfterSeconds);
             } catch (Throwable $e) {

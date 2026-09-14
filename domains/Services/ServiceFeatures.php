@@ -17,6 +17,7 @@ use Onhost\Domain\Services\Web\StagingService;
 use Onhost\Domain\Services\Web\UptimeMonitor;
 use Onhost\Domain\Services\Web\WordPressService;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\Contracts\BackupCapable;
 use Onhost\Providers\Contracts\ComputeProvider;
@@ -356,6 +357,22 @@ final class ServiceFeatures
             $app = (array) data_get($service->desired_spec, 'app', []);
 
             return $adapter->podLogs((string) data_get($service->desired_spec, 'namespace', ''), (string) ($app['name'] ?? ''), $lines);
+        }
+        if ($adapter instanceof GameToolsProvider) { // the game console log: the server's log file through the panel client API (Minecraft: logs/latest.log)
+            $file = (string) config('onhost.game.eggs.'.(string) data_get($service->desired_spec, 'egg', '').'.log_file', 'logs/latest.log');
+            $status = $adapter->status($this->ref($service)); // an offline server has no daemon file access; asking would only trip the circuit breaker
+            if (in_array((string) ($status['state'] ?? ''), ['offline', 'installing'], true) || ! empty($status['installing'])) {
+                return ['— server je '.((string) ($status['state'] ?? 'offline')).'; log se zobrazí po startu —'];
+            }
+            try {
+                $content = $adapter->readFile($this->ref($service), $file);
+            } catch (ProviderException $e) { // no file yet (the server never ran) or the daemon not answering: the console shows why instead of an error box
+                return [$e->errorCode === ProviderErrorCode::NOT_FOUND ? '— log '.$file.' ještě neexistuje (server zatím neběžel) —' : '— log zatím nelze přečíst: '.$e->getMessage().' —'];
+            }
+            $all = preg_split('/?
+/', rtrim($content)) ?: [];
+
+            return array_values(array_slice($all, -max(1, min(2000, $lines))));
         }
         throw new DomainError('feature_unavailable', 'Logs are not available for this service.', 422);
     }

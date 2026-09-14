@@ -7,7 +7,6 @@ namespace Onhost\Domain\Compliance;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Onhost\Domain\Compliance\Models\AbuseCase;
@@ -30,6 +29,7 @@ use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Files\FileStore;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
 /**
@@ -491,7 +491,7 @@ final class ComplianceService
         }
         foreach (DataRequest::query()->where('state', 'ready')->where('expires_at', '<', $now)->get() as $request) {
             if ($request->file_path !== null) {
-                Storage::disk('local')->delete($request->file_path);
+                app(FileStore::class)->disk()->delete($request->file_path); // audit §5q-4
             }
             $request->forceFill(['state' => 'completed', 'completed_at' => $now, 'file_path' => null])->save();
             $stats['expired']++;
@@ -520,9 +520,10 @@ final class ComplianceService
             $archive['portability'] = ['dns_zones' => 'GET /v1/domains/{zone}/zone?format=bind', 'backups' => 'GET /v1/services/{service}/backups', 'formats' => ['json', 'bind', 'ubl-2.1']];
         }
         $path = "exports/{$organization->id}/{$request->id}.json";
-        Storage::disk('local')->put($path, json_encode($archive, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $disk = app(FileStore::class)->disk(); // local or S3 (audit §5q-4)
+        $disk->put($path, json_encode($archive, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         $days = (int) config('onhost.compliance.data_export_grace_days', 30);
-        $request->forceFill(['state' => 'ready', 'file_path' => $path, 'ready_at' => $now, 'expires_at' => $now->copy()->addDays($days), 'meta' => ['bytes' => Storage::disk('local')->size($path), 'counts' => ['services' => count($archive['services']), 'domains' => count($archive['domains']), 'invoices' => count($archive['invoices']), 'tickets' => count($archive['tickets'])]]])->save();
+        $request->forceFill(['state' => 'ready', 'file_path' => $path, 'ready_at' => $now, 'expires_at' => $now->copy()->addDays($days), 'meta' => ['bytes' => $disk->size($path), 'counts' => ['services' => count($archive['services']), 'domains' => count($archive['domains']), 'invoices' => count($archive['invoices']), 'tickets' => count($archive['tickets'])]]])->save();
         $this->outbox->publish(GenericEvent::of('compliance.data_export.ready', 'data_request', $request->id, ['kind' => $request->kind, 'days' => $days, 'bytes' => $request->meta['bytes']], $organization->id));
         $stats[$request->kind === 'switching' ? 'switching' : 'exported']++;
     }

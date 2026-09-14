@@ -49,6 +49,8 @@ final class AutomationLedger
         ['key' => 'order.risk', 'command' => null, 'name' => 'Kontrola objednávek', 'does' => 'skóre rizika při objednávce; nad prahem čeká zaplacená objednávka na rozhodnutí', 'runs' => 'při každé objednávce', 'switchable' => true],
         ['key' => 'partners.auto_approve', 'command' => null, 'name' => 'Automatické schválení smluvních změn', 'does' => 'zámek sazby do 6 měsíců a výplatní podmínky partnera s čistým rokem schválí bez financí; model a white-label vždy čekají', 'runs' => 'při každé žádosti', 'switchable' => true],
         ['key' => 'capacity.auto_order', 'command' => 'onhost:provisioning:capacity-forecast', 'name' => 'Automatický nákup uzlů', 'does' => 'schválí a objedná uzel u dodavatele, když fond dochází a instance umí objednávat (jinak jen návrh pro provoz)', 'runs' => 'denně 03:45', 'switchable' => true, 'default_off' => true],
+        ['key' => 'oncall.escalate', 'command' => 'onhost:oncall:escalate', 'name' => 'Eskalace on-call', 'does' => 'alert, který nikdo nepotvrdil do X minut, znovu zavolá pager s vyšší závažností (nejvýš N×)', 'runs' => 'každou minutu', 'switchable' => true],
+        ['key' => 'files.prune', 'command' => 'onhost:files:prune', 'name' => 'Retence souborů', 'does' => 'maže důkazy z marketplace po retenční lhůtě a exporty dat po expiraci', 'runs' => 'denně 04:25', 'switchable' => true],
         ['key' => 'game.migration', 'command' => null, 'name' => 'Stěhování herních serverů', 'does' => 'záloha, nový server na jiném uzlu, přenos archivu, přepnutí adresy, úklid — bez zásahu do hry', 'runs' => 'na pokyn obsluhy', 'switchable' => false],
     ];
 

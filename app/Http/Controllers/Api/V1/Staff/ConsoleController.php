@@ -124,6 +124,14 @@ final class ConsoleController extends ApiController
         return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, "game.allocations.create:{$instance}:{$data['node']}"), ['op' => 'game.allocations.create', 'instance_key' => $instance] + $data), $this->api->context($request), 201);
     }
 
+    /** Node limits on the panel from the console (audit §5q follow-up): memory / disk (MB), over-allocation (%), maintenance, or `detect` the daemon's RAM. */
+    public function updateNode(Request $request, string $instance, string $node): JsonResponse
+    {
+        $data = $request->validate(['memory' => ['nullable', 'integer', 'min:1024', 'max:4194304'], 'disk' => ['nullable', 'integer', 'min:1024', 'max:104857600'], 'memory_overallocate' => ['nullable', 'integer', 'min:-1', 'max:500'], 'disk_overallocate' => ['nullable', 'integer', 'min:-1', 'max:500'], 'maintenance' => ['nullable', 'boolean'], 'detect' => ['nullable', 'boolean'], 'reason' => ['nullable', 'string', 'max:250']]);
+
+        return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, "game.node.update:{$instance}:{$node}:".now()->format('YmdHis')), ['op' => 'game.node.update', 'instance_key' => $instance, 'node' => (int) $node] + $data), $this->api->context($request, null, $data['reason'] ?? null));
+    }
+
     /** One game server to another node of its panel (audit §5g-2): a saga with backup, rebuild, data transfer, switch and clean-up. */
     public function migrate(Request $request, string $service): JsonResponse
     {

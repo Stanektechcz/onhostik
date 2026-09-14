@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\BulkActionService;
+use Onhost\Domain\Provisioning\CapacityBudget;
 use Onhost\Domain\Provisioning\CapacityForecast;
 use Onhost\Domain\Provisioning\CapacityPlanner;
 use Onhost\Domain\Provisioning\Commands\CapacityCommand;
@@ -196,7 +197,7 @@ final class ProvisioningController extends ApiController
             $pools[$role] = $scheduler->sellableCapacity($role);
         }
 
-        return response()->json(['data' => ['nodes' => $nodes, 'sellable' => $pools, 'forecast' => app(CapacityForecast::class)->forecast(), 'requests' => CapacityRequest::query()->whereIn('state', CapacityRequest::OPEN)->orderBy('created_at')->get()->map(fn (CapacityRequest $r) => CapacityPlanner::present($r))->values()->all()]]); // §5m-7: days left per pool; §5n-7: open capacity requests
+        return response()->json(['data' => ['nodes' => $nodes, 'sellable' => $pools, 'forecast' => app(CapacityForecast::class)->forecast(), 'requests' => CapacityRequest::query()->whereIn('state', CapacityRequest::OPEN)->orderBy('created_at')->get()->map(fn (CapacityRequest $r) => CapacityPlanner::present($r))->values()->all(), 'budget' => app(CapacityBudget::class)->status()]]); // §5m-7: days left per pool; §5n-7: open capacity requests
     }
 
     /** Capacity requests the forecast proposed (audit §5n-7). */
@@ -211,7 +212,22 @@ final class ProvisioningController extends ApiController
             $query->where('state', $state);
         }
 
-        return response()->json(['data' => $query->limit(200)->get()->map(fn (CapacityRequest $r) => CapacityPlanner::present($r))->values()->all(), 'auto_order' => app(AutomationLedger::class)->enabled(CapacityPlanner::RULE)]);
+        return response()->json(['data' => $query->limit(200)->get()->map(fn (CapacityRequest $r) => CapacityPlanner::present($r))->values()->all(), 'auto_order' => app(AutomationLedger::class)->enabled(CapacityPlanner::RULE), 'budget' => app(CapacityBudget::class)->status()]); // §5q-5: the monthly cap next to the requests
+    }
+
+    /** The monthly cap on vendor node orders (audit §5q-5). */
+    public function capacityBudget(Request $request, CapacityBudget $budget): JsonResponse
+    {
+        $this->api->authorize($request, 'capacity.read', CommandScope::global());
+
+        return response()->json(['data' => $budget->status()]);
+    }
+
+    public function setCapacityBudget(Request $request): JsonResponse
+    {
+        $data = $request->validate(['monthly_minor' => ['nullable', 'integer', 'min:0', 'max:1000000000']]);
+
+        return $this->dispatch(new CapacityCommand($this->idempotencyKey($request, 'capacity.budget:'.now()->format('YmdHis')), ['op' => 'budget', 'monthly_minor' => $data['monthly_minor'] ?? null]), $this->api->context($request));
     }
 
     /** The daily capacity pass on demand (audit §5o): warnings, proposals, orders per the rule, deliveries. */
@@ -224,9 +240,9 @@ final class ProvisioningController extends ApiController
 
     public function decideCapacityRequest(Request $request, string $capacityRequest): JsonResponse
     {
-        $data = $request->validate(['decision' => ['required', 'in:approve,cancel,delivered,retry'], 'note' => ['nullable', 'string', 'max:500'], 'node_name' => ['nullable', 'string', 'max:80']]);
+        $data = $request->validate(['decision' => ['required', 'in:approve,cancel,delivered,retry'], 'note' => ['nullable', 'string', 'max:500', 'required_if:override_budget,true', 'min:5'], 'node_name' => ['nullable', 'string', 'max:80'], 'override_budget' => ['nullable', 'boolean']]); // §5q-5: crossing the budget needs the override and a note naming who approved it
 
-        return $this->dispatch(new CapacityCommand($this->idempotencyKey($request, "capacity.decide:{$capacityRequest}:{$data['decision']}"), ['op' => 'decide', 'request_id' => $capacityRequest, 'decision' => $data['decision'], 'note' => $data['note'] ?? null, 'node_name' => $data['node_name'] ?? null]), $this->api->context($request, null, $data['note'] ?? null));
+        return $this->dispatch(new CapacityCommand($this->idempotencyKey($request, "capacity.decide:{$capacityRequest}:{$data['decision']}"), ['op' => 'decide', 'request_id' => $capacityRequest, 'decision' => $data['decision'], 'note' => $data['note'] ?? null, 'node_name' => $data['node_name'] ?? null, 'override_budget' => (bool) ($data['override_budget'] ?? false)]), $this->api->context($request, null, $data['note'] ?? null));
     }
 
     public function freeze(Request $request): JsonResponse

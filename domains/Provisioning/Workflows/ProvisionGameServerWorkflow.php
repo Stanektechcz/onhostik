@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Provisioning\Workflows;
 
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Workflow\StepContext;
 use Onhost\Domain\Provisioning\Workflow\StepResult;
@@ -16,6 +17,7 @@ use Onhost\Domain\Services\ServiceService;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Providers\Contracts\GameProvider;
+use Onhost\Providers\Contracts\GameToolsProvider;
 use Onhost\Providers\Contracts\InfrastructureProvider;
 
 /** Game server saga on Pterodactyl (blueprint §14): place → panel user → allocation → create (install) → ACTIVE. */
@@ -68,6 +70,9 @@ final class ProvisionGameServerWorkflow implements Workflow
                         return StepResult::done();
                     }
                     $nodeRemoteId = (int) $context->get('node_remote_id');
+                    if ($nodeRemoteId <= 0) { // the node row learned its panel id after scheduling (discovery, node limits from the console): read it now
+                        $nodeRemoteId = (int) (Node::query()->find((string) $context->get('node_id'))?->remote_id ?? 0);
+                    }
                     if ($nodeRemoteId <= 0) {
                         return StepResult::fail('Game node has no Pterodactyl node id (nodes.remote_id)', false);
                     }
@@ -80,7 +85,7 @@ final class ProvisionGameServerWorkflow implements Workflow
                     }
                     $pick = $free[0];
 
-                    return StepResult::done(['allocation_id' => $pick['id'], 'allocation' => $pick]);
+                    return StepResult::done(['allocation_id' => $pick['id'], 'allocation' => $pick, 'node_remote_id' => $nodeRemoteId]);
                 }
             },
             new class extends ServiceStep
@@ -102,9 +107,20 @@ final class ProvisionGameServerWorkflow implements Workflow
                     if ($nest <= 0 || $eggId <= 0) {
                         return StepResult::fail("Egg '{$eggKey}' is not mapped on this Pterodactyl instance (options.eggs)", false);
                     }
+                    $preset = (array) config('onhost.game.eggs.'.$eggKey, []); // the catalogue preset may carry its own command and image (Spigot builds itself on first start)
+                    $image = (string) ($context->desired('docker_image', $egg['docker_image'] ?? $preset['docker_image'] ?? null) ?? '');
+                    $startup = (string) ($context->desired('startup', $egg['startup'] ?? $preset['startup'] ?? null) ?? '');
+                    if (($image === '' || $startup === '') && $infra instanceof GameToolsProvider) { // a mapping without image/startup takes the egg's own defaults from the panel
+                        foreach ($infra->listEggs() as $row) {
+                            if ((int) $row['id'] === $eggId && (int) $row['nest_id'] === $nest) {
+                                $image = $image !== '' ? $image : (string) $row['docker_image'];
+                                $startup = $startup !== '' ? $startup : (string) $row['startup'];
+                            }
+                        }
+                    }
                     $result = $infra->provision($context->spec('game_server', [
-                        'nest_id' => $nest, 'egg_id' => $eggId, 'docker_image' => $context->desired('docker_image', $egg['docker_image'] ?? null), 'startup' => $context->desired('startup', $egg['startup'] ?? null),
-                        'environment' => self::withVersion(array_merge((array) ($egg['environment'] ?? []), (array) $context->desired('environment', []))), 'name' => $service->label ?: $service->name,
+                        'nest_id' => $nest, 'egg_id' => $eggId, 'docker_image' => $image !== '' ? $image : null, 'startup' => $startup !== '' ? $startup : null,
+                        'environment' => ProvisionGameServerWorkflow::withVersion(array_merge((array) ($egg['environment'] ?? []), (array) $context->desired('environment', []))), 'name' => $service->label ?: $service->name,
                         'ptero_user_id' => (int) $context->get('ptero_user_id'), 'allocation_id' => (int) $context->get('allocation_id'), 'entitlements' => (array) $service->entitlements, 'limits' => (array) $context->desired('limits', []),
                     ]));
                     if ($result->ref !== null) {
@@ -129,6 +145,16 @@ final class ProvisionGameServerWorkflow implements Workflow
                     if (! $state->exists) {
                         return StepResult::fail('Game server vanished after install', true, [], 30);
                     }
+                    $script = (string) config('onhost.game.eggs.'.(string) $context->desired('egg', '').'.startup_script', ''); // a preset with its own start script (Spigot builds itself) gets it written through the panel API
+                    $scriptWritten = null;
+                    if ($script !== '' && $context->get('startup_script_written') === null) {
+                        try {
+                            $this->capability($context, GameToolsProvider::class)->writeFile($ref, 'onhost-start.sh', $script);
+                            $scriptWritten = true;
+                        } catch (\Throwable $e) {
+                            return StepResult::fail('start script could not be written: '.$e->getMessage(), true, [], 20); // the daemon may still be finishing the install
+                        }
+                    }
                     $meta = (array) $context->get('server_meta', []);
                     $ent = (array) $service->entitlements;
                     GameServer::query()->updateOrCreate(['service_id' => $service->id], [
@@ -139,7 +165,7 @@ final class ProvisionGameServerWorkflow implements Workflow
                     $allocation = (array) $context->get('allocation', []);
                     $context->container->make(ServiceService::class)->activate($service, $context->actor, $context->operation, ['address' => isset($allocation['ip']) ? ($allocation['alias'] ?? $allocation['ip']).':'.$allocation['port'] : null, 'identifier' => $meta['identifier'] ?? null]);
 
-                    return StepResult::done(['activated' => true]);
+                    return StepResult::done(['activated' => true, 'startup_script_written' => $scriptWritten]);
                 }
             },
         ];

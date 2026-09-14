@@ -14,6 +14,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Risk\RiskWeights;
+use Onhost\Domain\Risk\Turnstile;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Settings\SettingsStore;
 use Onhost\Providers\Contracts\IpGeoProvider;
@@ -39,13 +40,13 @@ final class OrderRiskService
     public const HOLD_SETTING = 'orders.risk.hold_score';
 
     /** Default weight of every signal; staff feedback moves them between MIN_WEIGHT and MAX_WEIGHT. */
-    public const WEIGHTS = ['referral_flagged' => 40, 'new_account' => 25, 'disposable_email' => 50, 'free_mail_company' => 10, 'rapid_orders' => 30, 'large_first_order' => 25, 'failed_payments' => 30, 'vat_country_mismatch' => 15, 'ip_country_mismatch' => 20];
+    public const WEIGHTS = ['referral_flagged' => 40, 'new_account' => 25, 'disposable_email' => 50, 'free_mail_company' => 10, 'rapid_orders' => 30, 'large_first_order' => 25, 'failed_payments' => 30, 'vat_country_mismatch' => 15, 'ip_country_mismatch' => 20, 'turnstile_failed' => 35];
 
     public const MIN_WEIGHT = 5;
 
     public const MAX_WEIGHT = 100;
 
-    public function __construct(private readonly AutomationLedger $ledger, private readonly SettingsStore $settings, private readonly IpGeoProvider $geo, private readonly RiskWeights $risk) {}
+    public function __construct(private readonly AutomationLedger $ledger, private readonly SettingsStore $settings, private readonly IpGeoProvider $geo, private readonly RiskWeights $risk, private readonly Turnstile $turnstile) {}
 
     /** The weights in force: the defaults moved by staff feedback. @return array<string,int> */
     public function weights(): array
@@ -105,6 +106,12 @@ final class OrderRiskService
         if ($ipCountry !== null && $ipCountry !== $country) {
             $score += $w['ip_country_mismatch'];
             $reasons[] = 'ip_country_mismatch';
+        }
+
+        // §5q-6: a checkout without a Turnstile token, or with one the verifier refused, is a signal — never a refusal
+        if ($this->turnstile->enabled() && in_array(Turnstile::result(), [Turnstile::FAIL, Turnstile::MISSING], true)) {
+            $score += $w['turnstile_failed'];
+            $reasons[] = 'turnstile_failed';
         }
 
         // §5m-4: the referral loop's verdict on this organization is a signal here — a held, refused or clawed-back referral means somebody already doubted it

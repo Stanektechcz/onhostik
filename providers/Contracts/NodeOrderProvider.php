@@ -13,10 +13,10 @@ interface NodeOrderProvider
 {
     /**
      * @param  array{name:string, ram_mb:int, cpu_cores:int, disk_gb:int, region:?string, options:array<string,mixed>}  $spec
-     * @return array{remote_id:string, name:string, ip:?string, type:?string}
+     * @return array{remote_id:string, name:string, ip:?string, type:?string, cost_minor?:?int, currency?:?string} cost = the vendor's monthly price of the type (audit §5q-5)
      */
     public function order(array $spec): array;
 
-    /** @return list<array{type:string, ram_mb:int, cpu_cores:int, disk_gb:int}> what can be ordered, smallest first (empty when unknown) */
+    /** @return list<array{type:string, ram_mb:int, cpu_cores:int, disk_gb:int, price_monthly_minor?:?int, currency?:?string}> what can be ordered, smallest first (empty when unknown); the price feeds the monthly budget cap (audit §5q-5) */
     public function catalogue(array $options): array;
 }

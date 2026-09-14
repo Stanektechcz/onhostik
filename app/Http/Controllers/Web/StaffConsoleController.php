@@ -33,7 +33,8 @@ final class StaffConsoleController extends Controller
 
         return view('staff-console', [
             'service' => $model, 'organization' => $organization, 'node' => $node,
-            'canCommand' => in_array($model->family, ['game'], true), 'canPower' => in_array($model->family, ['game', 'cloud'], true),
+            'canCommand' => in_array($model->family, ['game'], true), 'canPower' => in_array($model->family, ['game', 'cloud'], true), 'canFiles' => in_array($model->family, ['game'], true),
+            'relayUrl' => rtrim((string) config('onhost.console.relay_url', ''), '/'), // §5q-3: the websocket client connects here with the console token
             'csrf' => csrf_token(),
         ]);
     }

@@ -24,6 +24,7 @@ use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Files\FileStore;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
@@ -582,7 +583,7 @@ final class MarketplaceService
         $this->assertPartnerOrder($partner, $order);
         $listing = MarketplaceListing::query()->find($order->listing_id);
         $item = collect($listing !== null ? $this->checklistFor($listing) : [])->firstWhere('key', $key);
-        $disk = Storage::disk('local');
+        $disk = app(FileStore::class)->disk(); // local or S3 (audit §5q-4)
         if ($item === null || $item['kind'] !== 'file') {
             $disk->delete($tmpPath); // nothing keeps a stray upload
             throw new DomainError('marketplace_checklist_item_invalid', 'No file item with that key on the listing checklist.', 422, ['field' => 'key']);
@@ -614,7 +615,7 @@ final class MarketplaceService
     {
         $history = array_values((array) ($order->period_evidence ?? []));
         $file = data_get($history, "{$entry}.items.{$key}");
-        if (! is_array($file) || empty($file['path']) || ! Storage::disk('local')->exists((string) $file['path'])) {
+        if (! is_array($file) || empty($file['path']) || ! app(FileStore::class)->disk()->exists((string) $file['path'])) {
             throw DomainError::notFound('evidence_file');
         }
 

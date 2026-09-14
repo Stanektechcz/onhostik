@@ -16,6 +16,7 @@ use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Http\Middleware\CorrelationId;
 use Onhost\Platform\Http\Middleware\IdempotencyKey;
+use Onhost\Platform\Observability\ErrorReporter;
 use Onhost\Platform\Redaction\Redactor;
 use Onhost\Platform\StateMachine\InvalidTransitionException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
@@ -46,6 +47,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         $isApi = fn (Request $request) => $request->is('v1/*') || $request->is('v1') || $request->is('surfaces/*') || $request->is('console/*') || $request->is('metrics') || $request->is('healthz') || $request->expectsJson();
         $exceptions->shouldRenderJsonWhen($isApi);
+        $exceptions->report(fn (Throwable $e) => app(ErrorReporter::class)->report($e)); // error tracking (audit §5q-2): unexpected exceptions only, redacted, tagged with the correlation id
 
         // Domain errors carry a machine slug, an HTTP status and optional field info for form rendering.
         $exceptions->render(function (DomainError $e, Request $request) use ($isApi) {

@@ -667,15 +667,65 @@ Also built with §5p (customer convenience): the order wizard offers game templa
 newest first: Spigot 1.21.8 / 1.21.7 / 1.21.4 / 1.20.6) and carries the choice as `config.version` into
 `MINECRAFT_VERSION`. The production-readiness audit is `docs/runbooks/production-readiness-audit.md`.
 
-### 5q. What remains after §5p (proposed 2026-09-14)
+### 5q. What remains after §5p (proposed 2026-09-14) — built 2026-09-14
 
-1. **On-call escalation**: a PagerDuty/Opsgenie adapter behind `WebhookDispatcher` with acknowledgement and escalation.
-2. **Error tracking and tracing**: Sentry + OpenTelemetry for operations and queues, correlated with `CommandContext`.
-3. **Websocket console in the staff page**: a client to the relay instead of the token hand-off.
-4. **S3 store for evidence and exports** with signed links and retention.
-5. **Capacity budget cap**: a monthly limit on vendor node orders, finance approval above it.
-6. **Turnstile on registration and checkout** as one more risk signal.
-7. **EN notifications and mails** by the organization's language.
+1. **On-call escalation** — done: `OnCallService` listens to the outbox; the paging events (`onhost.oncall.events`:
+   queue stalled, integration down, BMC alert, SLA burn rate, capacity low, incident opened, prerequisites regressed,
+   queue backlog) open one `oncall_alerts` row per subject and page the provider behind `ONHOST_ONCALL_PROVIDER`
+   (PagerDuty Events v2, Opsgenie Alerts, or a signed webhook; the key in the secret store). Nobody acknowledging
+   within `ONHOST_ONCALL_ESCALATE_MINUTES` re-pages with a higher severity (rule `oncall.escalate`, every minute, at
+   most `ONHOST_ONCALL_MAX_ESCALATIONS` times); the console (`POST /v1/staff/oncall/alerts/{id}/ack|resolve`) or the
+   pager's own webhook (`POST /v1/webhooks/oncall/{provider}`, PagerDuty v3 signature or `X-ONhost-Oncall-Token`)
+   acknowledges; the recovery event (`onhost.oncall.resolves`) resolves on both sides. `POST /v1/staff/oncall/test`
+   pages a synthetic alert. Without a provider the alerts still live in the console.
+2. **Error tracking and tracing** — done without SDKs: `ErrorReporter` ships unexpected exceptions as redacted Sentry
+   envelopes (`SENTRY_DSN`, tags correlation/request id, actor, command, operation); `Tracer` exports OTLP/HTTP spans
+   (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`) for every command (`CommandBus`), every operation
+   step (`OperationRunner`) and every provider call (`ProviderCallLogger`), one trace per correlation id across web
+   and worker. Both silent without an endpoint.
+3. **Websocket console in the staff page** — done: `/sprava/konzole/{service}` connects to the relay
+   (`ONHOST_CONSOLE_RELAY_URL/ws/<token>`) with the one-time console token, replays the last lines (`send logs`),
+   streams `console output`, sends commands straight into the socket while connected (the API `command.send`
+   otherwise), reconnects on an expired token, shows CPU/RAM from `stats`; a text file up to 512 kB goes to the
+   server through the audited `gfile.save`. VNC consoles keep the token hand-off.
+4. **S3 store for evidence and exports** — done: `FileStore` (`ONHOST_FILES_DISK` local | s3) behind marketplace
+   evidence and data exports; a download from a signing disk is a 302 to a temporary URL
+   (`ONHOST_FILES_SIGNED_TTL` minutes), from the local disk a stream; `onhost:files:prune` (rule `files.prune`,
+   04:25) deletes evidence older than `ONHOST_EVIDENCE_RETENTION_MONTHS` and orphaned exports.
+5. **Capacity budget cap** — done: `CapacityBudget` (`ONHOST_CAPACITY_BUDGET_MONTHLY_MINOR` or the console's
+   `PUT /v1/staff/capacity/budget`) against the vendor's monthly price of every node ordered this month
+   (Hetzner catalogue prices, `cost_minor` on the request); an automatic order that would cross it stays approved
+   with `budget_hold` and `capacity.budget.exceeded` reaches finance; a person crossing it sends
+   `override_budget: true` with a note naming who approved the spend (the audit row keeps it).
+6. **Turnstile on registration and checkout** — done: `Turnstile` verifies the widget token
+   (`TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`) once per request; registration refuses a missing or failed check
+   while `ONHOST_TURNSTILE_ENFORCE_REGISTER` is on, checkout scores it as the risk signal `turnstile_failed` (35,
+   tunable like every other); the boot object carries the site key, the session bridge renders the widget and sends
+   the token, the CSP allows `challenges.cloudflare.com`. Off without keys.
+7. **EN notifications** — done: `Lexicon` swaps the router's fixed Czech phrases for English before a customer or
+   user row is written (`notifications.locale`), by the organization's (or the user's) locale; values stay; mails
+   already had `en` templates.
+
+Also built with §5q (operator rule: nothing is changed in the game panel's own UI, everything goes through the
+Application API from the console): node limits — `PUT /v1/staff/integrations/{instance}/game/nodes/{node}` with
+memory / disk / over-allocation / maintenance or `detect` (the daemon's RAM minus `ONHOST_GAME_NODE_RESERVE_MB`);
+node discovery now refreshes stored capacity from the panel. The first live Spigot 1.21.8 (`srv_01m2era5hx2abepxmy79v1rfp5`,
+gamepanel.onhost.cz, node ONHOST-GAME-TEST-01, 45.67.217.22:6665) was created, built (BuildTools through the
+platform-written `onhost-start.sh`), started and commanded from the console — fixes on the way: `withVersion()` was
+called on the anonymous step class, the allocation step reads the node's panel id from the row, power verification
+accepts `starting`, `getActualState()` carries the live daemon state, game logs come from `logs/latest.log`.
+
+### 5r. What remains after §5q (proposed 2026-09-14)
+
+1. **On-call schedules**: who is on call this week (a rota in the console) so the escalation can name the person
+   and the digest can show the hand-over.
+2. **Trace links in the console**: the operation and audit views open the trace (`traceId`) in Grafana/Tempo.
+3. **Binary file transfer in the staff console**: multipart upload to the panel (SFTP credentials or a signed upload
+   URL) beyond the 512 kB text path.
+4. **Evidence virus scan**: ClamAV on upload before the customer can download.
+5. **Budget forecast**: the capacity forecast prices the nodes it will need next month against the cap.
+6. **Turnstile on the partner portal and the support form**.
+7. **Lexicon coverage check in CI**: a test that walks the router's phrases and fails on an untranslated one.
 
 ## 6. Operator checklist before go-live
 

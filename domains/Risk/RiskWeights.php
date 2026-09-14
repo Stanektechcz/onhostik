@@ -30,7 +30,7 @@ final class RiskWeights
     /** Every signal of every loop with its default weight. */
     public const DEFAULTS = [
         // order check (§5g-4)
-        'referral_flagged' => 40, 'new_account' => 25, 'disposable_email' => 50, 'free_mail_company' => 10, 'rapid_orders' => 30, 'large_first_order' => 25, 'failed_payments' => 30, 'vat_country_mismatch' => 15, 'ip_country_mismatch' => 20,
+        'referral_flagged' => 40, 'new_account' => 25, 'disposable_email' => 50, 'free_mail_company' => 10, 'rapid_orders' => 30, 'large_first_order' => 25, 'failed_payments' => 30, 'vat_country_mismatch' => 15, 'ip_country_mismatch' => 20, 'turnstile_failed' => 35,
         // referral check (§5l-4)
         'same_email_domain' => 100, 'risk_hold' => 100, 'chargeback' => 100, 'same_address' => 60, 'referrer_risk' => 40, 'refused_history' => 30, 'rapid_signup' => 25, 'many_pending' => 20,
     ];

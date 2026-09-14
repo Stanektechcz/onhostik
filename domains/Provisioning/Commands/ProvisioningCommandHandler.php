@@ -211,6 +211,43 @@ final class ProvisioningCommandHandler implements CommandHandler
 
                 return $result->data;
             })(),
+            // node limits from the console, never from the panel's own UI (audit §5q follow-up): memory / disk in MB, over-allocation in %, or `detect` = the daemon's RAM minus a reserve
+            'game.node.update' => (function () use ($command, $context) {
+                $instance = $this->findInstance($command);
+                $adapter = app(ProviderRegistry::class)->forInstance($instance);
+                if (! $adapter instanceof GameToolsProvider) {
+                    throw new DomainError('instance_not_game_panel', 'Node limits are set on game panel instances only.', 422);
+                }
+                $nodeId = (int) $command->get('node');
+                $fields = [];
+                foreach (['memory', 'disk', 'memory_overallocate', 'disk_overallocate'] as $key) {
+                    if ($command->get($key) !== null && $command->get($key) !== '') {
+                        $fields[$key] = max(0, (int) $command->get($key));
+                    }
+                }
+                if ($command->get('maintenance') !== null) {
+                    $fields['maintenance_mode'] = filter_var($command->get('maintenance'), FILTER_VALIDATE_BOOLEAN);
+                }
+                $system = null;
+                if (filter_var($command->get('detect', false), FILTER_VALIDATE_BOOLEAN)) {
+                    $system = $adapter->nodeSystem($nodeId);
+                    if ($system === null || $system['memory_mb'] === null) {
+                        throw new DomainError('node_system_unknown', 'The node daemon does not report its memory; set the limit by hand.', 422, ['field' => 'memory']);
+                    }
+                    $fields['memory'] = max(1024, $system['memory_mb'] - max(0, (int) config('onhost.game.node_reserve_mb', 1024)));
+                }
+                if ($fields === []) {
+                    throw new DomainError('node_update_empty', 'Nothing to change: memory, disk, over-allocation, maintenance or detect.', 422);
+                }
+                if (isset($fields['memory']) && $fields['memory'] < 1024 || isset($fields['disk']) && $fields['disk'] < 1024) {
+                    throw new DomainError('node_limit_invalid', 'Memory and disk limits are in MB and must be at least 1024.', 422);
+                }
+                $result = $adapter->updateNode($nodeId, $fields);
+                $this->instances->auditOptions($instance, 'node.limits', ['node' => $nodeId] + $fields + ['detected' => $system], $context);
+                $this->instances->discoverNodes($instance, $context); // the scheduler sees the new capacity at once
+
+                return $result->data + ['detected' => $system];
+            })(),
             'placement.upsert' => PlacementService::present($this->placements->upsert((array) $command->get('placement', []), $context)),
             'placement.delete' => (function () use ($command, $context) {
                 $this->placements->delete((string) $command->get('placement_id'), $context);

@@ -114,6 +114,18 @@ interface GameToolsProvider
     /** @param list<string> $ports ports or ranges (`25565`, `25570-25580`) */
     public function createAllocations(int $nodeId, string $ip, array $ports, ?string $alias = null): ProviderResult;
 
+    /** Startup command, image and environment of a server through the application API (the client API cannot change the command). @param array<string,string> $environment merged over the current one */
+    public function setStartup(ResourceRef $server, ?string $startup, ?string $image, array $environment = []): ProviderResult;
+
+    /** The panel's own node record (limits, over-allocation, daemon address). @return array<string,mixed> */
+    public function nodeDetail(int $nodeId): array;
+
+    /** Change node limits on the panel (memory, disk in MB, memory_overallocate, disk_overallocate in %, maintenance_mode) — the operator never opens the panel (audit §5q). @param array<string,int|bool> $fields */
+    public function updateNode(int $nodeId, array $fields): ProviderResult;
+
+    /** What the node's daemon reports about the host (`memory_mb`, `cpu_threads`, `os`, `version`); null when the daemon does not say. @return array{memory_mb:?int, cpu_threads:?int, os:?string, version:?string}|null */
+    public function nodeSystem(int $nodeId): ?array;
+
     /** Is the client API key present and accepted? @return 'ok'|'missing'|'rejected' */
     public function clientApiStatus(): string;
 

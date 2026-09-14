@@ -212,6 +212,7 @@ return [
         'rebalance' => ['high' => (float) env('ONHOST_REBALANCE_HIGH', 0.85), 'low' => (float) env('ONHOST_REBALANCE_LOW', 0.6), 'target' => (float) env('ONHOST_REBALANCE_TARGET', 0.75)], // node load (RAM sold / RAM capacity) that triggers, receives, and ends a rebalancing move
         'samples' => ['retention_days' => (int) env('ONHOST_NODE_SAMPLES_RETENTION_DAYS', 30)], // hourly node samples behind the trend (audit §5k-7)
         'capacity_forecast' => ['warn_days' => (int) env('ONHOST_CAPACITY_WARN_DAYS', 30)], // a pool with fewer days left reaches operations (audit §5m-7)
+        'capacity_budget' => ['monthly_minor' => (int) env('ONHOST_CAPACITY_BUDGET_MONTHLY_MINOR', 0), 'currency' => env('ONHOST_CAPACITY_BUDGET_CURRENCY', 'EUR')], // the monthly cap on vendor node orders, 0 = none (audit §5q-5)
         'node_bootstrap' => ['callback_base' => env('ONHOST_NODE_BOOTSTRAP_CALLBACK', ''), 'user_data' => env('ONHOST_NODE_BOOTSTRAP_USER_DATA', ''), 'ssh_key' => env('ONHOST_NODE_BOOTSTRAP_SSH_KEY', '')], // cloud-init of a vendor-ordered node and its readiness call-back (audit §5o-7)
         'backlog' => ['threshold' => (int) env('ONHOST_QUEUE_BACKLOG_THRESHOLD', 25), 'age_minutes' => (int) env('ONHOST_QUEUE_BACKLOG_AGE_MINUTES', 5)], // operations due for longer than this pile up → platform.queue.backlog (audit §5h-5)
         'autoscale' => ['enabled' => (bool) env('ONHOST_QUEUE_AUTOSCALE', false), 'max_helpers' => (int) env('ONHOST_QUEUE_MAX_HELPERS', 3), 'cooldown_minutes' => (int) env('ONHOST_QUEUE_COOLDOWN_MINUTES', 15), 'max_time_seconds' => (int) env('ONHOST_QUEUE_MAX_TIME', 900)], // helper workers started on the backlog gauge (audit §5i-3)
@@ -388,15 +389,46 @@ return [
     // nest/egg name when the panel is bootstrapped (onhost:game:sync-eggs), with safe environment defaults and the RAM floor
     // the template needs; `import` names the community egg to import when the panel lacks the template
     'game' => [
+        'node_reserve_mb' => (int) env('ONHOST_GAME_NODE_RESERVE_MB', 1024), // RAM kept for the host when a node limit is detected from the daemon (audit §5q follow-up)
         'eggs' => [
             'minecraft-paper' => ['label' => 'Minecraft · Paper', 'note' => 'nejrozšířenější Minecraft server s pluginy', 'nest' => '/minecraft/i', 'egg' => '/^paper$/i', 'min_ram_mb' => 2048, 'environment' => ['MINECRAFT_VERSION' => 'latest', 'BUILD_NUMBER' => 'latest'], 'import' => 'pelican-eggs/minecraft (paper)'],
-            'minecraft-spigot' => ['label' => 'Minecraft · Spigot', 'note' => 'Bukkit/Spigot pluginy; verze podle objednávky (výchozí 1.21.8)', 'nest' => '/minecraft/i', 'egg' => '/^spigot/i', 'fallback_egg' => '/^paper$/i', 'min_ram_mb' => 2048, 'environment' => ['MINECRAFT_VERSION' => '1.21.8', 'BUILD_NUMBER' => 'latest', 'SERVER_JARFILE' => 'spigot-{version}.jar', 'DL_PATH' => 'https://download.getbukkit.org/spigot/spigot-{version}.jar'], 'versions' => ['1.21.8', '1.21.7', '1.21.4', '1.20.6'], 'import' => 'pelican-eggs/minecraft (spigot); without it the Paper egg downloads the Spigot jar through DL_PATH'], // §5o: the Paper egg runs Spigot when the panel has no Spigot egg
+            'minecraft-spigot' => ['label' => 'Minecraft · Spigot', 'note' => 'Bukkit/Spigot pluginy; verze podle objednávky (výchozí 1.21.8)', 'nest' => '/minecraft/i', 'egg' => '/^spigot/i', 'fallback_egg' => '/^paper$/i', 'min_ram_mb' => 2048, 'environment' => ['MINECRAFT_VERSION' => '1.21.8', 'BUILD_NUMBER' => 'latest', 'SERVER_JARFILE' => 'spigot-{version}.jar'], 'versions' => ['1.21.8', '1.21.7', '1.21.4', '1.20.6'], 'docker_image' => 'ghcr.io/pterodactyl/yolks:java_21', 'startup' => 'bash onhost-start.sh', 'startup_script' => '#!/bin/bash
+# ONhost start script (written by the control plane through the panel API; audit §5q): Spigot has no jar downloads,
+# so the first start builds it with BuildTools, every later start just runs the jar. Variables come from the panel.
+cd /home/container || exit 1
+JAR="${SERVER_JARFILE:-spigot.jar}"
+VER="${MINECRAFT_VERSION:-latest}"
+if [ ! -f "$JAR" ]; then
+  echo "ONhost: building Spigot $VER with BuildTools (first start, several minutes)"
+  curl -fsSL -o BuildTools.jar https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar || { echo \'ONhost: BuildTools download failed\'; exit 1; }
+  java -jar BuildTools.jar --rev "$VER" --output-dir . --final-name "$JAR" || { echo \'ONhost: BuildTools failed\'; exit 1; }
+  rm -rf BuildTools.jar BuildData Bukkit CraftBukkit Spigot apache-maven-* work
+  echo \'eula=true\' > eula.txt
+fi
+exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.ansi=true -jar "$JAR" nogui
+', 'import' => 'pelican-eggs/minecraft (spigot); without it the Paper egg hosts a self-built Spigot: the startup command runs BuildTools on the first start (SpigotMC ships no jar downloads)'], // §5o/§5q: the Paper egg runs Spigot when the panel has no Spigot egg
             'minecraft-forge' => ['label' => 'Minecraft · Forge', 'note' => 'modpacky a mody pro Forge', 'nest' => '/minecraft/i', 'egg' => '/forge/i', 'min_ram_mb' => 4096, 'environment' => [], 'import' => 'pelican-eggs/minecraft (forge)'],
-            'cs2' => ['label' => 'Counter-Strike 2', 'note' => 'vyžaduje Steam Game Server Login Token (nastavíte ve Startup)', 'nest' => '/source|steam|counter/i', 'egg' => '/counter[- ]?strike(:)? ?2|^cs2$/i', 'min_ram_mb' => 4096, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (counter_strike_2)'],
+            'minecraft-purpur' => ['label' => 'Minecraft · Purpur', 'note' => 'Paper s dalšími herními volbami, pluginy Bukkit/Paper', 'nest' => '/minecraft/i', 'egg' => '/^purpur$/i', 'min_ram_mb' => 2048, 'environment' => [], 'import' => 'pelican-eggs/minecraft (purpur)'],
+            'minecraft-vanilla' => ['label' => 'Minecraft · Vanilla', 'note' => 'oficiální server Mojang bez modů', 'nest' => '/minecraft/i', 'egg' => '/^vanilla minecraft$/i', 'min_ram_mb' => 2048, 'environment' => [], 'import' => 'pelican-eggs/minecraft (vanilla)'],
+            'minecraft-bedrock' => ['label' => 'Minecraft · Bedrock', 'note' => 'pro konzole, mobily a Windows edici (UDP)', 'nest' => '/minecraft/i', 'egg' => '/^vanilla bedrock$/i', 'min_ram_mb' => 1024, 'environment' => [], 'import' => 'pelican-eggs/minecraft (bedrock)'],
+            'minecraft-sponge' => ['label' => 'Minecraft · Sponge', 'note' => 'SpongeVanilla s pluginy Sponge API', 'nest' => '/minecraft/i', 'egg' => '/^sponge/i', 'min_ram_mb' => 2048, 'environment' => [], 'import' => 'pelican-eggs/minecraft (sponge)'],
+            'minecraft-bungeecord' => ['label' => 'Minecraft · BungeeCord', 'note' => 'proxy spojující více Minecraft serverů', 'nest' => '/minecraft/i', 'egg' => '/^bungee ?cord$/i', 'min_ram_mb' => 1024, 'environment' => [], 'import' => 'pelican-eggs/minecraft (bungeecord)'],
+            '7-days-to-die' => ['label' => '7 Days To Die', 'note' => 'survival horor; doporučeno 8 GB', 'nest' => '/onhost|steam/i', 'egg' => '/^7 days to die$/i', 'min_ram_mb' => 6144, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (7_days_to_die)'],
+            'arma-reforger' => ['label' => 'Arma Reforger', 'note' => 'scénář a mody ve Startup', 'nest' => '/onhost|steam/i', 'egg' => '/^arma reforger$/i', 'min_ram_mb' => 6144, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (arma_reforger)'],
+            'dayz' => ['label' => 'DayZ', 'note' => 'stažení serveru vyžaduje Steam účet s DayZ (Startup)', 'nest' => '/onhost|steam/i', 'egg' => '/^dayz$/i', 'min_ram_mb' => 6144, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (dayz)'],
+            'enshrouded' => ['label' => 'Enshrouded', 'note' => 'kooperace až 16 hráčů', 'nest' => '/onhost|steam/i', 'egg' => '/^enshrouded$/i', 'min_ram_mb' => 6144, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (enshrouded)'],
+            'factorio' => ['label' => 'Factorio', 'note' => 'mapa se vytvoří při prvním startu', 'nest' => '/onhost/i', 'egg' => '/^factorio$/i', 'min_ram_mb' => 2048, 'environment' => [], 'import' => 'pelican-eggs/games-standalone (factorio)'],
+            'hytale' => ['label' => 'Hytale', 'note' => 'dedikovaný server Hytale', 'nest' => '/onhost/i', 'egg' => '/^hytale$/i', 'min_ram_mb' => 4096, 'environment' => [], 'import' => 'pelican-eggs/games-standalone (hytale)'],
+            'project-zomboid' => ['label' => 'Project Zomboid', 'note' => 'heslo správce ve Startup', 'nest' => '/onhost|steam/i', 'egg' => '/^project zomboid$/i', 'min_ram_mb' => 4096, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (project_zomboid)'],
+            'rust-autowipe' => ['label' => 'Rust (autowipe)', 'note' => 'automatický wipe podle plánu; doporučeno 16 GB', 'nest' => '/onhost/i', 'egg' => '/^rust autowipe$/i', 'min_ram_mb' => 8192, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (rust_autowipe)'],
+            'satisfactory' => ['label' => 'Satisfactory', 'note' => 'server se nárokuje v klientovi hry', 'nest' => '/onhost|steam/i', 'egg' => '/^satisfactory$/i', 'min_ram_mb' => 8192, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (satisfactory)'],
+            'terraria' => ['label' => 'Terraria', 'note' => 'vanilla server, svět se vytvoří při prvním startu', 'nest' => '/onhost/i', 'egg' => '/^terraria( vanilla)?$/i', 'min_ram_mb' => 1024, 'environment' => [], 'import' => 'pelican-eggs/games-standalone (terraria vanilla)'],
+            'v-rising' => ['label' => 'V Rising', 'note' => 'nastavení hry ve Startup', 'nest' => '/onhost|steam/i', 'egg' => '/^v ?rising$/i', 'min_ram_mb' => 4096, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (v_rising)'],
+            'cs2' => ['label' => 'Counter-Strike 2', 'note' => 'vyžaduje Steam Game Server Login Token (nastavíte ve Startup)', 'nest' => '/onhost|source|steam|counter/i', 'egg' => '/counter[- ]?strike(:)? ?2|^cs2$/i', 'min_ram_mb' => 4096, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (counter_strike_2)'],
             'rust' => ['label' => 'Rust', 'note' => 'mapa se generuje při prvním startu; doporučeno 16 GB', 'nest' => '/rust|steam/i', 'egg' => '/^rust$/i', 'min_ram_mb' => 8192, 'environment' => ['WORLD_SIZE' => '3000', 'MAX_PLAYERS' => '50'], 'import' => 'pelican-eggs/games-steamcmd (rust)'],
             'ark' => ['label' => 'ARK: Survival Evolved', 'note' => 'mapa TheIsland, hesla ve Startup', 'nest' => '/source|steam|ark/i', 'egg' => '/ark/i', 'min_ram_mb' => 8192, 'environment' => ['SERVER_MAP' => 'TheIsland'], 'import' => 'pelican-eggs/games-steamcmd (ark_survival_evolved)'],
-            'valheim' => ['label' => 'Valheim', 'note' => 'název světa a heslo ve Startup', 'nest' => '/valheim|steam/i', 'egg' => '/valheim/i', 'min_ram_mb' => 4096, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (valheim)'],
-            'palworld' => ['label' => 'Palworld', 'note' => 'doporučeno 16 GB pro 8+ hráčů', 'nest' => '/palworld|steam/i', 'egg' => '/palworld/i', 'min_ram_mb' => 8192, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (palworld)'],
+            'valheim' => ['label' => 'Valheim', 'note' => 'název světa a heslo ve Startup', 'nest' => '/onhost|valheim|steam/i', 'egg' => '/valheim/i', 'min_ram_mb' => 4096, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (valheim)'],
+            'palworld' => ['label' => 'Palworld', 'note' => 'doporučeno 16 GB pro 8+ hráčů', 'nest' => '/onhost|palworld|steam/i', 'egg' => '/palworld/i', 'min_ram_mb' => 8192, 'environment' => [], 'import' => 'pelican-eggs/games-steamcmd (palworld)'],
         ],
         'default_ports' => ['25565-25599'], // the port range a bootstrapped node gets when it has no free allocation
     ],
@@ -405,6 +437,37 @@ return [
         'relay_key' => env('ONHOST_CONSOLE_RELAY_KEY', ''),  // shared secret of the websocket console relay (GET /console/ws/{token})
         'relay_url' => env('ONHOST_CONSOLE_RELAY_URL', ''),  // wss://relay.onhost.cz — added to connect-src of the CSP
         'token_ttl_seconds' => 120,
+    ],
+
+    'oncall' => [ // on-call escalation behind the operational events (audit §5q-1)
+        'provider' => env('ONHOST_ONCALL_PROVIDER', ''),                        // pagerduty | opsgenie | webhook | '' = console only
+        'secret_ref' => env('ONHOST_ONCALL_SECRET_REF', 'env://ONHOST_ONCALL'), // {routing_key} | {api_key, base_url?} | {url, secret}
+        'inbound_secret' => env('ONHOST_ONCALL_INBOUND_SECRET', ''),            // PagerDuty webhook signature secret, or X-ONhost-Oncall-Token for the others
+        'escalate_after_minutes' => (int) env('ONHOST_ONCALL_ESCALATE_MINUTES', 15),
+        'max_escalations' => (int) env('ONHOST_ONCALL_MAX_ESCALATIONS', 2),
+        'events' => ['platform.queue.stalled' => 'hot', 'integration.down' => 'hot', 'node.bmc.alert' => 'hot', 'sla.burn_rate' => 'hot', 'capacity.forecast.low' => 'warn', 'incident.opened' => 'warn', 'integration.prereqs.regressed' => 'warn', 'platform.queue.backlog' => 'warn'],
+        'resolves' => ['integration.recovered' => 'integration.down', 'integration.prereqs.recovered' => 'integration.prereqs.regressed', 'incident.resolved' => 'incident.opened'],
+    ],
+
+    'observability' => [ // error tracking and traces (audit §5q-2); both off without an endpoint
+        'sentry_dsn' => env('SENTRY_DSN', ''),
+        'otlp_endpoint' => env('OTEL_EXPORTER_OTLP_ENDPOINT', ''),     // http://otel-collector:4318 — spans go to {endpoint}/v1/traces
+        'otlp_headers' => env('OTEL_EXPORTER_OTLP_HEADERS', ''),       // "Authorization=Bearer x,X-Scope-OrgID=onhost"
+        'service_name' => env('OTEL_SERVICE_NAME', 'onhost-control-plane'),
+        'environment' => env('APP_ENV', 'production'),
+    ],
+
+    'storage' => [ // files behind evidence and data exports (audit §5q-4)
+        'disk' => env('ONHOST_FILES_DISK', 'local'),                                 // local | s3 (config/filesystems.php)
+        'signed_ttl_minutes' => (int) env('ONHOST_FILES_SIGNED_TTL', 15),          // life of a signed download link
+        'evidence_retention_months' => (int) env('ONHOST_EVIDENCE_RETENTION_MONTHS', 36),
+    ],
+
+    'turnstile' => [ // Cloudflare Turnstile on registration and checkout (audit §5q-6); off without keys
+        'site_key' => env('TURNSTILE_SITE_KEY', ''),
+        'secret' => env('TURNSTILE_SECRET_KEY', ''),
+        'enforce_register' => (bool) env('ONHOST_TURNSTILE_ENFORCE_REGISTER', true), // a missing/failed check refuses registration; checkout only scores it
+        'timeout_seconds' => 3,
     ],
 
     'metrics' => [

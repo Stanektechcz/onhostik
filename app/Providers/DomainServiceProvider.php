@@ -25,6 +25,9 @@ use Onhost\Domain\Identity\Commands\ApiTokenCommand;
 use Onhost\Domain\Identity\Commands\IdentityCommandHandler;
 use Onhost\Domain\Incidents\Commands\IncidentCommand;
 use Onhost\Domain\Incidents\Commands\IncidentsCommandHandler;
+use Onhost\Domain\Incidents\Commands\OnCallCommand;
+use Onhost\Domain\Incidents\Commands\OnCallCommandHandler;
+use Onhost\Domain\Incidents\OnCallService;
 use Onhost\Domain\Integrations\Commands\IntegrationCommand;
 use Onhost\Domain\Integrations\Commands\IntegrationCommandHandler;
 use Onhost\Domain\Invoicing\Commands\InvoiceCommand;
@@ -104,6 +107,7 @@ final class DomainServiceProvider extends ServiceProvider
         CapacityCommand::class => CapacityCommandHandler::class,
         InvoiceCommand::class => InvoicingCommandHandler::class,
         IncidentCommand::class => IncidentsCommandHandler::class,
+        OnCallCommand::class => OnCallCommandHandler::class,
         ComplianceCommand::class => ComplianceCommandHandler::class,
         PartnerCommand::class => PartnersCommandHandler::class,
         PartnerPortalCommand::class => PartnersCommandHandler::class,
@@ -120,6 +124,7 @@ final class DomainServiceProvider extends ServiceProvider
         Event::listen('onhost.wallet.topup.completed', SettleBillingAfterPayment::class);
         Event::listen(OutboxEventDispatched::class, NotificationRouter::class);
         Event::listen(OutboxEventDispatched::class, WebhookDispatcher::class);
+        Event::listen(OutboxEventDispatched::class, OnCallService::class); // operational events page the on-call (audit §5q-1)
         Event::listen(OutboxEventDispatched::class, ChargebackSettlement::class); // credit back once the service is gone
         Event::listen(OutboxEventDispatched::class, LoyaltyRouter::class); // points for what customers do
 

@@ -189,6 +189,15 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider
         }
         $a = $server['attributes'];
         $status = ($a['suspended'] ?? false) ? 'suspended' : (($a['container']['installed'] ?? 0) === 1 || ($a['status'] ?? null) === null ? 'installed' : (string) $a['status']);
+        if ($status === 'installed') { // the live power state comes from the daemon through the client API: power actions verify against running | starting | stopping | stopped
+            try {
+                $status = match ((string) ($this->status($ref)['state'] ?? '')) {
+                    'running' => 'running', 'starting' => 'starting', 'stopping' => 'stopping', 'offline' => 'stopped', default => $status,
+                };
+            } catch (\Throwable) {
+                // no client key or the daemon down: the application state stands
+            }
+        }
 
         return new ActualState(true, [
             'name' => $a['name'], 'ram_mb' => (int) $a['limits']['memory'], 'disk_mb' => (int) $a['limits']['disk'], 'cpu_pct' => (int) $a['limits']['cpu'],
@@ -421,6 +430,18 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider
         $r = $this->request('PUT', "/api/client/servers/{$this->identifier($server)}/startup/variable", 'client', 'servers.variable', ['key' => $key, 'value' => $value]);
 
         return ProviderResult::completed($server, ['key' => $key, 'value' => (string) ($r['attributes']['server_value'] ?? $value)]);
+    }
+
+    public function setStartup(ResourceRef $server, ?string $startup, ?string $image, array $environment = []): ProviderResult
+    {
+        $a = (array) ($this->request('GET', "/api/application/servers/{$server->remoteId}", 'app', 'servers.get')['attributes'] ?? []);
+        $body = [
+            'startup' => $startup !== null && $startup !== '' ? $startup : (string) ($a['container']['startup_command'] ?? ''), 'egg' => (int) ($a['egg'] ?? 0), 'image' => $image !== null && $image !== '' ? $image : (string) ($a['container']['image'] ?? ''),
+            'environment' => array_map('strval', array_merge((array) ($a['container']['environment'] ?? []), $environment)), 'skip_scripts' => true,
+        ];
+        $this->request('PATCH', "/api/application/servers/{$server->remoteId}/startup", 'app', 'servers.startup.update', $body, critical: true);
+
+        return ProviderResult::completed($server, ['startup' => $body['startup'], 'image' => $body['image']]);
     }
 
     public function setDockerImage(ResourceRef $server, string $image): ProviderResult
@@ -759,6 +780,47 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider
         }
 
         return $out;
+    }
+
+    public function nodeDetail(int $nodeId): array
+    {
+        $a = (array) ($this->request('GET', "/api/application/nodes/{$nodeId}", 'app', 'nodes.detail')['attributes'] ?? []);
+
+        return ['id' => (int) ($a['id'] ?? $nodeId), 'name' => (string) ($a['name'] ?? ''), 'fqdn' => (string) ($a['fqdn'] ?? ''), 'scheme' => (string) ($a['scheme'] ?? 'https'), 'memory' => (int) ($a['memory'] ?? 0), 'memory_overallocate' => (int) ($a['memory_overallocate'] ?? 0), 'disk' => (int) ($a['disk'] ?? 0), 'disk_overallocate' => (int) ($a['disk_overallocate'] ?? 0), 'upload_size' => (int) ($a['upload_size'] ?? 100), 'daemon_listen' => (int) ($a['daemon_listen'] ?? 8080), 'daemon_sftp' => (int) ($a['daemon_sftp'] ?? 2022), 'location_id' => (int) ($a['location_id'] ?? 1), 'maintenance' => (bool) ($a['maintenance_mode'] ?? false), 'allocated_memory' => (int) ($a['allocated_resources']['memory'] ?? 0), 'allocated_disk' => (int) ($a['allocated_resources']['disk'] ?? 0), 'public' => (bool) ($a['public'] ?? true), 'behind_proxy' => (bool) ($a['behind_proxy'] ?? false), 'description' => (string) ($a['description'] ?? '')];
+    }
+
+    public function updateNode(int $nodeId, array $fields): ProviderResult
+    {
+        $current = $this->nodeDetail($nodeId); // the panel's PATCH wants the whole record, so the unchanged fields come from it
+        $body = [
+            'name' => $current['name'], 'description' => $current['description'], 'location_id' => $current['location_id'], 'public' => $current['public'], 'fqdn' => $current['fqdn'], 'scheme' => $current['scheme'], 'behind_proxy' => $current['behind_proxy'],
+            'memory' => (int) ($fields['memory'] ?? $current['memory']), 'memory_overallocate' => (int) ($fields['memory_overallocate'] ?? $current['memory_overallocate']),
+            'disk' => (int) ($fields['disk'] ?? $current['disk']), 'disk_overallocate' => (int) ($fields['disk_overallocate'] ?? $current['disk_overallocate']),
+            'upload_size' => $current['upload_size'], 'daemon_sftp' => $current['daemon_sftp'], 'daemon_listen' => $current['daemon_listen'], 'maintenance_mode' => (bool) ($fields['maintenance_mode'] ?? $current['maintenance']),
+        ];
+        $a = (array) ($this->request('PATCH', "/api/application/nodes/{$nodeId}", 'app', 'nodes.update', $body, critical: true)['attributes'] ?? []);
+
+        return ProviderResult::completed(null, ['id' => $nodeId, 'memory' => (int) ($a['memory'] ?? $body['memory']), 'memory_overallocate' => (int) ($a['memory_overallocate'] ?? $body['memory_overallocate']), 'disk' => (int) ($a['disk'] ?? $body['disk']), 'disk_overallocate' => (int) ($a['disk_overallocate'] ?? $body['disk_overallocate']), 'maintenance' => (bool) ($a['maintenance_mode'] ?? $body['maintenance_mode'])]);
+    }
+
+    public function nodeSystem(int $nodeId): ?array
+    {
+        $node = $this->nodeDetail($nodeId);
+        $config = $this->request('GET', "/api/application/nodes/{$nodeId}/configuration", 'app', 'nodes.configuration');
+        $token = (string) ($config['token'] ?? '');
+        if ($token === '' || $node['fqdn'] === '') {
+            return null;
+        }
+        $port = (int) data_get($config, 'api.port', $node['daemon_listen']);
+        $scheme = data_get($config, 'api.ssl.enabled', $node['scheme'] === 'https') ? 'https' : 'http';
+        $response = $this->http->send(new ProviderRequest(provider: 'pterodactyl', instanceKey: $this->instance->key, method: 'GET', url: "{$scheme}://{$node['fqdn']}:{$port}/api/system", action: 'wings.system', headers: ['Authorization' => "Bearer {$token}", 'Accept' => 'application/json'], body: null, bodyType: 'json', query: ['v' => '2'], timeoutSeconds: 8, critical: false, idempotent: true));
+        if ($response->status >= 400) {
+            return null;
+        }
+        $json = (array) $response->json();
+        $memoryBytes = data_get($json, 'system.memory_bytes');
+
+        return ['memory_mb' => is_numeric($memoryBytes) && $memoryBytes > 0 ? (int) floor(((float) $memoryBytes) / 1048576) : null, 'cpu_threads' => (int) (data_get($json, 'system.cpu_threads', $json['cpu_count'] ?? 0)) ?: null, 'os' => data_get($json, 'system.os', $json['os'] ?? null), 'version' => $json['version'] ?? null];
     }
 
     public function createAllocations(int $nodeId, string $ip, array $ports, ?string $alias = null): ProviderResult

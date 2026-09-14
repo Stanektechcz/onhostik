@@ -212,6 +212,11 @@ final class NotificationRouter
             'capacity.request.delivered' => $this->internal($m, 'infra', 'Uzel dodán: '.($p['node_name'] ?? ($p['role'] ?? '')), 'Fond '.($p['role'] ?? '').' '.($p['region'] ?? '').' má novou kapacitu.', '/sprava#/fleet', 'info'),
             'capacity.request.failed' => $this->internal($m, 'infra', 'Objednávka uzlu selhala: '.($p['role'] ?? '').' '.($p['region'] ?? ''), (string) ($p['error'] ?? ''), '/sprava#/fleet', 'hot'),
             'partner.change.auto_approved' => $this->internal($m, 'finance', 'Smluvní změna schválena automaticky: '.self::termName($p['kind'] ?? '').' → '.self::termValue($p['kind'] ?? '', $p['to'] ?? null), ($p['partner_code'] ?? '').' · '.($p['reason'] ?? '').' · platí od '.self::when($p['effective_from'] ?? null), '/sprava#/money', 'info'),
+            // on-call (audit §5q-1): the escalation is the loud one; acknowledgements and resolutions keep the trail
+            'oncall.alert.escalated' => $this->internal($m, 'infra', 'Eskalace on-call '.(int) ($p['escalations'] ?? 0).': '.($p['title'] ?? ''), (! empty($p['final']) ? 'poslední eskalace, pager už nevolá · ' : '').'nikdo nepotvrdil'.(! empty($p['paged']) ? ' · pager '.($p['provider'] ?? '') : ' · bez pageru'), '/sprava#/incidents', 'hot'),
+            'oncall.alert.acknowledged' => $this->internal($m, 'infra', 'On-call potvrzen: '.($p['title'] ?? ''), 'potvrdil '.($p['acked_by'] ?? ''), '/sprava#/incidents', 'info'),
+            'oncall.alert.resolved' => $this->internal($m, 'infra', 'On-call vyřešen: '.($p['title'] ?? ''), 'vyřešil '.($p['resolved_by'] ?? ''), '/sprava#/incidents', 'info'),
+            'capacity.budget.exceeded' => $this->internal($m, 'finance', 'Rozpočet kapacity vyčerpán: '.($p['role'] ?? '').' '.($p['region'] ?? ''), 'objednávka uzlu za '.($p['cost'] ?? '').' by překročila měsíční limit '.($p['budget'] ?? '').' (utraceno '.($p['spent'] ?? '').') · schválení nad limit v konzoli kapacity', '/sprava#/nodecost', 'hot'),
             'node.bmc.alert' => $this->internal($m, 'infra', 'Hardware hlásí problém: '.($p['node'] ?? ''), implode(' · ', (array) ($p['problems'] ?? [])).' · '.($p['role'] ?? '').' '.($p['region'] ?? ''), '/sprava#/fleet', 'hot'),
             'capacity.request.activated' => $this->internal($m, 'infra', 'Uzel je aktivní: '.($p['node_name'] ?? ($p['role'] ?? '')), 'Playbook doběhl · '.(string) ($p['report']['ip'] ?? $p['ip'] ?? '').' · fond '.($p['role'] ?? '').' '.($p['region'] ?? '').' má novou kapacitu.', '/sprava#/nodecost', 'info'),
             'integration.prereqs.regressed' => $this->internal($m, 'infra', 'Noční kontrola integrace: '.($p['key'] ?? '').' se zhoršila', ($p['api'] !== 'up' ? 'API neodpovídá · ' : '').implode(' · ', (array) ($p['appeared'] ?? [])), '/sprava/nastaveni/integrace', 'warn'),
@@ -240,9 +245,9 @@ final class NotificationRouter
 
     private function customer(OutboxMessage $m, string $kind, string $title, string $body, string $surface, string $severity = 'info', ?string $mailTo = null, ?string $template = null, array $vars = []): void
     {
-        $this->notifications->notify('customer', $kind, $title, $body, $surface, $m->organization_id, null, $m->aggregate_type, $m->aggregate_id, $m->name, $severity);
+        $organization = $m->organization_id !== null ? Organization::query()->find($m->organization_id) : null;
+        $this->notifications->notify('customer', $kind, $title, $body, $surface, $m->organization_id, null, $m->aggregate_type, $m->aggregate_id, $m->name, $severity, $organization?->locale ?? 'cs'); // §5q-7
         if ($template !== null && $mailTo) {
-            $organization = Organization::query()->find($m->organization_id);
             // Organization mails honour the owner's preferences; mandatory templates ignore them (NotificationService).
             $this->notifications->queueMail($template, $mailTo, $vars, $m->aggregate_type, $m->aggregate_id, $m->organization_id, $organization?->locale ?? 'cs', $organization?->owner_user_id);
         }
@@ -263,7 +268,7 @@ final class NotificationRouter
     private function user(OutboxMessage $m, string $kind, string $title, string $body, string $surface, string $severity, string $template, array $vars): void
     {
         $user = User::query()->find($m->aggregate_id);
-        $this->notifications->notify('customer', $kind, $title, $body, $surface, $m->organization_id, $user?->id, 'user', $m->aggregate_id, $m->name, $severity);
+        $this->notifications->notify('customer', $kind, $title, $body, $surface, $m->organization_id, $user?->id, 'user', $m->aggregate_id, $m->name, $severity, $user?->locale ?? 'cs'); // §5q-7
         if ($user !== null) {
             $this->notifications->queueMail($template, $user->email, $vars + ['jmeno' => $user->name], 'user', $user->id, $m->organization_id, $user->locale ?? 'cs', $user->id);
         }

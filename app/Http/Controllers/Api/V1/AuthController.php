@@ -23,6 +23,7 @@ use Onhost\Domain\Loyalty\ReferralService;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Partners\PartnerService;
+use Onhost\Domain\Risk\Turnstile;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -36,8 +37,9 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  */
 final class AuthController extends ApiController
 {
-    public function register(Request $request, OrganizationService $organizations, AuditRecorder $audit, OutboxPublisher $outbox): JsonResponse
+    public function register(Request $request, OrganizationService $organizations, AuditRecorder $audit, OutboxPublisher $outbox, Turnstile $turnstile): JsonResponse
     {
+        $turnstile->requireForRegistration($request); // §5q-6: no account without the human check while it is enforced
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'], 'email' => ['required', 'email:rfc', 'max:190', 'unique:users,email'], 'password' => ['required', Password::min(12)->letters()->numbers()->uncompromised()],
             'organization' => ['nullable', 'string', 'max:190'], 'type' => ['nullable', 'in:person,company'], 'ico' => ['nullable', 'string', 'max:20'], 'vat_id' => ['nullable', 'string', 'max:20'], 'country' => ['nullable', 'string', 'size:2'], 'locale' => ['nullable', 'in:cs,sk,en'], 'partner_code' => ['nullable', 'string', 'max:24'],

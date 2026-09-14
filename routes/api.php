@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\V1\Staff\ContentController as StaffContentControlle
 use App\Http\Controllers\Api\V1\Staff\CustomerController;
 use App\Http\Controllers\Api\V1\Staff\IncidentController as StaffIncidentController;
 use App\Http\Controllers\Api\V1\Staff\MarketplaceController as StaffMarketplaceController;
+use App\Http\Controllers\Api\V1\Staff\OnCallController;
 use App\Http\Controllers\Api\V1\Staff\PartnerController as StaffPartnerController;
 use App\Http\Controllers\Api\V1\Staff\PaymentsController;
 use App\Http\Controllers\Api\V1\Staff\PricingController;
@@ -79,6 +80,7 @@ Route::middleware('throttle:public')->group(function (): void {
     Route::post('auth/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:auth');
 
     Route::post('webhooks/payments/{provider}', [PaymentController::class, 'webhook'])->withoutMiddleware('throttle:public');
+    Route::post('webhooks/oncall/{provider}', [OnCallController::class, 'inbound'])->withoutMiddleware('throttle:public')->middleware('throttle:probes'); // the pager acknowledged / resolved on its side (audit §5q-1)
     Route::post('hooks/deploy/{source}', [WebToolsController::class, 'hook'])->middleware('throttle:auth'); // git push notifications (HMAC-signed)
     Route::post('hooks/run/{token}', [IntegrationController::class, 'runHook'])->middleware('throttle:auth'); // action hooks (token in the URL)
     Route::post('integrations/discord/interactions', [IntegrationController::class, 'discordInteractions'])->withoutMiddleware('throttle:public'); // Discord slash commands and buttons (Ed25519-signed)
@@ -395,6 +397,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::post('integrations/{instance}/game/bootstrap', [ConsoleController::class, 'bootstrap']);
         Route::post('integrations/{instance}/game/allocations', [ConsoleController::class, 'createAllocations']);
         Route::post('integrations/{instance}/game/nodes/{node}/evacuate', [ConsoleController::class, 'evacuate']);
+        Route::put('integrations/{instance}/game/nodes/{node}', [ConsoleController::class, 'updateNode']); // node limits through the panel API (audit §5q follow-up)
         Route::post('services/{service}/migrate', [ConsoleController::class, 'migrate']);
         Route::get('automation', [ConsoleController::class, 'automation']);
         Route::put('automation/order.risk/tuning', [ConsoleController::class, 'riskTuning']);
@@ -437,6 +440,12 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::get('capacity/requests', [ProvisioningController::class, 'capacityRequests']); // capacity requests from the forecast (audit §5n-7)
         Route::post('capacity/requests/{capacityRequest}/decide', [ProvisioningController::class, 'decideCapacityRequest']);
         Route::post('capacity/forecast/run', [ProvisioningController::class, 'runCapacityForecast']); // the daily pass on demand from the console (audit §5o)
+        Route::get('capacity/budget', [ProvisioningController::class, 'capacityBudget']); // the monthly cap on vendor node orders (audit §5q-5)
+        Route::put('capacity/budget', [ProvisioningController::class, 'setCapacityBudget']);
+        Route::get('oncall/alerts', [OnCallController::class, 'index']); // on-call alerts with escalation (audit §5q-1)
+        Route::post('oncall/alerts/{alert}/ack', [OnCallController::class, 'acknowledge']);
+        Route::post('oncall/alerts/{alert}/resolve', [OnCallController::class, 'resolve']);
+        Route::post('oncall/test', [OnCallController::class, 'test']);
         Route::get('provisioning/jobs', [ProvisioningController::class, 'operations']);
         Route::get('provisioning/jobs/{operation}', [ProvisioningController::class, 'operation']);
         Route::post('provisioning/jobs/{operation}/retry', [ProvisioningController::class, 'retry']);

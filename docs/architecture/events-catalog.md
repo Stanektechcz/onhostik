@@ -108,6 +108,8 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 | `security.incident.opened` / `abuse.case.opened` / `compliance.timer.due` / `compliance.timer.missed` | security and regulatory clocks | security inbox `#/incidenty` |
 | `sla.burn_rate` / `sla.budget.exhausted` / `maintenance.unapproved` | SLO alerting, change freeze, change management | on-call, admin `#/incidenty` |
 | `partner.application.received` / `partner.payout.requested` / `lead.received` | sales and partner operations | sales / finance inbox |
+| `oncall.alert.opened` / `oncall.alert.escalated` / `oncall.alert.acknowledged` / `oncall.alert.resolved` | the on-call alert row (`id`, `event`, `severity`, `state`, `title`, `provider`, `paged`, `escalations`, `acked_by`, `resolved_by`; escalated adds `final`) — opened by a paging event, re-paged while unacknowledged, acknowledged from the console or the pager, resolved by a person or the recovery event (audit §5q-1) | escalations, acknowledgements and resolutions in the infra inbox `#/incidents`; `opened` is audit only |
+| `capacity.budget.exceeded` | the capacity request row + `cost`, `budget`, `spent` (formatted) — an order that would cross the monthly cap on vendor node orders waits for a person (audit §5q-5) | finance inbox `#/nodecost` (hot) |
 | `rebalance.plan` / `chargeback.cluster` | the nightly dry-run rebalancing plan from the measured load (audit §5j-4: `basis`, `moves`, `hot[]`, `summary[]`) and a cluster of chargeback reasons that opened an internal incident (audit §5j-6: `number`, `cluster`, `count`, `theme`, `label`) | operations inbox `#/fleet`, finance inbox `#/incidents` |
 
 ## Consumers

@@ -62,7 +62,7 @@ it('bootstraps a game panel end to end and maps the catalogue templates by egg n
     $report = app(GamePanelBootstrap::class)->bootstrap($instance, CommandContext::system('test'));
     expect($report['errors'])->toBe([])->and($report['probe']['up'])->toBeTrue()->and($report['nodes'])->toBe(['games01']);
     expect($report['eggs']['mapped'])->toMatchArray(['minecraft-paper' => ['nest' => 1, 'egg' => 3, 'name' => 'Paper'], 'minecraft-forge' => ['nest' => 1, 'egg' => 4, 'name' => 'Forge Minecraft'], 'cs2' => ['nest' => 2, 'egg' => 15, 'name' => 'Counter-Strike 2'], 'rust' => ['nest' => 4, 'egg' => 14, 'name' => 'Rust'], 'ark' => ['nest' => 2, 'egg' => 8, 'name' => 'ARK: Survival Evolved']])
-        ->and(array_keys($report['eggs']['unmapped']))->toBe(['valheim', 'palworld'])->and($report['eggs']['unmapped']['valheim'])->toContain('pelican-eggs');
+        ->and($report['eggs']['mapped'])->toHaveKeys(['minecraft-vanilla', 'minecraft-bungeecord'])->and(array_keys($report['eggs']['unmapped']))->toContain('valheim')->toContain('palworld')->not->toContain('cs2')->and($report['eggs']['unmapped']['valheim'])->toContain('pelican-eggs');
     $instance->refresh();
     expect($instance->option('eggs.rust'))->toMatchArray(['nest' => 4, 'egg' => 14, 'environment' => ['WORLD_SIZE' => '3000', 'MAX_PLAYERS' => '50']])->and($instance->option('eggs.cs2.egg'))->toBe(15);
     // the node had no free port: the default range was created on its public address

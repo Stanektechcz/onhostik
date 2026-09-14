@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Onhost\Platform\Commands;
 
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Observability\Tracer;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Throwable;
 
@@ -29,6 +31,7 @@ final class CommandBus
         private readonly IdempotencyStore $idempotency,
         private readonly AuditRecorder $audit,
         private readonly OutboxPublisher $outbox,
+        private readonly Tracer $tracer,
     ) {}
 
     /** @param class-string<Command> $command @param class-string<CommandHandler> $handler */
@@ -60,13 +63,14 @@ final class CommandBus
 
         $handler = $this->resolveHandler($command);
 
+        Context::add('command', $command->name()); // the error tracker and the trace tag the command (audit §5q-2)
         try {
-            $result = DB::transaction(function () use ($handler, $command, $context) {
+            $result = $this->tracer->span('command '.$command->name(), ['onhost.command' => $command->name(), 'onhost.actor_type' => $context->actorType, 'onhost.actor_id' => $context->actorId, 'onhost.organization_id' => $context->organizationId, 'onhost.idempotency_key' => $command->idempotencyKey()], fn () => DB::transaction(function () use ($handler, $command, $context) {
                 $result = $handler->handle($command, $context);
                 $this->idempotency->remember($command->idempotencyKey(), $context, $result);
 
                 return $result;
-            }, 3);
+            }, 3));
         } catch (Throwable $e) {
             $this->audit->record($context, $command->name(), 'failed', [
                 'permission' => $command->permission(),

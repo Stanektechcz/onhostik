@@ -16,6 +16,23 @@
   var B = window.ONHOST || {};
   var K = { session: 'onhost.session', role: 'onhost.role', cart: 'onhost.cart', ops: 'onhost.ops' };
 
+  /* 0. Cloudflare Turnstile (audit §5q-6): rendered once when the boot object carries a site key; its token rides on
+   * registration and checkout as `turnstile`. Without a key nothing loads and the payloads carry no field. */
+  var turnstileId = null;
+  function turnstileToken() { try { return turnstileId !== null && window.turnstile ? (window.turnstile.getResponse(turnstileId) || undefined) : undefined; } catch (e) { return undefined; } }
+  function turnstileReset() { try { if (turnstileId !== null && window.turnstile) window.turnstile.reset(turnstileId); } catch (e) {} }
+  if (B.turnstile && !B.demo) {
+    var mountTurnstile = function () {
+      if (turnstileId !== null || !window.turnstile || !document.body) return;
+      var host = document.createElement('div'); host.id = 'onhost-turnstile'; host.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:9999';
+      document.body.appendChild(host);
+      turnstileId = window.turnstile.render(host, { sitekey: B.turnstile, appearance: 'interaction-only', theme: 'light' });
+    };
+    var ts = document.createElement('script'); ts.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'; ts.async = true; ts.defer = true;
+    ts.onload = function () { if (document.body) mountTurnstile(); else document.addEventListener('DOMContentLoaded', mountTurnstile); };
+    document.head.appendChild(ts);
+  }
+
   function write(key, val) {
     try { if (val == null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
   }
@@ -204,10 +221,11 @@
       return view === 'login'
         ? A.post('/auth/login', { email: email.trim(), password: pass, remember: true })
         : view === 'register'
-          ? A.post('/auth/register', { name: name.trim() || email.split('@')[0], email: email.trim(), password: pass, terms: true, partner_code: ref || undefined })
+          ? A.post('/auth/register', { name: name.trim() || email.split('@')[0], email: email.trim(), password: pass, terms: true, partner_code: ref || undefined, turnstile: turnstileToken() })
           : A.post('/auth/password/reset', { email: email.trim() });
     };
     fetch('/sanctum/csrf-cookie', { credentials: 'same-origin' }).catch(function () {}).then(req).then(function (r) {
+      turnstileReset(); // a token is single-use; the next form submit needs a fresh one
       var u = (r && r.data && (r.data.user || r.data)) || {};
       inFlight = false;
       if (view === 'reset') { showError(card, 'Pokud účet existuje, poslali jsme odkaz na obnovu hesla.'); setBusy(card, false); return; }
@@ -340,7 +358,8 @@
       var trimmed = function (v) { return (v || '').trim() || undefined; };
       var customer = { email: (guest.email || '').trim(), name: (guest.name || '').trim(), company: trimmed(guest.company), ico: trimmed(guest.ico), dic: trimmed(guest.dic), street: trimmed(guest.street), city: trimmed(guest.city), postal_code: trimmed(guest.postal_code), country: 'CZ' };
       return fetch('/sanctum/csrf-cookie', { credentials: 'same-origin' }).catch(function () {})
-        .then(function () { return A.post('/checkout/guest', { customer: customer, items: items, commit_months: commit, currency: 'CZK', promo_code: cart.promoOk ? (cart.promo || null) : null, consents: consents, payment: payment, terms: true, source: 'web' }, hash); })
+        .then(function () { return A.post('/checkout/guest', { customer: customer, items: items, commit_months: commit, currency: 'CZK', promo_code: cart.promoOk ? (cart.promo || null) : null, consents: consents, payment: payment, terms: true, source: 'web', turnstile: turnstileToken() }, hash); })
+        .then(function (r) { turnstileReset(); return r; }, function (e) { turnstileReset(); throw e; })
         .then(function (r) {
           var acc = r.account || {};
           if (acc.user) { write(K.session, { email: acc.user.email, name: acc.user.name, since: Date.now(), id: acc.user.id, org: acc.organization ? acc.organization.id : null, staff: false }); write(K.role, 'klient'); }
@@ -352,8 +371,9 @@
       .then(function () { return A.post('/cart/quote', {}); })
       .then(function (q) {
         window.__onhostQuote = (q.data && q.data.quote_id) || q.quote_id;
-        return A.post('/orders', { quote_id: window.__onhostQuote, consents: consents, payment: payment, source: 'web' }, hash + ':' + window.__onhostQuote);
+        return A.post('/orders', { quote_id: window.__onhostQuote, consents: consents, payment: payment, source: 'web', turnstile: turnstileToken() }, hash + ':' + window.__onhostQuote);
       })
+      .then(function (r) { turnstileReset(); return r; }, function (e) { turnstileReset(); throw e; })
       .then(remember);
   }
   /* The payment tiles are <label> blocks; the selected one carries the accent border (prototype styling). */

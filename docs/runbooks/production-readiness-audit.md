@@ -2,15 +2,15 @@
 
 Komplexní audit platformy ONhost po bloku §5p: co je hotové, co chybí, co je potřeba doladit a v jakém pořadí, aby
 šlo do produkce bez překvapení. Zdroje: `php artisan onhost:doctor` (59 kontrol, 0 FAIL, 30 WARN na dev),
-`onhost:integrations:health`, plná testovací sada (Pest 322+ testů, Playwright 5 specifikací), kód, konfigurace,
+`onhost:integrations:health`, plná testovací sada (Pest 334 testů, Playwright 5 specifikací), kód, konfigurace,
 dokumentace v `docs/` a runbooky. Priority: **P0** blokuje spuštění, **P1** do prvního měsíce provozu, **P2** zlepšení.
 
 ## 1. Stav dnes v číslech
 
 | Oblast | Stav |
 | --- | --- |
-| Testy | Pest 322+ testů / 8 500+ asercí zelené; Playwright 5 specifikací (veřejný checkout, panel zákazníka, game workbench, mail workbench, staff konzole) |
-| API | OpenAPI 377 cest / 421 operací (`php artisan onhost:openapi`) |
+| Testy | Pest 334 testů / 8 946 asercí zelené; Playwright 5 specifikací (veřejný checkout, panel zákazníka, game workbench, mail workbench, staff konzole) |
+| API | OpenAPI 386 cest / 431 operací (`php artisan onhost:openapi`) |
 | Události | 81+ řádků katalogu (`docs/architecture/events-catalog.md`), všechny routované v `NotificationRouter` |
 | Automatizace | 60 plánovaných běhů, 63 vlastních příkazů + 8 tříd, 15 pravidel s vypínačem v konzoli (`AutomationLedger::RULES`) |
 | Infrastruktura jako kód | 6 Ansible rolí s molecule scénáři, workflow `ansible-roles` (lint + matice), edge šablony Caddy/nginx |
@@ -41,8 +41,10 @@ dokumentace v `docs/` a runbooky. Priority: **P0** blokuje spuštění, **P1** d
    `onhost_api` dnes odmítán — `500.104`); `onhost:registrar:costs` + aktualizace ceníků (10 TLD s cenou, subreg
    ceny zastaralé), pinování TLD, worker konzumuje `provider-registrar`.
 7. **Provisioning** — placement pro každý produkt (doctor: `vps, vds, database, ipv4, backup-plus` bez instance);
-   herní panel: uložit klíče → `onhost:game:bootstrap pterodactyl-gamepanel` (uzly, šablony vč. `minecraft-spigot`,
-   porty, placement) → první server přes `onhost:game:create` nebo konzoli.
+   herní panel: klíče uložené, bootstrap hotový (5 šablon, placement); limity uzlu se nastavují z konzole přes
+   Application API (*Herní uzly → Limity uzlu / Změřit RAM*), paměť uzlu ONHOST-GAME-TEST-01 nastavena na 14 964 MB,
+   disk uzlu 200 000 MB — **první Spigot 1.21.8 běží** (`srv_01m2era5hx2abepxmy79v1rfp5`, 45.67.217.22:6665,
+   sestavený BuildTools skriptem, který platforma zapsala přes API; start, příkazy i log z konzole ONhost).
 8. **Edge a konzole** — `ONHOST_CONSOLE_RELAY_KEY` + `ONHOST_CONSOLE_RELAY_URL` (relay pro živou konzoli),
    `ONHOST_METRICS_TOKEN`, nasazení edge role (`infra/ansible/edge.yml`) s on-demand TLS pro stavové domény
    zákazníků.
@@ -54,11 +56,12 @@ dokumentace v `docs/` a runbooky. Priority: **P0** blokuje spuštění, **P1** d
   PBS instance pro zálohy VPS (`pbs-cz1` je lab). Runbook `release-and-rollback.md` doplnit o migrace zpět.
 - Externí sondy na třech lokalitách (role `onhost_probe`) + registrace tokenů v Incidenty → sondy; 2-of-3 kvorum
   je připraveno v `SlaService`.
-- Alerting mimo platformu: interní notifikace jsou v konzoli a Discordu (`onhost:discord:register-commands`);
-  chybí on-call eskalace (pager) pro `platform.queue.stalled`, `integration.down`, `node.bmc.alert`,
-  `capacity.forecast.low` — připojit PagerDuty/Opsgenie webhook přes `WebhookDispatcher`.
-- Centrální logy a error tracking: `LOG_STACK=single`; přidat Sentry/OpenTelemetry kanál (není v `composer.json`),
-  retence auditu a logů podle GDPR (Compliance runbook).
+- Alerting mimo platformu — **hotovo v §5q-1**: on-call eskalace (`ONHOST_ONCALL_PROVIDER` pagerduty | opsgenie |
+  webhook, klíč v secret store, `ONHOST_ONCALL_INBOUND_SECRET` pro zpětný webhook pageru); zbývá nastavit provider,
+  rotaci služeb v pageru a ověřit `POST /v1/staff/oncall/test`.
+- Centrální logy a error tracking — **hotovo v §5q-2** bez SDK: `SENTRY_DSN` (redigované obálky s korelačním id),
+  `OTEL_EXPORTER_OTLP_ENDPOINT` (spany příkazů, kroků operací a volání providerů); zbývá nasadit collector a Sentry
+  projekt, retence auditu a logů podle GDPR (Compliance runbook).
 - Kapacita: `capacity.auto_order` nechat vypnuté do první ruční objednávky; nastavit `options.node_order` na
   instanci s dodavatelem (Hetzner token v secret store); `ONHOST_NODE_BOOTSTRAP_SSH_KEY` + callback base.
 - BMC inventář: `tags.bmc` na produkčních uzlech (Redfish URL, chassis, secret_ref), práh
@@ -67,8 +70,8 @@ dokumentace v `docs/` a runbooky. Priority: **P0** blokuje spuštění, **P1** d
 **Bezpečnost**
 - Rotace všech tajemství, která prošla chatem nebo laboratoří (Pterodactyl, WEDOS heslo, Subreg).
 - CSP (`SecurityHeaders`) rozšířit o relay a CDN origin produkce; `throttle:auth` 10/min a `throttle:probes`
-  600/min zkontrolovat proti reálnému provozu; CAPTCHA/turnstile na registraci a veřejném checkoutu (dnes jen
-  rate limit + risk model).
+  600/min zkontrolovat proti reálnému provozu; Turnstile na registraci a checkoutu je **hotový v §5q-6** — nastavit
+  `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` (bez klíčů vypnuto).
 - Dependabot/`composer audit` v CI (`tests.yml` spouští Pint a Pest, ne audit); Larastan přidat do CI jako krok.
 - Penetrační test API (idempotence, step-up, org scope) a prototypových ploch; kontrola, že `demo` mód je v
   produkci vypnutý (`ONHOST_DEMO=false`).
@@ -85,20 +88,22 @@ dokumentace v `docs/` a runbooky. Priority: **P0** blokuje spuštění, **P1** d
   monitoringu, SK lokalizace (UI-03), in-browser Babel (UI-02 → předkompilace pro rychlost načtení).
 - Playwright rozšířit o partnerský portál (smluvní podmínky, marketplace), admin kapacitu/věrnost a staff konzoli
   serveru; mobilní průchody.
-- Šablony e-mailů a notifikací v EN (dnes většina CZ) pro zahraniční zákazníky.
+- Šablony e-mailů v EN existují, in-app notifikace v EN jsou **hotové v §5q-7** (`Lexicon`); zbývá projít
+  překlady rodilým mluvčím a doplnit fráze, které test `NotificationLocaleTest` neprochází.
 
 ## 4. P2 — zlepšení
 
-- Terminál přímo v konzoli (dnes stránka `/sprava/konzole/{service}` s logem a příkazy; živá konzole = token pro
-  relay) — websocket klient v prohlížeči.
+- Terminál přímo v konzoli — **hotovo v §5q-3** (websocket klient k relay, přehrání posledních řádků, textové
+  soubory do 512 kB); zbývá binární přenos souborů a VNC pro Proxmox.
 - Molecule na reálných dodavatelích (noční běh proti lab instancím; dnes noční `onhost:nodes:check` hlásí regrese
   prerekvizit, role Proxmox/ISPConfig mají stub CLI).
-- Přílohy důkazů z asset úložiště (dnes lokální disk, 10 MB, pdf/png/jpg/txt/csv/zip/log) → S3-kompatibilní disk
-  s podepsanými odkazy a retencí.
+- Přílohy důkazů a exporty na S3 — **hotovo v §5q-4** (`ONHOST_FILES_DISK=s3`, podepsané odkazy, `onhost:files:prune`);
+  zbývá bucket, IAM klíče v `.env` a antivirový sken nahrávek.
 - Jedna tabulka vah rizika je hotová; přidat review přesnosti přes čas (trend) a export do BI.
 - Odhad nákladů kampaní do měsíčního reportu financí; A/B test kampaní.
 - Fleet: BMC teploty a PSU jsou v řádku; přidat graf a historii ze vzorků (`node_usage_samples`).
-- Automatické objednání uzlu podle forecastu má vypínač; doplnit rozpočtový strop na měsíc.
+- Automatické objednání uzlu má vypínač i měsíční rozpočtový strop — **hotovo v §5q-5**
+  (`ONHOST_CAPACITY_BUDGET_MONTHLY_MINOR`, `PUT /v1/staff/capacity/budget`); zbývá strop odsouhlasit s financemi.
 
 ## 5. Kontrolní seznam před dnem D
 
@@ -111,7 +116,7 @@ dokumentace v `docs/` a runbooky. Priority: **P0** blokuje spuštění, **P1** d
 6. Klíče panelů uložené, rotované, `ONHOST_SECRETS_DRIVER=openbao`; vývojové účty pryč; MFA pro staff.
 7. Sondy, on-call webhook a stavová stránka nasazené; první uzly s `tags.bmc`.
 
-## 6. Návrhy dalšího bloku (§5q)
+## 6. Návrhy dalšího bloku (§5q) — realizováno 2026-09-14, viz `preproduction-audit.md` §5q a §5r
 
 1. **On-call eskalace**: PagerDuty/Opsgenie adaptér za `WebhookDispatcher` s potvrzením a eskalací po X minutách.
 2. **Error tracking a trasování**: Sentry + OpenTelemetry pro operace a fronty; korelace s `CommandContext`.

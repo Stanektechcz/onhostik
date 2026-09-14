@@ -47,7 +47,9 @@ final class HetznerCloudNodeOrderProvider implements NodeOrderProvider
         }
         $server = (array) data_get($response->json(), 'server', []);
 
-        return ['remote_id' => (string) ($server['id'] ?? ''), 'name' => (string) ($server['name'] ?? $spec['name']), 'ip' => data_get($server, 'public_net.ipv4.ip'), 'type' => $type];
+        $price = $this->priceOf($type, $options);
+
+        return ['remote_id' => (string) ($server['id'] ?? ''), 'name' => (string) ($server['name'] ?? $spec['name']), 'ip' => data_get($server, 'public_net.ipv4.ip'), 'type' => $type, 'cost_minor' => $price, 'currency' => $price !== null ? 'EUR' : null];
     }
 
     public function catalogue(array $options): array
@@ -65,7 +67,11 @@ final class HetznerCloudNodeOrderProvider implements NodeOrderProvider
             if (! empty($type['deprecated'])) {
                 continue;
             }
-            $rows[] = ['type' => (string) ($type['name'] ?? ''), 'ram_mb' => (int) round(((float) ($type['memory'] ?? 0)) * 1024), 'cpu_cores' => (int) ($type['cores'] ?? 0), 'disk_gb' => (int) ($type['disk'] ?? 0)];
+            $prices = (array) ($type['prices'] ?? []);
+            $location = (string) ($options['location'] ?? '');
+            $price = collect($prices)->first(fn ($p) => $location !== '' && ($p['location'] ?? '') === $location) ?? ($prices[0] ?? null);
+            $monthly = is_array($price) ? data_get($price, 'price_monthly.net') : null; // net EUR per month, minor units (audit §5q-5)
+            $rows[] = ['type' => (string) ($type['name'] ?? ''), 'ram_mb' => (int) round(((float) ($type['memory'] ?? 0)) * 1024), 'cpu_cores' => (int) ($type['cores'] ?? 0), 'disk_gb' => (int) ($type['disk'] ?? 0), 'price_monthly_minor' => is_numeric($monthly) ? (int) round(((float) $monthly) * 100) : null, 'currency' => is_numeric($monthly) ? 'EUR' : null];
         }
         usort($rows, fn ($a, $b) => [$a['ram_mb'], $a['cpu_cores']] <=> [$b['ram_mb'], $b['cpu_cores']]);
 
@@ -86,6 +92,18 @@ final class HetznerCloudNodeOrderProvider implements NodeOrderProvider
         }
 
         return $catalogue[array_key_last($catalogue)]['type'];
+    }
+
+    /** The monthly net price of a type from the catalogue; null when the catalogue is not readable. */
+    private function priceOf(string $type, array $options): ?int
+    {
+        foreach ($this->catalogue($options) as $row) {
+            if ($row['type'] === $type) {
+                return $row['price_monthly_minor'];
+            }
+        }
+
+        return null;
     }
 
     private function client(): PendingRequest

@@ -1,5 +1,9 @@
 # Pterodactyl
 
+> Node limits (§5q follow-up): `nodeDetail`, `updateNode` (PATCH with the whole node record) and `nodeSystem`
+> (Wings `/api/system?v=2` with the node's daemon token) let the console set memory / disk / over-allocation and
+> detect the host RAM; the panel's UI is never used.
+
 **Files:** `providers/Pterodactyl/PterodactylGameProvider.php` · **Contract test:** `tests/Contract/PterodactylContractTest.php`
 
 Two APIs: the **application** API (`/api/application`, admin key) for users, servers, nodes and allocations; the

@@ -19,6 +19,7 @@ use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Partners\PartnerService;
+use Onhost\Domain\Risk\Turnstile;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -34,8 +35,9 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  */
 final class CheckoutController extends ApiController
 {
-    public function guest(Request $request, OrganizationService $organizations, QuoteService $quotes, AuditRecorder $audit, OutboxPublisher $outbox): JsonResponse
+    public function guest(Request $request, OrganizationService $organizations, QuoteService $quotes, AuditRecorder $audit, OutboxPublisher $outbox, Turnstile $turnstile): JsonResponse
     {
+        $turnstile->check($request); // §5q-6: the outcome is a signal of the order check, never a refusal
         if ($request->user() !== null) {
             throw new DomainError('already_signed_in', 'Jste přihlášeni — objednávku dokončete jako přihlášený zákazník.', 409);
         }

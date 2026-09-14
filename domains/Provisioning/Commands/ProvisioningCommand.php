@@ -32,7 +32,7 @@ final class ProvisioningCommand extends GlobalCommand implements RiskAwareComman
             'resolve_drift' => 'provisioning.drift.resolve',
             'freeze', 'thaw', 'automation.toggle', 'automation.risk' => 'provisioning.freeze',
             'reconcile', 'bulk.start', 'service.create' => 'staff.service.manage',
-            'instance.upsert', 'instance.state', 'instance.discover', 'node.upsert', 'node.state', 'placement.upsert', 'placement.delete', 'registrar.costs.refresh', 'registrar.costs.scrape', 'registrar.costs.upsert', 'registrar.policy.set', 'game.eggs.map', 'game.eggs.sync', 'game.bootstrap', 'game.allocations.create', 'game.migrate', 'game.evacuate', 'service.migrate', 'service.evacuate', 'rebalance.apply' => 'provider.instance.manage',
+            'instance.upsert', 'instance.state', 'instance.discover', 'node.upsert', 'node.state', 'placement.upsert', 'placement.delete', 'registrar.costs.refresh', 'registrar.costs.scrape', 'registrar.costs.upsert', 'registrar.policy.set', 'game.eggs.map', 'game.eggs.sync', 'game.bootstrap', 'game.allocations.create', 'game.node.update', 'game.migrate', 'game.evacuate', 'service.migrate', 'service.evacuate', 'rebalance.apply' => 'provider.instance.manage',
             'tenant.sandbox' => 'staff.customer.manage',
             'instance.probe', 'instance.prereqs' => 'provider.instance.read',
             default => 'provisioning.operation.read',

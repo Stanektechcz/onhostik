@@ -37,7 +37,7 @@ final class NotificationController extends ApiController
             $query->whereNull('read_at');
         }
 
-        return $this->api->paginate($request, $query, fn (Notification $n) => ['id' => $n->id, 'aud' => $n->audience, 'kind' => $n->kind, 'event' => $n->event, 'ref' => $n->ref_id, 'ref_type' => $n->ref_type, 'title' => $n->title, 'body' => $n->body, 'surface' => $n->surface, 'severity' => $n->severity, 'read' => $n->read_at !== null, 'at' => $n->created_at?->toIso8601String()]);
+        return $this->api->paginate($request, $query, fn (Notification $n) => ['id' => $n->id, 'aud' => $n->audience, 'kind' => $n->kind, 'event' => $n->event, 'ref' => $n->ref_id, 'ref_type' => $n->ref_type, 'title' => $n->title, 'body' => $n->body, 'surface' => $n->surface, 'severity' => $n->severity, 'locale' => $n->locale, 'read' => $n->read_at !== null, 'at' => $n->created_at?->toIso8601String()]);
     }
 
     public function read(Request $request, NotificationService $notifications): JsonResponse

@@ -25,7 +25,7 @@ final class CapacityPlanner
 {
     public const RULE = 'capacity.auto_order';
 
-    public function __construct(private readonly CapacityForecast $forecast, private readonly NodeOrders $orders, private readonly AutomationLedger $ledger, private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox) {}
+    public function __construct(private readonly CapacityForecast $forecast, private readonly NodeOrders $orders, private readonly AutomationLedger $ledger, private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox, private readonly CapacityBudget $budget) {}
 
     /**
      * The daily pass: propose for every short pool without an open request, order what the rule allows, track deliveries.
@@ -84,7 +84,7 @@ final class CapacityPlanner
      * Operations decide: approve (orders from the vendor when there is one), cancel, delivered {node_name} for a manual
      * purchase, or retry after a failed order.
      */
-    public function decide(CapacityRequest $request, string $decision, ?string $note, CommandContext $context, ?string $nodeName = null): CapacityRequest
+    public function decide(CapacityRequest $request, string $decision, ?string $note, CommandContext $context, ?string $nodeName = null, bool $overrideBudget = false): CapacityRequest
     {
         if (! in_array($decision, ['approve', 'cancel', 'delivered', 'retry'], true)) {
             throw new DomainError('capacity_decision_invalid', 'Decision must be approve, cancel, delivered or retry.', 422, ['field' => 'decision']);
@@ -120,6 +120,19 @@ final class CapacityPlanner
         $instance = ProviderInstance::query()->findOrFail($request->provider_instance_id);
         $name = $this->nodeName($request);
         $vendorOptions = (array) $instance->option('node_order', []);
+        // §5q-5: the monthly budget cap — an automatic order that would cross it waits for a person, a person must override it with a note (the finance approval on the audit row)
+        $estimate = $this->estimate($vendor, $request, $vendorOptions);
+        if (! $overrideBudget && ! $this->budget->allows($estimate['cost_minor'], $estimate['currency'])) {
+            $described = $this->budget->describe($estimate['cost_minor']);
+            if ($context->actorType !== 'system') {
+                throw new DomainError('capacity_budget_exceeded', 'This order would cross the monthly capacity budget ('.$described['cost'].' on top of '.$described['spent'].' of '.$described['budget'].'); approve again with override_budget and a note naming who approved it.', 409, $described + ['cost_minor' => $estimate['cost_minor'], 'field' => 'override_budget']);
+            }
+            $request->forceFill(['meta' => array_merge((array) $request->meta, ['budget_hold' => ['cost_minor' => $estimate['cost_minor'], 'currency' => $estimate['currency'], 'at' => now()->toIso8601String()]])])->save();
+            $this->audit->record($context, 'capacity.request.budget_hold', 'succeeded', ['request' => $request->id] + $described, 'capacity_request', $request->id);
+            $this->outbox->publish(GenericEvent::of('capacity.budget.exceeded', 'capacity_request', $request->id, $described + self::present($request)));
+
+            return $request;
+        }
         if (empty($vendorOptions['user_data'])) { // §5o-7: cloud-init prepares the host and calls back with a one-time token
             $vendorOptions['user_data'] = app(NodeBootstrap::class)->prepare($request)['user_data'];
         }
@@ -137,8 +150,9 @@ final class CapacityPlanner
             'capacity' => ['cpu_cores' => (int) $request->wanted_cpu_cores, 'ram_mb' => (int) $request->wanted_ram_mb, 'disk_gb' => (int) $request->wanted_disk_gb], 'usage' => [],
             'tags' => ['ordered' => ['request' => $request->id, 'vendor' => (string) $instance->option('node_order.driver'), 'remote_id' => $ordered['remote_id'], 'ip' => $ordered['ip'], 'type' => $ordered['type'], 'at' => now()->toIso8601String()]],
         ]);
-        $request->forceFill(['state' => CapacityRequest::ORDERED, 'ordered_at' => now(), 'node_name' => $node->name, 'node_id' => $node->id, 'remote_id' => $ordered['remote_id'], 'meta' => array_merge((array) $request->meta, ['ip' => $ordered['ip'], 'type' => $ordered['type']])])->save();
-        $this->audit->record($context, 'capacity.request.order', 'succeeded', ['request' => $request->id, 'node' => $node->name, 'remote_id' => $ordered['remote_id']], 'capacity_request', $request->id);
+        $cost = $ordered['cost_minor'] ?? $estimate['cost_minor'];
+        $request->forceFill(['state' => CapacityRequest::ORDERED, 'ordered_at' => now(), 'node_name' => $node->name, 'node_id' => $node->id, 'remote_id' => $ordered['remote_id'], 'cost_minor' => $cost, 'cost_currency' => $cost !== null ? strtoupper((string) ($ordered['currency'] ?? $estimate['currency'])) : null, 'meta' => array_merge(array_diff_key((array) $request->meta, ['budget_hold' => true]), ['ip' => $ordered['ip'], 'type' => $ordered['type'], 'budget_override' => $overrideBudget ?: null])])->save();
+        $this->audit->record($context, 'capacity.request.order', 'succeeded', ['request' => $request->id, 'node' => $node->name, 'remote_id' => $ordered['remote_id'], 'cost_minor' => $cost, 'override_budget' => $overrideBudget], 'capacity_request', $request->id);
         $this->outbox->publish(GenericEvent::of('capacity.request.ordered', 'capacity_request', $request->id, self::present($request)));
 
         return $request;
@@ -174,7 +188,31 @@ final class CapacityPlanner
             'ordered_at' => $r->ordered_at?->toIso8601String(), 'delivered_at' => $r->delivered_at?->toIso8601String(), 'created_at' => $r->created_at?->toIso8601String(),
             'ready_at' => $r->ready_at?->toIso8601String(), 'ready' => data_get($r->meta, 'ready'), // §5o-7
             'activated_at' => $r->activated_at?->toIso8601String(), // §5p-7
+            'cost' => $r->cost_minor !== null ? ['minor' => (int) $r->cost_minor, 'currency' => $r->cost_currency] : null, 'budget_hold' => data_get($r->meta, 'budget_hold'), // §5q-5
         ];
+    }
+
+    /** The vendor's monthly price of what the request would order (the named type, else the smallest fitting one). @return array{cost_minor:?int, currency:?string} */
+    private function estimate(NodeOrderProvider $vendor, CapacityRequest $request, array $vendorOptions): array
+    {
+        if (isset($vendorOptions['monthly_cost_minor'])) { // an operator-priced vendor (or a manual override on the instance)
+            return ['cost_minor' => (int) $vendorOptions['monthly_cost_minor'], 'currency' => strtoupper((string) ($vendorOptions['currency'] ?? config('onhost.provisioning.capacity_budget.currency', 'EUR')))];
+        }
+        $catalogue = $vendor->catalogue($vendorOptions);
+        if ($catalogue === []) {
+            return ['cost_minor' => null, 'currency' => null];
+        }
+        $named = (string) ($vendorOptions['server_type'] ?? '');
+        $row = null;
+        foreach ($catalogue as $candidate) {
+            if ($named !== '' ? $candidate['type'] === $named : ($candidate['ram_mb'] >= (int) $request->wanted_ram_mb && $candidate['cpu_cores'] >= (int) $request->wanted_cpu_cores && $candidate['disk_gb'] >= (int) $request->wanted_disk_gb)) {
+                $row = $candidate;
+                break;
+            }
+        }
+        $row ??= $named === '' ? $catalogue[array_key_last($catalogue)] : null;
+
+        return ['cost_minor' => $row['price_monthly_minor'] ?? null, 'currency' => $row['currency'] ?? null];
     }
 
     private function nodeName(CapacityRequest $request): string

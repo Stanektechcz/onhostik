@@ -49,12 +49,13 @@ it('maps Spigot onto the Paper egg when the panel lacks it and resolves the vers
     featureGameService($org);
     $instance = ProviderInstance::query()->where('key', 'pterodactyl-games01')->firstOrFail();
 
-    // no Spigot egg: Paper carries it, the preset's DL_PATH template travels with the mapping
+    // no Spigot egg: Paper carries it, the preset's environment travels with the mapping
     fakeEggs([[1, 'Vanilla Minecraft'], [3, 'Paper']]);
     $report = app(GamePanelBootstrap::class)->syncEggs($instance, CommandContext::system('test'), true);
     expect($report['mapped']['minecraft-spigot'])->toBe(['nest' => 1, 'egg' => 3, 'name' => 'Paper', 'via_fallback' => true])->and($report['mapped']['minecraft-paper'])->toBe(['nest' => 1, 'egg' => 3, 'name' => 'Paper']);
     $mapped = $instance->refresh()->option('eggs.minecraft-spigot');
-    expect($mapped)->toMatchArray(['nest' => 1, 'egg' => 3, 'via_fallback' => true])->and($mapped['environment']['DL_PATH'])->toBe('https://download.getbukkit.org/spigot/spigot-{version}.jar');
+    expect($mapped)->toMatchArray(['nest' => 1, 'egg' => 3, 'via_fallback' => true])->and($mapped['environment']['SERVER_JARFILE'])->toBe('spigot-{version}.jar')->and($mapped['environment'])->not->toHaveKey('DL_PATH'); // §5q: no jar download site — the preset's startup builds Spigot with BuildTools on the first start
+    expect((string) config('onhost.game.eggs.minecraft-spigot.startup'))->toBe('bash onhost-start.sh')->and((string) config('onhost.game.eggs.minecraft-spigot.startup_script'))->toContain('BuildTools.jar --rev "$VER"')->toContain('--final-name "$JAR"')->and(config('onhost.game.eggs.minecraft-spigot.docker_image'))->toBe('ghcr.io/pterodactyl/yolks:java_21');
 
     // the version chosen by the order lands in every `{version}` placeholder
     $env = ProvisionGameServerWorkflow::withVersion(['MINECRAFT_VERSION' => '1.21.8', 'SERVER_JARFILE' => 'spigot-{version}.jar', 'DL_PATH' => 'https://download.getbukkit.org/spigot/spigot-{version}.jar', 'BUILD_NUMBER' => 'latest']);

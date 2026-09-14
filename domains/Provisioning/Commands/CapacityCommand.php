@@ -10,7 +10,8 @@ use Onhost\Platform\Commands\GlobalCommand;
 
 /**
  * Operations decide about a capacity request (audit §5n-7): `decide{request_id, decision: approve|cancel|delivered|retry,
- * note?, node_name?}`. An approval may order a node from a vendor, so the command is HIGH risk with a fresh step-up.
+ * note?, node_name?, override_budget?}`. An approval may order a node from a vendor, so the command is HIGH risk with a
+ * fresh step-up. `budget{monthly_minor}` sets the monthly cap on vendor orders (audit §5q-5).
  */
 final class CapacityCommand extends GlobalCommand implements RiskAwareCommand
 {
@@ -31,12 +32,12 @@ final class CapacityCommand extends GlobalCommand implements RiskAwareCommand
 
     public function riskLevel(): string
     {
-        return in_array($this->get('decision'), ['approve', 'retry'], true) ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
+        return $this->op() === 'decide' && in_array($this->get('decision'), ['approve', 'retry'], true) ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
     }
 
     public function requiresStepUp(): bool
     {
-        return in_array($this->get('decision'), ['approve', 'retry'], true);
+        return $this->op() === 'decide' && in_array($this->get('decision'), ['approve', 'retry'], true);
     }
 
     public function requiresApproval(): bool

@@ -30,3 +30,17 @@ it('renders the staff console for a game server and refuses everyone without the
     $js = (string) file_get_contents(base_path('apps/surfaces/api/onhost-admin.api.js'));
     expect($js)->toContain("window.open('/sprava/konzole/' + sid, '_blank', 'noopener')");
 });
+
+it('carries the websocket client to the relay, replays the last lines and uploads a text file (audit §5q-3)', function () {
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'hrac2@firma.cz'], ['name' => 'Herní klub 2 s.r.o.']);
+    $service = featureGameService($org, [], 79, 'e4c1abc9');
+    $staff = $this->staff('game_admin');
+    $without = $this->actingAs($staff)->get("/sprava/konzole/{$service->id}")->assertOk()->getContent();
+    expect($without)->not->toContain('id="connect"')->toContain('id="upload"')->toContain("action: 'gfile.save'")->toContain('id="term"');
+
+    config()->set('onhost.console.relay_url', 'wss://relay.onhost.test/');
+    $html = $this->actingAs($staff)->get("/sprava/konzole/{$service->id}")->assertOk()->getContent();
+    expect($html)->toContain('id="connect"')->toContain('"wss:\/\/relay.onhost.test"')->toContain("'/ws/' + encodeURIComponent(d.token)")->toContain("event: 'send logs'")->toContain("event: 'send command'")->toContain("f.event === 'console output'")
+        ->toContain("f.event === 'token expiring'")->toContain('readAsText(file)')->toContain('512 * 1024')->toContain("d.kind !== 'wings_ws'");
+    expect((string) $this->actingAs($staff)->get("/sprava/konzole/{$service->id}")->headers->get('Content-Security-Policy'))->toContain('connect-src \'self\' wss://relay.onhost.test/');
+});

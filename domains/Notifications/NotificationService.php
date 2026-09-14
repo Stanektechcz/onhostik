@@ -33,15 +33,16 @@ final class NotificationService
         'wallet-topup' => 'wallet', 'payment-received' => 'invoice.issued', 'wallet-runway' => 'wallet',
     ];
 
-    public function notify(string $audience, string $kind, string $title, ?string $body = null, ?string $surface = null, ?string $organizationId = null, ?string $userId = null, ?string $refType = null, ?string $refId = null, ?string $event = null, string $severity = 'info'): ?Notification
+    public function notify(string $audience, string $kind, string $title, ?string $body = null, ?string $surface = null, ?string $organizationId = null, ?string $userId = null, ?string $refType = null, ?string $refId = null, ?string $event = null, string $severity = 'info', string $locale = 'cs'): ?Notification
     {
         if ($userId !== null && ! $this->allowed($userId, $kind, 'inapp')) {
             return null;
         }
+        $locale = in_array($locale, (array) config('onhost.locales', ['cs']), true) ? $locale : 'cs';
 
         return Notification::query()->create([
             'organization_id' => $organizationId, 'user_id' => $userId, 'audience' => $audience, 'kind' => $kind, 'event' => $event, 'ref_type' => $refType, 'ref_id' => $refId,
-            'title' => mb_substr($title, 0, 250), 'body' => $body, 'surface' => $surface, 'severity' => in_array($severity, ['info', 'warn', 'hot'], true) ? $severity : 'info',
+            'title' => mb_substr((string) Lexicon::translate($title, $locale), 0, 250), 'body' => Lexicon::translate($body, $locale), 'surface' => $surface, 'severity' => in_array($severity, ['info', 'warn', 'hot'], true) ? $severity : 'info', 'locale' => $locale, // §5q-7: the organization's language
         ]);
     }
 

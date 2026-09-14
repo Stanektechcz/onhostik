@@ -12,6 +12,7 @@ use Onhost\Domain\Orders\Commands\PlaceOrderCommand;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Risk\Turnstile;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 
@@ -34,9 +35,10 @@ final class OrderController extends ApiController
         return response()->json(['data' => Presenters::order($this->resolve($request, $order))]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, Turnstile $turnstile): JsonResponse
     {
         $organization = $this->api->organization($request);
+        $turnstile->check($request); // §5q-6
         $data = $request->validate([
             'quote_id' => ['required', 'string'], 'consents' => ['required', 'array'], 'payment' => ['required', 'array'], 'payment.mode' => ['required', 'in:wallet,gateway,bank,postpaid'],
             'payment.provider' => ['nullable', 'string', 'max:20'], 'payment.method' => ['nullable', 'string', 'max:40'], 'payment.return_urls' => ['nullable', 'array'], 'source' => ['nullable', 'in:web,panel,api,partner'],

@@ -7,6 +7,7 @@ namespace Onhost\Platform\ProviderHttp;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Onhost\Platform\Observability\Tracer;
 use Onhost\Platform\Redaction\Redactor;
 
 /**
@@ -15,7 +16,7 @@ use Onhost\Platform\Redaction\Redactor;
  */
 final class ProviderCallLogger
 {
-    public function __construct(private readonly Redactor $redactor) {}
+    public function __construct(private readonly Redactor $redactor, private readonly Tracer $tracer) {}
 
     /** @param array<string,mixed> $requestSummary */
     public function log(
@@ -50,6 +51,7 @@ final class ProviderCallLogger
             'error' => $error === null ? null : mb_substr($this->redactor->redactString($error), 0, 500),
             'created_at' => now(),
         ]);
+        $this->tracer->finished('provider.call '.$request->provider.' '.$request->action, $durationMs, ['onhost.provider' => $request->provider, 'onhost.instance' => $request->instanceKey, 'http.method' => $request->method, 'http.status_code' => $httpStatus, 'onhost.provider_call' => $id, 'onhost.operation' => $request->operationId], $ok ? null : ((string) $error ?: 'provider call failed')); // audit §5q-2
 
         return $id;
     }

@@ -406,6 +406,19 @@
         (inst.nodes || []).forEach(function (n) {
           var tone = n.maintenance ? 'warn' : pctTone(Math.max(n.memory_pct || 0, n.disk_pct || 0));
           var acts = [];
+          // node limits through the panel API (audit §5q follow-up): the operator never opens the panel's own UI
+          acts.push([tr(cmp, 'Limity uzlu', 'Node limits'), tr(cmp, 'Paměť a disk uzlu na panelu (MB) a případná přealokace v %; plánovač kapacitu převezme hned.', 'Node memory and disk on the panel (MB) and over-allocation in %; the scheduler takes the capacity over at once.'), 0, function () {
+            var mem = window.prompt(tr(cmp, 'Paměť uzlu v MB (prázdné = beze změny):', 'Node memory in MB (empty = unchanged):'), String(n.memory || ''));
+            if (mem === null) return;
+            var disk = window.prompt(tr(cmp, 'Disk uzlu v MB (prázdné = beze změny):', 'Node disk in MB (empty = unchanged):'), String(n.disk || ''));
+            if (disk === null) return;
+            var body = {};
+            if (mem.trim() !== '' && Number(mem) !== Number(n.memory)) body.memory = Number(mem);
+            if (disk.trim() !== '' && Number(disk) !== Number(n.disk)) body.disk = Number(disk);
+            if (!Object.keys(body).length) { window.alert(tr(cmp, 'Nic ke změně.', 'Nothing to change.')); return; }
+            put(base + '/game/nodes/' + encodeURIComponent(n.id), body, reload);
+          }]);
+          acts.push([tr(cmp, 'Změřit RAM', 'Detect RAM'), tr(cmp, 'Paměť uzlu se nastaví podle toho, co hlásí démon uzlu (Wings), minus rezerva pro hostitele.', 'The node memory follows what the node daemon (Wings) reports, minus the host reserve.'), 0, function () { put(base + '/game/nodes/' + encodeURIComponent(n.id), { detect: true }, reload); }]);
           if (n.scheduler_id) acts.push([tr(cmp, 'Vystěhovat servery', 'Evacuate servers'), tr(cmp, 'Uzel se odstaví a každý server dostane vlastní stěhování: zastavení → záloha → nový server na cíli → přenos dat → přepnutí adresy → úklid.', 'The node is drained and every server gets its own migration: stop → backup → new server on the target → data transfer → address switch → clean-up.'), 0, function () {
             var others = (inst.nodes || []).filter(function (o) { return o.scheduler_id && o.scheduler_id !== n.scheduler_id; }).map(function (o) { return o.name; });
             var target = window.prompt(tr(cmp, 'Cílový uzel (prázdné = vybere plánovač): ', 'Target node (empty = the scheduler picks): ') + others.join(', '), '');

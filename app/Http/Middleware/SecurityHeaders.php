@@ -32,9 +32,11 @@ final class SecurityHeaders
         if (! $headers->has('Content-Security-Policy') && str_starts_with((string) $headers->get('Content-Type', ''), 'text/html')) {
             $relay = (string) config('onhost.console.relay_url', '');
             $connect = "'self'".($relay !== '' ? ' '.$relay : '');
-            $headers->set('Content-Security-Policy', implode('; ', [
+            $turnstile = (string) config('onhost.turnstile.site_key', '') !== '' ? ' https://challenges.cloudflare.com' : ''; // §5q-6
+            $headers->set('Content-Security-Policy', implode('; ', array_filter([
                 "default-src 'self'",
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",   // prototype runtime: inline scripts + in-browser Babel (UI-02)
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:{$turnstile}",   // prototype runtime: inline scripts + in-browser Babel (UI-02)
+                $turnstile !== '' ? "frame-src{$turnstile}" : null,
                 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
                 'font-src \'self\' data: https://fonts.gstatic.com',
                 "img-src 'self' data: blob:",
@@ -43,7 +45,7 @@ final class SecurityHeaders
                 "base-uri 'self'",
                 "form-action 'self'",
                 "object-src 'none'",
-            ]).($request->isSecure() ? '; upgrade-insecure-requests' : ''));
+            ])).($request->isSecure() ? '; upgrade-insecure-requests' : ''));
         }
 
         return $response;

@@ -1015,6 +1015,94 @@ operations *Uzel je aktivní*. The playbook can be run with `-e onhost_activate_
 **Game versions in the wizard.** A template with `versions` in `config/onhost.php` (`minecraft-spigot`: 1.21.8,
 1.21.7, 1.21.4, 1.20.6) is offered per version in *Systém a obraz* (`key@version`, newest marked *nejnovější*);
 the order carries `config.version`, the service's `MINECRAFT_VERSION` follows.
+## Ecosystem block, part eight (audit §5q, 2026-09-14)
+
+**On-call escalation.** `OnCallService` (outbox listener) opens one `oncall_alerts` row per event + subject for the
+events in `config/onhost.php → oncall.events` and pages the provider behind `ONHOST_ONCALL_PROVIDER`: `pagerduty`
+(Events API v2, secret `{routing_key}`), `opsgenie` (Alerts API, `{api_key}`), `webhook` (a signed envelope
+`{action, dedup_key, alert}` with `X-ONhost-Signature: v1=<hmac>` to `{url, secret}`); the secret is
+`ONHOST_ONCALL_SECRET_REF` in the secret store. Unacknowledged alerts re-page after `ONHOST_ONCALL_ESCALATE_MINUTES`
+with a higher severity (`[eskalace n]` in the summary), at most `ONHOST_ONCALL_MAX_ESCALATIONS` times (rule
+`oncall.escalate`, `onhost:oncall:escalate` every minute); the internal inbox gets *Eskalace on-call n: …* (hot).
+`GET /v1/staff/oncall/alerts?state=active|all|resolved`, `POST …/{id}/ack`, `POST …/{id}/resolve {note?}`,
+`POST /v1/staff/oncall/test` (staff with `incident.manage`). The pager calls back at `POST /v1/webhooks/oncall/pagerduty`
+(v3 webhook, `X-PagerDuty-Signature: v1=<hmac-sha256(body, ONHOST_ONCALL_INBOUND_SECRET)>`, events
+`incident.acknowledged` / `incident.resolved` matched by `incident_key`) or `/opsgenie` and `/webhook`
+(`X-ONhost-Oncall-Token: <ONHOST_ONCALL_INBOUND_SECRET>`, `action: Acknowledge|Close` with `alert.alias`, or
+`{action, dedup_key, by}`). Recovery events (`oncall.resolves`: `integration.recovered`,
+`integration.prereqs.recovered`, `incident.resolved`) resolve the alert of their subject on both sides.
+
+**Error tracking and traces.** `SENTRY_DSN` turns on `ErrorReporter`: every unexpected exception (never a domain
+error, validation, auth or 4xx) becomes an envelope on the store API with the message and frames through the
+redactor and the tags `correlation_id`, `request_id`, `actor`, `command`, `operation`. `OTEL_EXPORTER_OTLP_ENDPOINT`
+turns on `Tracer`: spans `command <name>` (actor, organization, idempotency key), `operation.step <label>`
+(operation, workflow, step, service) and `provider.call <provider> <action>` (instance, method, status, provider
+call id) go to `{endpoint}/v1/traces` as OTLP JSON, batched per process (50 spans or shutdown), with
+`OTEL_EXPORTER_OTLP_HEADERS` (`k=v,k=v`). The trace id is `md5(correlation_id)`, so the audit row, the provider
+call row and the log line of one action share the trace.
+
+**Websocket console in the staff page.** With `ONHOST_CONSOLE_RELAY_URL` the page shows *Připojit živou konzoli*:
+it takes a console token, opens `wss://relay/ws/<token>`, sends `send logs` and `send stats`, prints `console
+output` / `install output` / `daemon message` frames (ANSI stripped), mirrors `status`, shows CPU/RAM from `stats`,
+and on `token expiring|expired` takes a fresh token and reconnects (20 tries). A command typed while connected goes
+into the socket (`send command`); otherwise through `POST /v1/services/{id}/actions command.send`. *Nahrát soubor*
+reads a text file (≤ 512 kB) and stores it through `gfile.save` at the given path. VNC consoles (Proxmox) keep the
+token hand-off to the customer panel.
+
+**Files on one disk.** `FileStore` reads `ONHOST_FILES_DISK` (`local` = `storage/app/private`, or `s3` from
+`config/filesystems.php`); marketplace evidence (`marketplace-evidence/<order>/<yyyymm>/…`, uploads under
+`marketplace-evidence/tmp`) and data exports (`exports/<org>/<request>.json`) live there. Downloads
+(`GET /v1/account/marketplace/orders/{id}/evidence/{entry}/{key}`, the signed export link) answer `302` to a temporary
+URL (`ONHOST_FILES_SIGNED_TTL` minutes, content type and disposition set) when the disk signs, a stream otherwise.
+`onhost:files:prune` (rule `files.prune`, daily 04:25) deletes evidence older than `ONHOST_EVIDENCE_RETENTION_MONTHS`
+and export files no live request points at.
+
+**Capacity budget.** `GET /v1/staff/capacity/budget` (`capacity.read`) shows `{monthly_minor, currency,
+spent_minor, remaining_minor, orders, month, source}`; `PUT` (`capacity.manage`, `{monthly_minor|null}`) sets or
+clears the console override of `ONHOST_CAPACITY_BUDGET_MONTHLY_MINOR`. The Hetzner catalogue carries
+`price_monthly_minor` per type (the instance's location's net price); the planner prices what it is about to order
+(named `server_type`, else the smallest fitting type; `options.node_order.monthly_cost_minor` for a vendor without
+prices) and stores `cost_minor` / `cost_currency` on the ordered request. Over the cap: the automatic rule leaves the
+request `approved` with `budget_hold` and publishes `capacity.budget.exceeded` (finance inbox, hot); a person gets
+`409 capacity_budget_exceeded` until `decision: approve, override_budget: true, note: "…"` (the note is required and
+is the finance approval on the audit row).
+
+**Turnstile.** `TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY` turn it on: the boot object carries `turnstile`, the
+session bridge loads `challenges.cloudflare.com/turnstile/v0/api.js` and renders one widget
+(`appearance: interaction-only`, bottom right), registration and checkout payloads carry `turnstile` (or the header
+`CF-Turnstile-Response`). `POST /v1/auth/register` refuses `422 turnstile_required {result: missing|fail}` while
+`ONHOST_TURNSTILE_ENFORCE_REGISTER` is on; `POST /v1/checkout/guest` and `POST /v1/orders` only score it —
+`turnstile_failed` (35) joins the order check's signals and the shared weight table. A verifier that does not answer
+counts as a pass. The CSP adds `https://challenges.cloudflare.com` to `script-src` and `frame-src` only with a key.
+
+**Spigot without a jar download site (§5q follow-up).** SpigotMC ships no jar and getbukkit.org is gone, so the
+`minecraft-spigot` preset carries `startup: bash onhost-start.sh` plus `startup_script`: the activation step writes
+the script into the server through the panel client API (`writeFile`), the first start builds Spigot with BuildTools
+(`--rev $MINECRAFT_VERSION --final-name $SERVER_JARFILE`, several minutes, Java 21 image), every later start runs the
+jar. The container entrypoint runs the startup command through `exec env`, so shell logic never goes into the
+command itself — always into a file. A mapping without image/startup takes the preset's, then the panel egg's own
+defaults (`servers.create` needs `docker_image`). `GameToolsProvider::setStartup()` changes command, image and
+environment of an existing server through the application API (`PATCH /servers/{id}/startup`).
+
+**Live power state and game logs.** `getActualState()` of a Pterodactyl server maps the daemon's state (client API
+`resources`) onto `running | starting | stopping | stopped`; a power action whose target is `running` accepts
+`starting` (a first start may build for minutes) and `stopped` accepts `stopping`. The staff console's log tail of
+a game server is the server's log file through the client API (`logs/latest.log`, preset key `log_file`); while the
+server is offline or installing the console says so instead of asking the daemon (file reads on an offline server
+answer 500 and would trip the circuit breaker).
+**Node limits through the panel API (§5q follow-up).** The operator never opens the panel's own UI: the console's
+*Herní uzly* row has *Limity uzlu* (memory and disk in MB, `PUT /v1/staff/integrations/{instance}/game/nodes/{node}
+{memory?, disk?, memory_overallocate?, disk_overallocate?, maintenance?, reason?}`) and *Změřit RAM* (`{detect: true}`:
+the node's daemon reports its host — Wings `GET /api/system?v=2` with the token from
+`/api/application/nodes/{id}/configuration` — and the limit becomes host RAM minus `ONHOST_GAME_NODE_RESERVE_MB`).
+The panel's `PATCH /api/application/nodes/{id}` wants the whole record, so the unchanged fields are read first;
+the change is `game.node.update` (`provider.instance.manage`), audited on the instance (`node.limits`), and node
+discovery runs right after so the scheduler sells the new capacity at once (discovery now takes the panel's limits
+over the stored ones). Disk size is not reported by the daemon — set it by hand from the console.
+**Notifications in English.** `NotificationService::notify(..., locale)` runs the title and body through `Lexicon`
+(Czech phrase → English, longest first, values untouched) for `en` organizations and users and stores
+`notifications.locale`; `GET /v1/notifications` rows carry `locale`. `Lexicon::untranslated()` lists Czech left in a
+text (the test's yardstick); a phrase missing from the table stays Czech.
 ## Browser smoke (Playwright)
 
 `tests/e2e/public-checkout.spec.js` (`npm run e2e`, config `playwright.config.js`) drives the public journey in a
@@ -1070,3 +1158,10 @@ one-time sign-in link (`/dev/login/{user}`, local environment, never registered 
   still propagating; `onhost:cdn:refresh` activates the zone when the edge reports it active.
 * **Staging copy on ISPConfig is slow** — jailed accounts cannot see each other, so files relay through the
   control plane; large sites take minutes. aaPanel copies with rsync on the node.
+
+**Game catalogue on gamepanel.onhost.cz (2026-09-14).** The `game` product sells 22 templates, each mapped by
+`onhost:game:bootstrap pterodactyl-gamepanel --eggs-only` onto the panel's eggs: nest *Minecraft* (Paper, Spigot on
+the Paper egg, Purpur, Vanilla, Forge, Sponge, BungeeCord, Bedrock) and nest *Onhost Gamehosting* (7 Days To Die,
+Arma Reforger, Counter-Strike 2, DayZ, Enshrouded, Factorio, Hytale, Palworld, Project Zomboid, Rust Autowipe,
+Satisfactory, Terraria, V Rising, Valheim). The presets `rust` and `ark` stay in config for existing mappings but are
+no longer offered.

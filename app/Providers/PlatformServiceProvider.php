@@ -18,6 +18,7 @@ use Onhost\Platform\Clock\SystemClock;
 use Onhost\Platform\Commands\CommandAuthorizer;
 use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\IdempotencyStore;
+use Onhost\Platform\Observability\Tracer;
 use Onhost\Platform\ProviderHttp\ProviderCallLogger;
 use Onhost\Platform\ProviderHttp\ProviderHttpClient;
 use Onhost\Platform\Secrets\DbSecretStore;
@@ -75,6 +76,7 @@ final class PlatformServiceProvider extends ServiceProvider
         });
         $this->app->singleton(CommandAuthorizer::class, IdentityCommandAuthorizer::class);
         $this->app->singleton(CommandBus::class);
+        $this->app->singleton(Tracer::class); // one span buffer per process (audit §5q-2)
         $this->app->singleton(IdempotencyStore::class, fn () => new IdempotencyStore((int) config('onhost.api.idempotency_ttl_hours', 24)));
 
         $this->app->singleton(SecretStore::class, function ($app): SecretStore {

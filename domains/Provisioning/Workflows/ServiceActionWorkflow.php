@@ -406,7 +406,8 @@ final class ServiceActionWorkflow implements Workflow
                 $service = $this->service($context);
                 $state = $this->capability($context, InfrastructureProvider::class)->getActualState($this->ref($context));
                 $target = (string) $context->get('target', $state->status);
-                if ($state->status !== $target && $context->get('noop') !== true) {
+                $inTransit = ($target === 'running' && $state->status === 'starting') || ($target === 'stopped' && $state->status === 'stopping'); // the daemon accepted the command; a first start may build for minutes (Spigot), the console shows the live state
+                if ($state->status !== $target && ! $inTransit && $context->get('noop') !== true) {
                     return StepResult::fail("Expected {$target}, provider reports {$state->status}", true, $state->attributes, 5);
                 }
                 $context->container->make(ServiceService::class)->recordActual($service, $state, $context->actor, 'service.power', ['action' => $context->desired('power_action')]);

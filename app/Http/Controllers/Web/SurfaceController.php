@@ -147,6 +147,7 @@ final class SurfaceController extends Controller
             'surface' => $surface,
             'hash' => $hash,
             'demo' => $demo,
+            'turnstile' => (string) config('onhost.turnstile.site_key', '') ?: null, // §5q-6: the surfaces render the widget when a site key is set
             'locale' => $user?->locale ?? 'cs',
             'version' => (string) config('onhost.version', '4.0'),
             'user' => $user instanceof User ? $this->userBoot($user) : null,
