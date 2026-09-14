@@ -84,9 +84,19 @@ příkazy na serveru — nikdy do chatu.
 | `COMGATE_MERCHANT`, `COMGATE_SECRET` | **testovací** merchant Comgate; `COMGATE_TEST=true` zůstává |
 | `WEDOS_TEST_MODE=true` | registrace domén nanečisto (WAPI test flag); WEDOS login/heslo přes `onhost:integrations:secret` |
 
-**C. Klíče integrací (skrytý prompt, `--check` ověří spojení)**
+**C. První staff účet a instance integrací (z terminálu, bez konzole)**
 
-Instance založíte v konzoli *Nastavení systému → Integrace* (URL panelu, region), klíč uložíte příkazem:
+```bash
+php artisan onhost:staff:create ops@onhost.cz --name="Provoz" --role=platform_owner   # heslo skrytým promptem; TOTP při prvním přihlášení
+php artisan onhost:integrations:register pterodactyl-gamepanel pterodactyl https://gamepanel.onhost.cz --name="Herní panel" --region=cz1
+php artisan onhost:integrations:register aapanel-managed01 aapanel https://<aapanel-host>:7800 --name="aaPanel CZ1" --region=cz1
+php artisan onhost:integrations:register ispconfig-shared01 ispconfig https://<ispconfig-host>:8080 --region=cz1 --option=server_id=1
+php artisan onhost:integrations:register proxmox-cz1 proxmox https://<pve-host>:8006 --region=cz1 --option=storage=local-lvm --option=bridge=vmbr0
+php artisan onhost:integrations:register pbs-cz1 pbs https://<pbs-host>:8007 --region=cz1 --option=datastore=onhost
+php artisan onhost:integrations:register powerdns-hidden01 powerdns http://<pdns-host>:8081 --region=cz1
+```
+
+Klíče instancí (skrytý prompt, `--check` ověří spojení a prerekvizity):
 
 ```bash
 php artisan onhost:integrations:secret pterodactyl-gamepanel application_key --check   # herní panel (po testech klíč z chatu přegenerovat)
