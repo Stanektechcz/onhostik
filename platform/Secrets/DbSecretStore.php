@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Platform\Secrets;
 
-use Illuminate\Contracts\Encryption\Encrypter;
+use Illuminate\Encryption\Encrypter; // the concrete encrypter: the contract has no encryptString()/decryptString()
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 

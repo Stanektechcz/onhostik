@@ -104,7 +104,7 @@ final class PlatformServiceProvider extends ServiceProvider
             }
 
             // `db://` references (credentials registered in the admin console) are always available on top of the base driver.
-            return new DbSecretStore($base, $app->make(Encrypter::class));
+            return new DbSecretStore($base, $app->make(\Illuminate\Encryption\Encrypter::class)); // the concrete encrypter carries encryptString()/decryptString()
         });
 
         $this->app->singleton(AiProviderRegistry::class);
