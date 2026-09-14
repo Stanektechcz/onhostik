@@ -22,7 +22,7 @@
 
 - The production-readiness audit lists unresolved P0/P1 items; use `docs/runbooks/production-readiness-audit.md` and `docs/runbooks/go-live-checklist.md` before release work.
 - A local `.env` contains provider credentials. It is ignored and must never enter prompts, logs, commits, generated context, or scans that print findings verbatim.
-- Gemini Google authentication and optional Context7 OAuth still require completion in the provider browser.
+- Google no longer accepts personal-account OAuth from Gemini CLI. The official Antigravity CLI fallback is installed and has project-scoped Serena/Context7 configuration; its provider login remains a user-browser step.
 - The existing Playwright suite reaches the isolated application, but five scenarios currently fail in panel navigation/session assertions; no application behavior was changed on this tooling branch.
 - Local runtime data under `storage` is large and private; it remains outside Git and AI retrieval.
 

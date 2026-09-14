@@ -17,6 +17,7 @@ $checks = @(
     [ordered]@{ name = 'node_modules'; required = $true; ok = (Test-Path -LiteralPath (Join-Path $root 'node_modules')); detail = 'run npm ci if missing' },
     [ordered]@{ name = 'Gitleaks'; required = $false; ok = [bool](Get-OnhostCommand 'gitleaks'); detail = 'recommended secret scanning' },
     [ordered]@{ name = 'Serena'; required = $false; ok = [bool](Get-OnhostCommand 'serena'); detail = 'optional semantic retrieval' },
+    [ordered]@{ name = 'Antigravity'; required = $false; ok = [bool](Get-OnhostCommand 'agy'); detail = 'Gemini agent client for personal accounts' },
     [ordered]@{ name = 'Obsidian'; required = $false; ok = [bool](Get-OnhostCommand 'obsidian'); detail = 'optional docs UI' }
 )
 

@@ -17,17 +17,21 @@ function Assert-True {
 $claude = Get-Content -LiteralPath (Join-Path $root '.claude\settings.json') -Raw | ConvertFrom-Json
 $gemini = Get-Content -LiteralPath (Join-Path $root '.gemini\settings.json') -Raw | ConvertFrom-Json
 $mcp = Get-Content -LiteralPath (Join-Path $root '.mcp.json') -Raw | ConvertFrom-Json
+$antigravityMcp = Get-Content -LiteralPath (Join-Path $root '.agents\mcp_config.json') -Raw | ConvertFrom-Json
 
 Assert-True ($claude.permissions.deny -contains 'Read(./.env*)') 'Claude denies environment files'
 Assert-True ($claude.hooks.PreToolUse.Count -gt 0) 'Claude registers a pre-tool security hook'
 Assert-True ($gemini.advanced.ignoreLocalEnv -eq $true) 'Gemini does not load the project .env'
 Assert-True (($gemini.mcp.allowed -join ',') -eq 'serena,context7') 'Gemini allows only Serena and Context7 MCP'
 Assert-True (($mcp.mcpServers.psobject.Properties.Name | Sort-Object) -join ',' -eq 'context7,serena') 'Shared MCP config contains only two reviewed servers'
+Assert-True (($antigravityMcp.mcpServers.psobject.Properties.Name | Sort-Object) -join ',' -eq 'context7,serena') 'Antigravity uses only the two reviewed MCP servers'
+Assert-True (-not ((Get-Content -LiteralPath (Join-Path $root '.agents\mcp_config.json') -Raw) -match '(?i)api[_-]?key|bearer\s+|token\s*[=:]')) 'Antigravity MCP config contains no credential material'
 Assert-True (-not ((Get-Content -LiteralPath (Join-Path $root '.mcp.json') -Raw) -match '(?i)api[_-]?key|bearer\s+|token\s*[=:]')) 'MCP config contains no credential material'
 Assert-True ($mcp.mcpServers.serena.env.PYTHONUTF8 -eq '1') 'Claude Serena MCP uses UTF-8 on Windows'
 Assert-True ($gemini.mcpServers.serena.env.PYTHONUTF8 -eq '1') 'Gemini Serena MCP uses UTF-8 on Windows'
 Assert-True ($mcp.mcpServers.serena.command -eq 'powershell.exe' -and $mcp.mcpServers.serena.args -contains 'scripts/ai/serena-mcp.ps1') 'Claude launches Serena through the portable Windows wrapper'
 Assert-True ($gemini.mcpServers.serena.command -eq 'powershell.exe' -and $gemini.mcpServers.serena.args -contains 'scripts/ai/serena-mcp.ps1') 'Gemini launches Serena through the portable Windows wrapper'
+Assert-True ($antigravityMcp.mcpServers.serena.command -eq 'powershell.exe' -and $antigravityMcp.mcpServers.serena.args -contains 'scripts/ai/serena-mcp.ps1') 'Antigravity launches Serena through the portable Windows wrapper'
 
 $serena = Get-Content -LiteralPath (Join-Path $root '.serena\project.yml') -Raw
 Assert-True ($serena -match '(?m)^read_only:\s*true\s*$') 'Serena is retrieval-only'

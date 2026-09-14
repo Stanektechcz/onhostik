@@ -25,6 +25,7 @@ function Get-OnhostInstalledExecutable {
     $fileName = if ($Name.EndsWith('.exe')) { $Name } else { "$Name.exe" }
     $direct = @(@(
         (Join-Path $env:USERPROFILE ".local\bin\$fileName"),
+        (Join-Path $env:LOCALAPPDATA "agy\bin\$fileName"),
         (Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\$fileName"),
         (Join-Path $env:LOCALAPPDATA "Programs\$Name\$fileName")
     ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })

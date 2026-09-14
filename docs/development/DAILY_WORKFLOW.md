@@ -16,7 +16,7 @@ Read `AGENTS.md`, `docs/context/CURRENT_STATE.md`, and only the domain material 
 
 - Use Codex/ChatGPT for cross-domain planning, research, implementation, and integration.
 - Use Claude Code for a focused implementation workflow such as `/billing-change`, `/provisioning-change`, or `/frontend-page`, and its specialist reviewers before handoff.
-- Use Gemini after implementation for an independent diff review. Ask it for severity-ranked findings with file/line evidence.
+- Use Gemini after implementation for an independent diff review. Personal Google accounts now use the official Antigravity CLI (`agy`) and the workspace `onhost-reviewer`; Gemini CLI configuration remains available for organization/API-key accounts.
 - Use Obsidian to browse `docs/Home.md`, ADRs, runbooks, and linked current state.
 
 Do not paste broad file trees or logs. Ask a specific question, use Serena for symbols, and provide a Git diff or exact file list.
@@ -48,7 +48,7 @@ Review `git diff --check` and `git status`. The repository hook blocks private r
 
 ## Authentication
 
-Use each tool's browser/device login flow: `gh auth login -h github.com -p https -w`, `claude auth login`, and Gemini's Google login shown on first launch. Complete credentials only in the provider's window. Never put tokens or passwords in chat, scripts, `.mcp.json`, or project settings.
+Use each tool's browser/device login flow: `gh auth login -h github.com -p https -w`, `claude auth login`, and `agy` for Google's current personal-account flow. Complete credentials only in the provider's window. Never put tokens or passwords in chat, scripts, MCP files, or project settings.
 
 Obsidian needs no account for a local vault. Open the folder `...\onhost-platform\docs`; optional Obsidian Sync credentials remain outside Git.
 

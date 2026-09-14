@@ -29,6 +29,7 @@ $tools = [ordered]@{
     codex = Get-OnhostToolVersion 'codex'
     claude = Get-OnhostToolVersion 'claude'
     gemini = Get-OnhostToolVersion 'gemini'
+    antigravity = Get-OnhostToolVersion 'agy'
     uv = Get-OnhostToolVersion 'uv'
     serena = Get-OnhostToolVersion 'serena'
     gitleaks = Get-OnhostToolVersion 'gitleaks'
