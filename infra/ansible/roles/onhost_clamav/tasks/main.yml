@@ -39,3 +39,4 @@
     state: started
     enabled: true
   loop: [clamav-freshclam, clamav-daemon]
+  tags: [molecule-idempotence-notest] # clamd only starts once freshclam wrote the first signatures, so the container reports a start on every pass

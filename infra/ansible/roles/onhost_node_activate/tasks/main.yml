@@ -19,6 +19,7 @@
   register: onhost_activate_answer
   changed_when: true
   no_log: true
+  tags: [molecule-idempotence-notest] # one POST per activation; the platform, not the play, makes a repeat harmless (a spent token is a 404)
 
 - name: Show the platform's answer (state only)
   ansible.builtin.debug:

@@ -20,3 +20,5 @@
     - name: The server binary is installed
       ansible.builtin.command: pdns_server --version
       changed_when: false
+      register: pdns_version
+      failed_when: "'PowerDNS' not in (pdns_version.stdout ~ pdns_version.stderr)" # --version exits 1 on some builds; the banner is what matters
