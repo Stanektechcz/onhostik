@@ -69,6 +69,10 @@ Assert-True (($phpstanBaseline | Select-String -Pattern '(?m)^\s*count:' -AllMat
 $preCommit = Get-Content -LiteralPath (Join-Path $root '.githooks\pre-commit') -Raw
 Assert-True ($preCommit -match '\.env\\\.example' -and $preCommit -match 'storage/app/private/\\\.gitignore') 'pre-commit permits tracked secret-free templates'
 Assert-True ($preCommit -match 'brain\.ps1 security -Quick -Json') 'pre-commit runs the portable redacted Gitleaks gate'
+$testGate = Get-Content -LiteralPath (Join-Path $root 'scripts\ai\test.ps1') -Raw
+$securityGate = Get-Content -LiteralPath (Join-Path $root 'scripts\ai\security.ps1') -Raw
+Assert-True ($testGate -match 'if \(-not \$Quick -or -not \(Test-Path') 'quick tests preserve the last full test report'
+Assert-True ($securityGate -match 'if \(-not \$Quick -or -not \(Test-Path') 'quick security preserves the last full security report'
 
 if ($failures.Count -gt 0) {
     Write-Error ("{0} AI configuration test(s) failed." -f $failures.Count)

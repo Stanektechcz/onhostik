@@ -81,7 +81,9 @@ $rows
 
 **Overall:** $(if ($overall) { 'PASS' } else { 'FAIL' })
 "@
-[void](Write-OnhostText (Join-Path $root 'docs\generated\SECURITY_STATUS.md') $report)
+if (-not $Quick -or -not (Test-Path -LiteralPath (Join-Path $root 'docs\generated\SECURITY_STATUS.md'))) {
+    [void](Write-OnhostText (Join-Path $root 'docs\generated\SECURITY_STATUS.md') $report)
+}
 
 if ($Json) {
     [ordered]@{ ok = $overall; revision = $revision; checks = @($checks) } | ConvertTo-Json -Depth 6

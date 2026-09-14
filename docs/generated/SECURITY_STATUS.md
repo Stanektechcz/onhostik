@@ -6,5 +6,7 @@
 | --- | --- | --- |
 | Forbidden tracked files | PASS | none |
 | Gitleaks history scan | PASS | exit 0; values redacted |
+| Composer audit | PASS | exit 0 |
+| npm audit | PASS | exit 0 |
 
 **Overall:** PASS

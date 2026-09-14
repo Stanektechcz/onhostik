@@ -4,9 +4,9 @@
 
 | Check | Result | Detail |
 | --- | --- | --- |
-| Pint | PASS | exit 0; 1,6s |
-| Larastan | PASS | exit 0; 1,6s |
-| Pest | PASS | exit 0; 121,3s |
-| Frontend build | PASS | exit 0; 4,6s |
+| Pint | PASS | exit 0; 1,9s |
+| Larastan | PASS | exit 0; 1,9s |
+| Pest | PASS | exit 0; 135,2s |
+| Frontend build | PASS | exit 0; 5,0s |
 
 **Overall:** PASS
