@@ -6,7 +6,7 @@
 | --- | --- |
 | Branch | chore/onhost-brain |
 | Base revision | 1549d918cad7 |
-| Working changes outside generated context | 3 |
+| Working changes outside generated context | 0 |
 | PHP requirement | ^8.3 |
 | Laravel requirement | ^13.17 |
 | Node requirement | 20+ |
