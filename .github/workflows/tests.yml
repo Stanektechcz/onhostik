@@ -24,9 +24,7 @@ jobs:
         run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Prepare the application
-        run: |
-          cp .env.example .env
-          php artisan key:generate
+        run: touch .env   # phpunit.xml carries the test environment; the staging template is checked by EnvTemplateTest, not used
 
       - name: Code style
         run: vendor/bin/pint --test
@@ -77,9 +75,7 @@ jobs:
         run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Prepare the application
-        run: |
-          cp .env.example .env
-          php artisan key:generate
+        run: touch .env
 
       - name: Migrations on PostgreSQL
         run: php artisan migrate --force
