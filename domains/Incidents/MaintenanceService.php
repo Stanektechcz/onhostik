@@ -143,7 +143,7 @@ final class MaintenanceService
         for ($i = 0; $i < 5; $i++) {
             $last = (int) DB::table('maintenances')->where('number', 'like', "MNT-{$year}-%")->selectRaw('max(cast(substr(number, 10) as integer)) as n')->value('n');
             try {
-                return $create(sprintf('MNT-%s-%04d', $year, $last + 1 + $i));
+                return DB::transaction(fn () => $create(sprintf('MNT-%s-%04d', $year, $last + 1 + $i))); // savepoint (PostgreSQL)
             } catch (QueryException $e) {
                 if (! str_contains(strtolower($e->getMessage()), 'unique')) {
                     throw $e;

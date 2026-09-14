@@ -7,6 +7,7 @@ namespace Onhost\Domain\Billing;
 use Carbon\CarbonInterface;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\Models\UsageEvent;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Services\Models\Service;
@@ -67,10 +68,10 @@ final class MeteringService
     private function store(Service $service, string $metric, string $quantity, string $unit, CarbonInterface $start, CarbonInterface $end, ?string $source = 'collector'): bool
     {
         try {
-            UsageEvent::query()->create([
+            DB::transaction(fn () => UsageEvent::query()->create([ // a savepoint: a duplicate never aborts the caller's transaction on PostgreSQL
                 'service_id' => $service->id, 'organization_id' => $service->organization_id, 'metric' => $metric, 'quantity' => $quantity, 'unit' => $unit,
                 'period_start' => $start, 'period_end' => $end, 'source' => $source, 'dedupe_key' => "{$service->id}:{$metric}:".$start->toIso8601String(), 'rated' => false,
-            ]);
+            ]));
 
             return true;
         } catch (QueryException $e) {

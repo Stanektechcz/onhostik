@@ -112,7 +112,7 @@ it('accrues commission from paid client invoices, reverses on credit notes, foll
     $payout = $this->withHeaders($h)->postJson('/v1/partner/payouts', ['amount' => 5000, 'iban' => 'CZ65 0800 0000 1920 0014 5399'])->assertCreated();
     expect($payout->json('number'))->toBe('PO-'.now()->format('Y-m'))->and($payout->json('state'))->toBe('requested')->and($payout->json('amount.minor'))->toBe(500000)
         ->and($payout->json('self_billing.self_billing'))->toBeTrue()->and((float) $payout->json('self_billing.tax_rate'))->toBe(21.0)->and($payout->json('self_billing.total.minor'))->toBe(605000)->and($payout->json('self_billing.lines.0.client'))->toBe('Bezvazásilky s.r.o.');
-    expect(PartnerCommission::query()->where('state', 'allocated')->sum('amount_minor'))->toBe(500000)->and((int) PartnerCommission::query()->where('state', 'payable')->sum('amount_minor'))->toBe(865000);
+    expect((int) PartnerCommission::query()->where('state', 'allocated')->sum('amount_minor'))->toBe(500000)->and((int) PartnerCommission::query()->where('state', 'payable')->sum('amount_minor'))->toBe(865000);
     app(OutboxPublisher::class)->relayPending();
     expect(Notification::query()->where('audience', 'internal')->where('kind', 'partner')->exists())->toBeTrue();
 

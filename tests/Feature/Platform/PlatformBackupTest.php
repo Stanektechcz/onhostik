@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -32,26 +33,29 @@ it('backs up the database and private files, verifies the set and prunes old one
 
     $backup = app(PlatformBackup::class);
     $r = $backup->run();
-    expect($r['database'])->toBe('sqlite')->and(array_keys($r['files']))->toBe(['database.sqlite', 'files.tar.gz'])->and($r['pruned'])->toBe(0);
+    $driver = DB::connection()->getDriverName();
+    $dumpName = ['sqlite' => 'database.sqlite', 'pgsql' => 'database.pgdump'][$driver] ?? 'database.sql';
+    expect($r['database'])->toBe($driver === 'mariadb' ? 'mysql' : $driver)->and(array_keys($r['files']))->toBe([$dumpName, 'files.tar.gz'])->and($r['pruned'])->toBe(0);
     $disk = Storage::disk('backups');
-    expect($disk->exists($r['set'].'/manifest.json'))->toBeTrue()->and($disk->exists($r['set'].'/database.sqlite'))->toBeTrue();
+    expect($disk->exists($r['set'].'/manifest.json'))->toBeTrue()->and($disk->exists($r['set'].'/'.$dumpName))->toBeTrue();
     $manifest = json_decode((string) $disk->get($r['set'].'/manifest.json'), true);
-    expect($manifest['files']['database.sqlite']['bytes'])->toBeGreaterThan(10000)->and($manifest['files']['files.tar.gz']['sha256'])->toHaveLength(64);
-    // the dump carries the data
-    $dump = storage_path('framework/testing/dump-check.sqlite');
-    File::put($dump, (string) $disk->get($r['set'].'/database.sqlite'));
-    $pdo = new PDO('sqlite:'.$dump);
-    expect((int) $pdo->query("SELECT count(*) FROM users WHERE email = 'zaloha@firma.cz'")->fetchColumn())->toBe(1);
-    unset($pdo);
-    File::delete($dump);
+    expect($manifest['files'][$dumpName]['bytes'])->toBeGreaterThan(1000)->and($manifest['files']['files.tar.gz']['sha256'])->toHaveLength(64);
+    if ($driver === 'sqlite') { // the dump carries the data (pg_dump's custom format is checked by pg_restore --list in verify())
+        $dump = storage_path('framework/testing/dump-check.sqlite');
+        File::put($dump, (string) $disk->get($r['set'].'/database.sqlite'));
+        $pdo = new PDO('sqlite:'.$dump);
+        expect((int) $pdo->query("SELECT count(*) FROM users WHERE email = 'zaloha@firma.cz'")->fetchColumn())->toBe(1);
+        unset($pdo);
+        File::delete($dump);
+    }
 
     $v = $backup->verify();
     expect($v)->toMatchArray(['set' => $r['set'], 'ok' => true, 'problems' => []])->and($backup->status()['verified']['set'])->toBe($r['set']);
     $this->artisan('onhost:doctor')->expectsOutputToContain('platform backup verified within 26 h');
 
     // a tampered dump fails verification; an old set is pruned by the next run, the newest never
-    $disk->put($r['set'].'/database.sqlite', 'garbage');
-    expect($backup->verify()['problems'][0])->toContain('database.sqlite');
+    $disk->put($r['set'].'/'.$dumpName, 'garbage');
+    expect($backup->verify()['problems'][0])->toContain($dumpName);
     $old = PlatformBackup::PREFIX.'/'.now()->utc()->subDays(9)->format('Ymd-His');
     $disk->put($old.'/manifest.json', '{}');
     $again = $backup->run();

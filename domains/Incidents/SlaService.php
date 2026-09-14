@@ -101,11 +101,11 @@ final class SlaService
         foreach ($results as $result) {
             $at = Carbon::parse((string) ($result['at'] ?? now()->toIso8601String()))->utc()->startOfSecond();
             try {
-                SlaMeasurement::query()->create([
+                DB::transaction(fn () => SlaMeasurement::query()->create([ // savepoint: a duplicate sample does not abort the request's transaction (PostgreSQL)
                     'probe_id' => $probe->id, 'component_key' => $probe->component_key, 'location' => $probe->location, 'measured_at' => $at,
                     'ok' => (bool) ($result['ok'] ?? false), 'latency_ms' => isset($result['latency_ms']) ? (int) $result['latency_ms'] : null,
                     'detail' => isset($result['detail']) ? mb_substr((string) $result['detail'], 0, 250) : null,
-                ]);
+                ]));
                 $accepted++;
             } catch (QueryException $e) {
                 if (! str_contains(strtolower($e->getMessage()), 'unique')) {

@@ -140,14 +140,14 @@ final class PaymentService
         $provider = $this->providers->get($providerKey);
         $verified = $provider->verifyWebhook($request); // throws on invalid signature/source
         try {
-            $event = PaymentEvent::query()->create([
+            $event = DB::transaction(fn () => PaymentEvent::query()->create([ // savepoint: a duplicate delivery does not abort the surrounding transaction (PostgreSQL)
                 'provider' => $providerKey,
                 'event_id' => $verified['event_id'],
                 'provider_id' => $verified['provider_id'],
                 'type' => $verified['state'],
                 'signature_ok' => true,
                 'payload' => $this->redactor->redact($verified['raw']),
-            ]);
+            ]));
         } catch (QueryException $e) {
             // unique (provider, event_id) — duplicate delivery: exactly one business effect (S51)
             return ['result' => 'duplicate', 'intent' => PaymentIntent::query()->where('provider', $providerKey)->where('provider_id', $verified['provider_id'])->first()];

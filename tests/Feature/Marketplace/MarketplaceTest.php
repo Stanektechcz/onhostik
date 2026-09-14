@@ -116,7 +116,7 @@ it('runs listing → publish → order → deliver → accept with the commissio
     $this->withHeaders($ph + ['Idempotency-Key' => 'mp-4'])->postJson("/v1/partner/marketplace/orders/{$third['id']}/deliver", ['note' => 'Hotovo, viz report.'])->assertOk();
     MarketplaceOrder::query()->whereKey($third['id'])->update(['delivered_at' => now()->subDays(15)]);
     expect(app(MarketplaceService::class)->autoAccept())->toBe(1)->and(MarketplaceOrder::query()->findOrFail($third['id'])->state)->toBe('accepted');
-    expect(PartnerCommission::query()->where('partner_id', $partner->id)->where('kind', 'marketplace')->sum('amount_minor'))->toBe(256000);
+    expect((int) PartnerCommission::query()->where('partner_id', $partner->id)->where('kind', 'marketplace')->sum('amount_minor'))->toBe(256000);
     $this->artisan('onhost:marketplace:auto-accept')->assertSuccessful();
 
     // a partner cannot order their own listing; an unknown listing is 404

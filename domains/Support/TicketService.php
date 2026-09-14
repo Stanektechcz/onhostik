@@ -308,7 +308,7 @@ final class TicketService
             $last = (int) DB::table('support_tickets')->where('number', 'like', "TK-{$year}-%")->selectRaw('max(cast(substr(number, 9) as integer)) as n')->value('n');
             $number = sprintf('TK-%s-%04d', $year, $last + 1 + $i);
             try {
-                return $create($number);
+                return DB::transaction(fn () => $create($number)); // savepoint (PostgreSQL)
             } catch (QueryException $e) {
                 if (! str_contains(strtolower($e->getMessage()), 'unique')) {
                     throw $e;

@@ -561,7 +561,7 @@ final class ComplianceService
         for ($i = 0; $i < 5; $i++) {
             $last = (int) DB::table($table)->where('number', 'like', "{$prefix}-{$year}-%")->selectRaw("max(cast(substr(number, {$offset}) as integer)) as n")->value('n');
             try {
-                return $create(sprintf('%s-%s-%04d', $prefix, $year, $last + 1 + $i));
+                return DB::transaction(fn () => $create(sprintf('%s-%s-%04d', $prefix, $year, $last + 1 + $i))); // savepoint: a taken number does not abort the outer transaction (PostgreSQL)
             } catch (QueryException $e) {
                 if (! str_contains(strtolower($e->getMessage()), 'unique')) {
                     throw $e;

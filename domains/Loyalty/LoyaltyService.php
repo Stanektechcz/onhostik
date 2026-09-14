@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Loyalty;
 
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Loyalty\Models\LoyaltyBadge;
 use Onhost\Domain\Loyalty\Models\LoyaltyPoint;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -103,7 +104,7 @@ final class LoyaltyService
         $before = $this->points($organizationId);
         $levelBefore = $this->levelFor($before);
         try {
-            LoyaltyPoint::query()->create(['organization_id' => $organizationId, 'rule' => $rule, 'reference' => mb_substr($reference, 0, 120), 'points' => $points, 'note' => $note !== null ? mb_substr($note, 0, 200) : null]);
+            DB::transaction(fn () => LoyaltyPoint::query()->create(['organization_id' => $organizationId, 'rule' => $rule, 'reference' => mb_substr($reference, 0, 120), 'points' => $points, 'note' => $note !== null ? mb_substr($note, 0, 200) : null])); // savepoint: an already-counted rule never aborts the paid-order transaction (PostgreSQL)
         } catch (QueryException $e) { // unique (organization, rule, reference): already counted
             return ['awarded' => false, 'points' => 0, 'total' => $before, 'level' => $levelBefore, 'level_up' => null];
         }
@@ -128,7 +129,7 @@ final class LoyaltyService
     public function badge(string $organizationId, string $badge, CommandContext $context): bool
     {
         try {
-            LoyaltyBadge::query()->create(['organization_id' => $organizationId, 'badge' => $badge, 'earned_at' => now()]);
+            DB::transaction(fn () => LoyaltyBadge::query()->create(['organization_id' => $organizationId, 'badge' => $badge, 'earned_at' => now()])); // savepoint (PostgreSQL)
         } catch (QueryException) {
             return false;
         }
