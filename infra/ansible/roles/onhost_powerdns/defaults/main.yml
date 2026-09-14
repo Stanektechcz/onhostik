@@ -1,0 +1,10 @@
+---
+# ONhost PowerDNS role (audit §5o-3): the authoritative server the control plane drives over the HTTP API.
+pdns_backend: sqlite3                    # sqlite3 | pgsql | mysql (the backend package is installed, its schema is the operator's)
+pdns_api_key: "change-me"                # vault it; the platform reads it from the secret store (env://POWERDNS_<KEY>)
+api_listen: "127.0.0.1:8081"
+api_allow_from: ["127.0.0.1", "::1"]
+allow_notify_from: []
+also_notify: []
+pdns_conf_dir: /etc/powerdns/pdns.d
+pdns_service: pdns

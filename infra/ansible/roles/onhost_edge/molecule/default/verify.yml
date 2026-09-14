@@ -1,0 +1,21 @@
+---
+- name: Verify the rendered edge configuration
+  hosts: all
+  become: true
+  tasks:
+    - name: Read the installed Caddy configuration
+      ansible.builtin.slurp:
+        src: /etc/caddy/conf.d/status-hosts.caddy
+      register: installed
+
+    - name: The file carries the on-demand TLS ask and the upstream
+      ansible.builtin.assert:
+        that:
+          - "'on_demand' in (installed.content | b64decode)"
+          - "'ask https://status.onhost.cz/v1/status/host-check' in (installed.content | b64decode)"
+          - "'reverse_proxy 127.0.0.1:8000' in (installed.content | b64decode)"
+          - "'{{ '{{' }}PORTAL_HOST' not in (installed.content | b64decode)"
+
+    - name: Caddy validates the whole configuration
+      ansible.builtin.command: caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      changed_when: false

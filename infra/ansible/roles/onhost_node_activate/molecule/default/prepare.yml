@@ -1,0 +1,35 @@
+---
+- name: Prepare a stub platform endpoint
+  hosts: all
+  become: true
+  tasks:
+    - name: Install python3
+      ansible.builtin.apt:
+        name: python3
+        state: present
+        update_cache: true
+
+    - name: Install the stub server (records the body, answers 202 with the request state)
+      ansible.builtin.copy:
+        dest: /usr/local/bin/onhost-stub-api.py
+        mode: "0755"
+        content: |
+          #!/usr/bin/env python3
+          import json
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+          class H(BaseHTTPRequestHandler):
+              def do_POST(self):
+                  body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
+                  with open('/var/log/onhost-stub-api.log', 'ab') as f:
+                      f.write(self.path.encode() + b' ' + body + b'\n')
+                  self.send_response(202)
+                  self.send_header('Content-Type', 'application/json')
+                  self.end_headers()
+                  self.wfile.write(json.dumps({'data': {'id': 'capr_molecule', 'state': 'delivered'}}).encode())
+              def log_message(self, *a):
+                  pass
+          HTTPServer(('127.0.0.1', 8099), H).serve_forever()
+
+    - name: Start the stub in the background
+      ansible.builtin.shell: nohup /usr/local/bin/onhost-stub-api.py >/dev/null 2>&1 &
+      changed_when: true

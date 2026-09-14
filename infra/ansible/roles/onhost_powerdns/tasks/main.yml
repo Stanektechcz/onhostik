@@ -1,0 +1,37 @@
+---
+# ONhost PowerDNS role (audit §5o-3): install the authoritative server, expose the HTTP API on a loopback address for the
+# control plane (docs/provider-adapters/powerdns.md), name the secondaries that may NOTIFY and must be notified.
+- name: Install PowerDNS and the backend
+  ansible.builtin.apt:
+    name:
+      - pdns-server
+      - "pdns-backend-{{ pdns_backend }}"
+    state: present
+    update_cache: true
+
+- name: Ensure the drop-in directory exists
+  ansible.builtin.file:
+    path: "{{ pdns_conf_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write the API and NOTIFY configuration
+  ansible.builtin.template:
+    src: onhost-api.conf.j2
+    dest: "{{ pdns_conf_dir }}/onhost-api.conf"
+    owner: root
+    group: pdns
+    mode: "0640"
+  notify: restart pdns
+
+- name: Validate the configuration
+  ansible.builtin.command: pdns_server --config-dir=/etc/powerdns --daemon=no --guardian=no --config-check
+  changed_when: false
+  failed_when: false
+  register: onhost_pdns_check
+
+- name: Report the configuration check
+  ansible.builtin.debug:
+    msg: "pdns config-check rc={{ onhost_pdns_check.rc }}"

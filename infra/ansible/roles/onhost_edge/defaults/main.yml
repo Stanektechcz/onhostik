@@ -1,0 +1,8 @@
+---
+# Defaults of the ONhost edge role (audit §5m-3); override per inventory.
+onhost_app_dir: /srv/onhost/current
+onhost_php: /usr/bin/php8.3
+onhost_edge_flavour: caddy           # caddy | nginx
+onhost_edge_upstream: 127.0.0.1:8000
+onhost_edge_conf_dir: /etc/caddy/conf.d
+onhost_edge_render_path: /srv/onhost/shared/edge.generated

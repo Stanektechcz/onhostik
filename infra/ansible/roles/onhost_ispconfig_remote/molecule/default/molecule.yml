@@ -1,0 +1,30 @@
+---
+# Molecule for onhost_ispconfig_remote (audit §5o-3): a stub `mysql` records the statements; the role inserts the remote
+# user once and only updates it afterwards.
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: onhost-ispconfig-remote
+    image: docker.io/geerlingguy/docker-debian12-ansible:latest
+    command: ""
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+provisioner:
+  name: ansible
+  inventory:
+    group_vars:
+      all:
+        mysql_bin: /usr/local/bin/mysql
+        mysql_defaults_file: /etc/mysql-stub.cnf
+        remote_password: molecule-remote-password
+  playbooks:
+    prepare: prepare.yml
+    converge: converge.yml
+    verify: verify.yml
+verifier:
+  name: ansible

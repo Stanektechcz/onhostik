@@ -1,0 +1,23 @@
+# /etc/systemd/system/onhost-console-relay.service — websocket console relay (infra/console-relay)
+[Unit]
+Description=ONhost console relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=onhost-relay
+Group=onhost-relay
+WorkingDirectory=/opt/onhost-console-relay
+EnvironmentFile=/etc/onhost/relay.env
+# ONHOST_API=https://onhost.cz  ONHOST_CONSOLE_RELAY_KEY=…  PORT=8090
+ExecStart=/usr/bin/node server.mjs
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

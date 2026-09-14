@@ -1,0 +1,23 @@
+---
+- name: Verify the probe installation
+  hosts: all
+  become: true
+  tasks:
+    - name: Read the environment and the timer
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - /etc/onhost-probe.env
+        - /etc/systemd/system/onhost-probe.timer
+      register: files
+
+    - name: The token, the endpoint and the interval are in place
+      ansible.builtin.assert:
+        that:
+          - "'ONHOST_PROBE_TOKEN=molecule-probe-token' in (files.results[0].content | b64decode)"
+          - "'ONHOST_PROBE_API=https://onhost.test/v1/probes/results' in (files.results[0].content | b64decode)"
+          - "'OnUnitActiveSec=45' in (files.results[1].content | b64decode)"
+
+    - name: The script parses
+      ansible.builtin.command: bash -n /usr/local/bin/onhost-probe.sh
+      changed_when: false

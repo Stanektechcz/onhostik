@@ -1,0 +1,57 @@
+---
+# The container stands in for both hosts: Caddy as the edge, a stub `php` as the platform (it writes the Caddyfile the
+# real `php artisan onhost:edge:config --out=` would, from the packaged template with the portal host filled in).
+- name: Prepare the edge container
+  hosts: all
+  become: true
+  tasks:
+    - name: Install Caddy
+      ansible.builtin.apt:
+        name: caddy
+        state: present
+        update_cache: true
+
+    - name: Import the conf.d directory from the main Caddyfile
+      ansible.builtin.copy:
+        dest: /etc/caddy/Caddyfile
+        mode: "0644"
+        content: |
+          {
+            admin off
+          }
+          import /etc/caddy/conf.d/*.caddy
+
+    - name: Create the directories the role expects
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /etc/caddy/conf.d
+        - /srv/onhost/current
+        - /srv/onhost/shared
+
+    - name: Ship the packaged Caddy template as the stub's source
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../../../../edge/Caddyfile.status-hosts"
+        dest: /srv/onhost/current/Caddyfile.status-hosts
+        mode: "0644"
+
+    - name: Install a stub php that renders the template to --out
+      ansible.builtin.copy:
+        dest: /usr/local/bin/php
+        mode: "0755"
+        content: |
+          #!/bin/sh
+          # stub for `php artisan onhost:edge:config --format=caddy --upstream=<u> --out=<path>` (molecule only)
+          out=""; upstream="127.0.0.1:8000"
+          for a in "$@"; do
+            case "$a" in
+              --out=*) out="${a#--out=}" ;;
+              --upstream=*) upstream="${a#--upstream=}" ;;
+            esac
+          done
+          [ -n "$out" ] || { echo "stub: --out missing" >&2; exit 2; }
+          mkdir -p "$(dirname "$out")"
+          sed -e "s/{{ '{{' }}PORTAL_HOST{{ '}}' }}/status.onhost.cz/g" -e "s/{{ '{{' }}UPSTREAM{{ '}}' }}/$upstream/g" /srv/onhost/current/Caddyfile.status-hosts > "$out"
+          echo "written $out"

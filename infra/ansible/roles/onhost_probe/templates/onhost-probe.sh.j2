@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# ONhost availability probe (managed by Ansible, role onhost_probe): one pass over the targets, one POST with the results.
+set -u
+# shellcheck disable=SC1090
+. "{{ probe_env }}"
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+results=""
+for target in $ONHOST_PROBE_TARGETS; do
+  at=$(now); ok=false; latency=0; detail=""
+  case "$target" in
+    dns://*)
+      rest="${target#dns://}"; name="${rest%%/*}"; type="${rest#*/}"; [ "$type" = "$rest" ] && type=SOA
+      start=$(date +%s%3N)
+      if out=$(dig +short +time=5 +tries=1 "$name" "$type" 2>/dev/null) && [ -n "$out" ]; then ok=true; detail="$type answered"; else detail="$type no answer"; fi
+      latency=$(( $(date +%s%3N) - start ))
+      ;;
+    *)
+      code=$(curl -sS -o /dev/null -m 10 -w '%{http_code} %{time_total}' "$target" 2>/dev/null || echo "000 0")
+      status="${code%% *}"; seconds="${code#* }"
+      latency=$(awk -v s="$seconds" 'BEGIN { printf "%d", s * 1000 }')
+      if [ "$status" -ge 200 ] && [ "$status" -lt 400 ]; then ok=true; fi
+      detail="HTTP $status"
+      ;;
+  esac
+  results="$results{\"at\":\"$at\",\"ok\":$ok,\"latency_ms\":$latency,\"detail\":\"$target · $detail\"},"
+done
+payload="{\"results\":[${results%,}]}"
+curl -fsS -m 15 -X POST "$ONHOST_PROBE_API" -H "Authorization: Bearer $ONHOST_PROBE_TOKEN" -H 'Content-Type: application/json' -H "X-Probe-Location: $ONHOST_PROBE_LOCATION" -d "$payload" >/dev/null || echo "onhost-probe: post failed" >&2

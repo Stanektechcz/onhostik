@@ -1,0 +1,268 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Onhost\Domain\Organizations;
+
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
+use Onhost\Domain\Identity\Authorization\RoleCatalog;
+use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Incidents\OrganizationStatusService;
+use Onhost\Domain\Notifications\NotificationService;
+use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationInvitation;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
+use Onhost\Domain\Organizations\Models\Project;
+use Onhost\Platform\Audit\AuditRecorder;
+use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Outbox\OutboxPublisher;
+
+/**
+ * Organization lifecycle: creation with owner binding, memberships, invitations,
+ * projects. Membership and policy binding are always written together so the
+ * authorization model can never disagree with the membership list.
+ */
+final class OrganizationService
+{
+    public function __construct(
+        private readonly AuditRecorder $audit,
+        private readonly OutboxPublisher $outbox,
+    ) {}
+
+    /** @param array<string,mixed> $attributes */
+    public function create(User $owner, array $attributes, CommandContext $context): Organization
+    {
+        return DB::transaction(function () use ($owner, $attributes, $context) {
+            $name = trim((string) ($attributes['name'] ?? $owner->name));
+            $organization = Organization::query()->create([
+                'slug' => $this->uniqueSlug($name),
+                'name' => $name,
+                'type' => in_array($attributes['type'] ?? 'person', ['person', 'company'], true) ? $attributes['type'] : 'person',
+                'owner_user_id' => $owner->id,
+                'ico' => $attributes['ico'] ?? null,
+                'dic' => $attributes['dic'] ?? null,
+                'vat_id' => $attributes['vat_id'] ?? null,
+                'billing_email' => $attributes['billing_email'] ?? $owner->email,
+                'street' => $attributes['street'] ?? null,
+                'city' => $attributes['city'] ?? null,
+                'postal_code' => $attributes['postal_code'] ?? null,
+                'country' => strtoupper((string) ($attributes['country'] ?? 'CZ')),
+                'currency' => strtoupper((string) ($attributes['currency'] ?? (($attributes['country'] ?? 'CZ') === 'SK' ? 'EUR' : 'CZK'))),
+                'locale' => $attributes['locale'] ?? $owner->locale,
+                'customer_class' => ! empty($attributes['ico']) || ! empty($attributes['vat_id']) ? 'b2b' : 'b2c',
+                'partner_organization_id' => $attributes['partner_organization_id'] ?? null,
+                'settings' => [],
+            ]);
+            $this->attachMember($organization, $owner, 'owner', $context, joinedNow: true);
+            Project::query()->create(['organization_id' => $organization->id, 'slug' => 'default', 'name' => 'Default']);
+
+            $this->audit->record($context->withScope($organization->id), 'organization.create', 'succeeded', ['name' => $name], 'organization', $organization->id);
+            $this->outbox->publish(GenericEvent::of('organization.created', 'organization', $organization->id, ['name' => $name], $organization->id));
+
+            return $organization;
+        });
+    }
+
+    public function attachMember(Organization $organization, User $user, string $roleKey, CommandContext $context, bool $joinedNow = false): OrganizationMembership
+    {
+        $this->assertCustomerRole($roleKey);
+
+        return DB::transaction(function () use ($organization, $user, $roleKey, $context, $joinedNow) {
+            $membership = OrganizationMembership::query()->updateOrCreate(
+                ['organization_id' => $organization->id, 'user_id' => $user->id],
+                ['role_key' => $roleKey, 'state' => 'active', 'joined_at' => $joinedNow ? now() : null, 'invited_by' => $context->actorId],
+            );
+            PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)
+                ->where('scope_type', 'organization')->where('scope_id', $organization->id)->delete();
+            PolicyBinding::query()->create([
+                'principal_type' => 'user', 'principal_id' => $user->id, 'role_key' => $roleKey,
+                'scope_type' => 'organization', 'scope_id' => $organization->id, 'organization_id' => $organization->id,
+                'granted_by' => $context->actorId,
+            ]);
+            $this->audit->record($context->withScope($organization->id), 'organization.member.attach', 'succeeded', ['user_id' => $user->id, 'role' => $roleKey], 'organization', $organization->id);
+
+            return $membership;
+        });
+    }
+
+    public function changeRole(Organization $organization, User $user, string $roleKey, CommandContext $context): OrganizationMembership
+    {
+        if ($organization->owner_user_id === $user->id && $roleKey !== 'owner') {
+            throw new DomainError('owner_role_locked', 'The organization owner keeps the owner role; transfer ownership first.');
+        }
+
+        return $this->attachMember($organization, $user, $roleKey, $context, joinedNow: false);
+    }
+
+    public function removeMember(Organization $organization, User $user, CommandContext $context): void
+    {
+        if ($organization->owner_user_id === $user->id) {
+            throw new DomainError('owner_cannot_be_removed', 'Transfer ownership before removing the owner.');
+        }
+        DB::transaction(function () use ($organization, $user, $context) {
+            OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->delete();
+            PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)
+                ->where('organization_id', $organization->id)->delete();
+            $this->audit->record($context->withScope($organization->id), 'organization.member.remove', 'succeeded', ['user_id' => $user->id], 'organization', $organization->id);
+        });
+    }
+
+    /** @return array{invitation: OrganizationInvitation, token: string} */
+    public function invite(Organization $organization, string $email, string $roleKey, CommandContext $context): array
+    {
+        $this->assertCustomerRole($roleKey);
+        $token = Str::random(48);
+        $invitation = OrganizationInvitation::query()->create([
+            'organization_id' => $organization->id,
+            'email' => mb_strtolower(trim($email)),
+            'role_key' => $roleKey,
+            'token_hash' => hash('sha256', $token),
+            'invited_by' => $context->actorId,
+            'expires_at' => now()->addDays(7),
+        ]);
+        $this->audit->record($context->withScope($organization->id), 'organization.member.invite', 'succeeded', ['email' => $invitation->email, 'role' => $roleKey], 'organization', $organization->id);
+        // The accept token travels only inside the invitation mail; the (redacted, durable) outbox never carries it.
+        app(NotificationService::class)->queueMail('invitation', $invitation->email, [
+            'organizace' => $organization->name, 'role' => $roleKey, 'url' => rtrim((string) config('onhost.portal_url'), '/').'/panel/tym?pozvanka='.rawurlencode($token),
+        ], 'organization_invitation', $invitation->id, $organization->id, $organization->locale ?? 'cs');
+        $this->outbox->publish(GenericEvent::of('organization.invitation.created', 'organization', $organization->id, [
+            'invitation_id' => $invitation->id, 'email' => $invitation->email, 'role' => $roleKey,
+        ], $organization->id));
+
+        return ['invitation' => $invitation, 'token' => $token];
+    }
+
+    /** A pending invitation is withdrawn: the mailed link stops working at once; accepted or expired ones cannot be cancelled. */
+    public function cancelInvitation(Organization $organization, string $invitationId, CommandContext $context): OrganizationInvitation
+    {
+        $invitation = OrganizationInvitation::query()->where('organization_id', $organization->id)->find($invitationId);
+        if ($invitation === null) {
+            throw new DomainError('invitation_not_found', 'This invitation does not exist.', 404);
+        }
+        if (! $invitation->isUsable()) {
+            throw new DomainError('invitation_not_pending', 'This invitation was already accepted or has expired.', 409);
+        }
+        $invitation->forceFill(['expires_at' => now()->subSecond()])->save();
+        $this->audit->record($context->withScope($organization->id), 'organization.member.invite.cancel', 'succeeded', ['email' => $invitation->email, 'role' => $invitation->role_key], 'organization', $organization->id);
+        $this->outbox->publish(GenericEvent::of('organization.invitation.cancelled', 'organization', $organization->id, [
+            'invitation_id' => $invitation->id, 'email' => $invitation->email, 'role' => $invitation->role_key,
+        ], $organization->id));
+
+        return $invitation;
+    }
+
+    public function acceptInvitation(string $token, User $user, CommandContext $context): OrganizationMembership
+    {
+        $invitation = OrganizationInvitation::query()->where('token_hash', hash('sha256', $token))->first();
+        if ($invitation === null || ! $invitation->isUsable()) {
+            throw new DomainError('invitation_invalid', 'This invitation is invalid or has expired.', 410);
+        }
+        if (mb_strtolower($user->email) !== $invitation->email) {
+            throw new DomainError('invitation_email_mismatch', 'The invitation was issued for a different e-mail address.', 403);
+        }
+        $organization = Organization::query()->findOrFail($invitation->organization_id);
+
+        return DB::transaction(function () use ($invitation, $organization, $user, $context) {
+            $invitation->forceFill(['accepted_at' => now()])->save();
+
+            return $this->attachMember($organization, $user, $invitation->role_key, $context, joinedNow: true);
+        });
+    }
+
+    public function transferOwnership(Organization $organization, User $newOwner, CommandContext $context): Organization
+    {
+        return DB::transaction(function () use ($organization, $newOwner, $context) {
+            $previous = User::query()->findOrFail($organization->owner_user_id);
+            $organization->forceFill(['owner_user_id' => $newOwner->id])->save();
+            $this->attachMember($organization, $newOwner, 'owner', $context, joinedNow: true);
+            $this->attachMember($organization, $previous, 'org_admin', $context);
+            $this->audit->record($context->withScope($organization->id), 'organization.ownership.transfer', 'succeeded', ['from' => $previous->id, 'to' => $newOwner->id], 'organization', $organization->id);
+
+            return $organization->refresh();
+        });
+    }
+
+    /** @param array<string,mixed> $attributes */
+    public function update(Organization $organization, array $attributes, CommandContext $context): Organization
+    {
+        $allowed = ['name', 'type', 'ico', 'dic', 'vat_id', 'billing_email', 'street', 'city', 'postal_code', 'country', 'locale', 'auto_renew_default', 'ui_mode', 'domain_renewal_reserve_days', 'currency'];
+        $before = $organization->only($allowed);
+        $changes = array_intersect_key($attributes, array_flip($allowed));
+        if (isset($changes['currency'])) { // the account currency the customer picks (audit §5j-8): quotes, documents and the default wallet follow it; wallets are per currency already
+            $changes['currency'] = strtoupper((string) $changes['currency']);
+            if (! in_array($changes['currency'], ['CZK', 'EUR'], true)) {
+                throw new DomainError('currency_invalid', 'Currency must be CZK or EUR.', 422, ['field' => 'currency']);
+            }
+        }
+        if (isset($attributes['status_page']) && is_array($attributes['status_page'])) { // the organization's own status page (audit §5j-5)
+            $changes['settings'] = array_merge((array) ($organization->settings ?? []), ['status_page' => OrganizationStatusService::settings($attributes['status_page'], (array) data_get($organization->settings, 'status_page', []))]);
+        }
+        if (isset($attributes['digest_frequency'])) { // digest tuning (audit §5f-5): weekly | monthly | off, kept in the organization's settings
+            $frequency = (string) $attributes['digest_frequency'];
+            if (! in_array($frequency, ['weekly', 'monthly', 'off'], true)) {
+                throw new DomainError('digest_frequency_invalid', 'digest_frequency must be weekly, monthly or off.', 422, ['field' => 'digest_frequency']);
+            }
+            $changes['settings'] = array_merge($changes['settings'] ?? (array) ($organization->settings ?? []), ['digest' => ['frequency' => $frequency]]);
+        }
+        if (isset($changes['country'])) {
+            $changes['country'] = strtoupper((string) $changes['country']);
+        }
+        if (isset($changes['vat_id']) || isset($changes['ico'])) {
+            $changes['customer_class'] = ! empty($changes['vat_id'] ?? $organization->vat_id) || ! empty($changes['ico'] ?? $organization->ico) ? 'b2b' : 'b2c';
+            if (isset($changes['vat_id']) && $changes['vat_id'] !== $organization->vat_id) {
+                $changes['vat_status'] = 'unknown';
+                $changes['vat_validated_at'] = null;
+            }
+        }
+        $organization->forceFill($changes)->save();
+        $this->audit->record($context->withScope($organization->id), 'organization.update', 'succeeded', ['fields' => array_keys($changes)], 'organization', $organization->id, before: $before, after: $organization->only($allowed));
+
+        return $organization;
+    }
+
+    /** @param array<string,mixed> $attributes */
+    public function createProject(Organization $organization, array $attributes, CommandContext $context): Project
+    {
+        $name = trim((string) $attributes['name']);
+        $slug = Str::slug($name) ?: 'project';
+        $base = $slug;
+        $i = 2;
+        while (Project::query()->where('organization_id', $organization->id)->where('slug', $slug)->exists()) {
+            $slug = $base.'-'.$i++;
+        }
+        $project = Project::query()->create([
+            'organization_id' => $organization->id,
+            'slug' => $slug,
+            'name' => $name,
+            'description' => $attributes['description'] ?? null,
+            'cost_center' => $attributes['cost_center'] ?? null,
+            'tags' => $attributes['tags'] ?? [],
+        ]);
+        $this->audit->record($context->withScope($organization->id, $project->id), 'project.create', 'succeeded', ['name' => $name], 'project', $project->id);
+
+        return $project;
+    }
+
+    private function assertCustomerRole(string $roleKey): void
+    {
+        if (! RoleCatalog::exists($roleKey) || RoleCatalog::all()[$roleKey]['staff']) {
+            throw new DomainError('invalid_role', "Role {$roleKey} cannot be assigned inside an organization.");
+        }
+    }
+
+    private function uniqueSlug(string $name): string
+    {
+        $slug = Str::slug($name) ?: 'org';
+        $base = $slug;
+        $i = 2;
+        while (Organization::withTrashed()->where('slug', $slug)->exists()) {
+            $slug = $base.'-'.$i++;
+        }
+
+        return $slug;
+    }
+}

@@ -1,0 +1,25 @@
+---
+# ONhost ISPConfig remote user (audit §5o-3): ISPConfig has no CLI for remote users, so the row lands in `remote_user`
+# through the local MariaDB client (the Debian maintenance credentials); idempotent — the functions are kept in sync.
+- name: Count the remote user rows
+  ansible.builtin.command: >-
+    {{ mysql_bin }} --defaults-file={{ mysql_defaults_file }} -N -B {{ ispconfig_db }}
+    -e "SELECT COUNT(*) FROM remote_user WHERE remote_username = '{{ remote_user }}'"
+  register: onhost_isp_count
+  changed_when: false
+
+- name: Create the remote user
+  ansible.builtin.command: >-
+    {{ mysql_bin }} --defaults-file={{ mysql_defaults_file }} {{ ispconfig_db }}
+    -e "INSERT INTO remote_user (sys_userid, sys_groupid, sys_perm_user, sys_perm_group, sys_perm_other, remote_username, remote_password, remote_access, remote_ips, remote_functions)
+        VALUES (1, 1, 'riud', 'riud', '', '{{ remote_user }}', '{{ remote_password | password_hash('sha512') }}', 'y', '', '{{ functions | join(',') }}')"
+  when: (onhost_isp_count.stdout | trim) == '0'
+  changed_when: true
+  no_log: true
+
+- name: Keep the function groups in sync
+  ansible.builtin.command: >-
+    {{ mysql_bin }} --defaults-file={{ mysql_defaults_file }} {{ ispconfig_db }}
+    -e "UPDATE remote_user SET remote_functions = '{{ functions | join(',') }}', remote_access = 'y' WHERE remote_username = '{{ remote_user }}'"
+  when: (onhost_isp_count.stdout | trim) != '0'
+  changed_when: false

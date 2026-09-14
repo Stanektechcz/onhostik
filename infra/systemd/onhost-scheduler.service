@@ -1,0 +1,23 @@
+# /etc/systemd/system/onhost-scheduler.service — runs the Laravel scheduler loop (outbox relay, provisioning tick, renewals, dunning, SLA…)
+# Exactly one instance per environment (schedule entries use onOneServer() with the shared cache as the lock).
+[Unit]
+Description=ONhost scheduler
+After=network-online.target postgresql.service redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=onhost
+Group=onhost
+WorkingDirectory=/var/www/onhost
+EnvironmentFile=/etc/onhost/app.env
+ExecStart=/usr/bin/php artisan schedule:work
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/www/onhost/storage /var/www/onhost/bootstrap/cache
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

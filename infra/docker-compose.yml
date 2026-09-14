@@ -1,0 +1,84 @@
+# Development stack for the ONhost control plane (blueprint §32 dev-parity).
+# Providers (Proxmox, ISPConfig, aaPanel, Pterodactyl, PowerDNS, WEDOS) are NOT emulated here: point the
+# `*_URL` variables at a lab or use the DevInfrastructureSeeder + HTTP fakes from the test suite.
+#   docker compose -f infra/docker-compose.yml up -d
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: infra/docker/app.Dockerfile
+    environment:
+      APP_ENV: local
+      APP_URL: http://localhost:8000
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_DATABASE: onhost
+      DB_USERNAME: onhost
+      DB_PASSWORD: onhost
+      REDIS_HOST: redis
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+      MAIL_MAILER: smtp
+      MAIL_HOST: mailpit
+      MAIL_PORT: 1025
+      ONHOST_UI_DEMO: "false"
+      ONHOST_CONSOLE_RELAY_KEY: dev-relay-key
+    ports: ["8000:8000"]
+    depends_on: [postgres, redis, mailpit]
+    volumes: ["..:/var/www/html"]
+    command: ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/docker/app.Dockerfile
+    environment: { APP_ENV: local, DB_CONNECTION: pgsql, DB_HOST: postgres, DB_DATABASE: onhost, DB_USERNAME: onhost, DB_PASSWORD: onhost, REDIS_HOST: redis, QUEUE_CONNECTION: redis, CACHE_STORE: redis }
+    depends_on: [postgres, redis]
+    volumes: ["..:/var/www/html"]
+    command: ["php", "artisan", "queue:work", "--queue=default,mails,provider-proxmox,provider-ispconfig,provider-aapanel,provider-pterodactyl,provider-powerdns,provider-registrar,provider-kubernetes", "--tries=1", "--timeout=900"]
+
+  scheduler:
+    build:
+      context: ..
+      dockerfile: infra/docker/app.Dockerfile
+    environment: { APP_ENV: local, DB_CONNECTION: pgsql, DB_HOST: postgres, DB_DATABASE: onhost, DB_USERNAME: onhost, DB_PASSWORD: onhost, REDIS_HOST: redis, QUEUE_CONNECTION: redis, CACHE_STORE: redis }
+    depends_on: [postgres, redis]
+    volumes: ["..:/var/www/html"]
+    command: ["php", "artisan", "schedule:work"]
+
+  console-relay:
+    build:
+      context: ./console-relay
+    environment:
+      ONHOST_API: http://app:8000
+      ONHOST_CONSOLE_RELAY_KEY: dev-relay-key
+      PORT: "8090"
+    ports: ["8090:8090"]
+    depends_on: [app]
+
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: onhost, POSTGRES_USER: onhost, POSTGRES_PASSWORD: onhost }
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    ports: ["5432:5432"]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redisdata:/data"]
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ["8025:8025", "1025:1025"]
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/slo-alerts.yml:/etc/prometheus/slo-alerts.yml:ro
+    ports: ["9090:9090"]
+
+volumes:
+  pgdata: {}
+  redisdata: {}

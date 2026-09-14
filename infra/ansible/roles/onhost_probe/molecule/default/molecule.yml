@@ -1,0 +1,29 @@
+---
+# Molecule for onhost_probe (audit §5o-3): the script, environment and timer land in a Debian container; the script parses.
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: onhost-probe
+    image: docker.io/geerlingguy/docker-debian12-ansible:latest
+    command: ""
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+provisioner:
+  name: ansible
+  inventory:
+    group_vars:
+      all:
+        api: "https://onhost.test/v1/probes/results"
+        probe_token: molecule-probe-token
+        probe_location: probe-molecule
+        interval_seconds: 45
+  playbooks:
+    converge: converge.yml
+    verify: verify.yml
+verifier:
+  name: ansible

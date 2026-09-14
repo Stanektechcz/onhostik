@@ -1,0 +1,59 @@
+# SLO alerting rules mirroring config/onhost.php → sla.burn_rate_windows (blueprint §66.5).
+# The control plane computes the same windows from external probes (SlaService); these rules cover the
+# platform-side SLIs (HTTP success ratio of /v1 and the surfaces) so that both views agree before paging.
+groups:
+  - name: onhost-slo
+    rules:
+      - record: onhost:http_error_ratio:5m
+        expr: sum(rate(onhost_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(onhost_http_requests_total[5m])), 1)
+      - record: onhost:http_error_ratio:30m
+        expr: sum(rate(onhost_http_requests_total{status=~"5.."}[30m])) / clamp_min(sum(rate(onhost_http_requests_total[30m])), 1)
+      - record: onhost:http_error_ratio:1h
+        expr: sum(rate(onhost_http_requests_total{status=~"5.."}[1h])) / clamp_min(sum(rate(onhost_http_requests_total[1h])), 1)
+      - record: onhost:http_error_ratio:6h
+        expr: sum(rate(onhost_http_requests_total{status=~"5.."}[6h])) / clamp_min(sum(rate(onhost_http_requests_total[6h])), 1)
+      - record: onhost:http_error_ratio:3d
+        expr: sum(rate(onhost_http_requests_total{status=~"5.."}[3d])) / clamp_min(sum(rate(onhost_http_requests_total[3d])), 1)
+
+      # objective 99.95 % (business class) → error budget 0.0005
+      - alert: OnhostBurnRateFast
+        expr: onhost:http_error_ratio:5m > (14.4 * 0.0005) and onhost:http_error_ratio:1h > (14.4 * 0.0005)
+        for: 2m
+        labels: { severity: page, component: portal }
+        annotations: { summary: "Fast burn: 2 % of the 30-day error budget in 1 h", runbook: docs/runbooks/incident-response.md }
+      - alert: OnhostBurnRateMedium
+        expr: onhost:http_error_ratio:30m > (6 * 0.0005) and onhost:http_error_ratio:6h > (6 * 0.0005)
+        for: 15m
+        labels: { severity: page, component: portal }
+        annotations: { summary: "Medium burn: 5 % of the budget in 6 h" }
+      - alert: OnhostBurnRateSlow
+        expr: onhost:http_error_ratio:6h > (1 * 0.0005) and onhost:http_error_ratio:3d > (1 * 0.0005)
+        for: 1h
+        labels: { severity: ticket, component: portal }
+        annotations: { summary: "Slow burn: budget on track to be exhausted within 30 days" }
+
+  - name: onhost-platform
+    rules:
+      - alert: OnhostOutboxLag
+        expr: onhost_outbox_pending_oldest_seconds > 120
+        for: 5m
+        labels: { severity: page }
+        annotations: { summary: "Outbox relay is behind: customers are not receiving notifications/webhooks" }
+      - alert: OnhostProvisioningDead
+        expr: increase(onhost_operations_total{state="DEAD"}[1h]) > 0
+        labels: { severity: ticket }
+        annotations: { summary: "A provisioning saga exhausted its retries", runbook: docs/runbooks/provisioning-queue.md }
+      - alert: OnhostProviderDown
+        expr: onhost_provider_health{state="down"} == 1
+        for: 5m
+        labels: { severity: page }
+        annotations: { summary: "Provider {{ $labels.instance_key }} is down", runbook: docs/runbooks/provider-outage.md }
+      - alert: OnhostRegistrarCreditLow
+        expr: onhost_registrar_credit_czk < 20000
+        labels: { severity: ticket }
+        annotations: { summary: "WEDOS credit below reserve — renewals at risk", runbook: docs/runbooks/domains-registrar.md }
+      - alert: OnhostProbesSilent
+        expr: time() - onhost_probe_last_seen_timestamp > 600
+        for: 10m
+        labels: { severity: ticket }
+        annotations: { summary: "External probe {{ $labels.probe }} has not reported for 10 minutes (monitoring gap, not an outage)" }

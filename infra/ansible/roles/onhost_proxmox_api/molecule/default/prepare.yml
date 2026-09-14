@@ -1,0 +1,22 @@
+---
+- name: Prepare a stub pveum
+  hosts: all
+  become: true
+  tasks:
+    - name: Install the stub (records calls, answers empty lists until something was added)
+      ansible.builtin.copy:
+        dest: /usr/local/bin/pveum
+        mode: "0755"
+        content: |
+          #!/bin/sh
+          # stub for the Proxmox `pveum` CLI (molecule only): every call is appended to the log; lists reflect what was added
+          log=/var/log/pveum-stub.log; state=/var/lib/pveum-stub; mkdir -p "$state"; echo "$*" >> "$log"
+          case "$1 $2 $3" in
+            "role list "*) [ -f "$state/role" ] && echo '[{"roleid":"OnhostControlPlane"}]' || echo '[]' ;;
+            "role add "*) touch "$state/role" ;;
+            "user list "*) [ -f "$state/user" ] && echo '[{"userid":"onhost@pve"}]' || echo '[]' ;;
+            "user add "*) touch "$state/user" ;;
+            "user token"*) case "$3" in list) [ -f "$state/token" ] && echo '[{"tokenid":"cp"}]' || echo '[]' ;; add) touch "$state/token"; echo '{"full-tokenid":"onhost@pve!cp","value":"stub-secret"}' ;; esac ;;
+            *) : ;;
+          esac
+          exit 0

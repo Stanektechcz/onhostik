@@ -1,0 +1,25 @@
+---
+# ONhost node activation (audit §5p-7): POST the activation token and the host facts; the platform puts the node
+# `active`, closes the capacity request and tells operations. Idempotent on the platform side (a spent token is a 404).
+- name: Fail early without the activation URL or token
+  ansible.builtin.assert:
+    that:
+      - onhost_activate_url | length > 0
+      - onhost_activate_token | length > 0
+    fail_msg: "Set onhost_activate_url and onhost_activate_token (from the readiness answer or the console's capacity view)."
+
+- name: Report the node active to the platform
+  ansible.builtin.uri:
+    url: "{{ onhost_activate_url }}"
+    method: POST
+    body_format: json
+    body: "{{ onhost_activate_facts | combine({'token': onhost_activate_token}) }}"
+    status_code: [202]
+    return_content: true
+  register: onhost_activate_answer
+  changed_when: true
+  no_log: true
+
+- name: Show the platform's answer (state only)
+  ansible.builtin.debug:
+    msg: "capacity request {{ onhost_activate_answer.json.data.id | default('?') }} → {{ onhost_activate_answer.json.data.state | default('?') }}"

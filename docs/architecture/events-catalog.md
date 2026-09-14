@@ -1,0 +1,126 @@
+# Events catalog (outbox)
+
+Every state change that other parts of the platform or customers may react to is published through the
+transactional outbox (`Onhost\Platform\Outbox\OutboxPublisher`). A message is written in the same database
+transaction as the change, relayed by `onhost:outbox:relay` (and synchronously after each command in the
+CommandBus pipeline), and dispatched twice:
+
+* as the Laravel event `Onhost\Platform\Outbox\OutboxEventDispatched` (the `NotificationRouter` and the
+  `WebhookDispatcher` listen here), and
+* as the string event `onhost.<name>` carrying the `OutboxMessage` (domain listeners such as
+  `FulfillPaidOrder`, `SettleBillingAfterPayment`, `AccruePartnerCommission`).
+
+Payloads are redacted before storage (`Redactor`): never put secrets, tokens, AUTH-IDs or full card data in
+an event. Mail that must carry a secret (password reset, invitation, AUTH-ID) goes through
+`NotificationService::queueMail` directly. Money values are serialised as `{minor, currency, decimal}`.
+
+Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_id` (nullable),
+`payload`, `correlation_id`, `occurred_at`, `state` (pending → dispatched | failed), `attempts`.
+
+## Customer-facing events (webhooks may subscribe)
+
+| Event | Aggregate | Payload keys | Emitted by |
+| --- | --- | --- | --- |
+| `identity.registered` | user | `email`, `name`, `organization_id` | AuthController::register |
+| `organization.created` / `organization.invitation.created` / `organization.invitation.cancelled` / `organization.limited` / `organization.limit_lifted` | organization | `name`, `slug`, `role`, `reason`, `invitation_id`, `email` | OrganizationService |
+| `order.placed` / `order.paid` / `order.fulfilment_failed` | order | `number`, `total`, `payment_mode`, `reason` | CheckoutService, OrderFulfilmentService |
+| `payment.succeeded` | payment_intent | `amount`, `provider`, `method` | PaymentService |
+| `wallet.topup.completed` / `wallet.charged` / `wallet.frozen` / `wallet.hold.released` / `wallet.refund.requested` | wallet | `amount`, `balance`, `source`, `reason` | WalletService |
+| `invoice.issued` / `invoice.paid` / `invoice.overdue` | invoice | `number`, `type`, `total`, `amount`, `method`, `due_at` | InvoiceService |
+| `invoice.cancelled` | invoice | `number`, `type`, `reason` — an unpaid proforma voided because its order was cancelled (tax documents are corrected with credit notes, never voided) | InvoiceService |
+| `subscription.created` / `subscription.renewed` / `subscription.renewal_failed` / `subscription.expired` | subscription | `service_id`, `period`, `amount`, `next_renewal_at`, `reason` | SubscriptionService |
+| `usage.charge_deferred` / `budget.threshold` | organization | `amount`, `reason`, `percent` | RatingService |
+| `dunning.opened` / `dunning.notice` / `dunning.resolved` | dunning_case | `invoice`, `days`, `stage` | DunningService |
+| `service.created` / `service.activated` / `service.degraded` / `service.recovered` / `service.failed` | service | `product_key`, `hostname`, `reason`, `access` (never credentials) | ServiceService |
+| `service.plan_changed` | service | `product_key`, `from_plan`, `to_plan`, `plan_name`, `hostname`, `label`, `order_item_id`, `period`, `period_change`, `from_period`, `current_period_end` — a paid plan-change order line moved the service to another plan (the node resizes, the subscription renews at the new price) or, with `period_change`, to the other billing period (a new period started now; the same plan touches no node). Routed as *Tarif služby … změněn* or *Období platby … změněno* (mail `service-plan-changed` / `service-period-changed`) | PlanChangeService |
+| `service.usage.high` | service | `level` (warn ≥ 85 % / critical ≥ 95 %), `metrics` (disk/traffic/memory: used, limit, pct), `top`, `hostname`, `label`, `plan`, `upgrade` (next plan: key, name, price, change_now, period), `auto_upgrade`, `order` (number, state when the policy ordered the upgrade) — the usage watch found a service near its plan limit; once per level and day. Routed to the customer (`service-usage-high` mail) | UsageWatch |
+| `subscription.plan_changed` | subscription | `service_id`, `period`, `amount`, `from_plan`, `to_plan`, `period_change`, `current_period_end`, `before` — the renewal price follows a plan change; a period change restarts the period dates | SubscriptionService |
+| `app.deployed` | service | `image`, `revision`, `preview_url` | DeployAppWorkflow |
+| `domain.registration_requested` / `domain.registration_failed` / `domain.renewed` / `domain.renewal_notice` / `domain.renewal_failed` / `domain.renewal_payment_failed` / `domain.renewal_abandoned` / `domain.expired` / `domain.transferred_out` / `domain.nameservers_changed` / `domain.auto_renew_changed` / `domain.dnssec_published` / `domain.auth_info_requested` / `domain.registry_notice` | domain | `fqdn`, `expires_at`, `period`, `reason` | DomainService, DomainRenewalScheduler, RegistrarPollWorker |
+| `registrar.connection.linked` / `registrar.connection.unlinked` | registrar_connection | `provider`, `label`, `login` (masked), `domains`, `domains_removed` — a customer connected or disconnected their own registrar account (bring your own WEDOS API) | RegistrarConnectionService |
+| `registrar.connection.sync_failed` | registrar_connection | `label`, `error` — the hourly mirror of a connected account failed (once per day per connection) | RegistrarConnectionService |
+| `registrar.connection.credit_low` | registrar_connection | `label`, `login` (masked), `balance`, `currency`, `threshold_minor` — the registrar credit dropped under the customer's limit (once per day, re-armed above the limit) | RegistrarConnectionService |
+| `domain.imported` / `domain.connection.missing` | domain | `fqdn`, `expires_at`, `connection_id` — a domain mirrored from a connected account / one that vanished from it (no notification for imports) | RegistrarConnectionService |
+| `domain.external_expiry_notice` | domain | `fqdn`, `days`, `days_left`, `expires_at`, `registrar`, `account` (masked), `connection_id` — a mirrored domain expires at the customer's own registrar (30/14/7/3/1 days, the most urgent notice implies the coarser ones) | RegistrarConnectionService |
+| `domain.paired` / `domain.unpaired` | domain | `fqdn`, `service_id`, `hostname`, `dns` (`synced` = rows written into the managed zone, `manual` = instructions), `records` — the domain was pointed at / taken off a web hosting plan | DomainPairingService |
+| `dns.zone.created` / `dns.zone.committed` / `dns.zone.deleted` / `dns.dnssec.enabled` / `dns.dnssec.disabled` | dns_zone | `zone`, `serial`, `version`, `changes` | DnsService |
+| `ticket.created` / `ticket.replied` / `ticket.escalated` / `ticket.handoff` / `ticket.sla_breached` | ticket | `number`, `subject`, `priority`, `queue`, `first_response_minutes`, `channel` | TicketService, AssistantService |
+| `incident.opened` / `incident.updated` / `incident.resolved` | incident | `number`, `title`, `severity`, `components`, `state`, `state_label`, `note`, `impact`, `duration` | IncidentService (one message per affected organization) |
+| `maintenance.scheduled` | maintenance | `number`, `title`, `components`, `starts_at`, `ends_at`, `impact` | MaintenanceService::approve |
+| `sla.credit.issued` | sla_credit | `amount`, `incident`, `percent`, `service_id`, `credit_note_id` | SlaService::issue |
+| `partner.approved` / `partner.tier.changed` / `partner.payout.paid` | partner / partner_payout | `code`, `tier`, `rate`, `from`, `to`, `volume`, `number`, `amount`, `period` | PartnerService |
+| `partner.change.requested` / `partner.change.approved` / `partner.change.rejected` / `partner.change.applied` | partner | `request_id`, `kind` (rate_lock, payout_terms, whitelabel_scope), `from`, `to`, `note`, `partner_code` / `effective_from` — contract terms beyond the model (audit §5n-1): requested → finance inbox, approved/rejected → partner, applied when the term takes effect | PartnerService |
+| `partner.change.auto_approved` | partner | the change payload + `reason`, `effective_from` — the rule approved a simple term without finance (audit §5o-1); finance is informed | PartnerService |
+| `partner.payout.auto` | partner_payout | `number`, `amount`, `terms` — a payout requested for a partner on monthly / quarterly terms (audit §5n-1) | PartnerService |
+| `marketplace.period_delivered` / `marketplace.period_due` / `marketplace.period_missed` / `marketplace.period_missed_partner` | marketplace_order | `title`, `note`, `period_end` / `title`, `period_end`, `credit_pct`, `customer_organization_id` / `title`, `credit`, `period_end`, `missed_periods` / `title`, `credit`, `period_end`, `customer_organization_id` — monthly deliverables of a running listing (audit §5n-2): reported, reminded at 80 % of the period, credited at the renewal (customer and partner) | MarketplaceService |
+| `partner.model.requested` / `partner.model.approved` / `partner.model.rejected` / `partner.model.changed` | partner | `request_id`, `from`, `to`, `note`, `partner_code` / `request_id`, `to`, `effective_from`, `note` / `from`, `to` — the commission model as a contract term (audit §5m-1): the partner asks, finance decides (requested → finance inbox; approved/rejected → partner), the approved model takes effect on the first of next month (changed) | PartnerService |
+| `abuse.case.actioned` | abuse_case | `number`, `action` | ComplianceService |
+| `compliance.data_export.ready` | data_request | `kind`, `days`, `bytes` | ComplianceService::processDataRequests |
+| `api_token.created` / `api_token.revoked` | api_token | `name`, `scopes` (never the token) | IdentityCommandHandler |
+| `security.login` / `security.mfa` / `security.password_changed` / `security.account_locked` / `identity.password_reset_requested` | user | `ip`, `user_agent`, `method` | AuthController, MeController |
+| `monitoring.down` / `monitoring.up` | service | `monitor_id`, `incident_id`, `url`, `error`, `minutes`, `notify` | UptimeMonitor::check |
+| `deploy.started` / `deploy.succeeded` / `deploy.failed` | service | `deployment_id`, `ref`, `sha`, `release`, `trigger`, `error` | DeployService, DeployWorkflow |
+| `staging.created` / `staging.synced` / `staging.pushed` / `staging.deleted` / `staging.failed` | service | `staging_service_id`, `domain`, `mode`, `action`, `error` | StagingService, StagingWorkflow |
+| `import.started` / `import.succeeded` / `import.failed` | service | `import_id`, `kind`, `stats`, `error` | ImportService |
+| `certificate.requested` / `certificate.issued` / `certificate.failed` | service | `certificate_id`, `domains`, `expires_at`, `error`, `renewal` | CertificateService |
+| `cdn.enabled` / `cdn.activated` / `cdn.disabled` | service | `domain`, `nameservers`, `nameservers_switched`, `state` | CdnService |
+| `backup.deleted` / `backup.offsite` | service | `backup_id`, `reason`, `disk` | BackupScheduler |
+| `node.drained` / `node.resumed` | node | `name`, `region`, `role`, `reason`, `automatic`, `from`, `failed[]` (the transient failures behind an automatic drain: id, kind, step, service_id, message; §5f-7) — a node stopped receiving placements (staff, or the operations board after 3 transient failures in 15 min without a success) / receives them again (staff, or automatically once operations succeed). Internal notification (hot) | OperationsBoard |
+| `billing.renewal.underfunded` | wallet | `days`, `due`, `available`, `shortfall`, `first_renewal_at`, `services[]`, `auto_topup` (status charged/disabled/unsupported/limited/failed + reason) — the renewals of the next 7 days outrun the credit (`onhost:billing:renewal-guard`, once per day per organization); with an automatic top-up charged the customer only hears that it happened | WalletForecast |
+| `payment.method.saved` | payment_method | `provider`, `kind`, `last4`, `is_default`, `auto_topup` — a card the customer chose to keep settled and became the stored method for automatic top-ups (§5f-1); customer notification | PaymentService |
+| `order.review.required` / `order.review.released` / `order.review.rejected` | order | `number`, `score`, `reasons[]`, `total` / `number` / `number`, `reason` — the intake pre-check held a paid order for staff; the decision released it (an `order.paid` follows) or cancelled it (§5f-8). Internal + customer notifications | CheckoutService |
+| `wallet.runway.low` | wallet | `days`, `depletes_at`, `shortfall`, `available`, `renewals_30d` — the scheduled renewals outrun the credit within 14 days (`onhost:billing:runway`, once per day per organization) | WalletForecast |
+| `integration.discord.linked` | organization | `discord_username`, `user_id` — a Discord account can now run `/onhost` against the organization's services | DiscordService |
+| `chargeback.requested` / `chargeback.approved` / `chargeback.rejected` / `chargeback.refunded` | chargeback | `service_id`, `label`, `percent`, `unused`, `refund`, `reason`, `decision_reason`, `refunded` (Money) — a customer asked to leave early with a credit refund (audit §5i): support decides (mails `chargeback-approved|rejected`), the customer cancels, the credit is posted after the termination (`chargeback-refunded`); finance sees the request | ChargebackService |
+| `marketplace.ordered` / `marketplace.assigned` / `marketplace.delivered` / `marketplace.accepted` / `marketplace.disputed` / `marketplace.refunded` | marketplace_order | `listing`, `title`, `total`, `net`, `due_at`, `partner_id`, `customer`, `invoice`, `brief` (assigned only, 500 chars) / `note`, `auto_accept_days` / `by`, `partner_share` / `reason` / `amount` — the marketplace of partner services (audit §5j-1): the customer's organization gets ordered/delivered/refunded, the partner's organization gets assigned/accepted (mails `marketplace-assigned`, `marketplace-delivered`), a dispute reaches support and the partner | MarketplaceService |
+| `marketplace.renewed` / `marketplace.renewal_failed` / `marketplace.ended` | marketplace_order | `title`, `total`, `period_end`, `invoice`, `partner_organization_id` / `required`, `grace_until` / `reason` (`ended_by_customer`, `unpaid`, `organization_missing`) — a monthly listing on the subscription engine (audit §5k-2): renewed from credit, failed for lack of credit (retried daily until the grace deadline), or ended | MarketplaceService |
+| `marketplace.overdue` / `marketplace.delayed` / `marketplace.refund_offered` | marketplace_order | `title`, `due_at`, `grace_days`, `customer_organization_id` / `title`, `due_at`, `grace_days` / `title`, `days_overdue`, `partner_organization_id` — the delivery SLA (audit §5l-2): the partner's organization is warned once past the due date, the customer's told of the delay, and after the grace offered a refund it may take without a dispute | MarketplaceService |
+| `marketplace.late_credit` | marketplace_order | `title`, `credit`, `days_late`, `partner_organization_id` — a delivery accepted after its due date credited the customer per day late (audit §5m-2); the partner share carries it | MarketplaceService |
+| `referral.held` / `referral.clawback` | referral | `score`, `signals[]`, `referred`, `referred_organization_id` / `referred_organization_id`, `signals[]` — fraud scoring (audit §5l-4): a referral held for finance; a rewarded referral clawed back after a chargeback (finance inbox, referrer's organization on the message) | ReferralService |
+| `loyalty.campaign.started` / `loyalty.campaign.completed` | organization | `campaign`, `title`, `title_en`, `missions[]`, `badge`, `until`, `mail` / `campaign`, `title`, `badge` — mission campaigns (audit §5l-5): one start event per active organization (mail `loyalty-campaign` when asked), the badge when every mission was done in the window | MissionService |
+| `status_page.domain.verified` | organization | `domain` — the customer's own status host passed its CNAME check (audit §5k-3); the edge may now issue its certificate | OrganizationStatusService |
+| `marketplace.listing.submitted` / `marketplace.listing.published` / `marketplace.listing.retired` | marketplace_listing | `key`, `title`, `price`, `partner_id`, `reason` — a partner submitted a listing (internal), staff published or retired it (partner's organization) | MarketplaceService |
+| `referral.registered` / `referral.rewarded` / `referral.welcomed` / `referral.refused` | referral | `referred` (masked name), `code` / `points`, `credit` / `reason` (`same_email_domain`, `same_address`, `risk_hold`, `monthly_cap`, `sandbox`) — customer-to-customer invites (audit §5j-2); the referrer's organization gets registered/rewarded (mail `referral-rewarded`), the invited one welcomed, finance sees refusals | ReferralService |
+| `loyalty.mission.completed` / `loyalty.streak.reached` / `loyalty.discount.granted` / `loyalty.discount.removed` | organization | `month`, `missions[]`, `all` / `months`, `target`, `discount_pct` / `percent`, `months` — monthly missions and the on-time streak (audit §5j-3); the streak reaches finance (mail `loyalty-streak`), the discount decision reaches the customer | MissionService |
+| `tenant.sandbox` | organization | `enabled`, `credit` — staff switched the sandbox flag (audit §5j-9) | ProvisioningCommandHandler |
+| `loyalty.level_up` / `loyalty.badge` | organization | `level` (`key`, `label`, `reward` Money), `points` / `badge`, `label` — the loyalty program (audit §5i): a level reached posts its promo-credit reward once (mail `loyalty-level-up`); badges for MFA, backups, monitoring, the first service, referrals | LoyaltyService |
+
+## Internal (staff) events
+
+| Event | Purpose | Routed to |
+| --- | --- | --- |
+| `operation.started` / `operation.succeeded` / `operation.failed` / `operation.cancelled` | provisioning saga lifecycle | admin inbox (`infra`), audit |
+| `provisioning.drift.detected` | reconciler found ONHOST_MANAGED drift | admin `#/uzly` |
+| `capacity.request.activated` | the capacity request row + `report` — the playbook reported the hypervisor installed, the node is active and the request delivered (audit §5p-7) | admin `#/nodecost` |
+| `integration.prereqs.regressed` / `integration.prereqs.recovered` | `key`, `provider`, `api`, `appeared[]`, `warnings[]` / `key`, `provider`, `cleared[]` — the nightly prerequisites pass changed against yesterday (audit §5p-4) | admin Integrace |
+| `node.bmc.alert` | `node`, `region`, `role`, `problems[]`, `temp_max_c`, `psus[]`, `fans_failed` — the management controller reports a hot host or a failed PSU/fan (audit §5o-6); once a day per node | admin `#/fleet`, on-call |
+| `capacity.request.ready` | the capacity request row + `report` (hostname, ip, os, cores, RAM, disk) + `playbook` — a vendor-ordered node's bootstrap called back (audit §5o-7) | admin `#/nodecost` |
+| `capacity.request.proposed` / `capacity.request.ordered` / `capacity.request.delivered` / `capacity.request.failed` | the capacity request row (`role`, `region`, `wanted`, `days_left`, `vendor`, `node_name`, `ip`, `error`) — a short pool got a request, the vendor accepted an order, the node went active, the vendor refused (audit §5n-7) | admin `#/fleet`, on-call |
+| `capacity.forecast.low` | a role/region pool has fewer than `ONHOST_CAPACITY_WARN_DAYS` days of sellable RAM left on the 7-day trend, or no headroom (audit §5m-7); payload = the forecast row (`role`, `region`, `sellable_mb`, `sold_mb`, `used_mb`, `headroom_mb`, `growth_mb_per_day`, `days_left`, `basis`); once a day per pool | admin `#/fleet`, on-call |
+| `integration.down` / `capacity.unavailable` / `ipam.threshold` / `ipam.exhausted` | provider health, scheduler capacity, address pools | admin `#/uzly`, on-call |
+| `service.migration.scheduled` / `service.migration.rescheduled` | a migration with a customer window (audit §5h-3): the customer gets the window and the default start (mail `service-migration-scheduled`) and may move the start from the panel (`PUT /v1/services/{id}/migration`); the move is an internal notice | customer `/panel/sluzby`; admin `#/gprov` |
+| `platform.queue.backlog` | operations due for longer than `ONHOST_QUEUE_BACKLOG_AGE_MINUTES` exceed `ONHOST_QUEUE_BACKLOG_THRESHOLD` (audit §5h-5) — raised by `onhost:integrations:health` at most once per half hour; gauge `onhost_operations_backlog{queue}` on `/metrics` for autoscaling | admin `#/jobsadm`, on-call |
+| `service.migrated` / `service.migration.failed` | a game server moved to another panel node (`GameMigrationWorkflow`, audit §5g-2) or a cloud server live-migrated to another Proxmox node (`VpsMigrationWorkflow`, audit §5i-2; the address stays, `to_node` changes): the customer gets the new address; a failure before the switch (target deleted, source started again) is an internal alert | customer `/panel/sluzby` + mail `service-migrated`; admin `#/gprov` |
+| `platform.queue.stalled` | the queue worker's heartbeat (`QueueHeartbeat`, queued every minute) is older than five minutes — operations, mails and webhooks are piling up; raised by `onhost:integrations:health` at most once per half hour | admin `#/uzly`, on-call |
+| `registrar.credit.low` / `registrar.notification` / `registrar.notification.dead` / `domain.reconcile.missing_remote` / `domain.reconcile.unknown_remote` / `domain.reconcile.registrar_changed` / `domain.reconciled` | registrar credit and reconciliation, per registrar (WEDOS, Subreg): `registrar.credit.low` carries `registrar` + `instance`, `registrar_changed` when the listing shows a domain moved to another of our registrars | admin `#/sluzby` |
+| `registrar.costs.refreshed` / `registrar.costs.scraped` | wholesale price book refreshed from the registrar price APIs / public price lists scraped into it (per-registrar counts, errors) | staff settings |
+| `payment.orphan_callback` / `finance.reconciliation.mismatch` | payment callbacks without a local intent, bank reconciliation | finance inbox |
+| `security.incident.opened` / `abuse.case.opened` / `compliance.timer.due` / `compliance.timer.missed` | security and regulatory clocks | security inbox `#/incidenty` |
+| `sla.burn_rate` / `sla.budget.exhausted` / `maintenance.unapproved` | SLO alerting, change freeze, change management | on-call, admin `#/incidenty` |
+| `partner.application.received` / `partner.payout.requested` / `lead.received` | sales and partner operations | sales / finance inbox |
+| `rebalance.plan` / `chargeback.cluster` | the nightly dry-run rebalancing plan from the measured load (audit §5j-4: `basis`, `moves`, `hot[]`, `summary[]`) and a cluster of chargeback reasons that opened an internal incident (audit §5j-6: `number`, `cluster`, `count`, `theme`, `label`) | operations inbox `#/fleet`, finance inbox `#/incidents` |
+
+## Consumers
+
+* **NotificationRouter** — maps events to in-app notifications (customer | internal), mail templates and
+  mandatory kinds (`config/onhost.php` → `notifications.mandatory_kinds`).
+* **WebhookDispatcher** — delivers customer-facing events to organization webhook endpoints with an
+  HMAC-SHA256 signature (`v1=`) over `timestamp.body`, exponential retry [1, 5, 30, 120, 720] minutes and
+  automatic pause after 20 consecutive failures.
+* **Domain listeners** — `onhost.order.paid` → `FulfillPaidOrder`; `onhost.invoice.paid` →
+  `SettleBillingAfterPayment` (dunning, subscriptions) and `AccruePartnerCommission`; `onhost.invoice.issued`
+  (credit notes) → `AccruePartnerCommission::reverseForCreditNote`; `onhost.wallet.topup.completed` →
+  `SettleBillingAfterPayment` (past-due recovery).
+
+Adding an event: publish with `GenericEvent::of(name, aggregateType, aggregateId, payload, organizationId)`,
+add a row here, map it in `NotificationRouter` when a human should see it, and cover it in the domain's tests.

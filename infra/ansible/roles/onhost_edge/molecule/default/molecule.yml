@@ -1,0 +1,33 @@
+---
+# Molecule scenario for the ONhost edge role (audit §5n-3): a Debian container with Caddy, a stub `php` that renders
+# the Caddyfile the platform would render, the role applied, the file validated and reloaded through the handler.
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: onhost-edge
+    image: docker.io/geerlingguy/docker-debian12-ansible:latest
+    command: ""
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+provisioner:
+  name: ansible
+  inventory:
+    group_vars:
+      all:
+        onhost_app_dir: /srv/onhost/current
+        onhost_php: /usr/local/bin/php
+        onhost_edge_flavour: caddy
+        onhost_edge_upstream: 127.0.0.1:8000
+        onhost_edge_conf_dir: /etc/caddy/conf.d
+        onhost_edge_render_path: /srv/onhost/shared/edge.generated
+  playbooks:
+    prepare: prepare.yml
+    converge: converge.yml
+    verify: verify.yml
+verifier:
+  name: ansible

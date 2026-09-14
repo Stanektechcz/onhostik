@@ -1,0 +1,26 @@
+# /etc/systemd/system/onhost-queue@.service — one worker per provider queue lane (blueprint §31: a stuck panel must not block the others)
+#   systemctl enable --now onhost-queue@default onhost-queue@mails onhost-queue@provider-proxmox onhost-queue@provider-ispconfig \
+#     onhost-queue@provider-aapanel onhost-queue@provider-pterodactyl onhost-queue@provider-powerdns onhost-queue@provider-registrar onhost-queue@provider-kubernetes
+[Unit]
+Description=ONhost queue worker (%i)
+After=network-online.target postgresql.service redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=onhost
+Group=onhost
+WorkingDirectory=/var/www/onhost
+EnvironmentFile=/etc/onhost/app.env
+ExecStart=/usr/bin/php artisan queue:work redis --queue=%i --tries=1 --timeout=900 --sleep=2 --max-jobs=500 --max-time=3600
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=930
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/www/onhost/storage /var/www/onhost/bootstrap/cache
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

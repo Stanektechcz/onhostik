@@ -1,0 +1,10 @@
+---
+# Deploys the edge configuration for the customers' status hosts (audit §5k-3, §5l-3, §5m-3):
+#   ansible-playbook -i inventory.ini edge.yml
+# The role asks the platform to render the configuration (`onhost:edge:config`), copies it to the edge host and reloads
+# Caddy or nginx. Caddy issues certificates on demand and asks `/v1/status/host-check` first.
+- name: ONhost edge — customers' status hosts
+  hosts: edge
+  become: true
+  roles:
+    - role: onhost_edge

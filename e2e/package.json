@@ -1,0 +1,15 @@
+{
+  "name": "onhost-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright smoke and visual regression for the ONhost surfaces",
+  "scripts": {
+    "test": "playwright test",
+    "test:update": "playwright test --update-snapshots",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0",
+    "typescript": "^5.6.0"
+  }
+}

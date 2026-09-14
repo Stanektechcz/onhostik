@@ -1,0 +1,17 @@
+---
+# ansible-lint profile for the ONhost playbooks (audit §5n-3, §5o-3)
+profile: moderate
+exclude_paths:
+  - inventory.example.ini
+  - roles/onhost_edge/molecule/
+  - roles/onhost_powerdns/molecule/
+  - roles/onhost_probe/molecule/
+  - roles/onhost_proxmox_api/molecule/
+  - roles/onhost_ispconfig_remote/molecule/
+  - roles/onhost_node_activate/molecule/
+skip_list:
+  - yaml[line-length]   # long argv and SQL lines in the roles
+  - name[casing]        # task names quote artisan commands
+  - no-changed-when     # the vendor CLIs (pveum, mysql) report nothing usable; changed_when is set explicitly where it matters
+warn_list:
+  - experimental

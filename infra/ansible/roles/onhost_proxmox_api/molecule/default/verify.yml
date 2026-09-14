@@ -1,0 +1,34 @@
+---
+- name: Verify the pveum calls
+  hosts: all
+  become: true
+  tasks:
+    - name: Read the stub log
+      ansible.builtin.slurp:
+        src: /var/log/pveum-stub.log
+      register: log
+
+    - name: The role, the user, the ACL and the token were created with the expected arguments
+      ansible.builtin.assert:
+        that:
+          - "'role add OnhostControlPlane --privs' in (log.content | b64decode)"
+          - "'VM.Allocate,VM.Clone' in (log.content | b64decode)"
+          - "'user add onhost@pve' in (log.content | b64decode)"
+          - "'acl modify / --users onhost@pve --roles OnhostControlPlane' in (log.content | b64decode)"
+          - "'user token add onhost@pve cp --privsep 0' in (log.content | b64decode)"
+
+    - name: Run the role again (idempotence — nothing is added twice)
+      ansible.builtin.include_role:
+        name: onhost_proxmox_api
+
+    - name: Re-read the stub log
+      ansible.builtin.slurp:
+        src: /var/log/pveum-stub.log
+      register: log2
+
+    - name: The second run added nothing
+      ansible.builtin.assert:
+        that:
+          - "(log2.content | b64decode | regex_findall('role add')) | length == 1"
+          - "(log2.content | b64decode | regex_findall('user add')) | length == 1"
+          - "(log2.content | b64decode | regex_findall('token add')) | length == 1"

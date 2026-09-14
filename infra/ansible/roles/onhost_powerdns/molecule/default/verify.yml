@@ -1,0 +1,22 @@
+---
+- name: Verify the PowerDNS drop-in
+  hosts: all
+  become: true
+  tasks:
+    - name: Read the rendered configuration
+      ansible.builtin.slurp:
+        src: /etc/powerdns/pdns.d/onhost-api.conf
+      register: conf
+
+    - name: The API is on, keyed, on the loopback address, with the NOTIFY set
+      ansible.builtin.assert:
+        that:
+          - "'api=yes' in (conf.content | b64decode)"
+          - "'api-key=molecule-test-key' in (conf.content | b64decode)"
+          - "'webserver-address=127.0.0.1' in (conf.content | b64decode)"
+          - "'allow-notify-from=203.0.113.10,203.0.113.11' in (conf.content | b64decode)"
+          - "'also-notify=203.0.113.10' in (conf.content | b64decode)"
+
+    - name: The server binary is installed
+      ansible.builtin.command: pdns_server --version
+      changed_when: false

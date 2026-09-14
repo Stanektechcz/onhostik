@@ -1,0 +1,16 @@
+---
+- name: Verify the activation call
+  hosts: all
+  become: true
+  tasks:
+    - name: Read the stub log
+      ansible.builtin.slurp:
+        src: /var/log/onhost-stub-api.log
+      register: log
+
+    - name: The platform received the token and the facts on the activation path
+      ansible.builtin.assert:
+        that:
+          - "'/v1/probes/capacity/capr_molecule/activate' in (log.content | b64decode)"
+          - "'na_molecule-token' in (log.content | b64decode)"
+          - "'\"hostname\"' in (log.content | b64decode)"

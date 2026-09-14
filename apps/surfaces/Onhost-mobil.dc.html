@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/modernist-31154b91-2bfe-4cc9-a4d9-6ffc68c8a498/styles.css">
+<script src="_ds/modernist-31154b91-2bfe-4cc9-a4d9-6ffc68c8a498/_ds_bundle.js"></script>
+<style>
+  body { margin: 0; background: #f3f2f2; }
+  a { color: #ec3013; text-decoration: none; }
+  a:hover { color: #ae1800; text-decoration: underline; }
+  .ohm-row { display: flex; gap: 44px; align-items: flex-start; flex-wrap: wrap; }
+  .ohm-notes { flex: 1 1 320px; min-width: 300px; }
+  .ohm-scroll::-webkit-scrollbar { width: 0; }
+</style>
+<script src="./onhost-store.js"></script>
+<script src="./onhost-shell.js"></script>
+</helmet>
+
+<div style="min-height:100vh;background:#f3f2f2;color:#201e1d;font-family:var(--font-body,Archivo),system-ui,sans-serif">
+
+  <header style="background:#201e1d;color:#f3f2f2;border-bottom:2px solid #ec3013">
+    <div style="max-width:1520px;margin:0 auto;padding:26px 28px">
+      <div style="display:flex;align-items:baseline;gap:10px">
+        <span style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:19px;letter-spacing:-.02em">ONHOST</span>
+        <span style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(243,242,242,.6)">{{ t.kicker }}</span>
+        <div style="flex:1 1 auto"></div>
+        <button onClick="{{ toggleLang }}" style="background:transparent;border:1px solid rgba(243,242,242,.3);color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:700;font-size:11px;letter-spacing:.06em;padding:5px 10px;cursor:pointer" style-hover="border-color:#ec3013;color:#ec3013">{{ langLabel }}</button>
+      </div>
+      <h1 style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:34px;line-height:1.06;letter-spacing:-.03em;margin:14px 0 0;max-width:22em">{{ t.title }}</h1>
+      <p style="font-size:15px;line-height:1.6;color:rgba(243,242,242,.75);margin:10px 0 0;max-width:46em;text-wrap:pretty">{{ t.lead }}</p>
+    </div>
+  </header>
+
+  <div style="max-width:1520px;margin:0 auto;padding:38px 28px 80px">
+    <div class="ohm-row">
+
+      <!-- ── telefon: aplikace ──────────────────────────────────── -->
+      <div style="flex:0 0 auto">
+        <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(32,30,29,.55);padding-bottom:12px">{{ t.phoneApp }}</div>
+        <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" width="{{ 402 }}" height="{{ 874 }}" hint-size="402px,874px">
+          <div style="height:100%;display:flex;flex-direction:column;background:#141312;color:#f3f2f2;font-family:var(--font-body,Archivo),system-ui,sans-serif">
+
+            <div style="flex:0 0 auto;padding:56px 20px 12px;border-bottom:2px solid rgba(243,242,242,.16)">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+                <div>
+                  <div style="font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:rgba(243,242,242,.5)">{{ head.kicker }}</div>
+                  <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:26px;letter-spacing:-.02em;margin-top:3px">{{ head.title }}</div>
+                </div>
+                <span style="{{ head.pillStyle }}">{{ head.pill }}</span>
+              </div>
+            </div>
+
+            <div class="ohm-scroll" style="flex:1 1 auto;overflow:auto;padding:0 20px 18px">
+
+              <!-- SLUŽBY -->
+              <sc-if value="{{ isSvc }}" hint-placeholder-val="{{ true }}">
+                <div>
+                  <div style="display:flex;gap:2px;background:rgba(243,242,242,.16);margin-top:16px">
+                    <sc-for list="{{ svcStats }}" as="st" hint-placeholder-count="3">
+                      <div style="flex:1 1 0;min-width:0;background:#141312;padding:11px 10px">
+                        <div style="font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:rgba(243,242,242,.5)">{{ st.label }}</div>
+                        <div style="{{ st.valueStyle }}">{{ st.value }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+
+                  <div style="display:flex;flex-direction:column;margin-top:18px">
+                    <sc-for list="{{ services }}" as="sv" hint-placeholder-count="5">
+                      <button onClick="{{ sv.on }}" style="display:block;width:100%;text-align:left;background:transparent;border:none;border-top:1px solid rgba(243,242,242,.18);padding:14px 2px;cursor:pointer;font-family:var(--font-body,Archivo);color:#f3f2f2">
+                        <div style="display:flex;align-items:center;gap:9px">
+                          <span style="{{ sv.dotStyle }}"></span>
+                          <span style="font-family:var(--font-heading,Archivo);font-weight:800;font-size:16px;flex:1 1 auto;min-width:0">{{ sv.name }}</span>
+                          <span style="{{ sv.tagStyle }}">{{ sv.tag }}</span>
+                        </div>
+                        <div style="font-size:12.5px;color:rgba(243,242,242,.6);margin-top:4px;padding-left:17px">{{ sv.meta }}</div>
+                        <div style="display:flex;align-items:flex-end;gap:2px;height:26px;margin-top:9px;padding-left:17px">
+                          <sc-for list="{{ sv.bars }}" as="b" hint-placeholder-count="16">
+                            <span style="{{ b.style }}"></span>
+                          </sc-for>
+                        </div>
+                      </button>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-if>
+
+              <!-- DETAIL SLUŽBY -->
+              <sc-if value="{{ isDetail }}" hint-placeholder-val="{{ false }}">
+                <div>
+                  <button onClick="{{ back }}" style="background:transparent;border:none;color:#ec3013;font-family:var(--font-heading,Archivo);font-weight:800;font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:14px 0 0;cursor:pointer">{{ t.back }}</button>
+
+                  <div style="display:flex;gap:2px;background:rgba(243,242,242,.16);margin-top:14px">
+                    <sc-for list="{{ det.metrics }}" as="m" hint-placeholder-count="3">
+                      <div style="flex:1 1 0;min-width:0;background:#141312;padding:12px 10px">
+                        <div style="font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:rgba(243,242,242,.5)">{{ m.label }}</div>
+                        <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:20px;margin-top:5px">{{ m.value }}</div>
+                        <div style="display:flex;align-items:flex-end;gap:2px;height:20px;margin-top:8px">
+                          <sc-for list="{{ m.bars }}" as="b" hint-placeholder-count="12">
+                            <span style="{{ b.style }}"></span>
+                          </sc-for>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;background:rgba(243,242,242,.16);margin-top:18px">
+                    <sc-for list="{{ det.actions }}" as="a" hint-placeholder-count="4">
+                      <button onClick="{{ a.on }}" style="{{ a.style }}">{{ a.label }}</button>
+                    </sc-for>
+                  </div>
+
+                  <div style="margin-top:20px;border-top:2px solid rgba(243,242,242,.18);padding-top:12px">
+                    <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:rgba(243,242,242,.5)">{{ t.lastEvents }}</div>
+                    <sc-for list="{{ det.events }}" as="e" hint-placeholder-count="4">
+                      <div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(243,242,242,.14)">
+                        <span style="flex:0 0 54px;font-size:11px;color:rgba(243,242,242,.5)">{{ e.when }}</span>
+                        <span style="font-size:13px;line-height:1.5">{{ e.text }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-if>
+
+              <!-- VÝSTRAHY -->
+              <sc-if value="{{ isAlerts }}" hint-placeholder-val="{{ false }}">
+                <div>
+                  <div style="display:flex;gap:2px;background:rgba(243,242,242,.16);margin-top:16px">
+                    <sc-for list="{{ alertFilters }}" as="f" hint-placeholder-count="2">
+                      <button onClick="{{ f.on }}" style="{{ f.style }}">{{ f.label }}</button>
+                    </sc-for>
+                  </div>
+                  <div style="display:flex;flex-direction:column;margin-top:16px">
+                    <sc-for list="{{ alerts }}" as="al" hint-placeholder-count="4">
+                      <div style="border-top:1px solid rgba(243,242,242,.18);padding:14px 0">
+                        <div style="display:flex;gap:9px;align-items:center">
+                          <span style="{{ al.sevStyle }}">{{ al.sev }}</span>
+                          <span style="font-size:11px;color:rgba(243,242,242,.5)">{{ al.when }}</span>
+                        </div>
+                        <div style="font-family:var(--font-heading,Archivo);font-weight:800;font-size:16px;margin-top:8px;line-height:1.25">{{ al.title }}</div>
+                        <div style="font-size:13px;line-height:1.55;color:rgba(243,242,242,.7);margin-top:5px">{{ al.body }}</div>
+                        <div style="display:flex;gap:2px;margin-top:12px;background:rgba(243,242,242,.16)">
+                          <button onClick="{{ al.ack }}" style="{{ al.ackStyle }}">{{ al.ackLabel }}</button>
+                          <button onClick="{{ al.open }}" style="flex:1 1 0;background:#141312;border:none;color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:800;font-size:12px;letter-spacing:.05em;text-transform:uppercase;padding:11px 8px;cursor:pointer">{{ al.openLabel }}</button>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <sc-if value="{{ noAlerts }}" hint-placeholder-val="{{ false }}">
+                    <div style="border-top:1px solid rgba(243,242,242,.18);padding:26px 2px;font-size:14px;line-height:1.6;color:rgba(243,242,242,.65)">{{ t.allAck }}</div>
+                  </sc-if>
+                </div>
+              </sc-if>
+
+              <!-- KONZOLE -->
+              <sc-if value="{{ isConsole }}" hint-placeholder-val="{{ false }}">
+                <div>
+                  <div style="display:flex;align-items:center;gap:8px;margin-top:14px">
+                    <span style="{{ conDotStyle }}"></span>
+                    <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:rgba(243,242,242,.6)">{{ conState }}</span>
+                  </div>
+                  <div style="margin-top:12px;border:1px solid rgba(243,242,242,.2);background:#0c0b0b;padding:12px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.65;max-height:330px;overflow:auto">
+                    <sc-for list="{{ lines }}" as="l" hint-placeholder-count="10">
+                      <div style="{{ l.style }}"><span style="color:rgba(243,242,242,.35)">{{ l.t }} </span><span style="color:rgba(243,242,242,.45)">{{ l.src }} </span>{{ l.m }}</div>
+                    </sc-for>
+                  </div>
+                  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
+                    <sc-for list="{{ quick }}" as="qc" hint-placeholder-count="4">
+                      <button onClick="{{ qc.on }}" style="background:transparent;border:1px solid rgba(243,242,242,.3);color:rgba(243,242,242,.85);font-family:ui-monospace,Menlo,monospace;font-size:11px;padding:6px 9px;cursor:pointer">{{ qc.label }}</button>
+                    </sc-for>
+                  </div>
+                  <div style="display:flex;gap:2px;margin-top:12px;background:rgba(243,242,242,.2)">
+                    <input value="{{ cmd }}" onInput="{{ onCmd }}" onKeyDown="{{ onCmdKey }}" placeholder="{{ t.cmdPh }}" style="flex:1 1 auto;min-width:0;box-sizing:border-box;height:44px;padding:0 12px;background:#0c0b0b;border:none;color:#f3f2f2;font-family:ui-monospace,Menlo,monospace;font-size:13px;outline:none">
+                    <button onClick="{{ send }}" style="flex:0 0 auto;background:#ec3013;border:none;color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:800;font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:0 16px;cursor:pointer">{{ t.send }}</button>
+                  </div>
+                  <div style="font-size:11.5px;line-height:1.55;color:rgba(243,242,242,.55);margin-top:10px">{{ t.consoleNote }}</div>
+                </div>
+              </sc-if>
+
+              <!-- ÚČET -->
+              <sc-if value="{{ isAccount }}" hint-placeholder-val="{{ false }}">
+                <div>
+                  <div style="margin-top:16px;border:2px solid #ec3013;padding:14px 14px">
+                    <div style="font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#ec3013;font-family:var(--font-heading,Archivo);font-weight:900">{{ t.pending }}</div>
+                    <div style="font-family:var(--font-heading,Archivo);font-weight:800;font-size:17px;margin-top:7px;line-height:1.3">{{ approve.title }}</div>
+                    <div style="font-size:13px;line-height:1.55;color:rgba(243,242,242,.72);margin-top:6px">{{ approve.body }}</div>
+                    <div style="display:flex;gap:2px;margin-top:14px;background:rgba(243,242,242,.16)">
+                      <button onClick="{{ approve.yes }}" style="flex:1 1 0;background:#ec3013;border:none;color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:800;font-size:12px;letter-spacing:.05em;text-transform:uppercase;padding:12px 8px;cursor:pointer">{{ approve.yesLabel }}</button>
+                      <button onClick="{{ approve.no }}" style="flex:1 1 0;background:#141312;border:none;color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:800;font-size:12px;letter-spacing:.05em;text-transform:uppercase;padding:12px 8px;cursor:pointer">{{ approve.noLabel }}</button>
+                    </div>
+                    <div style="{{ approve.stateStyle }}">{{ approve.state }}</div>
+                  </div>
+
+                  <div style="display:flex;flex-direction:column;margin-top:20px;border-top:2px solid rgba(243,242,242,.18)">
+                    <sc-for list="{{ toggles }}" as="tg" hint-placeholder-count="4">
+                      <button onClick="{{ tg.on }}" style="display:flex;gap:12px;align-items:flex-start;text-align:left;background:transparent;border:none;border-bottom:1px solid rgba(243,242,242,.14);padding:13px 2px;cursor:pointer;font-family:var(--font-body,Archivo);color:#f3f2f2">
+                        <span style="{{ tg.boxStyle }}">{{ tg.mark }}</span>
+                        <span style="flex:1 1 auto;min-width:0">
+                          <span style="font-family:var(--font-heading,Archivo);font-weight:800;font-size:15px;display:block">{{ tg.label }}</span>
+                          <span style="font-size:12.5px;line-height:1.5;color:rgba(243,242,242,.62);display:block;margin-top:3px">{{ tg.note }}</span>
+                        </span>
+                      </button>
+                    </sc-for>
+                  </div>
+
+                  <div style="margin-top:20px;border-top:2px solid rgba(243,242,242,.18);padding-top:12px">
+                    <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:rgba(243,242,242,.5)">{{ t.spend }}</div>
+                    <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:30px;margin-top:6px">{{ spend }}</div>
+                    <div style="font-size:12.5px;color:rgba(243,242,242,.6);margin-top:3px">{{ t.spendNote }}</div>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+
+            <div style="flex:0 0 auto;display:flex;gap:2px;background:rgba(243,242,242,.16);border-top:2px solid rgba(243,242,242,.16);padding-bottom:26px">
+              <sc-for list="{{ tabs }}" as="tb" hint-placeholder-count="4">
+                <button onClick="{{ tb.on }}" style="{{ tb.style }}">
+                  <span style="{{ tb.markStyle }}"></span>
+                  <span>{{ tb.label }}</span>
+                  <span style="{{ tb.badgeStyle }}">{{ tb.badge }}</span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+        </x-import>
+      </div>
+
+      <!-- ── telefon: zamčená obrazovka ─────────────────────────── -->
+      <div style="flex:0 0 auto">
+        <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(32,30,29,.55);padding-bottom:12px">{{ t.phoneLock }}</div>
+        <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" width="{{ 402 }}" height="{{ 874 }}" hint-size="402px,874px">
+          <div style="height:100%;background:#0c0b0b;color:#f3f2f2;font-family:var(--font-body,Archivo),system-ui,sans-serif;display:flex;flex-direction:column;padding:0 16px">
+            <div style="flex:0 0 auto;text-align:center;padding:74px 0 0">
+              <div style="font-family:var(--font-heading,Archivo);font-weight:300;font-size:72px;line-height:1;letter-spacing:-.03em">{{ lock.time }}</div>
+              <div style="font-size:14px;color:rgba(243,242,242,.6);margin-top:4px">{{ lock.date }}</div>
+            </div>
+            <div style="flex:1 1 auto;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;padding-bottom:40px">
+              <sc-for list="{{ pushes }}" as="p" hint-placeholder-count="3">
+                <div style="{{ p.wrapStyle }}">
+                  <div style="display:flex;align-items:baseline;gap:8px">
+                    <span style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:{{ p.brandColor }}">ONHOST</span>
+                    <span style="font-size:11px;color:rgba(243,242,242,.5)">{{ p.when }}</span>
+                  </div>
+                  <div style="font-family:var(--font-heading,Archivo);font-weight:800;font-size:15px;margin-top:6px;line-height:1.3">{{ p.title }}</div>
+                  <div style="font-size:13px;line-height:1.5;color:rgba(243,242,242,.72);margin-top:4px">{{ p.body }}</div>
+                  <div style="{{ p.actionsStyle }}">
+                    <button onClick="{{ p.primary }}" style="flex:1 1 0;background:#ec3013;border:none;color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:800;font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;padding:11px 8px;cursor:pointer">{{ p.primaryLabel }}</button>
+                    <button onClick="{{ p.secondary }}" style="flex:1 1 0;background:#141312;border:none;color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:800;font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;padding:11px 8px;cursor:pointer">{{ p.secondaryLabel }}</button>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </x-import>
+      </div>
+
+      <!-- ── poznámky ───────────────────────────────────────────── -->
+      <div class="ohm-notes">
+        <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(32,30,29,.55);padding-bottom:12px">{{ t.notesLabel }}</div>
+        <div style="display:flex;flex-direction:column;gap:2px;background:#201e1d;border:2px solid #201e1d">
+          <sc-for list="{{ notes }}" as="n" hint-placeholder-count="5">
+            <div style="background:#f3f2f2;padding:16px 18px">
+              <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#ae1800">{{ n.tag }}</div>
+              <div style="font-family:var(--font-heading,Archivo);font-weight:800;font-size:16px;margin-top:6px;line-height:1.3">{{ n.title }}</div>
+              <div style="font-size:14px;line-height:1.6;color:rgba(32,30,29,.75);margin-top:6px;text-wrap:pretty">{{ n.body }}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="margin-top:26px;border:2px solid #201e1d;background:#201e1d;color:#f3f2f2;padding:18px 20px">
+          <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#ec3013">{{ t.notShipping }}</div>
+          <div style="display:flex;flex-direction:column;gap:9px;margin-top:12px">
+            <sc-for list="{{ nots }}" as="no" hint-placeholder-count="3">
+              <div style="display:flex;gap:11px;font-size:14px;line-height:1.6">
+                <span style="flex:0 0 auto;width:9px;height:2px;background:#ec3013;margin-top:10px"></span>
+                <span style="color:rgba(243,242,242,.85)">{{ no.t }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <sc-if value="{{ sheet.on }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;inset:0;z-index:90;background:rgba(32,30,29,.55);display:flex;align-items:center;justify-content:center;padding:24px">
+      <div style="max-width:420px;background:#f3f2f2;border:2px solid #201e1d;box-shadow:var(--shadow-lg,0 24px 60px rgba(0,0,0,.3));padding:24px 26px">
+        <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#ae1800">{{ sheet.tag }}</div>
+        <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:22px;margin-top:8px;line-height:1.2">{{ sheet.title }}</div>
+        <div style="font-size:15px;line-height:1.6;color:rgba(32,30,29,.78);margin-top:10px;text-wrap:pretty">{{ sheet.body }}</div>
+        <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
+          <button onClick="{{ sheet.confirm }}" style="background:#ec3013;border:none;color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:800;font-size:13px;padding:11px 18px;cursor:pointer" style-hover="background:#ae1800">{{ sheet.confirmLabel }}</button>
+          <button onClick="{{ sheet.cancel }}" style="background:transparent;border:2px solid #201e1d;color:#201e1d;font-family:var(--font-heading,Archivo);font-weight:800;font-size:13px;padding:9px 18px;cursor:pointer" style-hover="background:#201e1d;color:#f3f2f2">{{ t.cancel }}</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <footer style="background:#201e1d;color:rgba(243,242,242,.7);border-top:2px solid #ec3013;padding:26px 28px">
+    <div style="max-width:1520px;margin:0 auto;display:flex;gap:22px;flex-wrap:wrap;justify-content:space-between;font-size:12px">
+      <span>{{ t.footer }}</span>
+      <span>{{ t.footerRight }}</span>
+    </div>
+  </footer>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1520,&quot;height&quot;:1200},&quot;lang&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;cs&quot;,&quot;en&quot;],&quot;default&quot;:&quot;cs&quot;,&quot;tsType&quot;:&quot;'cs' | 'en'&quot;,&quot;section&quot;:&quot;Mobilní aplikace&quot;}}">
+class Component extends DCLogic {
+  state = {
+    lang: null, screen: 'svc', selId: null, filter: 'open',
+    ack: {}, cmd: '', extra: [], tick: 0,
+    approve: null, pushDone: {},
+    tg: { face: true, push: true, night: true, quiet: false },
+    sheet: null
+  };
+
+  componentDidMount() {
+    const fromHash = this.parseHash();
+    if (fromHash) this.setState(fromHash);
+    this.onHashChange = () => { const p = this.parseHash(); if (p) this.setState(p); };
+    window.addEventListener('hashchange', this.onHashChange);
+    this.timer = setInterval(() => this.setState(s => ({ tick: s.tick + 1 })), 4000);
+    const hook = () => {
+      const S = window.OnhostStore;
+      if (!S) { this._storeT = setTimeout(hook, 120); return; }
+      this._offStore = S.on(() => this.forceUpdate());
+      this.forceUpdate();
+    };
+    hook();
+  }
+  /* ---------- routování (v Laravelu /app/<slug> 1:1) ----------
+     Obrazovka i vybraná služba patří do URL, aby push notifikace mohla vést
+     přímo na detail, ne jen do aplikace. */
+  SCREEN_SLUG = { svc: 'sluzby', alerts: 'vystrahy', detail: 'sluzba', console: 'konzole', account: 'ucet' };
+  screenForSlug(slug) {
+    const keys = Object.keys(this.SCREEN_SLUG);
+    for (let i = 0; i < keys.length; i++) if (this.SCREEN_SLUG[keys[i]] === slug) return keys[i];
+    return keys.indexOf(slug) >= 0 ? slug : null;
+  }
+  parseHash() {
+    const parts = String(location.hash || '').replace(/^#\/?/, '').split('/');
+    const screen = this.screenForSlug(parts[0]);
+    if (!screen) return null;
+    return parts[1] ? { screen, selId: parts[1] } : { screen };
+  }
+  syncHash() {
+    const s = this.state;
+    const slug = this.SCREEN_SLUG[s.screen] || s.screen;
+    const next = '#/' + slug + (s.selId && s.screen === 'detail' ? '/' + s.selId : '');
+    if (location.hash !== next) { try { history.replaceState(null, '', next); } catch (e) { location.hash = next; } }
+  }
+  componentWillUnmount() {
+    if (this.onHashChange) window.removeEventListener('hashchange', this.onHashChange);
+    clearInterval(this.timer); clearTimeout(this.sheetT); clearTimeout(this._storeT);
+    if (this._offStore) this._offStore();
+  }
+
+  /* Dostupnost za 30 dní z incidentů ve store, vážená severitou (p1 plně, p2 čtvrtina, p3 pětiprocentně). */
+  uptime30(cs) {
+    const S = window.OnhostStore;
+    const win = 30 * 86400000;
+    if (!S) return cs ? '99,99 %' : '99.99%';
+    const since = Date.now() - win;
+    const down = S.incidents().filter(i => i.at >= since).reduce((s, i) => {
+      const end = i.state === 'vyreseno' && i.hist.length ? i.hist[i.hist.length - 1][1] : Date.now();
+      const w = i.sev === 'p1' ? 1 : i.sev === 'p2' ? 0.25 : 0.05;
+      return s + (end - i.at) * w;
+    }, 0);
+    const v = Math.max(0, 100 - down / win * 100);
+    const txt = (Math.round(v * 100) / 100).toFixed(2);
+    return cs ? txt.replace('.', ',') + ' %' : txt + '%';
+  }
+
+  /* Živé výstrahy z provozního store: incidenty, faktury k platbě, změny stavu služby.
+     Tvar je stejný jako u ukázkových výstrah: [id, kind, age, title, body, action?]. */
+  storeAlerts(cs) {
+    const S = window.OnhostStore;
+    if (!S) return [];
+    const _ = (a, b) => (cs ? a : b);
+    const age = (ts) => {
+      const m = Math.round((Date.now() - ts) / 60000);
+      if (m < 60) return m + ' min';
+      const h = Math.round(m / 60);
+      return h < 48 ? h + ' h' : Math.round(h / 24) + (cs ? ' d' : ' d');
+    };
+    const out = [];
+    S.incidents({ open: true }).forEach(i => {
+      out.push(['inc-' + i.id, i.sev === 'p3' ? 'info' : 'warn', age(i.at),
+        i.id + ': ' + i.title,
+        (i.impact ? i.impact + ' · ' : '') + _('Stav: ', 'State: ') + (S.flows.incident[i.state] || {}).label
+          + _('. Průběh sledujeme na stavové stránce, kredit podle SLA vystavíme sami.',
+              '. We track it on the status page and issue any SLA credit ourselves.'),
+        { label: _('Stavová stránka', 'Status page'), href: 'Onhost.dc.html#/stav' }]);
+    });
+    S.invoices({ unpaid: true }).forEach(i => {
+      const over = i.state === 'po_splatnosti';
+      const days = Math.max(0, Math.round((Date.now() - i.due) / 86400000));
+      out.push(['inv-' + i.id, over ? 'warn' : 'info', age(i.issued),
+        (over ? _('Po splatnosti: ', 'Overdue: ') : _('K úhradě: ', 'Due: ')) + i.id + ' · ' + S.money(i.total),
+        over
+          ? _('Faktura je ' + days + ' dní po splatnosti. Službu nevypínáme kvůli jedné faktuře — nejdřív voláme. Zaplatit jde z panelu na dvě kliknutí.',
+              'The invoice is ' + days + ' days overdue. We never switch a service off over one invoice — we call first. Paying takes two clicks in the panel.')
+          : _('Splatnost běží, nic se neděje. Platbu spárujeme automaticky a doklad pošleme na fakturační adresu.',
+              'The due date is running, nothing is happening. We match the payment automatically and email the receipt.'),
+        { label: _('Zaplatit v panelu', 'Pay in the panel'), href: 'Onhost-app.dc.html' }]);
+    });
+    S.notifs('customer').filter(n => n.kind === 'order' && !n.read).slice(0, 3).forEach(n => {
+      out.push(['ord-' + n.id, 'info', age(n.at), n.title + ': ' + n.ref, n.body || '',
+        { label: _('Otevřít panel', 'Open the panel'), href: 'Onhost-app.dc.html' }]);
+    });
+    return out;
+  }
+
+  cs() { return (this.state.lang || this.props.lang || 'cs') === 'cs'; }
+  /* České skloňování počtů: 1 / 2–4 / ostatní včetně nuly. */
+  pl(n, one, few, many) { return n + ' ' + (n === 1 ? one : (n >= 2 && n <= 4) ? few : many); }
+  mny(n) { return new Intl.NumberFormat(this.cs() ? 'cs-CZ' : 'en-US', { maximumFractionDigits: 0 }).format(n) + (this.cs() ? ' Kč' : ' CZK'); }
+
+  series(seed, n, base, spread) {
+    const out = [];
+    let x = seed * 9301 + 49297;
+    for (let i = 0; i < n; i++) {
+      x = (x * 9301 + 49297) % 233280;
+      out.push(Math.max(4, Math.min(100, base + (x / 233280 - 0.5) * spread * 2)));
+    }
+    return out;
+  }
+  bars(arr, color) {
+    return arr.map(v => ({ style: 'flex:1 1 0;min-width:1px;height:' + Math.round(v) + '%;background:' + color }));
+  }
+
+  SVC(cs) {
+    const _ = (a, b) => (cs ? a : b);
+    return [
+      { id: 's1', name: 'app-prod', st: 'ok', kind: 'VPS 8/32 · prg1', cpu: 41, ram: 62, net: 128, meta: _('VPS 8/32 · Praha · 41 % CPU', 'VPS 8/32 · Prague · 41% CPU') },
+      { id: 's2', name: 'db-prod', st: 'warn', kind: 'PostgreSQL · prg1', cpu: 78, ram: 88, net: 54, meta: _('Managed PostgreSQL · disk 88 %', 'Managed PostgreSQL · disk 88%') },
+      { id: 's3', name: 'mc-survival', st: 'ok', kind: _('Minecraft · 8 GB', 'Minecraft · 8 GB'), cpu: 52, ram: 71, net: 22, meta: _('Minecraft Paper · 18 hráčů · TPS 19,8', 'Minecraft Paper · 18 players · TPS 19.8') },
+      { id: 's4', name: 'example.cz', st: 'ok', kind: _('Webhosting Profi', 'Web hosting Pro'), cpu: 12, ram: 34, net: 8, meta: _('Webhosting · PHP 8.3 · 240 ms', 'Web hosting · PHP 8.3 · 240 ms') },
+      { id: 's5', name: 'build-runner', st: 'off', kind: 'VPS 4/8 · brn1', cpu: 0, ram: 0, net: 0, meta: _('VPS 4/8 · vypnuto od 3:40', 'VPS 4/8 · off since 3:40') }
+    ];
+  }
+
+  flashSheet(tag, title, body, confirmLabel, onConfirm) {
+    this.setState({ sheet: { tag, title, body, confirmLabel, onConfirm } });
+  }
+
+  renderVals() {
+    /* URL musí odpovídat tomu, co je na obrazovce. componentDidUpdate tenhle
+       runtime nepředává, takže se URL sjednocuje odsud — renderVals běží při
+       každém renderu a syncHash() sám nic nezapíše, když se hash nemění. */
+    this.syncHash(); // URL <- stav
+    const cs = this.cs();
+    const _ = (a, b) => (cs ? a : b);
+    const s = this.state;
+    const nav = (e) => { if (e && e.preventDefault) e.preventDefault(); };
+    const acc = '#ec3013';
+    const ink = 'rgba(243,242,242,.55)';
+
+    const t = {
+      kicker: _('Mobilní aplikace', 'Mobile app'),
+      title: _('Panel, který se vejde do jedné ruky ve tři ráno', 'A panel that fits one hand at three in the morning'),
+      lead: _('Aplikace není celý panel na malé obrazovce. Umí jen to, co člověk potřebuje udělat, když nemá u sebe notebook: podívat se, potvrdit, restartovat, napsat jeden příkaz.', 'The app is not the whole panel on a small screen. It does only what a person needs when they have no laptop: look, acknowledge, restart, type one command.'),
+      phoneApp: _('Aplikace — služby, výstrahy, konzole, účet', 'App — services, alerts, console, account'),
+      phoneLock: _('Zamčená obrazovka — akce bez odemčení', 'Lock screen — actions without unlocking'),
+      notesLabel: _('Rozhodnutí, která tvar aplikace určila', 'The decisions that shaped the app'),
+      notShipping: _('Co v aplikaci nebude', 'What the app will not have'),
+      back: _('← Zpět na služby', '← Back to services'),
+      lastEvents: _('Poslední události', 'Recent events'),
+      openSvc: _('Otevřít službu', 'Open service'),
+      allAck: _('Nic nepotvrzeného. Když se něco stane, přijde push — a dokud ho někdo nepotvrdí, hlásíme dál.', 'Nothing unacknowledged. When something happens a push arrives — and until someone acknowledges it, we keep alerting.'),
+      cmdPh: _('příkaz do konzole…', 'command to the console…'),
+      send: _('Poslat', 'Send'),
+      consoleNote: _('Příkaz odešle přes krátkodobý token této relace. Heslo do serveru v telefonu není a nikdy nebude.', 'The command goes over a short-lived session token. There is no server password on the phone, and never will be.'),
+      pending: _('Čeká na vás', 'Waiting for you'),
+      spend: _('Útrata tento měsíc', 'Spend this month'),
+      spendNote: _('bez DPH · faktura 1. září', 'excl. VAT · invoice on 1 September'),
+      cancel: _('Zrušit', 'Cancel'),
+      footer: _('Aplikace je doplněk k panelu, ne jeho náhrada. Co je nebezpečné, se dělá na velké obrazovce.', 'The app complements the panel, it does not replace it. Anything dangerous happens on a big screen.'),
+      footerRight: _('iOS 17+ · Android 12+ · jedno přihlášení s panelem', 'iOS 17+ · Android 12+ · single sign-in with the panel')
+    };
+
+    const svc = this.SVC(cs);
+    const sel = svc.filter(x => x.id === s.selId)[0] || svc[0];
+
+    const dot = (st) => 'flex:0 0 auto;width:8px;height:8px;background:' + (st === 'ok' ? '#f3f2f2' : st === 'warn' ? acc : 'rgba(243,242,242,.35)');
+    const tag = (st) => 'font-size:9px;letter-spacing:.12em;text-transform:uppercase;font-family:var(--font-heading,Archivo);font-weight:800;padding:3px 7px;'
+      + (st === 'warn' ? 'background:' + acc + ';color:#f3f2f2' : st === 'off' ? 'border:1px solid rgba(243,242,242,.3);color:rgba(243,242,242,.55)' : 'border:1px solid rgba(243,242,242,.3);color:rgba(243,242,242,.75)');
+    const stLabel = { ok: _('běží', 'running'), warn: _('pozor', 'warning'), off: _('vypnuto', 'off') };
+
+    const services = svc.map((x, i) => ({
+      name: x.name, meta: x.meta, tag: stLabel[x.st], tagStyle: tag(x.st), dotStyle: dot(x.st),
+      bars: this.bars(this.series(i + s.tick, 22, x.cpu || 6, 18), x.st === 'warn' ? acc : 'rgba(243,242,242,.45)'),
+      on: () => this.setState({ screen: 'detail', selId: x.id })
+    }));
+
+    const alertData = this.storeAlerts(cs).concat([
+      ['a1', 'warn', _('4 min', '4 min'), _('db-prod: disk na 88 %', 'db-prod: disk at 88%'),
+        _('Při současném tempu je plno za 6 dní. Rozšíření svazku je bez odstávky a trvá minutu — nebo smažte staré WAL segmenty.', 'At the current rate it fills up in 6 days. Growing the volume is downtime-free and takes a minute — or drop old WAL segments.')],
+      ['a2', 'info', _('26 min', '26 min'), _('mc-survival: TPS 19,8 pod hranicí', 'mc-survival: TPS 19.8 below threshold'),
+        _('Krátký propad v době autosave. Zatím nic k řešení, hlásíme, protože jste si nastavili hranici 20.', 'A short dip during autosave. Nothing to act on yet; we report it because you set the threshold at 20.')],
+      ['a3', 'warn', _('2 h', '2 h'), _('build-runner: vypnut mimo plán', 'build-runner: powered off unplanned'),
+        _('Vypnutí spustil váš člen týmu Marek z panelu ve 3:40. Není to naše chyba ani porucha — jen to chceme mít potvrzené.', 'The shutdown was triggered by your team member Marek from the panel at 3:40. Not our fault nor a failure — we just want it acknowledged.')]
+    ]);
+    const openAlerts = alertData.filter(a => !s.ack[a[0]]).length;
+
+    const svcStats = [
+      { label: _('Služby', 'Services'), value: String(svc.length), valueStyle: 'font-family:var(--font-heading,Archivo);font-weight:900;font-size:22px;margin-top:5px' },
+      { label: _('Výstrahy', 'Alerts'), value: String(openAlerts), valueStyle: 'font-family:var(--font-heading,Archivo);font-weight:900;font-size:22px;margin-top:5px;color:' + acc },
+      { label: _('Dostupnost 30 d', 'Uptime 30 d'), value: this.uptime30(cs), valueStyle: 'font-family:var(--font-heading,Archivo);font-weight:900;font-size:22px;margin-top:5px' }
+    ];
+
+    // detail
+    const det = {
+      metrics: [
+        { label: 'CPU', value: sel.cpu + ' %', bars: this.bars(this.series(3 + s.tick, 14, sel.cpu, 16), sel.cpu > 70 ? acc : 'rgba(243,242,242,.45)') },
+        { label: 'RAM', value: sel.ram + ' %', bars: this.bars(this.series(7 + s.tick, 14, sel.ram, 10), sel.ram > 80 ? acc : 'rgba(243,242,242,.45)') },
+        { label: _('Síť', 'Net'), value: sel.net + ' Mb/s', bars: this.bars(this.series(11 + s.tick, 14, Math.min(90, sel.net), 24), 'rgba(243,242,242,.45)') }
+      ],
+      actions: [
+        [_('Restartovat', 'Restart'), true],
+        [_('Konzole', 'Console'), false],
+        [_('Záloha teď', 'Backup now'), false],
+        [_('Vypnout', 'Power off'), true]
+      ].map(a => ({
+        label: a[0],
+        style: 'background:#141312;border:none;color:' + (a[1] ? acc : '#f3f2f2') + ';font-family:var(--font-heading,Archivo);font-weight:800;font-size:13px;letter-spacing:.04em;text-transform:uppercase;padding:15px 8px;cursor:pointer',
+        on: () => {
+          if (a[0] === _('Konzole', 'Console')) { this.setState({ screen: 'console' }); return; }
+          if (!a[1]) {
+            this.flashSheet(_('Potvrzení', 'Confirmation'), a[0] + ' — ' + sel.name,
+              _('Záloha se spustí hned a nezasahuje do provozu. Necháme vám ji 30 dní, i když ji nepotvrdíte.', 'The backup starts immediately and does not disturb traffic. We keep it 30 days even if you never confirm it.'),
+              _('Spustit', 'Start'), () => {});
+            return;
+          }
+          this.flashSheet(_('Ověření nutné', 'Verification required'), a[0] + ' — ' + sel.name,
+            a[0] === _('Vypnout', 'Power off')
+              ? _('Vypnutí odstřihne službu od návštěvníků, dokud ji někdo nezapne. Z telefonu to jde, ale chceme, abyste to napsali ručně — proto potvrzení Face ID.', 'Powering off cuts the service off from visitors until someone starts it again. It works from the phone, but we want you to mean it — hence the Face ID confirmation.')
+              : _('Restart přeruší spojení běžících klientů. U databáze to znamená rollback nedokončených transakcí. Potvrďte Face ID.', 'A restart drops connections of active clients. On a database that means rolling back unfinished transactions. Confirm with Face ID.'),
+            _('Potvrdit Face ID', 'Confirm with Face ID'), () => {});
+        }
+      })),
+      events: [
+        { when: _('3:41', '3:41'), text: _('Automatický snímek disku hotov, 42 s.', 'Automatic disk snapshot done, 42 s.') },
+        { when: _('včera', 'yesterday'), text: _('Aktualizace jádra 6.11.4 · restart naplánován na 2. 9. 3:00.', 'Kernel update 6.11.4 · restart scheduled for 2 Sep 3:00.') },
+        { when: '26. 8.', text: _('Přidána plovoucí IP 185.66.14.44.', 'Floating IP 185.66.14.44 attached.') },
+        { when: '22. 8.', text: _('Navýšeno z 4/16 na 8/32, bez odstávky.', 'Upgraded from 4/16 to 8/32, no downtime.') }
+      ]
+    };
+
+    // alerts
+    const alertFilters = [['open', _('Nepotvrzené', 'Unacknowledged')], ['all', _('Vše', 'All')]].map(f => ({
+      label: f[1],
+      style: 'flex:1 1 0;background:' + (s.filter === f[0] ? acc : '#141312') + ';border:none;color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:800;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;padding:11px 8px;cursor:pointer',
+      on: () => this.setState({ filter: f[0] })
+    }));
+    const alerts = alertData.filter(a => s.filter === 'all' || !s.ack[a[0]]).map(a => {
+      const ackd = !!s.ack[a[0]];
+      return {
+        sev: a[1] === 'warn' ? _('výstraha', 'warning') : _('informace', 'info'),
+        sevStyle: 'font-size:9px;letter-spacing:.14em;text-transform:uppercase;font-family:var(--font-heading,Archivo);font-weight:900;padding:3px 7px;'
+          + (a[1] === 'warn' ? 'background:' + acc + ';color:#f3f2f2' : 'border:1px solid rgba(243,242,242,.3);color:rgba(243,242,242,.7)'),
+        when: a[2], title: a[3], body: a[4],
+        ackLabel: ackd ? _('potvrzeno', 'acknowledged') : _('Potvrdit', 'Acknowledge'),
+        ackStyle: 'flex:1 1 0;background:' + (ackd ? '#141312' : acc) + ';border:none;color:' + (ackd ? 'rgba(243,242,242,.5)' : '#f3f2f2')
+          + ';font-family:var(--font-heading,Archivo);font-weight:800;font-size:12px;letter-spacing:.05em;text-transform:uppercase;padding:11px 8px;cursor:pointer',
+        ack: () => this.setState(st => ({ ack: Object.assign({}, st.ack, { [a[0]]: true }) })),
+        openLabel: a[5] ? a[5].label : t.openSvc,
+        open: a[5]
+          ? () => { location.href = a[5].href; }
+          : () => this.setState({ screen: 'detail', selId: a[0] === 'a1' ? 's2' : a[0] === 'a2' ? 's3' : 's5' })
+      };
+    });
+
+    // console
+    const seed = [
+      { t: '03:41:58', src: '[onhost]', m: _('snímek disku hotov · 42 s · 18,4 GB', 'disk snapshot done · 42 s · 18.4 GB'), k: 'sys', l: 'ok' },
+      { t: '03:41:16', src: '[onhost]', m: _('snímek disku spuštěn (plán 03:40)', 'disk snapshot started (schedule 03:40)'), k: 'sys', l: 'ok' },
+      { t: '03:40:02', src: '[systemd]', m: 'postgresql.service: reloaded configuration', k: 'sys', l: 'ok' },
+      { t: '03:38:44', src: '[postgres]', m: 'checkpoint complete: wrote 2841 buffers (1.2%)', k: 'sys', l: 'ok' },
+      { t: '03:31:09', src: '[onhost]', m: _('Jana Křížová (Onhost NOC): kontrola disku po výstraze, nic neměněno · #48211', 'Jana Křížová (Onhost NOC): disk check after the alert, nothing changed · #48211'), k: 'us', l: 'warn' },
+      { t: '03:28:51', src: '[postgres]', m: 'WARNING: disk usage 88% on /var/lib/postgresql', k: 'sys', l: 'warn' },
+      { t: '02:14:30', src: '[systemd]', m: 'Started Daily apt upgrade and clean activities.', k: 'sys', l: 'ok' }
+    ];
+    const lines = s.extra.concat(seed).slice(0, 40).slice().reverse().map(l => ({
+      t: l.t, src: l.src, m: l.m,
+      style: 'white-space:pre-wrap;word-break:break-word;color:' + (l.l === 'warn' ? acc : l.k === 'you' ? '#f3f2f2' : 'rgba(243,242,242,.85)')
+        + (l.k === 'us' ? ';border-left:2px solid ' + acc + ';padding-left:7px;margin-left:-9px' : '')
+    }));
+
+    const now = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0'); };
+    const push = (cmd) => {
+      const rows = [{ t: now(), src: '[you]', m: '$ ' + cmd, k: 'you', l: 'ok' }];
+      const reply = /^df/.test(cmd) ? '/dev/vda1  200G  176G  24G  88% /var/lib/postgresql'
+        : /vacuum/i.test(cmd) ? 'VACUUM'
+        : /^systemctl status/.test(cmd) ? 'postgresql.service: active (running) since Fri 2026-08-28 04:12:11 CEST'
+        : /^uptime/.test(cmd) ? '03:44:12 up 132 days, 4:22, 1 user, load average: 0.61, 0.74, 0.80'
+        : _('příkaz odeslán · výstup přijde do konzole', 'command sent · output arrives in the console');
+      rows.unshift({ t: now(), src: '[onhost]', m: reply, k: 'sys', l: 'ok' });
+      this.setState(st => ({ extra: rows.concat(st.extra).slice(0, 40), cmd: '' }));
+    };
+
+    const quick = ['df -h', 'systemctl status postgresql', 'uptime', 'VACUUM ANALYZE;'].map(q => ({
+      label: q, on: (e) => { nav(e); push(q); }
+    }));
+
+    // account
+    const appr = s.approve;
+    const approve = {
+      title: _('Přihlášení do panelu z nového zařízení', 'Panel sign-in from a new device'),
+      body: _('Praha · Firefox na Linuxu · 89.24.6.12 · před 40 sekundami. Pokud to nejste vy, zamítněte — heslo pak vyžádáme změnit.', 'Prague · Firefox on Linux · 89.24.6.12 · 40 seconds ago. If this is not you, reject it — we will then require a password change.'),
+      yesLabel: _('Jsem to já', 'That is me'),
+      noLabel: _('Nejsem to já', 'Not me'),
+      yes: (e) => { nav(e); this.setState({ approve: 'yes' }); },
+      no: (e) => { nav(e); this.setState({ approve: 'no' }); },
+      state: appr === 'yes' ? _('Povoleno · relace platí 12 hodin', 'Approved · session valid for 12 hours')
+        : appr === 'no' ? _('Zamítnuto · vypnuli jsme všechny relace a vynutili změnu hesla', 'Rejected · we ended all sessions and forced a password change') : '',
+      stateStyle: appr ? 'font-size:12px;font-family:var(--font-heading,Archivo);font-weight:700;margin-top:10px;color:' + (appr === 'yes' ? 'rgba(243,242,242,.8)' : acc) : 'display:none'
+    };
+
+    const tgDefs = [
+      ['face', _('Potvrzovat akce Face ID', 'Confirm actions with Face ID'), _('Restart a vypnutí. Čtení metrik ověření nevyžaduje — jinak by aplikace byla nepoužitelná.', 'Restart and power off. Reading metrics needs no verification — otherwise the app would be unusable.')],
+      ['push', _('Push u výstrah', 'Push on alerts'), _('Jen výstrahy vašich služeb. Marketing přes push neposíláme, ani jednou.', 'Only alerts on your services. We never send marketing by push, not once.')],
+      ['night', _('Budit i v noci', 'Wake me at night'), _('Zvuk projde i v režimu Nerušit, ale jen u kritických výstrah. Informativní čekají do rána.', 'The sound bypasses Do Not Disturb, but only for critical alerts. Informational ones wait until morning.')],
+      ['quiet', _('Tiché hodiny 22–7', 'Quiet hours 22–7'), _('Zapněte, když má noční směnu kolega. Výstrahy nikam nezmizí, jen nezvoní vám.', 'Enable when a colleague is on the night shift. Alerts do not disappear, they just stop ringing you.')]
+    ];
+    const toggles = tgDefs.map(w => {
+      const on = !!s.tg[w[0]];
+      return {
+        label: w[1], note: w[2], mark: on ? '✓' : '',
+        boxStyle: 'flex:0 0 auto;width:20px;height:20px;margin-top:2px;border:2px solid ' + (on ? acc : 'rgba(243,242,242,.4)') + ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;background:'
+          + (on ? acc : 'transparent') + ';color:' + (on ? '#f3f2f2' : 'transparent'),
+        on: () => this.setState(st => ({ tg: Object.assign({}, st.tg, { [w[0]]: !st.tg[w[0]] }) }))
+      };
+    });
+
+    // tab bar
+    const tabDefs = [
+      ['svc', _('Služby', 'Services'), ''],
+      ['alerts', _('Výstrahy', 'Alerts'), String(openAlerts)],
+      ['console', _('Konzole', 'Console'), ''],
+      ['account', _('Účet', 'Account'), s.approve ? '' : '1']
+    ];
+    const activeTab = s.screen === 'detail' ? 'svc' : s.screen;
+    const tabs = tabDefs.map(d => ({
+      label: d[1],
+      badge: d[2],
+      badgeStyle: d[2] && d[2] !== '0' ? 'font-size:9px;background:' + acc + ';color:#f3f2f2;padding:1px 5px;font-family:var(--font-heading,Archivo);font-weight:900' : 'display:none',
+      markStyle: 'display:block;width:16px;height:2px;background:' + (activeTab === d[0] ? acc : 'rgba(243,242,242,.3)'),
+      style: 'flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:5px;background:#141312;border:none;padding:12px 4px 8px;cursor:pointer;font-family:var(--font-heading,Archivo);font-weight:800;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:'
+        + (activeTab === d[0] ? '#f3f2f2' : 'rgba(243,242,242,.5)'),
+      on: () => this.setState({ screen: d[0], selId: d[0] === 'svc' ? null : s.selId })
+    }));
+
+    const ackPill = cs
+      ? this.pl(openAlerts, 'nepotvrzená', 'nepotvrzené', 'nepotvrzených')
+      : openAlerts + ' open';
+
+    const heads = {
+      svc: { kicker: _('Atelier Šindelář', 'Atelier Šindelář'), title: _('Služby', 'Services'), pill: openAlerts ? ackPill : _('vše v pořádku', 'all good') },
+      detail: { kicker: sel.kind, title: sel.name, pill: stLabel[sel.st] },
+      alerts: { kicker: _('Monitoring', 'Monitoring'), title: _('Výstrahy', 'Alerts'), pill: ackPill },
+      console: { kicker: sel.name, title: _('Konzole', 'Console'), pill: _('spojeno', 'connected') },
+      account: { kicker: _('Účet 4821', 'Account 4821'), title: _('Účet', 'Account'), pill: '2FA' }
+    };
+    const h = heads[s.screen] || heads.svc;
+    const warnPill = ((s.screen === 'alerts' || s.screen === 'svc') && openAlerts > 0) || (s.screen === 'detail' && sel.st === 'warn');
+    const head = {
+      kicker: h.kicker, title: h.title, pill: h.pill,
+      pillStyle: 'flex:0 0 auto;font-size:9px;letter-spacing:.12em;text-transform:uppercase;font-family:var(--font-heading,Archivo);font-weight:800;padding:4px 8px;'
+        + (warnPill ? 'background:' + acc + ';color:#f3f2f2' : 'border:1px solid rgba(243,242,242,.3);color:rgba(243,242,242,.7)')
+    };
+
+    // lock screen pushes
+    const pushWrap = (highlight) => 'border:2px solid ' + (highlight ? acc : 'rgba(243,242,242,.22)') + ';background:rgba(243,242,242,.06);padding:13px 14px';
+    const pushData = [
+      ['p1', true, _('teď', 'now'), _('Přihlášení z nového zařízení', 'Sign-in from a new device'), _('Praha · Firefox na Linuxu. Potvrďte jen když to jste vy.', 'Prague · Firefox on Linux. Confirm only if this is you.'), _('Jsem to já', 'That is me'), _('Nejsem', 'Not me'), true],
+      ['p2', true, _('4 min', '4 min'), _('db-prod: disk na 88 %', 'db-prod: disk at 88%'), _('Za 6 dní je plno. Rozšíření svazku je bez odstávky.', 'Full in 6 days. Growing the volume needs no downtime.'), _('Rozšířit', 'Grow it'), _('Potvrdit', 'Acknowledge'), true],
+      ['p3', false, _('19:04', '19:04'), _('Faktura 2026-08-1194 zaplacena', 'Invoice 2026-08-1194 paid'), _('12 480 Kč · převodem · doklad je v aplikaci.', '12,480 CZK · bank transfer · receipt is in the app.'), '', '', false]
+    ];
+    const pushes = pushData.map(p => {
+      const done = s.pushDone[p[0]];
+      return {
+        wrapStyle: pushWrap(p[1] && !done),
+        brandColor: p[1] && !done ? acc : 'rgba(243,242,242,.6)',
+        when: done ? _('vyřešeno', 'handled') : p[2],
+        title: p[3], body: done ? _('Hotovo. Detail najdete v aplikaci.', 'Done. The detail is in the app.') : p[4],
+        primaryLabel: p[5], secondaryLabel: p[6],
+        actionsStyle: p[7] && !done ? 'display:flex;gap:2px;margin-top:12px;background:rgba(243,242,242,.16)' : 'display:none',
+        primary: (e) => { nav(e); this.setState(st => ({ pushDone: Object.assign({}, st.pushDone, { [p[0]]: true }), approve: p[0] === 'p1' ? 'yes' : st.approve })); },
+        secondary: (e) => { nav(e); this.setState(st => ({ pushDone: Object.assign({}, st.pushDone, { [p[0]]: true }), approve: p[0] === 'p1' ? 'no' : st.approve, ack: p[0] === 'p2' ? Object.assign({}, st.ack, { a1: true }) : st.ack })); }
+      };
+    });
+
+    const lock = { time: '3:44', date: _('sobota 30. srpna', 'Saturday, 30 August') };
+
+    const notes = [
+      { tag: _('Rozsah', 'Scope'), title: _('Čtyři obrazovky, ne čtyřicet', 'Four screens, not forty'),
+        body: _('Aplikace pokrývá jen čtyři věci: podívat se na službu, potvrdit výstrahu, poslat jeden příkaz, potvrdit přihlášení. Fakturaci, tým a konfiguraci děláte v panelu, kde vidíte souvislosti.', 'The app covers four things only: look at a service, acknowledge an alert, send one command, approve a sign-in. Billing, team and configuration happen in the panel, where you see context.') },
+      { tag: _('Nebezpečné akce', 'Dangerous actions'), title: _('Restart ano, smazání ne', 'Restart yes, delete no'),
+        body: _('Restart a vypnutí jdou z telefonu s Face ID. Smazat službu, zrušit zálohy nebo změnit fakturační údaje z telefonu nelze vůbec — ne kvůli technice, ale protože na to nemáte při chůzi po ulici klid.', 'Restart and power off work from the phone with Face ID. Deleting a service, dropping backups or changing billing details is not possible from the phone at all — not for technical reasons, but because you are not calm enough while walking down a street.') },
+      { tag: _('Push', 'Push'), title: _('Akce ze zamčené obrazovky', 'Actions from the lock screen'),
+        body: _('Potvrzení přihlášení a potvrzení výstrahy jdou bez odemčení, protože ve tři ráno nikdo nechce hledat aplikaci. Cokoli, co mění stav serveru, odemčení a Face ID vyžaduje.', 'Approving a sign-in and acknowledging an alert work without unlocking, because at three in the morning nobody wants to hunt for an app. Anything that changes server state requires unlock and Face ID.') },
+      { tag: _('Konzole', 'Console'), title: _('Jeden příkaz, ne administrace', 'One command, not administration'),
+        body: _('Konzole na telefonu je na df -h a systemctl status, ne na editaci konfiguráků. Proto jsou nad polem čtyři hotové příkazy — devět z deseti nočních zásahů je jeden z nich.', 'The phone console is for df -h and systemctl status, not for editing config files. That is why four ready commands sit above the field — nine of ten night interventions are one of them.') },
+      { tag: _('Cizí zásah', 'Outside intervention'), title: _('Náš člověk je v logu vidět', 'Our engineer is visible in the log'),
+        body: _('Řádky, které do vaší konzole napsal někdo z Onhostu, mají červené pravítko, jméno a číslo tiketu. Stejné pravidlo jako v panelu — v aplikaci ho nezmenšujeme.', 'Lines typed into your console by someone at Onhost carry a red rule, a name and a ticket number. Same rule as in the panel — the app does not shrink it.') }
+    ];
+
+    const nots = [
+      _('Žádné grafy za tři měsíce. Na malé obrazovce z nich nikdo nic nevyčte a jen zdržují.', 'No three-month charts. Nobody reads anything from them on a small screen; they only slow things down.'),
+      _('Žádná objednávka nové služby. Konfigurace serveru palcem ve tmě je cesta k překlepu, který platíte rok.', 'No ordering of new services. Configuring a server with a thumb in the dark leads to a typo you pay for a year.'),
+      _('Žádné reklamní pushe, žádné odznaky na ikoně kvůli novinkám. Push znamená, že se něco děje.', 'No promotional pushes, no icon badges for news. A push means something is happening.'),
+      _('Žádné offline heslo k serveru. Telefon drží jen krátkodobý token relace, který po 12 hodinách vyprší.', 'No offline server password. The phone holds only a short-lived session token that expires after 12 hours.')
+    ].map(x => ({ t: x }));
+
+    const sh = s.sheet;
+    const sheet = sh ? {
+      on: true, tag: sh.tag, title: sh.title, body: sh.body, confirmLabel: sh.confirmLabel,
+      confirm: (e) => { nav(e); this.setState({ sheet: null }); },
+      cancel: (e) => { nav(e); this.setState({ sheet: null }); }
+    } : { on: false, tag: '', title: '', body: '', confirmLabel: '', confirm: () => {}, cancel: () => {} };
+
+    return {
+      t, head, tabs, notes, nots, sheet, lock, pushes,
+      isSvc: s.screen === 'svc', isDetail: s.screen === 'detail', isAlerts: s.screen === 'alerts',
+      isConsole: s.screen === 'console', isAccount: s.screen === 'account',
+      langLabel: cs ? 'CS' : 'EN',
+      toggleLang: () => this.setState({ lang: cs ? 'en' : 'cs' }),
+      services, svcStats, det,
+      back: (e) => { nav(e); this.setState({ screen: 'svc', selId: null }); },
+      alerts, alertFilters, noAlerts: alerts.length === 0,
+      lines, quick, cmd: s.cmd,
+      onCmd: (e) => this.setState({ cmd: e.target.value }),
+      onCmdKey: (e) => { if (e.key === 'Enter' && String(s.cmd).trim()) push(String(s.cmd).trim()); },
+      send: (e) => { nav(e); if (String(s.cmd).trim()) push(String(s.cmd).trim()); },
+      conState: _('spojeno · db-prod · token relace vyprší za 11 h', 'connected · db-prod · session token expires in 11 h'),
+      conDotStyle: 'width:8px;height:8px;background:' + acc + ';animation:none',
+      approve, toggles, spend: this.mny(18940)
+    };
+  }
+}
+
+</script>
+</body>
+</html>

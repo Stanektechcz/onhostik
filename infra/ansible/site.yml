@@ -1,0 +1,25 @@
+# Provider-side prerequisites for the control plane adapters (docs/provider-adapters/*).
+- name: Proxmox API tokens with least privilege for the control plane
+  hosts: proxmox
+  become: true
+  roles: [{ role: onhost_proxmox_api, vars: { token_user: "onhost@pve", privileges: ["VM.Allocate", "VM.Clone", "VM.Config.CPU", "VM.Config.Memory", "VM.Config.Disk", "VM.Config.Network", "VM.Config.Cloudinit", "VM.PowerMgmt", "VM.Console", "VM.Snapshot", "VM.Backup", "Datastore.AllocateSpace", "Datastore.Audit", "Sys.Audit"] } }]
+
+- name: ISPConfig remote users for the control plane
+  hosts: ispconfig
+  become: true
+  roles: [{ role: onhost_ispconfig_remote, vars: { remote_user: "onhost-cp", functions: ["client_functions", "sites_functions", "mail_functions", "dns_functions", "server_functions"] } }]
+
+- name: PowerDNS API and secondaries
+  hosts: powerdns
+  become: true
+  roles: [{ role: onhost_powerdns, vars: { api_listen: "127.0.0.1:8081", allow_notify_from: "{{ groups['powerdns'] }}" } }]
+
+- name: Vendor-ordered nodes report themselves active once the hypervisor is installed (audit §5p-7)
+  hosts: bootstrapped
+  become: false
+  roles: [{ role: onhost_node_activate }]
+
+- name: External availability probes (three locations, 2-of-3 quorum)
+  hosts: probes
+  become: true
+  roles: [{ role: onhost_probe, vars: { api: "https://onhost.cz/v1/probes/results", interval_seconds: 60, targets: ["https://onhost.cz/up", "https://onhost.cz/v1/status", "dns://onhost.cz/SOA"] } }]

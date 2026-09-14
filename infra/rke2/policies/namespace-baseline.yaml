@@ -1,0 +1,63 @@
+# Baseline applied to every customer app namespace created by KubernetesAppsProvider (ManifestFactory mirrors
+# these so the control plane and the cluster agree). Enforced cluster-wide with Kyverno.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: onhost-customer-namespace-baseline
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: restricted-pod-security
+      match: { any: [{ resources: { kinds: [Pod], namespaceSelector: { matchLabels: { onhost.cz/tenant: "true" } } } }] }
+      validate:
+        message: "Customer workloads run as non-root, without privilege escalation, with a read-only root filesystem and RuntimeDefault seccomp."
+        pattern:
+          spec:
+            securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+            containers:
+              - securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: true
+                  capabilities: { drop: [ALL] }
+    - name: require-resource-limits
+      match: { any: [{ resources: { kinds: [Pod], namespaceSelector: { matchLabels: { onhost.cz/tenant: "true" } } } }] }
+      validate:
+        message: "CPU and memory limits are mandatory (plan entitlements)."
+        pattern:
+          spec:
+            containers:
+              - resources: { limits: { cpu: "?*", memory: "?*" } }
+    - name: no-host-namespaces
+      match: { any: [{ resources: { kinds: [Pod], namespaceSelector: { matchLabels: { onhost.cz/tenant: "true" } } } }] }
+      validate:
+        message: "hostNetwork/hostPID/hostIPC are not allowed for tenant pods."
+        pattern:
+          spec: { =(hostNetwork): false, =(hostPID): false, =(hostIPC): false }
+    - name: images-from-onhost-registry
+      match: { any: [{ resources: { kinds: [Pod], namespaceSelector: { matchLabels: { onhost.cz/tenant: "true" } } } }] }
+      validate:
+        message: "Only images built by the ONhost pipeline (internal registry) may run in tenant namespaces."
+        pattern:
+          spec:
+            containers:
+              - image: "registry.onhost.internal/*"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: onhost-template   # copied into every tenant namespace by ManifestFactory
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+    - to:
+        - ipBlock: { cidr: 0.0.0.0/0, except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.169.254/32] }
+      ports: [{ protocol: TCP, port: 443 }, { protocol: TCP, port: 80 }]

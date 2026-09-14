@@ -1,0 +1,48 @@
+---
+# ONhost availability probe (audit §5o-3): curl and dig measure the targets, a systemd timer posts the results to the
+# platform (`POST /v1/probes/results`, bearer = the probe token registered under Incidents → probes).
+- name: Install the tools the probe uses
+  ansible.builtin.apt:
+    name: [curl, dnsutils, ca-certificates]
+    state: present
+    update_cache: true
+
+- name: Write the probe environment (token, endpoint, location)
+  ansible.builtin.template:
+    src: onhost-probe.env.j2
+    dest: "{{ probe_env }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Install the probe script
+  ansible.builtin.template:
+    src: onhost-probe.sh.j2
+    dest: "{{ probe_bin }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the systemd service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - onhost-probe.service
+    - onhost-probe.timer
+  notify: reload systemd
+
+- name: Check the script parses
+  ansible.builtin.command: bash -n {{ probe_bin }}
+  changed_when: false
+
+- name: Enable the timer
+  ansible.builtin.systemd:
+    name: onhost-probe.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  failed_when: false

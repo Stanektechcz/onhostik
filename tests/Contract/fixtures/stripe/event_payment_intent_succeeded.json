@@ -1,0 +1,21 @@
+{
+  "id": "evt_1QOffSessionEvent001",
+  "object": "event",
+  "api_version": "2025-08-27.basil",
+  "created": 1789300000,
+  "data": {
+    "object": {
+      "id": "pi_3QOffSessionAbCdEfGh",
+      "object": "payment_intent",
+      "amount": 2500,
+      "amount_received": 2500,
+      "currency": "eur",
+      "customer": "cus_QwErTy123456",
+      "metadata": { "reference": "pi_local_ref_2", "stored": "1" },
+      "payment_method": "pm_1QAbCdEfGhIjKlMn",
+      "status": "succeeded"
+    }
+  },
+  "livemode": false,
+  "type": "payment_intent.succeeded"
+}

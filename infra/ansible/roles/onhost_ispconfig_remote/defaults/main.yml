@@ -1,0 +1,14 @@
+---
+# ONhost ISPConfig remote user (audit §5o-3): the remote API user the control plane logs in with
+# (docs/provider-adapters/ispconfig.md). The password is vaulted; the platform reads it from env://ISPCONFIG_<KEY>.
+remote_user: "onhost-cp"
+remote_password: "change-me"
+functions:
+  - client_functions
+  - sites_functions
+  - mail_functions
+  - dns_functions
+  - server_functions
+ispconfig_db: dbispconfig
+mysql_bin: mysql
+mysql_defaults_file: /etc/mysql/debian.cnf

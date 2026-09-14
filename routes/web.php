@@ -1,0 +1,95 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Http\Controllers\Web\AuthPagesController;
+use App\Http\Controllers\Web\CalendarFeedController;
+use App\Http\Controllers\Web\ConsoleRelayController;
+use App\Http\Controllers\Web\DataExportController;
+use App\Http\Controllers\Web\HealthController;
+use App\Http\Controllers\Web\LegalDocumentController;
+use App\Http\Controllers\Web\MailboxPasswordController;
+use App\Http\Controllers\Web\OrganizationStatusController;
+use App\Http\Controllers\Web\StaffConsoleController;
+use App\Http\Controllers\Web\SurfaceController;
+use App\Http\Controllers\Web\SurfaceDataController;
+use App\Http\Controllers\Web\SystemSettingsController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Route;
+use Onhost\Domain\Identity\Models\User;
+
+/*
+|--------------------------------------------------------------------------
+| Surfaces (docs/ui/template-inventory.md, docs-backend-handoff §1)
+| The prototype HTML is served verbatim with data seams only; every surface
+| keeps its hash routing, server paths pre-set the hash (`/panel/sluzby` → `#/sluzby`).
+|--------------------------------------------------------------------------
+*/
+
+// readiness and metrics (infra/monitoring)
+Route::get('healthz', [HealthController::class, 'healthz'])->name('healthz');
+Route::get('metrics', [HealthController::class, 'metrics'])->name('metrics');
+
+// the organization's own status page and badge (audit §5j-5), the green badge (§5j-10), the signed data-export download (§5j-7)
+Route::get('stav/{slug}', [OrganizationStatusController::class, 'page'])->where('slug', '[a-z0-9-]+')->name('status.organization');
+Route::get('stav/{slug}/badge.svg', [OrganizationStatusController::class, 'badge'])->where('slug', '[a-z0-9-]+')->name('status.organization.badge');
+Route::get('green/badge.svg', [OrganizationStatusController::class, 'greenBadge'])->name('green.badge');
+Route::get('export/{dataRequest}/{token}', [DataExportController::class, 'download'])->middleware('signed')->name('data-export.download');
+
+// one-time mailbox password page (audit §5i-5): a signed link the account owner hands to the mailbox user; no session
+Route::get('mailbox/password/{token}', [MailboxPasswordController::class, 'show'])->middleware('signed')->name('mailbox.password');
+Route::post('mailbox/password/{token}', [MailboxPasswordController::class, 'store'])->middleware('signed')->name('mailbox.password.store');
+
+// generated data scripts and static prototype assets
+Route::get('surfaces/onhost-data.js', [SurfaceDataController::class, 'data'])->name('surfaces.data');
+Route::get('surfaces/onhost-panel.js', [SurfaceDataController::class, 'panel'])->middleware('auth:sanctum')->name('surfaces.panel');
+Route::get('surfaces/{path}', [SurfaceController::class, 'asset'])->where('path', '.*')->name('surfaces.asset');
+
+// console relay hand-off (service-to-service) + browser pre-flight
+Route::get('console/ws/{token}', [ConsoleRelayController::class, 'resolve'])->name('console.relay');
+Route::get('console/check/{token}', [ConsoleRelayController::class, 'check'])->middleware('auth:sanctum')->name('console.check');
+
+// the organization's dates as a calendar subscription: the signed link (GET /v1/calendar/feed) is the credential, rotating the feed version revokes it
+Route::get('calendar/{organization}.ics', [CalendarFeedController::class, 'feed'])->where('organization', '[A-Za-z0-9_-]+')->middleware('signed')->name('calendar.feed');
+
+// the prototype links surfaces by file name (Onhost-app.dc.html …); keep those links working
+foreach (['Onhost.dc.html' => '/', 'Onhost-app.dc.html' => '/panel', 'Onhost-admin.dc.html' => '/sprava', 'Onhost-partner.dc.html' => '/partner', 'Onhost-mobil.dc.html' => '/m', 'Onhost-widgets.dc.html' => '/widgets'] as $file => $target) {
+    Route::get($file, fn () => redirect($target.(request()->getQueryString() ? '?'.request()->getQueryString() : '')));
+}
+
+// local development only: a short-lived signed link that signs a test account in (php artisan onhost:dev:login-link e-mail)
+if (app()->environment('local')) {
+    Route::get('dev/login/{user}', function (Request $request, string $user) {
+        $model = User::query()->findOrFail($user);
+        Auth::guard('web')->login($model);
+        $request->session()->regenerate();
+        $next = (string) $request->query('next', '/panel');
+        $next = str_starts_with($next, '/') && ! str_starts_with($next, '//') ? $next : '/panel';
+        // the browser may still hold another account's API token (the bridge keeps it in localStorage): drop it before the surface boots
+        $script = "localStorage.removeItem('onhost.session'); localStorage.removeItem('onhost.role'); location.replace(".json_encode($next).');';
+
+        return response('<!doctype html><meta charset="utf-8"><title>Sign-in</title><script>'.$script.'</script>', 200, ['Content-Type' => 'text/html; charset=utf-8']);
+    })->middleware(['web', 'signed'])->name('dev.login');
+}
+
+// product surfaces
+Route::get('panel/{path?}', [SurfaceController::class, 'panel'])->where('path', '.*')->name('surface.panel');
+// public legal documents: the versioned consent documents the checkout, domain registration and panel link to
+Route::get('dokumenty', [LegalDocumentController::class, 'index'])->name('legal.index');
+Route::get('dokumenty/{slug}', [LegalDocumentController::class, 'show'])->where('slug', '[a-z0-9-]+')->name('legal.show');
+Route::get('sla', fn () => redirect('/dokumenty/sla', 301));
+// the links the platform mails: set a new password (reset / guest account) and confirm the e-mail address
+Route::get('obnova-hesla', [AuthPagesController::class, 'resetPassword'])->name('auth.reset');
+Route::get('overeni-emailu', [AuthPagesController::class, 'verifyEmail'])->name('auth.verify');
+Route::get('sprava/nastaveni', fn () => redirect('/sprava/nastaveni/integrace'));
+Route::get('sprava/nastaveni/integrace', [SystemSettingsController::class, 'integrations'])->middleware('auth:sanctum')->name('settings.integrations');
+Route::get('sprava/nastaveni/provoz', [SystemSettingsController::class, 'operations'])->middleware('auth:sanctum')->name('settings.operations');
+Route::get('sprava/nastaveni/hromadne-akce', [SystemSettingsController::class, 'bulk'])->middleware('auth:sanctum')->name('settings.bulk');
+Route::get('sprava/konzole/{service}', [StaffConsoleController::class, 'show'])->middleware('auth:sanctum')->name('staff.console'); // the staff-side server console (audit §5p-2)
+Route::get('sprava/{path?}', [SurfaceController::class, 'admin'])->where('path', '.*')->name('surface.admin');
+Route::get('partner/{path?}', [SurfaceController::class, 'partner'])->where('path', '.*')->name('surface.partner');
+Route::get('m/{path?}', [SurfaceController::class, 'mobile'])->where('path', '.*')->name('surface.mobile');
+Route::get('widgets', [SurfaceController::class, 'widgets'])->name('surface.widgets');
+Route::get('/', [SurfaceController::class, 'public'])->name('surface.public');
+Route::get('{path}', [SurfaceController::class, 'public'])->where('path', '('.implode('|', SurfaceController::PUBLIC_PATHS).')(/.*)?')->name('surface.public.path');

@@ -1,0 +1,49 @@
+# Billing, dunning and suspension
+
+## Dunning ladder (config `onhost.billing.dunning`)
+
+DUE → OVERDUE_NOTICE (day 3, 7, 14 notices) → GRACE → SUSPENDED (day 30) → TERMINATION_SCHEDULED (day 60)
+→ TERMINATED, or RESOLVED as soon as the invoice is paid or the wallet covers the renewal.
+
+* `onhost:billing:dunning` runs daily 06:00; `POST /v1/staff/dunning/run` runs it on demand.
+* Suspension runs the regular suspend saga per service (provider-side, reversible); resume is automatic on
+  payment (`SettleBillingAfterPayment`). Termination keeps the retention window
+  (`compliance.retention_after_termination_days`) with a final backup.
+* Domains are excluded from suspension: a domain renewal that cannot be paid follows the renewal runbook.
+
+## Manual actions
+
+| Need | Endpoint | Notes |
+| --- | --- | --- |
+| Mark a bank transfer as received | `POST /v1/invoices/{id}/mark-paid` | reference required; posts the ledger and resolves dunning |
+| Credit note | `POST /v1/invoices/{id}/credit-note` | full or per line; postpaid receivables are reversed |
+| Wallet adjustment | wallet adjust command | reason mandatory; large amounts need four-eyes approval |
+| Refund | refund command | step-up; `billing.refund.execute_large` above the threshold |
+| Change billing mode to postpaid | credit line command | finance only; opens a receivable account |
+| Cancel an unpaid order | `POST /v1/orders/{id}/transition` `{to: CANCELLED}` (customer or staff) | voids the proforma (`invoice.cancelled`, audit `invoice.cancel`) and cancels the bank payment intent, so a late transfer with that symbol lands in reconciliation instead of paying a dead order; paid documents are never voided — use a credit note |
+| Bank-transfer top-up | `POST /v1/payments/init` `{provider: bank}` | variable symbol series `9` + year + sequence (`TU` sequence), distinct from document symbols (year + sequence); every attempt is its own intent |
+
+## Bank transfers (proformas and top-ups)
+
+Transfers have no webhook. Incoming statement lines are matched by variable symbol + amount to the pending bank
+intent (`PaymentService::matchBankLine`); a match settles the intent, pays the proforma (fulfilment starts) or credits
+the wallet, and issues the receipt. Sources of lines:
+
+| Source | How |
+| --- | --- |
+| Fio API | `ONHOST_BANK_FIO_TOKEN` (read-only token of the incoming-payments account); `onhost:bank:sync` runs every 5 minutes (`--from=YYYY-MM-DD --to=` for a date range); Fio keeps the download bookmark, one request per 30 s |
+| Another bank / by hand | Nastavení → Bankovní platby (`POST /v1/staff/payments/bank/lines`, permission `billing.reconcile`): VS, amount, currency, optional statement id — the pending list has a "Do formuláře" shortcut |
+
+Every line is stored once (`bank_statement_lines.external_id`); a wrong amount opens a `bank_amount_mismatch`
+reconciliation item instead of paying, a symbol nobody waits for stays `unmatched` for finance to look at.
+
+## Reconciliation
+
+`finance.reconciliation.mismatch` means the bank statement import does not match ledger postings. Compare the
+statement line with `ledger_transactions` (idempotency key `payment:<intent>`), never edit postings; post a
+correcting transaction with a reference to the statement line.
+
+## Reports
+
+`GET /v1/staff/reports/mrr | collections | churn | revenue` feed the admin `#/reporty` view; the numbers are
+computed from ledger and subscriptions, not from orders.

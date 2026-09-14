@@ -1,0 +1,15 @@
+{
+  "id": 3172016777,
+  "parent_id": 3172016261,
+  "order_number": "pi_local_ref_2",
+  "state": "PAID",
+  "amount": 20000,
+  "currency": "CZK",
+  "payment_instrument": "PAYMENT_CARD",
+  "payer": {
+    "payment_card": { "card_number": "444444******4444", "card_expiration": "3112", "card_brand": "VISA" }
+  },
+  "target": { "type": "ACCOUNT", "goid": 8123456789 },
+  "additional_params": [],
+  "lang": "CS"
+}

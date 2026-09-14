@@ -1,0 +1,8 @@
+[Unit]
+Description=ONhost availability probe ({{ probe_location }})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart={{ probe_bin }}

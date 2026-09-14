@@ -1,0 +1,55 @@
+---
+# ONhost edge role (audit §5m-3): renders the edge configuration for the customers' status hosts from the platform
+# (`php artisan onhost:edge:config`) and installs it into Caddy (default) or nginx, reloading the service afterwards.
+# Variables: onhost_app_dir (the Laravel checkout), onhost_php (php binary), onhost_edge_flavour (caddy|nginx),
+#            onhost_edge_upstream (host:port of the portal), onhost_edge_conf_dir (where the rendered file lands).
+
+- name: Render the edge configuration from the platform
+  ansible.builtin.command:
+    argv:
+      - "{{ onhost_php }}"
+      - artisan
+      - onhost:edge:config
+      - "--format={{ onhost_edge_flavour }}"
+      - "--upstream={{ onhost_edge_upstream }}"
+      - "--out={{ onhost_edge_render_path }}"
+  args:
+    chdir: "{{ onhost_app_dir }}"
+  changed_when: true
+  delegate_to: "{{ onhost_app_host | default(inventory_hostname) }}"
+
+- name: Fetch the rendered configuration from the application host
+  ansible.builtin.slurp:
+    src: "{{ onhost_edge_render_path }}"
+  register: onhost_edge_rendered
+  delegate_to: "{{ onhost_app_host | default(inventory_hostname) }}"
+
+- name: Install the Caddy configuration
+  when: onhost_edge_flavour == 'caddy'
+  ansible.builtin.copy:
+    content: "{{ onhost_edge_rendered.content | b64decode }}"
+    dest: "{{ onhost_edge_conf_dir }}/status-hosts.caddy"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload caddy
+
+- name: Install the nginx configuration
+  when: onhost_edge_flavour == 'nginx'
+  ansible.builtin.copy:
+    content: "{{ onhost_edge_rendered.content | b64decode }}"
+    dest: "{{ onhost_edge_conf_dir }}/status-hosts.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: Validate the Caddy configuration
+  when: onhost_edge_flavour == 'caddy'
+  ansible.builtin.command: caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+  changed_when: false
+
+- name: Validate the nginx configuration
+  when: onhost_edge_flavour == 'nginx'
+  ansible.builtin.command: nginx -t
+  changed_when: false

@@ -1,0 +1,16 @@
+{
+  "id": "pi_3QOffSessionAbCdEfGh",
+  "object": "payment_intent",
+  "amount": 2500,
+  "amount_received": 2500,
+  "client_secret": "pi_3QOffSessionAbCdEfGh_secret_REDACTED",
+  "confirmation_method": "automatic",
+  "currency": "eur",
+  "customer": "cus_QwErTy123456",
+  "description": "Automatické dobití kreditu",
+  "latest_charge": "ch_3QOffSessionAbCdEfGh",
+  "metadata": { "reference": "pi_local_ref_2", "stored": "1" },
+  "payment_method": "pm_1QAbCdEfGhIjKlMn",
+  "payment_method_types": ["card"],
+  "status": "succeeded"
+}

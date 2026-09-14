@@ -1,0 +1,35 @@
+{
+  "id": "cs_test_a1B2c3D4e5F6g7H8i9J0",
+  "object": "checkout.session",
+  "amount_subtotal": 4000,
+  "amount_total": 4000,
+  "client_reference_id": "pi_local_ref",
+  "currency": "eur",
+  "customer": "cus_QwErTy123456",
+  "customer_creation": "always",
+  "customer_email": "customer@example.com",
+  "metadata": { "reference": "pi_local_ref" },
+  "mode": "payment",
+  "payment_intent": {
+    "id": "pi_3QAbCdEfGhIjKlMn0123",
+    "object": "payment_intent",
+    "amount": 4000,
+    "amount_received": 4000,
+    "client_secret": "pi_3QAbCdEfGhIjKlMn0123_secret_REDACTED",
+    "currency": "eur",
+    "customer": "cus_QwErTy123456",
+    "metadata": { "reference": "pi_local_ref" },
+    "payment_method": {
+      "id": "pm_1QAbCdEfGhIjKlMn",
+      "object": "payment_method",
+      "card": { "brand": "visa", "exp_month": 12, "exp_year": 2031, "last4": "4242", "funding": "credit" },
+      "customer": "cus_QwErTy123456",
+      "type": "card"
+    },
+    "setup_future_usage": "off_session",
+    "status": "succeeded"
+  },
+  "payment_status": "paid",
+  "status": "complete",
+  "url": null
+}

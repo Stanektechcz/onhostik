@@ -1,0 +1,28 @@
+---
+# Molecule for onhost_proxmox_api (audit §5o-3): a stub `pveum` records every call; the role must create the role, the user,
+# the ACL and the token on an empty cluster and stay idempotent on a second run.
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: onhost-proxmox-api
+    image: docker.io/geerlingguy/docker-debian12-ansible:latest
+    command: ""
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+provisioner:
+  name: ansible
+  inventory:
+    group_vars:
+      all:
+        pveum_bin: /usr/local/bin/pveum
+  playbooks:
+    prepare: prepare.yml
+    converge: converge.yml
+    verify: verify.yml
+verifier:
+  name: ansible

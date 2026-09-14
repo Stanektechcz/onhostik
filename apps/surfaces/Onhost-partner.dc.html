@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/modernist-31154b91-2bfe-4cc9-a4d9-6ffc68c8a498/styles.css">
+<script src="_ds/modernist-31154b91-2bfe-4cc9-a4d9-6ffc68c8a498/_ds_bundle.js"></script>
+<style>
+  body { margin: 0; background: #f3f2f2; }
+  a { color: #ec3013; text-decoration: none; }
+  a:hover { color: #ae1800; text-decoration: underline; }
+  .ohp-kpi { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; background: #201e1d; }
+  .ohp-two { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 2px; background: #201e1d; }
+  .ohp-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  @media (max-width: 1000px) {
+    .ohp-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+    .ohp-two { grid-template-columns: minmax(0, 1fr) !important; }
+    .ohp-fields { grid-template-columns: minmax(0, 1fr) !important; }
+  }
+</style>
+<script src="./onhost-store.js"></script>
+<script src="./onhost-shell.js"></script>
+</helmet>
+
+<div style="min-height:100vh;background:#f3f2f2;color:#201e1d;font-family:var(--font-body,Archivo),system-ui,sans-serif">
+
+  <header style="position:sticky;top:0;z-index:60;background:#201e1d;color:#f3f2f2;border-bottom:2px solid #ec3013">
+    <div style="max-width:1520px;margin:0 auto;padding:0 28px;height:62px;display:flex;align-items:center;gap:24px">
+      <a href="#" onClick="{{ nav }}" style="display:flex;align-items:baseline;gap:9px;color:#f3f2f2;text-decoration:none;flex:0 0 auto">
+        <span style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:19px;letter-spacing:-.02em">ONHOST</span>
+        <span style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(243,242,242,.6)">{{ t.brand }}</span>
+      </a>
+      <div style="flex:1 1 auto"></div>
+      <span style="font-size:11px;font-family:var(--font-heading,Archivo);font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#f3f2f2;background:#ec3013;padding:5px 10px">{{ tier.badge }}</span>
+      <span style="font-size:12px;color:rgba(243,242,242,.7)">{{ t.company }}</span>
+      <button onClick="{{ toggleLang }}" style="background:transparent;border:1px solid rgba(243,242,242,.3);color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:700;font-size:11px;letter-spacing:.06em;padding:5px 10px;cursor:pointer" style-hover="border-color:#ec3013;color:#ec3013">{{ langLabel }}</button>
+    </div>
+    <div style="max-width:1520px;margin:0 auto;padding:0 28px;display:flex;gap:2px;overflow:auto">
+      <sc-for list="{{ tabs }}" as="tb" hint-placeholder-count="6">
+        <button onClick="{{ tb.on }}" style="{{ tb.style }}">{{ tb.label }}<span style="{{ tb.badgeStyle }}">{{ tb.badge }}</span></button>
+      </sc-for>
+    </div>
+  </header>
+
+  <sc-if value="{{ flash.on }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;right:22px;bottom:22px;z-index:90;max-width:360px;background:#201e1d;color:#f3f2f2;border-left:3px solid #ec3013;padding:14px 16px;box-shadow:var(--shadow-lg,0 12px 30px rgba(0,0,0,.25))">
+      <div style="font-family:var(--font-heading,Archivo);font-weight:800;font-size:14px">{{ flash.title }}</div>
+      <div style="font-size:13px;line-height:1.5;margin-top:4px;color:rgba(243,242,242,.8)">{{ flash.body }}</div>
+    </div>
+  </sc-if>
+
+  <div style="max-width:1520px;margin:0 auto;padding:30px 28px 90px">
+
+    <div style="display:flex;gap:18px;align-items:flex-end;justify-content:space-between;flex-wrap:wrap">
+      <div>
+        <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(32,30,29,.55)">{{ page.kicker }}</div>
+        <h1 style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:38px;line-height:1.05;letter-spacing:-.03em;margin:8px 0 0">{{ page.title }}</h1>
+        <p style="font-size:16px;line-height:1.55;color:rgba(32,30,29,.7);margin:10px 0 0;max-width:44em;text-wrap:pretty">{{ page.lead }}</p>
+      </div>
+      <div style="display:flex;gap:2px;background:#201e1d;flex:0 0 auto">
+        <sc-for list="{{ periods }}" as="p" hint-placeholder-count="3">
+          <button onClick="{{ p.on }}" style="{{ p.style }}">{{ p.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div class="ohp-kpi" style="margin-top:26px;border:2px solid #201e1d">
+      <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+        <div style="background:#f3f2f2;padding:18px 20px">
+          <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(32,30,29,.55)">{{ k.label }}</div>
+          <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:30px;letter-spacing:-.02em;margin-top:8px">{{ k.value }}</div>
+          <div style="{{ k.deltaStyle }}">{{ k.delta }}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <!-- ── PŘEHLED ────────────────────────────────────────────────── -->
+    <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+      <div>
+        <div style="margin-top:34px;border:2px solid #201e1d;background:#f3f2f2;padding:22px 24px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:12px">
+            <div>
+              <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(32,30,29,.55)">{{ t.tierNow }}</div>
+              <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:24px;margin-top:6px">{{ tier.name }} · {{ tier.rate }}</div>
+            </div>
+            <div style="font-size:13px;color:rgba(32,30,29,.7);max-width:34em;text-wrap:pretty">{{ tier.toNext }}</div>
+          </div>
+          <div style="height:14px;border:2px solid #201e1d;margin-top:16px;position:relative;background:#f3f2f2">
+            <div style="{{ tier.barStyle }}"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px">
+            <sc-for list="{{ tier.marks }}" as="m" hint-placeholder-count="4">
+              <div style="{{ m.style }}">{{ m.label }}</div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div class="ohp-two" style="margin-top:26px;border:2px solid #201e1d">
+          <div style="background:#f3f2f2;padding:20px 22px">
+            <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:16px;letter-spacing:.02em;text-transform:uppercase">{{ t.topClients }}</div>
+            <div style="display:flex;flex-direction:column;margin-top:12px;border-top:2px solid #201e1d">
+              <sc-for list="{{ top }}" as="c" hint-placeholder-count="5">
+                <button onClick="{{ c.on }}" style="display:flex;justify-content:space-between;gap:14px;align-items:baseline;text-align:left;background:transparent;border:none;border-bottom:1px solid rgba(32,30,29,.18);padding:11px 2px;cursor:pointer;font-family:var(--font-body,Archivo)" style-hover="background:rgba(236,48,19,.06)">
+                  <span>
+                    <span style="font-family:var(--font-heading,Archivo);font-weight:800;font-size:14px;display:block">{{ c.name }}</span>
+                    <span style="font-size:12px;color:rgba(32,30,29,.6)">{{ c.meta }}</span>
+                  </span>
+                  <span style="text-align:right;flex:0 0 auto">
+                    <span style="font-family:var(--font-heading,Archivo);font-weight:800;font-size:14px;display:block">{{ c.mrr }}</span>
+                    <span style="font-size:12px;color:#ae1800">{{ c.comm }}</span>
+                  </span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="background:#f3f2f2;padding:20px 22px">
+            <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:16px;letter-spacing:.02em;text-transform:uppercase">{{ t.activity }}</div>
+            <div style="display:flex;flex-direction:column;margin-top:12px;border-top:2px solid #201e1d">
+              <sc-for list="{{ feed }}" as="f" hint-placeholder-count="6">
+                <div style="padding:11px 2px;border-bottom:1px solid rgba(32,30,29,.18)">
+                  <div style="display:flex;gap:10px;align-items:baseline">
+                    <span style="font-size:11px;color:rgba(32,30,29,.5);flex:0 0 62px">{{ f.when }}</span>
+                    <span style="font-size:13px;line-height:1.5">{{ f.text }}</span>
+                  </div>
+                  <div style="{{ f.tagStyle }}">{{ f.tag }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ── KLIENTI ────────────────────────────────────────────────── -->
+    <sc-if value="{{ isClients }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:30px">
+          <input value="{{ find }}" onInput="{{ onFind }}" placeholder="{{ t.findPh }}" style="flex:1 1 260px;max-width:340px;box-sizing:border-box;height:38px;padding:0 12px;background:#f3f2f2;border:2px solid #201e1d;font-family:var(--font-body,Archivo);font-size:13px;outline:none">
+          <div style="display:flex;gap:2px;background:#201e1d">
+            <sc-for list="{{ filters }}" as="f" hint-placeholder-count="4">
+              <button onClick="{{ f.on }}" style="{{ f.style }}">{{ f.label }}</button>
+            </sc-for>
+          </div>
+          <div style="flex:1 1 auto"></div>
+          <span style="font-size:12px;color:rgba(32,30,29,.6)">{{ clientCount }}</span>
+        </div>
+
+        <div style="margin-top:16px;overflow:auto;border:2px solid #201e1d;background:#f3f2f2">
+          <table style="width:100%;border-collapse:collapse;font-size:14px;min-width:820px">
+            <thead>
+              <tr>
+                <sc-for list="{{ cols }}" as="c" hint-placeholder-count="6">
+                  <th style="{{ c.thStyle }}"><button onClick="{{ c.on }}" style="{{ c.btnStyle }}">{{ c.label }}{{ c.arrow }}</button></th>
+                </sc-for>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{ rows }}" as="r" hint-placeholder-count="8">
+                <tr onClick="{{ r.on }}" style="cursor:pointer" style-hover="background:rgba(236,48,19,.06)">
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18)">
+                    <span style="font-family:var(--font-heading,Archivo);font-weight:800;display:block">{{ r.name }}</span>
+                    <span style="font-size:12px;color:rgba(32,30,29,.6)">{{ r.contact }}</span>
+                  </td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);white-space:nowrap"><span style="{{ r.stateStyle }}">{{ r.state }}</span></td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);font-size:13px">{{ r.services }}</td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);text-align:right;font-family:var(--font-heading,Archivo);font-weight:800;white-space:nowrap">{{ r.mrr }}</td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);text-align:right;color:#ae1800;white-space:nowrap">{{ r.comm }}</td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);font-size:13px;color:rgba(32,30,29,.65);white-space:nowrap">{{ r.since }}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+          <sc-if value="{{ noRows }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:26px 16px;font-size:14px;color:rgba(32,30,29,.62)">{{ t.noRows }}</div>
+          </sc-if>
+        </div>
+
+        <sc-if value="{{ sel.on }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-top:2px;border:2px solid #201e1d;background:#201e1d;color:#f3f2f2;padding:22px 24px">
+            <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:baseline">
+              <div>
+                <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(243,242,242,.55)">{{ t.clientDetail }}</div>
+                <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:24px;margin-top:6px">{{ sel.name }}</div>
+                <div style="font-size:13px;color:rgba(243,242,242,.7);margin-top:4px">{{ sel.meta }}</div>
+              </div>
+              <button onClick="{{ sel.close }}" style="background:transparent;border:1px solid rgba(243,242,242,.35);color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:700;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:7px 12px;cursor:pointer" style-hover="border-color:#ec3013;color:#ec3013">{{ t.close }}</button>
+            </div>
+            <div class="ohp-fields" style="margin-top:20px">
+              <sc-for list="{{ sel.stats }}" as="st" hint-placeholder-count="3">
+                <div style="border-top:2px solid rgba(243,242,242,.3);padding-top:10px">
+                  <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(243,242,242,.55)">{{ st.label }}</div>
+                  <div style="font-family:var(--font-heading,Archivo);font-weight:800;font-size:20px;margin-top:6px">{{ st.value }}</div>
+                  <div style="font-size:12px;color:rgba(243,242,242,.6);margin-top:2px">{{ st.note }}</div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:flex;flex-direction:column;margin-top:22px;border-top:2px solid rgba(243,242,242,.3)">
+              <sc-for list="{{ sel.services }}" as="sv" hint-placeholder-count="3">
+                <div style="display:flex;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid rgba(243,242,242,.2);font-size:14px">
+                  <span>{{ sv.name }}</span>
+                  <span style="color:rgba(243,242,242,.7)">{{ sv.price }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
+              <button onClick="{{ sel.act }}" style="background:#ec3013;border:none;color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:800;font-size:12px;padding:10px 16px;cursor:pointer" style-hover="background:#ae1800">{{ t.openPanel }}</button>
+              <button onClick="{{ sel.act }}" style="background:transparent;border:2px solid rgba(243,242,242,.5);color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:800;font-size:12px;padding:8px 16px;cursor:pointer" style-hover="border-color:#ec3013;color:#ec3013">{{ t.sendOffer }}</button>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ── PROVIZE ────────────────────────────────────────────────── -->
+    <sc-if value="{{ isCommissions }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:30px">
+          <span style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(32,30,29,.55)">{{ t.model }}</span>
+          <div style="display:flex;gap:2px;background:#201e1d">
+            <sc-for list="{{ models }}" as="m" hint-placeholder-count="2">
+              <button onClick="{{ m.on }}" style="{{ m.style }}">{{ m.label }}</button>
+            </sc-for>
+          </div>
+          <span style="font-size:13px;color:rgba(32,30,29,.66);max-width:36em">{{ modelNote }}</span>
+        </div>
+
+        <div style="margin-top:20px;overflow:auto;border:2px solid #201e1d;background:#f3f2f2">
+          <table style="width:100%;border-collapse:collapse;font-size:14px;min-width:760px">
+            <thead>
+              <tr>
+                <sc-for list="{{ commHead }}" as="h" hint-placeholder-count="5">
+                  <th style="{{ h.style }}">{{ h.label }}</th>
+                </sc-for>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{ commRows }}" as="r" hint-placeholder-count="6">
+                <tr>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);font-family:var(--font-heading,Archivo);font-weight:800;white-space:nowrap">{{ r.month }}</td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18)">{{ r.clients }}</td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);text-align:right;white-space:nowrap">{{ r.base }}</td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);text-align:right;white-space:nowrap">{{ r.rate }}</td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);text-align:right;font-family:var(--font-heading,Archivo);font-weight:800;color:#ae1800;white-space:nowrap">{{ r.total }}</td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);white-space:nowrap"><span style="{{ r.stateStyle }}">{{ r.state }}</span></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:24px;border:2px solid #201e1d;background:rgba(32,30,29,.05);padding:18px 20px;max-width:44em">
+          <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(32,30,29,.6)">{{ t.rulesTag }}</div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+            <sc-for list="{{ rules }}" as="ru" hint-placeholder-count="4">
+              <div style="display:flex;gap:11px;font-size:14px;line-height:1.6">
+                <span style="flex:0 0 auto;width:9px;height:2px;background:#ec3013;margin-top:10px"></span>
+                <span>{{ ru.t }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ── VÝPLATY ────────────────────────────────────────────────── -->
+    <sc-if value="{{ isPayouts }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div class="ohp-two" style="margin-top:30px;border:2px solid #201e1d">
+          <div style="background:#f3f2f2;padding:22px 24px">
+            <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:16px;letter-spacing:.02em;text-transform:uppercase">{{ t.requestPayout }}</div>
+            <p style="font-size:14px;line-height:1.6;color:rgba(32,30,29,.7);margin:8px 0 0;max-width:34em">{{ t.payoutLead }}</p>
+            <div class="ohp-fields" style="margin-top:18px;grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
+              <label style="display:block">
+                <span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(32,30,29,.6);display:block">{{ t.amount }}</span>
+                <input value="{{ payAmount }}" onInput="{{ onPayAmount }}" placeholder="{{ t.amountPh }}" style="{{ payAmountStyle }}">
+                <span style="{{ payAmountErrStyle }}">{{ payAmountErr }}</span>
+              </label>
+              <label style="display:block">
+                <span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(32,30,29,.6);display:block">IBAN</span>
+                <input value="{{ payIban }}" onInput="{{ onPayIban }}" placeholder="CZ65 0800 0000 1920 0014 5399" style="{{ payIbanStyle }}">
+                <span style="{{ payIbanErrStyle }}">{{ payIbanErr }}</span>
+              </label>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:18px;align-items:center;flex-wrap:wrap">
+              <button onClick="{{ submitPayout }}" style="background:#ec3013;border:none;color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:800;font-size:13px;padding:11px 20px;cursor:pointer" style-hover="background:#ae1800">{{ payoutCta }}</button>
+              <button onClick="{{ payoutAll }}" style="background:transparent;border:2px solid #201e1d;color:#201e1d;font-family:var(--font-heading,Archivo);font-weight:800;font-size:13px;padding:9px 18px;cursor:pointer" style-hover="background:#201e1d;color:#f3f2f2">{{ t.payoutAll }}</button>
+              <span style="font-size:12px;color:rgba(32,30,29,.6)">{{ t.payoutTerms }}</span>
+            </div>
+          </div>
+          <div style="background:#201e1d;color:#f3f2f2;padding:22px 24px">
+            <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(243,242,242,.55)">{{ t.balance }}</div>
+            <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:36px;letter-spacing:-.02em;margin-top:8px">{{ balance }}</div>
+            <div style="font-size:13px;color:rgba(243,242,242,.7);margin-top:4px">{{ balanceNote }}</div>
+            <div style="display:flex;flex-direction:column;margin-top:20px;border-top:2px solid rgba(243,242,242,.3)">
+              <sc-for list="{{ balanceLines }}" as="bl" hint-placeholder-count="3">
+                <div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid rgba(243,242,242,.2);font-size:13px">
+                  <span style="color:rgba(243,242,242,.75)">{{ bl.label }}</span>
+                  <span style="font-family:var(--font-heading,Archivo);font-weight:800">{{ bl.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:26px;overflow:auto;border:2px solid #201e1d;background:#f3f2f2">
+          <table style="width:100%;border-collapse:collapse;font-size:14px;min-width:700px">
+            <thead>
+              <tr>
+                <sc-for list="{{ payHead }}" as="h" hint-placeholder-count="5">
+                  <th style="{{ h.style }}">{{ h.label }}</th>
+                </sc-for>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{ payRows }}" as="r" hint-placeholder-count="5">
+                <tr>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);font-family:var(--font-heading,Archivo);font-weight:800;white-space:nowrap">{{ r.id }}</td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);white-space:nowrap">{{ r.date }}</td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);text-align:right;font-family:var(--font-heading,Archivo);font-weight:800;white-space:nowrap">{{ r.amount }}</td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);font-size:13px;color:rgba(32,30,29,.65)">{{ r.method }}</td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);white-space:nowrap"><span style="{{ r.stateStyle }}">{{ r.state }}</span></td>
+                  <td style="padding:12px 14px;border-bottom:1px solid rgba(32,30,29,.18);text-align:right"><button onClick="{{ r.on }}" style="background:transparent;border:none;font-family:var(--font-heading,Archivo);font-weight:800;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#ae1800;cursor:pointer;padding:0" style-hover="color:#ec3013">{{ r.action }}</button></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ── WHITELABEL ─────────────────────────────────────────────── -->
+    <sc-if value="{{ isWhitelabel }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div class="ohp-two" style="margin-top:30px;border:2px solid #201e1d">
+          <div style="background:#f3f2f2;padding:22px 24px">
+            <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:16px;letter-spacing:.02em;text-transform:uppercase">{{ t.wlDomain }}</div>
+            <p style="font-size:14px;line-height:1.6;color:rgba(32,30,29,.7);margin:8px 0 0;max-width:34em">{{ t.wlLead }}</p>
+            <label style="display:block;margin-top:16px;max-width:26em">
+              <span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(32,30,29,.6);display:block">{{ t.wlField }}</span>
+              <input value="{{ wlDomain }}" onInput="{{ onWlDomain }}" placeholder="panel.vasefirma.cz" style="{{ wlStyle }}">
+              <span style="{{ wlErrStyle }}">{{ wlErr }}</span>
+            </label>
+            <div style="margin-top:18px;border:2px solid #201e1d">
+              <div style="background:#201e1d;color:rgba(243,242,242,.75);font-family:var(--font-heading,Archivo);font-weight:800;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:8px 14px">{{ t.wlDns }}</div>
+              <pre style="margin:0;padding:14px 16px;background:#201e1d;color:#f3f2f2;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;white-space:pre;overflow:auto">{{ wlRecord }}</pre>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;align-items:center">
+              <button onClick="{{ wlVerify }}" style="background:#ec3013;border:none;color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:800;font-size:13px;padding:11px 20px;cursor:pointer" style-hover="background:#ae1800">{{ t.wlVerify }}</button>
+              <span style="{{ wlStateStyle }}">{{ wlState }}</span>
+            </div>
+          </div>
+          <div style="background:#f3f2f2;padding:22px 24px">
+            <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:16px;letter-spacing:.02em;text-transform:uppercase">{{ t.wlSwitches }}</div>
+            <div style="display:flex;flex-direction:column;margin-top:12px;border-top:2px solid #201e1d">
+              <sc-for list="{{ wlToggles }}" as="w" hint-placeholder-count="4">
+                <button onClick="{{ w.on }}" style="display:flex;gap:14px;align-items:flex-start;text-align:left;background:transparent;border:none;border-bottom:1px solid rgba(32,30,29,.18);padding:13px 2px;cursor:pointer;font-family:var(--font-body,Archivo)" style-hover="background:rgba(236,48,19,.06)">
+                  <span style="{{ w.boxStyle }}">{{ w.mark }}</span>
+                  <span>
+                    <span style="font-family:var(--font-heading,Archivo);font-weight:800;font-size:14px;display:block">{{ w.label }}</span>
+                    <span style="font-size:12.5px;line-height:1.5;color:rgba(32,30,29,.65);display:block;margin-top:2px">{{ w.note }}</span>
+                  </span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:26px;border:2px solid #201e1d;background:#f3f2f2">
+          <div style="background:#201e1d;color:rgba(243,242,242,.75);font-family:var(--font-heading,Archivo);font-weight:800;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:9px 16px">{{ t.wlPreview }}</div>
+          <div style="padding:24px">
+            <div style="border:2px solid #201e1d;background:#f3f2f2">
+              <div style="{{ previewBarStyle }}">
+                <span style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:15px;letter-spacing:-.01em">{{ previewBrand }}</span>
+                <span style="font-size:11px;opacity:.7">{{ previewDomain }}</span>
+              </div>
+              <div style="padding:20px 18px">
+                <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:22px">{{ t.wlPreviewTitle }}</div>
+                <div style="font-size:14px;color:rgba(32,30,29,.7);margin-top:6px">{{ previewFooter }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ── MATERIÁLY ──────────────────────────────────────────────── -->
+    <sc-if value="{{ isAssets }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="margin-top:30px;border:2px solid #201e1d;background:#f3f2f2;padding:22px 24px">
+          <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:16px;letter-spacing:.02em;text-transform:uppercase">{{ t.refLink }}</div>
+          <p style="font-size:14px;line-height:1.6;color:rgba(32,30,29,.7);margin:8px 0 0;max-width:38em">{{ t.refLead }}</p>
+          <div class="ohp-fields" style="margin-top:18px">
+            <label style="display:block">
+              <span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(32,30,29,.6);display:block">{{ t.utmSource }}</span>
+              <input value="{{ utmSource }}" onInput="{{ onUtmSource }}" placeholder="newsletter" style="width:100%;box-sizing:border-box;height:38px;padding:0 12px;margin-top:6px;background:#f3f2f2;border:2px solid #201e1d;font-family:var(--font-body,Archivo);font-size:13px;outline:none">
+            </label>
+            <label style="display:block">
+              <span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(32,30,29,.6);display:block">{{ t.utmMedium }}</span>
+              <input value="{{ utmMedium }}" onInput="{{ onUtmMedium }}" placeholder="email" style="width:100%;box-sizing:border-box;height:38px;padding:0 12px;margin-top:6px;background:#f3f2f2;border:2px solid #201e1d;font-family:var(--font-body,Archivo);font-size:13px;outline:none">
+            </label>
+            <label style="display:block">
+              <span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(32,30,29,.6);display:block">{{ t.utmCampaign }}</span>
+              <input value="{{ utmCampaign }}" onInput="{{ onUtmCampaign }}" placeholder="zari-vps" style="width:100%;box-sizing:border-box;height:38px;padding:0 12px;margin-top:6px;background:#f3f2f2;border:2px solid #201e1d;font-family:var(--font-body,Archivo);font-size:13px;outline:none">
+            </label>
+          </div>
+          <div style="margin-top:18px;border:2px solid #201e1d;display:flex;align-items:stretch;flex-wrap:wrap">
+            <div style="flex:1 1 320px;min-width:0;padding:13px 16px;background:#201e1d;color:#f3f2f2;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;overflow:auto;white-space:nowrap">{{ refUrl }}</div>
+            <button onClick="{{ copyRef }}" style="flex:0 0 auto;background:#ec3013;border:none;color:#f3f2f2;font-family:var(--font-heading,Archivo);font-weight:800;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:0 20px;cursor:pointer" style-hover="background:#ae1800">{{ copyLabel }}</button>
+          </div>
+        </div>
+
+        <div class="ohp-two" style="margin-top:26px;border:2px solid #201e1d">
+          <div style="background:#f3f2f2;padding:20px 22px">
+            <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:16px;letter-spacing:.02em;text-transform:uppercase">{{ t.files }}</div>
+            <div style="display:flex;flex-direction:column;margin-top:12px;border-top:2px solid #201e1d">
+              <sc-for list="{{ files }}" as="fi" hint-placeholder-count="5">
+                <div style="display:flex;justify-content:space-between;gap:14px;align-items:baseline;padding:12px 2px;border-bottom:1px solid rgba(32,30,29,.18)">
+                  <span>
+                    <span style="font-family:var(--font-heading,Archivo);font-weight:800;font-size:14px;display:block">{{ fi.name }}</span>
+                    <span style="font-size:12px;color:rgba(32,30,29,.6)">{{ fi.meta }}</span>
+                  </span>
+                  <button onClick="{{ fi.on }}" style="flex:0 0 auto;background:transparent;border:2px solid #201e1d;color:#201e1d;font-family:var(--font-heading,Archivo);font-weight:800;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:6px 12px;cursor:pointer" style-hover="background:#201e1d;color:#f3f2f2">{{ t.download }}</button>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="background:#f3f2f2;padding:20px 22px">
+            <div style="font-family:var(--font-heading,Archivo);font-weight:900;font-size:16px;letter-spacing:.02em;text-transform:uppercase">{{ t.wording }}</div>
+            <div style="display:flex;flex-direction:column;gap:2px;margin-top:12px;background:#201e1d">
+              <sc-for list="{{ claims }}" as="cl" hint-placeholder-count="3">
+                <div style="background:#f3f2f2;padding:13px 14px">
+                  <div style="{{ cl.tagStyle }}">{{ cl.tag }}</div>
+                  <div style="font-size:14px;line-height:1.6;margin-top:5px">{{ cl.t }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+
+  <footer style="background:#201e1d;color:rgba(243,242,242,.7);border-top:2px solid #ec3013;padding:26px 28px">
+    <div style="max-width:1520px;margin:0 auto;display:flex;gap:22px;flex-wrap:wrap;justify-content:space-between;font-size:12px">
+      <span>{{ t.footer }}</span>
+      <span>{{ t.footerRight }}</span>
+    </div>
+  </footer>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1100},&quot;lang&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;cs&quot;,&quot;en&quot;],&quot;default&quot;:&quot;cs&quot;,&quot;tsType&quot;:&quot;'cs' | 'en'&quot;,&quot;section&quot;:&quot;Partnerský portál&quot;}}">
+class Component extends DCLogic {
+  state = {
+    lang: null, tab: 'overview', period: 'month',
+    find: '', filter: 'all', sort: 'mrr', dir: -1, selId: null,
+    model: 'share',
+    payAmount: '', payIban: '', payTouched: false,
+    wlDomain: 'panel.vasefirma.cz', wlVerified: false, wlErr: '',
+    wl: { hideBrand: true, ownMail: true, ownPrices: false, ownSupport: false },
+    utmSource: '', utmMedium: '', utmCampaign: '', copied: false,
+    flash: null
+  };
+
+  cs() { return (this.state.lang || this.props.lang || 'cs') === 'cs'; }
+
+  /* ---------- routování (v Laravelu /partner/<slug> 1:1) ----------
+     Záložka je deep-linkovatelná: jedna sekce = jedna URL. */
+  TAB_SLUG = { overview: 'prehled', clients: 'klienti', commissions: 'provize', payouts: 'vyplaty', whitelabel: 'whitelabel', assets: 'materialy' };
+  tabForSlug(slug) {
+    const keys = Object.keys(this.TAB_SLUG);
+    for (let i = 0; i < keys.length; i++) if (this.TAB_SLUG[keys[i]] === slug) return keys[i];
+    return keys.indexOf(slug) >= 0 ? slug : null;
+  }
+  parseHash() {
+    const parts = String(location.hash || '').replace(/^#\/?/, '').split('/');
+    const tab = this.tabForSlug(parts[0]);
+    if (!tab) return null;
+    return parts[1] ? { tab, selId: parts[1] } : { tab };
+  }
+  syncHash() {
+    const s = this.state;
+    const next = '#/' + (this.TAB_SLUG[s.tab] || s.tab) + (s.tab === 'clients' && s.selId ? '/' + s.selId : '');
+    if (location.hash !== next) { try { history.replaceState(null, '', next); } catch (e) { location.hash = next; } }
+  }
+  componentDidMount() {
+    const fromHash = this.parseHash();
+    if (fromHash) this.setState(fromHash);
+    this.onHashChange = () => { const p = this.parseHash(); if (p) this.setState(p); };
+    window.addEventListener('hashchange', this.onHashChange);
+    const hook = () => {
+      const S = window.OnhostStore;
+      if (!S) { this._storeT = setTimeout(hook, 120); return; }
+      this._offStore = S.on(() => this.forceUpdate());
+      this.forceUpdate();
+    };
+    hook();
+  }
+  componentWillUnmount() {
+    if (this.onHashChange) window.removeEventListener('hashchange', this.onHashChange);
+    clearTimeout(this._storeT); if (this._offStore) this._offStore();
+  }
+  mny(n) { return new Intl.NumberFormat(this.cs() ? 'cs-CZ' : 'en-US', { maximumFractionDigits: 0 }).format(Math.round(n)) + (this.cs() ? ' Kč' : ' CZK'); }
+
+  flash(title, body) {
+    this.setState({ flash: { title, body } });
+    clearTimeout(this.flashT);
+    this.flashT = setTimeout(() => this.setState({ flash: null }), 4200);
+  }
+
+  CLIENTS(cs) {
+    const _ = (a, b) => (cs ? a : b);
+    return [
+      { id: 'c1', name: 'Bezvazásilky s.r.o.', contact: 'petra@bezvazasilky.cz', st: 'ok', mrr: 24800, since: '3 / 2024', svc: _('4× VPS · webhosting · 12 domén', '4× VPS · web hosting · 12 domains'), services: [[_('VPS 8/32 — app-prod', 'VPS 8/32 — app-prod'), 8900], [_('VPS 4/16 — app-staging', 'VPS 4/16 — app-staging'), 4200], [_('Webhosting Profi', 'Web hosting Pro'), 890], [_('Správa a monitoring', 'Managed monitoring'), 3400]] },
+      { id: 'c2', name: 'Kavárna Zrno', contact: 'jana@zrno.cz', st: 'ok', mrr: 1290, since: '9 / 2025', svc: _('webhosting · 2 domény · e-mail', 'web hosting · 2 domains · e-mail'), services: [[_('Webhosting Start', 'Web hosting Start'), 290], [_('E-mail 10 schránek', 'E-mail, 10 boxes'), 490], [_('Doména zrno.cz', 'Domain zrno.cz'), 21]] },
+      { id: 'c3', name: 'Modrý Kód s.r.o.', contact: 'admin@modrykod.cz', st: 'due', mrr: 8640, since: '1 / 2025', svc: _('2× VPS · Kubernetes · registry', '2× VPS · Kubernetes · registry'), services: [[_('VPS 4/8 — build', 'VPS 4/8 — build'), 2400], [_('Managed Kubernetes, 3 uzly', 'Managed Kubernetes, 3 nodes'), 5600]] },
+      { id: 'c4', name: 'Herna Kladno', contact: 'tomas@hernakladno.cz', st: 'ok', mrr: 4150, since: '5 / 2025', svc: _('6× herní server · plovoucí IP', '6× game server · floating IP'), services: [[_('Minecraft 8 GB × 4', 'Minecraft 8 GB × 4'), 2760], [_('CS2 server × 2', 'CS2 server × 2'), 1190]] },
+      { id: 'c5', name: 'Dřevo Novák', contact: 'ucetni@drevonovak.cz', st: 'ok', mrr: 2380, since: '11 / 2024', svc: _('webhosting · e-shop · záloha', 'web hosting · shop · backup'), services: [[_('Webhosting E-shop', 'Web hosting Shop'), 1290], [_('Offsite zálohy 200 GB', 'Offsite backups 200 GB'), 690]] },
+      { id: 'c6', name: 'Sport Fitness Brno', contact: 'it@sfbrno.cz', st: 'churn', mrr: 3900, since: '7 / 2023', svc: _('VPS · rezervační systém', 'VPS · booking system'), services: [[_('VPS 4/16', 'VPS 4/16'), 3900]] },
+      { id: 'c7', name: 'Atelier Šindelář', contact: 'studio@sindelar.design', st: 'ok', mrr: 1740, since: '2 / 2026', svc: _('webhosting × 9 klientských webů', 'web hosting × 9 client sites'), services: [[_('Webhosting Multi', 'Web hosting Multi'), 1490]] },
+      { id: 'c8', name: 'Doprava Vávra', contact: 'vavra@dopravavavra.cz', st: 'due', mrr: 5620, since: '4 / 2025', svc: _('VPS · databáze · VPN', 'VPS · database · VPN'), services: [[_('VPS 8/32', 'VPS 8/32'), 3900], [_('Managed PostgreSQL', 'Managed PostgreSQL'), 1720]] },
+      { id: 'c9', name: 'Škola Vyšehrad', contact: 'spravce@skolavysehrad.cz', st: 'ok', mrr: 990, since: '8 / 2024', svc: _('webhosting · e-mail 40 schránek', 'web hosting · 40 mailboxes'), services: [[_('Webhosting Škola', 'Web hosting Edu'), 0], [_('E-mail 40 schránek', 'E-mail, 40 boxes'), 990]] },
+      { id: 'c10', name: 'Grafika Prokop', contact: 'jiri@grafikaprokop.cz', st: 'ok', mrr: 640, since: '6 / 2026', svc: _('webhosting · doména', 'web hosting · domain'), services: [[_('Webhosting Start', 'Web hosting Start'), 290], [_('Doména × 3', 'Domain × 3'), 63]] }
+    ];
+  }
+
+  renderVals() {
+    /* URL musí odpovídat tomu, co je na obrazovce. componentDidUpdate tenhle
+       runtime nepředává, takže se URL sjednocuje odsud — renderVals běží při
+       každém renderu a syncHash() sám nic nezapíše, když se hash nemění. */
+    this.syncHash(); // URL <- stav
+    const cs = this.cs();
+    const _ = (a, b) => (cs ? a : b);
+    const s = this.state;
+    const nav = (e) => { if (e && e.preventDefault) e.preventDefault(); };
+
+    const t = {
+      brand: _('Partnerský portál', 'Partner portal'),
+      company: _('Atelier Šindelář · ID 4821', 'Atelier Šindelář · ID 4821'),
+      tierNow: _('Váš stupeň', 'Your tier'),
+      topClients: _('Největší klienti', 'Largest clients'),
+      activity: _('Poslední pohyby', 'Recent activity'),
+      findPh: _('Hledat klienta nebo e-mail…', 'Search client or e-mail…'),
+      noRows: _('Žádný klient tomuto filtru neodpovídá.', 'No client matches this filter.'),
+      clientDetail: _('Detail klienta', 'Client detail'),
+      close: _('Zavřít', 'Close'),
+      openPanel: _('Otevřít v panelu', 'Open in panel'),
+      sendOffer: _('Poslat nabídku', 'Send an offer'),
+      model: _('Model provize', 'Commission model'),
+      rulesTag: _('Pravidla, která nikdo neschovává do PDF', 'Rules nobody hides in a PDF'),
+      requestPayout: _('Žádost o výplatu', 'Request a payout'),
+      payoutLead: _('Vyplácíme do pěti pracovních dnů na účet, ze kterého jste zaplatili poslední fakturu. Minimum je 1 000 Kč, aby se poplatek nesnědl celou provizi.', 'We pay out within five business days to the account your last invoice came from. The minimum is 1,000 CZK so the fee does not eat the commission.'),
+      amount: _('Částka', 'Amount'), amountPh: _('např. 12 000', 'e.g. 12,000'),
+      payoutAll: _('Vyplatit vše', 'Pay out everything'),
+      payoutTerms: _('Faktura se vystaví automaticky, samofakturací.', 'The invoice is issued automatically, by self-billing.'),
+      balance: _('K výplatě', 'Available'),
+      wlDomain: _('Vlastní domena panelu', 'Your own panel domain'),
+      wlLead: _('Klient uvidí váš panel na vaší doméně, s vaším logem a vašimi cenami. Naše jméno se objeví jen tam, kde to vyžaduje zákon — ve smlouvě a v podmínkách zpracování údajů.', 'Your client sees your panel on your domain, with your logo and your prices. Our name appears only where the law requires it — in the contract and the data-processing terms.'),
+      wlField: _('Doména panelu', 'Panel domain'),
+      wlDns: _('Nastavte tento záznam u své domény', 'Add this record at your domain'),
+      wlVerify: _('Ověřit doménu', 'Verify domain'),
+      wlSwitches: _('Co klient vidí', 'What the client sees'),
+      wlPreview: _('Náhled hlavičky panelu', 'Panel header preview'),
+      wlPreviewTitle: _('Přehled služeb', 'Service overview'),
+      refLink: _('Odkaz a sledování', 'Link and tracking'),
+      refLead: _('Provizi počítáme z prvního kliknutí a držíme ji 90 dní v cookie i na straně serveru. Když si klient objedná telefonem, dohledáme to podle kódu — nemusí nic pamatovat.', 'We attribute from the first click and keep it 90 days in a cookie and server-side. If the client orders by phone we match it by code — they need to remember nothing.'),
+      utmSource: _('Zdroj', 'Source'), utmMedium: _('Kanál', 'Medium'), utmCampaign: _('Kampaň', 'Campaign'),
+      files: _('Materiály ke stažení', 'Downloads'),
+      download: _('Stáhnout', 'Download'),
+      wording: _('Co o nás můžete tvrdit', 'What you may claim about us'),
+      footer: _('Provize vyplácíme i za klienty, kteří odejdou od nás k vám. Partner není konkurent.', 'We pay commission even for clients who move from us to you. A partner is not a competitor.'),
+      footerRight: _('Onhost s.r.o. · partner@onhost.cz · 800 900 100', 'Onhost s.r.o. · partner@onhost.cz · 800 900 100')
+    };
+
+    const tabDefs = [
+      ['overview', _('Přehled', 'Overview'), ''],
+      ['clients', _('Klienti', 'Clients'), '10'],
+      ['commissions', _('Provize', 'Commissions'), ''],
+      ['payouts', _('Výplaty', 'Payouts'), '1'],
+      ['whitelabel', 'Whitelabel', ''],
+      ['assets', _('Materiály', 'Materials'), '']
+    ];
+    const tabs = tabDefs.map(d => ({
+      label: d[1], badge: d[2],
+      badgeStyle: d[2] ? 'margin-left:8px;font-size:10px;background:#ec3013;color:#f3f2f2;padding:2px 6px;font-weight:800' : 'display:none',
+      style: 'background:' + (s.tab === d[0] ? '#f3f2f2' : 'transparent') + ';color:' + (s.tab === d[0] ? '#201e1d' : 'rgba(243,242,242,.72)')
+        + ';border:none;font-family:var(--font-heading,Archivo);font-weight:800;font-size:12px;letter-spacing:.05em;text-transform:uppercase;padding:12px 16px;cursor:pointer;white-space:nowrap',
+      on: () => this.setState({ tab: d[0], selId: null })
+    }));
+
+    const clients = this.CLIENTS(cs);
+    const mrrTotal = clients.reduce((a, c) => a + c.mrr, 0);
+    const tiers = [[0, _('Bronz', 'Bronze'), 15], [25000, _('Stříbro', 'Silver'), 18], [50000, _('Zlato', 'Gold'), 22], [120000, _('Platina', 'Platinum'), 26]];
+    let ti = 0;
+    tiers.forEach((x, i) => { if (mrrTotal >= x[0]) ti = i; });
+    const rate = s.model === 'share' ? tiers[ti][2] / 100 : 0.15;
+    const rateLabel = Math.round(rate * 100) + ' %';
+    const mult = s.period === 'month' ? 1 : s.period === 'quarter' ? 3 : 12;
+
+    const periods = [['month', _('Měsíc', 'Month')], ['quarter', _('Kvartál', 'Quarter')], ['year', _('Rok', 'Year')]].map(p => ({
+      label: p[1],
+      style: 'background:' + (s.period === p[0] ? '#ec3013' : '#f3f2f2') + ';color:' + (s.period === p[0] ? '#f3f2f2' : '#201e1d')
+        + ';border:none;font-family:var(--font-heading,Archivo);font-weight:800;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:9px 14px;cursor:pointer',
+      on: () => this.setState({ period: p[0] })
+    }));
+
+    const dPos = 'font-size:12px;margin-top:6px;color:#ae1800;font-family:var(--font-heading,Archivo);font-weight:700';
+    const dMut = 'font-size:12px;margin-top:6px;color:rgba(32,30,29,.55)';
+    const kpis = [
+      { label: _('Objem klientů', 'Client volume'), value: this.mny(mrrTotal * mult), delta: '+ 8,4 %', deltaStyle: dPos },
+      { label: _('Provize z objemu / měs.', 'Commission on volume / mo'), value: this.mny(mrrTotal * rate * mult), delta: s.model === 'share' ? _(rateLabel + ' z objemu portfolia · k výplatě až po zaplacení', rateLabel + ' of portfolio volume · payable once invoices are paid') : _('15 % + bonusy', '15% + bonuses'), deltaStyle: dMut },
+      { label: _('Aktivní klienti', 'Active clients'), value: String(clients.filter(c => c.st !== 'churn').length), delta: _('2 nové tento měsíc', '2 new this month'), deltaStyle: dPos },
+      { label: _('Odchody, 12 měsíců', 'Churn, 12 months'), value: '1,9 %', delta: _('trh má 7 %', 'market is at 7%'), deltaStyle: dMut }
+    ];
+
+    // tier
+    const nextT = tiers[ti + 1];
+    const pct = nextT ? Math.min(100, Math.round((mrrTotal / nextT[0]) * 100)) : 100;
+    const tier = {
+      badge: tiers[ti][1], name: tiers[ti][1], rate: tiers[ti][2] + ' %',
+      toNext: nextT
+        ? _('Do stupně ' + nextT[1] + ' vám chybí ' + this.mny(nextT[0] - mrrTotal) + ' měsíčního objemu. Stupeň se přepočítává z posledních tří měsíců, takže jeden slabý měsíc vás nesrazí.',
+            'You are ' + this.mny(nextT[0] - mrrTotal) + ' of monthly volume from ' + nextT[1] + '. The tier is computed from the last three months, so one weak month will not drop you.')
+        : _('Jste na nejvyšším stupni. Další sazba se řeší smlouvou, ne tabulkou.', 'You are at the top tier. Any further rate is a contract matter, not a table.'),
+      barStyle: 'position:absolute;left:0;top:0;bottom:0;width:' + pct + '%;background:#ec3013',
+      marks: tiers.map((x, i) => ({
+        label: x[1] + ' · ' + x[2] + ' %',
+        style: 'font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:' + (i === ti ? '#ae1800' : 'rgba(32,30,29,.5)') + ';font-family:var(--font-heading,Archivo);font-weight:' + (i === ti ? '900' : '600')
+      }))
+    };
+
+    const top = clients.slice().sort((a, b) => b.mrr - a.mrr).slice(0, 5).map(c => ({
+      name: c.name, meta: c.svc, mrr: this.mny(c.mrr), comm: '+ ' + this.mny(c.mrr * rate),
+      on: () => this.setState({ tab: 'clients', selId: c.id })
+    }));
+
+    const tagS = (color) => 'font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-family:var(--font-heading,Archivo);font-weight:800;margin-top:6px;margin-left:72px;color:' + color;
+    const feed = [
+      { when: _('dnes 9:12', 'today 9:12'), text: _('Grafika Prokop objednala webhosting Start — přiřazeno z odkazu newsletter/email.', 'Grafika Prokop ordered Web hosting Start — attributed to newsletter/email.'), tag: _('nová objednávka', 'new order'), tagStyle: tagS('#ae1800') },
+      { when: _('včera 17:40', 'yesterday 17:40'), text: _('Modrý Kód má fakturu 8 dní po splatnosti. Upomínku posíláme my, vy dostanete kopii.', 'Modrý Kód is 8 days past due. We send the reminder, you get a copy.'), tag: _('nezaplaceno', 'overdue'), tagStyle: tagS('rgba(32,30,29,.55)') },
+      { when: _('24. 8.', '24 Aug'), text: _('Bezvazásilky navýšily VPS na 8/32 — provize z navýšení je vaše celá.', 'Bezvazásilky upgraded the VPS to 8/32 — the commission on the upgrade is fully yours.'), tag: _('navýšení', 'upgrade'), tagStyle: tagS('#ae1800') },
+      { when: _('21. 8.', '21 Aug'), text: _('Sport Fitness Brno podal výpověď k 30. 9. Důvod: přechod na vlastní hardware.', 'Sport Fitness Brno gave notice for 30 Sep. Reason: moving to their own hardware.'), tag: _('odchod', 'churn'), tagStyle: tagS('rgba(32,30,29,.55)') },
+      { when: _('19. 8.', '19 Aug'), text: _('Výplata PO-2026-08 ve výši 12 480 Kč odeslána na váš účet.', 'Payout PO-2026-08 of 12,480 CZK sent to your account.'), tag: _('výplata', 'payout'), tagStyle: tagS('rgba(32,30,29,.55)') },
+      { when: _('12. 8.', '12 Aug'), text: _('Stupeň přepočítán ze tří měsíců: Zlato, sazba 22 %.', 'Tier recomputed from three months: Gold, 22% rate.'), tag: _('stupeň', 'tier'), tagStyle: tagS('#ae1800') }
+    ];
+
+    // clients table
+    const stLabel = { ok: _('aktivní', 'active'), due: _('nezaplaceno', 'overdue'), churn: _('výpověď', 'notice') };
+    const stStyle = (st) => 'font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-family:var(--font-heading,Archivo);font-weight:800;padding:4px 8px;'
+      + (st === 'ok' ? 'border:1px solid rgba(32,30,29,.35);color:rgba(32,30,29,.7)'
+        : st === 'due' ? 'background:#ec3013;color:#f3f2f2' : 'background:#201e1d;color:#f3f2f2');
+
+    const filters = [['all', _('Vše', 'All')], ['ok', _('Aktivní', 'Active')], ['due', _('Nezaplaceno', 'Overdue')], ['churn', _('Výpověď', 'Notice')]].map(f => ({
+      label: f[1],
+      style: 'background:' + (s.filter === f[0] ? '#ec3013' : '#f3f2f2') + ';color:' + (s.filter === f[0] ? '#f3f2f2' : '#201e1d')
+        + ';border:none;font-family:var(--font-heading,Archivo);font-weight:800;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:10px 14px;cursor:pointer',
+      on: () => this.setState({ filter: f[0], selId: null })
+    }));
+
+    const q = (s.find || '').trim().toLowerCase();
+    let list = clients.filter(c => (s.filter === 'all' || c.st === s.filter)
+      && (!q || (c.name + ' ' + c.contact).toLowerCase().indexOf(q) >= 0));
+    const key = s.sort;
+    list = list.slice().sort((a, b) => {
+      const va = key === 'mrr' ? a.mrr : key === 'name' ? a.name : key === 'state' ? a.st : a.since;
+      const vb = key === 'mrr' ? b.mrr : key === 'name' ? b.name : key === 'state' ? b.st : b.since;
+      return (va > vb ? 1 : va < vb ? -1 : 0) * s.dir;
+    });
+
+    const colDefs = [['name', _('Klient', 'Client'), 'left'], ['state', _('Stav', 'State'), 'left'], ['svc', _('Služby', 'Services'), 'left'], ['mrr', _('Objem / měs.', 'Volume / mo'), 'right'], ['comm', _('Provize', 'Commission'), 'right'], ['since', _('Klientem od', 'Client since'), 'left']];
+    const cols = colDefs.map(c => ({
+      label: c[1],
+      arrow: s.sort === c[0] ? (s.dir === 1 ? ' ↑' : ' ↓') : '',
+      thStyle: 'text-align:' + c[2] + ';padding:0;border-bottom:2px solid #201e1d;background:rgba(32,30,29,.05)',
+      btnStyle: 'width:100%;text-align:' + c[2] + ';background:transparent;border:none;font-family:var(--font-heading,Archivo);font-weight:900;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:11px 14px;cursor:pointer;color:' + (s.sort === c[0] ? '#ae1800' : '#201e1d'),
+      on: () => this.setState(st => ({ sort: c[0], dir: st.sort === c[0] ? -st.dir : -1 }))
+    }));
+
+    const rows = list.map(c => ({
+      name: c.name, contact: c.contact, state: stLabel[c.st], stateStyle: stStyle(c.st),
+      services: c.svc, mrr: this.mny(c.mrr), comm: '+ ' + this.mny(c.mrr * rate), since: c.since,
+      on: () => this.setState({ selId: c.id })
+    }));
+
+    const selC = clients.filter(c => c.id === s.selId)[0];
+    const sel = selC ? {
+      on: true, name: selC.name, meta: selC.contact + ' · ' + _('klientem od ', 'client since ') + selC.since,
+      close: () => this.setState({ selId: null }),
+      act: (e) => { nav(e); this.flash(_('Otevírá se v panelu', 'Opening in the panel'), _('Do klientského účtu vstupujete jako partner — každý vstup se klientovi zapíše do auditního logu. Vidí, kdo a kdy se přihlásil.', 'You enter the client account as a partner — every entry is written to their audit log. They see who signed in and when.')); },
+      stats: [
+        { label: _('Objem / měsíc', 'Volume / month'), value: this.mny(selC.mrr), note: _('bez DPH', 'excl. VAT') },
+        { label: _('Vaše provize', 'Your commission'), value: this.mny(selC.mrr * rate), note: s.model === 'share' ? rateLabel : '15 % + bonus' },
+        { label: _('Celkem vyplaceno', 'Paid out to date'), value: this.mny(selC.mrr * rate * 14), note: _('od začátku spolupráce', 'since the start') }
+      ],
+      services: selC.services.map(x => ({ name: x[0], price: x[1] ? this.mny(x[1]) + _(' / měs.', ' / mo') : _('v ceně', 'included') }))
+    } : { on: false, name: '', meta: '', stats: [], services: [], close: () => {}, act: () => {} };
+
+    // commissions
+    const models = [['share', _('Podíl z objemu', 'Revenue share')], ['oneoff', _('Jednorázově + bonus', 'One-off + bonus')]].map(m => ({
+      label: m[1],
+      style: 'background:' + (s.model === m[0] ? '#ec3013' : '#f3f2f2') + ';color:' + (s.model === m[0] ? '#f3f2f2' : '#201e1d')
+        + ';border:none;font-family:var(--font-heading,Archivo);font-weight:800;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:10px 14px;cursor:pointer',
+      on: () => this.setState({ model: m[0] })
+    }));
+    const modelNote = s.model === 'share'
+      ? _('Dostáváte ' + rateLabel + ' z každé zaplacené faktury po celou dobu, co klient zůstává. Odejde klient, skončí provize — proto vám pomáháme ho udržet.', 'You get ' + rateLabel + ' of every paid invoice for as long as the client stays. If they leave, the commission ends — which is why we help you keep them.')
+      : _('Jednorázově tři měsíční platby při první faktuře a 5 % dál. Vhodné, když stavíte weby a klienta pak nespravujete.', 'Three monthly payments up front on the first invoice, then 5%. Suitable when you build sites and do not manage the client afterwards.');
+
+    const th = (align) => 'text-align:' + align + ';font-family:var(--font-heading,Archivo);font-weight:900;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:11px 14px;border-bottom:2px solid #201e1d;background:rgba(32,30,29,.05);white-space:nowrap';
+    const commHead = [[_('Měsíc', 'Month'), 'left'], [_('Klientů', 'Clients'), 'left'], [_('Základ', 'Base'), 'right'], [_('Sazba', 'Rate'), 'right'], [_('Provize', 'Commission'), 'right'], [_('Stav', 'State'), 'left']]
+      .map(h => ({ label: h[0], style: th(h[1]) }));
+
+    const months = cs ? ['Srpen 2026', 'Červenec 2026', 'Červen 2026', 'Květen 2026', 'Duben 2026', 'Březen 2026'] : ['August 2026', 'July 2026', 'June 2026', 'May 2026', 'April 2026', 'March 2026'];
+    const bases = [54150, 52400, 51880, 47300, 44120, 41960];
+    const commRows = months.map((m, i) => {
+      const paid = i > 0;
+      return {
+        month: m, clients: String(10 - Math.floor(i / 2)),
+        base: this.mny(bases[i]), rate: Math.round(rate * 100) + ' %',
+        total: this.mny(bases[i] * rate),
+        state: i === 0 ? _('počítá se', 'accruing') : paid ? _('vyplaceno', 'paid') : _('ke schválení', 'to approve'),
+        stateStyle: 'font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-family:var(--font-heading,Archivo);font-weight:800;padding:4px 8px;'
+          + (i === 0 ? 'background:#ec3013;color:#f3f2f2' : 'border:1px solid rgba(32,30,29,.35);color:rgba(32,30,29,.7)')
+      };
+    });
+
+    const rules = [
+      _('Provize se počítá ze zaplacené faktury, ne z objednávky. Nezaplacený klient provizi negeneruje a nikdy ji po vás nebudeme vracet zpět.', 'Commission is computed from a paid invoice, not an order. An unpaid client generates none, and we will never claw one back.'),
+      _('Navýšení služby je vaše. Nemusíte u něj být, nemusíte ho prodat — když klient roste, roste vaše provize.', 'An upgrade is yours. You need not be present or sell it — when the client grows, your commission grows.'),
+      _('Klient, kterého přivedete, je váš i po přechodu na jinou službu. Přiřazení se váže na účet, ne na produkt.', 'A client you bring stays yours even after switching services. Attribution is bound to the account, not the product.'),
+      _('Sazbu měníme jen nahoru. Když spadnete o stupeň, držíme starou sazbu ještě tři měsíce.', 'We only change the rate upwards. If you drop a tier, we keep the old rate for three more months.'),
+      _('Podmínky měníme s 90denním předstihem a vždy e-mailem, ne změnou dokumentu na webu.', 'We change terms with 90 days notice and always by e-mail, never by editing a document on the website.')
+    ].map(x => ({ t: x }));
+
+    // payouts — provize se počítá ze ZAPLACENÝCH faktur v provozním store (pravidlo programu),
+    // zadržená část z faktur vystavených a po splatnosti. Demo zůstatek slouží jako základ historie.
+    const live = (() => {
+      const S = window.OnhostStore;
+      if (!S) return null;
+      const inv = S.invoices();
+      const sum = (l) => l.reduce((a, i) => a + i.total, 0);
+      const paid = sum(inv.filter(i => i.state === 'zaplacena' && !i.credit));
+      const held = sum(inv.filter(i => i.state === 'vystavena' || i.state === 'po_splatnosti'));
+      return {
+        docs: inv.filter(i => i.state === 'zaplacena' && !i.credit).length,
+        earned: Math.round(paid * rate),
+        held: Math.round(held * rate),
+        paidBase: paid, heldBase: held
+      };
+    })();
+    const balanceNum = live ? live.earned : 11913;
+    /* Otevřená výplata je vždy měsíc po poslední vyplacené (PO-2026-08) — jedno číslo
+       pro tabulku historie, formulář i doklad ve frontě mailů. */
+    const openPayoutNo = 'PO-2026-09';
+    const amt = parseInt(String(s.payAmount).replace(/[^0-9]/g, ''), 10);
+    const amtErr = !s.payTouched ? '' : !amt ? _('Zadejte částku.', 'Enter an amount.')
+      : amt < 1000 ? _('Minimum je 1 000 Kč.', 'The minimum is 1,000 CZK.')
+      : amt > balanceNum ? _('K výplatě máte ' + this.mny(balanceNum) + '.', 'You have ' + this.mny(balanceNum) + ' available.') : '';
+    const ibanClean = String(s.payIban).replace(/\s+/g, '').toUpperCase();
+    const ibanErr = !s.payTouched ? '' : !ibanClean ? _('Zadejte IBAN.', 'Enter an IBAN.')
+      : !/^CZ\d{22}$/.test(ibanClean) ? _('Český IBAN má tvar CZ a 22 číslic.', 'A Czech IBAN is CZ followed by 22 digits.') : '';
+    const inp = (err) => 'width:100%;box-sizing:border-box;height:38px;padding:0 12px;margin-top:6px;background:#f3f2f2;border:2px solid ' + (err ? '#ec3013' : '#201e1d') + ';font-family:var(--font-body,Archivo);font-size:13px;outline:none';
+    const errS = (err) => err ? 'display:block;font-size:12px;color:#ae1800;margin-top:5px' : 'display:none';
+
+    const payHead = [[_('Doklad', 'Document'), 'left'], [_('Datum', 'Date'), 'left'], [_('Částka', 'Amount'), 'right'], [_('Způsob', 'Method'), 'left'], [_('Stav', 'State'), 'left'], ['', 'right']]
+      .map(h => ({ label: h[0], style: th(h[1]) }));
+    const payData = [
+      ['PO-2026-08', '19. 8. 2026', 12480, _('bankovní převod', 'bank transfer'), 'paid'],
+      ['PO-2026-07', '18. 7. 2026', 11528, _('bankovní převod', 'bank transfer'), 'paid'],
+      ['PO-2026-06', '19. 6. 2026', 11414, _('bankovní převod', 'bank transfer'), 'paid'],
+      ['PO-2026-05', '20. 5. 2026', 10406, _('zápočet proti faktuře', 'offset against invoice'), 'paid'],
+      [openPayoutNo, '—', balanceNum, _('čeká na žádost', 'awaiting request'), 'open']
+    ];
+    const payRows = payData.map(p => ({
+      id: p[0], date: p[1], amount: this.mny(p[2]), method: p[3],
+      state: p[4] === 'paid' ? _('vyplaceno', 'paid') : _('otevřeno', 'open'),
+      stateStyle: 'font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-family:var(--font-heading,Archivo);font-weight:800;padding:4px 8px;'
+        + (p[4] === 'paid' ? 'border:1px solid rgba(32,30,29,.35);color:rgba(32,30,29,.7)' : 'background:#ec3013;color:#f3f2f2'),
+      action: p[4] === 'paid' ? _('Doklad PDF', 'PDF receipt') : _('Vyplatit', 'Pay out'),
+      on: (e) => { nav(e); p[4] === 'paid'
+        ? this.flash(_('Stahuje se doklad', 'Downloading the receipt'), p[0] + ' — ' + _('samofakturace včetně rozpisu po klientech.', 'self-billed invoice including the per-client breakdown.'))
+        : this.setState({ tab: 'payouts', payAmount: String(balanceNum), payTouched: false }); }
+    }));
+
+    // whitelabel
+    const dom = String(s.wlDomain).trim().toLowerCase();
+    const domOk = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(dom);
+    const wlToggleDefs = [
+      ['hideBrand', _('Skrýt značku Onhost', 'Hide the Onhost brand'), _('V panelu i v e-mailech je vidět vaše jméno. Ve smlouvě a v podmínkách zpracování údajů zůstáváme — to skrýt nelze ani nechceme.', 'Your name appears in the panel and in e-mails. We remain in the contract and the data-processing terms — that cannot and should not be hidden.')],
+      ['ownMail', _('E-maily z vaší domény', 'E-mails from your domain'), _('Systémové zprávy odcházejí jako vy. Potřebujeme SPF a DKIM záznam, jinak skončí ve spamu — a to je horší než naše jméno v odesílateli.', 'System messages go out as you. We need an SPF and DKIM record, otherwise they land in spam — worse than our name in the sender.')],
+      ['ownPrices', _('Vaše ceny', 'Your prices'), _('Klient vidí vaši cenu, my fakturujeme vám. Marži si určujete sami a my ji nikde neukazujeme.', 'The client sees your price, we invoice you. You set the margin and we never show it anywhere.')],
+      ['ownSupport', _('Podpora přes vás', 'Support through you'), _('Tikety chodí nejdřív vám a teprve co nevyřešíte, eskaluje se k nám. Zapněte jen když máte službu v pracovní době — jinak klient čeká.', 'Tickets reach you first and only what you cannot solve escalates to us. Enable only if you staff it during business hours — otherwise the client waits.')]
+    ];
+    const wlToggles = wlToggleDefs.map(w => {
+      const on = !!s.wl[w[0]];
+      return {
+        label: w[1], note: w[2], mark: on ? '✓' : '',
+        boxStyle: 'flex:0 0 auto;width:20px;height:20px;margin-top:2px;border:2px solid #201e1d;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;background:'
+          + (on ? '#ec3013' : 'transparent') + ';color:' + (on ? '#f3f2f2' : 'transparent'),
+        on: () => this.setState(st => ({ wl: Object.assign({}, st.wl, { [w[0]]: !st.wl[w[0]] }) }))
+      };
+    });
+    const brandName = s.wl.hideBrand ? (cs ? 'Atelier Šindelář' : 'Atelier Šindelář') : 'Onhost';
+
+    // assets
+    const base = 'https://onhost.cz/?ref=SINDELAR4821';
+    const utm = [['utm_source', s.utmSource], ['utm_medium', s.utmMedium], ['utm_campaign', s.utmCampaign]]
+      .filter(x => String(x[1]).trim())
+      .map(x => x[0] + '=' + encodeURIComponent(String(x[1]).trim())).join('&');
+    const refUrl = base + (utm ? '&' + utm : '');
+
+    const files = [
+      [_('Logo Onhost — SVG, PNG, mono', 'Onhost logo — SVG, PNG, mono'), 'ZIP · 480 kB'],
+      [_('Bannery 300×250, 728×90, 970×250', 'Banners 300×250, 728×90, 970×250'), 'ZIP · 1,2 MB'],
+      [_('Prezentace pro klienta, 9 slidů', 'Client-facing deck, 9 slides'), 'PDF · 2,4 MB'],
+      [_('Srovnání s konkurencí — čísla k srpnu 2026', 'Competitor comparison — August 2026 figures'), 'PDF · 310 kB'],
+      [_('Popisy služeb pro váš web, bez marketingu', 'Service copy for your site, no marketing fluff'), 'DOCX · 96 kB']
+    ].map(f => ({
+      name: f[0], meta: f[1],
+      on: (e) => { nav(e); this.flash(_('Stahuje se', 'Downloading'), f[0] + ' — ' + _('materiály můžete upravit i použít bez našeho schválení.', 'you may edit and use the materials without our approval.')); }
+    }));
+
+    const claims = [
+      ['ok', _('Smíte tvrdit', 'You may claim'), _('„Servery v Praze a Brně, dostupnost 99,99 % se smluvní pokutou.“ Je to v SLA a měříme to zvenčí.', '“Servers in Prague and Brno, 99.99% uptime with contractual penalties.” It is in the SLA and measured externally.')],
+      ['ok', _('Smíte tvrdit', 'You may claim'), _('„Podpora odpoví do 10 minut, 24/7, česky, člověk.“ Medián je 4 minuty a zveřejňujeme ho každý měsíc.', '“Support answers within 10 minutes, 24/7, in Czech, by a human.” The median is 4 minutes and we publish it monthly.')],
+      ['no', _('Netvrďte', 'Do not claim'), _('„Nulová odstávka.“ Neexistuje a při první poruše vás klient dohoní. Řekněte místo toho, co se stane, když odstávka přijde.', '“Zero downtime.” It does not exist and the first outage will catch you out. Say instead what happens when downtime comes.')],
+      ['no', _('Netvrďte', 'Do not claim'), _('„Data nikdy neopustí Česko.“ Zálohy máme ve dvou zemích a je to lepší, než být v jedné. Nelžete o geografii.', '“Data never leave Czechia.” Backups live in two countries and that is better than one. Do not lie about geography.')]
+    ].map(c => ({
+      tag: c[1], t: c[2],
+      tagStyle: 'font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-family:var(--font-heading,Archivo);font-weight:900;color:' + (c[0] === 'ok' ? '#ae1800' : 'rgba(32,30,29,.55)')
+    }));
+
+    const pages = {
+      overview: { kicker: _('Partnerský program', 'Partner programme'), title: _('Přehled', 'Overview'), lead: _('Objem, provize a stupeň. Čísla jsou stejná, jaká vidíme my — partnerský portál nemá vlastní verzi pravdy.', 'Volume, commission and tier. The figures are the ones we see — the partner portal has no separate version of the truth.') },
+      clients: { kicker: _('Partnerský program', 'Partner programme'), title: _('Klienti', 'Clients'), lead: _('Deset účtů, které jste přivedli. Do panelu klienta můžete vstoupit, ale zapíše se to do jeho auditního logu — tak to má být.', 'Ten accounts you brought in. You can enter a client panel, but it is written to their audit log — as it should be.') },
+      commissions: { kicker: _('Partnerský program', 'Partner programme'), title: _('Provize', 'Commissions'), lead: _('Model si můžete přepnout kdykoli, změna platí od dalšího měsíce. Zpětně nic nepřepočítáváme.', 'Switch the model whenever you like; the change applies from next month. We never recompute retroactively.') },
+      payouts: { kicker: _('Partnerský program', 'Partner programme'), title: _('Výplaty', 'Payouts'), lead: _('Samofakturace: doklad vystavíme za vás, vy ho jen najdete v účetnictví. Žádné faktury na naši adresu nemusíte psát.', 'Self-billing: we issue the document for you, you just find it in your books. No invoices to write to our address.') },
+      whitelabel: { kicker: _('Partnerský program', 'Partner programme'), title: 'Whitelabel', lead: _('Panel na vaší doméně, s vaším logem a vašimi cenami. Naše jméno zůstane jen tam, kde by jeho skrytí bylo lží.', 'The panel on your domain, with your logo and your prices. Our name stays only where hiding it would be a lie.') },
+      assets: { kicker: _('Partnerský program', 'Partner programme'), title: _('Materiály', 'Materials'), lead: _('Odkaz, bannery, texty a čísla, která smíte tvrdit. Včetně toho, co tvrdit nemáte — abyste se nedostali do situace, kterou pak řešíme společně.', 'Link, banners, copy and the figures you may claim. Including what you should not claim — so you avoid a situation we would then handle together.') }
+    };
+
+    return {
+      t, tabs, periods, kpis, tier, top, feed, page: pages[s.tab] || pages.overview,
+      isOverview: s.tab === 'overview', isClients: s.tab === 'clients', isCommissions: s.tab === 'commissions',
+      isPayouts: s.tab === 'payouts', isWhitelabel: s.tab === 'whitelabel', isAssets: s.tab === 'assets',
+      langLabel: cs ? 'CS' : 'EN',
+      toggleLang: () => this.setState({ lang: cs ? 'en' : 'cs' }),
+      nav,
+      flash: s.flash ? { on: true, title: s.flash.title, body: s.flash.body } : { on: false, title: '', body: '' },
+
+      find: s.find, onFind: (e) => this.setState({ find: e.target.value, selId: null }),
+      filters, cols, rows, sel,
+      noRows: rows.length === 0,
+      clientCount: rows.length + ' / ' + clients.length + ' ' + _('klientů', 'clients'),
+
+      models, modelNote, commHead, commRows, rules,
+
+      balance: this.mny(balanceNum),
+      balanceNote: live
+        ? _('ze ' + window.OnhostStore.pl(live.docs, 'zaplaceného dokladu', 'zaplacených dokladů', 'zaplacených dokladů') + ' · sazba ' + rateLabel,
+            'from ' + live.docs + ' paid documents · rate ' + rateLabel)
+        : _('za srpen, k žádosti od 1. září', 'for August, requestable from 1 September'),
+      balanceLines: live ? [
+        { label: _('Provize ze zaplacených faktur', 'Commission on paid invoices'), value: this.mny(live.earned) },
+        { label: _('Zadrženo za nezaplacené', 'Held for unpaid invoices'), value: this.mny(live.held) },
+        { label: _('Základ (zaplaceno / nezaplaceno)', 'Base (paid / unpaid)'), value: this.mny(live.paidBase) + ' / ' + this.mny(live.heldBase) }
+      ] : [
+        { label: _('Provize ze zaplacených faktur', 'Commission on paid invoices'), value: this.mny(11913) },
+        { label: _('Zadrženo za nezaplacené', 'Held for unpaid invoices'), value: this.mny(1901) },
+        { label: _('Vyplaceno letos', 'Paid out this year'), value: this.mny(87340) }
+      ],
+      payAmount: s.payAmount, onPayAmount: (e) => this.setState({ payAmount: e.target.value }),
+      payAmountStyle: inp(amtErr), payAmountErr: amtErr, payAmountErrStyle: errS(amtErr),
+      payIban: s.payIban, onPayIban: (e) => this.setState({ payIban: e.target.value }),
+      payIbanStyle: inp(ibanErr), payIbanErr: ibanErr, payIbanErrStyle: errS(ibanErr),
+      payoutCta: _('Požádat o výplatu', 'Request payout'),
+      submitPayout: (e) => {
+        nav(e);
+        this.setState({ payTouched: true });
+        const a = parseInt(String(s.payAmount).replace(/[^0-9]/g, ''), 10);
+        const ib = String(s.payIban).replace(/\s+/g, '').toUpperCase();
+        if (a >= 1000 && a <= balanceNum && /^CZ\d{22}$/.test(ib)) {
+          this.flash(_('Žádost přijata', 'Request received'), this.mny(a) + ' — ' + _('samofakturaci vystavíme dnes, peníze odejdou do pěti pracovních dnů.', 'we issue the self-billed invoice today, the money leaves within five business days.') + ' ' + _('Potvrzovací mail je předvyplněný v ploše Transakční maily.', 'The confirmation e-mail is prefilled in the transactional mail surface.'));
+          if (window.OnhostStore) {
+            const u = window.OnhostSession && window.OnhostSession.user();
+            const to = (u && u.email) || 'partner@webyhned.cz';
+            const nr = openPayoutNo;
+            window.OnhostStore.queueMail('payout', to, _('Výplata provize ' + nr, 'Commission payout ' + nr),
+              { cislo: nr, castka: this.mny(a), iban: ib }, nr);
+          }
+          if (window.OnhostSession) {
+            const u = window.OnhostSession.user();
+            window.OnhostSession.handoff({
+              kind: 'mail', tpl: 'payout',
+              note: _('Potvrzení výplaty je předvyplněné — zkontrolujte a odešlete.', 'The payout confirmation is prefilled — check and send.'),
+              vars: {
+                castka: this.mny(a), datum: new Date().toLocaleDateString('cs-CZ'),
+                cislo: openPayoutNo,
+                jmeno: (u && u.name) || 'Partner', email: (u && u.email) || 'partner@webyhned.cz'
+              }
+            });
+          }
+        }
+      },
+      payoutAll: (e) => { nav(e); this.setState({ payAmount: String(balanceNum), payTouched: false }); },
+      payHead, payRows,
+
+      wlDomain: s.wlDomain, onWlDomain: (e) => this.setState({ wlDomain: e.target.value, wlVerified: false }),
+      wlStyle: inp(s.wlErr), wlErr: s.wlErr, wlErrStyle: errS(s.wlErr),
+      wlRecord: (domOk ? dom : 'panel.vasefirma.cz') + '.   300  IN  CNAME  wl.onhost.cz.\n_onhost-wl.' + (domOk ? dom : 'panel.vasefirma.cz') + '.   300  IN  TXT   "verify=4821-6f2a91c4"',
+      wlVerify: (e) => {
+        nav(e);
+        if (!domOk) { this.setState({ wlErr: _('Zadejte doménu ve tvaru panel.vasefirma.cz.', 'Enter a domain like panel.yourcompany.com.'), wlVerified: false }); return; }
+        this.setState({ wlErr: '', wlVerified: true });
+        this.flash(_('Doména ověřena', 'Domain verified'), dom + ' — ' + _('certifikát vydáme do dvou minut, pak je panel dostupný. Starou adresu držíme dál, aby se nikomu nerozbil odkaz.', 'the certificate is issued within two minutes, then the panel is live. We keep the old address so nobody’s link breaks.'));
+      },
+      wlState: s.wlVerified ? _('Ověřeno · certifikát vydán', 'Verified · certificate issued') : _('Neověřeno — záznam ještě nevidíme', 'Not verified — we do not see the record yet'),
+      wlStateStyle: 'font-size:12px;font-family:var(--font-heading,Archivo);font-weight:700;color:' + (s.wlVerified ? '#ae1800' : 'rgba(32,30,29,.6)'),
+      wlToggles,
+      previewBrand: brandName,
+      previewDomain: domOk ? dom : 'panel.vasefirma.cz',
+      previewBarStyle: 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:2px solid #201e1d;background:' + (s.wl.hideBrand ? '#201e1d' : '#ec3013') + ';color:#f3f2f2',
+      previewFooter: s.wl.ownPrices ? _('Ceny a faktury vaše. Klient nezná naši cenu.', 'Your prices and invoices. The client never sees ours.') : _('Ceny naše. Klient vidí náš ceník i naši fakturu.', 'Our prices. The client sees our price list and our invoice.'),
+
+      utmSource: s.utmSource, onUtmSource: (e) => this.setState({ utmSource: e.target.value, copied: false }),
+      utmMedium: s.utmMedium, onUtmMedium: (e) => this.setState({ utmMedium: e.target.value, copied: false }),
+      utmCampaign: s.utmCampaign, onUtmCampaign: (e) => this.setState({ utmCampaign: e.target.value, copied: false }),
+      refUrl,
+      copyLabel: s.copied ? _('Zkopírováno', 'Copied') : _('Kopírovat', 'Copy'),
+      copyRef: (e) => {
+        nav(e);
+        if (navigator.clipboard) navigator.clipboard.writeText(refUrl).catch(() => {});
+        this.setState({ copied: true });
+        clearTimeout(this.copyT);
+        this.copyT = setTimeout(() => this.setState({ copied: false }), 1800);
+      },
+      files, claims
+    };
+  }
+}
+
+</script>
+</body>
+</html>

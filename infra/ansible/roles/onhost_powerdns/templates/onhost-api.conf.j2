@@ -1,0 +1,14 @@
+# Managed by ONhost (role onhost_powerdns) — the control plane's API access and the secondary NOTIFY set.
+api=yes
+api-key={{ pdns_api_key }}
+webserver=yes
+webserver-address={{ api_listen.split(':')[0] }}
+webserver-port={{ api_listen.split(':')[1] }}
+webserver-allow-from={{ api_allow_from | join(',') }}
+{% if allow_notify_from | length > 0 %}
+allow-notify-from={{ allow_notify_from | join(',') }}
+{% endif %}
+{% if also_notify | length > 0 %}
+also-notify={{ also_notify | join(',') }}
+{% endif %}
+default-soa-edit=INCEPTION-INCREMENT

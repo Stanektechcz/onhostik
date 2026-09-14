@@ -1,0 +1,25 @@
+---
+- name: Prepare a stub mysql client
+  hosts: all
+  become: true
+  tasks:
+    - name: Install the stub (records statements; the count answers 0 until an INSERT was seen)
+      ansible.builtin.copy:
+        dest: /usr/local/bin/mysql
+        mode: "0755"
+        content: |
+          #!/bin/sh
+          # stub for the MariaDB client (molecule only)
+          log=/var/log/mysql-stub.log; state=/var/lib/mysql-stub; mkdir -p "$state"
+          stmt=""; while [ $# -gt 0 ]; do case "$1" in -e) stmt="$2"; shift ;; esac; shift; done
+          echo "$stmt" >> "$log"
+          case "$stmt" in
+            *"SELECT COUNT"*) [ -f "$state/inserted" ] && echo 1 || echo 0 ;;
+            *"INSERT INTO remote_user"*) touch "$state/inserted" ;;
+          esac
+          exit 0
+    - name: Fake defaults file
+      ansible.builtin.copy:
+        dest: /etc/mysql-stub.cnf
+        mode: "0600"
+        content: "[client]\n"

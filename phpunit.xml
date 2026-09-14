@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         failOnWarning="true"
+>
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+        <testsuite name="Contract">
+            <directory>tests/Contract</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+            <directory>domains</directory>
+            <directory>providers</directory>
+            <directory>platform</directory>
+        </include>
+    </source>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="ONHOST_STAFF_MFA_REQUIRED" value="true"/>
+        <env name="ONHOST_UI_DEMO" value="false"/>
+        <env name="ONHOST_SECRETS_DRIVER" value="env"/>
+        <env name="APP_KEY" value="base64:Gk2rQ0mQ8x2kQ6c1a1v0pYQ7Gz8s9J4c3v1n0b5m6L8="/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="BROADCAST_CONNECTION" value="null"/>
+        <env name="CACHE_STORE" value="array"/>
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
+        <env name="DB_URL" value=""/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="ONHOST_OUTBOX_EAGER" value="false"/>
+        <env name="SESSION_DRIVER" value="array"/>
+        <env name="ONHOST_SECRETS_DRIVER" value="env"/>
+        <env name="ONHOST_DEMO_MODE" value="false"/>
+        <env name="WEDOS_TEST_MODE" value="true"/>
+        <env name="PULSE_ENABLED" value="false"/>
+        <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="NIGHTWATCH_ENABLED" value="false"/>
+    </php>
+</phpunit>

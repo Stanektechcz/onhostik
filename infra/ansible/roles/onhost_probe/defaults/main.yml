@@ -1,0 +1,12 @@
+---
+# ONhost availability probe (audit §5o-3): an external location that measures the public endpoints and posts results.
+api: "https://onhost.cz/v1/probes/results"
+probe_token: "change-me"                 # the probe's bearer token (SlaProbe), vault it
+probe_location: "{{ inventory_hostname }}"
+interval_seconds: 60
+targets:
+  - "https://onhost.cz/up"
+  - "https://onhost.cz/v1/status"
+  - "dns://onhost.cz/SOA"
+probe_bin: /usr/local/bin/onhost-probe.sh
+probe_env: /etc/onhost-probe.env

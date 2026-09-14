@@ -1,0 +1,47 @@
+---
+# ONhost Proxmox API access (audit §5o-3): idempotent pveum calls — the role with the listed privileges, the user, the ACL
+# on the path, and a token (created once; its secret goes to the platform's secret store, never to a file).
+- name: List the roles
+  ansible.builtin.command: "{{ pveum_bin }} role list --output-format json"
+  register: onhost_pve_roles
+  changed_when: false
+
+- name: Create the control-plane role
+  ansible.builtin.command: "{{ pveum_bin }} role add {{ token_role }} --privs {{ privileges | join(',') | quote }}"
+  when: (onhost_pve_roles.stdout | from_json | map(attribute='roleid') | list) is not contains(token_role)
+  changed_when: true
+
+- name: Keep the role's privileges in sync
+  ansible.builtin.command: "{{ pveum_bin }} role modify {{ token_role }} --privs {{ privileges | join(',') | quote }}"
+  when: (onhost_pve_roles.stdout | from_json | map(attribute='roleid') | list) is contains(token_role)
+  changed_when: false
+
+- name: List the users
+  ansible.builtin.command: "{{ pveum_bin }} user list --output-format json"
+  register: onhost_pve_users
+  changed_when: false
+
+- name: Create the control-plane user
+  ansible.builtin.command: "{{ pveum_bin }} user add {{ token_user }} --comment 'ONhost control plane'"
+  when: (onhost_pve_users.stdout | from_json | map(attribute='userid') | list) is not contains(token_user)
+  changed_when: true
+
+- name: Grant the role on the path
+  ansible.builtin.command: "{{ pveum_bin }} acl modify {{ acl_path }} --users {{ token_user }} --roles {{ token_role }}"
+  changed_when: false
+
+- name: List the user's tokens
+  ansible.builtin.command: "{{ pveum_bin }} user token list {{ token_user }} --output-format json"
+  register: onhost_pve_tokens
+  changed_when: false
+
+- name: Create the API token (once)
+  ansible.builtin.command: "{{ pveum_bin }} user token add {{ token_user }} {{ token_id }} --privsep {{ token_privsep }} --output-format json"
+  when: (onhost_pve_tokens.stdout | from_json | map(attribute='tokenid') | list) is not contains(token_id)
+  register: onhost_pve_token
+  changed_when: true
+  no_log: true
+
+- name: Tell the operator where the secret goes (the value itself is shown once by pveum, never stored here)
+  ansible.builtin.debug:
+    msg: "Token {{ token_user }}!{{ token_id }} {{ 'created — store it now: php artisan onhost:integrations:secret <instance> token --check' if onhost_pve_token is changed else 'already exists' }}"

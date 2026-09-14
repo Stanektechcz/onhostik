@@ -1,0 +1,11 @@
+---
+# ONhost node activation (audit §5p-7): the last play on a vendor-ordered node — the hypervisor is installed, the node
+# tells the platform so with the one-time activation token the readiness call-back handed out.
+onhost_activate_url: ""      # https://cp.onhost.cz/v1/probes/capacity/<request>/activate (from the readiness answer / the console)
+onhost_activate_token: ""    # the one-time activation token (vault it or pass it with --extra-vars)
+onhost_activate_facts:
+  hostname: "{{ inventory_hostname }}"
+  ip: "{{ ansible_default_ipv4.address | default('') }}"
+  os: "{{ ansible_distribution | default('') }} {{ ansible_distribution_version | default('') }}"
+  cpu_cores: "{{ ansible_processor_vcpus | default(0) }}"
+  ram_mb: "{{ ansible_memtotal_mb | default(0) }}"

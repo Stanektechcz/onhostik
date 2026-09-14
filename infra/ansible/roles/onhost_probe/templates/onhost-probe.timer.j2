@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the ONhost availability probe every {{ interval_seconds }} seconds
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec={{ interval_seconds }}
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target

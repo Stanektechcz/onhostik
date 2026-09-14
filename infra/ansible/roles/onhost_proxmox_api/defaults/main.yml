@@ -1,0 +1,27 @@
+---
+# ONhost Proxmox API access (audit §5o-3): a least-privilege role, user and token for the control plane
+# (docs/provider-adapters/proxmox.md). The token secret is printed once; store it with `onhost:integrations:secret`.
+token_user: "onhost@pve"
+token_role: "OnhostControlPlane"
+token_id: "cp"
+token_privsep: 0
+privileges:
+  - VM.Allocate
+  - VM.Clone
+  - VM.Config.CPU
+  - VM.Config.Memory
+  - VM.Config.Disk
+  - VM.Config.Network
+  - VM.Config.Cloudinit
+  - VM.Config.Options
+  - VM.PowerMgmt
+  - VM.Console
+  - VM.Migrate
+  - VM.Snapshot
+  - VM.Backup
+  - Datastore.AllocateSpace
+  - Datastore.Audit
+  - Sys.Audit
+  - SDN.Use
+acl_path: "/"
+pveum_bin: pveum

@@ -1,0 +1,73 @@
+name: e2e smoke
+
+# Browser smoke of the public journey and the client panel (Playwright, tests/e2e). Runs against a freshly migrated
+# and seeded SQLite database served by `php artisan serve`; the queue is synchronous so no worker is needed.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, intl, sqlite3, pdo_sqlite, gd, bcmath, sodium
+          coverage: none
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare the application
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          touch database/database.sqlite
+          php artisan migrate --force --seed
+          php artisan db:seed --class=NotificationTemplateSeeder --force
+          php artisan db:seed --class=DevAccountSeeder --force   # demo@onhost.cz with services (the signed-in panel spec)
+        env:
+          APP_ENV: local
+          APP_URL: http://127.0.0.1:8001
+          DB_CONNECTION: sqlite
+          DB_DATABASE: database/database.sqlite
+          QUEUE_CONNECTION: sync
+          MAIL_MAILER: log
+          WEDOS_TEST_MODE: 'true'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Playwright
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Run the smoke
+        run: npx playwright test
+        env:
+          CI: 'true'
+          E2E_START_SERVER: '1'
+          E2E_BASE_URL: http://127.0.0.1:8001
+          APP_ENV: local
+          APP_URL: http://127.0.0.1:8001
+          DB_CONNECTION: sqlite
+          DB_DATABASE: database/database.sqlite
+          QUEUE_CONNECTION: sync
+          MAIL_MAILER: log
+          WEDOS_TEST_MODE: 'true'
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 7

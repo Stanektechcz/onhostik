@@ -1,0 +1,28 @@
+---
+# Molecule for onhost_node_activate (audit §5p-7): a stub platform endpoint in the container answers the activation call.
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: onhost-node-activate
+    image: docker.io/geerlingguy/docker-debian12-ansible:latest
+    command: ""
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+provisioner:
+  name: ansible
+  inventory:
+    group_vars:
+      all:
+        onhost_activate_url: "http://127.0.0.1:8099/v1/probes/capacity/capr_molecule/activate"
+        onhost_activate_token: "na_molecule-token"
+  playbooks:
+    prepare: prepare.yml
+    converge: converge.yml
+    verify: verify.yml
+verifier:
+  name: ansible

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="csrf-token" content="{{ $csrf }}">
+<title>Konzole · {{ $service->label ?: $service->name }}</title>
+<style>
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f4f2ef; color: #201e1d; }
+  main { max-width: 1100px; margin: 3vh auto; background: #fff; border: 1px solid #e3ded8; border-radius: 12px; padding: 22px 26px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .muted { color: #6f6862; font-size: 13px; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; align-items: center; }
+  button { padding: 8px 14px; border: 2px solid #201e1d; border-radius: 8px; background: #fff; color: #201e1d; font-weight: 700; font-size: 13px; cursor: pointer; }
+  button.primary { background: #ec3013; border-color: #ec3013; color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  pre { background: #1c1b1a; color: #e8e4de; border-radius: 10px; padding: 14px; height: 52vh; overflow: auto; font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; margin: 0; }
+  form { display: flex; gap: 8px; margin-top: 10px; }
+  input { flex: 1; padding: 10px; border: 1px solid #c9c2ba; border-radius: 8px; font: 14px ui-monospace, Menlo, Consolas, monospace; }
+  .state { display: inline-block; padding: 2px 8px; border-radius: 6px; background: #eee8e0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+  .msg { font-size: 13px; margin-top: 8px; min-height: 18px; }
+  .msg.err { color: #b3261e; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Konzole · {{ $service->label ?: $service->name }} <span class="state" id="state">{{ strtolower($service->state) }}</span></h1>
+  <div class="muted">{{ $organization?->name ?? '—' }} · {{ $service->product_key }} · {{ $service->region_code }}@if($node) · uzel {{ $node->name }}@endif · {{ $service->hostname ?? '' }}</div>
+  <div class="bar">
+    @if ($canPower)
+      <button class="primary" data-power="start">Start</button>
+      <button data-power="reboot">Restart</button>
+      <button data-power="stop">Stop</button>
+      <button data-power="kill">Kill</button>
+    @endif
+    <button id="refresh">Obnovit log</button>
+    <button id="live">Živá konzole (token)</button>
+    <label class="muted"><input type="checkbox" id="auto" checked style="width:auto;flex:none"> obnovovat každých 5 s</label>
+  </div>
+  <pre id="log">načítám…</pre>
+  @if ($canCommand)
+    <form id="cmd"><input id="line" placeholder="příkaz konzole, např. list · say Ahoj · op Hrac" autocomplete="off"><button class="primary" type="submit">Odeslat</button></form>
+  @endif
+  <div class="msg" id="msg"></div>
+  <p class="muted">Vše jde přes zákaznické API služby s hlavičkou organizace; každá akce je v auditu. Výstup příkazu se objeví v logu serveru.</p>
+</main>
+<script>
+(function () {
+  var sid = @json($service->id), org = @json($service->organization_id), csrf = document.querySelector('meta[name=csrf-token]').content;
+  var logEl = document.getElementById('log'), msg = document.getElementById('msg'), stateEl = document.getElementById('state');
+  function key() { return 'staff-console-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8); }
+  function api(method, path, body) {
+    return fetch('/v1' + path, { method: method, credentials: 'same-origin', headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf, 'X-Requested-With': 'XMLHttpRequest', 'X-Organization': org, 'Idempotency-Key': key() }, body: body ? JSON.stringify(body) : undefined })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.message || j.error || ('HTTP ' + r.status)); return j.data !== undefined ? j.data : j; }); });
+  }
+  function say(text, err) { msg.textContent = text; msg.className = 'msg' + (err ? ' err' : ''); }
+  function loadLog() {
+    api('GET', '/services/' + encodeURIComponent(sid) + '/logs?lines=300').then(function (d) {
+      var lines = d.lines || [];
+      var stick = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 30;
+      logEl.textContent = Array.isArray(lines) ? lines.join('\n') : String(lines);
+      if (stick) logEl.scrollTop = logEl.scrollHeight;
+    }).catch(function (e) { logEl.textContent = 'Log nelze načíst: ' + e.message; });
+    api('GET', '/services/' + encodeURIComponent(sid)).then(function (d) { if (d && d.state) stateEl.textContent = String(d.ui || d.state).toLowerCase(); }).catch(function () {});
+  }
+  document.querySelectorAll('button[data-power]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var pa = b.getAttribute('data-power');
+      if (pa === 'kill' && !window.confirm('Kill zabije proces bez uložení. Pokračovat?')) return;
+      b.disabled = true;
+      api('POST', '/services/' + encodeURIComponent(sid) + '/actions', { action: 'power', params: { power_action: pa } }).then(function (d) { say('Napájení: ' + pa + ' · operace ' + (d.operation_id || '')); setTimeout(loadLog, 2500); }).catch(function (e) { say(e.message, true); }).then(function () { b.disabled = false; });
+    });
+  });
+  var form = document.getElementById('cmd');
+  if (form) form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var line = document.getElementById('line').value.trim(); if (!line) return;
+    api('POST', '/services/' + encodeURIComponent(sid) + '/actions', { action: 'command.send', params: { command: line } }).then(function (d) { say('Odesláno: ' + line + ' · operace ' + (d.operation_id || '')); document.getElementById('line').value = ''; setTimeout(loadLog, 2500); }).catch(function (e) { say(e.message, true); });
+  });
+  document.getElementById('refresh').addEventListener('click', loadLog);
+  document.getElementById('live').addEventListener('click', function () {
+    api('POST', '/services/' + encodeURIComponent(sid) + '/console-token', {}).then(function (d) { say('Živá konzole (' + (d.kind || '') + '): token ' + (d.token || '') + (d.url ? ' · ' + d.url : '') + ' · platí do ' + (d.expires_at || '')); }).catch(function (e) { say(e.message, true); });
+  });
+  loadLog();
+  setInterval(function () { if (document.getElementById('auto').checked) loadLog(); }, 5000);
+})();
+</script>
+</body>
+</html>

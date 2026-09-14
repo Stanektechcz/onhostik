@@ -1,0 +1,6 @@
+---
+- name: restart pdns
+  ansible.builtin.service:
+    name: "{{ pdns_service }}"
+    state: restarted
+  failed_when: false

@@ -1,0 +1,29 @@
+---
+# Molecule for onhost_powerdns (audit §5o-3): a Debian container installs the server, the drop-in is rendered and checked.
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: onhost-powerdns
+    image: docker.io/geerlingguy/docker-debian12-ansible:latest
+    command: ""
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+provisioner:
+  name: ansible
+  inventory:
+    group_vars:
+      all:
+        pdns_api_key: molecule-test-key
+        api_listen: "127.0.0.1:8081"
+        allow_notify_from: ["203.0.113.10", "203.0.113.11"]
+        also_notify: ["203.0.113.10"]
+  playbooks:
+    converge: converge.yml
+    verify: verify.yml
+verifier:
+  name: ansible

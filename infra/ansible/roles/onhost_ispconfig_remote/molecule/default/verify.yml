@@ -1,0 +1,33 @@
+---
+- name: Verify the remote user statements
+  hosts: all
+  become: true
+  tasks:
+    - name: Read the stub log
+      ansible.builtin.slurp:
+        src: /var/log/mysql-stub.log
+      register: log
+
+    - name: The user was inserted with the function groups and a hashed password
+      ansible.builtin.assert:
+        that:
+          - "'INSERT INTO remote_user' in (log.content | b64decode)"
+          - "\"'onhost-cp'\" in (log.content | b64decode)"
+          - "'client_functions,sites_functions,mail_functions,dns_functions,server_functions' in (log.content | b64decode)"
+          - "'$6$' in (log.content | b64decode)"
+          - "'molecule-remote-password' not in (log.content | b64decode)"
+
+    - name: Run the role again
+      ansible.builtin.include_role:
+        name: onhost_ispconfig_remote
+
+    - name: Re-read the stub log
+      ansible.builtin.slurp:
+        src: /var/log/mysql-stub.log
+      register: log2
+
+    - name: The second run updated instead of inserting again
+      ansible.builtin.assert:
+        that:
+          - "(log2.content | b64decode | regex_findall('INSERT INTO remote_user')) | length == 1"
+          - "'UPDATE remote_user SET remote_functions' in (log2.content | b64decode)"
