@@ -1,0 +1,10 @@
+# Grafana dashboard provisioning: every JSON under infra/monitoring/grafana/dashboards is loaded as-is.
+apiVersion: 1
+providers:
+  - name: onhost
+    folder: ONhost
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

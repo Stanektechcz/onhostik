@@ -1,0 +1,31 @@
+# Alertmanager for the ONhost rules (infra/monitoring/slo-alerts.yml): `page` reaches the on-call pager, `ticket` the
+# operations mailbox. Fill the receiver secrets from the same store as ONHOST_ONCALL_* (never commit them).
+global:
+  resolve_timeout: 5m
+route:
+  receiver: ops-mail
+  group_by: [alertname, component]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: ['severity = page']
+      receiver: pager
+      repeat_interval: 1h
+receivers:
+  - name: pager
+    webhook_configs:
+      - url: https://onhost.cz/v1/webhooks/alertmanager   # the platform opens one on-call alert per firing rule (and pages through ONHOST_ONCALL_PROVIDER)
+        send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager/oncall.token  # ONHOST_ONCALL_INBOUND_SECRET
+  - name: ops-mail
+    email_configs:
+      - to: provoz@onhost.cz
+        from: alerts@onhost.cz
+        smarthost: mail.onhost.cz:587
+        auth_username: alerts@onhost.cz
+        auth_password_file: /etc/alertmanager/smtp.password
+        send_resolved: true

@@ -100,6 +100,12 @@ final class OnCallController extends ApiController
         return $this->dispatch(new OnCallCommand($this->idempotencyKey($request, "oncall.shift.remove:{$shift}"), ['op' => 'shift.remove', 'shift_id' => $shift]), $this->api->context($request));
     }
 
+    /** Alertmanager's webhook (no session; bearer = ONHOST_ONCALL_INBOUND_SECRET): Prometheus rules become on-call alerts. */
+    public function alertmanager(Request $request, OnCallService $oncall): JsonResponse
+    {
+        return response()->json(['data' => $oncall->fromAlertmanager($request)], 202);
+    }
+
     /** The pager's own webhook (no session): PagerDuty v3 signature or the inbound token decide. */
     public function inbound(Request $request, OnCallService $oncall, string $provider): JsonResponse
     {

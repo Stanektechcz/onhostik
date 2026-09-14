@@ -210,6 +210,46 @@ final class OnCallService
         return ['handled' => true, 'alert' => $alert->id, 'action' => $action];
     }
 
+    /**
+     * Alertmanager's webhook (infra/monitoring/alertmanager.yml → `POST /v1/webhooks/alertmanager`, bearer =
+     * `ONHOST_ONCALL_INBOUND_SECRET`): every firing Prometheus rule opens one on-call alert (dedup = the rule and its
+     * labels), a resolved one closes it — so paging, escalation and the rota work the same for platform metrics as for
+     * the platform's own events.
+     *
+     * @return array{opened:int, resolved:int, ignored:int}
+     */
+    public function fromAlertmanager(Request $request): array
+    {
+        $secret = (string) config('onhost.oncall.inbound_secret', '');
+        if ($secret === '' || ! hash_equals($secret, (string) $request->bearerToken())) {
+            throw new DomainError('oncall_inbound_unauthorized', 'The alert call-back is not signed for this platform.', 401);
+        }
+        $stats = ['opened' => 0, 'resolved' => 0, 'ignored' => 0];
+        foreach (array_slice((array) $request->input('alerts', []), 0, 200) as $alert) {
+            $labels = (array) ($alert['labels'] ?? []);
+            $name = (string) ($labels['alertname'] ?? '');
+            if ($name === '') {
+                $stats['ignored']++;
+
+                continue;
+            }
+            $subject = collect($labels)->except(['alertname', 'severity', 'job', 'instance', 'prometheus'])->map(fn ($v, $k) => "{$k}={$v}")->sort()->implode(',') ?: 'platform';
+            if (($alert['status'] ?? 'firing') === 'resolved') {
+                $this->resolveByDedup(self::dedupKey('prometheus.'.$name, 'metric', $subject), 'alertmanager') !== null ? $stats['resolved']++ : $stats['ignored']++;
+
+                continue;
+            }
+            $annotations = (array) ($alert['annotations'] ?? []);
+            $severity = match ((string) ($labels['severity'] ?? '')) {
+                'page' => 'hot', 'ticket' => 'warn', default => 'info'
+            };
+            $this->open('prometheus.'.$name, 'metric', $subject, mb_substr((string) ($annotations['summary'] ?? $name), 0, 250), mb_substr(trim(((string) ($annotations['description'] ?? '')).' '.$subject.(isset($annotations['runbook']) ? ' · '.$annotations['runbook'] : '')), 0, 1000), '/sprava#/incidents', $severity);
+            $stats['opened']++;
+        }
+
+        return $stats;
+    }
+
     /** The pager behind the configuration, built once per process; null without one (console-only). */
     public function provider(): ?OnCallProvider
     {

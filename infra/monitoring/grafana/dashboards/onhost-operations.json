@@ -1,0 +1,67 @@
+{
+  "title": "ONhost · provoz",
+  "uid": "onhost-operations",
+  "tags": ["onhost"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    { "type": "stat", "title": "Chybovost HTTP (5 min)", "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 }, "datasource": { "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "onhost:http_error_ratio:5m * 100" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 3, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.05 }, { "color": "red", "value": 0.72 }] } } } },
+    { "type": "stat", "title": "Outbox – stáří nejstarší zprávy", "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 }, "datasource": { "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "onhost_outbox_pending_oldest_seconds" }],
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 60 }, { "color": "red", "value": 120 }] } } } },
+    { "type": "stat", "title": "Plánovač / worker", "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 }, "datasource": { "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "onhost_automation_alive", "legendFormat": "{{machine}}" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "NEBĚŽÍ", "color": "red" }, "1": { "text": "běží", "color": "green" } } }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } } },
+    { "type": "stat", "title": "Ověřená záloha platformy", "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 }, "datasource": { "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "(time() - onhost_platform_backup_verified_timestamp) / 3600" }],
+      "fieldConfig": { "defaults": { "unit": "h", "decimals": 1, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 24 }, { "color": "red", "value": 26 }] } } } },
+    { "type": "stat", "title": "Otevřené incidenty", "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 }, "datasource": { "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(onhost_open_incidents) or vector(0)" }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } } },
+    { "type": "stat", "title": "On-call: nepotvrzené alerty", "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 }, "datasource": { "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(onhost_oncall_alerts_active{state!=\"acked\"}) or vector(0)" }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 3 }] } } } },
+
+    { "type": "timeseries", "title": "HTTP požadavky za sekundu podle třídy stavu", "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 }, "datasource": { "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (status) (rate(onhost_http_requests_total[5m]))", "legendFormat": "{{status}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps" } } },
+    { "type": "timeseries", "title": "Průměrná doba požadavku", "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 }, "datasource": { "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "onhost_http_request_avg_ms", "legendFormat": "{{family}}" }],
+      "fieldConfig": { "defaults": { "unit": "ms" } } },
+
+    { "type": "timeseries", "title": "Provisioning – operace podle stavu", "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 }, "datasource": { "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "onhost_operations_total", "legendFormat": "{{state}}" }] },
+    { "type": "timeseries", "title": "Fronta – čekající a selhané joby, backlog", "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 }, "datasource": { "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "onhost_queue_jobs_pending", "legendFormat": "čeká" },
+        { "refId": "B", "expr": "onhost_queue_jobs_failed_total", "legendFormat": "selhalo" },
+        { "refId": "C", "expr": "sum(onhost_operations_backlog) or vector(0)", "legendFormat": "backlog operací" }
+      ] },
+
+    { "type": "table", "title": "Integrace – zdraví a chybovost za hodinu", "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 }, "datasource": { "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "onhost_provider_health == 1", "format": "table", "instant": true },
+        { "refId": "B", "expr": "onhost_provider_error_rate_1h", "format": "table", "instant": true }
+      ],
+      "transformations": [{ "id": "merge" }, { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true } } }] },
+    { "type": "timeseries", "title": "Externí sondy – čas od posledního hlášení", "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 }, "datasource": { "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "time() - onhost_probe_last_seen_timestamp", "legendFormat": "{{probe}}" }],
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 600 }] } } } },
+
+    { "type": "stat", "title": "Stavová stránka – komponenty", "gridPos": { "x": 0, "y": 28, "w": 8, "h": 5 }, "datasource": { "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "onhost_status_component_operational", "legendFormat": "{{component}}" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "výpadek", "color": "red" }, "1": { "text": "OK", "color": "green" } } }] } } },
+    { "type": "stat", "title": "Kredit u registrátorů (CZK)", "gridPos": { "x": 8, "y": 28, "w": 8, "h": 5 }, "datasource": { "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "onhost_registrar_credit_czk", "legendFormat": "{{registrar}}" }],
+      "fieldConfig": { "defaults": { "unit": "currencyCZK", "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 20000 }, { "color": "green", "value": 50000 }] } } } },
+    { "type": "stat", "title": "Upomínky / antivir", "gridPos": { "x": 16, "y": 28, "w": 8, "h": 5 }, "datasource": { "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "onhost_dunning_open", "legendFormat": "otevřené upomínky" },
+        { "refId": "B", "expr": "onhost_virus_scanner_up", "legendFormat": "clamd" }
+      ] }
+  ]
+}

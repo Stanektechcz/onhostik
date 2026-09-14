@@ -92,6 +92,10 @@ services:
       test: ["CMD", "clamdcheck.sh"]
       interval: 60s
       retries: 5
+  alertmanager: # pages and tickets from the Prometheus rules (infra/monitoring/alertmanager.yml)
+    image: prom/alertmanager:v0.27.0
+    volumes: ["./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro"]
+    ports: ["9093:9093"]
   otel-collector: # OTLP/HTTP receiver in front of Tempo (audit §5u-2)
     image: otel/opentelemetry-collector-contrib:0.108.0
     command: ["--config=/etc/otel/config.yaml"]
@@ -105,7 +109,10 @@ services:
     image: grafana/grafana:11.2.0
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
-    volumes: ["./monitoring/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/onhost.yaml:ro"]
+    volumes:
+      - ./monitoring/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/onhost.yaml:ro
+      - ./monitoring/grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/onhost.yaml:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports: ["3000:3000"]
     depends_on: [tempo, prometheus]
 

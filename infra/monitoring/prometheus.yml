@@ -5,6 +5,13 @@ global:
 rule_files:
   - /etc/prometheus/slo-alerts.yml
 
+# Alertmanager routes `severity: page` to the pager (PagerDuty/Opsgenie — the same provider ONHOST_ONCALL_PROVIDER uses)
+# and `severity: ticket` to the operations mailbox; see alertmanager.yml.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
 scrape_configs:
   # /healthz = readiness (DB, cache, outbox lag), /metrics = Prometheus exporter (HTTP counters, outbox lag, operations,
   # provider health, registrar credit, probes, status components, dunning) — see App\Http\Controllers\Web\HealthController.

@@ -75,7 +75,7 @@ it('renews a monthly listing from credit, books the partner share per period and
     expect($marketplace->renewDue($later))->toMatchArray(['renewed' => 1, 'failed' => 0, 'ended' => 0]);
     expect($posted())->toBe(500000 - 2 * 121000)->and($subscription->refresh()->current_period_end->toDateString())->toBe(now()->addMonths(2)->toDateString())->and($subscription->renewal_failures)->toBe(0);
     expect(Invoice::query()->where('organization_id', $org->id)->where('type', 'statement')->where('state', Invoice::PAID)->count())->toBe(1);
-    expect(PartnerCommission::query()->where('partner_id', $partner->id)->where('kind', 'marketplace')->sum('amount_minor'))->toBe(160000);
+    expect((int) PartnerCommission::query()->where('partner_id', $partner->id)->where('kind', 'marketplace')->sum('amount_minor'))->toBe(160000);
     app(OutboxPublisher::class)->relayPending();
     expect(Notification::query()->where('organization_id', $org->id)->where('event', 'marketplace.renewed')->exists())->toBeTrue();
     expect($marketplace->renewDue($later))->toBe(['renewed' => 0, 'failed' => 0, 'ended' => 0]); // idempotent within the period

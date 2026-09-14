@@ -81,6 +81,7 @@ Route::middleware('throttle:public')->group(function (): void {
 
     Route::post('webhooks/payments/{provider}', [PaymentController::class, 'webhook'])->withoutMiddleware('throttle:public');
     Route::get('oncall/feed/{token}.ics', [OnCallController::class, 'feed'])->where('token', '[a-f0-9]{48}')->middleware('throttle:probes'); // the rota for a calendar app (audit §5u-4)
+    Route::post('webhooks/alertmanager', [OnCallController::class, 'alertmanager'])->withoutMiddleware('throttle:public')->middleware('throttle:probes'); // Prometheus rules → on-call alerts (infra/monitoring/alertmanager.yml)
     Route::post('webhooks/oncall/{provider}', [OnCallController::class, 'inbound'])->withoutMiddleware('throttle:public')->middleware('throttle:probes'); // the pager acknowledged / resolved on its side (audit §5q-1)
     Route::post('hooks/deploy/{source}', [WebToolsController::class, 'hook'])->middleware('throttle:auth'); // git push notifications (HMAC-signed)
     Route::post('hooks/run/{token}', [IntegrationController::class, 'runHook'])->middleware('throttle:auth'); // action hooks (token in the URL)

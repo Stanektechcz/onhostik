@@ -52,6 +52,31 @@ groups:
         expr: onhost_registrar_credit_czk < 20000
         labels: { severity: ticket }
         annotations: { summary: "WEDOS credit below reserve — renewals at risk", runbook: docs/runbooks/domains-registrar.md }
+      - alert: OnhostBackupStale
+        expr: time() - onhost_platform_backup_verified_timestamp > 26 * 3600
+        for: 30m
+        labels: { severity: page }
+        annotations: { summary: "No verified platform backup for 26 h", runbook: docs/runbooks/go-live-checklist.md }
+      - alert: OnhostAutomationDead
+        expr: onhost_automation_alive == 0
+        for: 5m
+        labels: { severity: page }
+        annotations: { summary: "{{ $labels.machine }} heartbeat missing — renewals, provisioning and notifications stop", runbook: docs/runbooks/provisioning-queue.md }
+      - alert: OnhostVirusScannerDown
+        expr: onhost_virus_scanner_up == 0
+        for: 15m
+        labels: { severity: ticket }
+        annotations: { summary: "clamd unreachable — uploads wait for the scan" }
+      - alert: OnhostOnCallUnacknowledged
+        expr: onhost_oncall_alerts_active{state="escalated"} > 0
+        for: 10m
+        labels: { severity: page }
+        annotations: { summary: "An escalated on-call alert is still unacknowledged", runbook: docs/runbooks/incident-response.md }
+      - alert: OnhostNobodyOnCall
+        expr: onhost_oncall_assigned == 0
+        for: 1h
+        labels: { severity: ticket }
+        annotations: { summary: "The on-call rota has nobody on shift" }
       - alert: OnhostProbesSilent
         expr: time() - onhost_probe_last_seen_timestamp > 600
         for: 10m

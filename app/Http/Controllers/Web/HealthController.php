@@ -15,10 +15,13 @@ use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Domains\Models\RegistrarCreditSnapshot;
 use Onhost\Domain\Domains\RegistrarPricing;
 use Onhost\Domain\Incidents\Models\SlaProbe;
+use Onhost\Domain\Incidents\OnCallRota;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Files\VirusScanner;
+use Onhost\Platform\Ops\PlatformBackup;
 
 /**
  * Readiness (`/healthz`) for load balancers and the Prometheus exporter (`/metrics`) that feeds
@@ -119,6 +122,15 @@ final class HealthController extends Controller
         $emit('onhost_status_component_operational', 'gauge', 'Public status component is operational (1) or not (0)', array_map(fn ($key, $state) => [['component' => $key, 'state' => $state], $state === 'operational' ? 1 : 0], array_keys($components->all()), $components->all()) ?: [[['component' => 'none', 'state' => 'none'], 0]]);
         $emit('onhost_open_incidents', 'gauge', 'Open incidents by severity', collect(DB::table('incidents')->whereNotIn('state', ['RESOLVED', 'POSTMORTEM'])->selectRaw('severity, count(*) as n')->groupBy('severity')->get())->map(fn ($r) => [['severity' => $r->severity], (int) $r->n])->all() ?: [[['severity' => 'none'], 0]]);
         $emit('onhost_dunning_open', 'gauge', 'Open dunning cases', [[[], (int) DB::table('dunning_cases')->whereNotIn('state', ['RESOLVED', 'TERMINATED'])->count()]]);
+        // operations the doctor checks by hand, as time series (go-live checklist §1): backups, the queue worker and scheduler heartbeats, the virus scanner, on-call
+        $backup = app(PlatformBackup::class)->status();
+        $emit('onhost_platform_backup_verified_timestamp', 'gauge', 'Unix time of the last verified platform backup (0 = none)', [[[], isset($backup['verified']['at']) ? Carbon::parse((string) $backup['verified']['at'])->getTimestamp() : 0]]);
+        $live = app(AutomationLedger::class)->liveness();
+        $emit('onhost_automation_alive', 'gauge', 'Scheduler and queue worker heartbeats seen recently (1 = alive)', [[['machine' => 'scheduler'], $live['scheduler']['alive'] ? 1 : 0], [['machine' => 'worker'], $live['worker']['alive'] ? 1 : 0]]);
+        $scanner = app(VirusScanner::class);
+        $emit('onhost_virus_scanner_up', 'gauge', 'clamd reachable (1) or not (0); absent when no scanner is configured', $scanner->enabled() ? [[[], $scanner->version() !== null ? 1 : 0]] : []);
+        $emit('onhost_oncall_alerts_active', 'gauge', 'On-call alerts nobody resolved yet, by state', collect(DB::table('oncall_alerts')->whereIn('state', ['open', 'acked', 'escalated'])->selectRaw('state, count(*) as n')->groupBy('state')->get())->map(fn ($r) => [['state' => $r->state], (int) $r->n])->all());
+        $emit('onhost_oncall_assigned', 'gauge', 'Somebody is on the rota right now (1) or nobody (0)', [[[], app(OnCallRota::class)->assignee() !== null ? 1 : 0]]);
 
         return response(implode("\n", $lines)."\n", 200, ['Content-Type' => 'text/plain; version=0.0.4; charset=utf-8', 'Cache-Control' => 'no-store']);
     }

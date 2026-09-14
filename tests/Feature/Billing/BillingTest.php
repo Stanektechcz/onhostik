@@ -115,7 +115,7 @@ it('meters VPS hours, rates them with the plan hourly price and stops at the mon
     expect($capped['capped'])->toBeGreaterThan(0);
     $lastVm = RatedUsage::query()->whereIn('usage_event_id', UsageEvent::query()->where('metric', 'vm_hours')->orderByDesc('period_start')->limit(1)->select('id'))->firstOrFail();
     expect($lastVm->amount_minor)->toBe(0)->and($period->fresh()->cap_applied)->toHaveKey($service->id);
-    expect(RatedUsage::query()->whereIn('usage_event_id', UsageEvent::query()->where('metric', 'vm_hours')->select('id'))->sum('amount_minor'))->toBeLessThanOrEqual(44900);
+    expect((int) RatedUsage::query()->whereIn('usage_event_id', UsageEvent::query()->where('metric', 'vm_hours')->select('id'))->sum('amount_minor'))->toBeLessThanOrEqual(44900);
 });
 
 it('drives dunning to suspension and back to resume when the invoice is paid', function () {
