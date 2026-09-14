@@ -64,6 +64,7 @@ it('answers every v1 endpoint without a server error for visitors, customers and
                 $body = (string) $response->getContent();
                 $isJson = str_contains((string) $response->headers->get('Content-Type'), 'json');
                 $upstream = $status === 502 && $isJson && str_starts_with((string) (json_decode($body, true)['error'] ?? ''), 'provider_'); // a vendor API failure rendered by contract
+                $upstream = $upstream || ($status === 503 && $isJson && str_ends_with((string) (json_decode($body, true)['error'] ?? ''), '_unavailable')); // an integration not configured on this installation answers 503 by contract (Discord without keys)
                 if ($status >= 500 && ! $upstream) {
                     $problems[] = "{$method} {$uri} as {$who} → {$status} ".substr($body, 0, 160);
                 } elseif ($status >= 400 && ! $isJson && ! str_contains($uri, '/pdf') && ! str_contains($uri, '/ubl') && ! str_contains($uri, '/export') && ! str_contains($uri, '/download')) {

@@ -88,7 +88,7 @@ it('creates and deletes a database, a cron job and an FTP account on aaPanel thr
     expect($operation->state)->toBe(Operation::SUCCEEDED);
     Http::assertSent(fn ($r) => str_contains($r->url(), 'AddDatabase') && $r['name'] === "{$prefix}_shop" && $r['db_user'] === "{$prefix}_shop" && $r['password'] === 'Correct-Horse-Battery-9');
     expect(json_encode($operation->result))->not->toContain('Correct-Horse');
-    expect(DB::table('audit_events')->where('action', 'service.action.database.create')->value('payload'))->not->toContain('Correct-Horse');
+    expect(DB::table('audit_events')->where('action', 'service.action.database.create')->value('detail'))->not->toContain('Correct-Horse');
 
     // limits from the plan: two databases allowed, a second one is fine, a bad name is rejected before any provider call
     $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'database.create', 'params' => ['name' => 'no spaces here', 'password' => 'Correct-Horse-Battery-9']], ['Idempotency-Key' => 'db-2'])->assertUnprocessable()->assertJsonPath('error', 'action_param_invalid');

@@ -325,9 +325,22 @@ final class ServiceService
             $this->transition($service, $transient, $context, (string) ($params['reason'] ?? $action));
         }
         $operation = $this->operations->start(self::actionWorkflowFor($action), $idempotencyKey, array_merge($params, ['action' => $action, 'service_id' => $service->id]), $context, $service->id, $service->organization_id, null, $service->provider_instance_id);
-        $this->audit->record($context->withScope($service->organization_id), "service.action.{$action}", 'succeeded', ['params' => array_diff_key($params, array_flip(['password'])), 'operation_id' => $operation->id], 'service', $service->id, stepUp: $context->stepUpMethod, approvalIds: $context->approvalIds);
+        $this->audit->record($context->withScope($service->organization_id), "service.action.{$action}", 'succeeded', ['params' => self::auditParams($params), 'operation_id' => $operation->id], 'service', $service->id, stepUp: $context->stepUpMethod, approvalIds: $context->approvalIds);
 
         return $operation;
+    }
+
+    /** What the audit keeps of an action's parameters: secrets and key material never (passwords, private keys, tokens), file bodies only as their length. @param array<string,mixed> $params @return array<string,mixed> */
+    public static function auditParams(array $params): array
+    {
+        $out = array_diff_key($params, array_flip(['password', 'key', 'secret', 'token', 'auth_info', 'private_key']));
+        foreach (['content', 'cert', 'chain'] as $body) {
+            if (isset($out[$body]) && is_string($out[$body])) {
+                $out[$body] = '<'.strlen($out[$body]).' bytes>';
+            }
+        }
+
+        return $out;
     }
 
     /** Which workflow runs an action: one provider call (ServiceActionWorkflow) or a saga of its own. @return class-string<Workflow> */

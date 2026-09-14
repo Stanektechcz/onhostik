@@ -22,6 +22,8 @@ jobs:
           python-version: '3.12'
       - name: Install ansible-lint
         run: pip install "ansible-lint>=24.2" "ansible-core>=2.16"
+      - name: Install the collections the roles use
+        run: ansible-galaxy collection install community.general community.docker ansible.posix
       - name: ansible-lint
         working-directory: infra/ansible
         run: ansible-lint --offline -c .ansible-lint
@@ -42,7 +44,7 @@ jobs:
       - name: Install molecule
         run: pip install "molecule>=24.2" "molecule-plugins[docker]>=23.5" "ansible-core>=2.16" docker passlib
       - name: Install the collections the roles use
-        run: ansible-galaxy collection install community.docker ansible.posix
+        run: ansible-galaxy collection install community.general community.docker ansible.posix
       - name: molecule test (${{ matrix.role }})
         working-directory: infra/ansible/roles/${{ matrix.role }}
         env:

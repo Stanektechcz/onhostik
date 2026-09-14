@@ -128,7 +128,7 @@ it('drives the extended ISPConfig site tabs: error pages, directives, protected 
     $operation = $run('ssl.upload', ['cert' => CERT_PEM, 'key' => KEY_PEM], 'ssl-1');
     expect(end($updates))->toMatchArray(['ssl' => 'y', 'ssl_letsencrypt' => 'n', 'ssl_cert' => CERT_PEM, 'ssl_key' => KEY_PEM, 'ssl_bundle' => '', 'ssl_action' => 'save']);
     expect(json_encode($operation->result))->not->toContain('BEGIN PRIVATE KEY'); // the key never lands in the operation record
-    expect(DB::table('audit_events')->where('action', 'service.action.ssl.upload')->value('payload'))->not->toContain('BEGIN PRIVATE KEY');
+    expect(DB::table('audit_events')->where('action', 'service.action.ssl.upload')->value('detail'))->not->toContain('BEGIN PRIVATE KEY');
     $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'ssl.upload', 'params' => ['cert' => 'garbage', 'key' => KEY_PEM]], ['Idempotency-Key' => 'ssl-bad'])->assertUnprocessable()->assertJsonPath('error', 'action_param_invalid');
 
     expect(json_encode($this->getJson("/v1/services/{$service->id}/operations")->json()))->not->toMatch('/ispconfig|Correct-Horse|StatsPass/');

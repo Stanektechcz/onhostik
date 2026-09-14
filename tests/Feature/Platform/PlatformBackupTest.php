@@ -91,7 +91,7 @@ it('writes a tar.gz that tar itself reads back', function () {
         gzseek($tar, (int) (gztell($tar) + $size + (512 - $size % 512) % 512));
     }
     gzclose($tar);
-    expect($names)->toHaveKey('a.txt')->and($names['a.txt'])->toBe(1000)->and(array_values($names))->toContain(3000)->and(array_keys($names)[1] ?? '')->toContain(str_repeat('d', 60));
+    expect($names)->toHaveKey('a.txt')->and($names['a.txt'])->toBe(1000)->and(array_values($names))->toContain(3000)->and(implode(' ', array_keys($names)))->toContain(str_repeat('d', 60).'/'.str_repeat('e', 60).'/long-name-');
     File::delete($local);
     File::deleteDirectory($files);
 });

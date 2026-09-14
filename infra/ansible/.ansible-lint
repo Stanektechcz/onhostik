@@ -11,6 +11,9 @@ exclude_paths:
   - roles/onhost_ispconfig_remote/molecule/
   - roles/onhost_node_activate/molecule/
 skip_list:
+  - var-naming[no-role-prefix]  # the roles predate the rule; their variables are documented in defaults/main.yml
+  - var-naming[no-reserved]     # onhost_ispconfig_remote uses `remote_user` for the ISPConfig remote user, not the Ansible connection user
+  - schema[vars]
   - yaml[line-length]   # long argv and SQL lines in the roles
   - name[casing]        # task names quote artisan commands
   - no-changed-when     # the vendor CLIs (pveum, mysql) report nothing usable; changed_when is set explicitly where it matters

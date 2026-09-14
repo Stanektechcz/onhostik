@@ -392,7 +392,7 @@ return [
 
     'ui' => [
         'demo' => (bool) env('ONHOST_UI_DEMO', false),      // true: surfaces keep the prototype's local store and role switcher
-        'surfaces_path' => env('ONHOST_SURFACES_PATH', base_path('apps/surfaces')),
+        'surfaces_path' => (string) env('ONHOST_SURFACES_PATH', '') !== '' ? env('ONHOST_SURFACES_PATH') : base_path('apps/surfaces'), // an empty variable (the .env.example default) must not mean an empty root
     ],
 
     // game servers: the catalogue's template keys (Product.meta.eggs) and how each maps onto a game panel egg — matched by
