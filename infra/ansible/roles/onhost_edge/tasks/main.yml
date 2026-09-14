@@ -17,6 +17,7 @@
     chdir: "{{ onhost_app_dir }}"
   changed_when: true
   delegate_to: "{{ onhost_app_host | default(inventory_hostname) }}"
+  tags: [molecule-idempotence-notest] # rendering always runs; the copy tasks below decide whether anything on the edge changes
 
 - name: Fetch the rendered configuration from the application host
   ansible.builtin.slurp:
