@@ -21,6 +21,8 @@ use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\DatabaseCredentials;
 use Onhost\Domain\Services\Web\WebFileStore;
+use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Files\FileStore;
 use Onhost\Providers\Contracts\AsyncStatus;
 use Onhost\Providers\Contracts\BackupCapable;
 use Onhost\Providers\Contracts\ComputeProvider;
@@ -351,6 +353,24 @@ final class ServiceActionWorkflow implements Workflow
                     'subuser.create' => $this->capability($context, GameToolsProvider::class)->createSubuser($ref, (string) $p('email'), (array) $p('permissions', [])),
                     'subuser.delete' => $this->capability($context, GameToolsProvider::class)->deleteSubuser($ref, (string) $p('remote_id')),
                     'gfile.save' => $this->capability($context, GameToolsProvider::class)->writeFile($ref, (string) $p('path'), (string) $p('content', '')),
+                    'gfile.upload' => (function () use ($context, $ref, $p) { // §5r-3: a binary staged on the file store goes to the daemon, then the staging copy is gone
+                        $disk = app(FileStore::class)->disk();
+                        $tmp = (string) $p('tmp_path');
+                        if (! $disk->exists($tmp)) {
+                            throw new DomainError('upload_missing', 'The staged upload is gone; upload the file again.', 422);
+                        }
+                        $stream = $disk->readStream($tmp);
+                        try {
+                            $result = $this->capability($context, GameToolsProvider::class)->uploadFile($ref, (string) $p('directory', '/'), (string) $p('name'), $stream);
+                        } finally {
+                            if (is_resource($stream)) {
+                                fclose($stream);
+                            }
+                        }
+                        $disk->delete($tmp);
+
+                        return $result;
+                    })(),
                     'gfile.delete' => $this->capability($context, GameToolsProvider::class)->deleteFiles($ref, (string) $p('root', '/'), [(string) $p('name')]),
                     'gfile.mkdir' => $this->capability($context, GameToolsProvider::class)->createDirectory($ref, (string) $p('root', '/'), (string) $p('name')),
                     'gfile.rename' => $this->capability($context, GameToolsProvider::class)->renameFile($ref, (string) $p('root', '/'), (string) $p('from'), (string) $p('to')),

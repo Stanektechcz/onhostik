@@ -13,6 +13,7 @@ use Onhost\Domain\Catalog\PricingRules;
 use Onhost\Domain\Orders\Models\ConsentDocument;
 use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\PlanChangeService;
@@ -122,6 +123,9 @@ final class QuoteService
             }
             $product = $resolved['product'];
             $price = $resolved['price'];
+            if ($product->family === 'game' && $change === null) { // §5s: an available template, the RAM floor, the customer's inputs
+                app(GameTemplates::class)->assertOrderable($product, $config, (array) $resolved['version']->entitlements);
+            }
             $parentLine = (string) ($config['parent_line_id'] ?? '');
             if ($parentLine !== '') { // an add-on line belongs to a service line and must be one of the add-ons that service offers
                 $parentKey = $parentProducts[$parentLine] ?? null;

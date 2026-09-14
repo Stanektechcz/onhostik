@@ -48,6 +48,10 @@ final class GamePanelBootstrap
         foreach ((array) config('onhost.game.eggs', []) as $key => $preset) {
             if (! $force && isset($current[$key]['nest'], $current[$key]['egg']) && collect($eggs)->contains(fn ($e) => $e['nest_id'] === (int) $current[$key]['nest'] && $e['id'] === (int) $current[$key]['egg'])) {
                 $out['kept'][] = (string) $key;
+                $required = GameTemplates::readRequirements($adapter, (int) $current[$key]['nest'], (int) $current[$key]['egg']); // §5s: kept mappings learn their requirements too
+                if ($required !== null) {
+                    $current[$key]['required'] = $required;
+                }
 
                 continue;
             }
@@ -63,7 +67,7 @@ final class GamePanelBootstrap
 
                 continue;
             }
-            $current[$key] = array_filter(['nest' => $match['nest_id'], 'egg' => $match['id'], 'environment' => (array) ($preset['environment'] ?? []) ?: null, 'name' => $match['name'], 'via_fallback' => $fallback ?: null], fn ($v) => $v !== null);
+            $current[$key] = array_filter(['nest' => $match['nest_id'], 'egg' => $match['id'], 'environment' => (array) ($preset['environment'] ?? []) ?: null, 'name' => $match['name'], 'via_fallback' => $fallback ?: null, 'required' => GameTemplates::readRequirements($adapter, (int) $match['nest_id'], (int) $match['id'])], fn ($v) => $v !== null); // §5s: required variables without a default
             $out['mapped'][(string) $key] = ['nest' => $match['nest_id'], 'egg' => $match['id'], 'name' => $match['name']] + ($fallback ? ['via_fallback' => true] : []);
         }
         $instance->forceFill(['options' => array_merge((array) $instance->options, ['eggs' => $current])])->save();

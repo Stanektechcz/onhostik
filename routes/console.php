@@ -45,6 +45,7 @@ use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\CapacityForecast;
 use Onhost\Domain\Provisioning\CapacityPlanner;
 use Onhost\Domain\Provisioning\FreezeSwitch;
+use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\IntegrationHealthProbe;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Jobs\QueueHeartbeat;
@@ -71,11 +72,14 @@ use Onhost\Domain\Support\TicketService;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\WalletForecast;
 use Onhost\Domain\WalletLedger\WalletService;
+use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
 use Onhost\Platform\Outbox\OutboxPublisher;
+use Onhost\Platform\Secrets\SecretRef;
+use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\Contracts\DnsProvider;
 
 /*
@@ -292,6 +296,51 @@ Artisan::command('onhost:files:prune', function (FileStore $files, AutomationLed
     $this->table(array_keys($stats), [$stats]);
 })->purpose('Delete marketplace evidence past its retention and expired data exports (audit §5q-4)');
 
+Artisan::command('onhost:files:scan', function (MarketplaceService $marketplace, AutomationLedger $ledger) {
+    $stats = $marketplace->rescanEvidence();
+    $ledger->record('files.scan', $stats);
+    $this->table(array_keys($stats), [$stats]);
+})->purpose('Scan evidence files again whose virus scan is missing or failed (audit §5r-4)');
+
+Artisan::command('onhost:game:templates:verify', function (GameTemplates $templates, AutomationLedger $ledger) {
+    $rows = [];
+    foreach (ProviderInstance::query()->where('provider', 'pterodactyl')->where('state', 'active')->get() as $instance) {
+        try {
+            $r = $templates->verify($instance, CommandContext::system('cli:game:templates:verify'));
+            $rows[] = [$r['instance'], $r['checked'], implode(', ', $r['missing']) ?: '—', $r['refreshed']];
+        } catch (Throwable $e) {
+            $rows[] = [$instance->key, 0, 'error: '.$e->getMessage(), 0];
+        }
+    }
+    $ledger->record('game.templates.verify', ['instances' => count($rows), 'missing' => array_sum(array_map(fn ($r) => $r[2] === '—' || str_starts_with((string) $r[2], 'error') ? 0 : count(explode(', ', (string) $r[2])), $rows))]);
+    $this->table(['instance', 'checked', 'missing', 'refreshed'], $rows);
+})->purpose('Check the mapped game templates against the panel eggs and refresh their required variables (audit §5s)');
+
+Artisan::command('onhost:game:operator-variable {env : Variable name, e.g. STEAM_USER} {--stdin : Read the value from standard input}', function (SecretStore $secrets) {
+    $env = strtoupper(trim((string) $this->argument('env')));
+    if (preg_match('/^[A-Z][A-Z0-9_]{1,63}$/', $env) !== 1) {
+        $this->error('The variable name must look like STEAM_USER.');
+
+        return 1;
+    }
+    $value = $this->option('stdin') ? trim((string) stream_get_contents(STDIN)) : (string) $this->secret("Value for {$env} (blank removes it)");
+    $ref = SecretRef::parse((string) config('onhost.game.operator_variables_ref', 'db://game/operator-variables'));
+    try {
+        $current = $secrets->read($ref);
+    } catch (Throwable) {
+        $current = [];
+    }
+    $current = array_change_key_case((array) $current, CASE_UPPER);
+    if ($value === '') {
+        unset($current[$env]);
+    } else {
+        $current[$env] = $value;
+    }
+    $secrets->write($ref, $current);
+    app(AuditRecorder::class)->record(CommandContext::system('cli:game:operator-variable'), 'game.operator_variable.set', 'succeeded', ['env' => $env, 'removed' => $value === ''], 'secret', 'game/operator-variables');
+    $this->info($value === '' ? "Removed {$env}." : "Stored {$env}; stored names: ".implode(', ', array_keys($current)));
+})->purpose('Store a read-only game template variable the operator holds (hidden prompt; audit §5s)');
+
 Artisan::command('onhost:support:sla', function (TicketService $tickets) {
     $this->table(['breached', 'closed'], [$tickets->tick()]);
 })->purpose('Detect support SLA breaches (escalate) and auto-close resolved tickets');
@@ -315,6 +364,8 @@ Schedule::command('onhost:mail:send')->everyMinute()->withoutOverlapping()->onOn
 Schedule::command('onhost:webhooks:retry')->everyMinute()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:oncall:escalate')->everyMinute()->withoutOverlapping()->onOneServer(); // unacknowledged pages escalate (audit §5q-1)
 Schedule::command('onhost:files:prune')->dailyAt('04:25')->onOneServer(); // file retention (audit §5q-4)
+Schedule::command('onhost:game:templates:verify')->dailyAt('05:10')->onOneServer(); // template drift against the panel (audit §5s)
+Schedule::command('onhost:files:scan')->everyTenMinutes()->withoutOverlapping()->onOneServer(); // retry of the virus scan (audit §5r-4)
 Schedule::command('onhost:support:sla')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:provisioning:tick')->everyMinute()->withoutOverlapping()->onOneServer();
 Schedule::job(new QueueHeartbeat)->everyMinute()->onOneServer(); // the worker's proof of life (audit §5g-6)

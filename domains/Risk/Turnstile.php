@@ -77,6 +77,23 @@ final class Turnstile
         return is_string($value) && $value !== '' ? $value : self::OFF;
     }
 
+    /**
+     * The public forms — contact and support requests, tender requests, the partner application (audit §5r-6) — refuse
+     * a missing or failed check while `enforce_forms` is on. A signed-in user is trusted (their session already passed
+     * registration), so the portal's own forms never depend on the widget.
+     */
+    public function requireForForm(Request $request, string $form): void
+    {
+        if ($request->user() !== null) {
+            return;
+        }
+        $result = $this->check($request);
+        if ($result === self::OFF || ! (bool) config('onhost.turnstile.enforce_forms', true) || $result === self::PASS) {
+            return;
+        }
+        throw new DomainError('turnstile_required', 'Ověření, že nejste robot, chybí nebo neprošlo. Zkuste to prosím znovu.', 422, ['field' => 'turnstile', 'result' => $result, 'form' => $form]);
+    }
+
     /** Registration refuses a missing or failed check while `enforce_register` is on. */
     public function requireForRegistration(Request $request): void
     {

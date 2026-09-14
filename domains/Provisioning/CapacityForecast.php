@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Onhost\Domain\Provisioning;
 
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Onhost\Domain\Provisioning\Models\CapacityRequest;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Scheduling\NodeRebalancer;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
 /**
@@ -62,6 +64,49 @@ final class CapacityForecast
         return $out;
     }
 
+    /**
+     * The budget view of the forecast (audit §5r-5): per pool the RAM the 30-day trend needs beyond today's headroom,
+     * the whole nodes that takes (the pool's average node size) and their monthly price — the configured
+     * `node_monthly_minor.{role}`, else the average vendor cost of the role's past orders — summed against the monthly
+     * cap. Pools without a known price count their nodes but no money (`unpriced`).
+     *
+     * @return array{month:string, currency:string, budget_minor:int, total_minor:int, nodes:int, over:bool, unpriced:int, pools:list<array<string,mixed>>}
+     */
+    public function budget(int $horizonDays = 30, ?array $pools = null): array
+    {
+        $status = app(CapacityBudget::class)->status();
+        $currency = $status['currency'];
+        $rows = [];
+        $total = 0;
+        $nodes = 0;
+        $unpriced = 0;
+        foreach ($pools ?? $this->forecast() as $pool) {
+            $need = max(0, $pool['growth_mb_per_day'] * $horizonDays - $pool['headroom_mb']);
+            if ($need === 0) {
+                continue;
+            }
+            $group = Node::query()->where('role', $pool['role'])->whereIn('state', ['active', 'drain'])->when($pool['region'] !== null, fn ($q) => $q->where('region_code', $pool['region']))->get();
+            $avg = (int) max(1024, $group->avg(fn (Node $n) => (int) data_get($n->capacity, 'ram_mb', 0)) ?? 0);
+            $count = (int) ceil($need / $avg);
+            $unit = config('onhost.provisioning.capacity_forecast.node_monthly_minor.'.$pool['role']);
+            if ($unit === null) {
+                $past = CapacityRequest::query()->where('role', $pool['role'])->whereNotNull('cost_minor')->where('cost_currency', $currency)->avg('cost_minor');
+                $unit = $past !== null ? (int) round((float) $past) : null;
+            }
+            $cost = $unit !== null ? $count * (int) $unit : null;
+            if ($cost === null) {
+                $unpriced++;
+            } else {
+                $total += $cost;
+            }
+            $nodes += $count;
+            $rows[] = ['role' => $pool['role'], 'region' => $pool['region'], 'need_mb' => $need, 'node_mb' => $avg, 'nodes' => $count, 'unit_minor' => $unit !== null ? (int) $unit : null, 'cost_minor' => $cost];
+        }
+        $cap = (int) $status['monthly_minor'];
+
+        return ['month' => now()->addMonthNoOverflow()->format('Y-m'), 'currency' => $currency, 'budget_minor' => $cap, 'total_minor' => $total, 'nodes' => $nodes, 'over' => $cap > 0 && $total > $cap, 'unpriced' => $unpriced, 'pools' => $rows];
+    }
+
     /** Tells operations about pools that run short (once a day per pool). @return list<string> pools warned now */
     public function warn(): array
     {
@@ -77,6 +122,13 @@ final class CapacityForecast
             $this->cache->put($key, 1, 86400);
             $this->outbox->publish(GenericEvent::of('capacity.forecast.low', 'capacity', $pool['role'].':'.($pool['region'] ?? 'all'), $pool));
             $warned[] = $pool['role'].':'.($pool['region'] ?? 'all');
+        }
+        $budget = $this->budget(); // §5r-5: next month's purchases over the cap reach finance once a month
+        $key = 'onhost:capacity:budget-forecast:'.$budget['month'];
+        if ($budget['over'] && ! $this->cache->has($key)) {
+            $this->cache->put($key, 1, 40 * 86400);
+            $this->outbox->publish(GenericEvent::of('capacity.budget.forecast_over', 'capacity', 'budget:'.$budget['month'], ['month' => $budget['month'], 'nodes' => $budget['nodes'], 'total' => Money::minor($budget['total_minor'], $budget['currency'])->format('cs'), 'budget' => Money::minor($budget['budget_minor'], $budget['currency'])->format('cs'), 'pools' => $budget['pools']]));
+            $warned[] = 'budget:'.$budget['month'];
         }
 
         return $warned;

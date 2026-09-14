@@ -588,6 +588,24 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider
         return ProviderResult::completed($server, ['path' => $path, 'bytes' => strlen($content)]);
     }
 
+    public function uploadFile(ResourceRef $server, string $directory, string $filename, mixed $contents): ProviderResult
+    {
+        $signed = (string) data_get($this->request('GET', "/api/client/servers/{$this->identifier($server)}/files/upload", 'client', 'files.upload_url'), 'attributes.url', '');
+        if ($signed === '') {
+            throw new ProviderException('pterodactyl', ProviderErrorCode::VALIDATION, 'The panel returned no upload URL');
+        }
+        $directory = '/'.trim($directory, '/');
+        $response = $this->http->send(new ProviderRequest( // the daemon's own endpoint; the one-time token lives in the URL, the logger keeps the path only
+            provider: 'pterodactyl', instanceKey: $this->instance->key, method: 'POST', url: $signed.(str_contains($signed, '?') ? '&' : '?').'directory='.rawurlencode($directory), action: 'files.upload',
+            headers: ['Accept' => 'application/json'], body: null, bodyType: 'multipart', timeoutSeconds: 600, critical: true, files: ['files' => ['contents' => $contents, 'filename' => basename($filename)]],
+        ));
+        if ($response->status >= 400) {
+            $this->unwrap($response, 'files.upload');
+        }
+
+        return ProviderResult::completed($server, ['directory' => $directory, 'name' => basename($filename)]);
+    }
+
     public function deleteFiles(ResourceRef $server, string $root, array $files): ProviderResult
     {
         $this->request('POST', "/api/client/servers/{$this->identifier($server)}/files/delete", 'client', 'files.delete', ['root' => '/'.ltrim($root, '/'), 'files' => array_values($files)], critical: true);

@@ -25,6 +25,8 @@ use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
+use Onhost\Platform\Files\UploadGuard;
+use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
@@ -596,6 +598,12 @@ final class MarketplaceService
         if (! $disk->exists($tmpPath)) {
             throw new DomainError('marketplace_upload_missing', 'The uploaded file is gone; upload it again.', 422, ['field' => 'file']);
         }
+        $scanner = app(VirusScanner::class); // §5r-4: nothing infected reaches the customer
+        $scan = $scanner->scanPath($tmpPath);
+        if ($scan['result'] === VirusScanner::INFECTED) {
+            $disk->delete($tmpPath);
+            UploadGuard::refused($scan, 'marketplace_order', $order->id, $name, $context->withScope($partner->organization_id));
+        }
         $safeName = mb_substr(preg_replace('/[^A-Za-z0-9._-]+/', '-', $name) ?: 'file', 0, 80);
         $target = "marketplace-evidence/{$order->id}/".now()->format('Ym')."/{$key}-".Str::lower(Str::random(8)).'-'.$safeName;
         $previous = data_get($order->period_uploads, "{$key}.path");
@@ -603,11 +611,59 @@ final class MarketplaceService
         if (is_string($previous) && $previous !== '' && $disk->exists($previous)) {
             $disk->delete($previous); // one file per item and period
         }
-        $entry = ['key' => $key, 'path' => $target, 'name' => $safeName, 'size' => $size, 'mime' => $mime, 'at' => now()->toIso8601String()];
+        $entry = ['key' => $key, 'path' => $target, 'name' => $safeName, 'size' => $size, 'mime' => $mime, 'at' => now()->toIso8601String(), 'scan' => $scan];
         $order->forceFill(['period_uploads' => array_merge((array) ($order->period_uploads ?? []), [$key => $entry])])->save();
         $this->audit->record($context->withScope($partner->organization_id), 'marketplace.evidence.upload', 'succeeded', ['order' => $order->id, 'key' => $key, 'name' => $safeName, 'size' => $size], 'marketplace_order', $order->id);
 
         return array_diff_key($entry, ['path' => true]);
+    }
+
+    /**
+     * The retry pass of the virus scan (audit §5r-4, `onhost:files:scan`): every evidence file whose scan is missing or
+     * was `unavailable` is scanned again; an infected one is deleted from the store and reported.
+     *
+     * @return array{scanned:int, clean:int, infected:int, unavailable:int}
+     */
+    public function rescanEvidence(): array
+    {
+        $scanner = app(VirusScanner::class);
+        $stats = ['scanned' => 0, 'clean' => 0, 'infected' => 0, 'unavailable' => 0];
+        if (! $scanner->enabled()) {
+            return $stats;
+        }
+        $disk = app(FileStore::class)->disk();
+        $visit = function (array $file) use ($scanner, $disk, &$stats): array {
+            if (empty($file['path']) || in_array(data_get($file, 'scan.result'), [VirusScanner::CLEAN, VirusScanner::INFECTED], true)) {
+                return $file;
+            }
+            $stats['scanned']++;
+            $file['scan'] = $scanner->scanPath((string) $file['path']);
+            $stats[$file['scan']['result'] === VirusScanner::OFF ? 'unavailable' : $file['scan']['result']]++;
+            if ($file['scan']['result'] === VirusScanner::INFECTED) {
+                $disk->delete((string) $file['path']);
+            }
+
+            return $file;
+        };
+        MarketplaceOrder::query()->where(fn ($q) => $q->whereNotNull('period_uploads')->orWhereNotNull('period_evidence'))->orderBy('id')->chunk(100, function ($orders) use ($visit, &$stats) {
+            foreach ($orders as $order) {
+                $before = $stats['infected'];
+                $uploads = array_map(fn ($f) => is_array($f) ? $visit($f) : $f, (array) ($order->period_uploads ?? []));
+                $history = array_map(function ($period) use ($visit) {
+                    if (is_array($period) && is_array($period['items'] ?? null)) {
+                        $period['items'] = array_map(fn ($f) => is_array($f) && isset($f['path']) ? $visit($f) : $f, $period['items']);
+                    }
+
+                    return $period;
+                }, (array) ($order->period_evidence ?? []));
+                $order->forceFill(['period_uploads' => $uploads ?: null, 'period_evidence' => $history ?: null])->save();
+                if ($stats['infected'] > $before) {
+                    $this->outbox->publish(GenericEvent::of('files.infected', 'marketplace_order', $order->id, ['name' => 'evidence', 'subject' => 'marketplace_order', 'signature' => null, 'actor' => 'files.scan'], $order->organization_id));
+                }
+            }
+        });
+
+        return $stats;
     }
 
     /** The customer (or the partner) reads a file the report carried (§5p-3). @return array{path:string, name:string, mime:string} */
@@ -617,6 +673,10 @@ final class MarketplaceService
         $file = data_get($history, "{$entry}.items.{$key}");
         if (! is_array($file) || empty($file['path']) || ! app(FileStore::class)->disk()->exists((string) $file['path'])) {
             throw DomainError::notFound('evidence_file');
+        }
+        $scan = (string) data_get($file, 'scan.result', '');
+        if (! app(VirusScanner::class)->allows($scan !== '' ? $scan : null)) { // §5r-4: an unscanned file waits for the retry pass, an infected one never leaves
+            throw new DomainError($scan === VirusScanner::INFECTED ? 'evidence_file_infected' : 'evidence_file_not_scanned', $scan === VirusScanner::INFECTED ? 'The file was found infected and removed.' : 'The file is waiting for its virus scan; try again shortly.', $scan === VirusScanner::INFECTED ? 410 : 409, ['scan' => $scan ?: null]);
         }
 
         return ['path' => (string) $file['path'], 'name' => (string) ($file['name'] ?? 'file'), 'mime' => (string) ($file['mime'] ?? 'application/octet-stream')];

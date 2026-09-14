@@ -715,17 +715,66 @@ platform-written `onhost-start.sh`), started and commanded from the console — 
 called on the anonymous step class, the allocation step reads the node's panel id from the row, power verification
 accepts `starting`, `getActualState()` carries the live daemon state, game logs come from `logs/latest.log`.
 
-### 5r. What remains after §5q (proposed 2026-09-14)
+### 5r. What remains after §5q (proposed 2026-09-14) — built 2026-09-14
 
-1. **On-call schedules**: who is on call this week (a rota in the console) so the escalation can name the person
-   and the digest can show the hand-over.
-2. **Trace links in the console**: the operation and audit views open the trace (`traceId`) in Grafana/Tempo.
-3. **Binary file transfer in the staff console**: multipart upload to the panel (SFTP credentials or a signed upload
-   URL) beyond the 512 kB text path.
-4. **Evidence virus scan**: ClamAV on upload before the customer can download.
-5. **Budget forecast**: the capacity forecast prices the nodes it will need next month against the cap.
-6. **Turnstile on the partner portal and the support form**.
-7. **Lexicon coverage check in CI**: a test that walks the router's phrases and fails on an untranslated one.
+1. **On-call rota** — done: `oncall_shifts` (staff account, start, end, note; shifts may not overlap) through
+   `GET/POST /v1/staff/oncall/shifts`, `DELETE /v1/staff/oncall/shifts/{shift}` (`incident.manage`, audited). An alert
+   stores its `assignee` and the pager payload carries the name; `status` of the alert list shows who is on call and
+   the next shift; the daily staff digest ends with the hand-over line. Console: *Automatizace → Eskalace on-call →
+   Rota on-call / Přidat směnu / Odebrat směnu*.
+2. **Trace links** — done: `ONHOST_TRACE_URL` with `{trace_id}` / `{correlation_id}`; staff operation rows (board,
+   jobs) and on-call alerts carry `trace_url`, the console's failed/stalled operation rows get *Trasa*.
+3. **Binary file transfer** — done: `POST /v1/services/{service}/game-files/upload` (multipart, up to
+   `ONHOST_GAME_UPLOAD_MAX_MB`, default 100) stages the file on the file store, scans it, then the audited action
+   `gfile.upload` asks the panel for a signed upload URL (`GET /files/upload`) and posts the file to the daemon; the
+   staging copy is deleted. The staff console's upload form uses it for every file.
+4. **Virus scan** — done: `VirusScanner` speaks clamd INSTREAM (`ONHOST_CLAMAV_HOST/PORT`); an infected upload
+   (evidence or game file) is deleted, audited and reported (`files.infected`); with `ONHOST_CLAMAV_ENFORCE` an
+   unscanned evidence file cannot be downloaded (409) until `onhost:files:scan` (every 10 minutes) finds it clean,
+   and a game upload while clamd is down is a retryable 503.
+5. **Budget forecast** — done: `CapacityForecast::budget()` turns the 30-day growth beyond headroom into whole nodes
+   and prices them (`provisioning.capacity_forecast.node_monthly_minor.{role}`, else the average cost of the role's
+   past vendor orders) against the monthly cap; `/v1/staff/capacity` returns `budget_forecast`, the console shows the
+   row, the daily pass tells finance once a month when the purchases would cross the cap (`capacity.budget.forecast_over`).
+6. **Turnstile on public forms** — done: contact/support requests (`/v1/leads`), tender requests and the partner
+   application (`/v1/reseller/apply`) refuse a guest without a passing check while `ONHOST_TURNSTILE_ENFORCE_FORMS` is
+   on; the session bridge attaches the token to those posts; signed-in users are not asked.
+7. **Lexicon coverage in CI** — done: `LexiconCoverageTest` renders every routed event for an English organization
+   and fails on a Czech word left in a title or body; the phrases it found are translated.
+
+### 5s. Game templates beyond the first server (proposed and built 2026-09-14)
+
+The catalogue now sells 22 templates on gamepanel.onhost.cz (nest *Minecraft* and nest *Onhost Gamehosting*). Reading
+the eggs through the API showed that several cannot be created with defaults: CS2 needs the customer's Game Server
+Login Token (`STEAM_GSLT`) and an RCON password, DayZ downloads with a Steam account the customer may not change
+(`STEAM_USER`, `STEAM_PASS`), Palworld / Project Zomboid / Rust want an admin or RCON password.
+
+1. **Requirements from the egg** — done: the egg sync (and the daily `onhost:game:templates:verify`) stores for every
+   mapping the required variables without a default (`required: [{env, rules, editable}]`).
+2. **Generated passwords** — done: editable `*PASS`, `*PASSWORD`, `*SECRET` variables get a random value that meets
+   the rule (`size`, `max`, `between`, `min`) when the server is created; the customer sees and changes them in Startup.
+3. **Customer inputs at the order** — done: the offer lists a template's `inputs`, the panel's order wizard asks for
+   them, the quote refuses a game line without a value that passes the rule (`game_template_input_required`).
+4. **Operator-held variables** — done: read-only variables come from `db://game/operator-variables`
+   (`php artisan onhost:game:operator-variable STEAM_USER`, hidden prompt); until they are stored the template is not
+   offered and the quote refuses it (`game_template_unavailable`, reason `operator_variables_missing`).
+5. **Offer follows the panel, RAM floor at the quote** — done: a template no active panel has mapped is not offered
+   (`not_on_panel`), a plan below the template's `min_ram_mb` is refused (`game_template_ram_too_low`).
+6. **Template drift** — done: `onhost:game:templates:verify` (daily 05:10, rule `game.templates.verify`) drops the
+   mapping of an egg the panel lost and tells operations (`game.template.missing`).
+
+### 5t. What remains after §5s (proposed 2026-09-14)
+
+1. **Steam account for DayZ**: store `STEAM_USER` / `STEAM_PASS` of a dedicated Steam account with DayZ
+   (`onhost:game:operator-variable`) — until then DayZ is hidden from the offer.
+2. **Template-specific plan filter**: the wizard greys out plans below the chosen template's RAM floor before the
+   quote refuses them.
+3. **Customer inputs after the order**: a server whose token expires (GSLT revoked) gets a panel notice and the
+   Startup tab highlights the variable.
+4. **Rota import**: iCal export/import of the on-call rota and a reminder to the next person an hour before the shift.
+5. **Evidence scan status in the partner portal**: the upload list shows *prověřuje se / čistý / zablokován*.
+6. **ClamAV deployment**: the clamd container in `infra/ansible` next to the queue workers, signature freshness in
+   `onhost:doctor`.
 
 ## 6. Operator checklist before go-live
 

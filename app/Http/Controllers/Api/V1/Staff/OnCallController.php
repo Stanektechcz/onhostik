@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Incidents\Commands\OnCallCommand;
 use Onhost\Domain\Incidents\Models\OnCallAlert;
+use Onhost\Domain\Incidents\OnCallRota;
 use Onhost\Domain\Incidents\OnCallService;
 use Onhost\Platform\Commands\CommandScope;
 
@@ -44,6 +45,26 @@ final class OnCallController extends ApiController
     public function test(Request $request): JsonResponse
     {
         return $this->dispatch(new OnCallCommand($this->idempotencyKey($request, 'oncall.test:'.now()->format('YmdHi')), ['op' => 'test']), $this->api->context($request), 201);
+    }
+
+    /** The rota (audit §5r-1): the running shift and the next `days` days. */
+    public function shifts(Request $request, OnCallRota $rota): JsonResponse
+    {
+        $this->api->authorize($request, 'incident.manage', CommandScope::global());
+
+        return response()->json(['data' => $rota->upcoming((int) $request->query('days', 14)), 'on_call' => $rota->assignee(), 'hand_over' => $rota->handOverLine()]);
+    }
+
+    public function addShift(Request $request): JsonResponse
+    {
+        $data = $request->validate(['user' => ['required', 'string', 'max:190'], 'starts_at' => ['required', 'date'], 'ends_at' => ['required', 'date'], 'note' => ['nullable', 'string', 'max:250']]);
+
+        return $this->dispatch(new OnCallCommand($this->idempotencyKey($request, 'oncall.shift.add:'.md5(json_encode($data))), ['op' => 'shift.add'] + $data), $this->api->context($request), 201);
+    }
+
+    public function removeShift(Request $request, string $shift): JsonResponse
+    {
+        return $this->dispatch(new OnCallCommand($this->idempotencyKey($request, "oncall.shift.remove:{$shift}"), ['op' => 'shift.remove', 'shift_id' => $shift]), $this->api->context($request));
     }
 
     /** The pager's own webhook (no session): PagerDuty v3 signature or the inbound token decide. */

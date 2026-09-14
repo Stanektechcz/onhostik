@@ -71,6 +71,9 @@ interface GameToolsProvider
 
     public function writeFile(ResourceRef $server, string $path, string $content): ProviderResult;
 
+    /** A binary file of any size the daemon accepts, through the panel's signed upload URL (audit §5r-3). @param resource|string $contents */
+    public function uploadFile(ResourceRef $server, string $directory, string $filename, mixed $contents): ProviderResult;
+
     /** @param list<string> $files names relative to `$root` */
     public function deleteFiles(ResourceRef $server, string $root, array $files): ProviderResult;
 

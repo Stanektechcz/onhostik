@@ -197,7 +197,7 @@ final class ProvisioningController extends ApiController
             $pools[$role] = $scheduler->sellableCapacity($role);
         }
 
-        return response()->json(['data' => ['nodes' => $nodes, 'sellable' => $pools, 'forecast' => app(CapacityForecast::class)->forecast(), 'requests' => CapacityRequest::query()->whereIn('state', CapacityRequest::OPEN)->orderBy('created_at')->get()->map(fn (CapacityRequest $r) => CapacityPlanner::present($r))->values()->all(), 'budget' => app(CapacityBudget::class)->status()]]); // §5m-7: days left per pool; §5n-7: open capacity requests
+        return response()->json(['data' => ['nodes' => $nodes, 'sellable' => $pools, 'forecast' => app(CapacityForecast::class)->forecast(), 'requests' => CapacityRequest::query()->whereIn('state', CapacityRequest::OPEN)->orderBy('created_at')->get()->map(fn (CapacityRequest $r) => CapacityPlanner::present($r))->values()->all(), 'budget' => app(CapacityBudget::class)->status(), 'budget_forecast' => app(CapacityForecast::class)->budget()]]); // §5r-5: next month's purchases against the cap; §5m-7: days left per pool; §5n-7: open capacity requests
     }
 
     /** Capacity requests the forecast proposed (audit §5n-7). */

@@ -211,7 +211,7 @@ return [
         'freeze_cache_key' => 'onhost:provisioning:freeze',
         'rebalance' => ['high' => (float) env('ONHOST_REBALANCE_HIGH', 0.85), 'low' => (float) env('ONHOST_REBALANCE_LOW', 0.6), 'target' => (float) env('ONHOST_REBALANCE_TARGET', 0.75)], // node load (RAM sold / RAM capacity) that triggers, receives, and ends a rebalancing move
         'samples' => ['retention_days' => (int) env('ONHOST_NODE_SAMPLES_RETENTION_DAYS', 30)], // hourly node samples behind the trend (audit §5k-7)
-        'capacity_forecast' => ['warn_days' => (int) env('ONHOST_CAPACITY_WARN_DAYS', 30)], // a pool with fewer days left reaches operations (audit §5m-7)
+        'capacity_forecast' => ['warn_days' => (int) env('ONHOST_CAPACITY_WARN_DAYS', 30), 'node_monthly_minor' => []], // node_monthly_minor: {role: price of one node per month in the budget currency} for the budget forecast (audit §5r-5) // a pool with fewer days left reaches operations (audit §5m-7)
         'capacity_budget' => ['monthly_minor' => (int) env('ONHOST_CAPACITY_BUDGET_MONTHLY_MINOR', 0), 'currency' => env('ONHOST_CAPACITY_BUDGET_CURRENCY', 'EUR')], // the monthly cap on vendor node orders, 0 = none (audit §5q-5)
         'node_bootstrap' => ['callback_base' => env('ONHOST_NODE_BOOTSTRAP_CALLBACK', ''), 'user_data' => env('ONHOST_NODE_BOOTSTRAP_USER_DATA', ''), 'ssh_key' => env('ONHOST_NODE_BOOTSTRAP_SSH_KEY', '')], // cloud-init of a vendor-ordered node and its readiness call-back (audit §5o-7)
         'backlog' => ['threshold' => (int) env('ONHOST_QUEUE_BACKLOG_THRESHOLD', 25), 'age_minutes' => (int) env('ONHOST_QUEUE_BACKLOG_AGE_MINUTES', 5)], // operations due for longer than this pile up → platform.queue.backlog (audit §5h-5)
@@ -389,6 +389,8 @@ return [
     // nest/egg name when the panel is bootstrapped (onhost:game:sync-eggs), with safe environment defaults and the RAM floor
     // the template needs; `import` names the community egg to import when the panel lacks the template
     'game' => [
+        'operator_variables_ref' => env('ONHOST_GAME_OPERATOR_VARIABLES_REF', 'db://game/operator-variables'), // read-only egg variables the operator holds, e.g. the Steam account DayZ downloads with (audit §5s)
+        'upload_max_mb' => (int) env('ONHOST_GAME_UPLOAD_MAX_MB', 100), // binary uploads from the console through the panel's signed URL (audit §5r-3)
         'node_reserve_mb' => (int) env('ONHOST_GAME_NODE_RESERVE_MB', 1024), // RAM kept for the host when a node limit is detected from the daemon (audit §5q follow-up)
         'eggs' => [
             'minecraft-paper' => ['label' => 'Minecraft · Paper', 'note' => 'nejrozšířenější Minecraft server s pluginy', 'nest' => '/minecraft/i', 'egg' => '/^paper$/i', 'min_ram_mb' => 2048, 'environment' => ['MINECRAFT_VERSION' => 'latest', 'BUILD_NUMBER' => 'latest'], 'import' => 'pelican-eggs/minecraft (paper)'],
@@ -454,12 +456,14 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'otlp_endpoint' => env('OTEL_EXPORTER_OTLP_ENDPOINT', ''),     // http://otel-collector:4318 — spans go to {endpoint}/v1/traces
         'otlp_headers' => env('OTEL_EXPORTER_OTLP_HEADERS', ''),       // "Authorization=Bearer x,X-Scope-OrgID=onhost"
         'service_name' => env('OTEL_SERVICE_NAME', 'onhost-control-plane'),
+        'trace_url' => env('ONHOST_TRACE_URL', ''), // https://grafana.example/explore?left={"datasource":"tempo","queries":[{"query":"{trace_id}"}]} — console links (audit §5r-2)
         'environment' => env('APP_ENV', 'production'),
     ],
 
     'storage' => [ // files behind evidence and data exports (audit §5q-4)
         'disk' => env('ONHOST_FILES_DISK', 'local'),                                 // local | s3 (config/filesystems.php)
         'signed_ttl_minutes' => (int) env('ONHOST_FILES_SIGNED_TTL', 15),          // life of a signed download link
+        'clamav' => ['host' => env('ONHOST_CLAMAV_HOST', ''), 'port' => (int) env('ONHOST_CLAMAV_PORT', 3310), 'enforce' => (bool) env('ONHOST_CLAMAV_ENFORCE', true), 'timeout_seconds' => (int) env('ONHOST_CLAMAV_TIMEOUT', 30)], // virus scan of uploads (audit §5r-4); off without a host
         'evidence_retention_months' => (int) env('ONHOST_EVIDENCE_RETENTION_MONTHS', 36),
     ],
 
@@ -467,6 +471,7 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'site_key' => env('TURNSTILE_SITE_KEY', ''),
         'secret' => env('TURNSTILE_SECRET_KEY', ''),
         'enforce_register' => (bool) env('ONHOST_TURNSTILE_ENFORCE_REGISTER', true), // a missing/failed check refuses registration; checkout only scores it
+        'enforce_forms' => (bool) env('ONHOST_TURNSTILE_ENFORCE_FORMS', true),       // public contact/support, tender and partner application forms of guests (audit §5r-6)
         'timeout_seconds' => 3,
     ],
 

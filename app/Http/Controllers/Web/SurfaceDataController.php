@@ -28,6 +28,7 @@ use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentStateMachineStates as PaymentState;
 use Onhost\Domain\Payments\PaymentService;
+use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
@@ -616,7 +617,11 @@ final class SurfaceDataController extends Controller
             $eggs = [];
             foreach ((array) data_get($product, 'meta.eggs', []) as $eggKey) {
                 $preset = (array) config("onhost.game.eggs.{$eggKey}", []);
-                $eggs[] = ['key' => (string) $eggKey, 'label' => (string) ($preset['label'] ?? $eggKey), 'note' => (string) ($preset['note'] ?? ''), 'min_ram_mb' => (int) ($preset['min_ram_mb'] ?? 0), 'versions' => array_values(array_map('strval', (array) ($preset['versions'] ?? [])))]; // §5p: the versions a template offers in the wizard
+                $templates = app(GameTemplates::class);
+                if (! $templates->availability((string) $eggKey)['available']) {
+                    continue; // §5s: a template no panel can create is not offered
+                }
+                $eggs[] = ['key' => (string) $eggKey, 'label' => (string) ($preset['label'] ?? $eggKey), 'note' => (string) ($preset['note'] ?? ''), 'min_ram_mb' => (int) ($preset['min_ram_mb'] ?? 0), 'versions' => array_values(array_map('strval', (array) ($preset['versions'] ?? []))), 'inputs' => $templates->inputs((string) $eggKey)]; // §5s: what the order asks for; §5p: the versions a template offers in the wizard
             }
             $out[] = ['key' => $product['key'], 'family' => $product['family'], 'category' => $category, 'name' => (string) $product['name'], 'description' => (string) ($product['description'] ?? ''), 'plans' => $plans, 'orderable' => $orderable, 'eggs' => $eggs];
         }

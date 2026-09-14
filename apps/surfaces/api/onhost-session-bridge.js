@@ -77,6 +77,8 @@
     }
     function call(method, path, body, extra, retried) {
       var opts = { method: method, credentials: 'same-origin', headers: headers(extra) };
+      var guarded = method === 'POST' && /^\/(leads|tender\/request|reseller\/apply)(\?|$)/.test(path); // §5r-6: the public forms carry the Turnstile token too
+      if (guarded && body && !(typeof FormData !== 'undefined' && body instanceof FormData) && body.turnstile === undefined) { body.turnstile = turnstileToken(); setTimeout(turnstileReset, 0); }
       if (body !== undefined) {
         if (typeof FormData !== 'undefined' && body instanceof FormData) opts.body = body; // multipart uploads: the browser sets the boundary
         else { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }

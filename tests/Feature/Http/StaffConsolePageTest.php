@@ -36,11 +36,11 @@ it('carries the websocket client to the relay, replays the last lines and upload
     $service = featureGameService($org, [], 79, 'e4c1abc9');
     $staff = $this->staff('game_admin');
     $without = $this->actingAs($staff)->get("/sprava/konzole/{$service->id}")->assertOk()->getContent();
-    expect($without)->not->toContain('id="connect"')->toContain('id="upload"')->toContain("action: 'gfile.save'")->toContain('id="term"');
+    expect($without)->not->toContain('id="connect"')->toContain('id="upload"')->toContain("/game-files/upload'")->toContain('id="term"');
 
     config()->set('onhost.console.relay_url', 'wss://relay.onhost.test/');
     $html = $this->actingAs($staff)->get("/sprava/konzole/{$service->id}")->assertOk()->getContent();
     expect($html)->toContain('id="connect"')->toContain('"wss:\/\/relay.onhost.test"')->toContain("'/ws/' + encodeURIComponent(d.token)")->toContain("event: 'send logs'")->toContain("event: 'send command'")->toContain("f.event === 'console output'")
-        ->toContain("f.event === 'token expiring'")->toContain('readAsText(file)')->toContain('512 * 1024')->toContain("d.kind !== 'wings_ws'");
+        ->toContain("f.event === 'token expiring'")->toContain('new FormData')->toContain("d.kind !== 'wings_ws'");
     expect((string) $this->actingAs($staff)->get("/sprava/konzole/{$service->id}")->headers->get('Content-Security-Policy'))->toContain('connect-src \'self\' wss://relay.onhost.test/');
 });

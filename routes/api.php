@@ -264,6 +264,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
     Route::post('services/{service}/chargeback', [ServiceController::class, 'requestChargeback']);
     Route::post('services/{service}/chargeback/cancel', [ServiceController::class, 'cancelWithChargeback']);
     Route::post('services/{service}/actions', [ServiceController::class, 'action']);
+    Route::post('services/{service}/game-files/upload', [ServiceController::class, 'uploadFile']); // binary files to a game server, scanned first (audit §5r-3/§5r-4)
     foreach (['power', 'resize', 'backup', 'restore', 'snapshot', 'suspend', 'resume', 'terminate'] as $shorthand) {
         Route::post("services/{service}/{$shorthand}", [ServiceController::class, 'action'])->defaults('action', $shorthand);
     }
@@ -446,6 +447,9 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::post('oncall/alerts/{alert}/ack', [OnCallController::class, 'acknowledge']);
         Route::post('oncall/alerts/{alert}/resolve', [OnCallController::class, 'resolve']);
         Route::post('oncall/test', [OnCallController::class, 'test']);
+        Route::get('oncall/shifts', [OnCallController::class, 'shifts']); // the on-call rota (audit §5r-1)
+        Route::post('oncall/shifts', [OnCallController::class, 'addShift']);
+        Route::delete('oncall/shifts/{shift}', [OnCallController::class, 'removeShift']);
         Route::get('provisioning/jobs', [ProvisioningController::class, 'operations']);
         Route::get('provisioning/jobs/{operation}', [ProvisioningController::class, 'operation']);
         Route::post('provisioning/jobs/{operation}/retry', [ProvisioningController::class, 'retry']);

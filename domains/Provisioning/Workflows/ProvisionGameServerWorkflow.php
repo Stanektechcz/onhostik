@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Provisioning\Workflows;
 
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Workflow\StepContext;
@@ -120,7 +121,7 @@ final class ProvisionGameServerWorkflow implements Workflow
                     }
                     $result = $infra->provision($context->spec('game_server', [
                         'nest_id' => $nest, 'egg_id' => $eggId, 'docker_image' => $image !== '' ? $image : null, 'startup' => $startup !== '' ? $startup : null,
-                        'environment' => ProvisionGameServerWorkflow::withVersion(array_merge((array) ($egg['environment'] ?? []), (array) $context->desired('environment', []))), 'name' => $service->label ?: $service->name,
+                        'environment' => $context->container->make(GameTemplates::class)->fill($eggKey, ProvisionGameServerWorkflow::withVersion(array_merge((array) ($egg['environment'] ?? []), (array) $context->desired('environment', [])))), // §5s: passwords generated, operator variables filled 'name' => $service->label ?: $service->name,
                         'ptero_user_id' => (int) $context->get('ptero_user_id'), 'allocation_id' => (int) $context->get('allocation_id'), 'entitlements' => (array) $service->entitlements, 'limits' => (array) $context->desired('limits', []),
                     ]));
                     if ($result->ref !== null) {

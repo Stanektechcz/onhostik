@@ -105,6 +105,17 @@ final class Lexicon
         'Nabídka zveřejněna: ' => 'Listing published: ', 'Zákazníci ji vidí v marketplace.' => 'Customers see it in the marketplace.', 'Nabídka stažena: ' => 'Listing withdrawn: ',
         // sandbox
         'Účet je v režimu sandbox' => 'Account is in sandbox mode', 'Režim sandbox ukončen' => 'Sandbox mode ended', 'Služby se zřizují v laboratorním prostředí; kredit ' => 'Services are provisioned in the lab environment; the credit ', ' je určen k testování.' => ' is meant for testing.', 'Nové objednávky jdou do produkce.' => 'New orders go to production.',
+        // composed titles and bodies found by the coverage test (audit §5r-7)
+        'Objednávku ' => 'Order ', 'Objednávka ' => 'Order ', ' ještě kontrolujeme' => ' is still being checked', ' byla schválena' => ' was approved', ' jsme nemohli přijmout' => ' could not be accepted',
+        ' · zřizujeme služby' => ' · provisioning the services', ' · všechny služby jsou aktivní' => ' · all services are active',
+        'CDN je aktivní' => 'CDN is active', 'CDN zapnuto' => 'CDN enabled', 'CDN vypnuto' => 'CDN disabled', ' · nastavte nameservery u registrátora' => ' · set the nameservers at your registrar', ' změněn na ' => ' changed to ',
+        'Služba ' => 'Service ', ' využívá ' => ' uses ', '(prostor)' => '(disk space)', '(přenos dat)' => '(traffic)', '(paměť)' => '(memory)', '(poštovní schránky)' => '(mailboxes)',
+        'Blížíte se limitu tarifu. ' => 'You are close to the plan limit. ', 'Kapacita je téměř vyčerpaná. ' => 'Capacity is almost used up. ', 'Vyšší tarif pro tuto službu nenabízíme; napište podpoře.' => 'We offer no higher plan for this service; contact support.',
+        'Vyšší tarif ' => 'The higher plan ', ' stojí ' => ' costs ', ' a přepnete ho jedním klikem v panelu (doplatek jen za zbytek období).' => ' and you switch to it with one click in the panel (you only pay the difference for the rest of the period).', ' / rok' => ' / year', ' / měsíc' => ' / month',
+        'Nový doklad ' => 'New document ', 'Doklad ' => 'Document ', ' byl stornován' => ' was cancelled', ' je po splatnosti' => ' is overdue',
+        'Do ' => 'Until ', ' se obnovují služby za ' => ' services renew for ', ', k dispozici je ' => ', available ', ' — chybí ' => ' — short by ', ' Automatické dobití se nepodařilo (' => ' The automatic top-up failed (', '); dobijte prosím kredit.' => '); please top up your credit.', ' Dobijte kredit, nebo si zapněte automatické dobití.' => ' Top up your credit or turn on the automatic top-up.',
+        'Synchronizace účtu ' => 'Sync of account ', ' selhala' => ' failed', 'Účet ' => 'Account ', ' odpojen' => ' disconnected',
+        'Přijali jsme váš požadavek ' => 'We received your request ', 'Tiket ' => 'Ticket ', ' vyřešen' => ' resolved',
         // small words that appear inside composed strings
         ' · vrácení kreditu' => ' · credit refund', ' dnů' => ' days', 'včera' => 'yesterday', 'dnes' => 'today', 'zítra' => 'tomorrow',
     ];

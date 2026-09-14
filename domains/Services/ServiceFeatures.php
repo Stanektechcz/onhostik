@@ -66,7 +66,7 @@ final class ServiceFeatures
         'mail_filters' => ['filter.create', 'filter.delete'], 'mailing_lists' => ['list.create', 'list.delete'], 'fetchmail' => ['fetchmail.create', 'fetchmail.delete'], 'mail_backups' => ['mailbox.backup', 'mailbox.restore'],
         // game tools (GameToolsProvider): startup variables and image, server settings, schedule housekeeping, databases, collaborators, files, ports, backup housekeeping, the customer's panel account
         'startup' => ['variable.set', 'image.set'], 'game_settings' => ['rename', 'reinstall'], 'schedule_tools' => ['schedule.delete', 'schedule.toggle', 'schedule.run'], 'game_databases' => ['gamedb.create', 'gamedb.rotate', 'gamedb.delete'],
-        'subusers' => ['subuser.create', 'subuser.delete'], 'game_files' => ['gfile.save', 'gfile.delete', 'gfile.mkdir', 'gfile.rename'], 'allocations' => ['allocation.add', 'allocation.primary', 'allocation.remove'],
+        'subusers' => ['subuser.create', 'subuser.delete'], 'game_files' => ['gfile.save', 'gfile.upload', 'gfile.delete', 'gfile.mkdir', 'gfile.rename'], 'allocations' => ['allocation.add', 'allocation.primary', 'allocation.remove'],
         'backup_tools' => ['gbackup.delete', 'gbackup.lock'], 'panel_access' => ['panel.password'],
     ];
 
@@ -78,7 +78,7 @@ final class ServiceFeatures
     ];
 
     /** Game actions the customer may take (ServiceActionCommand risk): what is destructive needs a fresh step-up. */
-    public const GAME_ACTIONS = ['variable.set', 'image.set', 'rename', 'reinstall', 'schedule.delete', 'schedule.toggle', 'schedule.run', 'gamedb.create', 'gamedb.rotate', 'gamedb.delete', 'subuser.create', 'subuser.delete', 'gfile.save', 'gfile.delete', 'gfile.mkdir', 'gfile.rename', 'allocation.add', 'allocation.primary', 'allocation.remove', 'gbackup.delete', 'gbackup.lock', 'panel.password'];
+    public const GAME_ACTIONS = ['variable.set', 'image.set', 'rename', 'reinstall', 'schedule.delete', 'schedule.toggle', 'schedule.run', 'gamedb.create', 'gamedb.rotate', 'gamedb.delete', 'subuser.create', 'subuser.delete', 'gfile.save', 'gfile.upload', 'gfile.delete', 'gfile.mkdir', 'gfile.rename', 'allocation.add', 'allocation.primary', 'allocation.remove', 'gbackup.delete', 'gbackup.lock', 'panel.password'];
 
     /** resource kinds answered by the platform's own records (short cache: the panel refreshes them right after an action) */
     public const PLATFORM_RESOURCES = ['staging', 'deploy', 'deployments', 'wordpress', 'monitoring', 'monitoring_samples', 'certificates', 'cdn', 'imports'];

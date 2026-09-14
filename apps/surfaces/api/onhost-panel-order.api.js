@@ -212,6 +212,15 @@
       var os = String(sel.os || ''), at = os.indexOf('@'), eggKey = at > 0 ? os.slice(0, at) : os; // §5p: `key@version` from the wizard
       config.egg = eggKeys.indexOf(eggKey) >= 0 ? eggKey : (eggKeys[0] || undefined); // the chosen game template
       if (at > 0 && config.egg === eggKey) config.version = os.slice(at + 1);
+      var chosen = (p.eggs || []).filter(function (e) { return e.key === config.egg; })[0]; // §5s: values the template cannot start without (a Steam token)
+      if (chosen && chosen.inputs && chosen.inputs.length) {
+        config.environment = {};
+        for (var ii = 0; ii < chosen.inputs.length; ii++) {
+          var inp = chosen.inputs[ii], v = window.prompt(_('Šablona ' + (chosen.label || chosen.key) + ' potřebuje ' + inp.env + ' (' + inp.rules + '):', 'Template ' + (chosen.label || chosen.key) + ' needs ' + inp.env + ' (' + inp.rules + '):'), '');
+          if (v === null || !String(v).trim()) { flash(cmp, _('Objednávka nedokončena', 'Order not finished'), _('Bez hodnoty ' + inp.env + ' server nelze vytvořit.', 'The server cannot be created without ' + inp.env + '.')); return; }
+          config.environment[inp.env] = String(v).trim();
+        }
+      }
       if (name) config.hostname = name.toLowerCase().replace(/[^a-z0-9.-]+/g, '-').replace(/^-+|-+$/g, '');
     } else if (p.family === 'cloud') {
       if (sel.os) config.image = sel.os;

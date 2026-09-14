@@ -889,7 +889,7 @@ final class ServiceService
 
                 return ['email' => strtolower($need('email', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'email must be an e-mail address')), 'permissions' => $permissions];
             })(),
-            'gfile.save', 'gfile.delete', 'gfile.mkdir', 'gfile.rename' => (function () use ($params, $action) {
+            'gfile.save', 'gfile.upload', 'gfile.delete', 'gfile.mkdir', 'gfile.rename' => (function () use ($params, $action) {
                 $clean = function (string $key, bool $required = true) use ($params, $action): string {
                     $value = trim(str_replace('\\', '/', (string) ($params[$key] ?? '')), '/');
                     if (($value === '' && $required) || strlen($value) > 500 || str_contains($value, "\0") || preg_match('~(^|/)\.\.?(/|$)~', $value)) {
@@ -905,6 +905,14 @@ final class ServiceService
                     }
 
                     return ['path' => $clean('path'), 'content' => $content];
+                }
+                if ($action === 'gfile.upload') { // §5r-3: only a file the upload endpoint staged (and the scanner passed)
+                    $tmp = (string) ($params['tmp_path'] ?? '');
+                    if (preg_match('~^game-uploads/tmp/[a-z0-9]{24}$~', $tmp) !== 1) {
+                        throw new DomainError('action_param_invalid', "{$action}: upload the file through /services/{id}/game-files/upload.", 422, ['field' => 'file']);
+                    }
+
+                    return ['directory' => '/'.$clean('directory', false), 'name' => basename($clean('name')), 'tmp_path' => $tmp, 'size' => (int) ($params['size'] ?? 0), 'scan' => (string) ($params['scan'] ?? '')];
                 }
                 if ($action === 'gfile.rename') {
                     return ['root' => '/'.$clean('root', false), 'from' => basename($clean('from')), 'to' => basename($clean('to'))];

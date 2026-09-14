@@ -13,6 +13,7 @@ use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Observability\Tracer;
 use Onhost\Platform\Outbox\OutboxEventDispatched;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Platform\Secrets\SecretRef;
@@ -78,7 +79,7 @@ final class OnCallService
         $alert = OnCallAlert::query()->create([
             'event' => $event, 'dedup_key' => $dedup, 'severity' => in_array($severity, ['info', 'warn', 'hot'], true) ? $severity : 'warn', 'state' => OnCallAlert::OPEN,
             'title' => mb_substr($title, 0, 250), 'body' => $body, 'surface' => $surface, 'provider' => $this->provider()?->name(), 'escalate_after' => now()->addMinutes($this->escalateAfterMinutes()),
-            'meta' => ['aggregate' => ['type' => $aggregateType, 'id' => $aggregateId]],
+            'meta' => array_filter(['aggregate' => ['type' => $aggregateType, 'id' => $aggregateId], 'assignee' => app(OnCallRota::class)->assignee(), 'correlation_id' => CommandContext::currentCorrelationId()]), // §5r-1: the person on the rota right now
         ]);
         $this->page($alert, 0);
         $this->outbox->publish(GenericEvent::of('oncall.alert.opened', 'oncall_alert', $alert->id, self::present($alert)));
@@ -241,6 +242,7 @@ final class OnCallService
         return [
             'provider' => (string) config('onhost.oncall.provider', '') ?: null, 'configured' => $this->provider() !== null, 'events' => array_keys((array) config('onhost.oncall.events', [])),
             'escalate_after_minutes' => $this->escalateAfterMinutes(), 'max_escalations' => (int) config('onhost.oncall.max_escalations', 2), 'active' => OnCallAlert::query()->whereIn('state', OnCallAlert::ACTIVE)->count(),
+            'on_call' => app(OnCallRota::class)->assignee(), 'next' => ($next = app(OnCallRota::class)->next()) !== null ? OnCallRota::present($next) : null, // §5r-1
         ];
     }
 
@@ -251,7 +253,7 @@ final class OnCallService
             'id' => $a->id, 'event' => $a->event, 'severity' => $a->severity, 'state' => $a->state, 'title' => $a->title, 'body' => $a->body, 'surface' => $a->surface, 'provider' => $a->provider, 'paged' => $a->provider_ref !== null,
             'escalations' => (int) $a->escalations, 'escalate_after' => $a->escalate_after?->toIso8601String(), 'escalated_at' => $a->escalated_at?->toIso8601String(),
             'acked_by' => $a->acked_by, 'acked_at' => $a->acked_at?->toIso8601String(), 'resolved_by' => $a->resolved_by, 'resolved_at' => $a->resolved_at?->toIso8601String(),
-            'repeats' => (int) data_get($a->meta, 'repeats', 0), 'aggregate' => data_get($a->meta, 'aggregate'), 'at' => $a->created_at?->toIso8601String(),
+            'trace_url' => Tracer::urlFor(data_get($a->meta, 'correlation_id')), 'repeats' => (int) data_get($a->meta, 'repeats', 0), 'aggregate' => data_get($a->meta, 'aggregate'), 'assignee' => data_get($a->meta, 'assignee'), 'at' => $a->created_at?->toIso8601String(),
         ];
     }
 
@@ -266,7 +268,7 @@ final class OnCallService
         if ($provider === null) {
             return;
         }
-        $ref = $provider->trigger(['dedup_key' => $alert->dedup_key, 'title' => $alert->title, 'body' => $alert->body, 'severity' => $alert->severity, 'event' => $alert->event, 'surface' => $alert->surface, 'escalation' => $escalation]);
+        $ref = $provider->trigger(['dedup_key' => $alert->dedup_key, 'title' => $alert->title, 'body' => $alert->body, 'severity' => $alert->severity, 'event' => $alert->event, 'surface' => $alert->surface, 'escalation' => $escalation, 'assignee' => data_get($alert->meta, 'assignee.name')]);
         $alert->forceFill(['provider' => $provider->name(), 'provider_ref' => $ref, 'meta' => array_merge((array) $alert->meta, ['pages' => (int) data_get($alert->meta, 'pages', 0) + ($ref !== null ? 1 : 0), 'page_failed_at' => $ref === null ? now()->toIso8601String() : null])])->save();
     }
 

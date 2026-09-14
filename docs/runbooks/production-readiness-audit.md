@@ -45,8 +45,11 @@ dokumentace v `docs/` a runbooky. Priority: **P0** blokuje spuštění, **P1** d
    Application API (*Herní uzly → Limity uzlu / Změřit RAM*), paměť uzlu ONHOST-GAME-TEST-01 nastavena na 14 964 MB,
    disk uzlu 200 000 MB — **první Spigot 1.21.8 běží** (`srv_01m2era5hx2abepxmy79v1rfp5`, 45.67.217.22:6665,
    sestavený BuildTools skriptem, který platforma zapsala přes API; start, příkazy i log z konzole ONhost).
+   Katalog prodává 22 šablon (nest Minecraft + Onhost Gamehosting), všechny namapované přes API; povinné proměnné
+   eggů hlídá quote (§5s) — **DayZ se nenabízí, dokud se neuloží Steam účet** (`onhost:game:operator-variable
+   STEAM_USER` a `STEAM_PASS`), CS2 si token GSLT vyžádá od zákazníka při objednávce.
 8. **Edge a konzole** — `ONHOST_CONSOLE_RELAY_KEY` + `ONHOST_CONSOLE_RELAY_URL` (relay pro živou konzoli),
-   `ONHOST_METRICS_TOKEN`, nasazení edge role (`infra/ansible/edge.yml`) s on-demand TLS pro stavové domény
+   `ONHOST_METRICS_TOKEN`, `ONHOST_CLAMAV_HOST` (antivir nahrávek, §5r-4), `ONHOST_TRACE_URL`, nasazení edge role (`infra/ansible/edge.yml`) s on-demand TLS pro stavové domény
    zákazníků.
 
 ## 3. P1 — první měsíc provozu

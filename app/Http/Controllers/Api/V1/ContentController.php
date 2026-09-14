@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Content\ContentService;
 use Onhost\Domain\Content\Models\Lead;
+use Onhost\Domain\Risk\Turnstile;
 
 /** Public content and forms for Onhost.dc.html (`onhost-data.js` / `onhost-content.js` shapes). */
 final class ContentController extends ApiController
@@ -47,8 +48,9 @@ final class ContentController extends ApiController
         return $this->ok($content->stock($this->locale($request)));
     }
 
-    public function lead(Request $request, ContentService $content): JsonResponse
+    public function lead(Request $request, ContentService $content, Turnstile $turnstile): JsonResponse
     {
+        $turnstile->requireForForm($request, 'lead'); // §5r-6: contact and support requests
         $data = $request->validate([
             'kind' => ['required', 'in:'.implode(',', array_diff(Lead::KINDS, ['tender', 'reseller']))], 'name' => ['required', 'string', 'max:120'], 'email' => ['required', 'email', 'max:190'], 'phone' => ['nullable', 'string', 'max:40'],
             'company' => ['nullable', 'string', 'max:190'], 'message' => ['nullable', 'string', 'max:8000'], 'meta' => ['nullable', 'array'], 'consent' => ['accepted'],
@@ -58,8 +60,9 @@ final class ContentController extends ApiController
         return response()->json(['data' => ['id' => $lead->id, 'kind' => $lead->kind, 'state' => $lead->state]], 201);
     }
 
-    public function tender(Request $request, ContentService $content): JsonResponse
+    public function tender(Request $request, ContentService $content, Turnstile $turnstile): JsonResponse
     {
+        $turnstile->requireForForm($request, 'tender');
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'], 'email' => ['required', 'email', 'max:190'], 'phone' => ['nullable', 'string', 'max:40'], 'company' => ['required', 'string', 'max:190'],
             'message' => ['nullable', 'string', 'max:8000'], 'deadline' => ['nullable', 'date'], 'authority' => ['nullable', 'string', 'max:190'], 'scope' => ['nullable', 'string', 'max:2000'], 'consent' => ['accepted'],
@@ -74,8 +77,9 @@ final class ContentController extends ApiController
         return $this->ok($content->resellerTiers($this->locale($request)));
     }
 
-    public function resellerApply(Request $request, ContentService $content): JsonResponse
+    public function resellerApply(Request $request, ContentService $content, Turnstile $turnstile): JsonResponse
     {
+        $turnstile->requireForForm($request, 'partner_application'); // §5r-6: the partner portal's door
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'], 'email' => ['required', 'email', 'max:190'], 'phone' => ['nullable', 'string', 'max:40'], 'company' => ['required', 'string', 'max:190'],
             'clients' => ['nullable', 'string', 'max:40'], 'site' => ['nullable', 'string', 'max:190'], 'model' => ['nullable', 'in:share,oneoff'], 'message' => ['nullable', 'string', 'max:4000'], 'consent' => ['accepted'],

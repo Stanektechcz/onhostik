@@ -105,6 +105,20 @@ final class Tracer
         return $ok ? count($spans) : 0;
     }
 
+    /**
+     * The link that opens a correlation's trace in Grafana / Tempo / Jaeger (audit §5r-2): `ONHOST_TRACE_URL` with
+     * `{trace_id}` (and optionally `{correlation_id}`) placeholders; null without a template or a correlation id.
+     */
+    public static function urlFor(?string $correlationId): ?string
+    {
+        $template = (string) config('onhost.observability.trace_url', '');
+        if ($template === '' || $correlationId === null || $correlationId === '') {
+            return null;
+        }
+
+        return strtr($template, ['{trace_id}' => md5($correlationId), '{correlation_id}' => rawurlencode($correlationId)]);
+    }
+
     /** The 32-hex trace id of the current correlation id (what the logs and audit rows carry). */
     public static function traceId(): string
     {

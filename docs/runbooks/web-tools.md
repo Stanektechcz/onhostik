@@ -1165,3 +1165,12 @@ the Paper egg, Purpur, Vanilla, Forge, Sponge, BungeeCord, Bedrock) and nest *On
 Arma Reforger, Counter-Strike 2, DayZ, Enshrouded, Factorio, Hytale, Palworld, Project Zomboid, Rust Autowipe,
 Satisfactory, Terraria, V Rising, Valheim). The presets `rust` and `ark` stay in config for existing mappings but are
 no longer offered.
+
+**Template requirements (§5s).** A required egg variable without a default blocks `servers.create`. The egg sync
+stores them per mapping; passwords are generated, customer inputs (CS2 `STEAM_GSLT`) are asked for by the order and
+checked by the quote, read-only operator variables (DayZ `STEAM_USER`/`STEAM_PASS`) come from
+`db://game/operator-variables` (`php artisan onhost:game:operator-variable STEAM_USER`). A template no panel maps, or
+whose operator variables are missing, is not offered; `onhost:game:templates:verify` runs daily against the panel.
+
+**Binary uploads and virus scan (§5r-3/4).** `POST /v1/services/{id}/game-files/upload` → clamd INSTREAM → `gfile.upload`
+(signed upload URL from the panel, multipart to the daemon). Infected files are deleted and reported (`files.infected`).

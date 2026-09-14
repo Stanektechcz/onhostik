@@ -54,7 +54,7 @@
     <form id="cmd"><input id="line" placeholder="příkaz konzole, např. list · say Ahoj · op Hrac" autocomplete="off"><button class="primary" type="submit">Odeslat</button></form>
   @endif
   @if ($canFiles)
-    <form id="upload"><input id="path" placeholder="cesta na serveru, např. plugins/config.yml" autocomplete="off"><input type="file" id="file"><button type="submit">Nahrát soubor (text, do 512 kB)</button></form>
+    <form id="upload"><input id="path" placeholder="cesta na serveru, např. plugins/config.yml" autocomplete="off"><input type="file" id="file"><button type="submit">Nahrát soubor</button></form>
   @endif
   <div class="msg" id="msg"></div>
   <p class="muted">Vše jde přes zákaznické API služby s hlavičkou organizace; každá akce je v auditu. Živá konzole běží přes websocket relay (token je jednorázový, spojení se po vypršení obnoví samo); příkaz odeslaný při připojené konzoli jde přímo do ní, jinak přes API.</p>
@@ -146,18 +146,18 @@
     api('POST', '/services/' + encodeURIComponent(sid) + '/actions', { action: 'command.send', params: { command: line } }).then(function (d) { say('Odesláno: ' + line + ' · operace ' + (d.operation_id || '')); document.getElementById('line').value = ''; setTimeout(loadLog, 2500); }).catch(function (e) { say(e.message, true); });
   });
 
-  /* file transfer (audit §5q-3): text files up to 512 kB through the audited `gfile.save` action; binaries stay with SFTP */
+  /* file transfer (audit §5q-3/§5r-3): any file goes multipart to /files/upload — scanned, then sent to the daemon through the panel's signed URL */
   var upload = document.getElementById('upload');
   if (upload) upload.addEventListener('submit', function (ev) {
     ev.preventDefault();
     var path = document.getElementById('path').value.trim(), file = document.getElementById('file').files[0];
     if (!path || !file) { say('Zadejte cestu na serveru a vyberte soubor.', true); return; }
-    if (file.size > 512 * 1024) { say('Soubor je větší než 512 kB — použijte SFTP nebo panel.', true); return; }
-    var reader = new FileReader();
-    reader.onload = function () {
-      api('POST', '/services/' + encodeURIComponent(sid) + '/actions', { action: 'gfile.save', params: { path: path, content: String(reader.result) } }).then(function (d) { say('Soubor ' + path + ' odeslán · operace ' + (d.operation_id || '')); }).catch(function (e) { say(e.message, true); });
-    };
-    reader.readAsText(file);
+    var dir = path.replace(/\\/g, '/').replace(/\/[^\/]*$/, '') || '/', form = new FormData();
+    form.append('file', file, path.split('/').pop() || file.name); form.append('directory', dir);
+    say('Nahrávám ' + file.name + ' (' + Math.round(file.size / 1024) + ' kB)…');
+    fetch('/v1/services/' + encodeURIComponent(sid) + '/game-files/upload', { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf, 'X-Requested-With': 'XMLHttpRequest', 'X-Organization': org, 'Idempotency-Key': key() }, body: form })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.message || j.error || ('HTTP ' + r.status)); return j.data !== undefined ? j.data : j; }); })
+      .then(function (d) { say('Soubor ' + path + ' odeslán · operace ' + (d.operation_id || d.id || '')); }).catch(function (e) { say(e.message, true); });
   });
 
   document.getElementById('refresh').addEventListener('click', loadLog);

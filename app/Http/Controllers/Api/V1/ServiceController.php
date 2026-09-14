@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Presenters\Presenters;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Onhost\Domain\Billing\ChargebackService;
 use Onhost\Domain\Billing\Commands\ChargebackCommand;
 use Onhost\Domain\Identity\Authorization\Authorizer;
@@ -26,6 +27,9 @@ use Onhost\Domain\Services\ServiceSpecService;
 use Onhost\Domain\Services\ServiceSummary;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Files\FileStore;
+use Onhost\Platform\Files\UploadGuard;
+use Onhost\Platform\Files\VirusScanner;
 use Symfony\Component\HttpFoundation\Response;
 
 final class ServiceController extends ApiController
@@ -81,6 +85,34 @@ final class ServiceController extends ApiController
         $organization = Organization::query()->find($model->organization_id);
 
         return $this->dispatch(new ServiceActionCommand($model->organization_id, $this->idempotencyKey($request, "service.{$action}"), ['service_id' => $model->id, 'project_id' => $model->project_id, 'action' => $action, 'params' => $params]), $this->api->context($request, $organization, $data['reason'] ?? null), 202);
+    }
+
+    /**
+     * A binary file for a game server (audit §5r-3): the multipart upload is staged on the file store, scanned
+     * (§5r-4 — an infected file is refused and deleted), then `gfile.upload` sends it to the daemon through the
+     * panel's signed URL like every other audited action.
+     */
+    public function uploadFile(Request $request, FileStore $files, VirusScanner $scanner, string $service): JsonResponse
+    {
+        $model = $this->resolve($request, $service);
+        $max = max(1, (int) config('onhost.game.upload_max_mb', 100)) * 1024;
+        $data = $request->validate(['file' => ['required', 'file', 'max:'.$max], 'directory' => ['nullable', 'string', 'max:500'], 'reason' => ['nullable', 'string', 'max:250']]);
+        $upload = $data['file'];
+        $tmp = 'game-uploads/tmp/'.Str::lower(Str::random(24));
+        $stream = fopen($upload->getRealPath(), 'rb');
+        $files->disk()->writeStream($tmp, $stream);
+        if (is_resource($stream)) {
+            fclose($stream);
+        }
+        $scan = $scanner->scanPath($tmp);
+        if (! $scanner->allows($scan['result'])) {
+            $files->disk()->delete($tmp);
+            UploadGuard::refused($scan, 'service', $model->id, (string) $upload->getClientOriginalName(), $this->api->context($request));
+        }
+        $organization = Organization::query()->find($model->organization_id);
+        $params = ['directory' => (string) ($data['directory'] ?? '/'), 'name' => (string) $upload->getClientOriginalName(), 'tmp_path' => $tmp, 'size' => (int) $upload->getSize(), 'scan' => $scan['result']];
+
+        return $this->dispatch(new ServiceActionCommand($model->organization_id, $this->idempotencyKey($request, 'service.gfile.upload:'.$tmp), ['service_id' => $model->id, 'project_id' => $model->project_id, 'action' => 'gfile.upload', 'params' => $params]), $this->api->context($request, $organization, $data['reason'] ?? null), 202);
     }
 
     public function consoleToken(Request $request, string $service): JsonResponse

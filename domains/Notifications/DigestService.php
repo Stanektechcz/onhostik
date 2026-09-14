@@ -7,6 +7,7 @@ namespace Onhost\Domain\Notifications;
 use Carbon\CarbonImmutable;
 use Onhost\Domain\Billing\Models\DunningCase;
 use Onhost\Domain\Billing\Models\Subscription;
+use Onhost\Domain\Incidents\OnCallRota;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
@@ -142,6 +143,7 @@ final class DigestService
             'Pohledávky: '.DunningCase::query()->whereNotIn('state', [DunningCase::RESOLVED, DunningCase::TERMINATED])->count().' otevřených upomínek',
             'Kapacita tarifů: '.Service::query()->where('tags->usage->level', 'critical')->count().' služeb u limitu · '.Service::query()->where('tags->usage->level', 'warn')->count().' se blíží',
             'Podpora: '.Ticket::query()->where('created_at', '>=', $day)->count().' nových tiketů za 24 h',
+            app(OnCallRota::class)->handOverLine(), // §5r-1: who carries the pager and the next hand-over
         ];
         $title = 'Denní provozní přehled '.$now->format('j. n.');
         $this->notifications->notify('internal', 'digest', $title, implode(' · ', $lines), '/sprava', null, null, null, null, 'digest.staff', 'info');

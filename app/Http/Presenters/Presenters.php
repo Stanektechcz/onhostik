@@ -23,6 +23,7 @@ use Onhost\Domain\Provisioning\ServiceMigrationService;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Money\Money;
+use Onhost\Platform\Observability\Tracer;
 
 /**
  * JSON shapes of the v1 API. Money is always `{minor, currency, decimal}` (integer minor units),
@@ -86,7 +87,7 @@ final class Presenters
             'result' => self::customerResult($operation),
         ];
         if ($staff) {
-            $out += ['workflow' => $operation->workflow, 'organization_id' => $operation->organization_id, 'provider_instance_id' => $operation->provider_instance_id, 'queue' => $operation->queue, 'correlation_id' => $operation->correlation_id, 'actor' => [$operation->actor_type, $operation->actor_id], 'context' => $operation->context, 'error_detail' => $operation->error];
+            $out += ['workflow' => $operation->workflow, 'organization_id' => $operation->organization_id, 'provider_instance_id' => $operation->provider_instance_id, 'queue' => $operation->queue, 'correlation_id' => $operation->correlation_id, 'trace_url' => Tracer::urlFor($operation->correlation_id), 'actor' => [$operation->actor_type, $operation->actor_id], 'context' => $operation->context, 'error_detail' => $operation->error];
         }
 
         return $out;
