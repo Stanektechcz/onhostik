@@ -1,19 +1,25 @@
-# Deployment on the aaPanel host (onhost.cz)
+# Deployment on the aaPanel host — staging.onhost.cz (and onhost.cz)
 
 The control plane runs as a normal Laravel site under aaPanel's nginx + PHP-FPM 8.3, with PostgreSQL and Redis from the
 aaPanel App Store, the queue workers and the scheduler as systemd units, and the websocket console relay as a Node
-service. `infra/aapanel/install.sh` does the first installation, `infra/aapanel/deploy.sh` every later release.
+service. `infra/aapanel/install.sh` does the first installation, `infra/aapanel/deploy.sh` every later release. The
+scripts default to `SITE=staging.onhost.cz`; production is the same procedure with `SITE=onhost.cz`.
+
+**Staging = the production test bed.** It runs with the production configuration and real integrations, only the
+money and registry switches stay in test mode (`COMGATE_TEST=true`, `WEDOS_TEST_MODE=true`, Let's Encrypt staging
+directory). Everything the checklist in § 5 passes on staging is what production will do.
 
 ## 1. aaPanel preparation (once, in the aaPanel UI)
 
 | Step | Where | Value |
 | --- | --- | --- |
 | PHP 8.3 with extensions `pdo_pgsql`, `intl`, `bcmath`, `mbstring`, `redis`, `fileinfo`, `zip`, `gd`, `opcache`; `disable_functions` must not contain `proc_open`, `exec`, `shell_exec` (pg_dump, Composer) | App Store → PHP 8.3 → Install extensions / Disabled functions | `memory_limit=512M`, `upload_max_filesize=2048M`, `post_max_size=2048M`, `max_execution_time=300` |
-| PostgreSQL 16 | App Store → PostgreSQL | database `onhost`, user `onhost`, a strong password (goes into `DB_PASSWORD`) |
+| PostgreSQL 16 | App Store → PostgreSQL | database `onhost_staging`, user `onhost`, a strong password (`DB_PASSWORD`) |
 | Redis | App Store → Redis | `requirepass` set (`REDIS_PASSWORD`) |
-| Website `onhost.cz` (+ `www.onhost.cz`) | Website → Add site | PHP 8.3, root `/www/wwwroot/onhost.cz/public`, SSL (Let's Encrypt) with force HTTPS |
+| Website `staging.onhost.cz` | Website → Add site | PHP 8.3, root `/www/wwwroot/staging.onhost.cz/public`, SSL (Let's Encrypt) with force HTTPS |
+| DNS | your DNS | `staging.onhost.cz A <server IPv4>` (+ AAAA); `gamepanel.onhost.cz` already points at the game panel |
 | Node.js 20+ (console relay) | App Store → Node.js version manager | — |
-| Firewall | Security | 80/443 open; 8090 (relay) and 5432/6379 **closed** to the internet |
+| Firewall | Security | 80/443 open; 8090 (relay), 5432, 6379 **closed** to the internet |
 | Cron / supervisor | not needed — systemd units below | — |
 
 ## 2. Installation
@@ -25,99 +31,110 @@ nano /etc/onhost/app.env                     # fill the values from § 4
 bash /root/onhost-install.sh                 # composer, key, migrations, seed, systemd units, caches, doctor
 ```
 
-Then paste `infra/aapanel/nginx-onhost.cz.conf` into Website → onhost.cz → Config (root = `…/public`), reload nginx and
-open `https://onhost.cz/up` (200) and `https://onhost.cz/healthz`.
+(`SITE=onhost.cz bash /root/onhost-install.sh` for production; `APP_DIR`, `PHP`, `RUN_USER`, `BRANCH` are overridable
+the same way.)
+
+Then paste `infra/aapanel/nginx-site.conf` into Website → staging.onhost.cz → Config (root = `…/public`), reload nginx
+and open `https://staging.onhost.cz/up` (200) and `https://staging.onhost.cz/healthz`.
 
 Console relay:
 
 ```bash
-mkdir -p /opt/onhost-console-relay && cp -r /www/wwwroot/onhost.cz/infra/console-relay/* /opt/onhost-console-relay/
+mkdir -p /opt/onhost-console-relay && cp -r /www/wwwroot/staging.onhost.cz/infra/console-relay/* /opt/onhost-console-relay/
 cd /opt/onhost-console-relay && npm ci --omit=dev
 useradd -r -s /usr/sbin/nologin onhost-relay; chown -R onhost-relay:onhost-relay /opt/onhost-console-relay
-printf 'ONHOST_API=https://onhost.cz\nONHOST_CONSOLE_RELAY_KEY=<the same value as in app.env>\nPORT=8090\n' > /etc/onhost/relay.env; chmod 600 /etc/onhost/relay.env
-cp /www/wwwroot/onhost.cz/infra/systemd/onhost-console-relay.service /etc/systemd/system/ && systemctl enable --now onhost-console-relay
+printf 'ONHOST_API=https://staging.onhost.cz\nONHOST_CONSOLE_RELAY_KEY=<the same value as in app.env>\nPORT=8090\n' > /etc/onhost/relay.env; chmod 600 /etc/onhost/relay.env
+cp /www/wwwroot/staging.onhost.cz/infra/systemd/onhost-console-relay.service /etc/systemd/system/ && systemctl enable --now onhost-console-relay
 ```
 
 ## 3. Releases
 
 ```bash
-bash /www/wwwroot/onhost.cz/infra/aapanel/deploy.sh      # backup → pull → composer → migrate → caches → restart workers → doctor
+bash /www/wwwroot/staging.onhost.cz/infra/aapanel/deploy.sh      # backup → pull → composer → migrate → caches → restart workers → doctor
 ```
 
 Rollback: `git checkout <previous tag>` + the same script with `SKIP_BACKUP=1`; migrations are backward compatible for
 one release (docs/runbooks/release-and-rollback.md).
 
-## 4. Údaje k doplnění (co potřebujeme od vás)
+## 4. Údaje k doplnění (co potřebujeme od vás pro plnohodnotné testování produkce)
 
-Vše se zapisuje do `/etc/onhost/app.env` (šablona `.env.example`) nebo skrytými příkazy — nikdy do chatu.
+Vše se zapisuje do `/etc/onhost/app.env` (šablona `.env.example`, sekce v ní odpovídají tabulkám níže) nebo skrytými
+příkazy na serveru — nikdy do chatu.
 
 **A. Server a aplikace (`app.env`)**
 
-| Klíč | Hodnota |
+| Klíč | Hodnota pro staging |
 | --- | --- |
-| `APP_ENV` | `production` (na onhost.cz), `APP_URL=https://onhost.cz`, `SANCTUM_STATEFUL_DOMAINS=onhost.cz,www.onhost.cz` |
-| `DB_HOST/DB_DATABASE/DB_USERNAME/DB_PASSWORD` | PostgreSQL z aaPanelu |
-| `REDIS_HOST/REDIS_PASSWORD` | Redis z aaPanelu |
-| `MAIL_HOST/MAIL_PORT/MAIL_USERNAME/MAIL_PASSWORD/MAIL_FROM_ADDRESS` | SMTP účet (a SPF/DKIM/DMARC pro odesílatele) |
+| `APP_ENV=staging`, `APP_URL=https://staging.onhost.cz`, `SANCTUM_STATEFUL_DOMAINS=staging.onhost.cz` | už v šabloně |
+| `DB_HOST=127.0.0.1`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | PostgreSQL z aaPanelu |
+| `REDIS_HOST=127.0.0.1`, `REDIS_PASSWORD` | Redis z aaPanelu |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS` | SMTP účet (SPF/DKIM/DMARC pro odesílatele, jinak testovací maily končí ve spamu) |
 | `ONHOST_STAFF_DIGEST_TO` | e-mail provozu pro denní přehled |
-| `ONHOST_CONSOLE_RELAY_KEY`, `ONHOST_CONSOLE_RELAY_URL=wss://onhost.cz/relay` | náhodný řetězec (např. `openssl rand -hex 32`), stejný v `relay.env` |
+| `ONHOST_CONSOLE_RELAY_KEY`, `ONHOST_CONSOLE_RELAY_URL=wss://staging.onhost.cz/relay` | náhodný řetězec (`openssl rand -hex 32`), stejný v `/etc/onhost/relay.env` |
 | `ONHOST_METRICS_TOKEN` | náhodný řetězec pro Prometheus |
+| `ONHOST_PLATFORM_ZONES`, `ONHOST_VM_HOSTNAME_SUFFIX`, `ONHOST_WEB_PREVIEW_SUFFIX`, `ONHOST_STAGING_SUFFIX` | subdomény, pod kterými staging zřizuje weby a VM (šablona: `*.staging.onhost.cz`) |
 
 **B. Právnická osoba a platby**
 
 | Klíč | Hodnota |
 | --- | --- |
-| `ONHOST_LEGAL_NAME/ONHOST_ICO/ONHOST_DIC/ONHOST_VAT_ID/ONHOST_STREET/ONHOST_CITY/ONHOST_ZIP` | firma na dokladech |
-| `ONHOST_BANK_IBAN/ONHOST_BANK_BIC/ONHOST_BANK_ACCOUNT` | účet na proformách a QR kódech |
-| `ONHOST_BANK_FIO_TOKEN` | Fio API token (jen čtení) pro párování převodů |
-| `COMGATE_MERCHANT`, `COMGATE_SECRET`, `COMGATE_TEST` | pro testování produkce: **testovací merchant + `COMGATE_TEST=true`**; ostrý provoz: live merchant + `false` |
-| `WEDOS_TEST_MODE` | `true` po dobu testování (registrace domén nanečisto), potom `false` |
+| `ONHOST_LEGAL_NAME`, `ONHOST_ICO`, `ONHOST_DIC`, `ONHOST_VAT_ID`, `ONHOST_STREET`, `ONHOST_CITY`, `ONHOST_ZIP` | firma na dokladech (i na stagingu skutečná — testujete PDF faktur) |
+| `ONHOST_BANK_IBAN`, `ONHOST_BANK_BIC`, `ONHOST_BANK_ACCOUNT` | účet na proformách a QR kódech |
+| `ONHOST_BANK_FIO_TOKEN` | Fio API token (jen čtení) — párování převodů; na stagingu lze vynechat a platby zapisovat ručně v *Nastavení → Bankovní platby* |
+| `COMGATE_MERCHANT`, `COMGATE_SECRET` | **testovací** merchant Comgate; `COMGATE_TEST=true` zůstává |
+| `WEDOS_TEST_MODE=true` | registrace domén nanečisto (WAPI test flag); WEDOS login/heslo přes `onhost:integrations:secret` |
 
-**C. Klíče integrací (skrytý prompt, nikdy do souboru ani chatu)**
+**C. Klíče integrací (skrytý prompt, `--check` ověří spojení)**
+
+Instance založíte v konzoli *Nastavení systému → Integrace* (URL panelu, region), klíč uložíte příkazem:
 
 ```bash
-php artisan onhost:integrations:secret pterodactyl-gamepanel application_key --check   # herní panel (už uloženo, po testech přegenerovat)
+php artisan onhost:integrations:secret pterodactyl-gamepanel application_key --check   # herní panel (po testech klíč z chatu přegenerovat)
 php artisan onhost:integrations:secret pterodactyl-gamepanel client_key --check
-php artisan onhost:integrations:secret aapanel-managed01 api_key --check              # webhosting na aaPanelu
-php artisan onhost:integrations:secret ispconfig-shared01 remote_user                   # + remote_password (ISPConfig)
-php artisan onhost:integrations:secret proxmox-cz1 token_id                             # + token_secret (VPS/VDS/databáze)
-php artisan onhost:integrations:secret pbs-cz1 token_id                                 # + token_secret (zálohy VPS)
-php artisan onhost:integrations:secret powerdns-hidden01 api_key                        # DNS
-php artisan onhost:integrations:secret wedos-zone …                                     # WEDOS: login + heslo WAPI, allow-list IP serveru
-php artisan onhost:integrations:secret subreg …                                         # Subreg API (dnes odmítá login 500.104)
+php artisan onhost:integrations:secret aapanel-managed01 api_key --check              # webhosting/WordPress na aaPanelu
+php artisan onhost:integrations:secret ispconfig-shared01 remote_user                   # + remote_password (ISPConfig, pošta)
+php artisan onhost:integrations:secret proxmox-cz1 token_id                             # + token_secret — VPS, VDS, databáze, IPv4
+php artisan onhost:integrations:secret pbs-cz1 token_id                                 # + token_secret — zálohy VPS
+php artisan onhost:integrations:secret powerdns-hidden01 api_key                        # DNS zóny
+php artisan onhost:integrations:secret wedos-zone …                                     # WEDOS WAPI login + heslo; allow-list IPv4 serveru u WEDOS
+php artisan onhost:integrations:secret subreg …                                         # Subreg API (dnes odmítá login 500.104 — zapnout API u uživatele)
 ```
 
-Instance vytvoříte v konzoli *Nastavení systému → Integrace* (URL panelu, region), klíč uložíte příkazem; `--check`
-rovnou ověří spojení a prerekvizity.
+Bez Proxmox/PBS klíčů se produkty VPS, VDS, databáze, IPv4 a zálohy nedají zřídit (doctor to hlásí); webhosting, hry,
+domény a pošta fungují s aaPanel/Pterodactyl/WEDOS/ISPConfig.
 
-**D. Tajemství platformy (`onhost:secrets:set`)**
+**D. Tajemství platformy (`onhost:secrets:set`, skrytý prompt)**
 
 ```bash
-php artisan onhost:secrets:set db://oncall/pager routing_key        # PagerDuty/Opsgenie (+ ONHOST_ONCALL_PROVIDER v app.env)
-php artisan onhost:secrets:set db://integrations/discord token      # Discord bot (+ APPLICATION_ID a PUBLIC_KEY v app.env)
-php artisan onhost:secrets:set db://ai/anthropic api_key            # asistent podpory (ONHOST_AI_ENABLED=true)
-php artisan onhost:secrets:set db://cdn/cloudflare token            # + account_id; CDN doplněk
+php artisan onhost:secrets:set db://oncall/pager routing_key        # PagerDuty/Opsgenie; ONHOST_ONCALL_PROVIDER=pagerduty v app.env
+php artisan onhost:secrets:set db://integrations/discord token      # Discord bot; APPLICATION_ID + PUBLIC_KEY v app.env
+php artisan onhost:secrets:set db://ai/anthropic api_key            # asistent podpory; ONHOST_AI_ENABLED=true
+php artisan onhost:secrets:set db://cdn/cloudflare token            # + account_id — doplněk CDN
 php artisan onhost:game:operator-variable STEAM_USER                # + STEAM_PASS — bez nich se DayZ nenabízí
 ```
 
-**E. Volitelné pro plný provoz**
+**E. Volitelné, ale doporučené i pro staging**
 
-`TURNSTILE_SITE_KEY/SECRET_KEY` (ochrana registrace), `SENTRY_DSN`, `OTEL_EXPORTER_OTLP_ENDPOINT` + `ONHOST_TRACE_URL`
-(Grafana/Tempo), `ONHOST_CLAMAV_HOST` (role `onhost_clamav` nebo clamd na stejném stroji), `AWS_*` bucket pro zálohy
-a soubory mimo server (`ONHOST_PLATFORM_BACKUP_DISK=s3`, `ONHOST_FILES_DISK=s3`), `ONHOST_ONCALL_PROVIDER`.
+`TURNSTILE_SITE_KEY/SECRET_KEY` (Cloudflare má testovací klíče, které vždy projdou), `SENTRY_DSN`,
+`OTEL_EXPORTER_OTLP_ENDPOINT` + `ONHOST_TRACE_URL` (Grafana/Tempo z `infra/docker-compose.yml` nebo vlastní),
+`ONHOST_CLAMAV_HOST` (`apt install clamav-daemon` na stejném stroji nebo role `onhost_clamav`), `AWS_*` S3 bucket pro
+zálohy a soubory mimo server (jinak `ONHOST_PLATFORM_BACKUP_DISK=local`, `ONHOST_FILES_DISK=local`).
 
-## 5. Test production before the first customer
+## 5. Production test on staging
 
 ```bash
 php artisan onhost:doctor                       # 0 FAIL; WARN only for what you decided to leave off
 php artisan onhost:integrations:health          # every instance up
+php artisan onhost:game:bootstrap pterodactyl-gamepanel   # nodes, 22 templates, ports, placement
 php artisan onhost:platform:backup && php artisan onhost:platform:backup:verify
-php artisan onhost:production:prepare --purge-dev-accounts --legal --cache   # before real customers, not before testing
+php artisan db:seed --class=DevAccountSeeder --force      # staging only: demo customer, partner and staff accounts
 ```
 
 Smoke test as a customer (docs/runbooks/go-live-checklist.md § 5): register → order web hosting by bank transfer →
-record the payment (Nastavení → Bankovní platby or Fio sync) → service ACTIVE on aaPanel → invoice PDF → game server
-(Minecraft Paper) → console → ticket → cancel. Card payments run against the Comgate test merchant, domains against
-WEDOS test mode. Staff sign in with TOTP (`ONHOST_STAFF_MFA_REQUIRED=true`); the first staff account comes from
-`DevAccountSeeder` (`admin@onhost.cz`) — change its password and enrol MFA immediately, purge the other dev accounts
-before go-live.
+record the payment (Nastavení → Bankovní platby or Fio sync) → service ACTIVE on aaPanel → invoice PDF → card top-up
+against the Comgate test merchant → game server (Minecraft Paper) → console, file upload → domain check and order in
+WEDOS test mode → ticket → cancel → data export. Staff sign in with TOTP (`ONHOST_STAFF_MFA_REQUIRED=true`): the staff
+accounts from `DevAccountSeeder` (`admin@onhost.cz`, `noc@`, `finance@`, `support@`) — change their passwords and enrol
+MFA on first sign-in. What passes here is what production does; production differs only in `SITE=onhost.cz`,
+`APP_ENV=production`, live Comgate, `WEDOS_TEST_MODE=false`, the production ACME directory, and
+`onhost:production:prepare --purge-dev-accounts --legal --cache` before the first customer.

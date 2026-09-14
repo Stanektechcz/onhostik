@@ -3,7 +3,8 @@
 # branch, install, migrate, cache, restart the workers and the scheduler, run the doctor. Run as root.
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/www/wwwroot/onhost.cz}"
+SITE="${SITE:-staging.onhost.cz}"
+APP_DIR="${APP_DIR:-/www/wwwroot/${SITE}}"
 BRANCH="${BRANCH:-development}"
 PHP="${PHP:-/www/server/php/83/bin/php}"
 COMPOSER="${COMPOSER:-/usr/local/bin/composer}"

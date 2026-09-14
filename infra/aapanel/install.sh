@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # ONhost control plane — first installation on an aaPanel host (docs/runbooks/deploy-aapanel.md).
-# Run once as root after aaPanel has PHP 8.3, PostgreSQL, Redis and the site onhost.cz created; every later release
+# Run once as root after aaPanel has PHP 8.3, PostgreSQL, Redis and the site (staging.onhost.cz by default) created; every later release
 # goes through deploy.sh. Idempotent: re-running repairs permissions, units and caches without touching data.
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/www/wwwroot/onhost.cz}"          # aaPanel site root (the repository checkout; nginx serves $APP_DIR/public)
+SITE="${SITE:-staging.onhost.cz}"                     # the aaPanel site (staging.onhost.cz for testing, onhost.cz for production)
+APP_DIR="${APP_DIR:-/www/wwwroot/${SITE}}"           # aaPanel site root (the repository checkout; nginx serves $APP_DIR/public)
 REPO="${REPO:-https://github.com/Stanektechcz/onhostik.git}"
 BRANCH="${BRANCH:-development}"
 PHP="${PHP:-/www/server/php/83/bin/php}"
@@ -71,7 +72,7 @@ sudo -u "$RUN_USER" -H "$PHP" artisan event:cache
 sudo -u "$RUN_USER" -H "$PHP" artisan onhost:openapi >/dev/null || true
 
 say "nginx site snippet"
-echo "   → paste infra/aapanel/nginx-onhost.cz.conf into aaPanel → Website → onhost.cz → Config (see the runbook); root = $APP_DIR/public"
+echo "   → paste infra/aapanel/nginx-site.conf into aaPanel → Website → ${SITE} → Config (see the runbook); root = $APP_DIR/public"
 
 say "Doctor"
 sudo -u "$RUN_USER" -H "$PHP" artisan onhost:doctor || true
