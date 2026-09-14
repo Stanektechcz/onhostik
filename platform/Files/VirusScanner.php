@@ -46,6 +46,45 @@ class VirusScanner
     }
 
     /**
+     * clamd's `VERSION` (audit §5t-6): engine, signature database number and its date; null when unreachable.
+     *
+     * @return array{engine:string, database:?int, signatures_at:?string}|null
+     */
+    public function version(): ?array
+    {
+        if (! $this->enabled()) {
+            return null;
+        }
+        try {
+            $reply = $this->command('zVERSION');
+        } catch (Throwable) {
+            return null;
+        }
+        $parts = explode('/', $reply);
+        $at = isset($parts[2]) ? strtotime(trim($parts[2])) : false;
+
+        return ['engine' => trim($parts[0]), 'database' => isset($parts[1]) ? (int) $parts[1] : null, 'signatures_at' => $at !== false ? date(DATE_ATOM, $at) : null];
+    }
+
+    /** One short clamd command and its reply line. */
+    protected function command(string $command): string
+    {
+        $socket = @stream_socket_client('tcp://'.config('onhost.storage.clamav.host').':'.(int) config('onhost.storage.clamav.port', 3310), $errno, $error, 5);
+        if ($socket === false) {
+            throw new \RuntimeException('clamd unreachable: '.$error);
+        }
+        stream_set_timeout($socket, 10);
+        try {
+            fwrite($socket, $command."\0");
+            $reply = (string) stream_get_contents($socket);
+        } finally {
+            fclose($socket);
+        }
+
+        return trim($reply, "\0\r\n ");
+    }
+
+    /**
      * Scans a file on the store's disk.
      *
      * @return array{result:string, signature:?string, at:string}

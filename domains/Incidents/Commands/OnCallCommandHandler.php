@@ -24,6 +24,9 @@ final class OnCallCommandHandler implements CommandHandler
         if ($command->op() === 'shift.add') { // §5r-1: the rota
             return OnCallRota::present($this->rota->add((string) $command->get('user'), CarbonImmutable::parse((string) $command->get('starts_at')), CarbonImmutable::parse((string) $command->get('ends_at')), $command->get('note'), $context));
         }
+        if ($command->op() === 'shift.import') { // §5t-4
+            return $this->rota->importIcal((string) $command->get('ical'), $context);
+        }
         if ($command->op() === 'shift.remove') {
             return $this->rota->remove((string) $command->get('shift_id'), $context);
         }

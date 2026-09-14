@@ -24,6 +24,7 @@ use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderInstanceService;
 use Onhost\Domain\WalletLedger\AutoTopup;
+use Onhost\Platform\Files\VirusScanner;
 
 /**
  * Production readiness self-check (docs/runbooks/go-live-checklist.md). Every row is a fact the control plane can
@@ -211,6 +212,10 @@ final class Doctor extends Command
         $this->add('mail', 'transactional mailer', ! in_array($mailer, ['log', 'array'], true), $mailer);
         $this->add('mail', 'sender address set', (string) config('mail.from.address', '') !== '' && ! str_contains((string) config('mail.from.address'), 'example.com'), (string) config('mail.from.address'));
         $this->add('observability', 'metrics token or allow-list', (string) config('onhost.metrics.token') !== '' || (array) config('onhost.metrics.allow_ips') !== [], (string) config('onhost.metrics.token') !== '' ? 'bearer token set' : 'allow-list only', false);
+        $scanner = app(VirusScanner::class); // §5t-6: uploads are scanned by a clamd with fresh signatures
+        $clam = $scanner->version();
+        $fresh = $clam !== null && $clam['signatures_at'] !== null && strtotime($clam['signatures_at']) > time() - 2 * 86400;
+        $this->add('files', 'virus scanner (clamd)', $fresh, ! $scanner->enabled() ? 'ONHOST_CLAMAV_HOST not set — uploads are not scanned' : ($clam === null ? 'clamd not reachable' : $clam['engine'].' · db '.$clam['database'].' · signatures '.($clam['signatures_at'] ?? '?').($fresh ? '' : ' (older than 2 days — is freshclam running?)')));
         $this->add('observability', 'console relay key', (string) config('onhost.console.relay_key') !== '', 'ONHOST_CONSOLE_RELAY_KEY');
         // game panels (audit §5f): every registered panel needs the client key for the server tools and at least one mapped template to sell
         foreach (ProviderInstance::query()->platform()->where('provider', 'pterodactyl')->whereIn('state', ['active', 'draining', 'maintenance'])->get() as $panel) {

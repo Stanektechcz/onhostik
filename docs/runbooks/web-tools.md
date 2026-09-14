@@ -1174,3 +1174,7 @@ whose operator variables are missing, is not offered; `onhost:game:templates:ver
 
 **Binary uploads and virus scan (§5r-3/4).** `POST /v1/services/{id}/game-files/upload` → clamd INSTREAM → `gfile.upload`
 (signed upload URL from the panel, multipart to the daemon). Infected files are deleted and reported (`files.infected`).
+
+**After §5t.** Operator variables are stored from the console (*Šablony her → Proměnné provozovatele*, step-up).
+The Startup resource flags failing customer inputs (`attention`) and the daily template check notifies the customer.
+The on-call rota exports/imports iCalendar (`/v1/staff/oncall/shifts.ics`, `/import`) and reminds an hour ahead.

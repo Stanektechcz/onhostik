@@ -1,0 +1,8 @@
+---
+# ONhost upload virus scan (audit §5r-4 / §5t-6): clamd listening on the private network for the control plane's
+# `ONHOST_CLAMAV_HOST`, signatures refreshed by freshclam; `php artisan onhost:doctor` warns when they are older than 2 days.
+clamav_listen_address: "{{ ansible_default_ipv4.address }}"   # a private address; never expose 3310 publicly
+clamav_port: 3310
+clamav_allowed_sources: []                                    # control plane / worker addresses allowed through ufw
+clamav_max_file_size: 200M                                    # ONHOST_GAME_UPLOAD_MAX_MB is 100 by default
+clamav_freshclam_checks: 24                                   # signature checks per day

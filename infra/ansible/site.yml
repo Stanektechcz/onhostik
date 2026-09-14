@@ -23,3 +23,8 @@
   hosts: probes
   become: true
   roles: [{ role: onhost_probe, vars: { api: "https://onhost.cz/v1/probes/results", interval_seconds: 60, targets: ["https://onhost.cz/up", "https://onhost.cz/v1/status", "dns://onhost.cz/SOA"] } }]
+
+- name: Virus scan of customer and staff uploads (clamd over TCP, audit §5t-6)
+  hosts: clamav
+  become: true
+  roles: [{ role: onhost_clamav }]

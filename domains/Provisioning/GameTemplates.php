@@ -7,6 +7,8 @@ namespace Onhost\Domain\Provisioning;
 use Illuminate\Support\Collection;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -266,6 +268,100 @@ final class GameTemplates
         }
 
         return true;
+    }
+
+    /**
+     * The operator-held variables (audit §5t-1): which names are stored (never the values) and which templates need
+     * which names, so the console can show what blocks a template.
+     *
+     * @return array{stored:list<string>, needed:array<string,list<string>>}
+     */
+    public function operatorStatus(): array
+    {
+        $needed = [];
+        foreach (array_keys((array) config('onhost.game.eggs', [])) as $key) {
+            foreach ($this->requirements((string) $key) as $r) {
+                if ($r['kind'] === 'operator') {
+                    $needed[$r['env']][] = (string) $key;
+                }
+            }
+        }
+
+        return ['stored' => array_keys($this->operatorValues()), 'needed' => $needed];
+    }
+
+    /** Stores (or with an empty value removes) one operator-held variable; the value is never returned or audited. @return array{stored:list<string>, needed:array<string,list<string>>} */
+    public function setOperatorVariable(string $env, ?string $value, CommandContext $context): array
+    {
+        $env = strtoupper(trim($env));
+        if (preg_match('/^[A-Z][A-Z0-9_]{1,63}$/', $env) !== 1) {
+            throw new DomainError('game_operator_variable_invalid', 'The variable name must look like STEAM_USER.', 422, ['field' => 'env']);
+        }
+        $ref = SecretRef::parse((string) config('onhost.game.operator_variables_ref', 'db://game/operator-variables'));
+        $current = $this->operatorValues();
+        if ($value === null || $value === '') {
+            unset($current[$env]);
+        } else {
+            $current[$env] = $value;
+        }
+        $this->secrets->write($ref, $current);
+        $this->operatorValues = $current;
+        app(AuditRecorder::class)->record($context, 'game.operator_variable.set', 'succeeded', ['env' => $env, 'removed' => $value === null || $value === ''], 'secret', 'game/operator-variables');
+
+        return $this->operatorStatus();
+    }
+
+    /** The customer inputs of a template whose current value on the server fails its rule (audit §5t-3). @param list<array<string,mixed>> $variables the startup variables @return list<string> */
+    public function attention(string $key, array $variables): array
+    {
+        $values = [];
+        foreach ($variables as $v) {
+            $values[(string) ($v['key'] ?? '')] = (string) ($v['value'] ?? '');
+        }
+        $out = [];
+        foreach ($this->inputs($key) as $input) {
+            $value = trim($values[$input['env']] ?? '');
+            if ($value === '' || ! self::satisfies($value, $input['rules'])) {
+                $out[] = $input['env'];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The daily look at running servers (audit §5t-3): a server whose customer input no longer passes its rule (a token
+     * removed or mistyped) tells its customer once a day which variable to fix in Startup.
+     *
+     * @return array{checked:int, attention:int}
+     */
+    public function auditServices(): array
+    {
+        $stats = ['checked' => 0, 'attention' => 0];
+        $services = Service::query()->where('family', 'game')->whereIn('state', ['ACTIVE', 'DEGRADED'])->limit(500)->get();
+        foreach ($services as $service) {
+            $key = (string) data_get($service->desired_spec, 'egg', '');
+            if ($key === '' || $this->inputs($key) === []) {
+                continue;
+            }
+            $stats['checked']++;
+            try {
+                $startup = app(ServiceFeatures::class)->resources($service, 'startup', true);
+            } catch (Throwable) {
+                continue;
+            }
+            $missing = $this->attention($key, (array) ($startup['variables'] ?? data_get($startup, 'data.variables', [])));
+            if ($missing === []) {
+                continue;
+            }
+            $stats['attention']++;
+            $cacheKey = 'onhost:game:attention:'.$service->id.':'.now()->toDateString();
+            if (cache()->add($cacheKey, 1, 86400)) {
+                $this->outbox->publish(GenericEvent::of('game.setup.attention', 'service', $service->id, ['label' => (string) ($service->label ?: $service->hostname), 'variables' => $missing, 'template' => $key], $service->organization_id));
+            }
+        }
+
+        return $stats;
     }
 
     /** @return list<array<string,mixed>> the mappings of `$key` on active game panels */

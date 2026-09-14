@@ -1,0 +1,41 @@
+---
+- name: Install clamd and freshclam
+  ansible.builtin.apt:
+    name: [clamav-daemon, clamav-freshclam]
+    state: present
+    update_cache: true
+
+- name: Configure clamd for TCP INSTREAM scans (clamd.conf has no include directive, so each line is managed)
+  ansible.builtin.lineinfile:
+    path: /etc/clamav/clamd.conf
+    regexp: "^{{ item.key }} "
+    line: "{{ item.key }} {{ item.value }}"
+  loop:
+    - { key: TCPSocket, value: "{{ clamav_port }}" }
+    - { key: TCPAddr, value: "{{ clamav_listen_address }}" }
+    - { key: StreamMaxLength, value: "{{ clamav_max_file_size }}" }
+    - { key: MaxFileSize, value: "{{ clamav_max_file_size }}" }
+    - { key: MaxScanSize, value: "{{ clamav_max_file_size }}" }
+  notify: restart clamd
+
+- name: Signature checks per day
+  ansible.builtin.lineinfile:
+    path: /etc/clamav/freshclam.conf
+    regexp: '^Checks '
+    line: "Checks {{ clamav_freshclam_checks }}"
+  notify: restart freshclam
+
+- name: Allow the control plane to reach clamd
+  community.general.ufw:
+    rule: allow
+    port: "{{ clamav_port }}"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ clamav_allowed_sources }}"
+
+- name: clamd and freshclam run
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop: [clamav-freshclam, clamav-daemon]

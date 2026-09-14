@@ -48,7 +48,8 @@
       return [1, 2, 3, 5, 10].map(function (y) { return [String(y), _('registrace na ' + y + ' ' + (y === 1 ? 'rok' : (y < 5 ? 'roky' : 'let')), 'register for ' + y + ' ' + (y === 1 ? 'year' : 'years')), 0, hint]; });
     }
     var p = product(type) || d.catalog[0];
-    return p.plans.map(function (pl) { return [pl.key, pl.spec ? pl.name + ' · ' + pl.spec : pl.name, pl.monthly]; });
+    var floor = p.family === 'game' && p.eggs && p.eggs.length ? Math.min.apply(null, p.eggs.map(function (e) { return e.min_ram_mb || 0; })) : 0;
+    return p.plans.map(function (pl) { return [pl.key, (pl.spec ? pl.name + ' · ' + pl.spec : pl.name) + (p.family === 'game' && pl.ram_mb ? ' · ' + _('hry do ', 'games up to ') + Math.round(pl.ram_mb / 1024) + ' GB' : ''), pl.monthly]; }).filter(function (row, i) { return !floor || !p.plans[i].ram_mb || p.plans[i].ram_mb >= floor; }); // §5t-2
   }
 
   /* "Systém a obraz" rows for the chosen product: game servers pick the game template (egg) here; other products keep the prototype's list. */
@@ -213,6 +214,11 @@
       config.egg = eggKeys.indexOf(eggKey) >= 0 ? eggKey : (eggKeys[0] || undefined); // the chosen game template
       if (at > 0 && config.egg === eggKey) config.version = os.slice(at + 1);
       var chosen = (p.eggs || []).filter(function (e) { return e.key === config.egg; })[0]; // §5s: values the template cannot start without (a Steam token)
+      if (chosen && chosen.min_ram_mb && plan.ram_mb && plan.ram_mb < chosen.min_ram_mb) { // §5t-2: a plan below the template's floor never reaches the quote
+        var fits = p.plans.filter(function (x) { return x.ram_mb >= chosen.min_ram_mb; })[0];
+        flash(cmp, _('Tarif je pro ' + (chosen.label || chosen.key) + ' malý', 'The plan is too small for ' + (chosen.label || chosen.key)), _('Šablona potřebuje aspoň ' + Math.round(chosen.min_ram_mb / 1024) + ' GB RAM', 'The template needs at least ' + Math.round(chosen.min_ram_mb / 1024) + ' GB RAM') + (fits ? _(' — zvolte například ' + fits.name + '.', ' — pick e.g. ' + fits.name + '.') : '.'));
+        return;
+      }
       if (chosen && chosen.inputs && chosen.inputs.length) {
         config.environment = {};
         for (var ii = 0; ii < chosen.inputs.length; ii++) {

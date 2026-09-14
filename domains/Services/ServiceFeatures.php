@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services;
 
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Models\Service;
@@ -298,7 +299,11 @@ final class ServiceFeatures
             // game tools (GameToolsProvider)
             'status' => $this->gameTools($adapter)->status($ref),
             'server_detail' => $this->gameTools($adapter)->serverDetail($ref),
-            'startup' => $this->gameTools($adapter)->startup($ref),
+            'startup' => (function () use ($adapter, $ref, $service) { // §5t-3: the customer inputs that fail their rule are flagged
+                $startup = $this->gameTools($adapter)->startup($ref);
+
+                return $startup + ['attention' => app(GameTemplates::class)->attention((string) data_get($service->desired_spec, 'egg', ''), (array) ($startup['variables'] ?? []))];
+            })(),
             'schedules' => $this->gameTools($adapter)->listSchedules($ref),
             'game_databases' => $this->gameTools($adapter)->listDatabases($ref, $reveal),
             'subusers' => $this->gameTools($adapter)->listSubusers($ref),

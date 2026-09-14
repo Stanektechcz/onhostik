@@ -1,0 +1,20 @@
+---
+- name: Verify the clamd configuration
+  hosts: all
+  become: true
+  tasks:
+    - name: Read clamd.conf and freshclam.conf
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - /etc/clamav/clamd.conf
+        - /etc/clamav/freshclam.conf
+      register: files
+
+    - name: TCP scanning and the limits are in place
+      ansible.builtin.assert:
+        that:
+          - "'TCPSocket 3310' in (files.results[0].content | b64decode)"
+          - "'TCPAddr 127.0.0.1' in (files.results[0].content | b64decode)"
+          - "'StreamMaxLength 200M' in (files.results[0].content | b64decode)"
+          - "'Checks 12' in (files.results[1].content | b64decode)"

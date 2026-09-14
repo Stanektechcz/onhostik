@@ -603,7 +603,7 @@ final class SurfaceDataController extends Controller
                 if (! isset($plan['price']['month'])) {
                     continue;
                 }
-                $plans[] = ['key' => $plan['key'], 'name' => (string) $plan['name'], 'spec' => (string) ($plan['description'] ?? ''), 'monthly' => self::amount($plan['price']['month']), 'yearly' => isset($plan['price_year']['year']) ? self::amount($plan['price_year']['year']) : null, 'highlighted' => (bool) ($plan['highlighted'] ?? false)];
+                $plans[] = ['key' => $plan['key'], 'name' => (string) $plan['name'], 'spec' => (string) ($plan['description'] ?? ''), 'monthly' => self::amount($plan['price']['month']), 'yearly' => isset($plan['price_year']['year']) ? self::amount($plan['price_year']['year']) : null, 'highlighted' => (bool) ($plan['highlighted'] ?? false), 'ram_mb' => (int) data_get($plan, 'entitlements.ram_mb', 0)]; // §5t-2: the wizard checks the template's RAM floor
             }
             if ($plans === []) {
                 continue;

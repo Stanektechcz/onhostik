@@ -16,6 +16,7 @@ use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\BulkActionService;
 use Onhost\Domain\Provisioning\FreezeSwitch;
 use Onhost\Domain\Provisioning\GamePanelBootstrap;
+use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
@@ -212,6 +213,7 @@ final class ProvisioningCommandHandler implements CommandHandler
                 return $result->data;
             })(),
             // node limits from the console, never from the panel's own UI (audit §5q follow-up): memory / disk in MB, over-allocation in %, or `detect` = the daemon's RAM minus a reserve
+            'game.operator_variable.set' => app(GameTemplates::class)->setOperatorVariable((string) $command->get('env'), $command->get('secret') !== null ? (string) $command->get('secret') : null, $context), // §5t-1: the value is stripped from the command audit (`secret`)
             'game.node.update' => (function () use ($command, $context) {
                 $instance = $this->findInstance($command);
                 $adapter = app(ProviderRegistry::class)->forInstance($instance);

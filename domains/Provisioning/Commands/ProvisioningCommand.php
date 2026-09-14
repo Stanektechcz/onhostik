@@ -32,7 +32,7 @@ final class ProvisioningCommand extends GlobalCommand implements RiskAwareComman
             'resolve_drift' => 'provisioning.drift.resolve',
             'freeze', 'thaw', 'automation.toggle', 'automation.risk' => 'provisioning.freeze',
             'reconcile', 'bulk.start', 'service.create' => 'staff.service.manage',
-            'instance.upsert', 'instance.state', 'instance.discover', 'node.upsert', 'node.state', 'placement.upsert', 'placement.delete', 'registrar.costs.refresh', 'registrar.costs.scrape', 'registrar.costs.upsert', 'registrar.policy.set', 'game.eggs.map', 'game.eggs.sync', 'game.bootstrap', 'game.allocations.create', 'game.node.update', 'game.migrate', 'game.evacuate', 'service.migrate', 'service.evacuate', 'rebalance.apply' => 'provider.instance.manage',
+            'instance.upsert', 'instance.state', 'instance.discover', 'node.upsert', 'node.state', 'placement.upsert', 'placement.delete', 'registrar.costs.refresh', 'registrar.costs.scrape', 'registrar.costs.upsert', 'registrar.policy.set', 'game.eggs.map', 'game.eggs.sync', 'game.bootstrap', 'game.allocations.create', 'game.node.update', 'game.operator_variable.set', 'game.migrate', 'game.evacuate', 'service.migrate', 'service.evacuate', 'rebalance.apply' => 'provider.instance.manage',
             'tenant.sandbox' => 'staff.customer.manage',
             'instance.probe', 'instance.prereqs' => 'provider.instance.read',
             default => 'provisioning.operation.read',
@@ -46,13 +46,13 @@ final class ProvisioningCommand extends GlobalCommand implements RiskAwareComman
 
     public function riskLevel(): string
     {
-        return in_array($this->op(), ['freeze', 'thaw', 'cancel', 'instance.upsert', 'instance.state'], true) ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
+        return in_array($this->op(), ['freeze', 'thaw', 'cancel', 'instance.upsert', 'instance.state', 'game.operator_variable.set'], true) ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
     }
 
     /** Registering credentials / changing base URLs touches production executors: fresh step-up. */
     public function requiresStepUp(): bool
     {
-        return in_array($this->op(), ['freeze', 'thaw', 'instance.upsert', 'instance.state'], true);
+        return in_array($this->op(), ['freeze', 'thaw', 'instance.upsert', 'instance.state', 'game.operator_variable.set'], true); // §5t-1: the Steam account behind a template
     }
 
     public function requiresApproval(): bool

@@ -230,7 +230,7 @@
     input.onchange = function () {
       var file = input.files && input.files[0]; if (!file) return;
       var form = new FormData(); form.append('key', item.key); form.append('file', file);
-      a.upload('/partner/marketplace/orders/' + encodeURIComponent(o.id) + '/evidence', form).then(function () { cmp.flash(tr(cmp, 'Soubor nahrán', 'File uploaded'), file.name + ' · ' + tr(cmp, 'teď odevzdejte plnění', 'now send the report')); reload(cmp); }).catch(function (e) { cmp.flash(tr(cmp, 'Nahrání selhalo', 'Upload failed'), (e && e.message) || 'error'); });
+      a.upload('/partner/marketplace/orders/' + encodeURIComponent(o.id) + '/evidence', form).then(function (r) { var scan = r && (r.data || r).scan ? (r.data || r).scan.result : null; cmp.flash(tr(cmp, 'Soubor nahrán', 'File uploaded'), file.name + ' · ' + scanLabel(cmp, scan) + ' · ' + tr(cmp, 'teď odevzdejte plnění', 'now send the report')); reload(cmp); }).catch(function (e) { cmp.flash(tr(cmp, 'Nahrání selhalo', 'Upload failed'), (e && e.message) || 'error'); });
     };
     input.click();
   }
@@ -252,6 +252,8 @@
       };
     });
   }
+  /* §5t-5: what the virus scan said about an uploaded file */
+  function scanLabel(cmp, scan) { return scan === 'clean' ? tr(cmp, 'antivir: čistý', 'antivirus: clean') : (scan === 'unavailable' ? tr(cmp, 'antivir: prověřuje se', 'antivirus: being checked') : (scan === 'infected' ? tr(cmp, 'antivir: zablokován', 'antivirus: blocked') : tr(cmp, 'antivir: bez kontroly', 'antivirus: not scanned'))); }
   function orderRows(cmp) {
     return (S.orders || []).map(function (o) {
       var st = ORDER_STATE[o.state] || [o.state, o.state, 'off'];

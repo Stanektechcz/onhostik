@@ -763,19 +763,38 @@ Login Token (`STEAM_GSLT`) and an RCON password, DayZ downloads with a Steam acc
 6. **Template drift** — done: `onhost:game:templates:verify` (daily 05:10, rule `game.templates.verify`) drops the
    mapping of an egg the panel lost and tells operations (`game.template.missing`).
 
-### 5t. What remains after §5s (proposed 2026-09-14)
+### 5t. What remains after §5s (proposed 2026-09-14) — built 2026-09-14
 
-1. **Steam account for DayZ**: store `STEAM_USER` / `STEAM_PASS` of a dedicated Steam account with DayZ
-   (`onhost:game:operator-variable`) — until then DayZ is hidden from the offer.
-2. **Template-specific plan filter**: the wizard greys out plans below the chosen template's RAM floor before the
-   quote refuses them.
-3. **Customer inputs after the order**: a server whose token expires (GSLT revoked) gets a panel notice and the
-   Startup tab highlights the variable.
-4. **Rota import**: iCal export/import of the on-call rota and a reminder to the next person an hour before the shift.
-5. **Evidence scan status in the partner portal**: the upload list shows *prověřuje se / čistý / zablokován*.
-6. **ClamAV deployment**: the clamd container in `infra/ansible` next to the queue workers, signature freshness in
-   `onhost:doctor`.
+1. **Operator variables from the console** — done: *Šablony her → Proměnné provozovatele* lists which read-only
+   variables each template needs and which are stored, and stores one (`PUT /v1/staff/game/operator-variables/{env}`,
+   `provider.instance.manage`, HIGH risk with a fresh step-up; the value travels as the stripped `secret` field, is
+   written to `db://game/operator-variables` and never returned). The artisan command uses the same service. The DayZ
+   Steam account itself is the operator's to enter.
+2. **RAM floor in the wizard** — done: the panel catalogue carries each plan's `ram_mb`; the size step of a game server
+   lists only plans that fit the smallest template and names the RAM, and the order refuses a plan below the chosen
+   template's floor with the smallest fitting plan before any quote.
+3. **Customer inputs after the order** — done: the Startup resource returns `attention` (the template's customer
+   inputs whose value is missing or fails the rule) and the workbench marks them; the daily
+   `onhost:game:templates:verify` reads running servers and tells the customer once a day (`game.setup.attention`).
+4. **Rota as iCalendar and reminders** — done: `GET /v1/staff/oncall/shifts.ics` (stable UIDs), `POST
+   /v1/staff/oncall/shifts/import` (ATTENDEE/ORGANIZER e-mail of a staff account, UTC or TZID times; a known UID updates
+   its shift, overlaps and unknown people are reported); `onhost:oncall:remind` every 5 minutes (rule `oncall.remind`)
+   sends `oncall.shift.starting` — feed and mail `oncall-shift` — an hour before a shift, once.
+5. **Scan verdict in the partner portal** — done: uploads and report items carry `scan` (clean / unavailable /
+   infected / none) and the upload message says *antivir: čistý / prověřuje se / zablokován*.
+6. **ClamAV deployment** — done: Ansible role `onhost_clamav` (clamd on a private address over TCP, freshclam, ufw for
+   the control plane) in `site.yml` (group `clamav`); `onhost:doctor` reads clamd's `VERSION` and warns when the
+   signatures are older than two days or the scanner is not configured.
 
+### 5u. What remains after §5t (proposed 2026-09-14)
+
+1. **Live clamd**: run `onhost_clamav` on a private host and set `ONHOST_CLAMAV_HOST` for web and workers.
+2. **Trace backend**: point `ONHOST_TRACE_URL` and `OTEL_EXPORTER_OTLP_ENDPOINT` at the Grafana/Tempo stack.
+3. **Template Startup forms**: instead of `window.prompt`, the order wizard renders the template inputs as fields with
+   the rule's hints (length, allowed characters) and a link to the Steam GSLT page.
+4. **Rota calendar subscription with a token**: a per-user secret feed URL so a phone calendar can subscribe without
+   the console session.
+5. **Operator variable rotation**: remember when a variable was last stored and remind after 180 days.
 ## 6. Operator checklist before go-live
 
 1. Production `.env` (`php artisan onhost:doctor` lists every blocking item): HTTPS origin, Redis, PostgreSQL, secrets

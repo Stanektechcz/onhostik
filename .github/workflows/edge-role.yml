@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        role: [onhost_edge, onhost_powerdns, onhost_probe, onhost_proxmox_api, onhost_ispconfig_remote, onhost_node_activate]
+        role: [onhost_edge, onhost_powerdns, onhost_probe, onhost_proxmox_api, onhost_ispconfig_remote, onhost_node_activate, onhost_clamav]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

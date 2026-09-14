@@ -6,6 +6,7 @@ exclude_paths:
   - roles/onhost_edge/molecule/
   - roles/onhost_powerdns/molecule/
   - roles/onhost_probe/molecule/
+  - roles/onhost_clamav/molecule/
   - roles/onhost_proxmox_api/molecule/
   - roles/onhost_ispconfig_remote/molecule/
   - roles/onhost_node_activate/molecule/

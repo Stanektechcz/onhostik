@@ -116,6 +116,8 @@ final class Lexicon
         'Do ' => 'Until ', ' se obnovují služby za ' => ' services renew for ', ', k dispozici je ' => ', available ', ' — chybí ' => ' — short by ', ' Automatické dobití se nepodařilo (' => ' The automatic top-up failed (', '); dobijte prosím kredit.' => '); please top up your credit.', ' Dobijte kredit, nebo si zapněte automatické dobití.' => ' Top up your credit or turn on the automatic top-up.',
         'Synchronizace účtu ' => 'Sync of account ', ' selhala' => ' failed', 'Účet ' => 'Account ', ' odpojen' => ' disconnected',
         'Přijali jsme váš požadavek ' => 'We received your request ', 'Tiket ' => 'Ticket ', ' vyřešen' => ' resolved',
+        'Herní server ' => 'Game server ', ' potřebuje nastavení' => ' needs setting up', 'Doplňte v záložce Startup platnou hodnotu: ' => 'Enter a valid value in the Startup tab: ', ' Bez ní server nenastartuje.' => ' The server will not start without it.', // §5t-3
+        'Za hodinu začíná vaše on-call směna' => 'Your on-call shift starts in an hour', ' držíte pager; alerty najdete v konzoli.' => ' you carry the pager; the alerts are in the console.', 'Od ' => 'From ', // §5t-4
         // small words that appear inside composed strings
         ' · vrácení kreditu' => ' · credit refund', ' dnů' => ' days', 'včera' => 'yesterday', 'dnes' => 'today', 'zítra' => 'tomorrow',
     ];

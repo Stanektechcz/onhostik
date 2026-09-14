@@ -398,6 +398,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::post('integrations/{instance}/game/bootstrap', [ConsoleController::class, 'bootstrap']);
         Route::post('integrations/{instance}/game/allocations', [ConsoleController::class, 'createAllocations']);
         Route::post('integrations/{instance}/game/nodes/{node}/evacuate', [ConsoleController::class, 'evacuate']);
+        Route::get('game/operator-variables', [ConsoleController::class, 'operatorVariables']); // Steam account and other operator-held template variables (audit §5t-1)
+        Route::put('game/operator-variables/{env}', [ConsoleController::class, 'setOperatorVariable']);
         Route::put('integrations/{instance}/game/nodes/{node}', [ConsoleController::class, 'updateNode']); // node limits through the panel API (audit §5q follow-up)
         Route::post('services/{service}/migrate', [ConsoleController::class, 'migrate']);
         Route::get('automation', [ConsoleController::class, 'automation']);
@@ -448,6 +450,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::post('oncall/alerts/{alert}/resolve', [OnCallController::class, 'resolve']);
         Route::post('oncall/test', [OnCallController::class, 'test']);
         Route::get('oncall/shifts', [OnCallController::class, 'shifts']); // the on-call rota (audit §5r-1)
+        Route::get('oncall/shifts.ics', [OnCallController::class, 'shiftsIcal']); // iCalendar export (audit §5t-4)
+        Route::post('oncall/shifts/import', [OnCallController::class, 'importShifts']);
         Route::post('oncall/shifts', [OnCallController::class, 'addShift']);
         Route::delete('oncall/shifts/{shift}', [OnCallController::class, 'removeShift']);
         Route::get('provisioning/jobs', [ProvisioningController::class, 'operations']);

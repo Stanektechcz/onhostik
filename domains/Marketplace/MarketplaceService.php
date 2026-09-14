@@ -358,7 +358,7 @@ final class MarketplaceService
             'subscription' => $this->subscriptionInfo($order),
             'sla' => $this->sla($order),
             'checklist' => $listing !== null ? $this->checklistFor($listing) : [], 'period_evidence' => array_values(array_map(fn ($e) => self::presentEvidence((array) $e), array_slice((array) ($order->period_evidence ?? []), -3))), // §5o-2: what the last periods delivered
-            'period_uploads' => array_values(array_map(fn ($u) => array_diff_key((array) $u, ['path' => true]), (array) ($order->period_uploads ?? []))), // §5p-3: files waiting for the report
+            'period_uploads' => array_values(array_map(fn ($u) => array_diff_key((array) $u, ['path' => true, 'scan' => true]) + ['scan' => data_get($u, 'scan.result')], (array) ($order->period_uploads ?? []))), // §5t-5: the scan state, never the signature detail // §5p-3: files waiting for the report
         ];
         if ($internal) {
             $out += ['organization_id' => $order->organization_id, 'partner_id' => $order->partner_id, 'commission' => Money::minor((int) $order->commission_minor, $order->currency), 'partner_share' => Money::minor((int) $order->partner_minor, $order->currency)];
@@ -372,7 +372,7 @@ final class MarketplaceService
     {
         $items = [];
         foreach ((array) ($entry['items'] ?? []) as $key => $value) {
-            $items[$key] = is_array($value) ? ['file' => (string) ($value['name'] ?? 'file'), 'size' => (int) ($value['size'] ?? 0), 'mime' => (string) ($value['mime'] ?? '')] : $value;
+            $items[$key] = is_array($value) ? ['file' => (string) ($value['name'] ?? 'file'), 'size' => (int) ($value['size'] ?? 0), 'mime' => (string) ($value['mime'] ?? ''), 'scan' => data_get($value, 'scan.result')] : $value; // §5t-5
         }
 
         return ['period_end' => $entry['period_end'] ?? null, 'at' => $entry['at'] ?? null, 'note' => $entry['note'] ?? null, 'items' => $items];
@@ -615,7 +615,7 @@ final class MarketplaceService
         $order->forceFill(['period_uploads' => array_merge((array) ($order->period_uploads ?? []), [$key => $entry])])->save();
         $this->audit->record($context->withScope($partner->organization_id), 'marketplace.evidence.upload', 'succeeded', ['order' => $order->id, 'key' => $key, 'name' => $safeName, 'size' => $size], 'marketplace_order', $order->id);
 
-        return array_diff_key($entry, ['path' => true]);
+        return array_diff_key($entry, ['path' => true]); // carries `scan` so the portal can say what the antivirus found (§5t-5)
     }
 
     /**

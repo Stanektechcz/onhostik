@@ -18,7 +18,7 @@ it('ships every role of site.yml with a molecule scenario and runs them in the w
             $roles[] = is_array($role) ? (string) $role['role'] : (string) $role;
         }
     }
-    expect($roles)->toBe(['onhost_proxmox_api', 'onhost_ispconfig_remote', 'onhost_powerdns', 'onhost_node_activate', 'onhost_probe']);
+    expect($roles)->toBe(['onhost_proxmox_api', 'onhost_ispconfig_remote', 'onhost_powerdns', 'onhost_node_activate', 'onhost_probe', 'onhost_clamav']);
     $activate = (string) file_get_contents(base_path('infra/ansible/roles/onhost_node_activate/tasks/main.yml'));
     expect($activate)->toContain('ansible.builtin.uri')->toContain('onhost_activate_token')->toContain('status_code: [202]')->toContain('no_log: true'); // §5p-7
     $all = array_merge(['onhost_edge'], $roles);

@@ -1,0 +1,28 @@
+---
+# Molecule for onhost_clamav (audit §5t-6): clamd listens over TCP with the upload limits, freshclam checks as configured.
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: onhost-clamav
+    image: docker.io/geerlingguy/docker-debian12-ansible:latest
+    command: ""
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+provisioner:
+  name: ansible
+  inventory:
+    group_vars:
+      all:
+        clamav_listen_address: 127.0.0.1
+        clamav_allowed_sources: []
+        clamav_freshclam_checks: 12
+  playbooks:
+    converge: converge.yml
+    verify: verify.yml
+verifier:
+  name: ansible

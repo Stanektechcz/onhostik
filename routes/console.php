@@ -26,6 +26,7 @@ use Onhost\Domain\Domains\RegistrarPriceScraper;
 use Onhost\Domain\Domains\RegistrarPricing;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\MaintenanceService;
+use Onhost\Domain\Incidents\OnCallRota;
 use Onhost\Domain\Incidents\OnCallService;
 use Onhost\Domain\Incidents\OrganizationStatusService;
 use Onhost\Domain\Incidents\SlaService;
@@ -72,13 +73,11 @@ use Onhost\Domain\Support\TicketService;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\WalletForecast;
 use Onhost\Domain\WalletLedger\WalletService;
-use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
 use Onhost\Platform\Outbox\OutboxPublisher;
-use Onhost\Platform\Secrets\SecretRef;
 use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\Contracts\DnsProvider;
 
@@ -312,7 +311,9 @@ Artisan::command('onhost:game:templates:verify', function (GameTemplates $templa
             $rows[] = [$instance->key, 0, 'error: '.$e->getMessage(), 0];
         }
     }
-    $ledger->record('game.templates.verify', ['instances' => count($rows), 'missing' => array_sum(array_map(fn ($r) => $r[2] === '—' || str_starts_with((string) $r[2], 'error') ? 0 : count(explode(', ', (string) $r[2])), $rows))]);
+    $services = $templates->auditServices(); // §5t-3: running servers whose customer input fails its rule
+    $this->line('Servers checked: '.$services['checked'].' · need attention: '.$services['attention']);
+    $ledger->record('game.templates.verify', ['servers_attention' => $services['attention'], 'instances' => count($rows), 'missing' => array_sum(array_map(fn ($r) => $r[2] === '—' || str_starts_with((string) $r[2], 'error') ? 0 : count(explode(', ', (string) $r[2])), $rows))]);
     $this->table(['instance', 'checked', 'missing', 'refreshed'], $rows);
 })->purpose('Check the mapped game templates against the panel eggs and refresh their required variables (audit §5s)');
 
@@ -324,22 +325,15 @@ Artisan::command('onhost:game:operator-variable {env : Variable name, e.g. STEAM
         return 1;
     }
     $value = $this->option('stdin') ? trim((string) stream_get_contents(STDIN)) : (string) $this->secret("Value for {$env} (blank removes it)");
-    $ref = SecretRef::parse((string) config('onhost.game.operator_variables_ref', 'db://game/operator-variables'));
-    try {
-        $current = $secrets->read($ref);
-    } catch (Throwable) {
-        $current = [];
-    }
-    $current = array_change_key_case((array) $current, CASE_UPPER);
-    if ($value === '') {
-        unset($current[$env]);
-    } else {
-        $current[$env] = $value;
-    }
-    $secrets->write($ref, $current);
-    app(AuditRecorder::class)->record(CommandContext::system('cli:game:operator-variable'), 'game.operator_variable.set', 'succeeded', ['env' => $env, 'removed' => $value === ''], 'secret', 'game/operator-variables');
-    $this->info($value === '' ? "Removed {$env}." : "Stored {$env}; stored names: ".implode(', ', array_keys($current)));
+    $status = app(GameTemplates::class)->setOperatorVariable($env, $value, CommandContext::system('cli:game:operator-variable'));
+    $this->info(($value === '' ? "Removed {$env}." : "Stored {$env}.").' Stored names: '.(implode(', ', $status['stored']) ?: '—'));
 })->purpose('Store a read-only game template variable the operator holds (hidden prompt; audit §5s)');
+
+Artisan::command('onhost:oncall:remind', function (OnCallRota $rota, AutomationLedger $ledger) {
+    $sent = $ledger->enabled('oncall.remind') ? $rota->remindUpcoming() : 0;
+    $ledger->record('oncall.remind', ['sent' => $sent]);
+    $this->line("reminders: {$sent}");
+})->purpose('Remind the next on-call an hour before the shift (audit §5t-4)');
 
 Artisan::command('onhost:support:sla', function (TicketService $tickets) {
     $this->table(['breached', 'closed'], [$tickets->tick()]);
@@ -364,6 +358,7 @@ Schedule::command('onhost:mail:send')->everyMinute()->withoutOverlapping()->onOn
 Schedule::command('onhost:webhooks:retry')->everyMinute()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:oncall:escalate')->everyMinute()->withoutOverlapping()->onOneServer(); // unacknowledged pages escalate (audit §5q-1)
 Schedule::command('onhost:files:prune')->dailyAt('04:25')->onOneServer(); // file retention (audit §5q-4)
+Schedule::command('onhost:oncall:remind')->everyFiveMinutes()->withoutOverlapping()->onOneServer(); // shift reminders (audit §5t-4)
 Schedule::command('onhost:game:templates:verify')->dailyAt('05:10')->onOneServer(); // template drift against the panel (audit §5s)
 Schedule::command('onhost:files:scan')->everyTenMinutes()->withoutOverlapping()->onOneServer(); // retry of the virus scan (audit §5r-4)
 Schedule::command('onhost:support:sla')->everyFiveMinutes()->withoutOverlapping()->onOneServer();

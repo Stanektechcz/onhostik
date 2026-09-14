@@ -19,6 +19,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\BulkActionService;
 use Onhost\Domain\Provisioning\Commands\ProvisioningCommand;
+use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\BulkJob;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -122,6 +123,22 @@ final class ConsoleController extends ApiController
         $data = $request->validate(['node' => ['required', 'integer', 'min:1'], 'ip' => ['required', 'ip'], 'ports' => ['required', 'array', 'min:1', 'max:50'], 'ports.*' => ['string', 'max:12'], 'alias' => ['nullable', 'string', 'max:120']]);
 
         return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, "game.allocations.create:{$instance}:{$data['node']}"), ['op' => 'game.allocations.create', 'instance_key' => $instance] + $data), $this->api->context($request), 201);
+    }
+
+    /** Operator-held template variables (audit §5t-1): the stored names and what each template needs — never a value. */
+    public function operatorVariables(Request $request): JsonResponse
+    {
+        $this->api->authorize($request, 'provider.instance.read', CommandScope::global());
+
+        return response()->json(['data' => app(GameTemplates::class)->operatorStatus()]);
+    }
+
+    /** Stores or removes one operator-held variable (fresh step-up; the value never reaches a log or the audit). */
+    public function setOperatorVariable(Request $request, string $env): JsonResponse
+    {
+        $data = $request->validate(['value' => ['nullable', 'string', 'max:500']]);
+
+        return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, 'game.operator_variable:'.$env.':'.now()->format('YmdHis')), ['op' => 'game.operator_variable.set', 'env' => $env, 'secret' => $data['value'] ?? null]), $this->api->context($request));
     }
 
     /** Node limits on the panel from the console (audit §5q follow-up): memory / disk (MB), over-allocation (%), maintenance, or `detect` the daemon's RAM. */

@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Staff;
 use App\Http\Controllers\Api\V1\ApiController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Onhost\Domain\Incidents\Commands\OnCallCommand;
 use Onhost\Domain\Incidents\Models\OnCallAlert;
 use Onhost\Domain\Incidents\OnCallRota;
@@ -53,6 +54,21 @@ final class OnCallController extends ApiController
         $this->api->authorize($request, 'incident.manage', CommandScope::global());
 
         return response()->json(['data' => $rota->upcoming((int) $request->query('days', 14)), 'on_call' => $rota->assignee(), 'hand_over' => $rota->handOverLine()]);
+    }
+
+    /** The rota as iCalendar (audit §5t-4), for a personal calendar subscription through the console session. */
+    public function shiftsIcal(Request $request, OnCallRota $rota): Response
+    {
+        $this->api->authorize($request, 'incident.manage', CommandScope::global());
+
+        return response($rota->ical((int) $request->query('days', 60)), 200, ['Content-Type' => 'text/calendar; charset=utf-8', 'Content-Disposition' => 'attachment; filename="onhost-oncall.ics"', 'Cache-Control' => 'no-store']);
+    }
+
+    public function importShifts(Request $request): JsonResponse
+    {
+        $data = $request->validate(['ical' => ['required', 'string', 'max:512000']]);
+
+        return $this->dispatch(new OnCallCommand($this->idempotencyKey($request, 'oncall.shift.import:'.md5($data['ical'])), ['op' => 'shift.import', 'ical' => $data['ical']]), $this->api->context($request));
     }
 
     public function addShift(Request $request): JsonResponse
