@@ -44,7 +44,7 @@ grep -qE '^DB_PASSWORD=.+' "$ENV_DIR/app.env" || { echo "DB_PASSWORD is empty in
 ln -sfn "$ENV_DIR/app.env" "$APP_DIR/.env"
 
 say "Composer (production, no dev packages)"
-COMPOSER_ALLOW_SUPERUSER=1 "$COMPOSER" install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
+COMPOSER_ALLOW_SUPERUSER=1 "$PHP" "$COMPOSER" install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
 
 if ! grep -qE '^APP_KEY=base64:' "$ENV_DIR/app.env"; then
   say "Application key"

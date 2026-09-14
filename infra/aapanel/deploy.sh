@@ -27,7 +27,7 @@ git reset -q --hard "origin/$BRANCH"
 git log --oneline -1
 
 say "Composer"
-COMPOSER_ALLOW_SUPERUSER=1 "$COMPOSER" install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
+COMPOSER_ALLOW_SUPERUSER=1 "$PHP" "$COMPOSER" install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
 
 say "Migrations (additive, backward compatible for one release)"
 art migrate --force
