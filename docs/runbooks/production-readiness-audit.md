@@ -2,20 +2,39 @@
 
 Komplexní audit platformy ONhost po bloku §5p: co je hotové, co chybí, co je potřeba doladit a v jakém pořadí, aby
 šlo do produkce bez překvapení. Zdroje: `php artisan onhost:doctor` (59 kontrol, 0 FAIL, 30 WARN na dev),
-`onhost:integrations:health`, plná testovací sada (Pest 334 testů, Playwright 5 specifikací), kód, konfigurace,
+`onhost:integrations:health`, plná testovací sada (Pest 355 testů na SQLite i PostgreSQL 16 v CI, Playwright 5 specifikací), kód, konfigurace,
 dokumentace v `docs/` a runbooky. Priority: **P0** blokuje spuštění, **P1** do prvního měsíce provozu, **P2** zlepšení.
 
 ## 1. Stav dnes v číslech
 
 | Oblast | Stav |
 | --- | --- |
-| Testy | Pest 334 testů / 8 946 asercí zelené; Playwright 5 specifikací (veřejný checkout, panel zákazníka, game workbench, mail workbench, staff konzole) |
-| API | OpenAPI 386 cest / 431 operací (`php artisan onhost:openapi`) |
+| Testy | Pest 355 testů / 9 350 asercí zelené — v CI na SQLite **i PostgreSQL 16** (produkční databáze); Playwright 5 specifikací (veřejný checkout, panel zákazníka, game workbench, mail workbench, staff konzole); Larastan level 5 s baseline; `composer audit` bez nálezů |
+| API | OpenAPI 397 cest / 443 operací (`php artisan onhost:openapi`) |
 | Události | 81+ řádků katalogu (`docs/architecture/events-catalog.md`), všechny routované v `NotificationRouter` |
 | Automatizace | 60 plánovaných běhů, 63 vlastních příkazů + 8 tříd, 15 pravidel s vypínačem v konzoli (`AutomationLedger::RULES`) |
-| Infrastruktura jako kód | 6 Ansible rolí s molecule scénáři, workflow `ansible-roles` (lint + matice), edge šablony Caddy/nginx |
-| Kvalita kódu | Pint, Larastan (`composer` skripty `phpstan analyse`), 0 TODO/FIXME v domains/app/providers/platform |
+| Infrastruktura jako kód | 7 Ansible rolí s molecule scénáři (vč. `onhost_clamav`), workflow `ansible-roles` (lint + matice), edge šablony Caddy/nginx; dev stack `infra/docker-compose.yml` s clamd, OTel collector, Tempo, Grafana (dashboard *ONhost · provoz*) a Alertmanager |
+| Kvalita kódu | Pint, Larastan level 5 (`phpstan.neon` + baseline typového dluhu, běží v CI), `composer audit` v CI, 0 TODO/FIXME v domains/app/providers/platform |
 | Živé integrace | aaPanel cz1 healthy (8.0.6, ~1,4 s); herní panel gamepanel.onhost.cz **bez uložených klíčů**; ostatní instance jsou laboratorní (disabled) |
+
+## 1b. Co přibylo při přípravě produkce (2026-09-14, po §5u)
+
+- **Zálohy platformy**: `onhost:platform:backup` (pg_dump / mysqldump / SQLite + tar.gz soukromých souborů, manifest se
+  SHA-256, retence) denně 02:15, `onhost:platform:backup:verify` 03:15; doctor a metrika
+  `onhost_platform_backup_verified_timestamp`, alert `OnhostBackupStale`.
+- **Příprava produkce**: `onhost:production:prepare --purge-dev-accounts --legal --cache`; právnická osoba se čte z
+  `config('onhost.legal_entity')` (po `config:cache` `env()` nefunguje — opraveno i ve VIES klientovi a doctoru);
+  `.env.production.example` se všemi klíči.
+- **PostgreSQL**: CI job `pest-postgres` odhalil a opravil: `nodes.remote_id` integer (Proxmox posílá `prg2-n1`),
+  `rated_usage.charged_transaction_id` 40 znaků, `substr()` nad timestampem v reportu tržeb, a hlavně devět míst
+  „insert + catch unique“, která na PostgreSQL zrušila celou probíhající transakci (věrnostní body při zaplacené
+  objednávce, čísla tiketů/incidentů, webhook plateb, sondy SLA) — teď běží v savepointu.
+- **Audit**: parametry akcí služeb už nikdy nenesou privátní klíč certifikátu ani obsah souborů (test dosud
+  procházel jen kvůli tomu, že SQLite bere `"payload"` jako řetězec).
+- **Monitoring**: metriky `onhost_automation_alive`, `onhost_virus_scanner_up`, `onhost_oncall_*`; alerty
+  `OnhostAutomationDead`, `OnhostVirusScannerDown`, `OnhostOnCallUnacknowledged`, `OnhostNobodyOnCall`; Alertmanager
+  posílá pravidla do `POST /v1/webhooks/alertmanager` → on-call alert s eskalací a rotou; Grafana dashboard.
+- **CI**: Pest na SQLite + PostgreSQL, Larastan, `composer audit`, e2e a Ansible role běží i pro větev `development`.
 
 ## 2. P0 — blokátory spuštění
 

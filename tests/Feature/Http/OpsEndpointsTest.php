@@ -31,3 +31,8 @@ it('sends hardening headers with a CSP that allows only the vendored runtime and
     $support = $this->get('/surfaces/support.js')->assertOk();
     expect($support->getContent())->toContain('/surfaces/vendor/react.production.min.js')->not->toContain('unpkg.com');
 });
+
+it('serves the OpenAPI contract the documentation page offers for download', function () {
+    $response = $this->get('/openapi.yaml')->assertOk();
+    expect((string) $response->headers->get('Content-Type'))->toContain('yaml')->and((string) file_get_contents($response->baseResponse->getFile()->getPathname()))->toContain('openapi: 3.1')->toContain('/services/{service}/game-files/upload');
+});
