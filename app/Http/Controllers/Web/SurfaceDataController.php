@@ -82,7 +82,7 @@ final class SurfaceDataController extends Controller
     /** Public product page slug (onhost-svc-*.js) → catalogue products whose plans the page sells. */
     private const PAGE_PRODUCTS = [
         'web-hosting' => ['web-hosting'], 'wordpress' => ['wordpress'], 'eshop' => ['eshop'], 'mail' => ['mail'], 'database' => ['database'], 'backup' => ['backup-plus', 'backup-hourly'],
-        'vps' => ['vps'], 'dedicated' => ['vds'], 'ssl' => ['ssl'], 'cdn' => ['cdn'], 'devhosting' => ['apps'], 'gamehosting' => ['game'],
+        'vps' => ['vps'], 'dedicated' => ['vds'], 'ssl' => ['ssl'], 'cdn' => ['cdn'], 'devhosting' => ['apps'], 'gamehosting' => ['game'], 'minecraft' => ['game'],
     ];
 
     /**
@@ -145,6 +145,21 @@ final class SurfaceDataController extends Controller
             }
             if ($slug === 'web-hosting') {
                 $out[$slug]['builder'] = $this->builderRows($locale);
+            }
+            if (in_array('game', $keys, true)) { // the game pages name the templates the panel really offers (mapped and orderable), Minecraft flavours on the Minecraft page
+                $templates = app(GameTemplates::class);
+                $labels = [];
+                foreach ((array) data_get($catalog->get('game'), 'meta.eggs', []) as $eggKey) {
+                    $isMinecraft = str_starts_with((string) $eggKey, 'minecraft-');
+                    if (($slug === 'minecraft') === $isMinecraft && $templates->availability((string) $eggKey)['available']) {
+                        $labels[] = $slug === 'minecraft' ? trim(str_replace('Minecraft ·', '', (string) config("onhost.game.eggs.{$eggKey}.label", $eggKey))) : (string) config("onhost.game.eggs.{$eggKey}.label", $eggKey);
+                    }
+                }
+                if ($labels !== []) {
+                    $out[$slug]['chips'] = $labels;
+                    $out[$slug]['kicker'] = implode(' · ', array_slice($labels, 0, 4));
+                    $out[$slug]['kpi_games'] = [(string) count($labels), $cs ? ($slug === 'minecraft' ? 'variant Minecraftu' : 'her na klik') : ($slug === 'minecraft' ? 'Minecraft flavours' : 'games, one click')];
+                }
             }
         }
         $out['domains'] = $this->domainPageRows($locale);

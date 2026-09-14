@@ -40,6 +40,8 @@
       if (o.cmp && o.cmp.rows && o.cmp.rows.length) page.cmp = { cols: o.cmp.cols, rows: o.cmp.rows };
       if (o.cmpTitle) page.cmpTitle = o.cmpTitle;
       if (o.kicker) page.kicker = o.kicker;
+      if (o.chips && o.chips.length) page.chips = o.chips; // game pages: the templates the panel really offers
+      if (o.kpi_games && page.kpis && page.kpis.length) page.kpis = [o.kpi_games].concat(page.kpis.slice(1));
     });
     return pages;
   }
