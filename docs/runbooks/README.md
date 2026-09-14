@@ -16,3 +16,5 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | [release-and-rollback.md](release-and-rollback.md) | deploying the control plane, migrations, rollback, error-budget freeze |
 
 On-call rotation, escalation contacts and SLA classes are in `docs/sre/` and `config/onhost.php` (`sla`).
+
+- [deploy-aapanel.md](deploy-aapanel.md) — the control plane on the aaPanel host (onhost.cz): `infra/aapanel/install.sh`, `deploy.sh`, the nginx site snippet, the values the operator fills in.
