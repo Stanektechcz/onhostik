@@ -314,9 +314,32 @@ final class PlatformBackup
         return $pruned;
     }
 
+    /**
+     * Where pg_dump / pg_restore live: `ONHOST_PG_BIN`, else the panel installations (aaPanel, Debian/Ubuntu packages —
+     * the newest version wins, the client must not be older than the server), else the PATH.
+     */
+    public static function pgBin(string $tool): string
+    {
+        $dir = (string) config('onhost.platform_backup.pg_bin', '');
+        if ($dir === '') {
+            $candidates = array_merge(['/www/server/pgsql/bin'], array_reverse(glob('/usr/lib/postgresql/*/bin') ?: []), ['/usr/local/pgsql/bin']);
+            foreach ($candidates as $candidate) {
+                if (is_executable(rtrim($candidate, '/').'/'.$tool)) {
+                    $dir = $candidate;
+                    break;
+                }
+            }
+        }
+
+        return $dir !== '' ? rtrim($dir, '/').'/'.$tool : $tool;
+    }
+
     /** @param  list<string>  $command @param  array<string,string>  $env */
     private function exec(array $command, array $env = []): void
     {
+        if (in_array($command[0], ['pg_dump', 'pg_restore'], true)) {
+            $command[0] = self::pgBin($command[0]);
+        }
         $process = new Process($command, null, $env + ['PATH' => (string) getenv('PATH')], null, 1800);
         $process->run();
         if (! $process->isSuccessful()) {

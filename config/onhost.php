@@ -43,6 +43,7 @@ return [
         'disk' => env('ONHOST_PLATFORM_BACKUP_DISK', 'local'),      // a filesystems.disks entry; S3-compatible and off the server in production
         'retention_days' => (int) env('ONHOST_PLATFORM_BACKUP_RETENTION_DAYS', 30),
         'files_root' => env('ONHOST_PLATFORM_BACKUP_FILES_ROOT'),   // default storage/app/private
+        'pg_bin' => env('ONHOST_PG_BIN', ''),                       // directory with pg_dump/pg_restore matching the server version (aaPanel: /www/server/pgsql/bin); empty = auto-detect
     ],
     'backups' => [
         'offsite_disk' => env('ONHOST_BACKUP_OFFSITE_DISK'), // a filesystems.disks entry (S3-compatible) for off-site copies; null = off
