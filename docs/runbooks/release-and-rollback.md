@@ -2,7 +2,10 @@
 
 ## Before a release
 
-* `php artisan test` green; contract tests for every adapter you touched.
+* `php artisan test` green; contract tests for every adapter you touched; `vendor/bin/phpstan analyse` and
+  `composer audit` clean (both run in CI).
+* A fresh, verified platform backup exists (`onhost:platform:backup && onhost:platform:backup:verify`) — a release
+  with migrations never starts without one.
 * Error-budget policy for `portal`/`payments` is not `freeze` (`GET /v1/staff/reports/slo`). A freeze blocks
   releases except fixes for the incident that caused it.
 * Migrations are additive (new tables/columns, no drops of data in the same release); destructive changes ship
@@ -22,6 +25,9 @@
 
 * Code: redeploy the previous image/tag; migrations are backward compatible for one release, so no down
   migration is run in production.
+* Database, only when a migration corrupted data: stop workers and the scheduler, `pg_restore --clean --if-exists
+  -d onhost database.pgdump` from the pre-release set (`onhost:platform:backup:verify <set>` names it), replay
+  nothing — payments received meanwhile are re-imported by `onhost:bank:sync` and the gateway webhooks retry.
 * Data: never roll back money or audit rows; correct with new documents/postings.
 * If a release broke provisioning: freeze (`POST /v1/staff/provisioning/freeze`), roll back, thaw, retry failed
   operations.

@@ -55,8 +55,10 @@ dokumentace v `docs/` a runbooky. Priority: **P0** blokuje spuštění, **P1** d
 ## 3. P1 — první měsíc provozu
 
 **Provoz a spolehlivost**
-- Zálohy databáze a `storage/app/private` (soubory důkazů z marketplace, exporty dat) mimo server + test obnovy;
-  PBS instance pro zálohy VPS (`pbs-cz1` je lab). Runbook `release-and-rollback.md` doplnit o migrace zpět.
+- Zálohy databáze a `storage/app/private` — **hotovo**: `onhost:platform:backup` (pg_dump custom / mysqldump / SQLite,
+  tar.gz soukromých souborů, manifest se SHA-256, retence) a `onhost:platform:backup:verify` (kontrolní součty +
+  `pg_restore --list` / integrity check); zbývá S3 bucket mimo server a cvičná obnova na stagingu. PBS instance pro
+  zálohy VPS (`pbs-cz1` je lab).
 - Externí sondy na třech lokalitách (role `onhost_probe`) + registrace tokenů v Incidenty → sondy; 2-of-3 kvorum
   je připraveno v `SlaService`.
 - Alerting mimo platformu — **hotovo v §5q-1**: on-call eskalace (`ONHOST_ONCALL_PROVIDER` pagerduty | opsgenie |
@@ -75,7 +77,8 @@ dokumentace v `docs/` a runbooky. Priority: **P0** blokuje spuštění, **P1** d
 - CSP (`SecurityHeaders`) rozšířit o relay a CDN origin produkce; `throttle:auth` 10/min a `throttle:probes`
   600/min zkontrolovat proti reálnému provozu; Turnstile na registraci a checkoutu je **hotový v §5q-6** — nastavit
   `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` (bez klíčů vypnuto).
-- Dependabot/`composer audit` v CI (`tests.yml` spouští Pint a Pest, ne audit); Larastan přidat do CI jako krok.
+- `composer audit` a Larastan (level 5, `phpstan-baseline.neon` = dnešní typový dluh, nový kód musí projít) běží v CI —
+  **hotovo**; zbývá Dependabot a postupné umazávání baseline.
 - Penetrační test API (idempotence, step-up, org scope) a prototypových ploch; kontrola, že `demo` mód je v
   produkci vypnutý (`ONHOST_DEMO=false`).
 
@@ -110,7 +113,10 @@ dokumentace v `docs/` a runbooky. Priority: **P0** blokuje spuštění, **P1** d
 
 ## 5. Kontrolní seznam před dnem D
 
-1. `php artisan onhost:doctor` → 0 FAIL, WARN jen vědomé.
+1. `php artisan onhost:doctor` → 0 FAIL, WARN jen vědomé. Předtím `php artisan onhost:production:prepare --purge-dev-accounts --legal --cache`
+   (smaže vývojové účty, zapíše právnickou osobu z `ONHOST_LEGAL_*`/`ONHOST_BANK_*`, nacachuje konfiguraci) a
+   `php artisan onhost:platform:backup && php artisan onhost:platform:backup:verify` (záloha DB + soukromých souborů
+   na `ONHOST_PLATFORM_BACKUP_DISK`, ověření obnovitelnosti; denně 02:15/03:15, doctor hlídá stáří).
 2. `php artisan onhost:integrations:health` → všechny produkční instance up, `onhost:nodes:check` bez varování.
 3. `php artisan test --compact` + `npm run e2e` proti stagingu; `vendor/bin/phpstan analyse`.
 4. Zálohy ověřené obnovou; runbooky `incident-response.md`, `provider-outage.md`, `release-and-rollback.md`

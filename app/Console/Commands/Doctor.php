@@ -25,6 +25,7 @@ use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderInstanceService;
 use Onhost\Domain\WalletLedger\AutoTopup;
 use Onhost\Platform\Files\VirusScanner;
+use Onhost\Platform\Ops\PlatformBackup;
 
 /**
  * Production readiness self-check (docs/runbooks/go-live-checklist.md). Every row is a fact the control plane can
@@ -80,11 +81,15 @@ final class Doctor extends Command
         $this->add('app', 'APP_DEBUG off', ! config('app.debug'), config('app.debug') ? 'debug pages would leak configuration' : '');
         $this->add('app', 'APP_KEY set', (string) config('app.key') !== '', '');
         $this->add('app', 'APP_URL uses https', str_starts_with((string) config('app.url'), 'https://'), (string) config('app.url'));
-        $this->add('app', 'Sanctum stateful domains set', trim((string) env('SANCTUM_STATEFUL_DOMAINS', '')) !== '', 'the surfaces authenticate with the session cookie');
+        $this->add('app', 'Sanctum stateful domains set', (array) config('sanctum.stateful', []) !== [], 'the surfaces authenticate with the session cookie');
     }
 
     private function storage(): void
     {
+        $backup = app(PlatformBackup::class)->status(); // go-live §1: a verified backup younger than a day
+        $verifiedAt = isset($backup['verified']['at']) ? CarbonImmutable::parse((string) $backup['verified']['at']) : null;
+        $this->add('storage', 'platform backup verified within 26 h', $verifiedAt !== null && $verifiedAt->gt(now()->subHours(26)), $verifiedAt !== null ? 'set '.$backup['verified']['set'].' verified '.$verifiedAt->diffForHumans().' on disk '.$backup['disk'] : (isset($backup['last']['at']) ? 'last backup '.$backup['last']['at'].' not verified yet — onhost:platform:backup:verify' : 'no backup yet — onhost:platform:backup runs daily 02:15'), false);
+        $this->add('storage', 'platform backup disk off the server', ! $this->production || $backup['disk'] !== 'local', $backup['disk'].($backup['disk'] === 'local' ? ' (production: an S3-compatible disk — ONHOST_PLATFORM_BACKUP_DISK)' : ''), false);
         try {
             DB::select('select 1');
             $this->add('storage', 'database reachable', true, (string) config('database.default'));

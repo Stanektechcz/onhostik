@@ -77,6 +77,7 @@ use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
+use Onhost\Platform\Ops\PlatformBackup;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\Contracts\DnsProvider;
@@ -339,6 +340,38 @@ Artisan::command('onhost:oncall:remind', function (OnCallRota $rota, AutomationL
     $this->line("reminders: {$sent}");
 })->purpose('Remind the next on-call an hour before the shift (audit §5t-4)');
 
+Artisan::command('onhost:platform:backup', function (PlatformBackup $backup, AutomationLedger $ledger) {
+    if (! $ledger->enabled('platform.backup')) {
+        $this->warn('platform.backup is switched off');
+
+        return 0;
+    }
+    try {
+        $r = $backup->run();
+    } catch (Throwable $e) {
+        $ledger->record('platform.backup', [], $e->getMessage());
+        $this->error('Backup failed: '.$e->getMessage());
+
+        return 1;
+    }
+    $ledger->record('platform.backup', ['set' => $r['set'], 'bytes' => array_sum(array_column($r['files'], 'bytes')), 'pruned' => $r['pruned']]);
+    $this->table(['file', 'bytes', 'sha256'], array_map(fn ($n, $f) => [$n, $f['bytes'], substr($f['sha256'], 0, 16).'…'], array_keys($r['files']), $r['files']));
+    $this->info("Set {$r['set']} on disk ".config('onhost.platform_backup.disk')." ({$r['database']}); pruned {$r['pruned']}");
+
+    return 0;
+})->purpose('Back up the control plane database and private files to the backup disk (go-live checklist §1)');
+
+Artisan::command('onhost:platform:backup:verify {set?}', function (PlatformBackup $backup, AutomationLedger $ledger) {
+    $r = $backup->verify($this->argument('set'));
+    $ledger->record('platform.backup.verify', ['set' => $r['set'], 'ok' => $r['ok']], $r['ok'] ? null : implode('; ', $r['problems']));
+    foreach ($r['problems'] as $p) {
+        $this->error($p);
+    }
+    $this->line(($r['ok'] ? 'OK ' : 'FAILED ').($r['set'] ?? '—').($r['created_at'] ? ' created '.$r['created_at'] : ''));
+
+    return $r['ok'] ? 0 : 1;
+})->purpose('Read the newest platform backup back and check it restores (sizes, checksums, dump integrity)');
+
 Artisan::command('onhost:support:sla', function (TicketService $tickets) {
     $this->table(['breached', 'closed'], [$tickets->tick()]);
 })->purpose('Detect support SLA breaches (escalate) and auto-close resolved tickets');
@@ -362,6 +395,8 @@ Schedule::command('onhost:mail:send')->everyMinute()->withoutOverlapping()->onOn
 Schedule::command('onhost:webhooks:retry')->everyMinute()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:oncall:escalate')->everyMinute()->withoutOverlapping()->onOneServer(); // unacknowledged pages escalate (audit §5q-1)
 Schedule::command('onhost:files:prune')->dailyAt('04:25')->onOneServer(); // file retention (audit §5q-4)
+Schedule::command('onhost:platform:backup')->dailyAt('02:15')->onOneServer(); // control plane backup (go-live §1)
+Schedule::command('onhost:platform:backup:verify')->dailyAt('03:15')->onOneServer();
 Schedule::command('onhost:oncall:remind')->everyFiveMinutes()->withoutOverlapping()->onOneServer(); // shift reminders (audit §5t-4)
 Schedule::command('onhost:game:templates:verify')->dailyAt('05:10')->onOneServer(); // template drift against the panel (audit §5s)
 Schedule::command('onhost:files:scan')->everyTenMinutes()->withoutOverlapping()->onOneServer(); // retry of the virus scan (audit §5r-4)

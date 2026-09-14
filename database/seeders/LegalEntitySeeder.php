@@ -17,16 +17,17 @@ final class LegalEntitySeeder extends Seeder
 {
     public function run(): void
     {
+        $legal = fn (string $key, string $placeholder) => (string) config("onhost.legal_entity.{$key}", '') !== '' ? (string) config("onhost.legal_entity.{$key}") : $placeholder; // config survives config:cache, env() does not
         LegalEntity::query()->updateOrCreate(['key' => 'onhost-cz'], [
-            'name' => env('ONHOST_LEGAL_NAME', 'ONhost s.r.o.'),
-            'ico' => env('ONHOST_ICO', '00000000'),
-            'dic' => env('ONHOST_DIC', 'CZ00000000'),
-            'vat_id' => env('ONHOST_VAT_ID', 'CZ00000000'),
-            'address' => ['street' => env('ONHOST_STREET', 'Datacentrum 1'), 'city' => env('ONHOST_CITY', 'Praha'), 'postal_code' => env('ONHOST_ZIP', '110 00')],
+            'name' => $legal('name', 'ONhost s.r.o.'),
+            'ico' => $legal('ico', '00000000'),
+            'dic' => $legal('dic', 'CZ00000000'),
+            'vat_id' => $legal('vat_id', 'CZ00000000'),
+            'address' => ['street' => $legal('street', 'Datacentrum 1'), 'city' => $legal('city', 'Praha'), 'postal_code' => $legal('zip', '110 00')],
             'country' => 'CZ',
-            'iban' => env('ONHOST_BANK_IBAN', 'CZ0000000000000000000000'),
-            'bic' => env('ONHOST_BANK_BIC', 'XXXXCZPP'),
-            'bank_account' => env('ONHOST_BANK_ACCOUNT', '000000-0000000000/0000'),
+            'iban' => $legal('iban', 'CZ0000000000000000000000'),
+            'bic' => $legal('bic', 'XXXXCZPP'),
+            'bank_account' => $legal('bank_account', '000000-0000000000/0000'),
             'series' => ['invoice' => 'FV', 'credit_note' => 'DK', 'proforma' => 'PF', 'receipt' => 'PP', 'correction' => 'OD', 'statement' => 'VY'],
             'vat_payer' => true,
             'meta' => ['registry' => 'Městský soud v Praze, oddíl C', 'oss' => true],

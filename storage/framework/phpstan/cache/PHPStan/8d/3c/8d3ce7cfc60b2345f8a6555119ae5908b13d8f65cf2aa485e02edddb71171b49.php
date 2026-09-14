@@ -1,0 +1,647 @@
+<?php declare(strict_types = 1);
+
+// odsl-C:\Users\medion\Desktop\ONHOST-NEW\onhost-platform\domains\Notifications\Lexicon.php-PHPStan\BetterReflection\Reflection\ReflectionClass-Onhost\Domain\Notifications\Lexicon
+return \PHPStan\Cache\CacheItem::__set_state(array(
+   'variableKey' => 'v2-6.70.0.6-8.3.33-70b98ec9f306ca7200914fc0e21c192674a4f97303697711f0928134c99bb917',
+   'data' => 
+  array (
+    'locatedSource' => 
+    array (
+      'class' => 'PHPStan\\BetterReflection\\SourceLocator\\Located\\LocatedSource',
+      'data' => 
+      array (
+        'name' => 'Onhost\\Domain\\Notifications\\Lexicon',
+        'filename' => 'C:/Users/medion/Desktop/ONHOST-NEW/onhost-platform/domains/Notifications/Lexicon.php',
+      ),
+    ),
+    'namespace' => 'Onhost\\Domain\\Notifications',
+    'name' => 'Onhost\\Domain\\Notifications\\Lexicon',
+    'shortName' => 'Lexicon',
+    'isInterface' => false,
+    'isTrait' => false,
+    'isEnum' => false,
+    'isBackedEnum' => false,
+    'modifiers' => 32,
+    'docComment' => '/**
+ * In-app notifications in the organization\'s language (audit §5q-7). The router composes Czech titles and bodies
+ * from fixed phrases and live values (names, amounts, dates); for an English organization the fixed phrases are
+ * swapped by this table — longest phrase first, values untouched — before the row is written. Mail templates already
+ * carry their own `en` versions (NotificationTemplateSeeder); this covers the feed and the mobile inbox. A phrase
+ * missing here stays Czech (never garbled), and `untranslated()` lists what a test render left behind.
+ */',
+    'attributes' => 
+    array (
+    ),
+    'startLine' => 14,
+    'endLine' => 154,
+    'startColumn' => 1,
+    'endColumn' => 1,
+    'parentClassName' => NULL,
+    'implementsClassNames' => 
+    array (
+    ),
+    'traitClassNames' => 
+    array (
+    ),
+    'immediateConstants' => 
+    array (
+      'EN' => 
+      array (
+        'declaringClassName' => 'Onhost\\Domain\\Notifications\\Lexicon',
+        'implementingClassName' => 'Onhost\\Domain\\Notifications\\Lexicon',
+        'name' => 'EN',
+        'modifiers' => 1,
+        'type' => NULL,
+        'value' => 
+        array (
+          'code' => '[
+    // orders and provisioning
+    \'Zaplacená objednávka prochází krátkou kontrolou; služby zřídíme hned po jejím dokončení, obvykle do pár hodin.\' => \'Your paid order is going through a short check; we will provision the services right after it, usually within a few hours.\',
+    \'Služby se právě zřizují.\' => \'Your services are being provisioned.\',
+    \'Platba byla vrácena, kredit uvolněn. Napište podpoře, pokud jde o omyl.\' => \'The payment was returned and the credit released. Contact support if this is a mistake.\',
+    \'Objednávka přijata\' => \'Order received\',
+    \'Objednávka zaplacena\' => \'Order paid\',
+    \'Objednávka je hotová\' => \'Order completed\',
+    \'objednávka zrušena, nic k úhradě\' => \'order cancelled, nothing to pay\',
+    \' · služby se zřizují\' => \' · services are being provisioned\',
+    \' · splatnost 14 dní\' => \' · due in 14 days\',
+    \'Platba přijata, vše v pořádku\' => \'Payment received, all good\',
+    \'Platba přijata\' => \'Payment received\',
+    \'Služba je aktivní\' => \'Your service is active\',
+    \'Zřizování služby se nezdařilo — řešíme\' => \'Provisioning failed — we are on it\',
+    \'Zřizování služby selhalo\' => \'Provisioning failed\',
+    \'Naši technici byli upozorněni, ozveme se v tiketu.\' => \'Our engineers have been alerted; we will follow up in a ticket.\',
+    \'Služba byla pozastavena pro neplacení\' => \'Service suspended for non-payment\',
+    \'Služba pozastavena pro neplacení\' => \'Service suspended for non-payment\',
+    \'Po uhrazení se služba automaticky obnoví.\' => \'The service resumes automatically once paid.\',
+    \'Služba byla pozastavena\' => \'Service suspended\',
+    \'Služba byla obnovena\' => \'Service resumed\',
+    \'Služba byla ukončena\' => \'Service terminated\',
+    \'Zálohy držíme po dobu retenční lhůty.\' => \'Backups are kept for the retention period.\',
+    \'Naplánováno zrušení služby\' => \'Service cancellation scheduled\',
+    \'Služba bude zrušena\' => \'Service will be cancelled\',
+    \'Datum zrušení: \' => \'Cancellation date: \',
+    \'. Uhraďte doklad, zrušení se odvolá.\' => \'. Pay the invoice and the cancellation is withdrawn.\',
+    \'Služba prodloužena\' => \'Service renewed\',
+    \'Prodloužení služby se nezdařilo\' => \'Service renewal failed\',
+    \'Nedostatek kreditu · potřeba \' => \'Insufficient credit · needed \',
+    \'platí do \' => \'valid until \',
+    \'Platbu vracíme na kredit, podpora vás kontaktuje.\' => \'We are refunding the payment to your credit; support will contact you.\',
+    \'Období platby služby \' => \'Billing period of \',
+    \' změněno na \' => \' changed to \',
+    \'roční\' => \'yearly\',
+    \'měsíční\' => \'monthly\',
+    \'Nové období běží od teď\' => \'The new period starts now\',
+    \'; nevyužitý zbytek původního období jsme odečetli.\' => \'; the unused rest of the previous period was credited.\',
+    \'Tarif služby \' => \'Plan of \',
+    \'Nové limity platí do minuty; nová cena se účtuje od \' => \'The new limits apply within a minute; the new price is charged from \',
+    \'teď (nové období začalo dnes)\' => \'now (a new period started today)\',
+    \'příštího období\' => \'the next period\',
+    \'Stěhování serveru \' => \'Migration of server \',
+    \' je naplánované\' => \' is scheduled\',
+    \'Začne \' => \'It starts \',
+    \'; termín můžete posunout v okně \' => \'; you can move the date within the window \',
+    \'Server \' => \'Server \',
+    \' byl přestěhován\' => \' has been migrated\',
+    \'Nová adresa: \' => \'New address: \',
+    \'. Data, nastavení i plány zůstaly.\' => \'. Data, settings and schedules were kept.\',
+    // web tools
+    \'Web neodpovídá\' => \'Website is down\',
+    \'Web opět běží\' => \'Website is up again\',
+    \' · výpadek \' => \' · outage \',
+    \'Deploy dokončen\' => \'Deploy finished\',
+    \'Deploy selhal\' => \'Deploy failed\',
+    \'Staging přenesen do produkce\' => \'Staging pushed to production\',
+    \'Staging obnoven z produkce\' => \'Staging refreshed from production\',
+    \'Staging: operace selhala\' => \'Staging: operation failed\',
+    \'Import webu dokončen\' => \'Website import finished\',
+    \'Import webu selhal\' => \'Website import failed\',
+    \' souborů, \' => \' files, \',
+    \' souborů · \' => \' files · \',
+    \' databází\' => \' databases\',
+    \'Certifikát vystaven\' => \'Certificate issued\',
+    \'Certifikát se nepodařilo vystavit\' => \'Certificate could not be issued\',
+    \' · platí do \' => \' · valid until \',
+    \'Discord účet propojen\' => \'Discord account linked\',
+    \' může přes /onhost zobrazit stav služeb a spouštět zálohy, restarty a deploy (po potvrzení)\' => \' can show service status and start backups, restarts and deploys via /onhost (after confirmation)\',
+    \'Stránka stavu běží na \' => \'Status page is live at \',
+    \'Doména je ověřená; certifikát vystaví edge při první návštěvě.\' => \'The domain is verified; the edge issues the certificate on the first visit.\',
+    \'Záznamy A pro @ a www míří na server; certifikát vystavíme, jakmile se změna rozšíří.\' => \'The A records for @ and www point at the server; we issue the certificate once the change propagates.\',
+    \'Nastavte u svého DNS záznamy A pro @ a www na adresu serveru; certifikát vystavíme poté.\' => \'Point the A records for @ and www at the server address in your DNS; we issue the certificate afterwards.\',
+    \'Alias na serveru i záznamy, které párování přidalo, jsou pryč.\' => \'The server alias and the records the pairing added are gone.\',
+    // chargebacks and loyalty
+    \'Žádost o vrácení kreditu přijata\' => \'Credit refund request received\',
+    \'Žádost o vrácení kreditu: \' => \'Credit refund request: \',
+    \'Technická podpora ji posoudí; po schválení službu zrušíte v panelu a \' => \'Support will review it; once approved you cancel the service in the panel and \',
+    \' % nevyužitého období se vrátí jako kredit.\' => \' % of the unused period comes back as credit.\',
+    \'Vrácení kreditu za \' => \'Credit refund for \',
+    \' schváleno\' => \' approved\',
+    \'Zrušte službu v panelu; vrátíme \' => \'Cancel the service in the panel; we refund \',
+    \' % nevyužitého období) jako kredit.\' => \' % of the unused period) as credit.\',
+    \' jsme nemohli schválit\' => \' could not be approved\',
+    \'Napište podpoře, pokud chcete rozhodnutí probrat.\' => \'Contact support if you want to discuss the decision.\',
+    \'Kredit za zrušenou službu připsán\' => \'Credit for the cancelled service added\',
+    \'Kredit vrácen: \' => \'Credit refunded: \',
+    \' % nevyužitého období) je na vašem účtu.\' => \' % of the unused period) is on your account.\',
+    \'Nová úroveň věrnostního programu: \' => \'New loyalty level: \',
+    \'Odměna \' => \'Reward \',
+    \' je na vašem promo kreditu.\' => \' is on your promo credit.\',
+    \'Díky, že jste s námi.\' => \'Thank you for staying with us.\',
+    \'Nový odznak: \' => \'New badge: \',
+    \'Najdete ho v nastavení účtu.\' => \'You will find it in your account settings.\',
+    \'Na vaše doporučení se registroval nový zákazník\' => \'A new customer signed up on your referral\',
+    \'Odměnu připíšeme po jeho první zaplacené platbě.\' => \'The reward is added after their first paid payment.\',
+    \'Uvítací odměna za doporučení\' => \'Referral welcome reward\',
+    \'Odměna za doporučení\' => \'Referral reward\',
+    \' bodů a \' => \' points and \',
+    \' promo kreditu za \' => \' promo credit for \',
+    \' promo kreditu.\' => \' promo credit.\',
+    \'Splněné mise za \' => \'Missions completed for \',
+    \' · všechny mise měsíce, odznak je váš\' => \' · every mission of the month, the badge is yours\',
+    \'Věrnostní série dosažena: \' => \'Loyalty streak reached: \',
+    \' měsíců plateb včas\' => \' months of on-time payments\',
+    \'Děkujeme. Finance posoudí trvalou věrnostní slevu na vaše další objednávky.\' => \'Thank you. Finance will consider a permanent loyalty discount on your next orders.\',
+    \'Trvalá věrnostní sleva \' => \'Permanent loyalty discount \',
+    \'Platí na každou další objednávku.\' => \'It applies to every further order.\',
+    \'Věrnostní sleva ukončena\' => \'Loyalty discount ended\',
+    \'Nové objednávky jsou za ceníkové ceny.\' => \'New orders are at list prices.\',
+    \'Nová kampaň: \' => \'New campaign: \',
+    \'Kampaň splněna: \' => \'Campaign completed: \',
+    \'Odznak \' => \'Badge \',
+    \' je váš.\' => \' is yours.\',
+    // wallet and billing
+    \'Kredit vystačí ještě \' => \'Credit lasts another \',
+    \' dní\' => \' days\',
+    \' · na obnovy chybí \' => \' · renewals short by \',
+    \'Kredit dobit automaticky o \' => \'Credit topped up automatically by \',
+    \'Obnovy do \' => \'Renewals until \',
+    \' by kredit nepokryly; podle vašeho nastavení jsme kredit dobili z uložené platební metody.\' => \' would not be covered; per your settings we topped up from your saved payment method.\',
+    \'Na obnovy příštího týdne chybí \' => "Next week\'s renewals are short by ",
+    \'Karta •••• \' => \'Card •••• \',
+    \' uložena pro automatické dobití\' => \' saved for auto top-up\',
+    \'Automatické dobití kreditu ji použije, když kredit nepokryje obnovy příštího týdne. Odebrat ji můžete ve Fakturaci.\' => "Auto top-up uses it when the credit does not cover next week\'s renewals. You can remove it under Billing.",
+    \'Zapněte automatické dobití kreditu ve Fakturaci a obnovy proběhnou bez vašeho zásahu. Kartu můžete kdykoli odebrat.\' => \'Enable auto top-up under Billing and renewals run without your action. You can remove the card any time.\',
+    \'Kredit dobit\' => \'Credit topped up\',
+    \'Peněženka byla zmrazena\' => \'Wallet has been frozen\',
+    \'Peněženka zmrazena\' => \'Wallet frozen\',
+    \'Kontaktujte prosím podporu.\' => \'Please contact support.\',
+    \'Rozpočet: \' => \'Budget: \',
+    \'Útrata dosáhla nastaveného prahu.\' => \'Spending reached the configured threshold.\',
+    \'Upomínka — neuhrazený doklad\' => \'Reminder — unpaid invoice\',
+    \'Po splatnosti \' => \'Overdue by \',
+    \' dní.\' => \' days.\',
+    \'Automatické prodloužení je zapnuté.\' => \'Auto-renewal is on.\',
+    \'Automatické prodloužení je vypnuté — prodlužte ručně.\' => \'Auto-renewal is off — renew manually.\',
+    \'zapnuté\' => \'on\',
+    \'vypnuté\' => \'off\',
+    \'Dobijte kredit nebo prodlužte ručně, doména jinak expiruje.\' => \'Top up credit or renew manually, otherwise the domain expires.\',
+    \'SLA kredit připsán\' => \'SLA credit added\',
+    \'Export dat je připraven\' => \'Data export is ready\',
+    \'Ke stažení \' => \'Available for download for \',
+    // domains
+    \' domén · automatická synchronizace, upozornění na expirace a párování s hostingem\' => \' domains · automatic sync, expiry alerts and pairing with hosting\',
+    \'Obnovy domén v účtu \' => \'Domain renewals in account \',
+    \' by nemusely projít; dobijte kredit u registrátora.\' => \' may not go through; top up credit at the registrar.\',
+    \' zrcadlených domén bylo z panelu odebráno; u registrátora se nic nezměnilo.\' => \' mirrored domains were removed from the panel; nothing changed at the registrar.\',
+    \'Je registrována u \' => \'It is registered with \',
+    \'registrátora\' => \'registrar\',
+    \' (účet \' => \' (account \',
+    \'). Prodlužte ji tam, nebo ji převeďte k nám.\' => \'). Renew it there or transfer it to us.\',
+    \'Byla převedena nebo smazána u registrátora; v panelu zůstává označená.\' => \'It was transferred or deleted at the registrar; it stays flagged in the panel.\',
+    \'V ochranné lhůtě ji lze ještě obnovit.\' => \'It can still be restored within the grace period.\',
+    \'Pokud jste o převod nežádali, kontaktujte ihned podporu.\' => \'If you did not request the transfer, contact support immediately.\',
+    \' záznamů\' => \' records\',
+    // security
+    \'Nové přihlášení\' => \'New sign-in\',
+    \'Dvoufázové ověření změněno\' => \'Two-factor authentication changed\',
+    \'Heslo bylo změněno\' => \'Password changed\',
+    \'Účet dočasně uzamčen\' => \'Account temporarily locked\',
+    \'Opakované neúspěšné přihlášení z \' => \'Repeated failed sign-ins from \',
+    \'Vytvořen API token „\' => \'API token created „\',
+    \'rozsah: \' => \'scope: \',
+    // support, incidents
+    \'Ohodnoťte prosím řešení.\' => \'Please rate the resolution.\',
+    \'Probíhá incident\' => \'Incident in progress\',
+    \'Incident vyřešen\' => \'Incident resolved\',
+    \'Plánovaná údržba\' => \'Planned maintenance\',
+    // partners and marketplace
+    \'Partnerský účet schválen\' => \'Partner account approved\',
+    \'Stupeň přepočítán: \' => \'Tier recalculated: \',
+    \'Sazba \' => \'Rate \',
+    \'Provize vyplacena\' => \'Commission paid out\',
+    \'Objednávka z marketplace: \' => \'Marketplace order: \',
+    \'Partner dostal zadání; dodání do \' => \'The partner has the brief; delivery by \',
+    \'. Zaplaceno z kreditu (\' => \'. Paid from credit (\',
+    \'Nová zakázka z marketplace: \' => \'New marketplace job: \',
+    \'Zákazník \' => \'Customer \',
+    \' · dodání do \' => \' · delivery by \',
+    \'Dodáno: \' => \'Delivered: \',
+    \' · potvrďte převzetí, nebo do \' => \' · confirm acceptance, or file a complaint within \',
+    \' dní reklamujte.\' => \' days.\',
+    \'Zakázka převzata: \' => \'Job accepted: \',
+    \'Váš podíl \' => \'Your share \',
+    \' je připraven k výplatě.\' => \' is ready for payout.\',
+    \'Reklamaci jsme přijali: \' => \'Complaint received: \',
+    \'Reklamace z marketplace: \' => \'Marketplace complaint: \',
+    \'Podpora ji posoudí a rozhodne o vrácení kreditu nebo potvrzení dodání.\' => \'Support will review it and decide on a refund or confirm the delivery.\',
+    \' je zpět na vašem účtu · \' => \' is back on your account · \',
+    \'Marketplace: \' => \'Marketplace: \',
+    \' prodlouženo\' => \' renewed\',
+    \' se nepodařilo prodloužit\' => \' could not be renewed\',
+    \'Chybí kredit \' => \'Missing credit \',
+    \', jinak služba skončí.\' => \', otherwise the service ends.\',
+    \' skončilo\' => \' ended\',
+    \'Kredit nestačil na další období.\' => \'Credit did not cover the next period.\',
+    \'Předplatné skončilo s koncem zaplaceného období.\' => \'The subscription ended with the paid period.\',
+    \'Zakázka po termínu: \' => \'Job overdue: \',
+    \'Termín byl \' => \'The deadline was \',
+    \' dnech může zákazník žádat vrácení bez sporu.\' => \' days the customer may ask for a refund without a dispute.\',
+    \'Partner nedodal do \' => \'The partner did not deliver by \',
+    \' dnech vám nabídneme vrácení kreditu bez sporu.\' => \' days we offer you a refund without a dispute.\',
+    \'Nedodáno v termínu: můžete si vzít kredit zpět\' => \'Not delivered on time: you can take your credit back\',
+    \' dní po termínu. Zrušte zakázku v panelu a kredit se vrátí hned, bez sporu.\' => \' days past the deadline. Cancel the job in the panel and the credit returns at once, no dispute.\',
+    \'Kredit za pozdní dodání: \' => \'Credit for late delivery: \',
+    \' dní zpoždění je na vašem účtu.\' => \' days of delay is on your account.\',
+    \'Změna modelu provize schválena\' => \'Commission model change approved\',
+    \'Změna modelu provize zamítnuta\' => \'Commission model change rejected\',
+    \'Model \' => \'Model \',
+    \' platí od \' => \' applies from \',
+    \'Model provize se změnil na \' => \'Commission model changed to \',
+    \'Nové provize se počítají podle nového modelu.\' => \'New commissions follow the new model.\',
+    \'Změna podmínek schválena: \' => \'Terms change approved: \',
+    \'Změna podmínek zamítnuta: \' => \'Terms change rejected: \',
+    \'Nová podmínka platí od dnešního dne.\' => \'The new term applies from today.\',
+    \'Výplata provize požádána automaticky\' => \'Commission payout requested automatically\',
+    \' · podle vašich výplatních podmínek (\' => \' · per your payout terms (\',
+    \'); finance ji schválí a odešlou.\' => \'); finance will approve and send it.\',
+    \'Měsíční plnění dodáno: \' => \'Monthly deliverable submitted: \',
+    \'Měsíční plnění ještě není odevzdané: \' => \'Monthly deliverable not yet submitted: \',
+    \'Období končí \' => \'The period ends \',
+    \'; bez odevzdání dostane zákazník kredit \' => \'; without it the customer receives a credit of \',
+    \' % z vašeho podílu.\' => \' % of your share.\',
+    \'Kredit za chybějící měsíční plnění: \' => \'Credit for a missed monthly deliverable: \',
+    \' je na vašem účtu; období do \' => \' is on your account; the period until \',
+    \' zůstalo bez dodávky.\' => \' was left without a delivery.\',
+    \'Období bez plnění: \' => \'Period without a deliverable: \',
+    \'Zákazník dostal kredit \' => \'The customer received a credit of \',
+    \'; váš podíl za nové období je o něj nižší.\' => \'; your share for the new period is lower by it.\',
+    \'Nabídka zveřejněna: \' => \'Listing published: \',
+    \'Zákazníci ji vidí v marketplace.\' => \'Customers see it in the marketplace.\',
+    \'Nabídka stažena: \' => \'Listing withdrawn: \',
+    // sandbox
+    \'Účet je v režimu sandbox\' => \'Account is in sandbox mode\',
+    \'Režim sandbox ukončen\' => \'Sandbox mode ended\',
+    \'Služby se zřizují v laboratorním prostředí; kredit \' => \'Services are provisioned in the lab environment; the credit \',
+    \' je určen k testování.\' => \' is meant for testing.\',
+    \'Nové objednávky jdou do produkce.\' => \'New orders go to production.\',
+    // composed titles and bodies found by the coverage test (audit §5r-7)
+    \'Objednávku \' => \'Order \',
+    \'Objednávka \' => \'Order \',
+    \' ještě kontrolujeme\' => \' is still being checked\',
+    \' byla schválena\' => \' was approved\',
+    \' jsme nemohli přijmout\' => \' could not be accepted\',
+    \' · zřizujeme služby\' => \' · provisioning the services\',
+    \' · všechny služby jsou aktivní\' => \' · all services are active\',
+    \'CDN je aktivní\' => \'CDN is active\',
+    \'CDN zapnuto\' => \'CDN enabled\',
+    \'CDN vypnuto\' => \'CDN disabled\',
+    \' · nastavte nameservery u registrátora\' => \' · set the nameservers at your registrar\',
+    \' změněn na \' => \' changed to \',
+    \'Služba \' => \'Service \',
+    \' využívá \' => \' uses \',
+    \'(prostor)\' => \'(disk space)\',
+    \'(přenos dat)\' => \'(traffic)\',
+    \'(paměť)\' => \'(memory)\',
+    \'(poštovní schránky)\' => \'(mailboxes)\',
+    \'Blížíte se limitu tarifu. \' => \'You are close to the plan limit. \',
+    \'Kapacita je téměř vyčerpaná. \' => \'Capacity is almost used up. \',
+    \'Vyšší tarif pro tuto službu nenabízíme; napište podpoře.\' => \'We offer no higher plan for this service; contact support.\',
+    \'Vyšší tarif \' => \'The higher plan \',
+    \' stojí \' => \' costs \',
+    \' a přepnete ho jedním klikem v panelu (doplatek jen za zbytek období).\' => \' and you switch to it with one click in the panel (you only pay the difference for the rest of the period).\',
+    \' / rok\' => \' / year\',
+    \' / měsíc\' => \' / month\',
+    \'Nový doklad \' => \'New document \',
+    \'Doklad \' => \'Document \',
+    \' byl stornován\' => \' was cancelled\',
+    \' je po splatnosti\' => \' is overdue\',
+    \'Do \' => \'Until \',
+    \' se obnovují služby za \' => \' services renew for \',
+    \', k dispozici je \' => \', available \',
+    \' — chybí \' => \' — short by \',
+    \' Automatické dobití se nepodařilo (\' => \' The automatic top-up failed (\',
+    \'); dobijte prosím kredit.\' => \'); please top up your credit.\',
+    \' Dobijte kredit, nebo si zapněte automatické dobití.\' => \' Top up your credit or turn on the automatic top-up.\',
+    \'Synchronizace účtu \' => \'Sync of account \',
+    \' selhala\' => \' failed\',
+    \'Účet \' => \'Account \',
+    \' odpojen\' => \' disconnected\',
+    \'Přijali jsme váš požadavek \' => \'We received your request \',
+    \'Tiket \' => \'Ticket \',
+    \' vyřešen\' => \' resolved\',
+    \'Herní server \' => \'Game server \',
+    \' potřebuje nastavení\' => \' needs setting up\',
+    \'Doplňte v záložce Startup platnou hodnotu: \' => \'Enter a valid value in the Startup tab: \',
+    \' Bez ní server nenastartuje.\' => \' The server will not start without it.\',
+    // §5t-3
+    \'Za hodinu začíná vaše on-call směna\' => \'Your on-call shift starts in an hour\',
+    \' držíte pager; alerty najdete v konzoli.\' => \' you carry the pager; the alerts are in the console.\',
+    \'Od \' => \'From \',
+    // §5t-4
+    // small words that appear inside composed strings
+    \' · vrácení kreditu\' => \' · credit refund\',
+    \' dnů\' => \' days\',
+    \'včera\' => \'yesterday\',
+    \'dnes\' => \'today\',
+    \'zítra\' => \'tomorrow\',
+]',
+          'attributes' => 
+          array (
+            'startLine' => 17,
+            'endLine' => 123,
+            'startTokenPos' => 35,
+            'startFilePos' => 756,
+            'endTokenPos' => 2065,
+            'endFilePos' => 20957,
+          ),
+        ),
+        'docComment' => '/** @var array<string,string> Czech phrase → English */',
+        'attributes' => 
+        array (
+        ),
+        'startLine' => 17,
+        'endLine' => 123,
+        'startColumn' => 5,
+        'endColumn' => 6,
+      ),
+    ),
+    'immediateProperties' => 
+    array (
+    ),
+    'immediateMethods' => 
+    array (
+      'translate' => 
+      array (
+        'name' => 'translate',
+        'parameters' => 
+        array (
+          'text' => 
+          array (
+            'name' => 'text',
+            'default' => NULL,
+            'type' => 
+            array (
+              'class' => 'PHPStan\\BetterReflection\\Reflection\\ReflectionUnionType',
+              'data' => 
+              array (
+                'types' => 
+                array (
+                  0 => 
+                  array (
+                    'class' => 'PHPStan\\BetterReflection\\Reflection\\ReflectionNamedType',
+                    'data' => 
+                    array (
+                      'name' => 'string',
+                      'isIdentifier' => true,
+                    ),
+                  ),
+                  1 => 
+                  array (
+                    'class' => 'PHPStan\\BetterReflection\\Reflection\\ReflectionNamedType',
+                    'data' => 
+                    array (
+                      'name' => 'null',
+                      'isIdentifier' => true,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            'isVariadic' => false,
+            'byRef' => false,
+            'isPromoted' => false,
+            'attributes' => 
+            array (
+            ),
+            'startLine' => 125,
+            'endLine' => 125,
+            'startColumn' => 38,
+            'endColumn' => 50,
+            'parameterIndex' => 0,
+            'isOptional' => false,
+          ),
+          'locale' => 
+          array (
+            'name' => 'locale',
+            'default' => NULL,
+            'type' => 
+            array (
+              'class' => 'PHPStan\\BetterReflection\\Reflection\\ReflectionNamedType',
+              'data' => 
+              array (
+                'name' => 'string',
+                'isIdentifier' => true,
+              ),
+            ),
+            'isVariadic' => false,
+            'byRef' => false,
+            'isPromoted' => false,
+            'attributes' => 
+            array (
+            ),
+            'startLine' => 125,
+            'endLine' => 125,
+            'startColumn' => 53,
+            'endColumn' => 66,
+            'parameterIndex' => 1,
+            'isOptional' => false,
+          ),
+        ),
+        'returnsReference' => false,
+        'returnType' => 
+        array (
+          'class' => 'PHPStan\\BetterReflection\\Reflection\\ReflectionUnionType',
+          'data' => 
+          array (
+            'types' => 
+            array (
+              0 => 
+              array (
+                'class' => 'PHPStan\\BetterReflection\\Reflection\\ReflectionNamedType',
+                'data' => 
+                array (
+                  'name' => 'string',
+                  'isIdentifier' => true,
+                ),
+              ),
+              1 => 
+              array (
+                'class' => 'PHPStan\\BetterReflection\\Reflection\\ReflectionNamedType',
+                'data' => 
+                array (
+                  'name' => 'null',
+                  'isIdentifier' => true,
+                ),
+              ),
+            ),
+          ),
+        ),
+        'attributes' => 
+        array (
+        ),
+        'docComment' => NULL,
+        'startLine' => 125,
+        'endLine' => 136,
+        'startColumn' => 5,
+        'endColumn' => 5,
+        'couldThrow' => false,
+        'isClosure' => false,
+        'isGenerator' => false,
+        'isVariadic' => false,
+        'modifiers' => 17,
+        'namespace' => 'Onhost\\Domain\\Notifications',
+        'declaringClassName' => 'Onhost\\Domain\\Notifications\\Lexicon',
+        'implementingClassName' => 'Onhost\\Domain\\Notifications\\Lexicon',
+        'currentClassName' => 'Onhost\\Domain\\Notifications\\Lexicon',
+        'aliasName' => NULL,
+      ),
+      'untranslated' => 
+      array (
+        'name' => 'untranslated',
+        'parameters' => 
+        array (
+          'text' => 
+          array (
+            'name' => 'text',
+            'default' => NULL,
+            'type' => 
+            array (
+              'class' => 'PHPStan\\BetterReflection\\Reflection\\ReflectionNamedType',
+              'data' => 
+              array (
+                'name' => 'string',
+                'isIdentifier' => true,
+              ),
+            ),
+            'isVariadic' => false,
+            'byRef' => false,
+            'isPromoted' => false,
+            'attributes' => 
+            array (
+            ),
+            'startLine' => 139,
+            'endLine' => 139,
+            'startColumn' => 41,
+            'endColumn' => 52,
+            'parameterIndex' => 0,
+            'isOptional' => false,
+          ),
+        ),
+        'returnsReference' => false,
+        'returnType' => 
+        array (
+          'class' => 'PHPStan\\BetterReflection\\Reflection\\ReflectionNamedType',
+          'data' => 
+          array (
+            'name' => 'array',
+            'isIdentifier' => true,
+          ),
+        ),
+        'attributes' => 
+        array (
+        ),
+        'docComment' => '/** Czech fragments (words with diacritics) a translated text still carries — the test\'s yardstick for coverage. @return list<string> */',
+        'startLine' => 139,
+        'endLine' => 144,
+        'startColumn' => 5,
+        'endColumn' => 5,
+        'couldThrow' => false,
+        'isClosure' => false,
+        'isGenerator' => false,
+        'isVariadic' => false,
+        'modifiers' => 17,
+        'namespace' => 'Onhost\\Domain\\Notifications',
+        'declaringClassName' => 'Onhost\\Domain\\Notifications\\Lexicon',
+        'implementingClassName' => 'Onhost\\Domain\\Notifications\\Lexicon',
+        'currentClassName' => 'Onhost\\Domain\\Notifications\\Lexicon',
+        'aliasName' => NULL,
+      ),
+      'table' => 
+      array (
+        'name' => 'table',
+        'parameters' => 
+        array (
+          'locale' => 
+          array (
+            'name' => 'locale',
+            'default' => NULL,
+            'type' => 
+            array (
+              'class' => 'PHPStan\\BetterReflection\\Reflection\\ReflectionNamedType',
+              'data' => 
+              array (
+                'name' => 'string',
+                'isIdentifier' => true,
+              ),
+            ),
+            'isVariadic' => false,
+            'byRef' => false,
+            'isPromoted' => false,
+            'attributes' => 
+            array (
+            ),
+            'startLine' => 147,
+            'endLine' => 147,
+            'startColumn' => 35,
+            'endColumn' => 48,
+            'parameterIndex' => 0,
+            'isOptional' => false,
+          ),
+        ),
+        'returnsReference' => false,
+        'returnType' => 
+        array (
+          'class' => 'PHPStan\\BetterReflection\\Reflection\\ReflectionNamedType',
+          'data' => 
+          array (
+            'name' => 'array',
+            'isIdentifier' => true,
+          ),
+        ),
+        'attributes' => 
+        array (
+        ),
+        'docComment' => '/** @return array<string,string> */',
+        'startLine' => 147,
+        'endLine' => 153,
+        'startColumn' => 5,
+        'endColumn' => 5,
+        'couldThrow' => false,
+        'isClosure' => false,
+        'isGenerator' => false,
+        'isVariadic' => false,
+        'modifiers' => 20,
+        'namespace' => 'Onhost\\Domain\\Notifications',
+        'declaringClassName' => 'Onhost\\Domain\\Notifications\\Lexicon',
+        'implementingClassName' => 'Onhost\\Domain\\Notifications\\Lexicon',
+        'currentClassName' => 'Onhost\\Domain\\Notifications\\Lexicon',
+        'aliasName' => NULL,
+      ),
+    ),
+    'traitsData' => 
+    array (
+      'aliases' => 
+      array (
+      ),
+      'modifiers' => 
+      array (
+      ),
+      'precedences' => 
+      array (
+      ),
+      'hashes' => 
+      array (
+      ),
+    ),
+  ),
+));

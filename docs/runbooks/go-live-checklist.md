@@ -16,7 +16,9 @@ how it is verified; nothing here is optional for production. Run through it top 
 | CA bundle for outbound TLS (system bundle on Linux; `curl.cainfo` on Windows workstations) | php.ini | provider probes pass |
 | Metrics endpoint token + Prometheus scrape, `/healthz` behind the load balancer | `ONHOST_METRICS_TOKEN`, `infra/monitoring` | `curl -H "Authorization: Bearer …" /metrics` |
 | Log shipping (Loki) and error tracking | `LOG_CHANNEL`, `infra/monitoring` | a test error appears in the sink |
-| Backups of the database, `storage/app` (invoice PDFs, pinned certificates, secrets) | infra | restore drill documented in `docs/sre` |
+| Backups of the database and `storage/app/private` (invoice PDFs, evidence, exports) — `onhost:platform:backup` daily 02:15, `onhost:platform:backup:verify` 03:15, `ONHOST_PLATFORM_BACKUP_DISK` = an S3-compatible disk off the server, retention `ONHOST_PLATFORM_BACKUP_RETENTION_DAYS` | `.env`, rule `platform.backup` | `onhost:doctor` → *platform backup verified within 26 h* OK; a restore drill: `pg_restore --clean --if-exists -d onhost database.pgdump` on a staging host |
+| Production preparation: development accounts purged, legal entity from `ONHOST_LEGAL_*` / `ONHOST_BANK_*`, config/route/event caches | `php artisan onhost:production:prepare --purge-dev-accounts --legal --cache` | the command ends with the doctor; 0 FAIL |
+| Static analysis and dependency audit in CI (`vendor/bin/phpstan analyse`, `composer audit`) | `.github/workflows/tests.yml`, `phpstan.neon` (Larastan level 5, baseline = today's typing debt) | the workflow is green on the release commit |
 
 ## 2. Providers (Nastavení systému → Integrace providerů)
 

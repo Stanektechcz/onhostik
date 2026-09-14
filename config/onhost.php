@@ -39,6 +39,11 @@ return [
         'wp_cli_url' => 'https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar',
         'staging_suffix' => env('ONHOST_STAGING_SUFFIX', 'web.onhost.cz'),
     ],
+    'platform_backup' => [ // backups of the control plane itself: database dump + private file store (go-live checklist §1)
+        'disk' => env('ONHOST_PLATFORM_BACKUP_DISK', 'local'),      // a filesystems.disks entry; S3-compatible and off the server in production
+        'retention_days' => (int) env('ONHOST_PLATFORM_BACKUP_RETENTION_DAYS', 30),
+        'files_root' => env('ONHOST_PLATFORM_BACKUP_FILES_ROOT'),   // default storage/app/private
+    ],
     'backups' => [
         'offsite_disk' => env('ONHOST_BACKUP_OFFSITE_DISK'), // a filesystems.disks entry (S3-compatible) for off-site copies; null = off
         'daily_hour' => (int) env('ONHOST_BACKUP_DAILY_HOUR', 2),
@@ -133,6 +138,11 @@ return [
             'secret_ref' => env('STRIPE_SECRET_REF', 'env://STRIPE'),
             'base_url' => 'https://api.stripe.com/v1',
             'recurring' => (bool) env('STRIPE_RECURRING', true), // stored cards for automatic top-ups (setup_future_usage=off_session, off-session PaymentIntents)
+        ],
+        'legal_entity' => [ // the operator's own company for documents (LegalEntitySeeder / onhost:production:prepare --legal); config, not env(), so a cached configuration still carries it
+            'name' => env('ONHOST_LEGAL_NAME', ''), 'ico' => env('ONHOST_ICO', ''), 'dic' => env('ONHOST_DIC', ''), 'vat_id' => env('ONHOST_VAT_ID', ''),
+            'street' => env('ONHOST_STREET', ''), 'city' => env('ONHOST_CITY', ''), 'zip' => env('ONHOST_ZIP', ''),
+            'iban' => env('ONHOST_BANK_IBAN', ''), 'bic' => env('ONHOST_BANK_BIC', ''), 'bank_account' => env('ONHOST_BANK_ACCOUNT', ''),
         ],
         'bank' => [
             'iban' => env('ONHOST_BANK_IBAN', ''),

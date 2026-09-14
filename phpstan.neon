@@ -1,0 +1,15 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - phpstan-baseline.neon
+
+# Static analysis gate (production readiness): Larastan knows Eloquent, so the errors left are real ones.
+parameters:
+    level: 5
+    paths:
+        - app
+        - domains
+        - platform
+        - providers
+    tmpDir: storage/framework/phpstan
+    treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: false

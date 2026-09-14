@@ -1,0 +1,3985 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:isUsable\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Console/Commands/Doctor.php
+
+		-
+			message: '#^Called ''env'' outside of the config directory which returns null when the config is cached, use ''config''\.$#'
+			identifier: larastan.noEnvCallsOutsideOfConfig
+			count: 1
+			path: app/Console/Commands/Doctor.php
+
+		-
+			message: '#^Cannot call method diffForHumans\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: app/Console/Commands/Doctor.php
+
+		-
+			message: '#^Argument of an invalid type Illuminate\\Routing\\RouteCollectionInterface supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 1
+			path: app/Console/Commands/GenerateOpenApi.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 3
+			path: app/Http/Controllers/Api/V1/AuthController.php
+
+		-
+			message: '#^Parameter \#1 \$organization of static method App\\Http\\Presenters\\Presenters\:\:organization\(\) expects Onhost\\Domain\\Organizations\\Models\\Organization, Illuminate\\Database\\Eloquent\\Model given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Controllers/Api/V1/AuthController.php
+
+		-
+			message: '#^Access to an undefined property Onhost\\Domain\\Billing\\Models\\RatedUsage\:\:\$amount\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/BillingController.php
+
+		-
+			message: '#^Access to an undefined property Onhost\\Domain\\Billing\\Models\\RatedUsage\:\:\$events\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/BillingController.php
+
+		-
+			message: '#^Access to an undefined property Onhost\\Domain\\Billing\\Models\\RatedUsage\:\:\$unpaid\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/BillingController.php
+
+		-
+			message: '#^Cannot call method diffInDays\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: app/Http/Controllers/Api/V1/BillingController.php
+
+		-
+			message: '#^Cannot call method toDateString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: app/Http/Controllers/Api/V1/BillingController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 8
+			path: app/Http/Controllers/Api/V1/BillingController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: app/Http/Controllers/Api/V1/CartController.php
+
+		-
+			message: '#^Parameter \#1 \$items of method Onhost\\Domain\\Orders\\QuoteService\:\:quote\(\) expects list\<array\<string, mixed\>\>, array\{string\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Controllers/Api/V1/CartController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>country" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/Api/V1/CartController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>customer_class" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/Api/V1/CartController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>vat_status" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/Api/V1/CartController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: app/Http/Controllers/Api/V1/CatalogController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>currency" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/Api/V1/CatalogController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: app/Http/Controllers/Api/V1/DnsController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: app/Http/Controllers/Api/V1/DomainController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Domains\\Models\\RegistrarOperation\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Api/V1/DomainController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: app/Http/Controllers/Api/V1/MeController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Laravel\\Sanctum\\PersonalAccessToken\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Api/V1/MeController.php
+
+		-
+			message: '#^Parameter \#4 \$detail of method Onhost\\Platform\\Audit\\AuditRecorder\:\:record\(\) expects array\<string, mixed\>, list\<int\|string\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Controllers/Api/V1/MeController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 5
+			path: app/Http/Controllers/Api/V1/NotificationController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$email\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/OrganizationController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$name\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/OrganizationController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: app/Http/Controllers/Api/V1/OrganizationController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Organizations\\Models\\OrganizationInvitation\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Api/V1/OrganizationController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Organizations\\Models\\OrganizationMembership\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Api/V1/OrganizationController.php
+
+		-
+			message: '#^Parameter \#1 \$organization of static method App\\Http\\Presenters\\Presenters\:\:organization\(\) expects Onhost\\Domain\\Organizations\\Models\\Organization, Illuminate\\Database\\Eloquent\\Model given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Controllers/Api/V1/OrganizationController.php
+
+		-
+			message: '#^Cannot call method toDateString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: app/Http/Controllers/Api/V1/PartnerController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: app/Http/Controllers/Api/V1/PaymentController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>locale" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 3
+			path: app/Http/Controllers/Api/V1/RewardsController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$adapter_version\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/ServiceController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$last_reconciled_at\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/ServiceController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$remote_node\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/ServiceController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$remote_type\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/ServiceController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 4
+			path: app/Http/Controllers/Api/V1/ServiceController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Api/V1/ServiceController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: app/Http/Controllers/Api/V1/Staff/ConsoleController.php
+
+		-
+			message: '#^Parameter \#1 \$array of function usort contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/ConsoleController.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function usort contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/ConsoleController.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/ConsoleController.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Support\\HigherOrderTapProxy\<Illuminate\\Database\\Eloquent\\Collection\<int, Onhost\\Domain\\Content\\Models\\ChangelogEntry\>\|Onhost\\Domain\\Content\\Models\\ChangelogEntry\>\:\:forceFill\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/ContentController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$email\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/CustomerController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$name\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/CustomerController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/CustomerController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Loyalty\\Models\\Referral\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/CustomerController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Organizations\\Models\\OrganizationMembership\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/CustomerController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$key\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/PricingController.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:localizedName\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/PricingController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: app/Http/Controllers/Api/V1/Staff/PricingController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/PricingController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array\<string, mixed\>, Closure\(Onhost\\Domain\\Catalog\\Models\\ProductOption\)\: array\<string, mixed\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/PricingController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Catalog\\Models\\PromoCode\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/PricingController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$key\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/ProvisioningController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 7
+			path: app/Http/Controllers/Api/V1/Staff/ProvisioningController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Provisioning\\Models\\Node\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 2
+			path: app/Http/Controllers/Api/V1/Staff/ProvisioningController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$delta_minutes\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/SupportController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$due_at\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/SupportController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$kind\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/SupportController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$met\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/SupportController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/SupportController.php
+
+		-
+			message: '#^Offset ''state'' does not exist on string\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: app/Http/Controllers/Api/V1/Staff/SupportController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/SupportController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array\{id\: string, from\: string, author_type\: string, author_name\: string\|null, visibility\: string, text\: string, attachments\: array\{\}\|string, at\: string\|null\}, Closure\(Onhost\\Domain\\Support\\Models\\TicketMessage\)\: array\{id\: string, from\: string, author_type\: string, author_name\: string\|null, visibility\: string, text\: string, attachments\: array\{\}\|string, at\: string\|null\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Controllers/Api/V1/Staff/SupportController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 5
+			path: app/Http/Controllers/Api/V1/SupportController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array\{id\: string, from\: string, author_type\: string, author_name\: string\|null, text\: string, attachments\: array\{\}\|string, at\: string\|null\}, Closure\(Onhost\\Domain\\Support\\Models\\TicketMessage\)\: array\{id\: string, from\: string, author_type\: string, author_name\: string\|null, text\: string, attachments\: array\{\}\|string, at\: string\|null\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Controllers/Api/V1/SupportController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>locale" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/Api/V1/SupportController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: app/Http/Controllers/Api/V1/WalletController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\WalletLedger\\Models\\WalletHold\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Api/V1/WalletController.php
+
+		-
+			message: '#^Cannot call method format\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: app/Http/Controllers/Api/V1/WebToolsController.php
+
+		-
+			message: '#^Cannot access property \$timestamp on string\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: app/Http/Controllers/Web/HealthController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>key" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/Web/HealthController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>timestamp" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/Web/HealthController.php
+
+		-
+			message: '#^Cannot call method format\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: app/Http/Controllers/Web/LegalDocumentController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>dic" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/Web/LegalDocumentController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>ico" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/Web/LegalDocumentController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/Web/LegalDocumentController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>locale" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$default_value\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$description\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$key\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$kind\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$max\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$meta\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$min\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$net_minor\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$period_from\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$period_to\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$qty\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$sku\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$step\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$tax_rate\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$unit\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$unit_net_minor\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:localizedName\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Cannot call method format\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 4
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Cannot call method isPast\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Cannot call method toDateString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>currency" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>seller" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/Web/SurfaceDataController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$description\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$net_minor\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$period_from\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$period_to\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$position\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$qty\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$sku\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$tax_category\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$tax_minor\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$tax_rate\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$total_minor\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$unit\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$unit_net_minor\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Call to function is_array\(\) with null will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 25
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Method App\\Http\\Presenters\\Presenters\:\:customerResult\(\) never returns array\<string, mixed\> so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Offset ''decided_at'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Offset ''last_result'' on array\{\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Offset ''opened_at'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Offset ''reasons'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Offset ''score'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Offset ''state'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array, Closure\(Onhost\\Domain\\Dns\\Models\\DnsRecord\)\: array given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array, Closure\(Onhost\\Domain\\Orders\\Models\\OrderItem\)\: array given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array\{id\: string, op\: string, record\: string, previous\: string\|null, reason\: string\|null, created_at\: string\|null\}, Closure\(Onhost\\Domain\\Dns\\Models\\DnsChange\)\: array\{id\: string, op\: string, record\: string, previous\: string\|null, reason\: string\|null, created_at\: string\|null\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Presenters/Presenters.php
+
+		-
+			message: '#^Variable \$acct might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: app/Http/Support/SurfaceRenderer.php
+
+		-
+			message: '#^Variable \$helpers might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: app/Http/Support/SurfaceRenderer.php
+
+		-
+			message: '#^Variable \$real might not be defined\.$#'
+			identifier: variable.undefined
+			count: 10
+			path: app/Http/Support/SurfaceRenderer.php
+
+		-
+			message: '#^Offset ''threshold'' does not exist on array\{days\: int, total\: int, refunded\: Onhost\\Platform\\Money\\Money\|null, by_product\: list\<array\<string, mixed\>\>, by_node\: list\<array\<string, mixed\>\>, by_theme\: list\<array\<string, mixed\>\>, clusters\: non\-empty\-list\<array\<string, mixed\>\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Billing/ChargebackAnalyst.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>currency" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Billing/ChargebackAnalyst.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>family" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Billing/ChargebackAnalyst.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Billing/ChargebackAnalyst.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>node_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Billing/ChargebackAnalyst.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>product_key" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Billing/ChargebackAnalyst.php
+
+		-
+			message: '#^Cannot access property \$currency on null\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: domains/Billing/ChargebackService.php
+
+		-
+			message: '#^Cannot access property \$id on null\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: domains/Billing/ChargebackService.php
+
+		-
+			message: '#^Cannot call method diffInSeconds\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Billing/ChargebackService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 4
+			path: domains/Billing/ChargebackService.php
+
+		-
+			message: '#^Expression on left side of \?\? is always null\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: domains/Billing/ChargebackService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: domains/Billing/ChargebackService.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Billing\\Commands\\ChargebackCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Billing/Commands/ChargebackCommand.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Billing\\Commands\\ChargebackStaffCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Billing/Commands/ChargebackStaffCommand.php
+
+		-
+			message: '#^Cannot call method copy\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Billing/DunningService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 5
+			path: domains/Billing/DunningService.php
+
+		-
+			message: '#^Cannot call method copy\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Billing/MeteringService.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:currentVersion\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Billing/RatingService.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Billing\\RatingService\:\:rateEvent\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Billing/RatingService.php
+
+		-
+			message: '#^Parameter \#3 \$day of static method Onhost\\Domain\\Billing\\Models\\BillingPeriod\:\:forMonth\(\) expects Carbon\\CarbonInterface, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Billing/RatingService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>amount_minor" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: domains/Billing/RatingService.php
+
+		-
+			message: '#^Cannot call method diffInDays\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Billing/ReportService.php
+
+		-
+			message: '#^Cannot call method copy\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Billing/SubscriptionService.php
+
+		-
+			message: '#^Cannot call method format\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Billing/SubscriptionService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 5
+			path: domains/Billing/SubscriptionService.php
+
+		-
+			message: '#^Parameter \#4 \$dueAt of method Onhost\\Domain\\Billing\\DunningService\:\:open\(\) expects DateTimeInterface, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Billing/SubscriptionService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>config" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Billing/SubscriptionService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>minor" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Billing/SubscriptionService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$current_version\.$#'
+			identifier: property.notFound
+			count: 2
+			path: domains/Catalog/CatalogService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$highlighted\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Catalog/CatalogService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$key\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Catalog/CatalogService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$sla_class\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Catalog/CatalogService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$state\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Catalog/CatalogService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$versions\.$#'
+			identifier: property.notFound
+			count: 2
+			path: domains/Catalog/CatalogService.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:localizedName\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Catalog/CatalogService.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Catalog\\CatalogService\:\:resolve\(\) should return array\{product\: Onhost\\Domain\\Catalog\\Models\\Product, plan\: Onhost\\Domain\\Catalog\\Models\\Plan, version\: Onhost\\Domain\\Catalog\\Models\\PlanVersion, price\: Onhost\\Domain\\Catalog\\Models\\Price\} but returns array\{product\: Onhost\\Domain\\Catalog\\Models\\Product, plan\: Illuminate\\Database\\Eloquent\\Model, version\: mixed, price\: mixed\}\.$#'
+			identifier: return.type
+			count: 1
+			path: domains/Catalog/CatalogService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array\{key\: string, kind\: string, label\: string, unit\: string\|null, min\: float\|null, max\: float\|null, step\: float\|null, default\: float\|null, price_per_unit\: Onhost\\Platform\\Money\\Money, choices\: string\|null\}, Closure\(Onhost\\Domain\\Catalog\\Models\\ProductOption\)\: array\{key\: string, kind\: string, label\: string, unit\: string\|null, min\: float\|null, max\: float\|null, step\: float\|null, default\: float\|null, price_per_unit\: Onhost\\Platform\\Money\\Money, choices\: string\|null\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Catalog/CatalogService.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Catalog\\Commands\\CatalogCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Catalog/Commands/CatalogCommand.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Catalog\\Models\\Plan\:\:currentVersion\(\) should return Onhost\\Domain\\Catalog\\Models\\PlanVersion\|null but returns Illuminate\\Database\\Eloquent\\Model\|null\.$#'
+			identifier: return.type
+			count: 1
+			path: domains/Catalog/Models/Plan.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Catalog/Models/Price.php
+
+		-
+			message: '#^Cannot call method isPast\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Catalog/Models/Price.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Catalog/Models/PromoCode.php
+
+		-
+			message: '#^Cannot call method isPast\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Catalog/Models/PromoCode.php
+
+		-
+			message: '#^Parameter \#2 \$haystack of function in_array expects array, string given\.$#'
+			identifier: argument.type
+			count: 2
+			path: domains/Catalog/Models/PromoCode.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Compliance\\Commands\\ComplianceCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Compliance/Commands/ComplianceCommand.php
+
+		-
+			message: '#^Cannot call method copy\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Compliance/ComplianceService.php
+
+		-
+			message: '#^Cannot call method diffInSeconds\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Compliance/ComplianceService.php
+
+		-
+			message: '#^Cannot call method lt\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Compliance/ComplianceService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Compliance/ComplianceService.php
+
+		-
+			message: '#^Match expression does not handle remaining value\: string$#'
+			identifier: match.unhandled
+			count: 1
+			path: domains/Compliance/ComplianceService.php
+
+		-
+			message: '#^Offset ''bytes'' does not exist on string\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Compliance/ComplianceService.php
+
+		-
+			message: '#^Cannot call method format\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Content/ContentService.php
+
+		-
+			message: '#^Cannot call method toDateString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 3
+			path: domains/Content/ContentService.php
+
+		-
+			message: '#^Parameter \#1 \$array of function usort contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Content/ContentService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Content\\Models\\ChangelogEntry\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Content/ContentService.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function usort contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Content/ContentService.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Dns\\Commands\\DnsCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Dns/Commands/DnsCommand.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Dns/Commands/DnsCommandHandler.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$content\.$#'
+			identifier: property.notFound
+			count: 2
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
+			identifier: property.notFound
+			count: 4
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$name\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$op\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$prio\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$record\.$#'
+			identifier: property.notFound
+			count: 2
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$ttl\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$type\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:normalized\(\)\.$#'
+			identifier: method.notFound
+			count: 5
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Negated boolean expression is always true\.$#'
+			identifier: booleanNot.alwaysTrue
+			count: 1
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array\{id\: string, op\: string, record\: string, previous\: string\|null\}, Closure\(Onhost\\Domain\\Dns\\Models\\DnsChange\)\: array\{id\: string, op\: string, record\: string, previous\: string\|null\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array\{name\: string, type\: string, content\: string, ttl\: int, prio\: int\|null, id\: string\}, Closure\(Onhost\\Domain\\Dns\\Models\\DnsRecord\)\: array\{name\: string, type\: string, content\: string, ttl\: int, prio\: int\|null, id\: string\} given\.$#'
+			identifier: argument.type
+			count: 2
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array\{name\: string, type\: string, content\: string, ttl\: int, prio\: int\|null, managed_by\: string, protected\: bool\}, Closure\(Onhost\\Domain\\Dns\\Models\\DnsRecord\)\: array\{name\: string, type\: string, content\: string, ttl\: int, prio\: int\|null, managed_by\: string, protected\: bool\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array\{name\: string, type\: string, content\: string, ttl\: int, prio\: int\|null\}, Closure\(Onhost\\Domain\\Dns\\Models\\DnsRecord\)\: array\{name\: string, type\: string, content\: string, ttl\: int, prio\: int\|null\} given\.$#'
+			identifier: argument.type
+			count: 2
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array\{op\: string, record\: string, previous\: string\|null\}, Closure\(Onhost\\Domain\\Dns\\Models\\DnsChange\)\: array\{op\: string, record\: string, previous\: string\|null\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Support\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:first\(\) expects \(callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: bool\)\|null, Closure\(Onhost\\Domain\\Dns\\Models\\DnsRecord\)\: bool given\.$#'
+			identifier: argument.type
+			count: 2
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Parameter \#1 \$record of method Onhost\\Domain\\Dns\\DnsService\:\:strip\(\) expects array, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: domains/Dns/DnsService.php
+
+		-
+			message: '#^Offset ''content'' does not exist on string\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Dns/Models/DnsTemplate.php
+
+		-
+			message: '#^Offset ''type'' does not exist on string\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: domains/Dns/Models/DnsTemplate.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: domains/Dns/RecordValidator.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Domains\\Commands\\DomainCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Domains/Commands/DomainCommand.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Domains\\Commands\\RegistrarConnectionCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Domains/Commands/RegistrarConnectionCommand.php
+
+		-
+			message: '#^Cannot unset offset ''paired_at'' on array\{\}\|array\{string\}\.$#'
+			identifier: unset.offset
+			count: 1
+			path: domains/Domains/DomainPairingService.php
+
+		-
+			message: '#^Cannot unset offset ''paired_service_id'' on array\{\}\|array\{string\}\.$#'
+			identifier: unset.offset
+			count: 1
+			path: domains/Domains/DomainPairingService.php
+
+		-
+			message: '#^Cannot unset offset ''pairing'' on array\{\}\|array\{string\}\.$#'
+			identifier: unset.offset
+			count: 1
+			path: domains/Domains/DomainPairingService.php
+
+		-
+			message: '#^Parameter \#2 \$existing of method Onhost\\Domain\\Dns\\DnsService\:\:stageDelete\(\) expects Onhost\\Domain\\Dns\\Models\\DnsRecord, Illuminate\\Database\\Eloquent\\Model given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Domains/DomainPairingService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>hostname" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Domains/DomainPairingService.php
+
+		-
+			message: '#^Cannot call method copy\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Domains/DomainRenewalScheduler.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Domains/DomainRenewalScheduler.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$email\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Domains/DomainService.php
+
+		-
+			message: '#^Cannot call method copy\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Domains/DomainService.php
+
+		-
+			message: '#^Cannot call method toDateString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 5
+			path: domains/Domains/DomainService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 5
+			path: domains/Domains/DomainService.php
+
+		-
+			message: '#^Offset ''renewal_job_id'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: domains/Domains/DomainService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: domains/Domains/DomainService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>email" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Domains/DomainService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>key" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Domains/DomainService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>meta" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: domains/Domains/DomainService.php
+
+		-
+			message: '#^Cannot call method startOfDay\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Domains/Models/Domain.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Domains/Models/DomainConsent.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Domains/Models/DomainTransferSecret.php
+
+		-
+			message: '#^Cannot call method lt\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Domains/Models/RegistrarTldCost.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$content\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Domains/RegistrarConnectionService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$dns_zone_id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Domains/RegistrarConnectionService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$expires_at\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Domains/RegistrarConnectionService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$fqdn_ascii\.$#'
+			identifier: property.notFound
+			count: 5
+			path: domains/Domains/RegistrarConnectionService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
+			identifier: property.notFound
+			count: 4
+			path: domains/Domains/RegistrarConnectionService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$meta\.$#'
+			identifier: property.notFound
+			count: 5
+			path: domains/Domains/RegistrarConnectionService.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:daysToExpiry\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Domains/RegistrarConnectionService.php
+
+		-
+			message: '#^Cannot call method format\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Domains/RegistrarConnectionService.php
+
+		-
+			message: '#^Cannot unset offset ''credit_low_notified…'' on array\{0\?\: string, credit\: array\{balance\: string, currency\: string, minor\: int, at\: string\}\}\.$#'
+			identifier: unset.offset
+			count: 1
+			path: domains/Domains/RegistrarConnectionService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Support\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:filter\(\) expects \(callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: bool\)\|null, Closure\(Onhost\\Domain\\Domains\\Models\\Domain\)\: bool given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Domains/RegistrarConnectionService.php
+
+		-
+			message: '#^Parameter \#4 \$detail of method Onhost\\Platform\\Audit\\AuditRecorder\:\:record\(\) expects array\<string, mixed\>, array\<int\|string, bool\|int\<0, 100000000\>\|string\|null\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Domains/RegistrarConnectionService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Domains/RegistrarPricing.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Domains/Workflows/Steps/ActivateDomainStep.php
+
+		-
+			message: '#^Cannot call method copy\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Domains/Workflows/Steps/ConfirmRenewalStep.php
+
+		-
+			message: '#^Cannot call method toDateString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Domains/Workflows/Steps/ConfirmRenewalStep.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Domains/Workflows/Steps/ConfirmRenewalStep.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>remote_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Domains/Workflows/Steps/EnsureNssetStep.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>remote_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Domains/Workflows/Steps/SubmitRegistrationStep.php
+
+		-
+			message: '#^Cannot call method copy\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Domains/Workflows/Steps/SubmitRenewalStep.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Identity/Authorization/Models/Approval.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Identity/Authorization/Models/JitElevation.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Identity/Authorization/Models/PolicyBinding.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Identity\\Commands\\ApiTokenCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Identity/Commands/ApiTokenCommand.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Identity/Models/EmailVerificationToken.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Identity/Models/MfaChallenge.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Identity/Models/StepUpGrant.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Identity/Models/User.php
+
+		-
+			message: '#^Static property Onhost\\Domain\\Identity\\Models\\User\:\:\$idPrefix \(string\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 1
+			path: domains/Identity/Models/User.php
+
+		-
+			message: '#^Empty array passed to foreach\.$#'
+			identifier: foreach.emptyArray
+			count: 1
+			path: domains/Identity/StepUp/StepUpService.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Incidents\\Commands\\IncidentCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Incidents/Commands/IncidentCommand.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Incidents\\Commands\\OnCallCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Incidents/Commands/OnCallCommand.php
+
+		-
+			message: '#^Cannot call method diffInSeconds\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Incidents/IncidentService.php
+
+		-
+			message: '#^Cannot call method max\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Incidents/IncidentService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 4
+			path: domains/Incidents/IncidentService.php
+
+		-
+			message: '#^Parameter \#1 \$array of function array_diff_key expects array, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Incidents/IncidentService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array\{state\: string, ui_state\: ''identifikovano''\|''monitoring''\|''vyreseno''\|''vysetrovani'', at\: string, note\: string\}, Closure\(Onhost\\Domain\\Incidents\\Models\\IncidentUpdate\)\: array\{state\: string, ui_state\: ''identifikovano''\|''monitoring''\|''vyreseno''\|''vysetrovani'', at\: string, note\: string\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Incidents/IncidentService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Incidents\\Models\\Maintenance\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Incidents/IncidentService.php
+
+		-
+			message: '#^Parameter \#1 \$only of method Onhost\\Domain\\Incidents\\IncidentService\:\:refreshComponents\(\) expects array\|null, string given\.$#'
+			identifier: argument.type
+			count: 2
+			path: domains/Incidents/IncidentService.php
+
+		-
+			message: '#^Parameter \#2 \$haystack of function in_array expects array, string given\.$#'
+			identifier: argument.type
+			count: 3
+			path: domains/Incidents/IncidentService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Incidents/MaintenanceService.php
+
+		-
+			message: '#^Parameter \#1 \$only of method Onhost\\Domain\\Incidents\\IncidentService\:\:refreshComponents\(\) expects array\|null, string given\.$#'
+			identifier: argument.type
+			count: 2
+			path: domains/Incidents/MaintenanceService.php
+
+		-
+			message: '#^Cannot call method diffInSeconds\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Incidents/Models/Incident.php
+
+		-
+			message: '#^Argument of an invalid type string supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 1
+			path: domains/Incidents/Models/SlaCreditPolicy.php
+
+		-
+			message: '#^Cannot call method copy\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Incidents/OnCallRota.php
+
+		-
+			message: '#^Cannot call method format\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 4
+			path: domains/Incidents/OnCallRota.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 3
+			path: domains/Incidents/OnCallRota.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>email" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Incidents/OnCallRota.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 4
+			path: domains/Incidents/OnCallService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>body" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Incidents/OnCallService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>title" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Incidents/OnCallService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 5
+			path: domains/Incidents/OrganizationStatusService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Incidents\\Models\\Incident\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Incidents/OrganizationStatusService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Incidents\\Models\\Maintenance\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Incidents/OrganizationStatusService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Services\\Models\\UptimeMonitor\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Incidents/OrganizationStatusService.php
+
+		-
+			message: '#^Parameter \#1 \$key of method Illuminate\\Support\\Collection\<int,array\<string, mixed\>\>\:\:contains\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Incidents/OrganizationStatusService.php
+
+		-
+			message: '#^Parameter \#1 \$value of function collect contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 2
+			path: domains/Incidents/OrganizationStatusService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 20
+			path: domains/Incidents/Presenters.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array, Closure\(Onhost\\Domain\\Compliance\\Models\\ComplianceTimer\)\: array given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Incidents/Presenters.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array\{state\: string, ui_state\: ''identifikovano''\|''monitoring''\|''vyreseno''\|''vysetrovani'', at\: string, note\: string, public\: bool, author_id\: string\|null\}, Closure\(Onhost\\Domain\\Incidents\\Models\\IncidentUpdate\)\: array\{state\: string, ui_state\: ''identifikovano''\|''monitoring''\|''vyreseno''\|''vysetrovani'', at\: string, note\: string, public\: bool, author_id\: string\|null\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Incidents/Presenters.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$created_at\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Incidents/SlaService.php
+
+		-
+			message: '#^Binary operation "\+" between string and array\{rejected_reason\: string\} results in an error\.$#'
+			identifier: binaryOp.invalid
+			count: 1
+			path: domains/Incidents/SlaService.php
+
+		-
+			message: '#^Cannot call method copy\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Incidents/SlaService.php
+
+		-
+			message: '#^Cannot call method diffInSeconds\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Incidents/SlaService.php
+
+		-
+			message: '#^Cannot call method format\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Incidents/SlaService.php
+
+		-
+			message: '#^Cannot call method max\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Incidents/SlaService.php
+
+		-
+			message: '#^Cannot call method min\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Incidents/SlaService.php
+
+		-
+			message: '#^Cannot call method toDateString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Incidents/SlaService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 3
+			path: domains/Incidents/SlaService.php
+
+		-
+			message: '#^Parameter \#1 \$array of function array_intersect expects array, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Incidents/SlaService.php
+
+		-
+			message: '#^Parameter \#1 \$at of method Onhost\\Domain\\Incidents\\Models\\Maintenance\:\:isActiveAt\(\) expects DateTimeInterface, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Incidents/SlaService.php
+
+		-
+			message: '#^Parameter \#2 \$haystack of function in_array expects array, string given\.$#'
+			identifier: argument.type
+			count: 2
+			path: domains/Incidents/SlaService.php
+
+		-
+			message: '#^Parameter \#2 \.\.\.\$arrays of function array_intersect expects array, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Incidents/SlaService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Integrations/ActionHookService.php
+
+		-
+			message: '#^Parameter \#5 \$params of method Onhost\\Domain\\Services\\ServiceService\:\:requestAction\(\) expects array\<string, mixed\>, array\<int, string\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Integrations/ActionHookService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: domains/Integrations/ChatMessage.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Integrations\\Commands\\IntegrationCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Integrations/Commands/IntegrationCommand.php
+
+		-
+			message: '#^Access to an undefined property Onhost\\Platform\\Commands\\Command\:\:\$organizationId\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Integrations/Commands/IntegrationCommandHandler.php
+
+		-
+			message: '#^Call to an undefined method Onhost\\Platform\\Commands\\Command\:\:get\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: domains/Integrations/Commands/IntegrationCommandHandler.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: domains/Integrations/DiscordMessage.php
+
+		-
+			message: '#^Cannot call method format\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Integrations/DiscordService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 3
+			path: domains/Integrations/DiscordService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Integrations\\Models\\DiscordLink\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Integrations/DiscordService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: domains/Integrations/DiscordService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Integrations/DiscordService.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Invoicing\\Commands\\InvoiceCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Invoicing/Commands/InvoiceCommand.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$description\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$discount_minor\.$#'
+			identifier: property.notFound
+			count: 5
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
+			identifier: property.notFound
+			count: 3
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$name\.$#'
+			identifier: property.notFound
+			count: 2
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$net_minor\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$order_item_id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$period\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$period_from\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$period_to\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$product_key\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$qty\.$#'
+			identifier: property.notFound
+			count: 5
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$service_id\.$#'
+			identifier: property.notFound
+			count: 2
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$sku\.$#'
+			identifier: property.notFound
+			count: 3
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$tax_category\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$tax_minor\.$#'
+			identifier: property.notFound
+			count: 3
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$tax_rate\.$#'
+			identifier: property.notFound
+			count: 3
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$total_minor\.$#'
+			identifier: property.notFound
+			count: 3
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$unit\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$unit_net_minor\.$#'
+			identifier: property.notFound
+			count: 5
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Cannot call method toISOString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 3
+			path: domains/Invoicing/InvoiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$description\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/UblExporter.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$net_minor\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/UblExporter.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$period_from\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/UblExporter.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$period_to\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/UblExporter.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$position\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/UblExporter.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$qty\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/UblExporter.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$sku\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/UblExporter.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$tax_category\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/UblExporter.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$tax_rate\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/UblExporter.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$unit_net_minor\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Invoicing/UblExporter.php
+
+		-
+			message: '#^Cannot call method format\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 3
+			path: domains/Invoicing/UblExporter.php
+
+		-
+			message: '#^Offset ''vat_id'' does not exist on string\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Invoicing/UblExporter.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Invoicing/UblExporter.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Loyalty\\Commands\\AccountLoyaltyCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Loyalty/Commands/AccountLoyaltyCommand.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Loyalty\\Commands\\LoyaltyCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Loyalty/Commands/LoyaltyCommand.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Loyalty/LoyaltyService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Loyalty\\Models\\LoyaltyBadge\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Loyalty/LoyaltyService.php
+
+		-
+			message: '#^Cannot unset offset ''loyalty_discount'' on array\{\}\|array\{string\}\.$#'
+			identifier: unset.offset
+			count: 1
+			path: domains/Loyalty/MissionService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: domains/Loyalty/MissionService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 3
+			path: domains/Loyalty/ReferralService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Loyalty\\Models\\Referral\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Loyalty/ReferralService.php
+
+		-
+			message: '#^Property Onhost\\Domain\\Loyalty\\ReferralService\:\:\$settings is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: domains/Loyalty/ReferralService.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Marketplace\\Commands\\MarketplaceCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Marketplace/Commands/MarketplaceCommand.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Marketplace\\Commands\\MarketplaceStaffCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Marketplace/Commands/MarketplaceStaffCommand.php
+
+		-
+			message: '#^Cannot call method copy\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 4
+			path: domains/Marketplace/MarketplaceService.php
+
+		-
+			message: '#^Cannot call method diffInDays\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 3
+			path: domains/Marketplace/MarketplaceService.php
+
+		-
+			message: '#^Cannot call method diffInSeconds\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Marketplace/MarketplaceService.php
+
+		-
+			message: '#^Cannot call method format\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Marketplace/MarketplaceService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 14
+			path: domains/Marketplace/MarketplaceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>billing" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Marketplace/MarketplaceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>category" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Marketplace/MarketplaceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>commission_pct" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Marketplace/MarketplaceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>delivery_days" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Marketplace/MarketplaceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>key" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Marketplace/MarketplaceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>meta" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Marketplace/MarketplaceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>price_minor" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Marketplace/MarketplaceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>title" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Marketplace/MarketplaceService.php
+
+		-
+			message: '#^Parameter \#3 \$start of method Onhost\\Domain\\Notifications\\CalendarFeed\:\:event\(\) expects DateTimeInterface, string given\.$#'
+			identifier: argument.type
+			count: 2
+			path: domains/Notifications/CalendarFeed.php
+
+		-
+			message: '#^Parameter \#3 \$start of method Onhost\\Domain\\Notifications\\CalendarFeed\:\:event\(\) expects DateTimeInterface, string\|null given\.$#'
+			identifier: argument.type
+			count: 2
+			path: domains/Notifications/CalendarFeed.php
+
+		-
+			message: '#^Parameter \#4 \$end of method Onhost\\Domain\\Notifications\\CalendarFeed\:\:event\(\) expects DateTimeInterface\|null, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Notifications/CalendarFeed.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$email\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''api'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''balance'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''currency'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''days'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 4
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''days_left'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''fqdn'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 23
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''hostname'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''label'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 5
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''name'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''number'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 31
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''provider_label'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''state_label'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''until'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Offset ''version'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between '''' and '''' will always evaluate to false\.$#'
+			identifier: notIdentical.alwaysFalse
+			count: 1
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>currency" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>email" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>locale" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 4
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 12
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>number" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Notifications/NotificationRouter.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Notifications/SendMailOutboxJob.php
+
+		-
+			message: '#^Argument of an invalid type string supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 2
+			path: domains/Orders/CheckoutService.php
+
+		-
+			message: '#^Offset ''review'' does not exist on string\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Orders/CheckoutService.php
+
+		-
+			message: '#^Parameter \#2 \$array of function array_map expects array, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Orders/CheckoutService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>email" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Orders/CheckoutService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>url" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Orders/CheckoutService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>version" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Orders/CheckoutService.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Orders\\Commands\\PlaceOrderCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Orders/Commands/PlaceOrderCommand.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Orders\\Commands\\ReviewOrderCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Orders/Commands/ReviewOrderCommand.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$currency\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Orders/Models/OrderItem.php
+
+		-
+			message: '#^Offset ''currency'' does not exist on string\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Orders/Models/OrderItem.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>currency" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Orders/Models/OrderItem.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Orders/Models/Quote.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$key\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Orders/QuoteService.php
+
+		-
+			message: '#^Parameter \#3 \$entitlements of method Onhost\\Domain\\Provisioning\\GameTemplates\:\:assertOrderable\(\) expects array\<string, mixed\>, array\<int, string\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Orders/QuoteService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>country" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Orders/QuoteService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>customer_class" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Orders/QuoteService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>vat_status" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Orders/QuoteService.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Organizations\\Commands\\OrganizationCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Organizations/Commands/OrganizationCommand.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Organizations/Models/OrganizationInvitation.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Organizations/ProjectService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>state" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Organizations/ProjectService.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Partners\\Commands\\PartnerCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Partners/Commands/PartnerCommand.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Partners\\Commands\\PartnerPortalCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Partners/Commands/PartnerPortalCommand.php
+
+		-
+			message: '#^Cannot call method toDateString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Partners/PartnerPresenters.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 4
+			path: domains/Partners/PartnerPresenters.php
+
+		-
+			message: '#^Binary operation "\+" between array\{verified_at\: string\} and string\|null results in an error\.$#'
+			identifier: binaryOp.invalid
+			count: 1
+			path: domains/Partners/PartnerService.php
+
+		-
+			message: '#^Cannot call method toDateString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 5
+			path: domains/Partners/PartnerService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 5
+			path: domains/Partners/PartnerService.php
+
+		-
+			message: '#^Offset ''domain'' does not exist on string\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Partners/PartnerService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Partners\\Models\\PartnerCommission\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Partners/PartnerService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>amount_minor" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Partners/PartnerService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>email" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Partners/PartnerService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Partners/PartnerService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Payments/BankStatementImporter.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Payments\\Commands\\BankCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Payments/Commands/BankCommand.php
+
+		-
+			message: '#^Offset ''stored_method_id'' does not exist on array\{provider\?\: string\|null, method\?\: string\|null, return_urls\?\: array\<string, string\>, description\?\: string, email\?\: string\|null, reference\?\: string\|null, idempotency_key\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Payments/PaymentService.php
+
+		-
+			message: '#^Parameter \#2 \$raw of method Onhost\\Providers\\Contracts\\StoredMethodCharging\:\:storedMethodFrom\(\) expects array\<string, mixed\>, array\<int, string\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Payments/PaymentService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>minor" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: domains/Payments/PaymentService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Provisioning/BulkActionService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of function array_map expects \(callable\(string\)\: mixed\)\|null, Closure\(array\)\: mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Provisioning/BulkActionService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of function array_map expects \(callable\(string\)\: mixed\)\|null, Closure\(array\)\: non\-empty\-array given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Provisioning/BulkActionService.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function array_filter expects \(callable\(string\)\: bool\)\|null, Closure\(array\)\: bool given\.$#'
+			identifier: argument.type
+			count: 2
+			path: domains/Provisioning/BulkActionService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>state" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/BulkActionService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 5
+			path: domains/Provisioning/CapacityPlanner.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Provisioning\\Commands\\CapacityCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Provisioning/Commands/CapacityCommand.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Provisioning\\Commands\\ProvisioningCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Provisioning/Commands/ProvisioningCommand.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Provisioning/Commands/ProvisioningCommandHandler.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Provisioning\\Models\\Node\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Provisioning/Commands/ProvisioningCommandHandler.php
+
+		-
+			message: '#^Empty array passed to foreach\.$#'
+			identifier: foreach.emptyArray
+			count: 1
+			path: domains/Provisioning/GreenService.php
+
+		-
+			message: '#^Offset ''id'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: domains/Provisioning/GreenService.php
+
+		-
+			message: '#^Offset ''watts'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: domains/Provisioning/GreenService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: domains/Provisioning/GreenService.php
+
+		-
+			message: '#^Variable \$telemetry might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: domains/Provisioning/GreenService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>domain_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Jobs/RunOperation.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>service_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Jobs/RunOperation.php
+
+		-
+			message: '#^Offset ''target_instance_id'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Provisioning/Jobs/TransferGameArchive.php
+
+		-
+			message: '#^Property Onhost\\Domain\\Provisioning\\Models\\Operation\:\:\$context \(string\|null\) does not accept array\<mixed, mixed\>\.$#'
+			identifier: assign.propertyType
+			count: 1
+			path: domains/Provisioning/Models/Operation.php
+
+		-
+			message: '#^Cannot call method isPast\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Provisioning/Models/ProviderInstance.php
+
+		-
+			message: '#^Cannot call method isFuture\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Provisioning/OperationRunner.php
+
+		-
+			message: '#^Parameter \#1 \$data of static method Onhost\\Providers\\Contracts\\AsyncHandle\:\:fromArray\(\) expects array\<string, mixed\>, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Provisioning/OperationRunner.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>pollIntervalSeconds" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/OperationRunner.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Provisioning/OperationsBoard.php
+
+		-
+			message: '#^Cannot unset offset ''auto_drain'' on array\{\}\|array\{string\}\.$#'
+			identifier: unset.offset
+			count: 1
+			path: domains/Provisioning/OperationsBoard.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Provisioning\\OperationsBoard\:\:nodes\(\) should return Illuminate\\Support\\Collection\<int, array\<string, mixed\>\> but returns Illuminate\\Support\\Collection\<int, array\{id\: string, name\: string, role\: string, region\: string, state\: string, instance\: array\{id\: string, key\: string, provider\: string, state\: string\}\|null, health\: array\{up\: bool, error_rate_1h\: float, checked_at\: mixed, last_error\: string\|null\}\|null, window_minutes\: 15, \.\.\.\}\>\.$#'
+			identifier: return.type
+			count: 1
+			path: domains/Provisioning/OperationsBoard.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Provisioning\\Models\\Node\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Provisioning/OperationsBoard.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$key\.$#'
+			identifier: property.notFound
+			count: 2
+			path: domains/Provisioning/PlacementService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$name\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Provisioning/PlacementService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$provider\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Provisioning/PlacementService.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:isSchedulable\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Provisioning/PlacementService.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:isUsable\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Provisioning/PlacementService.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:localizedName\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Provisioning/PlacementService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Provisioning/PlacementService.php
+
+		-
+			message: '#^Property Onhost\\Domain\\Provisioning\\ProviderInstanceService\:\:\$outbox is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: domains/Provisioning/ProviderInstanceService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: domains/Provisioning/ProviderInstanceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>adapter_version" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/ProviderInstanceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>capabilities" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/ProviderInstanceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/ProviderInstanceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>options" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/ProviderInstanceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>quotas" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/ProviderInstanceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>rate_limits" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/ProviderInstanceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>state" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/ProviderInstanceService.php
+
+		-
+			message: '#^Access to constant PENDING on an unknown class Onhost\\Domain\\Provisioning\\Operation\.$#'
+			identifier: class.notFound
+			count: 1
+			path: domains/Provisioning/Reconciler.php
+
+		-
+			message: '#^Access to constant RUNNING on an unknown class Onhost\\Domain\\Provisioning\\Operation\.$#'
+			identifier: class.notFound
+			count: 1
+			path: domains/Provisioning/Reconciler.php
+
+		-
+			message: '#^Access to constant WAITING on an unknown class Onhost\\Domain\\Provisioning\\Operation\.$#'
+			identifier: class.notFound
+			count: 1
+			path: domains/Provisioning/Reconciler.php
+
+		-
+			message: '#^Call to static method query\(\) on an unknown class Onhost\\Domain\\Provisioning\\Operation\.$#'
+			identifier: class.notFound
+			count: 1
+			path: domains/Provisioning/Reconciler.php
+
+		-
+			message: '#^Parameter \#4 \$attributes of class Onhost\\Providers\\Contracts\\ResourceSpec constructor expects array\<string, mixed\>, array\<int\|string, string\|null\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Provisioning/Reconciler.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$key\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Provisioning/Scheduling/NodeRebalancer.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$provider\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Provisioning/Scheduling/NodeRebalancer.php
+
+		-
+			message: '#^Cannot call method toDateString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Provisioning/Scheduling/NodeRebalancer.php
+
+		-
+			message: '#^Offset ''disk_p95_gb'' does not exist on array\{samples\: int, p95_mb\: int, slope_mb_per_day\: int, projected_mb\: int\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Provisioning/Scheduling/NodeRebalancer.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$options\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Provisioning/Scheduling/NodeScheduler.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$provider\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Provisioning/Scheduling/NodeScheduler.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:isUsable\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Provisioning/Scheduling/NodeScheduler.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: domains/Provisioning/Workflow/StepContext.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Provisioning/Workflows/CertificateWorkflow.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>provider" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/CertificateWorkflow.php
+
+		-
+			message: '#^Access to an undefined property Onhost\\Domain\\Services\\Models\\Deployment\:\:\$image_digest\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Provisioning/Workflows/DeployAppWorkflow.php
+
+		-
+			message: '#^Call to an undefined method Onhost\\Providers\\Contracts\\ProviderAdapter\:\:rollbackRelease\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Provisioning/Workflows/DeployAppWorkflow.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>provider" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/DeployWorkflow.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$email\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Provisioning/Workflows/GameMigrationWorkflow.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$provider\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Provisioning/Workflows/GameMigrationWorkflow.php
+
+		-
+			message: '#^Call to an undefined method Onhost\\Providers\\Contracts\\ProviderAdapter\:\:terminate\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Provisioning/Workflows/GameMigrationWorkflow.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>meta" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/GameMigrationWorkflow.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>ptero_user_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/GameMigrationWorkflow.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>provider" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/ImportWorkflow.php
+
+		-
+			message: '#^Call to an undefined method Onhost\\Providers\\Contracts\\ProviderAdapter\:\:terminate\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Provisioning/Workflows/ProvisionAppWorkflow.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$email\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Provisioning/Workflows/ProvisionGameServerWorkflow.php
+
+		-
+			message: '#^Call to an undefined method Onhost\\Providers\\Contracts\\ProviderAdapter\:\:terminate\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Provisioning/Workflows/ProvisionGameServerWorkflow.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>meta" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/ProvisionGameServerWorkflow.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>remote_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/ProvisionGameServerWorkflow.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>meta" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/ProvisionMailDomainWorkflow.php
+
+		-
+			message: '#^Call to an undefined method Onhost\\Providers\\Contracts\\ProviderAdapter\:\:terminate\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Provisioning/Workflows/ProvisionVpsWorkflow.php
+
+		-
+			message: '#^Dead catch \- Onhost\\Platform\\Errors\\ProviderException is never thrown in the try block\.$#'
+			identifier: catch.neverThrown
+			count: 1
+			path: domains/Provisioning/Workflows/ProvisionVpsWorkflow.php
+
+		-
+			message: '#^Call to an undefined method Onhost\\Providers\\Contracts\\ProviderAdapter\:\:terminate\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Provisioning/Workflows/ProvisionWebsiteWorkflow.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>meta" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/ProvisionWebsiteWorkflow.php
+
+		-
+			message: '#^Property Onhost\\Domain\\Provisioning\\Workflows\\ServiceStep@anonymous/domains/Provisioning/Workflows/ServiceActionWorkflow\.php\:474\:\:\$event is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: domains/Provisioning/Workflows/ServiceActionWorkflow.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>provider" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/ServiceActionWorkflow.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>remoteType" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/ServiceActionWorkflow.php
+
+		-
+			message: '#^Template type T of method Onhost\\Domain\\Provisioning\\Workflows\\ServiceStep\:\:capability\(\) is not referenced in a parameter\.$#'
+			identifier: method.templateTypeNotInParameter
+			count: 1
+			path: domains/Provisioning/Workflows/ServiceStep.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>provider" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/StagingWorkflow.php
+
+		-
+			message: '#^Offset ''ipv4'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Provisioning/Workflows/Steps/AllocateAddressesStep.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>dns" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/Steps/AllocateAddressesStep.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>provider" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/WordPressWorkflow.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>remoteId" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Provisioning/Workflows/WordPressWorkflow.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Services\\Commands\\IssueConsoleTokenCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Services/Commands/IssueConsoleTokenCommand.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Services\\Commands\\ServiceActionCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Services/Commands/ServiceActionCommand.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Services\\Commands\\ServiceActionCommand\:\:scope\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Services/Commands/ServiceActionCommand.php
+
+		-
+			message: '#^Access to an undefined property Onhost\\Platform\\Commands\\Command\:\:\$organizationId\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Services/Commands/ServicesCommandHandler.php
+
+		-
+			message: '#^Call to an undefined method Onhost\\Platform\\Commands\\Command\:\:get\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Services/Commands/ServicesCommandHandler.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Services\\Commands\\WebToolsCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/Services/Commands/WebToolsCommand.php
+
+		-
+			message: '#^Access to an undefined property Onhost\\Platform\\Commands\\Command\:\:\$organizationId\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Services/Commands/WebToolsCommandHandler.php
+
+		-
+			message: '#^Call to an undefined method Onhost\\Platform\\Commands\\Command\:\:get\(\)\.$#'
+			identifier: method.notFound
+			count: 3
+			path: domains/Services/Commands/WebToolsCommandHandler.php
+
+		-
+			message: '#^Parameter \#2 \$action of method Onhost\\Domain\\Services\\ServiceService\:\:requestAction\(\) expects ''backup''\|''power''\|''resize''\|''restore''\|''resume''\|''rollback_snapshot''\|''snapshot''\|''suspend''\|''terminate'', ''mailbox\.update'' given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Services/Mail/MailboxPasswordLinks.php
+
+		-
+			message: '#^Method Onhost\\Domain\\Services\\Models\\Service\:\:primaryBinding\(\) should return Onhost\\Domain\\Provisioning\\Models\\ProviderBinding\|null but returns Illuminate\\Database\\Eloquent\\Model\|null\.$#'
+			identifier: return.type
+			count: 1
+			path: domains/Services/Models/Service.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$key\.$#'
+			identifier: property.notFound
+			count: 6
+			path: domains/Services/PlanChangeService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$sla_class\.$#'
+			identifier: property.notFound
+			count: 2
+			path: domains/Services/PlanChangeService.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:localizedName\(\)\.$#'
+			identifier: method.notFound
+			count: 3
+			path: domains/Services/PlanChangeService.php
+
+		-
+			message: '#^Cannot call method getTimestamp\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Services/PlanChangeService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 3
+			path: domains/Services/PlanChangeService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>amount_minor" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/PlanChangeService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>key" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/PlanChangeService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>sla_class" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/PlanChangeService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$email\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$key\.$#'
+			identifier: property.notFound
+			count: 3
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$provider\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$sla_class\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:localizedName\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''backup''\|''power''\|''resize''\|''restore''\|''resume''\|''rollback_snapshot''\|''snapshot''\|''suspend''\|''terminate'', array\{''power'', ''suspend'', ''resume'', ''resize'', ''terminate'', ''backup'', ''restore'', ''snapshot'', \.\.\.\} and true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Comparison operation "\>" between 0 and 0 is always false\.$#'
+			identifier: greater.alwaysFalse
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Comparison operation "\>" between 0\.0009765625\|int and \*NEVER\* results in an error\.$#'
+			identifier: greater.invalid
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Offset ''parent_line_id'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Parameter \#3 \$desired of method Onhost\\Domain\\Provisioning\\OperationService\:\:start\(\) expects array\<string, mixed\>, array\<int\|string, string\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 2
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Static method Onhost\\Domain\\Services\\ServiceFeatures\:\:scopedName\(\) invoked with 3 parameters, 2 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>email" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>entitlements" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>kind" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>limits" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>provider" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>sla_class" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Variable \$service on left side of \?\? is never defined\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: domains/Services/ServiceService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$key\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Services/ServiceSummary.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$sla_class\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/Services/ServiceSummary.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:localizedName\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: domains/Services/ServiceSummary.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 5
+			path: domains/Services/ServiceSummary.php
+
+		-
+			message: '#^Offset ''usage'' does not exist on string\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Services/ServiceSummary.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 1
+			path: domains/Services/UsageWatch.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between \*NEVER\* and ''warn'' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: domains/Services/UsageWatch.php
+
+		-
+			message: '#^Parameter \#3 \$accept of method Onhost\\Domain\\Services\\Web\\AcmeClient\:\:signed\(\) expects string, null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Services/Web/AcmeClient.php
+
+		-
+			message: '#^Cannot call method lessThan\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Services/Web/BackupScheduler.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>offsite" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/Web/BackupScheduler.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Services/Web/CdnService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>nameservers" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/Web/CdnService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>proxied_records" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/Web/CdnService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>settings" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/Web/CdnService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>state" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/Web/CdnService.php
+
+		-
+			message: '#^Parameter \#2 \$action of method Onhost\\Domain\\Services\\ServiceService\:\:requestAction\(\) expects ''backup''\|''power''\|''resize''\|''restore''\|''resume''\|''rollback_snapshot''\|''snapshot''\|''suspend''\|''terminate'', ''ssl\.issue'' given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Services/Web/CertificateAutoIssuer.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 3
+			path: domains/Services/Web/CertificateService.php
+
+		-
+			message: '#^Offset 0 on array\{list\<string\>\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: domains/Services/Web/CertificateService.php
+
+		-
+			message: '#^Parameter \#2 \$action of method Onhost\\Domain\\Services\\ServiceService\:\:requestAction\(\) expects ''backup''\|''power''\|''resize''\|''restore''\|''resume''\|''rollback_snapshot''\|''snapshot''\|''suspend''\|''terminate'', ''ssl\.wildcard'' given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Services/Web/CertificateService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 3
+			path: domains/Services/Web/DeployService.php
+
+		-
+			message: '#^Parameter \#2 \$action of method Onhost\\Domain\\Services\\ServiceService\:\:requestAction\(\) expects ''backup''\|''power''\|''resize''\|''restore''\|''resume''\|''rollback_snapshot''\|''snapshot''\|''suspend''\|''terminate'', ''deploy\.run'' given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Services/Web/DeployService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Services/Web/ImportService.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Services\\Models\\SiteImport\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Services/Web/ImportService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>remoteId" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/Web/ImportService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Services/Web/StagingService.php
+
+		-
+			message: '#^Cannot unset offset ''service_id'' on array\{0\?\: string, domain\: string, aliases\: array\{\}, staging_of\: string, placement\: array\{instance_id\: string\|null, node_id\: string\|null\}\}\.$#'
+			identifier: unset.offset
+			count: 1
+			path: domains/Services/Web/StagingService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>databases" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/Web/StagingService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>remoteId" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Services/Web/StagingService.php
+
+		-
+			message: '#^Cannot call method diffInMinutes\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Services/Web/UptimeMonitor.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 4
+			path: domains/Services/Web/UptimeMonitor.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Services\\Models\\UptimeIncident\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: domains/Services/Web/UptimeMonitor.php
+
+		-
+			message: '#^Cannot call method format\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Support/Assistant/AssistantService.php
+
+		-
+			message: '#^Cannot call method toDateString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Support/Assistant/AssistantService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Support/Assistant/AssistantService.php
+
+		-
+			message: '#^Offset ''iban'' does not exist on array\{\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Support/Assistant/AssistantService.php
+
+		-
+			message: '#^Offset ''variable_symbol'' does not exist on array\{\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: domains/Support/Assistant/AssistantService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>email" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Support/Assistant/AssistantService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>transcript" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Support/Assistant/AssistantService.php
+
+		-
+			message: '#^Offset 1 on array\{0\: non\-falsy\-string, 1\: string, 2\?\: non\-falsy\-string\}\|array\{non\-falsy\-string, '''', '''', ''certifikat''\|''ssl'', ''obnov''\|''obnovit''\|''vystav''\|''vystavit''\}\|array\{non\-falsy\-string, '''', '''', ''do produkce''\|''na ostrou''\|''purge''\|''to production''\|''vymaz''\|''vyprazdni''\}\|array\{non\-falsy\-string, '''', '''', ''http /3''\|''http 3''\|''http/3''\|''http3''\|''quic'', ''aktivovat''\|''aktivuj''\|''deaktivuj''\|''off''\|''on''\|''povol''\|''vypni''\|''vypnout''\|''zakaz''\|''zapni''\|''zapnout''\}\|array\{non\-falsy\-string, '''', '''', ''wordpress''\|''wp'', ''aktualizace''\|''aktualizovat''\|''aktualizuj''\|''update''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: domains/Support/Assistant/ServiceIntent.php
+
+		-
+			message: '#^Empty array passed to foreach\.$#'
+			identifier: foreach.emptyArray
+			count: 1
+			path: domains/Support/Models/KnowledgeArticle.php
+
+		-
+			message: '#^Cannot call method copy\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Support/TicketService.php
+
+		-
+			message: '#^Cannot call method diffInDays\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Support/TicketService.php
+
+		-
+			message: '#^Cannot call method diffInMinutes\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/Support/TicketService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/Support/TicketService.php
+
+		-
+			message: '#^Parameter \#3 \$due of method Onhost\\Domain\\Support\\TicketService\:\:measure\(\) expects DateTimeInterface\|null, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/Support/TicketService.php
+
+		-
+			message: '#^Parameter \#3 \$due of method Onhost\\Domain\\Support\\TicketService\:\:measure\(\) expects DateTimeInterface\|null, string\|null given\.$#'
+			identifier: argument.type
+			count: 2
+			path: domains/Support/TicketService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>billing_email" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Support/TicketService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>email" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Support/TicketService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Support/TicketService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/Support/TicketService.php
+
+		-
+			message: '#^Left side of \|\| is always false\.$#'
+			identifier: booleanOr.leftAlwaysFalse
+			count: 1
+			path: domains/Tax/TaxEngine.php
+
+		-
+			message: '#^Called ''env'' outside of the config directory which returns null when the config is cached, use ''config''\.$#'
+			identifier: larastan.noEnvCallsOutsideOfConfig
+			count: 1
+			path: domains/Tax/ViesClient.php
+
+		-
+			message: '#^Cannot call method isToday\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/WalletLedger/AutoTopup.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: domains/WalletLedger/AutoTopup.php
+
+		-
+			message: '#^Method Onhost\\Domain\\WalletLedger\\AutoTopup\:\:settings\(\) should return array\{enabled\: bool, threshold\: Onhost\\Platform\\Money\\Money\|null, amount\: Onhost\\Platform\\Money\\Money\|null, max_per_day\: int, monthly_limit\: Onhost\\Platform\\Money\\Money\|null, payment_method_id\: string\|null, provider\: string\|null, last_triggered_at\: string\|null, \.\.\.\} but returns array\{enabled\: bool, threshold\: Onhost\\Platform\\Money\\Money\|null, amount\: Onhost\\Platform\\Money\\Money\|null, max_per_day\: int\<0, max\>, monthly_limit\: Onhost\\Platform\\Money\\Money\|null, payment_method_id\: string\|null, last_triggered_at\: mixed, consecutive_failures\: int\<0, max\>, \.\.\.\}\.$#'
+			identifier: return.type
+			count: 1
+			path: domains/WalletLedger/AutoTopup.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>consecutive_failures" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/WalletLedger/AutoTopup.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>enabled" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/WalletLedger/AutoTopup.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>max_per_day" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/WalletLedger/AutoTopup.php
+
+		-
+			message: '#^Method Onhost\\Domain\\WalletLedger\\Commands\\AutoTopupCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/WalletLedger/Commands/AutoTopupCommand.php
+
+		-
+			message: '#^Method Onhost\\Domain\\WalletLedger\\Commands\\RemovePaymentMethodCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/WalletLedger/Commands/RemovePaymentMethodCommand.php
+
+		-
+			message: '#^Method Onhost\\Domain\\WalletLedger\\Commands\\TopUpWalletCommand\:\:permission\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: domains/WalletLedger/Commands/TopUpWalletCommand.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$account_id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/WalletLedger/LedgerService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$amount_minor\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/WalletLedger/LedgerService.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$direction\.$#'
+			identifier: property.notFound
+			count: 1
+			path: domains/WalletLedger/LedgerService.php
+
+		-
+			message: '#^Cannot call method toIso8601String\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: domains/WalletLedger/WalletForecast.php
+
+		-
+			message: '#^Parameter \#1 \$date of static method Carbon\\CarbonImmutable\:\:instance\(\) expects DateTimeInterface, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: domains/WalletLedger/WalletForecast.php
+
+		-
+			message: '#^Using nullsafe property access on non\-nullable type Onhost\\Domain\\Billing\\Models\\Subscription\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: domains/WalletLedger/WalletForecast.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>hash" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: platform/Audit/AuditRecorder.php
+
+		-
+			message: '#^Call to an undefined method DateTimeInterface\:\:setTimezone\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: platform/Audit/HashChain.php
+
+		-
+			message: '#^Static property Onhost\\Platform\\Eloquent\\Model\:\:\$idPrefix \(string\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 1
+			path: platform/Eloquent/Model.php
+
+		-
+			message: '#^Offset ''remote_id'' on null on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: providers/AaPanel/AaPanelWebProvider.php
+
+		-
+			message: '#^Offset ''tool_calls'' does not exist on array\{role\: string, content\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: providers/Ai/AnthropicProvider.php
+
+		-
+			message: '#^Offset ''managed'' does not exist on array\{id\: string, type\: string, name\: string, content\: string, ttl\: int, proxied\: bool\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: providers/Cloudflare/CloudflareCdnProvider.php
+
+		-
+			message: '#^Ternary operator condition is always true\.$#'
+			identifier: ternary.alwaysTrue
+			count: 1
+			path: providers/Contracts/Naming.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Contracts\\Cache\\Repository\:\:lock\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: providers/IspConfig/IspConfigConnector.php
+
+		-
+			message: '#^Parameter \#1 \$shell of class Onhost\\Providers\\Shell\\SftpTransport constructor expects Onhost\\Providers\\Shell\\SshShell, Onhost\\Providers\\Contracts\\NodeShell given\.$#'
+			identifier: argument.type
+			count: 3
+			path: providers/IspConfig/IspConfigWebProvider.php
+
+		-
+			message: '#^Offset ''generation'' does not exist on array\{replicas\: int, ready\: int, updated\: int, available\: int, conditions\: list\<array\<string, mixed\>\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: providers/Kubernetes/KubernetesAppsProvider.php
+
+		-
+			message: '#^Offset ''observed'' does not exist on array\{replicas\: int, ready\: int, updated\: int, available\: int, conditions\: list\<array\<string, mixed\>\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: providers/Kubernetes/KubernetesAppsProvider.php
+
+		-
+			message: '#^Cannot call method toDateString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: providers/Payments/Bank/BankTransferPaymentProvider.php
+
+		-
+			message: '#^Cannot call method toISOString\(\) on string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: providers/Payments/Bank/BankTransferPaymentProvider.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Onhost\\Domain\\Payments\\Models\\BankStatementLine\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: providers/Payments/Bank/BankTransferPaymentProvider.php
+
+		-
+			message: '#^Method Onhost\\Providers\\Payments\\Comgate\\ComgatePaymentProvider\:\:createPaymentIntent\(\) should return array\{provider_id\: string, redirect_url\: string\|null, state\: string, raw\: array\<string, mixed\>\} but returns array\{provider_id\: string, state\: string, raw\?\: array\<string, mixed\>\}\.$#'
+			identifier: return.type
+			count: 1
+			path: providers/Payments/Comgate/ComgatePaymentProvider.php
+
+		-
+			message: '#^Ternary operator condition is always false\.$#'
+			identifier: ternary.alwaysFalse
+			count: 1
+			path: providers/Payments/Comgate/ComgatePaymentProvider.php
+
+		-
+			message: '#^Variable \$detail on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: providers/Payments/Comgate/ComgatePaymentProvider.php
+
+		-
+			message: '#^Variable \$transfers on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: providers/Payments/Comgate/ComgatePaymentProvider.php
+
+		-
+			message: '#^If condition is always false\.$#'
+			identifier: if.alwaysFalse
+			count: 1
+			path: providers/Payments/GoPay/GoPayPaymentProvider.php
+
+		-
+			message: '#^Method Onhost\\Providers\\Payments\\GoPay\\GoPayPaymentProvider\:\:createPaymentIntent\(\) should return array\{provider_id\: string, redirect_url\: string\|null, state\: string, raw\: array\<string, mixed\>\} but returns array\{provider_id\: string, state\: string, raw\?\: array\<string, mixed\>\}\.$#'
+			identifier: return.type
+			count: 1
+			path: providers/Payments/GoPay/GoPayPaymentProvider.php
+
+		-
+			message: '#^Offset ''stored_method_token'' does not exist on array\{reference\: string, description\: string, email\: string, return_url\: string, cancel_url\: string, pending_url\: string, method\?\: string, locale\?\: string, \.\.\.\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: providers/Payments/GoPay/GoPayPaymentProvider.php
+
+		-
+			message: '#^Ternary operator condition is always false\.$#'
+			identifier: ternary.alwaysFalse
+			count: 1
+			path: providers/Payments/GoPay/GoPayPaymentProvider.php
+
+		-
+			message: '#^Method Onhost\\Providers\\Payments\\Stripe\\StripePaymentProvider\:\:createPaymentIntent\(\) should return array\{provider_id\: string, redirect_url\: string\|null, state\: string, raw\: array\<string, mixed\>\} but returns array\{provider_id\: string, state\: string, raw\?\: array\<string, mixed\>\}\.$#'
+			identifier: return.type
+			count: 1
+			path: providers/Payments/Stripe/StripePaymentProvider.php
+
+		-
+			message: '#^Offset ''stored_method_token'' does not exist on array\{reference\: string, description\: string, email\: string, return_url\: string, cancel_url\: string, pending_url\: string, method\?\: string, locale\?\: string, \.\.\.\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: providers/Payments/Stripe/StripePaymentProvider.php
+
+		-
+			message: '#^Parameter \#2 \.\.\.\$args of method phpseclib3\\Net\\SSH2\:\:login\(\) expects array\<array\>\|phpseclib3\\Crypt\\Common\\PrivateKey\|phpseclib3\\System\\SSH\\Agent\|string\|null, phpseclib3\\Crypt\\Common\\AsymmetricKey given\.$#'
+			identifier: argument.type
+			count: 1
+			path: providers/Shell/SshShell.php
+
+		-
+			message: '#^Method Onhost\\Providers\\Subreg\\SubregRegistrarProvider\:\:vendorVersion\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: providers/Subreg/SubregRegistrarProvider.php
+
+		-
+			message: '#^Offset ''endpoint'' does not exist on array\{\}\|array\{string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: providers/Subreg/SubregSoapGateway.php
+
+		-
+			message: '#^Parameter \#1 \$array \(non\-empty\-list\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 1
+			path: providers/Subreg/SubregSoapGateway.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>textContent" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: providers/Subreg/SubregSoapGateway.php
+
+		-
+			message: '#^Method Onhost\\Providers\\Wedos\\WedosRegistrarProvider\:\:vendorVersion\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: providers/Wedos/WedosRegistrarProvider.php
+
+		-
+			message: '#^Method Onhost\\Providers\\Wedos\\WedosZoneDnsProvider\:\:vendorVersion\(\) never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: providers/Wedos/WedosZoneDnsProvider.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: providers/Wedos/WedosZoneDnsProvider.php

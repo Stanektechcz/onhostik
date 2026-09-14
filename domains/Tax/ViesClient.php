@@ -33,7 +33,7 @@ final class ViesClient
                 'countryCode' => $countryCode,
                 'vatNumber' => $number,
                 'requesterMemberStateCode' => 'CZ',
-                'requesterNumber' => preg_replace('/^CZ/', '', (string) env('ONHOST_VAT_ID', '')),
+                'requesterNumber' => preg_replace('/^CZ/', '', (string) config('onhost.legal_entity.vat_id', '')),
             ]);
         } catch (Throwable $e) {
             return ['status' => 'unknown', 'validation' => null];
