@@ -24,7 +24,8 @@ dokumentace v `docs/` a runbooky. Priority: **P0** blokuje spuštění, **P1** d
   `onhost_platform_backup_verified_timestamp`, alert `OnhostBackupStale`.
 - **Příprava produkce**: `onhost:production:prepare --purge-dev-accounts --legal --cache`; právnická osoba se čte z
   `config('onhost.legal_entity')` (po `config:cache` `env()` nefunguje — opraveno i ve VIES klientovi a doctoru);
-  `.env.production.example` se všemi klíči.
+  `.env.example` je připravený jako staging/produkční šablona se všemi klíči (prázdné hodnoty = doplní provozovatel,
+  `production:` poznámky = přepínače pro produkci); `onhost:secrets:set` ukládá tajemství mimo provider instance.
 - **PostgreSQL**: CI job `pest-postgres` odhalil a opravil: `nodes.remote_id` integer (Proxmox posílá `prg2-n1`),
   `rated_usage.charged_transaction_id` 40 znaků, `substr()` nad timestampem v reportu tržeb, a hlavně devět míst
   „insert + catch unique“, která na PostgreSQL zrušila celou probíhající transakci (věrnostní body při zaplacené

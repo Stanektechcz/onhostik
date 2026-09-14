@@ -38,6 +38,14 @@ jobs:
           DB_CONNECTION: sqlite
           DB_DATABASE: database/database.sqlite
           QUEUE_CONNECTION: sync
+          CACHE_STORE: file
+          SESSION_DRIVER: file
+          SESSION_SECURE_COOKIE: 'false'
+          SANCTUM_STATEFUL_DOMAINS: 127.0.0.1:8001
+          ONHOST_SECRETS_DRIVER: env
+          ONHOST_FILES_DISK: local
+          ONHOST_PLATFORM_BACKUP_DISK: local
+          ONHOST_BACKUP_OFFSITE_DISK: ''
           MAIL_MAILER: log
           WEDOS_TEST_MODE: 'true'
 
@@ -62,6 +70,14 @@ jobs:
           DB_CONNECTION: sqlite
           DB_DATABASE: database/database.sqlite
           QUEUE_CONNECTION: sync
+          CACHE_STORE: file
+          SESSION_DRIVER: file
+          SESSION_SECURE_COOKIE: 'false'
+          SANCTUM_STATEFUL_DOMAINS: 127.0.0.1:8001
+          ONHOST_SECRETS_DRIVER: env
+          ONHOST_FILES_DISK: local
+          ONHOST_PLATFORM_BACKUP_DISK: local
+          ONHOST_BACKUP_OFFSITE_DISK: ''
           MAIL_MAILER: log
           WEDOS_TEST_MODE: 'true'
 

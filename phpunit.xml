@@ -44,6 +44,11 @@
         <env name="ONHOST_SECRETS_DRIVER" value="env"/>
         <env name="ONHOST_DEMO_MODE" value="false"/>
         <env name="WEDOS_TEST_MODE" value="true"/>
+        <env name="ONHOST_FILES_DISK" value="local"/>
+        <env name="ONHOST_PLATFORM_BACKUP_DISK" value="local"/>
+        <env name="ONHOST_BACKUP_OFFSITE_DISK" value=""/>
+        <env name="SESSION_SECURE_COOKIE" value="false"/>
+        <env name="APP_URL" value="http://localhost"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
