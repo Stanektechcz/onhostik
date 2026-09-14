@@ -83,7 +83,7 @@ final class LegalDocumentController extends Controller
 
     private function entity(): ?LegalEntity
     {
-        return LegalEntity::query()->where('key', (string) config('onhost.legal_entity', 'onhost-cz'))->first() ?? LegalEntity::query()->orderBy('key')->first();
+        return LegalEntity::query()->where('key', (string) config('onhost.billing.legal_entity', 'onhost-cz'))->first() ?? LegalEntity::query()->orderBy('key')->first();
     }
 
     private function stylesheet(): ?string

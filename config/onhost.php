@@ -96,6 +96,12 @@ return [
         'max_page_size' => 200,
     ],
 
+    'legal_entity' => [ // the operator's own company for documents (LegalEntitySeeder / onhost:production:prepare --legal); config, not env(), so a cached configuration still carries it
+        'name' => env('ONHOST_LEGAL_NAME', ''), 'ico' => env('ONHOST_ICO', ''), 'dic' => env('ONHOST_DIC', ''), 'vat_id' => env('ONHOST_VAT_ID', ''),
+        'street' => env('ONHOST_STREET', ''), 'city' => env('ONHOST_CITY', ''), 'zip' => env('ONHOST_ZIP', ''),
+        'iban' => env('ONHOST_BANK_IBAN', ''), 'bic' => env('ONHOST_BANK_BIC', ''), 'bank_account' => env('ONHOST_BANK_ACCOUNT', ''),
+    ],
+
     'billing' => [
         'currencies' => ['CZK', 'EUR'],
         'default_currency' => 'CZK',
@@ -138,11 +144,6 @@ return [
             'secret_ref' => env('STRIPE_SECRET_REF', 'env://STRIPE'),
             'base_url' => 'https://api.stripe.com/v1',
             'recurring' => (bool) env('STRIPE_RECURRING', true), // stored cards for automatic top-ups (setup_future_usage=off_session, off-session PaymentIntents)
-        ],
-        'legal_entity' => [ // the operator's own company for documents (LegalEntitySeeder / onhost:production:prepare --legal); config, not env(), so a cached configuration still carries it
-            'name' => env('ONHOST_LEGAL_NAME', ''), 'ico' => env('ONHOST_ICO', ''), 'dic' => env('ONHOST_DIC', ''), 'vat_id' => env('ONHOST_VAT_ID', ''),
-            'street' => env('ONHOST_STREET', ''), 'city' => env('ONHOST_CITY', ''), 'zip' => env('ONHOST_ZIP', ''),
-            'iban' => env('ONHOST_BANK_IBAN', ''), 'bic' => env('ONHOST_BANK_BIC', ''), 'bank_account' => env('ONHOST_BANK_ACCOUNT', ''),
         ],
         'bank' => [
             'iban' => env('ONHOST_BANK_IBAN', ''),
