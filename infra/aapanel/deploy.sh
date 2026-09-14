@@ -13,7 +13,7 @@ SKIP_BACKUP="${SKIP_BACKUP:-0}"
 
 say() { printf '\n\033[1;32m▶ %s\033[0m\n' "$*"; }
 cd "$APP_DIR"
-art() { sudo -u "$RUN_USER" -H "$PHP" artisan "$@"; }
+art() { "$PHP" artisan "$@"; }   # as root — aaPanel kills sudo -u www; ownership is restored at the end
 
 if [ "$SKIP_BACKUP" != "1" ]; then
   say "Platform backup before the release"
@@ -27,7 +27,7 @@ git reset -q --hard "origin/$BRANCH"
 git log --oneline -1
 
 say "Composer"
-sudo -u "$RUN_USER" -H "$COMPOSER" install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
+COMPOSER_ALLOW_SUPERUSER=1 "$COMPOSER" install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
 
 say "Migrations (additive, backward compatible for one release)"
 art migrate --force
@@ -43,6 +43,8 @@ say "Workers and scheduler"
 art queue:restart
 systemctl restart onhost-scheduler.service
 systemctl restart 'onhost-queue@*.service' 2>/dev/null || for u in $(systemctl list-units --plain --no-legend 'onhost-queue@*' | awk '{print $1}'); do systemctl restart "$u"; done
+
+chown -R "$RUN_USER:$RUN_USER" "$APP_DIR"
 
 say "Health"
 curl -fsS -o /dev/null -w 'GET /up → %{http_code}\n' "http://127.0.0.1/up" -H "Host: $(grep -E '^APP_URL=' .env | sed -E 's#APP_URL=https?://##')" || true

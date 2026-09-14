@@ -38,25 +38,27 @@ if [ ! -f "$ENV_DIR/app.env" ]; then
   cp .env.example "$ENV_DIR/app.env"
   chmod 600 "$ENV_DIR/app.env"
   echo "   → fill $ENV_DIR/app.env (see docs/runbooks/deploy-aapanel.md § 'Údaje k doplnění'), then run this script again"
+  exit 0
 fi
+grep -qE '^DB_PASSWORD=.+' "$ENV_DIR/app.env" || { echo "DB_PASSWORD is empty in $ENV_DIR/app.env — fill the file first" >&2; exit 1; }
 ln -sfn "$ENV_DIR/app.env" "$APP_DIR/.env"
 
 say "Composer (production, no dev packages)"
-sudo -u "$RUN_USER" -H "$COMPOSER" install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
+COMPOSER_ALLOW_SUPERUSER=1 "$COMPOSER" install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
 
 if ! grep -qE '^APP_KEY=base64:' "$ENV_DIR/app.env"; then
   say "Application key"
-  sudo -u "$RUN_USER" -H "$PHP" artisan key:generate --force
+  "$PHP" artisan key:generate --force
 fi
 
+fix_owner() { chown -R "$RUN_USER:$RUN_USER" "$APP_DIR"; chmod -R u+rwX,g+rX,o-rwx "$APP_DIR/storage" "$APP_DIR/bootstrap/cache"; }
 say "Permissions"
-chown -R "$RUN_USER:$RUN_USER" "$APP_DIR"
-chmod -R u+rwX,g+rX,o-rwx "$APP_DIR/storage" "$APP_DIR/bootstrap/cache"
+fix_owner
 
 say "Database: migrations and seed (catalogue, tax rules, notification templates, legal entity from the env)"
-sudo -u "$RUN_USER" -H "$PHP" artisan migrate --force
-sudo -u "$RUN_USER" -H "$PHP" artisan db:seed --force
-sudo -u "$RUN_USER" -H "$PHP" artisan db:seed --class=NotificationTemplateSeeder --force
+"$PHP" artisan migrate --force
+"$PHP" artisan db:seed --force
+"$PHP" artisan db:seed --class=NotificationTemplateSeeder --force
 
 say "systemd: queue workers, scheduler"
 for unit in onhost-queue@.service onhost-scheduler.service; do
@@ -67,15 +69,17 @@ systemctl enable --now onhost-scheduler.service
 for q in $QUEUES; do systemctl enable --now "onhost-queue@${q}.service"; done
 
 say "Caches"
-sudo -u "$RUN_USER" -H "$PHP" artisan config:cache
-sudo -u "$RUN_USER" -H "$PHP" artisan route:cache
-sudo -u "$RUN_USER" -H "$PHP" artisan event:cache
-sudo -u "$RUN_USER" -H "$PHP" artisan onhost:openapi >/dev/null || true
+"$PHP" artisan config:cache
+"$PHP" artisan route:cache
+"$PHP" artisan event:cache
+"$PHP" artisan onhost:openapi >/dev/null || true
 
 say "nginx site snippet"
 echo "   → paste infra/aapanel/nginx-site.conf into aaPanel → Website → ${SITE} → Config (see the runbook); root = $APP_DIR/public"
 
+fix_owner # everything above ran as root (aaPanel refuses sudo -u www); the site must belong to the PHP-FPM user
+
 say "Doctor"
-sudo -u "$RUN_USER" -H "$PHP" artisan onhost:doctor || true
+"$PHP" artisan onhost:doctor || true
 echo
 echo "Next: docs/runbooks/deploy-aapanel.md — provider keys (onhost:integrations:secret), platform secrets (onhost:secrets:set), first backup (onhost:platform:backup)."
