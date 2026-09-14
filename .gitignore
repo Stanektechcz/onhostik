@@ -38,3 +38,4 @@ Thumbs.db
 /test-results
 /playwright-report
 /infra/edge/*.generated
+/storage/framework/phpstan/*
