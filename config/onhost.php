@@ -389,6 +389,7 @@ return [
     // nest/egg name when the panel is bootstrapped (onhost:game:sync-eggs), with safe environment defaults and the RAM floor
     // the template needs; `import` names the community egg to import when the panel lacks the template
     'game' => [
+        'operator_rotation_days' => (int) env('ONHOST_GAME_OPERATOR_ROTATION_DAYS', 180), // remind operations to rotate the Steam account after this (audit §5u-5)
         'operator_variables_ref' => env('ONHOST_GAME_OPERATOR_VARIABLES_REF', 'db://game/operator-variables'), // read-only egg variables the operator holds, e.g. the Steam account DayZ downloads with (audit §5s)
         'upload_max_mb' => (int) env('ONHOST_GAME_UPLOAD_MAX_MB', 100), // binary uploads from the console through the panel's signed URL (audit §5r-3)
         'node_reserve_mb' => (int) env('ONHOST_GAME_NODE_RESERVE_MB', 1024), // RAM kept for the host when a node limit is detected from the daemon (audit §5q follow-up)

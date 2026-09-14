@@ -80,6 +80,7 @@ Route::middleware('throttle:public')->group(function (): void {
     Route::post('auth/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:auth');
 
     Route::post('webhooks/payments/{provider}', [PaymentController::class, 'webhook'])->withoutMiddleware('throttle:public');
+    Route::get('oncall/feed/{token}.ics', [OnCallController::class, 'feed'])->where('token', '[a-f0-9]{48}')->middleware('throttle:probes'); // the rota for a calendar app (audit §5u-4)
     Route::post('webhooks/oncall/{provider}', [OnCallController::class, 'inbound'])->withoutMiddleware('throttle:public')->middleware('throttle:probes'); // the pager acknowledged / resolved on its side (audit §5q-1)
     Route::post('hooks/deploy/{source}', [WebToolsController::class, 'hook'])->middleware('throttle:auth'); // git push notifications (HMAC-signed)
     Route::post('hooks/run/{token}', [IntegrationController::class, 'runHook'])->middleware('throttle:auth'); // action hooks (token in the URL)
@@ -452,6 +453,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::get('oncall/shifts', [OnCallController::class, 'shifts']); // the on-call rota (audit §5r-1)
         Route::get('oncall/shifts.ics', [OnCallController::class, 'shiftsIcal']); // iCalendar export (audit §5t-4)
         Route::post('oncall/shifts/import', [OnCallController::class, 'importShifts']);
+        Route::post('oncall/feed-token', [OnCallController::class, 'feedToken']); // personal calendar subscription (audit §5u-4)
         Route::post('oncall/shifts', [OnCallController::class, 'addShift']);
         Route::delete('oncall/shifts/{shift}', [OnCallController::class, 'removeShift']);
         Route::get('provisioning/jobs', [ProvisioningController::class, 'operations']);

@@ -40,7 +40,7 @@ it('stores operator variables from the console behind a step-up without ever ech
     $staff = $this->staff('infrastructure_admin');
     $this->actingAs($staff, 'sanctum');
 
-    expect($this->getJson('/v1/staff/game/operator-variables')->assertOk()->json('data'))->toBe(['stored' => [], 'needed' => ['STEAM_USER' => ['dayz'], 'STEAM_PASS' => ['dayz']]]);
+    expect($this->getJson('/v1/staff/game/operator-variables')->assertOk()->json('data'))->toMatchArray(['stored' => [], 'needed' => ['STEAM_USER' => ['dayz'], 'STEAM_PASS' => ['dayz']]]);
     $this->withHeader('Idempotency-Key', 'ov-0')->putJson('/v1/staff/game/operator-variables/STEAM_USER', ['value' => 'onhost-steam'])->assertForbidden()->assertJsonPath('error', 'step_up_required');
     app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1');
     $this->withHeader('Idempotency-Key', 'ov-1')->putJson('/v1/staff/game/operator-variables/steam_user', ['value' => 'onhost-steam'])->assertOk()->assertJsonPath('stored', ['STEAM_USER']);

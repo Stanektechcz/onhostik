@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Provisioning;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Services\Models\Service;
@@ -59,6 +61,76 @@ final class GameTemplates
     public function inputs(string $key): array
     {
         return array_values(array_map(fn ($r) => ['env' => $r['env'], 'rules' => $r['rules']], array_filter($this->requirements($key), fn ($r) => $r['kind'] === 'input')));
+    }
+
+    /**
+     * The order form of a template's customer inputs (audit §5u-3): a label, a hint built from the rule (exact length,
+     * allowed characters), the bounds and a browser pattern, and where to get the value (the Steam GSLT page).
+     *
+     * @return list<array{env:string, rules:string, label:string, hint:string, help_url:?string, min:?int, max:?int, pattern:?string}>
+     */
+    public function inputForms(string $key): array
+    {
+        return array_map(fn (array $i) => self::form($i['env'], $i['rules']), $this->inputs($key));
+    }
+
+    /** @return array{env:string, rules:string, label:string, hint:string, help_url:?string, min:?int, max:?int, pattern:?string} */
+    public static function form(string $env, string $rules): array
+    {
+        $min = $max = null;
+        $hints = [];
+        if (preg_match('/(^|\|)size:(\d+)/', $rules, $m) === 1) {
+            $min = $max = (int) $m[2];
+            $hints[] = 'přesně '.$m[2].' znaků';
+        }
+        if (preg_match('/(^|\|)between:(\d+),(\d+)/', $rules, $m) === 1) {
+            [$min, $max] = [(int) $m[2], (int) $m[3]];
+            $hints[] = $m[2].'–'.$m[3].' znaků';
+        }
+        if (preg_match('/(^|\|)max:(\d+)/', $rules, $m) === 1) {
+            $max = (int) $m[2];
+            $hints[] = 'nejvýš '.$m[2].' znaků';
+        }
+        if (preg_match('/(^|\|)min:(\d+)/', $rules, $m) === 1) {
+            $min = (int) $m[2];
+            $hints[] = 'aspoň '.$m[2].' znaků';
+        }
+        $pattern = null;
+        if (preg_match('/(^|\|)alpha_num(\||$)/', $rules) === 1) {
+            $pattern = '[A-Za-z0-9]+';
+            $hints[] = 'jen písmena a číslice';
+        } elseif (preg_match('/(^|\|)alpha_dash(\||$)/', $rules) === 1) {
+            $pattern = '[A-Za-z0-9_-]+';
+            $hints[] = 'písmena, číslice, - a _';
+        }
+        $known = [
+            'STEAM_GSLT' => ['Steam Game Server Login Token', 'https://steamcommunity.com/dev/managegameservers', 'Token vytvoříte na Steamu (App ID hry, pro CS2 730).'],
+            'STEAM_ACC' => ['Steam Game Server Login Token', 'https://steamcommunity.com/dev/managegameservers', 'Token vytvoříte na Steamu.'],
+        ];
+        [$label, $url, $extra] = $known[$env] ?? [ucwords(strtolower(str_replace('_', ' ', $env))), null, null];
+
+        return ['env' => $env, 'rules' => $rules, 'label' => $label, 'hint' => trim(($extra !== null ? $extra.' ' : '').($hints !== [] ? ucfirst(implode(', ', $hints)).'.' : '')), 'help_url' => $url, 'min' => $min, 'max' => $max, 'pattern' => $pattern];
+    }
+
+    /**
+     * Operator-held variables stored longer than `rotation_days` (audit §5u-5): operations are reminded once a month.
+     *
+     * @return array{stored_at:?string, stale:bool, days:?int}
+     */
+    public function operatorRotation(): array
+    {
+        $ref = SecretRef::parse((string) config('onhost.game.operator_variables_ref', 'db://game/operator-variables'));
+        $at = $ref->scheme === 'db' ? DB::table('secrets')->where('name', $ref->path)->value('rotated_at') : null;
+        if ($at === null || $this->operatorValues() === []) {
+            return ['stored_at' => null, 'stale' => false, 'days' => null];
+        }
+        $days = (int) CarbonImmutable::parse((string) $at)->diffInDays(now());
+        $stale = $days >= max(1, (int) config('onhost.game.operator_rotation_days', 180));
+        if ($stale && cache()->add('onhost:game:operator-rotation:'.now()->format('Y-m'), 1, 40 * 86400)) {
+            $this->outbox->publish(GenericEvent::of('game.operator_variables.stale', 'secret', 'game/operator-variables', ['days' => $days, 'names' => array_keys($this->operatorValues())]));
+        }
+
+        return ['stored_at' => CarbonImmutable::parse((string) $at)->toIso8601String(), 'stale' => $stale, 'days' => $days];
     }
 
     /** @return array{available:bool, reason:?string} */
@@ -287,7 +359,7 @@ final class GameTemplates
             }
         }
 
-        return ['stored' => array_keys($this->operatorValues()), 'needed' => $needed];
+        return ['stored' => array_keys($this->operatorValues()), 'needed' => $needed, 'rotation' => $this->operatorRotation()]; // §5u-5
     }
 
     /** Stores (or with an empty value removes) one operator-held variable; the value is never returned or audited. @return array{stored:list<string>, needed:array<string,list<string>>} */

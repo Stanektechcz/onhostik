@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Incidents;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\Models\OnCallShift;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -79,6 +80,35 @@ final class OnCallRota
         $this->audit->record($context, 'oncall.shift.remove', 'succeeded', ['shift' => $shiftId, 'user' => $row['user_id']], 'oncall_shift', $shiftId);
 
         return $row + ['removed' => true];
+    }
+
+    /**
+     * A personal calendar subscription (audit §5u-4): a new random token replaces the user's previous one; only its hash
+     * is stored and the URL is shown once. The feed needs no session — the token is the key.
+     */
+    public function issueFeedToken(User $user, CommandContext $context): string
+    {
+        $token = bin2hex(random_bytes(24));
+        DB::table('oncall_feed_tokens')->updateOrInsert(['user_id' => $user->id], ['token_hash' => hash('sha256', $token), 'created_at' => now(), 'last_used_at' => null]);
+        $this->audit->record($context, 'oncall.feed.token', 'succeeded', ['user' => $user->id], 'user', $user->id);
+
+        return rtrim((string) config('app.url'), '/').'/v1/oncall/feed/'.$token.'.ics';
+    }
+
+    /** The feed of a token, or null for an unknown token or a user who is no longer staff. */
+    public function feedFor(string $token): ?string
+    {
+        if (preg_match('/^[a-f0-9]{48}$/', $token) !== 1) {
+            return null;
+        }
+        $row = DB::table('oncall_feed_tokens')->where('token_hash', hash('sha256', $token))->first();
+        $user = $row !== null ? User::query()->find($row->user_id) : null;
+        if ($user === null || ! $user->is_staff) {
+            return null;
+        }
+        DB::table('oncall_feed_tokens')->where('user_id', $user->id)->update(['last_used_at' => now()]);
+
+        return $this->ical();
     }
 
     /** The rota as an iCalendar feed (audit §5t-4): one VEVENT per shift, the UID stable per shift. */

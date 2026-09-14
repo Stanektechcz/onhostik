@@ -212,6 +212,8 @@ final class Doctor extends Command
         $this->add('mail', 'transactional mailer', ! in_array($mailer, ['log', 'array'], true), $mailer);
         $this->add('mail', 'sender address set', (string) config('mail.from.address', '') !== '' && ! str_contains((string) config('mail.from.address'), 'example.com'), (string) config('mail.from.address'));
         $this->add('observability', 'metrics token or allow-list', (string) config('onhost.metrics.token') !== '' || (array) config('onhost.metrics.allow_ips') !== [], (string) config('onhost.metrics.token') !== '' ? 'bearer token set' : 'allow-list only', false);
+        $otlp = (string) config('onhost.observability.otlp_endpoint', ''); // §5u-2: spans exported and the console can open them
+        $this->add('observability', 'traces exported and linked', $otlp !== '' && (string) config('onhost.observability.trace_url', '') !== '', $otlp === '' ? 'OTEL_EXPORTER_OTLP_ENDPOINT not set (infra/docker-compose.yml: otel-collector + tempo + grafana)' : ((string) config('onhost.observability.trace_url', '') === '' ? 'spans go to '.$otlp.' but ONHOST_TRACE_URL is empty — the console shows no trace links' : 'spans to '.$otlp), false);
         $scanner = app(VirusScanner::class); // §5t-6: uploads are scanned by a clamd with fresh signatures
         $clam = $scanner->version();
         $fresh = $clam !== null && $clam['signatures_at'] !== null && strtotime($clam['signatures_at']) > time() - 2 * 86400;

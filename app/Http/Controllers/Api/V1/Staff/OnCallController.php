@@ -64,6 +64,23 @@ final class OnCallController extends ApiController
         return response($rota->ical((int) $request->query('days', 60)), 200, ['Content-Type' => 'text/calendar; charset=utf-8', 'Content-Disposition' => 'attachment; filename="onhost-oncall.ics"', 'Cache-Control' => 'no-store']);
     }
 
+    /** A personal subscription URL for the rota (audit §5u-4); shown once, replaces the previous one. */
+    public function feedToken(Request $request, OnCallRota $rota): JsonResponse
+    {
+        $this->api->authorize($request, 'incident.manage', CommandScope::global());
+
+        return response()->json(['data' => ['url' => $rota->issueFeedToken($this->api->user($request), $this->api->context($request))]], 201);
+    }
+
+    /** The subscribed calendar (no session; the token is the key). */
+    public function feed(OnCallRota $rota, string $token): Response
+    {
+        $ics = $rota->feedFor($token);
+        abort_if($ics === null, 404);
+
+        return response($ics, 200, ['Content-Type' => 'text/calendar; charset=utf-8', 'Cache-Control' => 'private, max-age=300']);
+    }
+
     public function importShifts(Request $request): JsonResponse
     {
         $data = $request->validate(['ical' => ['required', 'string', 'max:512000']]);

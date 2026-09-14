@@ -24,6 +24,9 @@ services:
       MAIL_PORT: 1025
       ONHOST_UI_DEMO: "false"
       ONHOST_CONSOLE_RELAY_KEY: dev-relay-key
+      ONHOST_CLAMAV_HOST: clamav                       # §5u-1: uploads scanned by the clamd container
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318  # §5u-2: spans to Tempo
+      ONHOST_TRACE_URL: 'http://localhost:3000/explore?left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22queryType%22:%22traceql%22,%22query%22:%22{trace_id}%22%7D%5D%7D'
     ports: ["8000:8000"]
     depends_on: [postgres, redis, mailpit]
     volumes: ["..:/var/www/html"]
@@ -33,7 +36,7 @@ services:
     build:
       context: ..
       dockerfile: infra/docker/app.Dockerfile
-    environment: { APP_ENV: local, DB_CONNECTION: pgsql, DB_HOST: postgres, DB_DATABASE: onhost, DB_USERNAME: onhost, DB_PASSWORD: onhost, REDIS_HOST: redis, QUEUE_CONNECTION: redis, CACHE_STORE: redis }
+    environment: { APP_ENV: local, DB_CONNECTION: pgsql, DB_HOST: postgres, DB_DATABASE: onhost, DB_USERNAME: onhost, DB_PASSWORD: onhost, REDIS_HOST: redis, QUEUE_CONNECTION: redis, CACHE_STORE: redis, ONHOST_CLAMAV_HOST: clamav, OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318" }
     depends_on: [postgres, redis]
     volumes: ["..:/var/www/html"]
     command: ["php", "artisan", "queue:work", "--queue=default,mails,provider-proxmox,provider-ispconfig,provider-aapanel,provider-pterodactyl,provider-powerdns,provider-registrar,provider-kubernetes", "--tries=1", "--timeout=900"]
@@ -53,6 +56,9 @@ services:
     environment:
       ONHOST_API: http://app:8000
       ONHOST_CONSOLE_RELAY_KEY: dev-relay-key
+      ONHOST_CLAMAV_HOST: clamav                       # §5u-1: uploads scanned by the clamd container
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318  # §5u-2: spans to Tempo
+      ONHOST_TRACE_URL: 'http://localhost:3000/explore?left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22queryType%22:%22traceql%22,%22query%22:%22{trace_id}%22%7D%5D%7D'
       PORT: "8090"
     ports: ["8090:8090"]
     depends_on: [app]
@@ -79,6 +85,32 @@ services:
       - ./monitoring/slo-alerts.yml:/etc/prometheus/slo-alerts.yml:ro
     ports: ["9090:9090"]
 
+  clamav: # virus scan of uploads (audit §5u-1); freshclam runs inside the image
+    image: clamav/clamav:1.4
+    volumes: ["clamdb:/var/lib/clamav"]
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 60s
+      retries: 5
+  otel-collector: # OTLP/HTTP receiver in front of Tempo (audit §5u-2)
+    image: otel/opentelemetry-collector-contrib:0.108.0
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes: ["./monitoring/otel-collector.yaml:/etc/otel/config.yaml:ro"]
+    depends_on: [tempo]
+  tempo:
+    image: grafana/tempo:2.6.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes: ["./monitoring/tempo.yaml:/etc/tempo.yaml:ro", "tempodata:/var/tempo"]
+  grafana: # the console's trace links open Explore here
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes: ["./monitoring/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/onhost.yaml:ro"]
+    ports: ["3000:3000"]
+    depends_on: [tempo, prometheus]
+
 volumes:
   pgdata: {}
   redisdata: {}
+  clamdb: {}
+  tempodata: {}

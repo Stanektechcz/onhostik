@@ -195,6 +195,40 @@
     return r ? r.code.toUpperCase() + (r.name ? ' · ' + r.name : '') : (code || '');
   }
 
+  /* §5u-3: the template's inputs as a form — label, rule hint, bounds and pattern, a link to where the value comes from */
+  function inputsForm(cmp, chosen, done) {
+    var _ = tr(cmp), wrap = document.createElement('div');
+    wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true');
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(20,18,16,.45);display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif';
+    var box = document.createElement('form');
+    box.style.cssText = 'background:#fff;border-radius:12px;padding:22px 24px;max-width:460px;width:92%;box-shadow:0 12px 40px rgba(0,0,0,.25)';
+    var h = document.createElement('h3'); h.textContent = _('Nastavení šablony ', 'Template setup ') + (chosen.label || chosen.key); h.style.cssText = 'margin:0 0 6px;font-size:18px';
+    var p = document.createElement('p'); p.textContent = _('Bez těchto hodnot server nenastartuje.', 'The server cannot start without these values.'); p.style.cssText = 'margin:0 0 14px;color:#6f6862;font-size:13px';
+    box.appendChild(h); box.appendChild(p);
+    var fields = [];
+    chosen.inputs.forEach(function (inp) {
+      var l = document.createElement('label'); l.style.cssText = 'display:block;margin:0 0 12px;font-size:13px;font-weight:600';
+      l.appendChild(document.createTextNode(inp.label || inp.env));
+      var i = document.createElement('input'); i.name = inp.env; i.required = true; i.autocomplete = 'off'; i.spellcheck = false;
+      if (inp.min != null) i.minLength = inp.min; if (inp.max != null) i.maxLength = inp.max; if (inp.pattern) i.pattern = inp.pattern;
+      i.style.cssText = 'display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:9px;border:1px solid #c9c2ba;border-radius:8px;font:14px ui-monospace,Consolas,monospace';
+      l.appendChild(i);
+      var hint = document.createElement('span'); hint.style.cssText = 'display:block;font-weight:400;color:#6f6862;margin-top:3px';
+      hint.textContent = inp.hint || inp.rules;
+      if (inp.help_url) { var a = document.createElement('a'); a.href = inp.help_url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = ' ' + _('Kde ho získat', 'Where to get it'); hint.appendChild(a); }
+      l.appendChild(hint); box.appendChild(l); fields.push(i);
+    });
+    var bar = document.createElement('div'); bar.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:6px';
+    var cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = _('Zrušit', 'Cancel');
+    var ok = document.createElement('button'); ok.type = 'submit'; ok.textContent = _('Pokračovat v objednávce', 'Continue the order');
+    [cancel, ok].forEach(function (b, k) { b.style.cssText = 'padding:8px 14px;border-radius:8px;font-weight:700;cursor:pointer;border:2px solid ' + (k ? '#ec3013;background:#ec3013;color:#fff' : '#201e1d;background:#fff;color:#201e1d'); bar.appendChild(b); });
+    box.appendChild(bar); wrap.appendChild(box); document.body.appendChild(wrap);
+    function close() { wrap.remove(); }
+    cancel.addEventListener('click', function () { close(); flash(cmp, _('Objednávka nedokončena', 'Order not finished'), _('Bez povinných hodnot server nelze vytvořit.', 'The server cannot be created without the required values.')); });
+    box.addEventListener('submit', function (ev) { ev.preventDefault(); var values = {}; fields.forEach(function (f) { values[f.name] = f.value.trim(); }); close(); done(values); });
+    setTimeout(function () { if (fields[0]) fields[0].focus(); }, 30);
+  }
+
   /* Places the order through the same API path as the public checkout. */
   function place(cmp, sel, orderType, orderSize) {
     var _ = tr(cmp), A = window.OnhostApi, d = data();
@@ -220,12 +254,8 @@
         return;
       }
       if (chosen && chosen.inputs && chosen.inputs.length) {
-        config.environment = {};
-        for (var ii = 0; ii < chosen.inputs.length; ii++) {
-          var inp = chosen.inputs[ii], v = window.prompt(_('Šablona ' + (chosen.label || chosen.key) + ' potřebuje ' + inp.env + ' (' + inp.rules + '):', 'Template ' + (chosen.label || chosen.key) + ' needs ' + inp.env + ' (' + inp.rules + '):'), '');
-          if (v === null || !String(v).trim()) { flash(cmp, _('Objednávka nedokončena', 'Order not finished'), _('Bez hodnoty ' + inp.env + ' server nelze vytvořit.', 'The server cannot be created without ' + inp.env + '.')); return; }
-          config.environment[inp.env] = String(v).trim();
-        }
+        if (!sel.__inputs) { inputsForm(cmp, chosen, function (values) { place(cmp, Object.assign({}, sel, { __inputs: values }), orderType, orderSize); }); return; } // §5u-3: the form first, then the same order again
+        config.environment = Object.assign({}, sel.__inputs);
       }
       if (name) config.hostname = name.toLowerCase().replace(/[^a-z0-9.-]+/g, '-').replace(/^-+|-+$/g, '');
     } else if (p.family === 'cloud') {

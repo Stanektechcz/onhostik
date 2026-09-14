@@ -621,7 +621,7 @@ final class SurfaceDataController extends Controller
                 if (! $templates->availability((string) $eggKey)['available']) {
                     continue; // §5s: a template no panel can create is not offered
                 }
-                $eggs[] = ['key' => (string) $eggKey, 'label' => (string) ($preset['label'] ?? $eggKey), 'note' => (string) ($preset['note'] ?? ''), 'min_ram_mb' => (int) ($preset['min_ram_mb'] ?? 0), 'versions' => array_values(array_map('strval', (array) ($preset['versions'] ?? []))), 'inputs' => $templates->inputs((string) $eggKey)]; // §5s: what the order asks for; §5p: the versions a template offers in the wizard
+                $eggs[] = ['key' => (string) $eggKey, 'label' => (string) ($preset['label'] ?? $eggKey), 'note' => (string) ($preset['note'] ?? ''), 'min_ram_mb' => (int) ($preset['min_ram_mb'] ?? 0), 'versions' => array_values(array_map('strval', (array) ($preset['versions'] ?? []))), 'inputs' => $templates->inputForms((string) $eggKey)]; // §5u-3: fields with hints; §5s: what the order asks for; §5p: the versions a template offers in the wizard
             }
             $out[] = ['key' => $product['key'], 'family' => $product['family'], 'category' => $category, 'name' => (string) $product['name'], 'description' => (string) ($product['description'] ?? ''), 'plans' => $plans, 'orderable' => $orderable, 'eggs' => $eggs];
         }

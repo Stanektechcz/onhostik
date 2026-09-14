@@ -311,6 +311,10 @@ Artisan::command('onhost:game:templates:verify', function (GameTemplates $templa
             $rows[] = [$instance->key, 0, 'error: '.$e->getMessage(), 0];
         }
     }
+    $rotation = $templates->operatorRotation(); // §5u-5: operator-held variables older than the rotation period
+    if ($rotation['stale']) {
+        $this->warn('Operator variables stored '.$rotation['days'].' days ago — rotate them.');
+    }
     $services = $templates->auditServices(); // §5t-3: running servers whose customer input fails its rule
     $this->line('Servers checked: '.$services['checked'].' · need attention: '.$services['attention']);
     $ledger->record('game.templates.verify', ['servers_attention' => $services['attention'], 'instances' => count($rows), 'missing' => array_sum(array_map(fn ($r) => $r[2] === '—' || str_starts_with((string) $r[2], 'error') ? 0 : count(explode(', ', (string) $r[2])), $rows))]);

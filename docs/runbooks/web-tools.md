@@ -1178,3 +1178,7 @@ whose operator variables are missing, is not offered; `onhost:game:templates:ver
 **After §5t.** Operator variables are stored from the console (*Šablony her → Proměnné provozovatele*, step-up).
 The Startup resource flags failing customer inputs (`attention`) and the daily template check notifies the customer.
 The on-call rota exports/imports iCalendar (`/v1/staff/oncall/shifts.ics`, `/import`) and reminds an hour ahead.
+
+**After §5u.** `docker compose -f infra/docker-compose.yml up -d clamav otel-collector tempo grafana` gives a local
+scanner and trace backend (Grafana on :3000, the console's *Trasa* links open Explore). Template inputs are a form with
+rule hints; the rota has a personal subscription URL; operator variables older than 180 days are reported.

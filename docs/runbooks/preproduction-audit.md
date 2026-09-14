@@ -786,15 +786,36 @@ Login Token (`STEAM_GSLT`) and an RCON password, DayZ downloads with a Steam acc
    the control plane) in `site.yml` (group `clamav`); `onhost:doctor` reads clamd's `VERSION` and warns when the
    signatures are older than two days or the scanner is not configured.
 
-### 5u. What remains after §5t (proposed 2026-09-14)
+### 5u. What remains after §5t (proposed 2026-09-14) — built 2026-09-14
 
-1. **Live clamd**: run `onhost_clamav` on a private host and set `ONHOST_CLAMAV_HOST` for web and workers.
-2. **Trace backend**: point `ONHOST_TRACE_URL` and `OTEL_EXPORTER_OTLP_ENDPOINT` at the Grafana/Tempo stack.
-3. **Template Startup forms**: instead of `window.prompt`, the order wizard renders the template inputs as fields with
-   the rule's hints (length, allowed characters) and a link to the Steam GSLT page.
-4. **Rota calendar subscription with a token**: a per-user secret feed URL so a phone calendar can subscribe without
-   the console session.
-5. **Operator variable rotation**: remember when a variable was last stored and remind after 180 days.
+1. **clamd in the stack** — done: `infra/docker-compose.yml` runs `clamav/clamav:1.4` (freshclam inside, signatures on a
+   volume) and points web and workers at it (`ONHOST_CLAMAV_HOST=clamav`); production hosts use the Ansible role
+   `onhost_clamav` from §5t. A live clamd on the production network still has to be started by the operator.
+2. **Trace backend** — done: OpenTelemetry collector (OTLP/HTTP 4318) → Tempo → Grafana with a provisioned `tempo`
+   datasource; the compose stack sets `OTEL_EXPORTER_OTLP_ENDPOINT` and an `ONHOST_TRACE_URL` that opens the trace in
+   Grafana Explore. `onhost:doctor` warns when spans are exported but the console has no trace link template.
+3. **Template input form** — done: the offer describes each customer input as a field (`label`, `hint` from the rule
+   — exact length, allowed characters —, `min`/`max`, `pattern`, `help_url`; the Steam GSLT links to
+   steamcommunity.com/dev/managegameservers); the order wizard opens a form instead of prompts, the browser validates
+   the pattern and length, the quote still decides.
+4. **Personal rota subscription** — done: `POST /v1/staff/oncall/feed-token` issues a random token (only its SHA-256 is
+   stored, one per user, a new one revokes the old) and returns `…/v1/oncall/feed/{token}.ics` once; the feed needs no
+   session, answers 404 for an unknown token or a user who is no longer staff. Console: *Eskalace on-call → Odkaz pro
+   kalendář*.
+5. **Operator variable rotation** — done: the secret's `rotated_at` is compared with `ONHOST_GAME_OPERATOR_ROTATION_DAYS`
+   (180); the daily template check reminds security once a month (`game.operator_variables.stale`, names only) and the
+   console status carries `rotation`.
+
+### 5v. What remains after §5u (proposed 2026-09-14)
+
+1. **Production observability host**: collector, Tempo on object storage and Grafana behind SSO as an Ansible role
+   next to Prometheus, with retention and alerting on span error rate.
+2. **Customer-side input fixes from the notice**: the `game.setup.attention` notice links straight to the Startup field
+   and the fix restarts the server.
+3. **Feed token hygiene**: tokens unused for 90 days expire; the console lists who holds a subscription.
+4. **GSLT validation against Steam**: check a token with the Steam Web API (`IGameServersService/GetAccountList`) when
+   the order is placed, with the operator's Steam Web API key.
+5. **Rotation from the console with a second person**: storing an operator variable asks a second staff approval.
 ## 6. Operator checklist before go-live
 
 1. Production `.env` (`php artisan onhost:doctor` lists every blocking item): HTTPS origin, Redis, PostgreSQL, secrets
