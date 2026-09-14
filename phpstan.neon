@@ -1,0 +1,13 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - phpstan-baseline.neon
+
+parameters:
+    paths:
+        - app
+        - domains
+        - routes
+    # Start with a strict incremental gate. Raise the level only as the existing
+    # typed-model debt in phpstan-baseline.neon is removed.
+    level: 0
+    tmpDir: storage/framework/cache/phpstan

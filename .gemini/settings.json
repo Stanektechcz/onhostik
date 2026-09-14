@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json",
+  "advanced": {
+    "ignoreLocalEnv": true
+  },
+  "context": {
+    "fileName": "GEMINI.md",
+    "fileFiltering": {
+      "respectGitIgnore": true,
+      "respectGeminiIgnore": true,
+      "enableRecursiveFileSearch": true
+    }
+  },
+  "mcp": {
+    "allowed": [
+      "serena",
+      "context7"
+    ]
+  },
+  "mcpServers": {
+    "serena": {
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/ai/serena-mcp.ps1"
+      ],
+      "env": {
+        "PYTHONUTF8": "1"
+      },
+      "timeout": 30000,
+      "trust": false
+    },
+    "context7": {
+      "httpUrl": "https://mcp.context7.com/mcp",
+      "timeout": 30000,
+      "trust": false
+    }
+  }
+}

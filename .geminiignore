@@ -1,0 +1,16 @@
+.env*
+auth.json
+storage/app/private/**
+storage/logs/**
+storage/framework/**
+database/*.sqlite*
+infra/edge/*.generated
+vendor/**
+node_modules/**
+public/build/**
+apps/surfaces/vendor/**
+apps/surfaces/_ds/**
+apps/surfaces/**/*.dc.html
+test-results/**
+playwright-report/**
+.git/**

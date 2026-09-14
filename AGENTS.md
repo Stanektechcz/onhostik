@@ -1,50 +1,35 @@
-# Working rules for engineers and coding agents
+# ONHOST engineering rules
 
-This repository is the ONhost control plane. Read `README.md` for the layout and the blueprint for intent.
-These rules are enforced by review and by the test suite.
+This repository is the ONHOST control plane. Start with `docs/context/PROJECT.md`, then read only the domain docs, ADRs, tests, and source files needed for the task. Active priorities and known risks are in `docs/context/CURRENT_STATE.md`; generated snapshots are in `docs/generated`.
 
 ## Non-negotiables
 
-1. **No placeholders in production paths.** Every endpoint, workflow and adapter does what it says or does
-   not exist. Unfinished work lives behind a feature flag with a failing-closed default, never as a stub that
-   returns fake success.
-2. **Writes go through the CommandBus.** New mutations = a `Command` (`OrganizationCommand` or
-   `GlobalCommand` + `RiskAwareCommand`) + handler registered in `DomainServiceProvider::HANDLERS`. Risk
-   levels: NORMAL (default), HIGH (fresh step-up), CRITICAL (step-up + four-eyes approval). Routine incident
-   work stays NORMAL; money, publishing to customers, credentials and legal actions are HIGH/CRITICAL.
-3. **Money is `Money`.** Minor units + currency; documents and ledger postings are append-only; corrections are
-   new documents/transactions.
-4. **Provider adapters** implement contracts in `providers/Contracts`, throw `ProviderException` with the
-   taxonomy code, never leak vendor payloads, treat "already exists" as success, and ship with a contract test
-   using `Http::fake()`.
-5. **Events** are published via the outbox (`GenericEvent::of`), listed in
-   `docs/architecture/events-catalog.md`, and routed in `NotificationRouter` when a human must see them. No
-   secrets in payloads — mail secrets with `NotificationService::queueMail`.
-6. **Surfaces are read-only.** `apps/surfaces/*.dc.html`, `_ds/`, `onhost-*.js` stay byte-identical to the
-   prototype. Integration happens in `SurfaceRenderer` seams and `apps/surfaces/api/*` modules.
-7. **Tests are part of the change.** Feature tests per domain in `tests/Feature/<Domain>`, helpers in
-   `tests/Pest.php` (Pest files share one function namespace — helper names must be unique). Run
-   `php artisan test` before finishing; the suite must stay green.
-8. **Audit everything staff does.** `AuditRecorder::record(context, action, result, detail, resourceType,
-   resourceId)`; detail is redacted automatically but never include credentials.
+1. **No placeholders in production paths.** Incomplete work is absent or behind a failing-closed feature flag.
+2. **Writes use the CommandBus.** Add a `Command` (`OrganizationCommand` or `GlobalCommand` + `RiskAwareCommand`) and handler in `DomainServiceProvider::HANDLERS`. Money, publishing, credentials, and legal actions are HIGH or CRITICAL risk.
+3. **Money is `Money`.** Use minor units plus currency. Documents and ledger entries are append-only; corrections create new records.
+4. **Providers stay behind contracts.** Adapters in `providers/*` throw taxonomy-coded `ProviderException`, do not leak vendor payloads, treat “already exists” as success, and have `Http::fake()` contract tests.
+5. **Events use the outbox.** Publish with `GenericEvent::of`, update `docs/architecture/events-catalog.md`, and route human-facing events through `NotificationRouter`. Never include secrets in payloads.
+6. **Prototype surfaces are immutable.** Do not modify `apps/surfaces/*.dc.html`, `_ds/`, or `onhost-*.js`. Integrate through `SurfaceRenderer` and `apps/surfaces/api/*`.
+7. **Tests ship with behavior changes.** Put domain tests in `tests/Feature/<Domain>`; Pest helper names are globally unique. Run `brain.ps1 test` before finishing.
+8. **Staff actions are audited.** Use `AuditRecorder::record`; do not pass credentials even though details are redacted.
 
-## Where things go
+## Change map
 
-| Change | Place |
+| Change | Required path and follow-up |
 | --- | --- |
-| New API endpoint | controller in `app/Http/Controllers/Api/V1` (+ `Staff/`), route in `routes/api.php`, presenter, test in `tests/Feature/Http`, then `php artisan onhost:openapi` |
-| New domain rule | service in `domains/<Domain>/`, state machine as data (`StateMachine`), command + handler, tests |
-| New scheduled job | `routes/console.php` (`onhost:*` command + `Schedule::command`), runbook entry |
-| New notification | template in `NotificationTemplateSeeder` (cs + en), routing in `NotificationRouter`, mandatory kinds in `config/onhost.php` |
-| New provider | `providers/<Vendor>`, registration in `PlatformServiceProvider::ADAPTERS`, doc in `docs/provider-adapters`, contract test |
-| Public content | `ContentService`, seeders from `database/seeders/data/prototype-content.json` (regenerate with the Node export script) |
+| API endpoint | `app/Http/Controllers/Api/V1`, `routes/api.php`, presenter, `tests/Feature/Http`; run `php artisan onhost:openapi` |
+| Domain rule | `domains/<Domain>`, state machine data, command + handler, tests |
+| Scheduled job | `routes/console.php`, `onhost:*` command, scheduler, runbook |
+| Notification | `NotificationTemplateSeeder` in Czech and English, `NotificationRouter`, `config/onhost.php` |
+| Provider | `providers/<Vendor>`, `PlatformServiceProvider::ADAPTERS`, provider doc, contract test |
+| Public content | `ContentService`; regenerate prototype content with the existing Node export script |
+| UI | Preserve the prototype; follow `docs/design/DESIGN_SYSTEM.md` and `docs/ui/template-inventory.md` |
 
-## Environment
+## Quality and safety
 
-PHP 8.3 (`php -v`), Composer, Node ≥ 20 (content export, e2e), SQLite for tests. No Docker is required for
-tests. Never run migrations or seeders against production from a workstation.
-
-## Style
-
-`declare(strict_types=1)`, final classes, readonly constructor promotion, early returns, no floats for money,
-Czech customer-facing copy with English fallback in `{cs, en}` JSON columns. Keep comments for *why*, not *what*.
+- PHP 8.3, Composer, Node 20+, Pest, Pint, Larastan, Playwright; SQLite is used for tests.
+- Use `declare(strict_types=1)`, final classes, readonly constructor promotion, early returns, and no floats for money.
+- Customer copy is Czech with English fallback in `{cs, en}` JSON columns. Comments explain why.
+- Never read, print, commit, or send `.env*`, credentials, private storage, databases, logs, auth files, or production data to an AI service.
+- Do not run production migrations, seeders, deploys, DNS/provider writes, billing operations, or destructive Git commands without explicit human approval.
+- Refresh compact context with `brain.ps1 update`; use Git history or Serena only when the current task needs it.

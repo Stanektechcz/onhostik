@@ -1,0 +1,77 @@
+parameters:
+    ignoreErrors:
+        -
+            message: '#^Called ''env'' outside of the config directory which returns null when the config is cached, use ''config''\.$#'
+            identifier: larastan.noEnvCallsOutsideOfConfig
+            count: 1
+            path: app/Console/Commands/Doctor.php
+        -
+            message: '#^Cannot unset offset ''paired_at'' on array\{\}\|array\{string\}\.$#'
+            identifier: unset.offset
+            count: 1
+            path: domains/Domains/DomainPairingService.php
+        -
+            message: '#^Cannot unset offset ''paired_service_id'' on array\{\}\|array\{string\}\.$#'
+            identifier: unset.offset
+            count: 1
+            path: domains/Domains/DomainPairingService.php
+        -
+            message: '#^Cannot unset offset ''pairing'' on array\{\}\|array\{string\}\.$#'
+            identifier: unset.offset
+            count: 1
+            path: domains/Domains/DomainPairingService.php
+        -
+            message: '#^Cannot unset offset ''credit_low_notified…'' on array\{0\?\: string, credit\: array\{balance\: string, currency\: string, minor\: int, at\: string\}\}\.$#'
+            identifier: unset.offset
+            count: 1
+            path: domains/Domains/RegistrarConnectionService.php
+        -
+            message: '#^Cannot unset offset ''loyalty_discount'' on array\{\}\|array\{string\}\.$#'
+            identifier: unset.offset
+            count: 1
+            path: domains/Loyalty/MissionService.php
+        -
+            message: '#^Cannot unset offset ''auto_drain'' on array\{\}\|array\{string\}\.$#'
+            identifier: unset.offset
+            count: 1
+            path: domains/Provisioning/OperationsBoard.php
+        -
+            message: '#^Access to constant PENDING on an unknown class Onhost\\Domain\\Provisioning\\Operation\.$#'
+            identifier: class.notFound
+            count: 1
+            path: domains/Provisioning/Reconciler.php
+        -
+            message: '#^Access to constant RUNNING on an unknown class Onhost\\Domain\\Provisioning\\Operation\.$#'
+            identifier: class.notFound
+            count: 1
+            path: domains/Provisioning/Reconciler.php
+        -
+            message: '#^Access to constant WAITING on an unknown class Onhost\\Domain\\Provisioning\\Operation\.$#'
+            identifier: class.notFound
+            count: 1
+            path: domains/Provisioning/Reconciler.php
+        -
+            message: '#^Call to static method query\(\) on an unknown class Onhost\\Domain\\Provisioning\\Operation\.$#'
+            identifier: class.notFound
+            count: 1
+            path: domains/Provisioning/Reconciler.php
+        -
+            message: '#^Template type T of method Onhost\\Domain\\Provisioning\\Workflows\\ServiceStep\:\:capability\(\) is not referenced in a parameter\.$#'
+            identifier: method.templateTypeNotInParameter
+            count: 1
+            path: domains/Provisioning/Workflows/ServiceStep.php
+        -
+            message: '#^Cannot unset offset ''service_id'' on array\{0\?\: string, domain\: string, aliases\: array\{\}, staging_of\: string, placement\: array\{instance_id\: string\|null, node_id\: string\|null\}\}\.$#'
+            identifier: unset.offset
+            count: 1
+            path: domains/Services/Web/StagingService.php
+        -
+            message: '#^Called ''env'' outside of the config directory which returns null when the config is cached, use ''config''\.$#'
+            identifier: larastan.noEnvCallsOutsideOfConfig
+            count: 1
+            path: domains/Tax/ViesClient.php
+        -
+            message: '#^Using self outside of class scope\.$#'
+            identifier: outOfClass.self
+            count: 2
+            path: routes/console.php

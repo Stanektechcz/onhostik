@@ -6,6 +6,12 @@
 .phpactor.json
 .phpunit.result.cache
 /.codex
+/.serena/cache
+/.serena/logs
+/.serena/memories
+/.claude/settings.local.json
+/.gemini/settings.local.json
+/.gemini/tmp
 /.cursor/
 /.idea
 /.nova
@@ -38,3 +44,7 @@ Thumbs.db
 /test-results
 /playwright-report
 /infra/edge/*.generated
+
+# Obsidian machine-local UI state; shared vault preferences remain tracked
+/docs/.obsidian/workspace*.json
+/docs/.obsidian/cache

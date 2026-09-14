@@ -3,7 +3,7 @@ name: tests
 # The Pest suite (feature, contract and unit tests) on every push and pull request.
 on:
   push:
-    branches: [main]
+    branches: [main, development]
   pull_request:
   workflow_dispatch:
 

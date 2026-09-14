@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "serena": {
+      "type": "stdio",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/ai/serena-mcp.ps1"
+      ],
+      "env": {
+        "PYTHONUTF8": "1"
+      }
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    }
+  }
+}
