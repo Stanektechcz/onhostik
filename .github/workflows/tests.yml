@@ -3,7 +3,7 @@ name: tests
 # The Pest suite (feature, contract and unit tests) on every push and pull request.
 on:
   push:
-    branches: [main]
+    branches: [main, development]
   pull_request:
   workflow_dispatch:
 
@@ -39,3 +39,50 @@ jobs:
 
       - name: Dependency audit
         run: composer audit --no-interaction
+
+  # The same suite against PostgreSQL 16 — the production database (go-live checklist §1); SQLite habits fail here first.
+  pest-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: onhost_test
+          POSTGRES_USER: onhost
+          POSTGRES_PASSWORD: onhost
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U onhost"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: onhost_test
+      DB_USERNAME: onhost
+      DB_PASSWORD: onhost
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, intl, pgsql, pdo_pgsql, gd, bcmath, sodium
+          coverage: none
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare the application
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Migrations on PostgreSQL
+        run: php artisan migrate --force
+
+      - name: Pest on PostgreSQL
+        run: php artisan test --compact

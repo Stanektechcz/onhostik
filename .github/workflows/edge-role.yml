@@ -5,7 +5,7 @@ name: ansible-roles
 # ISPConfig against stubbed vendor CLIs (pveum, mysql) that record the calls.
 on:
   push:
-    branches: [main]
+    branches: [main, development]
     paths: ['infra/ansible/**', 'infra/edge/**', '.github/workflows/edge-role.yml']
   pull_request:
     paths: ['infra/ansible/**', 'infra/edge/**', '.github/workflows/edge-role.yml']

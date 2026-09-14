@@ -4,7 +4,7 @@ name: e2e smoke
 # and seeded SQLite database served by `php artisan serve`; the queue is synchronous so no worker is needed.
 on:
   push:
-    branches: [main]
+    branches: [main, development]
   pull_request:
   workflow_dispatch:
 

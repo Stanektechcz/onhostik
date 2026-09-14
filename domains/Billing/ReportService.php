@@ -77,9 +77,14 @@ final class ReportService
     public function revenueByMonth(int $months = 12): array
     {
         $since = now()->subMonths($months - 1)->startOfMonth();
+        $month = match (DB::connection()->getDriverName()) { // the month of a timestamp per dialect: substr() on a timestamp is a SQLite habit PostgreSQL refuses
+            'pgsql' => "to_char(ledger_transactions.posted_at, 'YYYY-MM')",
+            'mysql', 'mariadb' => "date_format(ledger_transactions.posted_at, '%Y-%m')",
+            default => 'substr(ledger_transactions.posted_at, 1, 7)',
+        };
         $rows = DB::table('ledger_postings')->join('ledger_transactions', 'ledger_transactions.id', '=', 'ledger_postings.transaction_id')->join('ledger_accounts', 'ledger_accounts.id', '=', 'ledger_postings.account_id')
             ->where('ledger_accounts.code', 'like', 'revenue:%')->where('ledger_transactions.posted_at', '>=', $since)
-            ->selectRaw("substr(ledger_transactions.posted_at, 1, 7) as month, ledger_accounts.currency as currency, sum(case when ledger_postings.direction = 'credit' then ledger_postings.amount_minor else -ledger_postings.amount_minor end) as net")->groupByRaw('substr(ledger_transactions.posted_at, 1, 7), ledger_accounts.currency')->orderByRaw('substr(ledger_transactions.posted_at, 1, 7)')->get();
+            ->selectRaw("{$month} as month, ledger_accounts.currency as currency, sum(case when ledger_postings.direction = 'credit' then ledger_postings.amount_minor else -ledger_postings.amount_minor end) as net")->groupByRaw("{$month}, ledger_accounts.currency")->orderByRaw($month)->get();
 
         return $rows->map(fn ($r) => ['month' => (string) $r->month, 'currency' => (string) $r->currency, 'net' => Money::minor((int) $r->net, (string) $r->currency)])->all();
     }
