@@ -51,7 +51,7 @@ it('generates catalogue-driven plans, comparison tables and SKUs for the public 
 
     // the game hosting landing (audit §5g-1): the game product's plans as the prototype's `gameSlots` cards, SKU-resolvable the way the cards add to the cart
     $slots = $data['cs']['gameSlots'];
-    expect(array_column(array_column($slots, 'cs'), 0))->toBe(['Game 8 GB', 'Game 16 GB', 'Game 32 GB'])->and($slots[0]['p'])->toBe(349)->and($slots[1])->toMatchArray(['p' => 649, 'hi' => true])->and($slots[1]['cs'][1])->toBe('Nejčastější volba')->and($slots[2]['en'][1])->toBe('')
+    expect(array_column(array_column($slots, 'cs'), 0))->toBe(['Game 4 GB', 'Game 8 GB', 'Game 16 GB', 'Game 32 GB', 'Game 64 GB'])->and($slots[0]['p'])->toBe(179)->and($slots[1]['p'])->toBe(349)->and($slots[2])->toMatchArray(['p' => 649, 'hi' => true])->and($slots[2]['cs'][1])->toBe('Nejčastější volba')->and($slots[3]['en'][1])->toBe('')
         ->and($slots[0]['cs'][3])->toHaveCount(4)->and($slots[0]['en'][3][0])->toBe($data['en']['gameSlots'][0]['en'][3][0]);
     expect($data['cs']['skus']['gamehosting game 8 gb|349'])->toMatchArray(['product_key' => 'game', 'plan_key' => 'game-8'])->and($data['en']['skus'])->toHaveKey('game hosting game 16 gb');
     expect($html)->toContain('window.ONHOST_DATA.gameSlots(cs)')->toContain("'Support within 10 min']] }\n    ]);");
