@@ -19,8 +19,9 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "missing: $1" >&2; exit 1; };
 
 say "Checking the host"
 need git; [ -x "$PHP" ] || { echo "PHP not found at $PHP (aaPanel: App Store → PHP 8.3)" >&2; exit 1; }
-"$PHP" -m | grep -qiE '^(pdo_pgsql)$' || { echo "PHP 8.3 needs pdo_pgsql (aaPanel → PHP 8.3 → Install extensions)" >&2; exit 1; }
-for ext in intl bcmath mbstring openssl redis fileinfo zip gd; do "$PHP" -m | grep -qi "^${ext}$" || echo "warning: PHP extension ${ext} missing — install it in aaPanel (PHP 8.3 → extensions)"; done
+has_ext() { "$PHP" -r 'exit(extension_loaded($argv[1]) ? 0 : 1);' "$1"; }   # php -m output differs between builds; ask PHP itself
+has_ext pdo_pgsql || { echo "PHP 8.3 needs pdo_pgsql (aaPanel → PHP 8.3 → Install extensions); loaded PDO drivers: $("$PHP" -r 'echo implode(",", PDO::getAvailableDrivers());')" >&2; exit 1; }
+for ext in intl bcmath mbstring openssl redis fileinfo zip gd opcache; do has_ext "$ext" || echo "warning: PHP extension ${ext} missing — install it in aaPanel (PHP 8.3 → extensions)"; done
 [ -x "$COMPOSER" ] || { say "Installing Composer"; "$PHP" -r "copy('https://getcomposer.org/installer', '/tmp/composer-setup.php');" && "$PHP" /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer && rm -f /tmp/composer-setup.php; }
 
 say "Checkout in $APP_DIR ($BRANCH)"
