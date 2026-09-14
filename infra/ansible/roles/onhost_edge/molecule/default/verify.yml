@@ -3,18 +3,20 @@
   hosts: all
   become: true
   tasks:
-    - name: Read the installed Caddy configuration
+    - name: Read the installed Caddy configuration and the main Caddyfile
       ansible.builtin.slurp:
-        src: /etc/caddy/conf.d/status-hosts.caddy
+        src: "{{ item }}"
+      loop: [/etc/caddy/conf.d/status-hosts.caddy, /etc/caddy/Caddyfile]
       register: installed
 
     - name: The file carries the on-demand TLS ask and the upstream
       ansible.builtin.assert:
         that:
-          - "'on_demand' in (installed.content | b64decode)"
-          - "'ask https://status.onhost.cz/v1/status/host-check' in (installed.content | b64decode)"
-          - "'reverse_proxy 127.0.0.1:8000' in (installed.content | b64decode)"
-          - "'{{ '{{' }}PORTAL_HOST' not in (installed.content | b64decode)"
+          - "'on_demand' in (installed.results[0].content | b64decode)"
+          - "'reverse_proxy 127.0.0.1:8000' in (installed.results[0].content | b64decode)"
+          - "'{{ '{{' }}PORTAL_HOST' not in (installed.results[0].content | b64decode)"
+          - "'ask https://status.onhost.cz/v1/status/host-check' in (installed.results[1].content | b64decode)"
+          - "(installed.results[1].content | b64decode).startswith('# BEGIN ONhost edge global options')"
 
     - name: Caddy validates the whole configuration
       ansible.builtin.command: caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile

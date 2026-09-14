@@ -16,9 +16,7 @@
         dest: /etc/caddy/Caddyfile
         mode: "0644"
         content: |
-          {
-            admin off
-          }
+          # the role adds the global options block at the top; the main file only imports the snippets
           import /etc/caddy/conf.d/*.caddy
 
     - name: Create the directories the role expects
@@ -31,11 +29,12 @@
         - /srv/onhost/current
         - /srv/onhost/shared
 
-    - name: Ship the packaged Caddy template as the stub's source
+    - name: Ship the packaged Caddy templates as the stub's source
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../../../../../edge/Caddyfile.status-hosts"
-        dest: /srv/onhost/current/Caddyfile.status-hosts
+        src: "{{ playbook_dir }}/../../../../../edge/{{ item }}"
+        dest: "/srv/onhost/current/{{ item }}"
         mode: "0644"
+      loop: [Caddyfile.status-hosts, Caddyfile.status-hosts.global]
 
     - name: Install a stub php that renders the template to --out
       ansible.builtin.copy:
@@ -54,4 +53,5 @@
           [ -n "$out" ] || { echo "stub: --out missing" >&2; exit 2; }
           mkdir -p "$(dirname "$out")"
           sed -e "s/{{ '{{' }}PORTAL_HOST{{ '}}' }}/status.onhost.cz/g" -e "s/{{ '{{' }}UPSTREAM{{ '}}' }}/$upstream/g" /srv/onhost/current/Caddyfile.status-hosts > "$out"
+          sed -e "s/{{ '{{' }}PORTAL_HOST{{ '}}' }}/status.onhost.cz/g" /srv/onhost/current/Caddyfile.status-hosts.global > "$out.global"
           echo "written $out"

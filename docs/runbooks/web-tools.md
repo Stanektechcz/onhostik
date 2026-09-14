@@ -772,9 +772,10 @@ refunds a started job without a dispute (credit note included). Orders carry `sl
 `refund_available`, `grace_days`); the partner's job rows show *PO TERMÍNU*.
 
 **Edge configuration.** `php artisan onhost:edge:config --format=caddy --upstream=127.0.0.1:8000` prints
-`infra/edge/Caddyfile.status-hosts` with the portal host filled in (on-demand TLS, ask =
-`/v1/status/host-check`); `--format=nginx` prints the nginx default server + certbot flavour; `--write` stores
-`infra/edge/<format>.generated` for the deploy.
+`infra/edge/Caddyfile.status-hosts.global` (the one global options block Caddy allows: on-demand TLS ask =
+`/v1/status/host-check`) and `infra/edge/Caddyfile.status-hosts` (the site block for conf.d) with the portal host filled
+in; `--out=` writes the snippet and `<out>.global`; `--format=nginx` prints the nginx default server + certbot flavour;
+`--write` stores `infra/edge/<format>.generated` for the deploy.
 
 **Referral fraud scoring.** Every referral settlement is scored: `same_email_domain` (100), `risk_hold` (100),
 `chargeback` (100), `same_address` (60), `refused_history` (30), `rapid_signup` (25, an earlier invite of the same
@@ -828,7 +829,9 @@ delivery inside the due date pays nothing, a zero rate switches the credit off.
 
 **Edge as code.** `infra/ansible/edge.yml` runs the role `onhost_edge` on the `edge` group: it renders the flavour
 (`onhost_edge_flavour: caddy|nginx`) on the app host with `php artisan onhost:edge:config --format= --upstream=
---out=`, copies the file to `onhost_edge_conf_dir` (`/etc/caddy/conf.d/status-hosts.caddy` or the nginx conf), validates
+--out=`, copies the file to `onhost_edge_conf_dir` (`/etc/caddy/conf.d/status-hosts.caddy` or the nginx conf), merges the
+global `on_demand_tls` block into the top of `onhost_edge_caddy_main` (`/etc/caddy/Caddyfile`, which must only import
+conf.d and carry no global block of its own — an imported file may not have one), validates
 it (`caddy validate` / `nginx -t`) and reloads the service through a handler. Defaults live in
 `roles/onhost_edge/defaults/main.yml` (`onhost_app_dir`, `onhost_php`, `onhost_edge_upstream`, `onhost_app_host`).
 

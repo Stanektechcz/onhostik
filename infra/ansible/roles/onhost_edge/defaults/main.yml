@@ -5,4 +5,5 @@ onhost_php: /usr/bin/php8.3
 onhost_edge_flavour: caddy           # caddy | nginx
 onhost_edge_upstream: 127.0.0.1:8000
 onhost_edge_conf_dir: /etc/caddy/conf.d
+onhost_edge_caddy_main: /etc/caddy/Caddyfile   # gets the global `on_demand_tls { ask }` block at its top; it must `import /etc/caddy/conf.d/*.caddy` and carry no global block of its own
 onhost_edge_render_path: /srv/onhost/shared/edge.generated

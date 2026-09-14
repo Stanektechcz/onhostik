@@ -24,6 +24,26 @@
   register: onhost_edge_rendered
   delegate_to: "{{ onhost_app_host | default(inventory_hostname) }}"
 
+- name: Fetch the rendered Caddy global options from the application host
+  when: onhost_edge_flavour == 'caddy'
+  ansible.builtin.slurp:
+    src: "{{ onhost_edge_render_path }}.global"
+  register: onhost_edge_rendered_global
+  delegate_to: "{{ onhost_app_host | default(inventory_hostname) }}"
+
+- name: Merge the on-demand TLS ask into the main Caddyfile (the one global options block Caddy allows)
+  when: onhost_edge_flavour == 'caddy'
+  ansible.builtin.blockinfile:
+    path: "{{ onhost_edge_caddy_main }}"
+    marker: "# {mark} ONhost edge global options (managed by the onhost_edge role)"
+    insertbefore: BOF
+    block: "{{ onhost_edge_rendered_global.content | b64decode }}"
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload caddy
+
 - name: Install the Caddy configuration
   when: onhost_edge_flavour == 'caddy'
   ansible.builtin.copy:

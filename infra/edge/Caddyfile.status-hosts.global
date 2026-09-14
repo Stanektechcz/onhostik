@@ -1,0 +1,10 @@
+# ONhost edge — global options for the customers' status hosts (audit §5k-3). Caddy allows exactly one global options
+# block, and only in the main Caddyfile (an imported file may not carry one), so this part is merged into
+# /etc/caddy/Caddyfile by the onhost_edge role (blockinfile at the top); the site block lives in conf.d.
+{
+    on_demand_tls {
+        ask https://{{PORTAL_HOST}}/v1/status/host-check
+        interval 2m
+        burst 5
+    }
+}

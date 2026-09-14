@@ -34,8 +34,11 @@ final class EdgeConfig extends Command
             return self::FAILURE;
         }
         $host = OrganizationStatusService::customCname();
-        $rendered = str_replace(['{{PORTAL_HOST}}', '{{UPSTREAM}}'], [$host, (string) $this->option('upstream')], (string) file_get_contents($path));
-        $this->line($rendered);
+        $fill = fn (string $template) => str_replace(['{{PORTAL_HOST}}', '{{UPSTREAM}}'], [$host, (string) $this->option('upstream')], $template);
+        $rendered = $fill((string) file_get_contents($path));
+        // Caddy allows one global options block and only in the main Caddyfile, so the `on_demand_tls { ask }` part is a file of its own (merged by the role)
+        $global = $format === 'caddy' && is_file($path.'.global') ? $fill((string) file_get_contents($path.'.global')) : null;
+        $this->line(($global !== null ? $global."\n" : '').$rendered);
         if (($out = (string) $this->option('out')) !== '') { // §5m-3: the Ansible role renders to a path and ships the file to the edge host
             $dir = dirname($out);
             if (! is_dir($dir) && ! mkdir($dir, 0775, true) && ! is_dir($dir)) {
@@ -45,10 +48,14 @@ final class EdgeConfig extends Command
             }
             file_put_contents($out, $rendered);
             $this->info("written {$out}");
+            if ($global !== null) {
+                file_put_contents($out.'.global', $global);
+                $this->info("written {$out}.global");
+            }
         }
         if ($this->option('write')) {
             $out = base_path('infra/edge/'.$format.'.generated');
-            file_put_contents($out, $rendered);
+            file_put_contents($out, ($global !== null ? $global."\n" : '').$rendered);
             $this->info("written {$out}");
         }
         $this->info("ask endpoint: https://{$host}/v1/status/host-check?host=<host> (200 = issue, 404 = never)");
