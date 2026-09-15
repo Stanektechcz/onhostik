@@ -11,6 +11,7 @@ use Onhost\Domain\Orders\CheckoutService;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
@@ -45,7 +46,8 @@ final class SmokeOrder extends Command
         {--fund : top up promo credit for the test when the balance is short}
         {--cleanup : terminate the created services after the verification}
         {--timeout=900 : seconds to wait for each provisioning}
-        {--work : process the queue of the operation in this command (an installation without running queue workers)}';
+        {--work : process the queue of the operation in this command (an installation without running queue workers)}
+        {--create-org : when the e-mail belongs to an account without a customer profile, create a test organization it owns}';
 
     protected $description = 'Place real orders through the customer path and verify provisioning on the live panels';
 
@@ -53,7 +55,26 @@ final class SmokeOrder extends Command
     {
         $organization = $this->organization((string) $this->argument('organization'));
         if ($organization === null) {
-            $this->error('Organization not found.');
+            $needle = strtolower((string) $this->argument('organization'));
+            $user = str_contains($needle, '@') ? User::query()->where('email', $needle)->first() : null;
+            if ($user !== null && $this->option('create-org')) {
+                $organization = app(OrganizationService::class)->create($user, ['name' => 'ONhost · test objednávek', 'type' => 'company', 'ico' => null, 'billing_email' => $user->email, 'street' => 'Testovací 1', 'city' => 'Praha', 'postal_code' => '11000', 'country' => 'CZ'], CommandContext::system('cli:smoke:order'));
+                $this->info("Založena testovací organizace {$organization->name} ({$organization->id}) pro {$user->email}.");
+            } else {
+                $this->error('Organization not found.');
+                $this->line($user !== null
+                    ? "  Účet {$user->email} nemá zákaznický profil. Spusťte znovu s --create-org, nebo zadejte e-mail zákaznického účtu."
+                    : '  Zadejte id nebo slug organizace, nebo e-mail vlastníka (s --create-org pro účet bez profilu).');
+
+                return self::FAILURE;
+            }
+        }
+        $keys = array_merge((array) $this->option('web'));
+        $known = ProviderInstance::query()->whereIn('provider', ['ispconfig', 'aapanel', 'pterodactyl'])->get(['key', 'provider', 'state']);
+        $unknown = array_values(array_diff($keys, $known->pluck('key')->all()));
+        if ($unknown !== []) {
+            $this->error('Neznámá instance: '.implode(', ', $unknown));
+            $this->line('  Dostupné instance: '.$known->map(fn ($i) => "{$i->key} ({$i->provider}, {$i->state})")->implode(' · '));
 
             return self::FAILURE;
         }
