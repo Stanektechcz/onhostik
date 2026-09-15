@@ -148,3 +148,28 @@ accounts from `DevAccountSeeder` (`admin@onhost.cz`, `noc@`, `finance@`, `suppor
 MFA on first sign-in. What passes here is what production does; production differs only in `SITE=onhost.cz`,
 `APP_ENV=production`, live Comgate, `WEDOS_TEST_MODE=false`, the production ACME directory, and
 `onhost:production:prepare --purge-dev-accounts --legal --cache` before the first customer.
+
+## 5. Ověření produkčního provozu (na stagingu, pak stejně na onhost.cz)
+
+```bash
+cd /www/wwwroot/staging.onhost.cz
+P=/www/server/php/83/bin/php
+# uzly panelů přes jejich API (bez nich plánovač služby nikam neumístí)
+$P artisan onhost:nodes:discover ispconfig-shared01 --region=cz1
+$P artisan onhost:nodes:discover aapanel-managed01 --region=cz1
+$P artisan onhost:nodes:discover pterodactyl-gamepanel --region=cz1
+# produkty bez připojeného panelu z prodeje
+$P artisan onhost:catalog:state draft vps vds database ipv4 backup-plus backup-hourly
+# živá konzole herních serverů
+bash infra/aapanel/relay-install.sh
+# e-mail a domény
+$P artisan onhost:mail:test <váš e-mail>
+$P artisan onhost:smoke:order ops@onhost.cz --domain-check=onhost-test-overeni.cz
+# ostré objednávky všech prodávaných typů služeb (objednávka z kreditu → zřízení → ověření na panelu → zrušení)
+$P artisan onhost:smoke:order ops@onhost.cz --web=ispconfig-shared01 --web=aapanel-managed01 --game=minecraft-vanilla@1.21.8 \
+  --product=web-custom@ispconfig-shared01 --product=wordpress@aapanel-managed01 --product=eshop@aapanel-managed01 --product=mail@ispconfig-shared01 \
+  --fund --cleanup --timeout=1200
+$P artisan onhost:doctor
+```
+
+Pojistky instance po opakovaných chybách: `onhost:integrations:breaker <instance> [--reset]` (reset až po opravě příčiny).

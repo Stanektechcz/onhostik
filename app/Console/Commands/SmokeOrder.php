@@ -6,6 +6,10 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Str;
+use Onhost\Domain\Catalog\Models\Plan;
+use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Domains\DomainService;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Orders\CheckoutService;
 use Onhost\Domain\Orders\Models\OrderItem;
@@ -43,6 +47,9 @@ final class SmokeOrder extends Command
         {--web=* : web hosting on these instances, e.g. --web=ispconfig-s2 --web=aapanel-cz1}
         {--web-plan=start : web hosting plan}
         {--game= : game template and version, e.g. minecraft-vanilla@1.21.8}
+        {--product=* : any other product, product[:plan][@instance], e.g. --product=wordpress --product=eshop --product=web-custom --product=mail@ispconfig-shared01}
+        {--mail-domain= : the domain a mail hosting test uses (default: a subdomain of the site)}
+        {--domain-check=* : availability and price of a domain at the registrar, nothing is registered, e.g. --domain-check=onhost-test.cz}
         {--fund : top up promo credit for the test when the balance is short}
         {--cleanup : terminate the created services after the verification}
         {--timeout=900 : seconds to wait for each provisioning}
@@ -69,7 +76,13 @@ final class SmokeOrder extends Command
                 return self::FAILURE;
             }
         }
-        $keys = array_merge((array) $this->option('web'));
+        $products = [];
+        foreach ((array) $this->option('product') as $spec) { // product[:plan][@instance]
+            [$head, $instance] = array_pad(explode('@', (string) $spec, 2), 2, '');
+            [$productKey, $plan] = array_pad(explode(':', $head, 2), 2, '');
+            $products[] = ['product' => $productKey, 'plan' => $plan, 'instance' => $instance];
+        }
+        $keys = array_merge((array) $this->option('web'), array_values(array_filter(array_column($products, 'instance'))));
         $known = ProviderInstance::query()->whereIn('provider', ['ispconfig', 'aapanel', 'pterodactyl'])->get(['key', 'provider', 'state']);
         $unknown = array_values(array_diff($keys, $known->pluck('key')->all()));
         if ($unknown !== []) {
@@ -90,8 +103,44 @@ final class SmokeOrder extends Command
             }
             $cases[] = ['label' => "herní server {$egg}".($version !== '' ? " {$version}" : ''), 'item' => ['product_key' => 'game', 'plan_key' => (string) config('onhost.game.configurator.plan', 'game-custom'), 'qty' => 1, 'config' => $config]];
         }
+        foreach ($products as $p) {
+            $product = Product::query()->where('key', $p['product'])->with('plans')->first();
+            if ($product === null) {
+                $this->error("Neznámý produkt {$p['product']}.");
+
+                return self::FAILURE;
+            }
+            $default = Plan::query()->where('product_id', $product->id)->where('state', 'active')->orderByDesc('highlighted')->orderBy('sort')->first();
+            $plan = $p['plan'] !== '' ? $p['plan'] : ($default === null ? '' : (string) $default->key);
+            $config = ['label' => 'smoke '.$product->key];
+            if ($p['instance'] !== '') {
+                $config['placement_instance'] = $p['instance'];
+            }
+            if ($product->family === 'mail') {
+                $config['domain'] = (string) ($this->option('mail-domain') ?: 'smoke-'.strtolower(Str::random(6)).'.'.(parse_url((string) config('app.url'), PHP_URL_HOST) ?: 'onhost.cz'));
+            }
+            $cases[] = ['label' => $product->localizedName('cs').' ('.$plan.')'.($p['instance'] !== '' ? " na {$p['instance']}" : ''), 'item' => ['product_key' => $product->key, 'plan_key' => $plan, 'qty' => 1, 'config' => $config]];
+        }
+        $checks = array_values(array_filter(array_map('strval', (array) $this->option('domain-check'))));
+        if ($checks !== []) {
+            $this->newLine();
+            $this->info('▶ dostupnost domén u registrátora');
+            try {
+                foreach (app(DomainService::class)->search($checks, (string) ($organization->currency ?? 'CZK'), $organization) as $row) {
+                    $row = (array) $row;
+                    $this->line('  '.($row['fqdn'] ?? $row['name'] ?? '?').' · '.(($row['available'] ?? null) === true ? 'volná' : (($row['available'] ?? null) === false ? 'obsazená' : 'neznámé: '.($row['reason'] ?? ''))).(isset($row['price']) ? ' · '.json_encode($row['price'], JSON_UNESCAPED_UNICODE) : ''));
+                }
+            } catch (Throwable $e) {
+                $this->error('  ✗ '.$e->getMessage());
+
+                return self::FAILURE;
+            }
+        }
+        if ($cases === [] && $checks !== []) {
+            return self::SUCCESS;
+        }
         if ($cases === []) {
-            $this->error('Nothing to test: pass --web=<instance> and/or --game=<egg@version>.');
+            $this->error('Nothing to test: pass --web=<instance>, --game=<egg@version>, --product=<key> or --domain-check=<name>.');
 
             return self::FAILURE;
         }

@@ -5,10 +5,12 @@ declare(strict_types=1);
 use App\Http\Controllers\Web\SurfaceDataController;
 use Database\Seeders\CatalogSeeder;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\Totp;
+use Onhost\Domain\Notifications\Mail\TemplatedMail;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\PlacementService;
@@ -79,4 +81,16 @@ it('takes products off sale and back, and shows and resets the breakers of an in
     $this->artisan('onhost:integrations:breaker wedos-main')->expectsOutputToContain('open')->assertExitCode(0);
     $this->artisan('onhost:integrations:breaker wedos-main --reset')->expectsOutputToContain('Breakers closed')->assertExitCode(0);
     expect($wapi->state())->toBe('closed');
+});
+
+it('sends a test e-mail through the mailer and validates the smoke test products (audit §5z)', function () {
+    Mail::fake();
+    $this->artisan('onhost:mail:test nobody')->assertExitCode(1);
+    $this->artisan('onhost:mail:test ops@onhost.test')->expectsOutputToContain('Sent to ops@onhost.test')->expectsOutputToContain('mail queue')->assertExitCode(0);
+    Mail::assertSent(TemplatedMail::class, fn ($m) => $m->hasTo('ops@onhost.test'));
+
+    $this->seed(CatalogSeeder::class);
+    [, $org] = $this->customerWithOrganization();
+    $this->artisan("onhost:smoke:order {$org->id} --product=neexistuje")->expectsOutputToContain('Neznámý produkt neexistuje')->assertExitCode(1);
+    $this->artisan("onhost:smoke:order {$org->id} --product=wordpress@nope")->expectsOutputToContain('Neznámá instance: nope')->assertExitCode(1);
 });
