@@ -198,6 +198,25 @@
     card.querySelectorAll('button').forEach(function (btn) { btn.disabled = !!busy; btn.style.opacity = busy ? '.6' : ''; });
   }
   var inFlight = false;
+  /* the login card gains a code field when the account has 2FA (the prototype has none); Enter in it submits */
+  function totpField(card) {
+    var input = card.querySelector('input[data-onhost-totp]');
+    if (input) return input;
+    var pass = card.querySelector('input[type=password]');
+    var wrap = document.createElement('label');
+    wrap.style.cssText = 'display:block;margin-top:14px';
+    var cap = document.createElement('span');
+    cap.textContent = 'Kód z autentikátoru';
+    cap.style.cssText = 'display:block;font-size:13px;font-weight:600;margin-bottom:6px';
+    input = document.createElement('input');
+    input.type = 'text'; input.setAttribute('data-onhost-totp', '1'); input.setAttribute('inputmode', 'numeric'); input.setAttribute('autocomplete', 'one-time-code');
+    input.setAttribute('maxlength', '32'); input.setAttribute('placeholder', '123 456'); input.setAttribute('aria-label', 'Kód z autentikátoru');
+    input.style.cssText = 'width:100%;box-sizing:border-box;padding:12px 14px;border:2px solid var(--fg,#201e1d);background:transparent;color:var(--fg,#201e1d);font-size:20px;letter-spacing:.25em;font-family:ui-monospace,monospace';
+    wrap.appendChild(cap); wrap.appendChild(input);
+    var anchor = pass ? (pass.closest('label') || pass.parentNode) : null;
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(wrap, anchor.nextSibling); else card.insertBefore(wrap, card.querySelector('button') || null);
+    return input;
+  }
   function handleAuth(card, view) {
     if (inFlight) return;
     var email = (card.querySelector('input[type=email]') || {}).value || '';
@@ -209,6 +228,9 @@
     var A = window.OnhostApi;
     if (!email) { showError(card, 'Zadejte e-mail.'); return; }
     if (view === 'login' && !pass) { showError(card, 'Zadejte heslo.'); return; }
+    var totpInput = card.querySelector('input[data-onhost-totp]');
+    var totp = totpInput ? String(totpInput.value || '').replace(/\s+/g, '') : '';
+    if (view === 'login' && totpInput && !totp) { showError(card, 'Zadejte 6místný kód z autentikátoru nebo záložní kód.'); totpInput.focus(); return; }
     var termsBox = card.querySelector('input[type=checkbox]');
     if (view === 'register') {
       if (pass.length < 12 || !/[0-9]/.test(pass) || !/[a-zA-Z]/.test(pass)) { showError(card, 'Heslo musí mít alespoň 12 znaků, písmena i číslice.'); return; }
@@ -221,7 +243,7 @@
     var ref = (function () { try { return new URLSearchParams(location.search).get('ref') || localStorage.getItem('onhost.ref'); } catch (x) { return null; } })();
     var req = function () {
       return view === 'login'
-        ? A.post('/auth/login', { email: email.trim(), password: pass, remember: true })
+        ? A.post('/auth/login', totp ? { email: email.trim(), password: pass, remember: true, totp: totp } : { email: email.trim(), password: pass, remember: true })
         : view === 'register'
           ? A.post('/auth/register', { name: name.trim() || email.split('@')[0], email: email.trim(), password: pass, terms: true, partner_code: ref || undefined, turnstile: turnstileToken() })
           : A.post('/auth/password/reset', { email: email.trim() });
@@ -240,8 +262,14 @@
       setBusy(card, false);
       var body = err && err.body;
       var msg = (body && body.message) || 'Přihlášení se nezdařilo.';
-      if (body && body.error === 'mfa_required') msg = 'Účet má zapnuté dvoufázové ověření — zadejte kód z autentikátoru do pole hesla za heslo oddělené mezerou.';
       if (body && body.errors) { var first = Object.keys(body.errors)[0]; if (first && body.errors[first][0]) msg = body.errors[first][0]; }
+      if (body && (body.error === 'mfa_required' || body.error === 'mfa_invalid')) { // 2FA: ask for the code in its own field and keep the e-mail and password
+        var field = totpField(card);
+        msg = body.error === 'mfa_invalid' ? 'Kód nesouhlasí — zkontrolujte čas v telefonu a zadejte aktuální kód.' : 'Účet má zapnuté dvoufázové ověření. Zadejte 6místný kód z autentikátoru (nebo záložní kód) a přihlaste se znovu.';
+        showError(card, msg);
+        field.value = ''; field.focus();
+        return;
+      }
       showError(card, msg);
     });
   }
