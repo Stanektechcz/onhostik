@@ -8,6 +8,7 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\Contracts\AsyncStatus;
+use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\ResourceSpec;
 use Onhost\Providers\IspConfig\IspConfigConnector;
 use Onhost\Providers\IspConfig\IspConfigWebProvider;
@@ -81,4 +82,30 @@ it('creates the client when ISPConfig answers an unknown username with a fault',
     $result = ispAdapter()->provision(new ResourceSpec('srv_02web', 'website', 'ord-3:provision.web:v1', ['domain' => 'novy.cz', 'php_version' => '8.3', 'entitlements' => ['sites' => 1, 'nvme_gb' => 10]], organizationId: 'org_novy'));
     expect($result->ref->remoteId)->toBe('91')->and($result->ref->meta['client_id'])->toBe(31);
     Http::assertSent(fn ($r) => str_ends_with($r->url(), '?client_add'));
+});
+
+it('never touches a web site when a mail service is read, suspended or terminated — the numbers of mail and web domains overlap (audit §5z)', function () {
+    Http::fake([
+        'shared01.mgmt.test:8080/remote/json.php?login' => Http::response(ispResponse('sess-123')),
+        // web domain 41 exists and belongs to somebody else; mail domain 41 is the service's
+        'shared01.mgmt.test:8080/remote/json.php?sites_web_domain_get' => Http::response(ispResponse(['domain_id' => 41, 'domain' => 'cizi-web.cz', 'active' => 'n'])),
+        'shared01.mgmt.test:8080/remote/json.php?mail_domain_get' => Http::sequence()->push(ispResponse(['domain_id' => 41, 'domain' => 'posta.cz', 'active' => 'y', 'dkim' => 'y', 'sys_groupid' => 9]))->push(ispResponse(['domain_id' => 41, 'domain' => 'posta.cz', 'active' => 'y', 'sys_groupid' => 9]))->push(ispResponse(['domain_id' => 41, 'domain' => 'posta.cz', 'active' => 'n', 'sys_groupid' => 9])),
+        'shared01.mgmt.test:8080/remote/json.php?mail_domain_update' => Http::response(ispResponse(1)),
+        'shared01.mgmt.test:8080/remote/json.php?mail_domain_delete' => Http::response(ispResponse(1)),
+        'shared01.mgmt.test:8080/remote/json.php?monitor_jobqueue_count' => Http::response(ispResponse(0)),
+    ]);
+    $adapter = ispAdapter();
+    $mail = new ResourceRef('mail_domain', '41', '1', ['client_id' => 9]);
+    $state = $adapter->getActualState($mail);
+    expect($state->exists)->toBeTrue()->and($state->status)->toBe('active')->and($state->get('domain'))->toBe('posta.cz');
+    $adapter->suspend($mail);
+    $adapter->terminate($mail);
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'mail_domain_update') && $r['params']['active'] === 'n');
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'mail_domain_delete') && (int) $r['primary_id'] === 41);
+    Http::assertNotSent(fn ($r) => str_contains($r->url(), 'sites_web_domain_delete') || str_contains($r->url(), 'sites_web_domain_update'));
+
+    // a web reference whose stored domain does not match the site with that number is refused, and unknown types are refused
+    expect(fn () => $adapter->terminate(new ResourceRef('web_domain', '41', '1', ['domain' => 'muj-web.cz'])))->toThrow(ProviderException::class, 'refusing to delete it');
+    expect(fn () => $adapter->terminate(new ResourceRef('database', '41', '1')))->toThrow(ProviderException::class);
+    Http::assertNotSent(fn ($r) => str_contains($r->url(), 'sites_web_domain_delete'));
 });

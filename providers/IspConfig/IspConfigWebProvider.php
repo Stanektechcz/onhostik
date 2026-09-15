@@ -189,13 +189,19 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
         return ProviderResult::accepted(
             $this->jobqueueHandle($serverId, ['domain_id' => $domainId]),
-            new ResourceRef('web_domain', (string) $domainId, (string) $serverId, ['client_id' => $clientId, 'system_user' => $site['system_user'] ?? null, 'document_root' => $site['document_root'] ?? null], $spec->serviceId),
+            new ResourceRef('web_domain', (string) $domainId, (string) $serverId, ['domain' => $domain, 'client_id' => $clientId, 'system_user' => $site['system_user'] ?? null, 'document_root' => $site['document_root'] ?? null], $spec->serviceId),
             ['client_id' => $clientId, 'domain_id' => $domainId, 'system_user' => $site['system_user'] ?? null],
         );
     }
 
     public function getActualState(ResourceRef $ref): ActualState
     {
+        if ($ref->remoteType === 'mail_domain') { // a mail service: its mail domain, never a web site with the same number
+            $domain = $this->getMailDomain((int) $ref->remoteId);
+
+            return $domain === null ? ActualState::missing() : new ActualState(true, ['domain' => $domain['domain'] ?? null, 'active' => ($domain['active'] ?? 'n') === 'y', 'dkim' => ($domain['dkim'] ?? 'n') === 'y'], ($domain['active'] ?? 'n') === 'y' ? 'active' : 'suspended', now()->toISOString());
+        }
+        $this->assertWebDomain($ref);
         $site = $this->getSite((int) $ref->remoteId);
         if ($site === null) {
             return ActualState::missing();
@@ -232,6 +238,10 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function resize(ResourceRef $ref, ResourceSpec $spec): ProviderResult
     {
+        if ($ref->remoteType === 'mail_domain') {
+            return ProviderResult::completed($ref, ['updated' => []]); // mailbox quotas live on the mailboxes
+        }
+        $this->assertWebDomain($ref);
         $ent = (array) $spec->get('entitlements', []);
         $params = array_filter(['hd_quota' => isset($ent['nvme_gb']) ? (int) $ent['nvme_gb'] * 1024 : null, 'pm_max_children' => $ent['php_workers'] ?? null, 'backup_copies' => $ent['backup_generations'] ?? null], fn ($v) => $v !== null);
         $this->updateSite($ref, $params);
@@ -241,6 +251,12 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function suspend(ResourceRef $ref): ProviderResult
     {
+        if ($ref->remoteType === 'mail_domain') {
+            $this->setMailDomainActive($ref, false);
+
+            return ProviderResult::accepted($this->jobqueueHandle((int) $ref->node), $ref);
+        }
+        $this->assertWebDomain($ref);
         $this->updateSite($ref, ['active' => 'n']);
 
         return ProviderResult::accepted($this->jobqueueHandle((int) $ref->node), $ref);
@@ -248,6 +264,12 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function resume(ResourceRef $ref): ProviderResult
     {
+        if ($ref->remoteType === 'mail_domain') {
+            $this->setMailDomainActive($ref, true);
+
+            return ProviderResult::accepted($this->jobqueueHandle((int) $ref->node), $ref);
+        }
+        $this->assertWebDomain($ref);
         $this->updateSite($ref, ['active' => 'y']);
 
         return ProviderResult::accepted($this->jobqueueHandle((int) $ref->node), $ref);
@@ -255,7 +277,20 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function terminate(ResourceRef $ref): ProviderResult
     {
-        if ($this->getSite((int) $ref->remoteId) === null) {
+        if ($ref->remoteType === 'mail_domain') { // deleting a mail service removes its mail domain — the web site with the same number is not touched
+            if ($this->getMailDomain((int) $ref->remoteId) === null) {
+                return ProviderResult::completed(null, ['already_deleted' => true], alreadyExisted: true);
+            }
+
+            return $this->deleteMailDomain($ref);
+        }
+        $this->assertWebDomain($ref);
+        $site = $this->getSite((int) $ref->remoteId);
+        $expected = (string) ($ref->meta['domain'] ?? '');
+        if ($site !== null && $expected !== '' && strtolower((string) ($site['domain'] ?? '')) !== strtolower($expected)) {
+            throw new ProviderException('ispconfig', ProviderErrorCode::CONFLICT, "ISPConfig web domain {$ref->remoteId} is {$site['domain']}, not {$expected}; refusing to delete it.");
+        }
+        if ($site === null) {
             return ProviderResult::completed(null, ['already_deleted' => true], alreadyExisted: true);
         }
         $this->api->call('sites_web_domain_delete', ['primary_id' => (int) $ref->remoteId], true);
@@ -265,6 +300,9 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function usage(ResourceRef $ref, ?string $periodStart = null, ?string $periodEnd = null): Usage
     {
+        if ($ref->remoteType !== 'web_domain' && $ref->remoteType !== 'site') {
+            return new Usage([], now()->toISOString());
+        }
         $site = $this->getSite((int) $ref->remoteId) ?? [];
         $quota = (array) $this->api->call('quota_get_by_user', ['client_id' => (int) ($ref->meta['client_id'] ?? 0)]);
         $row = collect($quota)->firstWhere('domain', $site['domain'] ?? '') ?? [];
@@ -811,6 +849,33 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
         $row = collect($rows)->first();
 
         return is_array($row) && ! empty($row['domain_id']) ? $row : null;
+    }
+
+    /** A lifecycle call on a resource that is not a web domain must never reach the web domain functions (numbers overlap between ISPConfig tables). */
+    private function assertWebDomain(ResourceRef $ref): void
+    {
+        if ($ref->remoteType !== 'web_domain' && $ref->remoteType !== 'site') {
+            throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, "ISPConfig lifecycle call for a {$ref->remoteType} resource; only web and mail domains are supported.");
+        }
+    }
+
+    /** @return array<string,mixed>|null */
+    private function getMailDomain(int $domainId): ?array
+    {
+        $row = $this->api->call('mail_domain_get', ['primary_id' => $domainId]);
+
+        return is_array($row) && ! empty($row['domain_id']) ? $row : null;
+    }
+
+    private function setMailDomainActive(ResourceRef $ref, bool $active): void
+    {
+        $current = $this->getMailDomain((int) $ref->remoteId);
+        if ($current === null) {
+            throw new ProviderException('ispconfig', ProviderErrorCode::NOT_FOUND, "ISPConfig mail domain {$ref->remoteId} no longer exists.");
+        }
+        $params = array_filter($current, fn ($v, $k) => ! str_starts_with((string) $k, 'sys_') && $k !== 'domain_id', ARRAY_FILTER_USE_BOTH);
+        $params['active'] = $active ? 'y' : 'n';
+        $this->api->call('mail_domain_update', ['client_id' => (int) ($ref->meta['client_id'] ?? $current['sys_groupid'] ?? 0), 'primary_id' => (int) $ref->remoteId, 'params' => $params], true);
     }
 
     private function getSite(int $domainId): ?array
