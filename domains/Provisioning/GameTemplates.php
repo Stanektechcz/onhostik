@@ -133,6 +133,27 @@ final class GameTemplates
         return ['stored_at' => CarbonImmutable::parse((string) $at)->toIso8601String(), 'stale' => $stale, 'days' => $days];
     }
 
+    /**
+     * What a game needs at least (audit §5v): the RAM, vCPU and NVMe floors of the configurator and the RAM one player
+     * slot takes (0 = the game has no slot concept, e.g. a proxy); the slot count of a configuration is RAM / slot_mb.
+     *
+     * @return array{min_ram_mb:int, min_vcpu:int, min_nvme_gb:int, slot_mb:int}
+     */
+    public function floors(string $key): array
+    {
+        $preset = (array) config("onhost.game.eggs.{$key}", []);
+
+        return ['min_ram_mb' => max(0, (int) ($preset['min_ram_mb'] ?? 0)), 'min_vcpu' => max(0, (int) ($preset['min_vcpu'] ?? 0)), 'min_nvme_gb' => max(0, (int) ($preset['min_nvme_gb'] ?? 0)), 'slot_mb' => max(0, (int) ($preset['slot_mb'] ?? 0))];
+    }
+
+    /** Player slots a configuration yields for a game (null when the game has no slot concept). */
+    public function slots(string $key, int $ramMb): ?int
+    {
+        $slot = $this->floors($key)['slot_mb'];
+
+        return $slot > 0 ? (int) floor($ramMb / $slot) : null;
+    }
+
     /** @return array{available:bool, reason:?string} */
     public function availability(string $key): array
     {
@@ -173,10 +194,18 @@ final class GameTemplates
         if (! $availability['available']) {
             throw new DomainError('game_template_unavailable', "The game template {$key} cannot be ordered right now.", 422, ['field' => 'items', 'template' => $key, 'reason' => $availability['reason']]);
         }
-        $floor = (int) config("onhost.game.eggs.{$key}.min_ram_mb", 0);
+        $floors = $this->floors($key);
         $ram = (int) ($entitlements['ram_mb'] ?? 0);
-        if ($floor > 0 && $ram > 0 && $ram < $floor) {
-            throw new DomainError('game_template_ram_too_low', "The game template {$key} needs at least {$floor} MB RAM; pick a bigger plan.", 422, ['field' => 'items', 'template' => $key, 'min_ram_mb' => $floor, 'plan_ram_mb' => $ram]);
+        if ($floors['min_ram_mb'] > 0 && $ram > 0 && $ram < $floors['min_ram_mb']) {
+            throw new DomainError('game_template_ram_too_low', "The game template {$key} needs at least {$floors['min_ram_mb']} MB RAM; pick a bigger plan.", 422, ['field' => 'items', 'template' => $key, 'min_ram_mb' => $floors['min_ram_mb'], 'plan_ram_mb' => $ram]);
+        }
+        $vcpu = (int) ($entitlements['vcpu'] ?? 0);
+        if ($floors['min_vcpu'] > 0 && $vcpu > 0 && $vcpu < $floors['min_vcpu']) { // the configurator's floors (audit §5v): vCPU and NVMe like the RAM
+            throw new DomainError('game_template_vcpu_too_low', "The game template {$key} needs at least {$floors['min_vcpu']} vCPU.", 422, ['field' => 'items', 'template' => $key, 'min_vcpu' => $floors['min_vcpu'], 'plan_vcpu' => $vcpu]);
+        }
+        $disk = (int) ($entitlements['nvme_gb'] ?? 0);
+        if ($floors['min_nvme_gb'] > 0 && $disk > 0 && $disk < $floors['min_nvme_gb']) {
+            throw new DomainError('game_template_disk_too_low', "The game template {$key} needs at least {$floors['min_nvme_gb']} GB NVMe.", 422, ['field' => 'items', 'template' => $key, 'min_nvme_gb' => $floors['min_nvme_gb'], 'plan_nvme_gb' => $disk]);
         }
         $environment = (array) ($config['environment'] ?? []);
         $missing = [];

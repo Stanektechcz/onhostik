@@ -104,6 +104,9 @@ final class ServiceService
         }
         $entitlements = $this->applyOptions((array) ($config['entitlements'] ?? $version?->entitlements ?? []), (array) ($config['options'] ?? []), $product);
         $limits = (array) ($config['limits'] ?? $version?->limits ?? []);
+        if ($product->family === 'game' && (int) ($entitlements['vcpu'] ?? 0) > 0) {
+            $limits['cpu_pct'] = max((int) ($limits['cpu_pct'] ?? 0), (int) $entitlements['vcpu'] * 100); // the panel's CPU limit follows the configured vCPU (audit §5v)
+        }
         $region = (string) ($config['region'] ?? config('onhost.provisioning.default_region', 'cz1'));
         $service = DB::transaction(function () use ($organization, $product, $version, $config, $item, $name, $entitlements, $limits, $region) {
             $service = Service::query()->create([
@@ -1029,7 +1032,7 @@ final class ServiceService
                 continue;
             }
             if (($rule['mode'] ?? 'extra') === 'absolute' && is_numeric($value)) {
-                $entitlements[$target] = (int) $value;
+                $entitlements[$target] = (int) $value * max(1, (int) ($rule['scale'] ?? 1)); // e.g. the configurator's GB slider → MB entitlement
 
                 continue;
             }

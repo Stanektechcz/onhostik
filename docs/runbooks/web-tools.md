@@ -494,7 +494,7 @@ after the operator stored the keys with `onhost:integrations:secret pterodactyl-
 and `… client_key --check`. The report lists the probe, the nodes, the templates mapped by name
 (`config/onhost.php` → `game.eggs`; unmapped keys name the community egg to import in the panel's admin UI), the
 prerequisites, the port ranges created and the plan placement. `--eggs-only` re-maps templates; `--force` re-maps
-the ones already mapped. The public `gamehosting` page and the panel wizard sell the `game` plans (`game-8/16/32`)
+the ones already mapped. The public `gamehosting` page sells the per-game configurator (`game-custom` + sliders, floors per egg in config onhost.game.eggs); the panel wizard also keeps the fixed `game-8/16/32` plans
 with the template as the wizard's "image" choice (`config.egg` on the order line).
 
 **Migrations.** `POST /v1/staff/services/{service}/migrate {target_node_id?, reason}` (a node id or name of the same

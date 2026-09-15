@@ -59,11 +59,11 @@ final class CatalogSeeder extends Seeder
         ], hourly: true);
 
         $this->product('game', 'game', 'pterodactyl', 'daily', ['cs' => 'Herní server', 'en' => 'Game server'], ['cs' => 'Minecraft, CS2, Rust, Palworld, Valheim, DayZ a další s konzolí, mody a zálohami.', 'en' => 'Minecraft, CS2, Rust, Palworld, Valheim, DayZ and more with console, mods and backups.'], 40, ['persona' => 'gamer', 'hardware_class' => 'AMD Ryzen 9 7950X3D / 9950X, NVMe', 'eggs' => ['minecraft-paper', 'minecraft-spigot', 'minecraft-purpur', 'minecraft-vanilla', 'minecraft-forge', 'minecraft-sponge', 'minecraft-bungeecord', 'minecraft-bedrock', '7-days-to-die', 'arma-reforger', 'cs2', 'dayz', 'enshrouded', 'factorio', 'hytale', 'palworld', 'project-zomboid', 'rust-autowipe', 'satisfactory', 'terraria', 'v-rising', 'valheim']], [
-            ['game-4', ['cs' => 'Game 4 GB', 'en' => 'Game 4 GB'], 17900, 179000, 720, 7200, false, 'standard', ['ram_mb' => 4096, 'vcpu' => 2, 'nvme_gb' => 30, 'slots' => 'neomezeno (RAM)', 'backups' => 3, 'allocations' => 1, 'databases' => 1, 'ddos' => 'upstream L3/L4', 'console' => 'live websocket', 'sftp' => true], ['pids' => 400, 'cpu_pct' => 200]], // small worlds: Terraria, Factorio, Bedrock, Vanilla for a few friends
+            // the public configurator's base (audit §5v): the customer picks a game and sizes RAM / vCPU / NVMe / backups / ports / databases; the base covers the minimum, the rest is priced per unit (gameOptions)
+            ['game-custom', ['cs' => 'Herní server na míru', 'en' => 'Custom game server'], 4900, 49000, 199, 1990, true, 'standard', ['ram_mb' => 1024, 'vcpu' => 1, 'nvme_gb' => 10, 'slots' => 'podle RAM a hry', 'backups' => 1, 'allocations' => 1, 'databases' => 0, 'ddos' => 'upstream L3/L4', 'console' => 'live websocket', 'sftp' => true], ['pids' => 400, 'cpu_pct' => 100], ['cs' => 'Vyberte hru a nastavte si výkon posuvníky.', 'en' => 'Pick a game and size the server with sliders.']],
             ['game-8', ['cs' => 'Game 8 GB', 'en' => 'Game 8 GB'], 34900, 349000, 1390, 13900, false, 'standard', ['ram_mb' => 8192, 'vcpu' => 3, 'nvme_gb' => 60, 'slots' => 'neomezeno (RAM)', 'backups' => 5, 'allocations' => 2, 'databases' => 2, 'ddos' => 'upstream L3/L4', 'console' => 'live websocket', 'sftp' => true], ['pids' => 500, 'cpu_pct' => 300]],
-            ['game-16', ['cs' => 'Game 16 GB', 'en' => 'Game 16 GB'], 64900, 649000, 2590, 25900, true, 'standard', ['ram_mb' => 16384, 'vcpu' => 5, 'nvme_gb' => 120, 'slots' => 'neomezeno (RAM)', 'backups' => 10, 'allocations' => 4, 'databases' => 4, 'ddos' => 'upstream L3/L4', 'console' => 'live websocket', 'sftp' => true], ['pids' => 800, 'cpu_pct' => 500]],
+            ['game-16', ['cs' => 'Game 16 GB', 'en' => 'Game 16 GB'], 64900, 649000, 2590, 25900, false, 'standard', ['ram_mb' => 16384, 'vcpu' => 5, 'nvme_gb' => 120, 'slots' => 'neomezeno (RAM)', 'backups' => 10, 'allocations' => 4, 'databases' => 4, 'ddos' => 'upstream L3/L4', 'console' => 'live websocket', 'sftp' => true], ['pids' => 800, 'cpu_pct' => 500]],
             ['game-32', ['cs' => 'Game 32 GB', 'en' => 'Game 32 GB'], 119000, 1190000, 4790, 47900, false, 'business', ['ram_mb' => 32768, 'vcpu' => 8, 'nvme_gb' => 240, 'slots' => 'neomezeno (RAM)', 'backups' => 20, 'allocations' => 8, 'databases' => 8, 'ddos' => 'upstream L3/L4 + game profiles', 'console' => 'live websocket', 'sftp' => true], ['pids' => 1200, 'cpu_pct' => 800]],
-            ['game-64', ['cs' => 'Game 64 GB', 'en' => 'Game 64 GB'], 229000, 2290000, 9190, 91900, false, 'business', ['ram_mb' => 65536, 'vcpu' => 12, 'nvme_gb' => 480, 'slots' => 'neomezeno (RAM)', 'backups' => 30, 'allocations' => 12, 'databases' => 12, 'ddos' => 'upstream L3/L4 + game profiles', 'console' => 'live websocket', 'sftp' => true], ['pids' => 2000, 'cpu_pct' => 1200]], // large modpacks, Palworld/Rust communities, event servers
         ], daily: true);
 
         $this->product('mail', 'mail', 'ispconfig', 'subscription', ['cs' => 'Mailhosting', 'en' => 'Mail hosting'], ['cs' => 'Schránky, aliasy a relay v oddělené reputační doméně, DKIM/SPF/DMARC.', 'en' => 'Mailboxes, aliases and relay in a separate reputation domain, DKIM/SPF/DMARC.'], 50, ['persona' => 'business'], [
@@ -90,6 +90,7 @@ final class CatalogSeeder extends Seeder
         $this->addonProducts();
         $this->options();
         $this->webOptions();
+        $this->gameOptions();
         $this->tlds();
         $this->promos();
     }
@@ -239,6 +240,31 @@ final class CatalogSeeder extends Seeder
                     'meta' => array_filter(['cfg_key' => $key, 'desc' => $desc, 'entitlement' => $entitlement], fn ($v) => $v !== null),
                 ]);
             }
+        }
+    }
+
+    /**
+     * The game configurator's priced parameters (audit §5v): absolute values, the `game-custom` base plan covers the minimum
+     * (1 GB / 1 vCPU / 10 GB / 1 backup / 1 port), every unit above it is priced; the game's floors (config onhost.game.eggs)
+     * lift the minimum per game. `scale` turns the slider's GB into the entitlement's MB.
+     */
+    private function gameOptions(): void
+    {
+        $product = Product::query()->where('key', 'game')->firstOrFail();
+        $rows = [
+            ['ram_gb', ['cs' => 'Operační paměť', 'en' => 'Memory'], ['cs' => 'RAM serveru; hra určuje minimum a počet slotů', 'en' => 'server RAM; the game sets the minimum and the slot count'], 'GB', 1, (int) config('onhost.game.configurator.max_ram_gb', 64), 1, 1, ['CZK' => 3500, 'EUR' => 140], ['key' => 'ram_mb', 'mode' => 'absolute', 'scale' => 1024]],
+            ['vcpu', ['cs' => 'Jádra vCPU', 'en' => 'vCPU cores'], ['cs' => 'vyhrazený výkon procesoru', 'en' => 'dedicated processor share'], 'vCPU', 1, (int) config('onhost.game.configurator.max_vcpu', 8), 1, 1, ['CZK' => 6000, 'EUR' => 240], ['key' => 'vcpu', 'mode' => 'absolute']],
+            ['nvme_gb', ['cs' => 'NVMe úložiště', 'en' => 'NVMe storage'], ['cs' => 'svět, mody a zálohy', 'en' => 'world, mods and backups'], 'GB', 10, 500, 10, 10, ['CZK' => 150, 'EUR' => 6], ['key' => 'nvme_gb', 'mode' => 'absolute']],
+            ['backups', ['cs' => 'Zálohy', 'en' => 'Backups'], ['cs' => 'počet uchovaných záloh v panelu', 'en' => 'backups kept in the panel'], 'ks', 1, 30, 1, 1, ['CZK' => 900, 'EUR' => 36], ['key' => 'backups', 'mode' => 'absolute']],
+            ['allocations', ['cs' => 'Porty', 'en' => 'Ports'], ['cs' => 'síťové porty (další hry, pluginy, RCON)', 'en' => 'network ports (extra games, plugins, RCON)'], 'ks', 1, 10, 1, 1, ['CZK' => 1500, 'EUR' => 60], ['key' => 'allocations', 'mode' => 'absolute']],
+            ['databases', ['cs' => 'Databáze', 'en' => 'Databases'], ['cs' => 'MySQL databáze pro pluginy', 'en' => 'MySQL databases for plugins'], 'ks', 0, 10, 1, 0, ['CZK' => 1900, 'EUR' => 79], ['key' => 'databases', 'mode' => 'absolute']],
+        ];
+        foreach ($rows as $i => [$key, $label, $desc, $unit, $min, $max, $step, $default, $unitPrice, $entitlement]) {
+            ProductOption::query()->updateOrCreate(['product_id' => $product->id, 'key' => $key], [
+                'kind' => 'slider', 'label' => $label, 'unit' => $unit, 'min' => $min, 'max' => $max, 'step' => $step, 'default_value' => $default,
+                'price_per_unit_minor' => $unitPrice, 'sort' => ($i + 1) * 10, 'choices' => null,
+                'meta' => ['cfg_key' => $key, 'desc' => $desc, 'entitlement' => $entitlement],
+            ]);
         }
     }
 

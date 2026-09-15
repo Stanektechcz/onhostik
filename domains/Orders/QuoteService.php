@@ -13,10 +13,12 @@ use Onhost\Domain\Catalog\PricingRules;
 use Onhost\Domain\Orders\Models\ConsentDocument;
 use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Provisioning\GameConfigurator;
 use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\PlanChangeService;
+use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Tax\TaxEngine;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Currency;
@@ -123,8 +125,15 @@ final class QuoteService
             }
             $product = $resolved['product'];
             $price = $resolved['price'];
+            if ($product->family === 'game' && $planKey !== (string) config('onhost.game.configurator.plan', 'game-custom')) {
+                unset($config['options']); // the game sliders are absolute values of the configurator plan; a fixed plan keeps its own sizes (audit §5v)
+            }
+            if ($product->family === 'game' && $planKey === (string) config('onhost.game.configurator.plan', 'game-custom') && $change === null) {
+                $eggs = (array) data_get($product->meta, 'eggs', []);
+                $config['options'] = app(GameConfigurator::class)->clamp((string) ($config['egg'] ?? ($eggs[0] ?? '')), (array) ($config['options'] ?? [])); // never below the game's floors or outside the sliders
+            }
             if ($product->family === 'game' && $change === null) { // §5s: an available template, the RAM floor, the customer's inputs
-                app(GameTemplates::class)->assertOrderable($product, $config, (array) $resolved['version']->entitlements);
+                app(GameTemplates::class)->assertOrderable($product, $config, app(ServiceService::class)->entitlementsFor($resolved['version'], (array) ($config['options'] ?? []), $product)); // the sliders' values count, not the bare base plan (audit §5v)
             }
             $parentLine = (string) ($config['parent_line_id'] ?? '');
             if ($parentLine !== '') { // an add-on line belongs to a service line and must be one of the add-ons that service offers

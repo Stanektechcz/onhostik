@@ -8,11 +8,15 @@ use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Notifications\Models\Notification;
+use Onhost\Domain\Orders\QuoteService;
+use Onhost\Domain\Provisioning\GameConfigurator;
 use Onhost\Domain\Provisioning\GamePanelBootstrap;
 use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Services\ServiceService;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Outbox\OutboxPublisher;
@@ -113,4 +117,35 @@ it('sorts template requirements, gates the offer and the quote, fills passwords 
     app(OutboxPublisher::class)->relayPending();
     expect(Notification::query()->where('event', 'game.template.missing')->first()?->title)->toContain('cs2');
     expect((string) file_get_contents(base_path('apps/surfaces/api/onhost-panel-order.api.js')))->toContain('chosen.inputs');
+});
+
+it('prices the game configurator per game from its floors and validates the configured sizes in the quote (audit §5v)', function () {
+    $this->seed([CatalogSeeder::class, TaxRuleSeeder::class]);
+    [, $org] = $this->customerWithOrganization();
+    featureGameService($org);
+    ProviderInstance::query()->where('key', 'pterodactyl-games01')->firstOrFail()->forceFill(['options' => ['eggs' => ['minecraft-paper' => ['nest' => 1, 'egg' => 1], 'terraria' => ['nest' => 2, 'egg' => 5], 'cs2' => ['nest' => 5, 'egg' => 17]]]])->save();
+    $cfg = app(GameConfigurator::class);
+    expect(Plan::query()->whereIn('key', ['game-4', 'game-64'])->exists())->toBeFalse();
+
+    // from-prices: base 49 Kč covers 1 GB / 1 vCPU / 10 GB; Paper needs 2 GB (+35), CS2 4 GB, 2 vCPU, 60 GB (+105 +60 +75)
+    expect($cfg->minimumOptions('minecraft-paper'))->toMatchArray(['ram_gb' => 2, 'vcpu' => 1, 'nvme_gb' => 10])
+        ->and($cfg->fromPrice('minecraft-paper')->toDecimal())->toBe('84.00')->and($cfg->fromPrice('terraria')->toDecimal())->toBe('49.00')
+        ->and($cfg->fromPrice('cs2')->toDecimal())->toBe('289.00')
+        ->and($cfg->price('minecraft-paper', ['ram_gb' => 8, 'vcpu' => 2, 'nvme_gb' => 35, 'databases' => 1])->toDecimal())->toBe('418.00') // 49 + 7×35 + 60 + 30×1.5 (35 GB snaps to 40) + 19
+        ->and($cfg->clamp('cs2', ['ram_gb' => 1, 'vcpu' => 99]))->toMatchArray(['ram_gb' => 4, 'vcpu' => 8])
+        ->and(app(GameTemplates::class)->slots('minecraft-paper', 4096))->toBe(27);
+    $offer = $cfg->offer('cs');
+    expect(collect($offer['games'])->pluck('key')->all())->toBe(['minecraft-paper', 'cs2', 'terraria'])->and(collect($offer['options'])->pluck('key')->all())->toBe(['ram_gb', 'vcpu', 'nvme_gb', 'backups', 'allocations', 'databases']);
+
+    // the quote clamps to the floors and prices like the configurator; a fixed plan ignores the sliders
+    $quote = app(QuoteService::class)->quote([['product_key' => 'game', 'plan_key' => 'game-custom', 'config' => ['egg' => 'minecraft-paper', 'options' => ['ram_gb' => 1, 'vcpu' => 2]]]], 'CZK', ['country' => 'CZ']);
+    $line = $quote['lines'][0];
+    expect($line['config']['options'])->toMatchArray(['ram_gb' => 2, 'vcpu' => 2])->and($line['unit_net'])->toBe(14400);
+    $fixed = app(QuoteService::class)->quote([['product_key' => 'game', 'plan_key' => 'game-8', 'config' => ['egg' => 'minecraft-paper', 'options' => ['ram_gb' => 1]]]], 'CZK', ['country' => 'CZ']);
+    expect($fixed['lines'][0]['unit_net'])->toBe(34900);
+
+    // provisioning: the sliders become the entitlements (GB → MB) and the CPU limit follows the vCPU
+    $version = Plan::query()->where('key', 'game-custom')->firstOrFail()->versions()->first();
+    $ent = app(ServiceService::class)->entitlementsFor($version, ['ram_gb' => 6, 'vcpu' => 3, 'nvme_gb' => 40], Product::query()->where('key', 'game')->firstOrFail());
+    expect($ent)->toMatchArray(['ram_mb' => 6144, 'vcpu' => 3, 'nvme_gb' => 40]);
 });

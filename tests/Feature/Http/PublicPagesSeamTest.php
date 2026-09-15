@@ -51,10 +51,11 @@ it('generates catalogue-driven plans, comparison tables and SKUs for the public 
 
     // the game hosting landing (audit §5g-1): the game product's plans as the prototype's `gameSlots` cards, SKU-resolvable the way the cards add to the cart
     $slots = $data['cs']['gameSlots'];
-    expect(array_column(array_column($slots, 'cs'), 0))->toBe(['Game 4 GB', 'Game 8 GB', 'Game 16 GB', 'Game 32 GB', 'Game 64 GB'])->and($slots[0]['p'])->toBe(179)->and($slots[1]['p'])->toBe(349)->and($slots[2])->toMatchArray(['p' => 649, 'hi' => true])->and($slots[2]['cs'][1])->toBe('Nejčastější volba')->and($slots[3]['en'][1])->toBe('')
-        ->and($slots[0]['cs'][3])->toHaveCount(4)->and($slots[0]['en'][3][0])->toBe($data['en']['gameSlots'][0]['en'][3][0]);
+    expect(array_column(array_column($slots, 'cs'), 0))->toContain('Minecraft · Paper')->toContain('Counter-Strike 2')->not->toContain('Game 4 GB')->and($slots[0]['egg'])->toBe('minecraft-paper')->and($slots[0]['p'])->toBe(84) // §5v: one card per game, "from" = base 49 + 1 GB above the base for Paper's 2 GB floor
+        ->and($slots[0]['cs'][3])->toHaveCount(4)->and($slots[0]['cs'][3][0])->toBe('od 2 GB RAM')->and($slots[0]['en'][3][0])->toBe('from 2 GB RAM');
     expect($data['cs']['skus']['gamehosting game 8 gb|349'])->toMatchArray(['product_key' => 'game', 'plan_key' => 'game-8'])->and($data['en']['skus'])->toHaveKey('game hosting game 16 gb');
     expect($html)->toContain('window.ONHOST_DATA.gameSlots(cs)')->toContain("'Support within 10 min']] }\n    ]);");
+    expect($html)->toContain('/surfaces/api/onhost-game-config.api.js')->toContain('id="game-config"')->toContain('window.OnhostGameConfig.pickOn(this, p.egg)')->toContain("'Již od '");
     // one term per order, monthly unless a year is picked, and the summary shows the server's quote (yearly list prices for 12/24 months)
     expect((float) $data['cs']['skus']['webhosting · standard']['price_year'])->toBe(1890.0)->and($pages['web-hosting']['plans'][1]['sku'])->toMatchArray(['plan_key' => 'standard', 'price_year' => 1890.0]);
     expect($html)->toContain('step: 1, commit: 1, co: {')->not->toContain('commit: st.commit || 12')->toContain("st.period === 'year' ? 12 : (st.commit || 1)")
