@@ -10,6 +10,7 @@ use Onhost\Domain\Orders\Models\Consent;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditEvent;
+use Onhost\Platform\Money\Money;
 
 beforeEach(function () {
     $this->seed([CatalogSeeder::class, TaxRuleSeeder::class, LegalEntitySeeder::class]);
@@ -46,4 +47,23 @@ it('lets staff credit a wallet, place an order from it on the customer\'s behalf
     expect(collect($detail->json('data.orders'))->firstWhere('number', $pending->number)['state'])->toBe('PENDING_PAYMENT');
     $this->withHeader('Idempotency-Key', 'bank-line-assist')->postJson('/v1/staff/payments/bank/lines', ['variable_symbol' => $vs, 'amount' => $pending->total()->toDecimal(), 'currency' => 'CZK', 'external_id' => 'manual-'.$pending->number])->assertCreated();
     expect($pending->fresh()->state)->not->toBe('PENDING_PAYMENT');
+});
+
+it('pays an order with bonus credit when the purchased credit does not cover it (audit §5z)', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    $wallets = app(WalletService::class);
+    $ctx = $this->contextFor($user, $org);
+    $wallets->topup($org, Money::decimal('50', 'CZK'), 'card', 'bought', $ctx, bankProvider: 'comgate');
+    $wallets->topup($org, Money::decimal('500', 'CZK'), 'promo', 'bonus', $ctx, promo: true);
+    expect($wallets->spendable($org, 'CZK')->minor)->toBe(55000);
+    $this->actingAs($user, 'sanctum');
+    $this->putJson('/v1/cart', ['items' => [['product_key' => 'web-hosting', 'plan_key' => 'start']], 'commit_months' => 1, 'currency' => 'CZK'])->assertOk();
+    $quote = $this->postJson('/v1/cart/quote')->assertOk();
+    $order = $this->postJson('/v1/orders', ['quote_id' => $quote->json('data.quote_id'), 'consents' => ['terms' => [], 'privacy' => [], 'dpa' => [], 'withdrawal_waiver' => []], 'payment' => ['mode' => 'wallet']])->assertCreated();
+    expect($order->json('state'))->toBe('PAID');
+    $total = (int) $quote->json('data.total');
+    $balances = $wallets->balances($org, 'CZK');
+    expect($wallets->spendable($org, 'CZK')->minor)->toBe(55000 - $total)
+        ->and($balances['promo']->minor)->toBe(55000 - $total - 5000 < 0 ? 0 : 50000 - ($total - 5000))
+        ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(0); // the purchased 50 Kč went into the order first, the bonus is never refundable
 });

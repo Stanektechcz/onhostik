@@ -171,6 +171,9 @@ final class WalletService
             if ($priority !== 'domain') {
                 $available = $available->subtract($this->domainReserve($organizationId, $wallet->currency));
             }
+            if ($available->lessThan($amount)) { // bonus credit covers what the purchased credit lacks (it counts as spendable, so an order must be able to use it)
+                $available = $available->add($this->applyPromo($wallet, $amount->subtract($available), $idempotencyKey, $context, $referenceType, $referenceId));
+            }
             if ($available->lessThan($amount)) {
                 throw new DomainError('insufficient_funds', 'Insufficient wallet balance for this operation.', 402, [
                     'required' => $amount, 'available' => $available, 'hint' => 'Top up the wallet or enable auto top-up.',
@@ -403,6 +406,39 @@ final class WalletService
         $minor = (int) data_get($organization?->settings, "domain_reserve.{$cur->value}", 0);
 
         return Money::minor(max(0, $minor), $cur);
+    }
+
+    /**
+     * Moves bonus credit into the main wallet for a hold that purchased credit alone cannot cover (audit §5z):
+     * DR liability:promo:{org}  CR liability:wallet:{org}, recorded as a non-refundable `promo_used` movement (bucket column is 12 characters).
+     * Returns what was applied (zero when there is no bonus credit).
+     */
+    private function applyPromo(Wallet $main, Money $shortfall, string $idempotencyKey, CommandContext $context, ?string $referenceType, ?string $referenceId): Money
+    {
+        $promo = $this->lockWallet($main->organization_id, $main->currency, 'promo');
+        $usable = $promo->available();
+        if (! $shortfall->isPositive() || ! $usable->isPositive()) {
+            return Money::zero($main->currency);
+        }
+        $applied = $usable->lessThan($shortfall) ? $usable : $shortfall;
+        $key = 'promo-apply:'.$idempotencyKey;
+        $transaction = $this->ledger->post(
+            'promo_apply', $main->currency,
+            [
+                ['account' => LedgerService::walletAccount($main->organization_id, $main->currency, 'promo'), 'debit' => $applied->minor],
+                ['account' => LedgerService::walletAccount($main->organization_id, $main->currency), 'credit' => $applied->minor],
+            ],
+            'ledger:'.$key, $main->organization_id, $referenceType, $referenceId, 'Použit bonusový kredit', $this->actor($context),
+        );
+        WalletTopup::query()->create([
+            'wallet_id' => $main->id, 'organization_id' => $main->organization_id, 'amount_minor' => $applied->minor, 'currency' => $main->currency instanceof Currency ? $main->currency->value : $main->currency,
+            'source' => 'promo', 'bucket' => 'promo_used', 'refundable' => false, 'state' => 'completed', 'transaction_id' => $transaction->id,
+            'note' => 'Použit bonusový kredit', 'idempotency_key' => $key, 'created_by' => $this->actor($context),
+        ]);
+        $this->refreshCaches($promo);
+        $this->refreshCaches($main);
+
+        return $applied;
     }
 
     private function lockWallet(string $organizationId, Currency|string $currency, string $kind = 'main'): Wallet
