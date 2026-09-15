@@ -57,6 +57,7 @@ final class SurfaceRenderer
             if ($surface === 'public') {
                 $inject .= "\n".'<script src="'.$v('onhost-svc-pages.api.js').'"></script>';
                 $inject .= "\n".'<script src="'.$v('onhost-game-config.api.js').'"></script>';
+                $inject .= "\n".self::MOBILE_CSS;
                 $inject .= "\n".'<script src="'.$v('onhost-cart.api.js').'"></script>';
             }
             if ($surface === 'panel') {
@@ -436,89 +437,7 @@ HTML;
                 ],
                 $html,
             );
-            // the game landing (audit §5v): the customer picks a game (cards with "Již od"), then sizes it in the configurator (api/onhost-game-config.api.js)
-            $html = str_replace(
-                [
-                    0 => 'go: pick((cs ? \'Gamehosting \' : \'Game hosting \') + c[0], p.p) };',
-                    1 => 'price: this.czk(this.yr(p.p)), per, wrapStyle: planStyle(!!p.hi, i === 2)',
-                    2 => '      games: [\'Minecraft\', \'CS2\',',
-                    3 => 'gmPlansTitle: \'Plány podle počtu slotů\'',
-                    4 => 'gmPlansTitle: \'Plans by slot count\'',
-                    5 => '<a href="#" onClick="{{ gpl.go }}" style="{{ gpl.ctaStyle }}">{{ t.order }}</a>
-        </div>
-      </sc-for>
-    </div>
-  </section>
-',
-                ],
-                [
-                    0 => 'go: (p.egg && window.OnhostGameConfig) ? window.OnhostGameConfig.pickOn(this, p.egg) : pick((cs ? \'Gamehosting \' : \'Game hosting \') + c[0], p.p) };',
-                    1 => 'price: (p.egg ? (cs ? \'Již od \' : \'From \') : \'\') + this.czk(p.egg ? Math.round(p.p * 1.21) / 1.21 : this.yr(p.p)), per: p.egg ? (cs ? \'/měs\' : \'/mo\') : per, wrapStyle: planStyle(!!p.hi, i === 2)',
-                    2 => '      gcx: window.OnhostGameConfig ? window.OnhostGameConfig.view(this, cs) : { has: false },
-      games: (window.OnhostGameConfig && window.OnhostGameConfig.labels(cs).length) ? window.OnhostGameConfig.labels(cs) : [\'Minecraft\', \'CS2\',',
-                    3 => 'gmPlansTitle: \'Vyberte hru — ceny od minimální konfigurace\'',
-                    4 => 'gmPlansTitle: \'Pick a game — prices from the minimum configuration\'',
-                    5 => '<a href="#" onClick="{{ gpl.go }}" style="{{ gpl.ctaStyle }}">{{ t.order }}</a>
-        </div>
-      </sc-for>
-    </div>
-  </section>
-
-  <sc-if value="{{ gcx.has }}" hint-placeholder-val="{{ false }}">
-  <section id="game-config" style="border-bottom:2px solid color-mix(in srgb,var(--fg,#201e1d) 40%,transparent)">
-    <div class="oh-split" style="max-width:1360px;margin:0 auto;padding:0 32px;display:grid;grid-template-columns:1.05fr .95fr">
-      <div style="padding:52px 48px 56px 0;border-right:2px solid color-mix(in srgb,var(--fg,#201e1d) 40%,transparent)">
-        <h2 style="font-size:36px;margin:0 0 12px;letter-spacing:-.02em;text-wrap:balance">{{ gcx.title }}</h2>
-        <p style="font-size:16px;line-height:1.55;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);margin:0 0 26px;max-width:52ch;text-wrap:pretty">{{ gcx.lead }}</p>
-        <div style="font-family:var(--font-heading);font-weight:800;font-size:14px;letter-spacing:.03em;text-transform:uppercase;margin-bottom:10px">{{ gcx.gamesLabel }}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:30px"><sc-for list="{{ gcx.games }}" as="gcg" hint-placeholder-count="8"><button onClick="{{ gcg.on }}" style="{{ gcg.style }}">{{ gcg.label }}</button></sc-for></div>
-        <div style="font-family:var(--font-heading);font-weight:800;font-size:14px;letter-spacing:.03em;text-transform:uppercase;margin-bottom:14px">{{ gcx.paramsLabel }}</div>
-        <sc-if value="{{ gcx.hasGame }}" hint-placeholder-val="{{ false }}">
-        <div style="display:flex;flex-direction:column;gap:22px">
-          <sc-for list="{{ gcx.sliders }}" as="gcs" hint-placeholder-count="6">
-            <div>
-              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:8px"><span style="font-family:var(--font-heading);font-weight:800;font-size:14px;letter-spacing:.03em;text-transform:uppercase">{{ gcs.label }}</span><span style="font-family:var(--font-heading);font-weight:800;font-size:20px">{{ gcs.value }}</span></div>
-              <input type="range" min="{{ gcs.min }}" max="{{ gcs.max }}" step="{{ gcs.step }}" value="{{ gcs.raw }}" onChange="{{ gcs.on }}" style="width:100%;accent-color:var(--acc,#ec3013)" />
-              <div style="display:flex;justify-content:space-between;font-size:11px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);margin-top:4px"><span>{{ gcs.minLabel }}</span><span>{{ gcs.maxLabel }}</span></div>
-            </div>
-          </sc-for>
-          <sc-if value="{{ gcx.hasVersions }}" hint-placeholder-val="{{ false }}">
-            <div><div style="font-family:var(--font-heading);font-weight:800;font-size:14px;letter-spacing:.03em;text-transform:uppercase;margin-bottom:8px">{{ gcx.versionsLabel }}</div>
-              <div style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{ gcx.versions }}" as="gcv" hint-placeholder-count="4"><button onClick="{{ gcv.on }}" style="{{ gcv.style }}">{{ gcv.label }}</button></sc-for></div></div>
-          </sc-if>
-          <sc-if value="{{ gcx.hasInputs }}" hint-placeholder-val="{{ false }}">
-            <div><div style="font-family:var(--font-heading);font-weight:800;font-size:14px;letter-spacing:.03em;text-transform:uppercase;margin-bottom:8px">{{ gcx.inputsLabel }}</div>
-              <sc-for list="{{ gcx.inputs }}" as="gci" hint-placeholder-count="1">
-                <label style="display:block;margin-bottom:14px"><span style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">{{ gci.label }}</span>
-                  <input type="text" value="{{ gci.value }}" maxlength="{{ gci.maxlength }}" onChange="{{ gci.on }}" autocomplete="off" style="width:100%;box-sizing:border-box;padding:11px 12px;border:2px solid color-mix(in srgb,var(--fg,#201e1d) 40%,transparent);background:transparent;color:var(--fg,#201e1d);font-size:14px" />
-                  <span style="display:block;font-size:12px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);margin-top:6px">{{ gci.hint }} <sc-if value="{{ gci.hasHelp }}" hint-placeholder-val="{{ false }}"><a href="{{ gci.help }}" target="_blank" rel="noopener" style="color:var(--accInk,#ae1800)">steamcommunity.com</a></sc-if></span></label>
-              </sc-for>
-            </div>
-          </sc-if>
-        </div>
-        </sc-if>
-        <sc-if value="{{ gcx.noGame }}" hint-placeholder-val="{{ true }}"><p style="font-size:15px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);margin:0">{{ gcx.pickFirst }}</p></sc-if>
-      </div>
-      <div style="padding:52px 0 56px 48px">
-        <h6 style="color:var(--accDeep,#ae1800);margin:0 0 12px">{{ gcx.summary }}</h6>
-        <div style="border-top:2px solid color-mix(in srgb,var(--fg,#201e1d) 40%,transparent)">
-          <sc-for list="{{ gcx.rows }}" as="gcw" hint-placeholder-count="7"><div style="display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid color-mix(in srgb,var(--fg,#201e1d) 18%,transparent)"><span style="font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent)">{{ gcw.k }}</span><span style="font-family:var(--font-heading);font-weight:800;font-size:15px;text-align:right">{{ gcw.v }}</span></div></sc-for>
-        </div>
-        <sc-if value="{{ gcx.hasGame }}" hint-placeholder-val="{{ false }}">
-        <div style="display:flex;align-items:baseline;gap:8px;margin-top:22px"><span style="font-family:var(--font-heading);font-weight:800;font-size:40px;letter-spacing:-.025em">{{ gcx.price }}</span><span style="font-size:14px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent)">{{ gcx.unit }}</span></div>
-        <div style="font-size:12px;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);margin-top:4px">{{ gcx.net }}</div>
-        <p style="font-size:13px;line-height:1.55;color:color-mix(in srgb,var(--fg,#201e1d) 65%,transparent);margin:14px 0 20px;max-width:46ch;text-wrap:pretty">{{ gcx.note }}</p>
-        <p style="font-size:13px;font-weight:600;color:var(--accInk,#ae1800);margin:0 0 12px">{{ gcx.blocked }}</p>
-        <a href="#" onClick="{{ gcx.buy }}" class="btn btn-primary" style="font-size:15px;padding:15px 22px">{{ gcx.cta }}</a>
-        </sc-if>
-      </div>
-    </div>
-  </section>
-  </sc-if>
-',
-                ],
-                $html,
-            );
+            $html = self::gameSeams($html); // the game landing sells games (audit §5v/§5w)
             $html = str_replace(
                 ["const id = 'OH-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random() * 9000) + 1000);", 'co: { domain: true, backup: true, ddos: false, mail: false }', '<label style="{{ po.style }}">'],
                 ["const id = (window.__onhostOrder && window.__onhostOrder.number) || ('OH-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random() * 9000) + 1000));", 'co: { domain: false, backup: true, ddos: false, mail: false }', '<label style="{{ po.style }}" onClick="{{ po.on }}">'],
@@ -1427,4 +1346,210 @@ HTML;
             default => 'application/octet-stream',
         };
     }
+
+    /**
+     * Seam §5w (api/onhost-game-config.api.js): the game hosting landing sells games, not sizes. The prototype's three
+     * slot plans become the game offer — category tabs, a search and a tile per game with its artwork and "Již od" price —
+     * followed by the configurator of the chosen game (server type, size presets, sliders, version, inputs) with a sticky
+     * summary. The home page's product list shows one game row under "Vše" and every game under "Gaming", each opening
+     * the configurator; the prototype's visual switcher is dropped from the public site.
+     */
+    private static function gameSeams(string $html): string
+    {
+        $muted = 'color:color-mix(in srgb,var(--fg,#201e1d) 62%,transparent)';
+        $line = 'color-mix(in srgb,var(--fg,#201e1d) 18%,transparent)';
+        $cap = 'font-family:var(--font-heading);font-weight:800;font-size:13px;letter-spacing:.06em;text-transform:uppercase';
+        $offer = <<<HTML
+  <sc-if value="{{ gcx.has }}" hint-placeholder-val="{{ false }}">
+  <section id="game-offer" style="border-bottom:2px solid color-mix(in srgb,var(--fg,#201e1d) 40%,transparent);scroll-margin-top:80px">
+    <div style="max-width:1360px;margin:0 auto;padding:52px 32px 22px">
+      <h6 style="color:var(--accDeep,#ae1800);margin:0 0 10px">{{ gcx.kicker }}</h6>
+      <h2 style="font-size:42px;line-height:1.02;letter-spacing:-.025em;margin:0 0 10px">{{ gcx.title }}</h2>
+      <p style="font-size:16px;line-height:1.55;{$muted};margin:0 0 24px;max-width:60ch;text-wrap:pretty">{{ gcx.lead }}</p>
+      <div class="oh-gtools" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+        <sc-for list="{{ gcx.tabs }}" as="gtb" hint-placeholder-count="5"><button onClick="{{ gtb.on }}" style="{{ gtb.style }}">{{ gtb.label }}</button></sc-for>
+        <input type="search" value="{{ gcx.q }}" onInput="{{ gcx.onSearch }}" placeholder="{{ gcx.searchPh }}" aria-label="{{ gcx.searchPh }}" style="margin-left:auto;min-width:220px;flex:0 1 280px;box-sizing:border-box;padding:10px 12px;border:2px solid {$line};background:transparent;color:var(--fg,#201e1d);font-size:14px" />
+      </div>
+    </div>
+    <div class="oh-ggrid" style="max-width:1360px;margin:0 auto;padding:0 32px 56px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px">
+      <sc-for list="{{ gcx.tiles }}" as="gt" hint-placeholder-count="8">
+        <a href="#" onClick="{{ gt.on }}" style="{{ gt.style }}" style-hover="border-color:var(--acc,#ec3013)">
+          <div style="{{ gt.artStyle }}">
+            <sc-if value="{{ gt.hasArt }}" hint-placeholder-val="{{ false }}"><img src="{{ gt.art }}" alt="{{ gt.label }}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block" /></sc-if>
+            <sc-if value="{{ gt.noArt }}" hint-placeholder-val="{{ true }}"><span style="position:relative;padding:12px 14px;font-family:var(--font-heading);font-weight:800;font-size:20px;letter-spacing:.08em;line-height:1.05;color:#fff;text-shadow:0 2px 0 rgba(0,0,0,.35)">{{ gt.artText }}</span></sc-if>
+            <sc-if value="{{ gt.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;top:10px;right:10px;background:var(--ink,#1a1918);color:#f3f2f2;font-size:11px;font-weight:600;letter-spacing:.04em;padding:4px 8px">{{ gt.badge }}</span></sc-if>
+          </div>
+          <div style="padding:14px 16px 16px;display:flex;flex-direction:column;gap:4px;flex:1">
+            <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--accDeep,#ae1800)">{{ gt.cat }}</span>
+            <span style="font-family:var(--font-heading);font-weight:800;font-size:18px;line-height:1.15">{{ gt.label }}</span>
+            <span style="font-size:13px;line-height:1.45;{$muted};text-wrap:pretty">{{ gt.note }}</span>
+            <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-top:auto;padding-top:12px">
+              <span><span style="display:block;font-size:11px;{$muted}">{{ gt.fromLabel }}</span><span style="font-family:var(--font-heading);font-weight:800;font-size:22px;letter-spacing:-.02em">{{ gt.from }}</span><span style="font-size:12px;{$muted}"> {{ gt.per }}</span></span>
+              <span style="{{ gt.ctaStyle }}">{{ gt.cta }}</span>
+            </div>
+          </div>
+        </a>
+      </sc-for>
+      <sc-if value="{{ gcx.noTiles }}" hint-placeholder-val="{{ false }}"><p style="grid-column:1 / -1;font-size:15px;{$muted};margin:0">{{ gcx.noTilesText }}</p></sc-if>
+    </div>
+  </section>
+  </sc-if>
+
+  <sc-if value="{{ gcx.hasGame }}" hint-placeholder-val="{{ false }}">
+  <section id="game-config" style="border-bottom:2px solid color-mix(in srgb,var(--fg,#201e1d) 40%,transparent);background:var(--surface,#eae9e9);scroll-margin-top:80px">
+    <div class="oh-gcfg" style="max-width:1360px;margin:0 auto;padding:40px 32px 56px;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:32px;align-items:start">
+      <div style="min-width:0">
+        <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:26px">
+          <div style="{{ gcx.gameArtStyle }}">
+            <sc-if value="{{ gcx.gameHasArt }}" hint-placeholder-val="{{ false }}"><img src="{{ gcx.gameArt }}" alt="{{ gcx.gameTitle }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block" /></sc-if>
+          </div>
+          <div style="min-width:0;flex:1">
+            <a href="#" onClick="{{ gcx.onChange }}" style="font-size:13px;font-weight:600">{{ gcx.change }}</a>
+            <h2 style="font-size:34px;line-height:1.05;letter-spacing:-.02em;margin:4px 0 4px">{{ gcx.gameTitle }}</h2>
+            <p style="font-size:14px;{$muted};margin:0">{{ gcx.gameNote }}</p>
+          </div>
+        </div>
+        <sc-if value="{{ gcx.hasVariants }}" hint-placeholder-val="{{ false }}">
+          <div style="{$cap};margin:0 0 10px">{{ gcx.stepType }}</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-bottom:30px">
+            <sc-for list="{{ gcx.variants }}" as="gv" hint-placeholder-count="7">
+              <button onClick="{{ gv.on }}" style="{{ gv.style }}">
+                <span style="font-family:var(--font-heading);font-weight:800;font-size:16px">{{ gv.name }}</span>
+                <span style="font-size:12px;line-height:1.4;{$muted}">{{ gv.note }}</span>
+                <span style="font-size:12px;font-weight:700;color:var(--accDeep,#ae1800);margin-top:4px">{{ gv.from }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+        <div style="{$cap};margin:0 0 10px">{{ gcx.stepSize }}</div>
+        <div class="oh-gpre" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:30px">
+          <sc-for list="{{ gcx.presets }}" as="gp2" hint-placeholder-count="3">
+            <button onClick="{{ gp2.on }}" style="{{ gp2.style }}">
+              <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;{$muted}">{{ gp2.hint }}</span>
+              <span style="font-family:var(--font-heading);font-weight:800;font-size:17px">{{ gp2.name }}</span>
+              <span style="font-size:12px;line-height:1.4">{{ gp2.sub }}</span>
+              <span style="font-family:var(--font-heading);font-weight:800;font-size:15px;color:var(--accDeep,#ae1800);margin-top:6px">{{ gp2.price }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="{$cap};margin:0 0 14px">{{ gcx.stepFine }}</div>
+        <div class="oh-gsl" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 28px;background:var(--bg,#f3f2f2);border:2px solid {$line};padding:20px 22px">
+          <sc-for list="{{ gcx.sliders }}" as="gcs" hint-placeholder-count="6">
+            <div style="min-width:0">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px"><span style="font-family:var(--font-heading);font-weight:800;font-size:14px">{{ gcs.label }}</span><span style="font-family:var(--font-heading);font-weight:800;font-size:18px;color:var(--accDeep,#ae1800)">{{ gcs.value }}</span></div>
+              <input type="range" min="{{ gcs.min }}" max="{{ gcs.max }}" step="{{ gcs.step }}" value="{{ gcs.raw }}" onChange="{{ gcs.on }}" aria-label="{{ gcs.label }}" style="width:100%;margin:8px 0 2px;accent-color:var(--acc,#ec3013)" />
+              <div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;{$muted}"><span>{{ gcs.minLabel }}</span><span style="text-align:center">{{ gcs.desc }}</span><span>{{ gcs.maxLabel }}</span></div>
+            </div>
+          </sc-for>
+        </div>
+        <sc-if value="{{ gcx.hasVersions }}" hint-placeholder-val="{{ false }}">
+          <div style="{$cap};margin:28px 0 10px">{{ gcx.versionsLabel }}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{ gcx.versions }}" as="gcv" hint-placeholder-count="4"><button onClick="{{ gcv.on }}" style="{{ gcv.style }}">{{ gcv.label }}</button></sc-for></div>
+        </sc-if>
+        <sc-if value="{{ gcx.hasInputs }}" hint-placeholder-val="{{ false }}">
+          <div style="{$cap};margin:28px 0 10px">{{ gcx.inputsLabel }}</div>
+          <sc-for list="{{ gcx.inputs }}" as="gci" hint-placeholder-count="1">
+            <label style="display:block;margin-bottom:14px"><span style="display:block;font-size:14px;font-weight:600;margin-bottom:6px">{{ gci.label }}</span>
+              <input type="text" value="{{ gci.value }}" maxlength="{{ gci.maxlength }}" onChange="{{ gci.on }}" autocomplete="off" spellcheck="false" style="width:100%;box-sizing:border-box;padding:12px;border:2px solid color-mix(in srgb,var(--fg,#201e1d) 40%,transparent);background:var(--bg,#f3f2f2);color:var(--fg,#201e1d);font-size:15px;font-family:ui-monospace,monospace" />
+              <span style="display:block;font-size:12px;{$muted};margin-top:6px">{{ gci.hint }} <sc-if value="{{ gci.hasHelp }}" hint-placeholder-val="{{ false }}"><a href="{{ gci.help }}" target="_blank" rel="noopener noreferrer">steamcommunity.com ↗</a></sc-if></span>
+            </label>
+          </sc-for>
+        </sc-if>
+      </div>
+      <aside class="oh-gsum" style="position:sticky;top:96px;background:var(--bg,#f3f2f2);border:2px solid var(--fg,#201e1d);box-shadow:var(--shadow-lg);padding:22px 22px 24px;min-width:0">
+        <h6 style="color:var(--accDeep,#ae1800);margin:0 0 10px">{{ gcx.summary }}</h6>
+        <sc-for list="{{ gcx.rows }}" as="gcw" hint-placeholder-count="8"><div style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid {$line}"><span style="font-size:13px;{$muted}">{{ gcw.k }}</span><span style="font-family:var(--font-heading);font-weight:800;font-size:14px;text-align:right">{{ gcw.v }}</span></div></sc-for>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:18px;flex-wrap:wrap"><span style="font-family:var(--font-heading);font-weight:800;font-size:40px;letter-spacing:-.025em">{{ gcx.price }}</span><span style="font-size:14px;{$muted}">{{ gcx.unit }}</span></div>
+        <div style="font-size:12px;{$muted};margin:2px 0 16px">{{ gcx.net }}</div>
+        <p style="font-size:13px;font-weight:600;color:var(--accInk,#ae1800);margin:0 0 10px">{{ gcx.blocked }}</p>
+        <a href="#" onClick="{{ gcx.buy }}" class="btn btn-primary" style="{{ gcx.ctaStyle }}">{{ gcx.cta }}</a>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:16px">
+          <sc-for list="{{ gcx.perks }}" as="gk" hint-placeholder-count="3"><span style="font-size:13px"><span style="color:var(--accDeep,#ae1800);font-weight:800">✓</span> {{ gk }}</span></sc-for>
+        </div>
+        <p style="font-size:12px;line-height:1.5;{$muted};margin:14px 0 0">{{ gcx.note }}</p>
+      </aside>
+    </div>
+  </section>
+  </sc-if>
+
+HTML;
+        // the slot plans section of the game landing → the game offer and the configurator, moved up under the hero
+        $at = strpos($html, '{{ t.gmPlansTitle }}</h2>');
+        $start = $at === false ? false : strrpos(substr($html, 0, $at), '  <section ');
+        $endAnchor = "<a href=\"#\" onClick=\"{{ gpl.go }}\" style=\"{{ gpl.ctaStyle }}\">{{ t.order }}</a>\n        </div>\n      </sc-for>\n    </div>\n  </section>\n";
+        $end = $at === false ? false : strpos($html, $endAnchor, $at);
+        $feat = strpos($html, '{{ t.gmFeatTitle }}</h2>');
+        $featStart = $feat === false ? false : strrpos(substr($html, 0, $feat), '  <section ');
+        if ($start !== false && $end !== false && $featStart !== false && $featStart < $start) {
+            $html = substr($html, 0, $start).substr($html, $end + strlen($endAnchor));
+            $html = substr($html, 0, $featStart).$offer.substr($html, $featStart);
+        } else {
+            logger()->warning('surface seam §5w: game plans anchor missing');
+        }
+
+        return str_replace(
+            [
+                "      games: ['Minecraft', 'CS2',",
+                "      products: prods.filter(p => s.filter === 'all' || p.cat === s.filter).map(p => {",
+                "price: this.czk(p.price), go: (e) => { e.preventDefault(); this.setState({ view: 'pricing' }); window.scrollTo(0, 0); } };",
+                "gmCta1: 'Vybrat plán',",
+                '<a href="#" onClick="{{ goPricing }}" class="btn btn-primary" style="font-size:15px;padding:15px 22px">{{ t.gmCta1 }}</a>',
+                "gmCta1: 'Pick a plan',",
+                'switcherOn: this.props.showSwitcher !== false,',
+                '<div style="max-width:1360px;margin:0 auto;padding:0 32px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;min-height:38px">',
+                '<div style="max-width:1360px;margin:0 auto;padding:12px 32px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">',
+            ],
+            [
+                "      gcx: window.OnhostGameConfig ? window.OnhostGameConfig.view(this, cs) : { has: false },\n      games: (window.OnhostGameConfig && window.OnhostGameConfig.labels(cs).length) ? window.OnhostGameConfig.labels(cs) : ['Minecraft', 'CS2',",
+                "      products: prods.filter(p => (s.filter === 'all' && !p.sub) || (p.cat === s.filter && !(s.filter === 'game' && p.game && !p.sub))).map(p => {",
+                "price: (p.game ? (cs ? 'od ' : 'from ') + this.czk(Math.round(p.price * 1.21) / 1.21) : this.czk(p.price)), go: (e) => { e.preventDefault(); if (p.game) { nav('game')(e); if (p.egg && window.OnhostGameConfig) window.OnhostGameConfig.select(this, p.group, p.egg); return; } this.setState({ view: 'pricing' }); window.scrollTo(0, 0); } };",
+                "gmCta1: 'Vybrat hru',",
+                '<a href="#" onClick="{{ gcx.goOffer }}" class="btn btn-primary" style="font-size:15px;padding:15px 22px">{{ t.gmCta1 }}</a>',
+                "gmCta1: 'Pick a game',",
+                'switcherOn: false,',
+                '<div class="oh-topbar" style="max-width:1360px;margin:0 auto;padding:0 32px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;min-height:38px">',
+                '<div class="oh-hdr" style="max-width:1360px;margin:0 auto;padding:12px 32px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">',
+            ],
+            $html,
+        );
+    }
+
+    /** Public header on a phone (§5w): the topbar keeps the status and the switches, the menu lives behind the burger, nothing overflows. */
+    private const MOBILE_CSS = <<<'CSS'
+<style>
+  .oh-hdr { flex-wrap: nowrap !important; }
+  @media (max-width: 1379px) {
+    .oh-hdr > nav { display: none !important; }
+    .oh-hdr > div:last-child > div:first-child { display: flex !important; }
+  }
+  @media (max-width: 860px) {
+    .oh-topbar { padding: 6px 14px !important; gap: 8px !important; min-height: 0 !important; flex-wrap: nowrap !important; }
+    .oh-topbar > a, .oh-topbar > span:nth-of-type(2), .oh-topbar > nav { display: none !important; }
+    .oh-topbar > span:first-child { font-size: 11px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .oh-topbar > div:last-child { margin-left: auto; gap: 6px !important; flex: 0 0 auto; }
+    .oh-topbar > div:last-child button { padding: 5px 7px !important; font-size: 10px !important; }
+    .oh-topbar > div:last-child > button:last-child { font-size: 0 !important; gap: 0 !important; }
+    .oh-topbar > div:last-child > button:last-child::before { content: '◐'; font-size: 13px; line-height: 1; }
+    .oh-hdr { padding: 10px 14px !important; gap: 8px !important; flex-wrap: nowrap !important; }
+    .oh-hdr > a:first-child { margin-right: 0 !important; }
+    .oh-hdr > a:first-child img { height: 26px !important; }
+    .oh-hdr > div:last-child { gap: 6px !important; min-width: 0; }
+    .oh-hdr > div:last-child > a.btn { display: none !important; }
+    .oh-hdr > div:last-child > button.btn { display: none !important; }
+    header .oh-mega { max-height: calc(100vh - 140px); overflow-y: auto; padding: 18px 16px !important; gap: 16px !important; }
+    .oh-ggrid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10px !important; padding-left: 14px !important; padding-right: 14px !important; }
+    .oh-gtools input { margin-left: 0 !important; flex: 1 1 100% !important; min-width: 0 !important; }
+    .oh-gcfg { grid-template-columns: minmax(0, 1fr) !important; padding: 28px 14px 40px !important; gap: 22px !important; }
+    .oh-gsum { position: static !important; }
+    .oh-gpre, .oh-gsl { grid-template-columns: minmax(0, 1fr) !important; }
+  }
+  @media (max-width: 480px) {
+    .oh-ggrid { grid-template-columns: minmax(0, 1fr) !important; }
+    .oh-hdr > div:last-child > a[aria-label] span { display: none; }
+  }
+  @media (min-width: 861px) and (max-width: 1180px) {
+    .oh-ggrid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  }
+</style>
+CSS;
 }

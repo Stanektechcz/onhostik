@@ -8,6 +8,7 @@ use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Notifications\Models\Notification;
@@ -148,4 +149,31 @@ it('prices the game configurator per game from its floors and validates the conf
     $version = Plan::query()->where('key', 'game-custom')->firstOrFail()->versions()->first();
     $ent = app(ServiceService::class)->entitlementsFor($version, ['ram_gb' => 6, 'vcpu' => 3, 'nvme_gb' => 40], Product::query()->where('key', 'game')->firstOrFail());
     expect($ent)->toMatchArray(['ram_mb' => 6144, 'vcpu' => 3, 'nvme_gb' => 40]);
+});
+
+it('groups the game offer (one Minecraft Java card with server types), lists every game on the home page and serves the artwork from our origin (audit §5w)', function () {
+    $this->seed([CatalogSeeder::class, TaxRuleSeeder::class]);
+    [, $org] = $this->customerWithOrganization();
+    featureGameService($org);
+    ProviderInstance::query()->where('key', 'pterodactyl-games01')->firstOrFail()->forceFill(['options' => ['eggs' => ['minecraft-paper' => ['nest' => 1, 'egg' => 1], 'minecraft-bungeecord' => ['nest' => 1, 'egg' => 2], 'minecraft-bedrock' => ['nest' => 1, 'egg' => 30], 'cs2' => ['nest' => 5, 'egg' => 17]]]])->save();
+    $offer = app(GameConfigurator::class)->offer('cs');
+    $groups = collect($offer['groups'])->keyBy('key');
+    expect($groups->keys()->all())->toBe(['minecraft-java', 'minecraft-bedrock', 'cs2'])
+        ->and($groups['minecraft-java']['label'])->toBe('Minecraft Java Edition')->and($groups['minecraft-java']['eggs'])->toBe(['minecraft-paper', 'minecraft-bungeecord'])
+        ->and($groups['minecraft-java']['from'])->toBe(49.0)->and($groups['minecraft-java']['art'])->toBeNull()
+        ->and($groups['cs2']['art'])->toBe('/surfaces/game-art/cs2.jpg')->and($groups['cs2']['category'])->toBe('action')
+        ->and(collect($offer['games'])->firstWhere('key', 'minecraft-bungeecord')['variant'])->toBe('BungeeCord')
+        ->and(collect($offer['categories'])->pluck('key')->all())->toBe(['minecraft', 'action']);
+
+    $rows = collect((fn () => $this->catalogRows('cs'))->call(app(SurfaceDataController::class)))->where('key', 'game');
+    expect($rows->where('sub', true)->pluck('cs')->map(fn ($c) => $c[0])->values()->all())->toBe(['Minecraft Java Edition', 'Minecraft Bedrock Edition', 'Counter-Strike 2'])
+        ->and($rows->firstWhere('sub', null)['cs'][0])->toBe('Herní servery')->and($rows->firstWhere('group', 'cs2')['egg'])->toBe('cs2');
+
+    Storage::fake('local');
+    Http::fake(['cdn.cloudflare.steamstatic.com/*' => Http::response("\xFF\xD8".str_repeat('x', 2048), 200, ['Content-Type' => 'image/jpeg'])]);
+    $this->get('/surfaces/game-art/cs2.jpg')->assertOk()->assertHeader('Content-Type', 'image/jpeg');
+    $this->get('/surfaces/game-art/cs2.jpg')->assertOk(); // the second request is served from the disk
+    Http::assertSentCount(1);
+    $this->get('/surfaces/game-art/minecraft-java.jpg')->assertNotFound(); // no artwork source: the page draws its own tile
+    $this->get('/surfaces/game-art/nope.jpg')->assertNotFound();
 });

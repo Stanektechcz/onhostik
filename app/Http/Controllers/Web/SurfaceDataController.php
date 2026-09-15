@@ -274,6 +274,18 @@ final class SurfaceDataController extends Controller
             $prices = array_values(array_filter(array_map(fn ($p) => isset($p['price']['month']) ? self::amount($p['price']['month']) : null, $product['plans'] ?? [])));
             $meta = (array) ($product['meta'] ?? []);
             $badge = $meta['badge'][$locale] ?? $meta['badge'] ?? '';
+            if (($product['family'] ?? null) === 'game' && ($offer = $this->gameConfigurator->offer($locale, 'CZK')) !== null && $offer['groups'] !== []) {
+                // audit §5w: the home page lists what a gamer can order — one summary row ("Vše") and one row per game ("Gaming")
+                $labels = array_column($offer['groups'], 'label');
+                $rows[] = ['code' => 'GAME', 'cat' => 'game', 'price' => (int) round(min(array_column($offer['groups'], 'from'))), $locale => [$locale === 'en' ? 'Game servers' : 'Herní servery', implode(', ', array_slice($labels, 0, 4)).(count($labels) > 4 ? ($locale === 'en' ? ' and '.(count($labels) - 4).' more' : ' a dalších '.(count($labels) - 4)) : ''), ''], 'key' => $product['key'], 'game' => true];
+                foreach ($offer['groups'] as $group) {
+                    $words = preg_split('/[\s-]+/', (string) $group['label']) ?: ['GAME'];
+                    $code = strtoupper(count($words) === 1 ? mb_substr($words[0], 0, 3) : implode('', array_map(fn ($w) => mb_substr($w, 0, 1), array_slice($words, 0, 3))));
+                    $rows[] = ['code' => $code, 'cat' => 'game', 'price' => (int) round((float) $group['from']), $locale => [(string) $group['label'], (string) $group['note'], ''], 'key' => $product['key'], 'game' => true, 'sub' => true, 'group' => $group['key'], 'egg' => $group['eggs'][0]];
+                }
+
+                continue;
+            }
             $rows[] = [
                 'code' => (string) ($meta['code'] ?? strtoupper(substr(str_replace('-', '', (string) $product['key']), 0, 4))),
                 'cat' => self::CATEGORY[$product['family']] ?? 'firm',

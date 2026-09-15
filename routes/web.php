@@ -6,6 +6,7 @@ use App\Http\Controllers\Web\AuthPagesController;
 use App\Http\Controllers\Web\CalendarFeedController;
 use App\Http\Controllers\Web\ConsoleRelayController;
 use App\Http\Controllers\Web\DataExportController;
+use App\Http\Controllers\Web\GameArtController;
 use App\Http\Controllers\Web\HealthController;
 use App\Http\Controllers\Web\LegalDocumentController;
 use App\Http\Controllers\Web\MailboxPasswordController;
@@ -43,6 +44,7 @@ Route::get('mailbox/password/{token}', [MailboxPasswordController::class, 'show'
 Route::post('mailbox/password/{token}', [MailboxPasswordController::class, 'store'])->middleware('signed')->name('mailbox.password.store');
 
 // generated data scripts and static prototype assets
+Route::get('surfaces/game-art/{group}.jpg', [GameArtController::class, 'show'])->where('group', '[a-z0-9-]+')->name('surfaces.game-art');
 Route::get('surfaces/onhost-data.js', [SurfaceDataController::class, 'data'])->name('surfaces.data');
 Route::get('surfaces/onhost-panel.js', [SurfaceDataController::class, 'panel'])->middleware('auth:sanctum')->name('surfaces.panel');
 Route::get('surfaces/{path}', [SurfaceController::class, 'asset'])->where('path', '.*')->name('surfaces.asset');

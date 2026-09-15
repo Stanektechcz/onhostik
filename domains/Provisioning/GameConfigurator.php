@@ -147,12 +147,31 @@ final class GameConfigurator
                 'min' => $minimum, 'slot_mb' => $floors['slot_mb'], 'slots_from' => $this->templates->slots($egg, ($minimum['ram_gb'] ?? 1) * 1024),
                 'versions' => array_values(array_map('strval', (array) ($preset['versions'] ?? []))), 'inputs' => $this->templates->inputForms($egg),
                 'from' => (float) $this->fromPrice($egg, $currency)->toDecimal(),
+                'group' => (string) ($preset['group'] ?? $egg), 'variant' => (string) ($preset['variant'] ?? ''), 'variant_note' => (string) ($preset['variant_note'] ?? ''), 'category' => (string) ($preset['category'] ?? 'other'),
             ];
+        }
+        $groups = [];
+        foreach ($games as $game) { // audit §5w: one card per group (all Minecraft Java flavours are one card with a server type choice)
+            $key = $game['group'];
+            $def = (array) config("onhost.game.groups.{$key}", []);
+            if (! isset($groups[$key])) {
+                $appid = (int) config("onhost.game.eggs.{$game['key']}.steam_appid", 0);
+                $groups[$key] = ['key' => $key, 'label' => (string) ($def['label'] ?? $game['label']), 'note' => (string) ($locale === 'en' ? ($def['note_en'] ?? $def['note'] ?? '') : ($def['note'] ?? $game['note'])), 'category' => $game['category'],
+                    'art' => $appid > 0 ? '/surfaces/game-art/'.$key.'.jpg' : null, 'eggs' => [], 'from' => $game['from']];
+            }
+            $groups[$key]['eggs'][] = $game['key'];
+            $groups[$key]['from'] = min($groups[$key]['from'], $game['from']);
+        }
+        $categories = [];
+        foreach ((array) config('onhost.game.categories', []) as $cat => $labels) {
+            if (in_array($cat, array_column($groups, 'category'), true)) {
+                $categories[] = ['key' => $cat, 'label' => (string) ($locale === 'en' ? ($labels[1] ?? $labels[0]) : $labels[0])];
+            }
         }
 
         return [
             'product_key' => $product->key, 'plan_key' => $this->planKey(), 'name' => (string) ($product->name[$locale] ?? $product->name['cs'] ?? $product->key),
-            'base_price' => (float) $resolved['price']->firstPeriodAmount()->toDecimal(), 'base' => $definition['base'], 'options' => $options, 'games' => $games, 'currency' => $currency->value,
+            'base_price' => (float) $resolved['price']->firstPeriodAmount()->toDecimal(), 'base' => $definition['base'], 'options' => $options, 'games' => $games, 'groups' => array_values($groups), 'categories' => $categories, 'currency' => $currency->value,
         ];
     }
 

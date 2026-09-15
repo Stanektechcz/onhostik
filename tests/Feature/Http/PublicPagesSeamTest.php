@@ -55,7 +55,7 @@ it('generates catalogue-driven plans, comparison tables and SKUs for the public 
         ->and($slots[0]['cs'][3])->toHaveCount(4)->and($slots[0]['cs'][3][0])->toBe('od 2 GB RAM')->and($slots[0]['en'][3][0])->toBe('from 2 GB RAM');
     expect($data['cs']['skus']['gamehosting game 8 gb|349'])->toMatchArray(['product_key' => 'game', 'plan_key' => 'game-8'])->and($data['en']['skus'])->toHaveKey('game hosting game 16 gb');
     expect($html)->toContain('window.ONHOST_DATA.gameSlots(cs)')->toContain("'Support within 10 min']] }\n    ]);");
-    expect($html)->toContain('/surfaces/api/onhost-game-config.api.js')->toContain('id="game-config"')->toContain('window.OnhostGameConfig.pickOn(this, p.egg)')->toContain("'Již od '");
+    expect($html)->toContain('/surfaces/api/onhost-game-config.api.js')->toContain('id="game-config"')->toContain('id="game-offer"')->toContain('{{ gt.from }}')->not->toContain('{{ gpl.go }}')->toContain('switcherOn: false,')->toContain('class="oh-hdr"')->toContain('.oh-topbar');
     // one term per order, monthly unless a year is picked, and the summary shows the server's quote (yearly list prices for 12/24 months)
     expect((float) $data['cs']['skus']['webhosting · standard']['price_year'])->toBe(1890.0)->and($pages['web-hosting']['plans'][1]['sku'])->toMatchArray(['plan_key' => 'standard', 'price_year' => 1890.0]);
     expect($html)->toContain('step: 1, commit: 1, co: {')->not->toContain('commit: st.commit || 12')->toContain("st.period === 'year' ? 12 : (st.commit || 1)")
