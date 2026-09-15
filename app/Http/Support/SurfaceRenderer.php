@@ -64,6 +64,7 @@ final class SurfaceRenderer
                 $inject .= "\n".'<script src="'.$v('onhost-panel-billing.api.js').'"></script>';
                 $inject .= "\n".'<script src="'.$v('onhost-panel-overview.api.js').'"></script>';
                 $inject .= "\n".'<script src="'.$v('onhost-panel-order.api.js').'"></script>';
+                $inject .= "\n".'<script src="'.$v('onhost-panel-shop.api.js').'"></script>';
                 $inject .= "\n".'<script src="'.$v('onhost-panel-workbench.api.js').'"></script>';
                 $inject .= "\n".'<script src="'.$v('onhost-panel-tools.api.js').'"></script>';
                 $inject .= "\n".'<script src="'.$v('onhost-panel-support.api.js').'"></script>';
@@ -954,12 +955,15 @@ HTML;
                 // one the link carried (/panel/fakturace → #/fakturace), so the section was lost — the URL is only written back once mounted
                 "  syncHash() {\n    const s = this.state;\n    const slug = this.TAB_SLUG[s.tab] || s.tab;\n    const next = '#/' + slug + (s.tab === 'svcdesk' && s.svcCat ? '/' + s.svcCat : '');\n    if (location.hash !== next) {",
                 "  componentDidMount() {\n    const p = this.props || {};\n    const patch = {};\n    if (p.startTab) patch.tab = p.startTab;",
+                // ordering stays in the client section (audit §5x): "Nová služba" opens the order centre (api/onhost-panel-shop.api.js)
+                "      openNew: openModal('order'),",
             ],
             [
                 "  money(n) {\n    const c = this.CUR[this.state.currency] || this.CUR.czk;\n    const __x = Math.round(n * c.rate * 100) / 100, __d = Number.isInteger(__x) ? c.dec : Math.max(c.dec, 2);\n    const v = new Intl.NumberFormat(this.state.lang === 'cs' ? 'cs-CZ' : 'en-US', { minimumFractionDigits: __d, maximumFractionDigits: __d }).format(__x);",
                 "      hoText: ho ? (ho.id + ' · ' + (ho.items || []).map(i => i.name + (i.qty > 1 ? ' ×' + i.qty : '')).join(', ') + ((window.OnhostStore && window.OnhostStore.orderReview && window.OnhostStore.orderReview(ho.id)) ? ' · objednávku ještě kontrolujeme, služby zřídíme hned po dokončení' : ((window.OnhostStore && window.OnhostStore.orderStalled && window.OnhostStore.orderStalled(ho.id)) ? ' · nasazení trvá déle než obvykle, zkoušíme znovu' : ' · nasazujeme, obvykle do 90 sekund'))) : '',",
                 "  syncHash() {\n    const s = this.state;\n    const slug = this.TAB_SLUG[s.tab] || s.tab;\n    const next = '#/' + slug + (s.tab === 'svcdesk' && s.svcCat ? '/' + s.svcCat : '');\n    if (location.hash !== next && this.__onhostMounted) {",
                 "  componentDidMount() {\n    this.__onhostMounted = true;\n    const p = this.props || {};\n    const patch = {};\n    if (p.startTab) patch.tab = p.startTab;",
+                "      openNew: (e) => { if (e && e.preventDefault) e.preventDefault(); if (!(window.OnhostPanelShop && window.OnhostPanelShop.open(this, null))) openModal('order')(e); },",
             ],
             $html,
         );

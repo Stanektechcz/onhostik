@@ -588,7 +588,7 @@ final class SurfaceDataController extends Controller
         return [
             'services' => $groups, 'servers' => $servers, 'organization' => $organizationId, 'kpis' => $this->kpis($organizationId, $services, $cs), 'billing' => $this->billing($organizationId, $services, $cs),
             'nav' => app(PanelNavigation::class)->effective($organizationId), 'catalog' => $this->panelCatalog($locale), 'regions' => Region::query()->where('state', 'active')->orderBy('code')->get()->map(fn ($r) => ['code' => $r->code, 'name' => $r->name, 'datacenter' => $r->datacenter])->all(),
-            'consents' => $this->consentVersions(), 'tlds' => $this->panelTlds($organizationId), 'generated_at' => now()->toIso8601String(),
+            'consents' => $this->consentVersions(), 'tlds' => $this->panelTlds($organizationId), 'game_config' => $this->gameConfigurator->offer($locale, 'CZK'), 'generated_at' => now()->toIso8601String(),
         ];
     }
 
@@ -632,7 +632,15 @@ final class SurfaceDataController extends Controller
                 if (! isset($plan['price']['month'])) {
                     continue;
                 }
-                $plans[] = ['key' => $plan['key'], 'name' => (string) $plan['name'], 'spec' => (string) ($plan['description'] ?? ''), 'monthly' => self::amount($plan['price']['month']), 'yearly' => isset($plan['price_year']['year']) ? self::amount($plan['price_year']['year']) : null, 'highlighted' => (bool) ($plan['highlighted'] ?? false), 'ram_mb' => (int) data_get($plan, 'entitlements.ram_mb', 0)]; // §5t-2: the wizard checks the template's RAM floor
+                $plans[] = ['key' => $plan['key'], 'name' => (string) $plan['name'], 'spec' => (string) ($plan['description'] ?? ''), 'monthly' => self::amount($plan['price']['month']), 'yearly' => isset($plan['price_year']['year']) ? self::amount($plan['price_year']['year']) : null, 'highlighted' => (bool) ($plan['highlighted'] ?? false), 'ram_mb' => (int) data_get($plan, 'entitlements.ram_mb', 0),
+                    // the in-panel order centre (api/onhost-panel-shop.api.js) shows what a plan contains
+                    'features' => (function () use ($plan, $product, $locale) {
+                        $f = (array) ($plan['features'] ?? []);
+                        $f = array_values(array_map('strval', (array) ($f[$locale] ?? (array_is_list($f) ? $f : []))));
+
+                        return array_slice($f === [] ? CatalogPresentation::bullets((array) ($plan['entitlements'] ?? []), (string) ($product['family'] ?? 'web'), $locale, 6) : $f, 0, 6);
+                    })(),
+                    'sla' => (string) ($plan['sla_class'] ?? 'standard')]; // §5t-2: the wizard checks the template's RAM floor
             }
             if ($plans === []) {
                 continue;
@@ -652,7 +660,8 @@ final class SurfaceDataController extends Controller
                 }
                 $eggs[] = ['key' => (string) $eggKey, 'label' => (string) ($preset['label'] ?? $eggKey), 'note' => (string) ($preset['note'] ?? ''), 'min_ram_mb' => (int) ($preset['min_ram_mb'] ?? 0), 'versions' => array_values(array_map('strval', (array) ($preset['versions'] ?? []))), 'inputs' => $templates->inputForms((string) $eggKey)]; // §5u-3: fields with hints; §5s: what the order asks for; §5p: the versions a template offers in the wizard
             }
-            $out[] = ['key' => $product['key'], 'family' => $product['family'], 'category' => $category, 'name' => (string) $product['name'], 'description' => (string) ($product['description'] ?? ''), 'plans' => $plans, 'orderable' => $orderable, 'eggs' => $eggs];
+            $out[] = ['key' => $product['key'], 'family' => $product['family'], 'category' => $category, 'name' => (string) $product['name'], 'description' => (string) ($product['description'] ?? ''), 'plans' => $plans, 'orderable' => $orderable, 'eggs' => $eggs,
+                'images' => array_values((array) data_get($product, 'meta.images', [])), 'engines' => array_values((array) data_get($product, 'meta.engines', [])), 'addons' => $this->addonRows($locale)[$product['key']] ?? null];
         }
 
         return $out;

@@ -97,8 +97,14 @@ it('feeds the panel billing tab with the organization\'s real document, bank det
         ->and($payload['catalog'])->not->toBeEmpty()
         ->and(collect($payload['catalog'])->firstWhere('key', 'web-hosting')['plans'])->not->toBeEmpty()
         ->and(collect($payload['catalog'])->firstWhere('key', 'web-hosting')['plans'][0]['monthly'])->toBeGreaterThan(0)
-        ->and($payload['consents'])->toHaveKeys(['terms', 'privacy', 'withdrawal_waiver', 'dpa']);
-    expect($panel)->toContain('src="/surfaces/api/onhost-panel-order.api.js?v=')
+        ->and($payload['consents'])->toHaveKeys(['terms', 'privacy', 'withdrawal_waiver', 'dpa'])
+        // §5x: the order centre shows what a plan contains, the add-ons a product carries, VPS images and the game configurator
+        ->and(collect($payload['catalog'])->firstWhere('key', 'web-hosting')['plans'][0]['features'])->not->toBeEmpty()
+        ->and(collect($payload['catalog'])->firstWhere('key', 'web-hosting')['addons']['options'])->not->toBeEmpty()
+        ->and(collect($payload['catalog'])->firstWhere('key', 'vps')['images'])->toContain('debian-13')
+        ->and($payload)->toHaveKey('game_config');
+    expect($panel)->toContain('src="/surfaces/api/onhost-panel-order.api.js?v=')->toContain('src="/surfaces/api/onhost-panel-shop.api.js?v=')
+        ->toContain("openNew: (e) => { if (e && e.preventDefault) e.preventDefault(); if (!(window.OnhostPanelShop && window.OnhostPanelShop.open(this, null))) openModal('order')(e); },")
         ->toContain('const ORDER_TYPES = (window.OnhostPanelOrder && window.OnhostPanelOrder.types(this)) || [')
         ->toContain("if (window.OnhostPanelOrder) { this.setState({ modal: null, mStep: 0 }); window.OnhostPanelOrder.place(this, { type: md.type, size: md.size || (orderSize && orderSize[0]), region: md.region, os: md.os, name: name, pay: md.pay || '' }, orderType, orderSize); return; }")
         ->toContain("'region', (window.OnhostPanelOrder && window.OnhostPanelOrder.regions(this)) || [['PRG1'")

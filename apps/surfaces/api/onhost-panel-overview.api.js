@@ -40,9 +40,10 @@
   }
   /* Opens the prototype's "Nová služba" wizard seeded with a real product; without one the customer is sent to the public catalogue. */
   function order(cmp, cat) {
+    if (window.OnhostPanelShop && window.OnhostPanelShop.open(cmp, cat === 'domain' ? 'domain' : productFor(cat))) return; // §5x: the order centre in the panel
     var d = data(), first = ((d && d.catalog) || []).filter(function (p) { return p.orderable !== false; })[0];
     var type = productFor(cat) || (first ? first.key : null);
-    if (!type) { location.href = '/sluzby'; return; }
+    if (!type) return; // nothing orderable: ordering never leaves the client section
     var product = ((d && d.catalog) || []).filter(function (p) { return p.key === type; })[0];
     var region = (d && d.regions && d.regions[0]) ? d.regions[0].code : 'cz1';
     cmp.setState({ modal: 'order', mStep: 0, userOpen: false, curOpen: false, notifOpen: false, md: { type: type, region: region, size: product && product.plans && product.plans[0] ? product.plans[0].key : (type === 'domain' ? '1' : 'm'), os: 'Debian 12', name: '', pay: '' } });
