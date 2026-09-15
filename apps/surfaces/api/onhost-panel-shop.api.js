@@ -179,6 +179,17 @@
   }
   function requiredDocs() { return (S.quote && S.quote.required_documents) || ['terms', 'privacy']; }
 
+  /* The spendable credit after an order (available + promo + credit line, holds already deducted) into the panel state. */
+  function refreshCredit() {
+    return window.OnhostApi.get('/wallet').then(function (r) {
+      var d = r.data || r, v = d.spendable ? (d.spendable.decimal != null ? Number(d.spendable.decimal) : (d.spendable.minor || 0) / 100) : null;
+      if (v == null) return;
+      if (window.ONHOST_PANEL && window.ONHOST_PANEL.kpis) window.ONHOST_PANEL.kpis.credit = v;
+      if (cmpRef && cmpRef.setState) cmpRef.setState({ credit: v });
+      if (root) render();
+    }).catch(function () { /* the balance refreshes on the next page load */ });
+  }
+
   /* ── order ─────────────────────────────────────────────────────────────── */
   function place() {
     var miss = missing(), docs = requiredDocs();
@@ -197,6 +208,7 @@
         var res = r.data || r, o = res.order || res, url = res.redirect_url || (res.order && res.order.redirect_url);
         if (pay === 'card' && url) { location.href = url; return; }
         set({ placing: false, done: { number: o.number || o.id || '', pay: pay, total: total, state: o.state || '' } });
+        refreshCredit(); // the header, the billing tab and the next order see the balance after this order
         if (window.OnhostStore && window.OnhostStore.refresh) window.OnhostStore.refresh();
       })
       .catch(function (e) { set({ placing: false, quoteErr: (e && e.message) || _('Objednávka neprošla, zkuste to znovu.', 'The order failed, please try again.') }); });
@@ -494,6 +506,7 @@
     }
     if (cmp && cmp.setState) cmp.setState({ modal: null, userOpen: false, curOpen: false, notifOpen: false });
     render();
+    refreshCredit();
     return true;
   }
   function close() {

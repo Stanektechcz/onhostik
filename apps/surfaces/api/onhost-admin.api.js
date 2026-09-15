@@ -123,7 +123,7 @@
       var health = o.state === 'suspended' ? tr(cmp, 'pozastaven', 'suspended') : (open ? open + ' ' + tr(cmp, open === 1 ? 'tiket' : 'tikety', open === 1 ? 'ticket' : 'tickets') : '—');
       var goQueue = function () { cmp.setState({ view: 'queue', cmd: o.name, filter: 'all' }); };
       return [o.name || '—', 'ID ' + String(o.id).slice(-8).toUpperCase(), (o.services || 0) + ' ' + tr(cmp, 'služeb', 'services') + ' · ' + (o.domains || 0) + ' ' + tr(cmp, 'domén', 'domains') + (o.customer_class ? ' · ' + o.customer_class : ''),
-        (o.billing && o.billing.mode ? o.billing.mode : '—'), tone, health, goQueue, goQueue];
+        (o.billing && o.billing.mode ? o.billing.mode : '—'), tone, health, function () { if (!(window.OnhostAdminCustomer && window.OnhostAdminCustomer.open(o.id))) goQueue(); }, goQueue]; // §5y: the account drawer (wallet, orders, credit, assisted order)
     });
   }
 

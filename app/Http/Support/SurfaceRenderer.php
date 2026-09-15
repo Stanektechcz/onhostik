@@ -81,6 +81,7 @@ final class SurfaceRenderer
             if ($surface === 'admin') {
                 $inject .= "\n".'<script src="'.$v('onhost-integrations.api.js').'"></script>';
                 $inject .= "\n".'<script src="'.$v('onhost-admin.api.js').'"></script>';
+                $inject .= "\n".'<script src="'.$v('onhost-admin-customer.api.js').'"></script>';
             }
         }
         if ($surface === 'panel' && ($boot['user'] ?? null) !== null) {

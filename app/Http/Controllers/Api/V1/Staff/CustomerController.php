@@ -13,7 +13,9 @@ use Onhost\Domain\Domains\Models\RegistrarConnection;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Loyalty\Models\Referral;
 use Onhost\Domain\Orders\Commands\ReviewOrderCommand;
+use Onhost\Domain\Orders\Commands\StaffCustomerCommand;
 use Onhost\Domain\Orders\Models\Order;
+use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Provisioning\Commands\ProvisioningCommand;
@@ -54,7 +56,8 @@ final class CustomerController extends ApiController
             'registrar_connections' => RegistrarConnection::query()->where('organization_id', $org->id)->orderByDesc('created_at')->get()->map(fn (RegistrarConnection $c) => Presenters::registrarConnection($c))->all(),
             'services' => Service::query()->where('organization_id', $org->id)->orderByDesc('created_at')->limit(100)->get()->map(fn (Service $s) => Presenters::service($s))->all(),
             'domains' => Domain::query()->where('organization_id', $org->id)->orderBy('expires_at')->limit(100)->get()->map(fn (Domain $d) => Presenters::domain($d))->all(),
-            'orders' => Order::query()->where('organization_id', $org->id)->orderByDesc('placed_at')->limit(50)->get()->map(fn (Order $o) => Presenters::order($o, false))->all(),
+            'orders' => Order::query()->where('organization_id', $org->id)->orderByDesc('placed_at')->limit(50)->get()->map(fn (Order $o) => Presenters::order($o, false) + ['source' => $o->source, 'bank_instructions' => $o->meta['bank_instructions'] ?? null])->all(), // §5y: staff confirm a transfer by its variable symbol
+            'spendable' => $wallets->spendable($org, $org->currency),
             'invoices' => Invoice::query()->where('organization_id', $org->id)->where('state', '!=', Invoice::DRAFT)->orderByDesc('issued_at')->limit(50)->get()->map(fn (Invoice $i) => Presenters::invoice($i))->all(),
         ]]);
     }
@@ -147,6 +150,40 @@ final class CustomerController extends ApiController
         $data = $request->validate(['enabled' => ['required', 'boolean'], 'reason' => ['nullable', 'string', 'max:250']]);
 
         return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, 'tenant.sandbox:'.$organization.':'.now()->format('YmdHi')), ['op' => 'tenant.sandbox', 'organization_id' => $organization, 'enabled' => (bool) $data['enabled']]), $this->api->context($request, null, $data['reason'] ?? null));
+    }
+
+    /** Manual wallet credit (audit §5y): amount, kind manual|promo, the reason — HIGH, needs a fresh step-up. */
+    public function creditWallet(Request $request, string $organization): JsonResponse
+    {
+        $data = $request->validate(['amount' => ['required', 'numeric', 'min:0.01', 'max:10000000'], 'currency' => ['nullable', 'in:CZK,EUR'], 'kind' => ['nullable', 'in:manual,promo'], 'note' => ['required', 'string', 'min:3', 'max:250']]);
+
+        return $this->dispatch(new StaffCustomerCommand($this->idempotencyKey($request, "wallet.credit:{$organization}:".now()->format('YmdHis')), ['op' => 'wallet.credit', 'organization_id' => $organization] + $data), $this->api->context($request, null, $data['note']), 201);
+    }
+
+    /** Price preview of an assisted order (audit §5y): the quote the order would use, nothing is placed. */
+    public function quoteOrder(Request $request, QuoteService $quotes, string $organization): JsonResponse
+    {
+        $this->api->authorize($request, 'staff.order.manage', CommandScope::global());
+        $org = Organization::query()->find($organization);
+        if ($org === null) {
+            throw DomainError::notFound('organization');
+        }
+        $data = $request->validate(['items' => ['required', 'array', 'min:1', 'max:20'], 'items.*.product_key' => ['required', 'string', 'max:40'], 'items.*.plan_key' => ['nullable', 'string', 'max:40'], 'items.*.config' => ['nullable', 'array'], 'items.*.period' => ['nullable', 'in:month,year'], 'commit_months' => ['nullable', 'integer', 'in:1,12,24']]);
+        $quote = $quotes->quote($data['items'], $org->currency ?? 'CZK', ['country' => $org->country ?? 'CZ', 'customer_class' => $org->customer_class ?? 'b2c', 'vat_status' => $org->vat_status ?? 'unknown', 'ip_country' => null], (int) ($data['commit_months'] ?? 1), null, $org);
+
+        return response()->json(['data' => ['quote_id' => $quote->id, 'lines' => $quote->lines, 'subtotal' => $quote->subtotal_minor, 'discount' => $quote->discount_minor, 'tax' => $quote->tax_minor, 'total' => $quote->total_minor, 'currency' => $quote->currency]]);
+    }
+
+    /** An order placed on the customer's behalf (audit §5y): the panel's items, quote and checkout; payment from credit, by proforma or postpaid. */
+    public function placeOrder(Request $request, string $organization): JsonResponse
+    {
+        $data = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:20'], 'items.*.product_key' => ['required', 'string', 'max:40'], 'items.*.plan_key' => ['nullable', 'string', 'max:40'], 'items.*.qty' => ['nullable', 'integer', 'min:1', 'max:50'],
+            'items.*.period' => ['nullable', 'in:month,year'], 'items.*.config' => ['nullable', 'array'], 'items.*.line_id' => ['nullable', 'string', 'max:20'],
+            'payment' => ['required', 'in:wallet,bank,postpaid'], 'commit_months' => ['nullable', 'integer', 'in:1,12,24'], 'note' => ['required', 'string', 'min:3', 'max:250'],
+        ]);
+
+        return $this->dispatch(new StaffCustomerCommand($this->idempotencyKey($request, "order.assisted:{$organization}:".now()->format('YmdHis')), ['op' => 'order.assisted', 'organization_id' => $organization] + $data), $this->api->context($request, null, $data['note']), 201);
     }
 
     public function reviewOrder(Request $request, string $order): JsonResponse

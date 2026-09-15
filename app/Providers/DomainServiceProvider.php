@@ -45,6 +45,7 @@ use Onhost\Domain\Notifications\WebhookDispatcher;
 use Onhost\Domain\Orders\Commands\OrdersCommandHandler;
 use Onhost\Domain\Orders\Commands\PlaceOrderCommand;
 use Onhost\Domain\Orders\Commands\ReviewOrderCommand;
+use Onhost\Domain\Orders\Commands\StaffCustomerCommand;
 use Onhost\Domain\Orders\Listeners\FulfillPaidOrder;
 use Onhost\Domain\Orders\Listeners\SettleOrderPayment;
 use Onhost\Domain\Organizations\Commands\OrganizationCommand;
@@ -83,6 +84,7 @@ final class DomainServiceProvider extends ServiceProvider
     public const HANDLERS = [
         PlaceOrderCommand::class => OrdersCommandHandler::class,
         ReviewOrderCommand::class => OrdersCommandHandler::class,
+        StaffCustomerCommand::class => OrdersCommandHandler::class,
         ChargebackCommand::class => ChargebackCommandHandler::class,
         ChargebackStaffCommand::class => ChargebackCommandHandler::class,
         LoyaltyCommand::class => LoyaltyCommandHandler::class,

@@ -350,6 +350,9 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::get('orders/risk-review', [CustomerController::class, 'riskReview']);
         Route::post('orders/{order}/review', [CustomerController::class, 'reviewOrder']);
         Route::post('customers/{organization}/sandbox', [CustomerController::class, 'sandbox']); // sandbox tenant (audit §5j-9)
+        Route::post('customers/{organization}/wallet/credit', [CustomerController::class, 'creditWallet']); // manual credit (audit §5y)
+        Route::post('customers/{organization}/orders/quote', [CustomerController::class, 'quoteOrder']);
+        Route::post('customers/{organization}/orders', [CustomerController::class, 'placeOrder']); // assisted order (audit §5y)
         Route::post('customers/{organization}/services', [CustomerController::class, 'createService']); // a service without an order (audit §5o)
         Route::get('services', [CustomerController::class, 'services']);
         Route::get('domains', [CustomerController::class, 'domains']);
