@@ -23,6 +23,15 @@ final class OrganizationsCommandHandler implements CommandHandler
 
     public function handle(Command $command, CommandContext $context): mixed
     {
+        if ($command instanceof CreateOrganizationCommand) { // audit §5z: a customer profile for a signed-in user without one
+            $owner = $context->actorType === 'user' && $context->actorId !== null ? User::query()->find($context->actorId) : null;
+            if ($owner === null) {
+                throw DomainError::forbidden('Only a signed-in person can create a customer profile.');
+            }
+            $organization = $this->organizations->create($owner, array_diff_key($command->payload, array_flip(['op'])), $context);
+
+            return ['organization' => $organization->fresh(), 'organization_id' => $organization->id];
+        }
         if (! $command instanceof OrganizationCommand) {
             throw new \LogicException('Unsupported command '.get_class($command));
         }

@@ -197,7 +197,7 @@ final class ProvisionGameServerWorkflow implements Workflow
      */
     public static function withVersion(array $environment): array
     {
-        $version = trim((string) ($environment['MINECRAFT_VERSION'] ?? $environment['VERSION'] ?? ''));
+        $version = trim((string) ($environment['MINECRAFT_VERSION'] ?? $environment['VANILLA_VERSION'] ?? $environment['VERSION'] ?? ''));
         foreach ($environment as $key => $value) {
             if (is_string($value) && str_contains($value, '{version}')) {
                 $environment[$key] = str_replace('{version}', $version !== '' && $version !== 'latest' ? $version : 'latest', $value);

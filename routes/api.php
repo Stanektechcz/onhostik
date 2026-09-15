@@ -173,6 +173,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
     Route::post('auth/logout', [AuthController::class, 'logout']);
 
     Route::get('organizations', [OrganizationController::class, 'index']);
+    Route::post('organizations', [OrganizationController::class, 'store']); // a customer profile for a user without one (audit §5z)
     Route::post('organizations/invitations/accept', [OrganizationController::class, 'acceptInvitation']);
     Route::get('organizations/{organization}', [OrganizationController::class, 'show']);
     Route::patch('organizations/{organization}', [OrganizationController::class, 'update']);

@@ -964,7 +964,7 @@ HTML;
                 "      hoText: ho ? (ho.id + ' · ' + (ho.items || []).map(i => i.name + (i.qty > 1 ? ' ×' + i.qty : '')).join(', ') + ((window.OnhostStore && window.OnhostStore.orderReview && window.OnhostStore.orderReview(ho.id)) ? ' · objednávku ještě kontrolujeme, služby zřídíme hned po dokončení' : ((window.OnhostStore && window.OnhostStore.orderStalled && window.OnhostStore.orderStalled(ho.id)) ? ' · nasazení trvá déle než obvykle, zkoušíme znovu' : ' · nasazujeme, obvykle do 90 sekund'))) : '',",
                 "  syncHash() {\n    const s = this.state;\n    const slug = this.TAB_SLUG[s.tab] || s.tab;\n    const next = '#/' + slug + (s.tab === 'svcdesk' && s.svcCat ? '/' + s.svcCat : '');\n    if (location.hash !== next && this.__onhostMounted) {",
                 "  componentDidMount() {\n    this.__onhostMounted = true;\n    const p = this.props || {};\n    const patch = {};\n    if (p.startTab) patch.tab = p.startTab;",
-                "      openNew: (e) => { if (e && e.preventDefault) e.preventDefault(); if (!(window.OnhostPanelShop && window.OnhostPanelShop.open(this, null))) openModal('order')(e); },",
+                '      openNew: (e) => { if (e && e.preventDefault) e.preventDefault(); if (window.OnhostPanelShop) window.OnhostPanelShop.open(this, null); },',
             ],
             $html,
         );

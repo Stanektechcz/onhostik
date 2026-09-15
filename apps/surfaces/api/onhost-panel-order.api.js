@@ -231,6 +231,7 @@
 
   /* Places the order through the same API path as the public checkout. */
   function place(cmp, sel, orderType, orderSize) {
+    if (window.OnhostPanelShop && window.OnhostPanelShop.open(cmp, sel && sel.type)) return; // §5x: ordering happens in the order centre
     var _ = tr(cmp), A = window.OnhostApi, d = data();
     if (!A || !d) return;
     if (sel.type === 'domain') { placeDomain(cmp, sel); return; }

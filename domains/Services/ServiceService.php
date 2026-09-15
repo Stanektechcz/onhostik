@@ -1062,7 +1062,12 @@ final class ServiceService
         $shortId = strtolower(substr($service->id, -8));
         // Where the plan runs: an operator placement (panel + server) overrides the product's default executor, so one
         // product can sell plans on different panels; without a placement the scheduler picks by role and region.
-        $placement = app(PlacementService::class)->resolve($product->key, $version?->plan?->key, $service->region_code);
+        // staff (an assisted order) and the operator smoke test may pin one order to a panel; a customer's cart cannot (audit §5z)
+        $pinned = trim((string) ($config['placement_instance'] ?? ''));
+        $item = $service->order_item_id !== null ? OrderItem::query()->with('order')->find($service->order_item_id) : null;
+        $source = $item !== null && $item->order instanceof Order ? (string) $item->order->source : '';
+        $placement = $pinned !== '' && in_array($source, ['staff', 'cli'], true) ? app(PlacementService::class)->pinned($product, $pinned) : null;
+        $placement ??= app(PlacementService::class)->resolve($product->key, $version?->plan?->key, $service->region_code);
         $base = [
             'product_key' => $product->key, 'plan_key' => $version?->plan?->key, 'family' => $product->family, 'executor' => $placement?->providerInstance?->provider ?? $product->executor, 'region' => $service->region_code, 'sla_class' => $service->sla_class,
             'placement' => $placement === null ? null : ['id' => $placement->id, 'instance_id' => $placement->provider_instance_id, 'instance_key' => $placement->providerInstance?->key, 'node_id' => $placement->node_id],
@@ -1080,7 +1085,7 @@ final class ServiceService
                 $wanted = (string) ($config['egg'] ?? $config['image'] ?? '');
                 $egg = $wanted !== '' && ($eggs === [] || in_array($wanted, $eggs, true)) ? $wanted : ($eggs[0] ?? 'minecraft-paper');
 
-                return ['egg' => $egg, 'environment' => array_merge((array) ($config['environment'] ?? []), ! empty($config['version']) ? ['MINECRAFT_VERSION' => (string) $config['version']] : []), 'port' => $config['port'] ?? null]; // §5o: the version the customer or staff chose
+                return ['egg' => $egg, 'environment' => array_merge((array) ($config['environment'] ?? []), ! empty($config['version']) ? [(string) config("onhost.game.eggs.{$egg}.version_env", 'MINECRAFT_VERSION') => (string) $config['version']] : []), 'port' => $config['port'] ?? null]; // §5o: the version the customer or staff chose
             })(),
             'apps' => ['app' => array_merge(['name' => Str::slug((string) ($config['app']['name'] ?? $config['label'] ?? "app-{$shortId}")), 'runtime' => $meta['runtimes'][0] ?? 'node-22', 'port' => 8080, 'git_branch' => 'main', 'healthcheck_path' => '/'], (array) ($config['app'] ?? []))],
             default => [],

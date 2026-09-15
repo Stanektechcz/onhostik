@@ -7434,6 +7434,75 @@ paths:
           session: []
         -
           bearer: []
+    post:
+      operationId: organizationStore
+      tags:
+        - organizations
+      summary: 'POST /organizations'
+      parameters:
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        201:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        200:
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+        -
+          bearer: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
   /organizations/invitations/accept:
     post:
       operationId: organizationAcceptInvitation

@@ -157,6 +157,7 @@
   }
   function runQuote() {
     var list = items(); if (!list) return;
+    if (D().needs_organization) return;
     var seq = ++quoteSeq, A = window.OnhostApi;
     S.quoteBusy = true; render();
     A.put('/cart', { items: list, commit_months: S.period === 'year' ? 12 : 1, currency: 'CZK', promo_code: S.promo.trim() || null })
@@ -393,6 +394,8 @@
     }
     if (S.step === 1) {
       html += '<button type="button" class="ohs-btn" data-a="next"' + (miss.length ? ' disabled' : '') + '>' + _('Pokračovat ke shrnutí →', 'Continue to summary →') + '</button>';
+    } else if (S.step === 2 && D().needs_organization) {
+      html += profileForm();
     } else if (S.step === 2) {
       var total = q ? minor(q.total) : 0, cr = credit();
       html += '<div class="ohs-h" style="margin-top:18px">' + _('Platba', 'Payment') + '</div><div class="ohs-pay">' +
@@ -409,6 +412,33 @@
     }
     if (S.quoteErr) html += '<p class="ohs-err">' + esc(S.quoteErr) + '</p>';
     return html + '</aside>';
+  }
+
+  /* A signed-in account without a customer profile (staff, an invited user who left their organisation): the order needs
+   * one — the name and address the invoice carries. POST /v1/organizations makes the user its owner. */
+  function profileForm() {
+    var p = S.profile || {}, company = p.type === 'company';
+    var inp = function (k, label, ph, req) { return '<label class="ohs-field"><span>' + esc(label) + (req ? ' *' : '') + '</span><input type="text" data-in="profile" data-k="' + k + '" value="' + esc(p[k] || '') + '" placeholder="' + esc(ph || '') + '"/></label>'; };
+    return '<div class="ohs-h" style="margin-top:18px">' + _('Fakturační údaje', 'Billing details') + '</div><p class="ohs-muted" style="margin:0 0 10px">' + _('Tento účet zatím nemá zákaznický profil. Údaje uvidíte na faktuře a později je změníte v Nastavení.', 'This account has no customer profile yet. The details go on the invoice; change them later in Settings.') + '</p>' +
+      '<div class="ohs-chips" style="margin-bottom:12px">' + chip(!company, _('Soukromá osoba', 'Private person'), 'ptype', 'person') + chip(company, _('Firma / OSVČ', 'Company'), 'ptype', 'company') + '</div>' +
+      inp('name', company ? _('Název firmy', 'Company name') : _('Jméno a příjmení', 'Full name'), company ? 'Firma s.r.o.' : 'Jan Novák', true) +
+      (company ? inp('ico', _('IČO', 'Company ID'), '12345678', true) + inp('dic', _('DIČ', 'VAT ID'), 'CZ12345678', false) : '') +
+      inp('street', _('Ulice a číslo', 'Street'), 'Vodičkova 12', true) + inp('city', _('Město', 'City'), 'Praha', true) + inp('postal_code', _('PSČ', 'Postcode'), '110 00', true) +
+      inp('billing_email', _('E-mail pro faktury', 'Billing e-mail'), (window.ONHOST && window.ONHOST.user && window.ONHOST.user.email) || '', false) +
+      '<button type="button" class="ohs-btn" data-a="profile"' + (S.placing ? ' disabled' : '') + '>' + (S.placing ? _('Ukládám…', 'Saving…') : _('Uložit a pokračovat k platbě', 'Save and continue to payment')) + '</button>';
+  }
+  function saveProfile() {
+    var p = Object.assign({ type: 'person' }, S.profile || {}), miss = ['name', 'street', 'city', 'postal_code'].concat(p.type === 'company' ? ['ico'] : []).filter(function (k) { return !String(p[k] || '').trim(); });
+    if (miss.length) { set({ quoteErr: _('Vyplňte povinné údaje profilu.', 'Fill in the required profile fields.') }); return; }
+    set({ placing: true, quoteErr: null });
+    var body = { name: p.name.trim(), type: p.type, street: p.street.trim(), city: p.city.trim(), postal_code: p.postal_code.trim(), country: 'CZ' };
+    ['ico', 'dic', 'billing_email'].forEach(function (k) { if (String(p[k] || '').trim()) body[k] = String(p[k]).trim(); });
+    window.OnhostApi.post('/organizations', body, window.OnhostApi.key()).then(function (r) {
+      var d = r.data || r, id = d.organization_id || (d.organization && d.organization.id);
+      if (window.ONHOST && window.ONHOST.user) window.ONHOST.user.organization = { id: id, name: body.name }; // the API calls carry the new organisation from now on
+      if (window.ONHOST_PANEL) { delete window.ONHOST_PANEL.catalog; }
+      return ensureData().then(function () { S.placing = false; S.quote = null; render(); runQuote(); });
+    }).catch(function (e) { set({ placing: false, quoteErr: (e && e.message) || _('Profil se nepodařilo uložit.', 'The profile could not be saved.') }); });
   }
 
   function viewReview() {
@@ -448,6 +478,7 @@
     var a = t.getAttribute('data-a'), v = t.getAttribute('data-v');
     var top = function () { var b = root.querySelector('.ohs-body'); if (b) b.scrollTop = 0; };
     if (a === 'close') return close();
+    if (a === 'reloadpage') { location.reload(); return; }
     if (a === 'pick') { S = fresh(v); render(); top(); return; }
     if (a === 'back') { set({ step: Number(v), quoteErr: null }); top(); return; }
     if (a === 'next') { set({ step: 2, quote: null, consents: {} }); top(); runQuote(); return; }
@@ -467,6 +498,8 @@
     if (a === 'dpick') { var pt = tld(v); return set({ dpick: v, dyears: pt ? (pt.default_period || 1) : 1 }, true); }
     if (a === 'dyears') return set({ dyears: Number(v) }, true);
     if (a === 'order') return place();
+    if (a === 'profile') return saveProfile();
+    if (a === 'ptype') { S.profile = Object.assign({}, S.profile || {}, { type: v }); render(); return; }
     if (a === 'tosum') { var sum = root.querySelector('.ohs-sum'); if (sum) sum.scrollIntoView({ behavior: 'smooth' }); return; }
     if (a === 'again') { S = fresh(null); render(); return; }
     if (a === 'goto') { close(); if (cmpRef) cmpRef.setState(v === 'billing' ? { tab: 'billing' } : { tab: 'svcdesk' }); if (window.OnhostStore && window.OnhostStore.refresh) window.OnhostStore.refresh(); setTimeout(function () { location.reload(); }, 400); }
@@ -481,6 +514,7 @@
     if (kind === 'optbool' && e.type === 'change') { var ob = {}; ob[k] = t.checked; return set({ opts: Object.assign({}, S.opts, ob) }, true); }
     if (kind === 'addonplan' && e.type === 'change') { var ap = Object.assign({}, S.addonPlans); if (t.checked) ap[k] = t.getAttribute('data-v'); else delete ap[k]; return set({ addonPlans: ap }, true); }
     if (kind === 'pay' && e.type === 'change') return set({ pay: t.value });
+    if (kind === 'profile') { S.profile = Object.assign({}, S.profile || {}); S.profile[k] = t.value; return; }
     if (kind === 'consent' && e.type === 'change') { var c = Object.assign({}, S.consents); c[k] = t.checked; return set({ consents: c, quoteErr: null }); }
   }
   function renderLight(t) { var b = t.parentNode && t.parentNode.querySelector('p b'); if (b) { var unit = (b.textContent.match(/\s\D+$/) || [''])[0]; b.textContent = t.value + unit; } }
@@ -490,20 +524,48 @@
     if (e.key === 'Enter' && e.target && e.target.getAttribute && e.target.getAttribute('data-k') === 'dq') { e.preventDefault(); S.dq = e.target.value; searchDomains(); }
   }
 
+  /* The panel data (window.ONHOST_PANEL) arrives with the page; when it is missing or failed (a slow or broken load) the
+   * centre fetches it again instead of ever falling back to the prototype's wizard. */
+  var loadingData = null;
+  function ensureData() {
+    if (D().catalog) return Promise.resolve(true);
+    if (loadingData) return loadingData;
+    loadingData = new Promise(function (resolve) {
+      var s = document.createElement('script');
+      s.src = '/surfaces/onhost-panel.js?t=' + Date.now();
+      s.onload = function () { loadingData = null; resolve(!!D().catalog); };
+      s.onerror = function () { loadingData = null; resolve(false); };
+      document.head.appendChild(s);
+    });
+    return loadingData;
+  }
+  function mount() {
+    if (root) return;
+    if (!document.getElementById('ohs-css')) { var st = document.createElement('style'); st.id = 'ohs-css'; st.textContent = CSS; document.head.appendChild(st); }
+    root = document.createElement('div'); root.className = 'ohs'; root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true');
+    root.addEventListener('click', onClick); root.addEventListener('input', onInput); root.addEventListener('change', onInput);
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(root);
+    document.documentElement.style.overflow = 'hidden';
+  }
   function open(cmp, key) {
     cmpRef = cmp || cmpRef;
-    if (!window.OnhostApi || !D().catalog) return false;
+    if (!window.OnhostApi) return false;
+    if (!D().catalog) { // the order centre opens at once and waits for the catalogue
+      mount();
+      root.innerHTML = '<div class="ohs-top"><h1>' + _('Nová objednávka', 'New order') + '</h1><button type="button" class="ohs-x" data-a="close">✕ ' + _('Zavřít', 'Close') + '</button></div><div class="ohs-body"><div class="ohs-done"><p class="ohs-lead">' + _('Načítám katalog služeb…', 'Loading the service catalogue…') + '</p></div></div>';
+      S = fresh(null);
+      ensureData().then(function (ok) {
+        if (!root) return;
+        if (ok) { open(cmpRef, key); return; }
+        root.querySelector('.ohs-body').innerHTML = '<div class="ohs-done"><div class="ohs-h">' + _('Katalog se nepodařilo načíst', 'The catalogue could not be loaded') + '</div><p class="ohs-lead">' + _('Obnovte prosím stránku. Pokud potíže trvají, napište podpoře — objednávku za vás zadáme.', 'Please reload the page. If it persists, contact support and we will place the order for you.') + '</p><button type="button" class="ohs-btn2" data-a="reloadpage">' + _('Obnovit stránku', 'Reload the page') + '</button></div>';
+      });
+      return true;
+    }
     if (key && key !== 'domain' && !product(key)) key = null;
     S = fresh(key || null);
     if (key === 'game' && D().game_config && (D().game_config.groups || []).length === 1) { var only = D().game_config.groups[0]; S.game = Object.assign({}, S.game, { group: only.key, egg: only.eggs[0] }); }
-    if (!root) {
-      if (!document.getElementById('ohs-css')) { var st = document.createElement('style'); st.id = 'ohs-css'; st.textContent = CSS; document.head.appendChild(st); }
-      root = document.createElement('div'); root.className = 'ohs'; root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true');
-      root.addEventListener('click', onClick); root.addEventListener('input', onInput); root.addEventListener('change', onInput);
-      document.addEventListener('keydown', onKey, true);
-      document.body.appendChild(root);
-      document.documentElement.style.overflow = 'hidden';
-    }
+    mount();
     if (cmp && cmp.setState) cmp.setState({ modal: null, userOpen: false, curOpen: false, notifOpen: false });
     render();
     refreshCredit();

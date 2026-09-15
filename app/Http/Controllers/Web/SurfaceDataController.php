@@ -256,7 +256,10 @@ final class SurfaceDataController extends Controller
         }
         $organizationId = $request->query('organization') ?: OrganizationMembership::query()->where('user_id', $user->id)->where('state', 'active')->orderBy('joined_at')->value('organization_id');
         if ($organizationId === null || ! OrganizationMembership::query()->where('user_id', $user->id)->where('organization_id', $organizationId)->where('state', 'active')->exists()) {
-            $payload = ['services' => [], 'servers' => [], 'organization' => null];
+            $locale = $user->locale ?? 'cs';
+            $payload = ['services' => [], 'servers' => [], 'organization' => null, 'needs_organization' => true, 'kpis' => ['credit' => 0.0, 'currency' => 'CZK'], // audit §5z: the order centre asks for a customer profile first
+                'catalog' => $this->panelCatalog($locale), 'regions' => Region::query()->where('state', 'active')->orderBy('code')->get()->map(fn ($r) => ['code' => $r->code, 'name' => $r->name, 'datacenter' => $r->datacenter])->all(),
+                'consents' => $this->consentVersions(), 'tlds' => $this->panelTlds(null), 'game_config' => $this->gameConfigurator->offer($locale, 'CZK'), 'generated_at' => now()->toIso8601String()];
         } else {
             $payload = $this->panelPayload((string) $organizationId, $user->locale ?? 'cs');
         }
@@ -593,9 +596,9 @@ final class SurfaceDataController extends Controller
     }
 
     /** Registrable TLDs with the organization's prices for the "Nová služba → Doména" wizard step (decimal amounts, periods, terms links). @return list<array<string,mixed>> */
-    private function panelTlds(string $organizationId): array
+    private function panelTlds(?string $organizationId): array
     {
-        $currency = (string) (Organization::query()->find($organizationId)?->currency ?? 'CZK');
+        $currency = $organizationId === null ? 'CZK' : (string) (Organization::query()->find($organizationId)?->currency ?? 'CZK');
         $catalog = app(CatalogService::class);
         $out = [];
         foreach ($catalog->tlds() as $policy) {

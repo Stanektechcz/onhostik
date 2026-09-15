@@ -48,6 +48,7 @@ use Onhost\Domain\Orders\Commands\ReviewOrderCommand;
 use Onhost\Domain\Orders\Commands\StaffCustomerCommand;
 use Onhost\Domain\Orders\Listeners\FulfillPaidOrder;
 use Onhost\Domain\Orders\Listeners\SettleOrderPayment;
+use Onhost\Domain\Organizations\Commands\CreateOrganizationCommand;
 use Onhost\Domain\Organizations\Commands\OrganizationCommand;
 use Onhost\Domain\Organizations\Commands\OrganizationsCommandHandler;
 use Onhost\Domain\Partners\Commands\PartnerCommand;
@@ -104,6 +105,7 @@ final class DomainServiceProvider extends ServiceProvider
         RegistrarConnectionCommand::class => RegistrarConnectionsCommandHandler::class,
         DnsCommand::class => DnsCommandHandler::class,
         OrganizationCommand::class => OrganizationsCommandHandler::class,
+        CreateOrganizationCommand::class => OrganizationsCommandHandler::class,
         ApiTokenCommand::class => IdentityCommandHandler::class,
         ProvisioningCommand::class => ProvisioningCommandHandler::class,
         CapacityCommand::class => CapacityCommandHandler::class,

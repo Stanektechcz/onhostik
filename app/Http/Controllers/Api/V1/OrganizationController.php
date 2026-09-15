@@ -8,6 +8,7 @@ use App\Http\Presenters\Presenters;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Notifications\DigestService;
+use Onhost\Domain\Organizations\Commands\CreateOrganizationCommand;
 use Onhost\Domain\Organizations\Commands\OrganizationCommand;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationInvitation;
@@ -26,6 +27,17 @@ final class OrganizationController extends ApiController
         $memberships = OrganizationMembership::query()->with('organization')->where('user_id', $user->id)->where('state', 'active')->get();
 
         return response()->json(['data' => $memberships->map(fn ($m) => $m->organization ? Presenters::organization($m->organization, $m->role_key) : null)->filter()->values()->all()]);
+    }
+
+    /** A customer profile for the signed-in user (audit §5z): the order centre creates it before the first order. */
+    public function store(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'min:2', 'max:190'], 'type' => ['required', 'in:person,company'], 'ico' => ['nullable', 'required_if:type,company', 'string', 'max:20'], 'dic' => ['nullable', 'string', 'max:20'], 'vat_id' => ['nullable', 'string', 'max:20'],
+            'billing_email' => ['nullable', 'email'], 'street' => ['required', 'string', 'max:190'], 'city' => ['required', 'string', 'max:120'], 'postal_code' => ['required', 'string', 'max:12'], 'country' => ['nullable', 'string', 'size:2'],
+        ]);
+
+        return $this->dispatch(new CreateOrganizationCommand($this->idempotencyKey($request, 'org.create:'.(string) $request->user()?->getAuthIdentifier()), $data), $this->api->context($request), 201);
     }
 
     public function show(Request $request, string $organization): JsonResponse

@@ -26,6 +26,24 @@ final class PlacementService
 
     public function __construct(private readonly AuditRecorder $audit) {}
 
+    /** A one-order placement on a named instance (staff pin, audit §5z): unsaved, only when the instance is usable and compatible with the product. */
+    public function pinned(Product $product, string $instanceKey): PlanPlacement
+    {
+        $instance = ProviderInstance::query()->where('key', $instanceKey)->orWhere('id', $instanceKey)->first();
+        if ($instance === null || ! $instance->isUsable()) {
+            throw new DomainError('placement_instance_unusable', "The instance {$instanceKey} does not exist or is not active.", 422, ['field' => 'placement_instance']);
+        }
+        $allowed = self::COMPATIBLE[(string) $product->executor] ?? [(string) $product->executor];
+        if (! in_array($instance->provider, $allowed, true)) {
+            throw new DomainError('placement_incompatible', "Product {$product->key} ({$product->executor}) cannot run on a {$instance->provider} instance.", 422, ['field' => 'placement_instance']);
+        }
+        $placement = new PlanPlacement(['product_key' => $product->key, 'provider_instance_id' => $instance->id, 'priority' => 0, 'state' => 'active', 'note' => 'pinned for one order']);
+        $placement->setRelation('providerInstance', $instance);
+        $placement->setRelation('node', null);
+
+        return $placement;
+    }
+
     /** The placement that applies to a plan in a region, or null when scheduling should fall back to roles. */
     public function resolve(string $productKey, ?string $planKey, ?string $regionCode): ?PlanPlacement
     {

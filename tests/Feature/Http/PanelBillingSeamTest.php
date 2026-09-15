@@ -104,7 +104,7 @@ it('feeds the panel billing tab with the organization\'s real document, bank det
         ->and(collect($payload['catalog'])->firstWhere('key', 'vps')['images'])->toContain('debian-13')
         ->and($payload)->toHaveKey('game_config');
     expect($panel)->toContain('src="/surfaces/api/onhost-panel-order.api.js?v=')->toContain('src="/surfaces/api/onhost-panel-shop.api.js?v=')
-        ->toContain("openNew: (e) => { if (e && e.preventDefault) e.preventDefault(); if (!(window.OnhostPanelShop && window.OnhostPanelShop.open(this, null))) openModal('order')(e); },")
+        ->toContain('openNew: (e) => { if (e && e.preventDefault) e.preventDefault(); if (window.OnhostPanelShop) window.OnhostPanelShop.open(this, null); },')
         ->toContain('const ORDER_TYPES = (window.OnhostPanelOrder && window.OnhostPanelOrder.types(this)) || [')
         ->toContain("if (window.OnhostPanelOrder) { this.setState({ modal: null, mStep: 0 }); window.OnhostPanelOrder.place(this, { type: md.type, size: md.size || (orderSize && orderSize[0]), region: md.region, os: md.os, name: name, pay: md.pay || '' }, orderType, orderSize); return; }")
         ->toContain("'region', (window.OnhostPanelOrder && window.OnhostPanelOrder.regions(this)) || [['PRG1'")
