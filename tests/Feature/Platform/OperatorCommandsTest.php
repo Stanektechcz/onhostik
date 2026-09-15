@@ -5,12 +5,14 @@ declare(strict_types=1);
 use App\Http\Controllers\Web\SurfaceDataController;
 use Database\Seeders\CatalogSeeder;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\Totp;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\PlacementService;
+use Onhost\Platform\Resilience\CircuitBreaker;
 
 /* The two commands a fresh installation needs before the console is usable: the first staff account and the provider instances. */
 
@@ -61,4 +63,20 @@ it('overlays both game pages with the catalogue plans and the templates the pane
     expect($pages['minecraft']['plans'][0]['sku']['product_key'])->toBe('game')->and($pages['minecraft']['chips'])->toBe(['Paper', 'Bedrock'])->and($pages['minecraft']['kpi_games'][0])->toBe('2');
     expect($pages['gamehosting']['chips'])->toBe(['Counter-Strike 2'])->and($pages['gamehosting']['kicker'])->toBe('Counter-Strike 2'); // DayZ waits for the operator's Steam account
     expect((string) file_get_contents(base_path('apps/surfaces/api/onhost-svc-pages.api.js')))->toContain('page.chips = o.chips');
+});
+
+it('takes products off sale and back, and shows and resets the breakers of an instance (audit §5z)', function () {
+    $this->seed(CatalogSeeder::class);
+    $this->artisan('onhost:catalog:state draft vps vds')->expectsOutputToContain('vps → draft')->assertExitCode(0);
+    expect(Product::query()->where('key', 'vps')->value('state'))->toBe('draft');
+    $this->artisan('onhost:catalog:state retired vps')->assertExitCode(1);
+    $this->artisan('onhost:catalog:state active vps')->assertExitCode(0);
+    expect(Product::query()->where('key', 'vps')->value('state'))->toBe('active');
+
+    ProviderInstance::query()->firstOrCreate(['key' => 'wedos-main'], ['provider' => 'wedos', 'name' => 'WEDOS', 'base_url' => 'https://api.wedos.com/wapi/json', 'state' => 'active', 'secret_ref' => 'db://registrars/wedos', 'options' => []]);
+    $wapi = new CircuitBreaker(app('cache.store'), 'wapi:invalid', 10, 900, 3600);
+    $wapi->trip();
+    $this->artisan('onhost:integrations:breaker wedos-main')->expectsOutputToContain('open')->assertExitCode(0);
+    $this->artisan('onhost:integrations:breaker wedos-main --reset')->expectsOutputToContain('Breakers closed')->assertExitCode(0);
+    expect($wapi->state())->toBe('closed');
 });

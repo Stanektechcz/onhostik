@@ -43,6 +43,7 @@ final class CatalogCommandHandler implements CommandHandler
                 return ['deleted' => $deleted > 0];
             })(),
             'option.upsert' => ['option' => $this->upsertOption((string) $command->get('product_key'), (array) $command->get('option', []))],
+            'product.state' => ['products' => $this->productState((string) $command->get('state'), (array) $command->get('products', []))], // on sale or off sale (audit §5z)
             // the customer panel's sidebar: category switches, order and labels (domains/Catalog/PanelNavigation.php)
             'panel_nav.set' => ['panel_nav' => app(PanelNavigation::class)->save((array) $command->get('config', []), $by)],
             'option.delete' => (function () use ($command) {
@@ -142,5 +143,22 @@ final class CatalogCommandHandler implements CommandHandler
         }
 
         return $product;
+    }
+
+    /** @param list<string> $keys @return array<string,string> product key → new state */
+    private function productState(string $state, array $keys): array
+    {
+        if (! in_array($state, ['active', 'draft'], true)) {
+            throw new DomainError('state_invalid', 'State must be active or draft.', 422, ['field' => 'state']);
+        }
+        $out = [];
+        foreach ($keys as $key) {
+            $product = $this->product((string) $key);
+            $product->forceFill(['state' => $state])->save();
+            $out[$product->key] = $state;
+        }
+        Cache::forget('surfaces:onhost-data.js');
+
+        return $out;
     }
 }

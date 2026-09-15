@@ -12,11 +12,11 @@ use Onhost\Platform\Commands\GlobalCommand;
  * Staff pricing controls (Nastavení systému → Slevy a doplňky), dispatched by `op`:
  *  pricing.commit_discounts.set{config} · pricing.domain_discount.set{tld,discount} · pricing.domain_discount.delete{tld} ·
  *  pricing.addon_products.set{product_key,addon_products} · promo.upsert{promo} · promo.delete{code} ·
- *  option.upsert{product_key,option} · option.delete{product_key,key}
+ *  option.upsert{product_key,option} · option.delete{product_key,key} · product.state{state: active|draft, products: list}
  */
 final class CatalogCommand extends GlobalCommand implements RiskAwareCommand
 {
-    public const OPS = ['pricing.commit_discounts.set', 'pricing.domain_discount.set', 'pricing.domain_discount.delete', 'pricing.addon_products.set', 'promo.upsert', 'promo.delete', 'option.upsert', 'option.delete', 'panel_nav.set'];
+    public const OPS = ['pricing.commit_discounts.set', 'pricing.domain_discount.set', 'pricing.domain_discount.delete', 'pricing.addon_products.set', 'promo.upsert', 'promo.delete', 'option.upsert', 'option.delete', 'panel_nav.set', 'product.state'];
 
     protected const AUDIT_STRIP = [];
 
