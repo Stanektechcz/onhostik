@@ -32,10 +32,21 @@ final class NodeScheduler
         return (bool) data_get(Organization::query()->find($organizationId)?->feature_flags, 'sandbox', false);
     }
 
+    /** Whether a node serves a role: its `role`, or one of the extra roles in `tags.roles` / `tags.ispconfig_roles` (a panel host running web and mail). */
+    public static function serves(Node $node, string $role): bool
+    {
+        if ($node->role === $role) {
+            return true;
+        }
+        $extra = array_merge((array) data_get($node->tags, 'roles', []), (array) data_get($node->tags, 'ispconfig_roles', []));
+
+        return in_array($role, array_map('strval', $extra), true);
+    }
+
     public function pick(array $constraints): array
     {
         $weights = (array) config('onhost.provisioning.scheduler_weights');
-        $query = Node::query()->with('providerInstance')->where('role', $constraints['role'])->where('state', 'active');
+        $query = Node::query()->with('providerInstance')->where('state', 'active'); // the role is matched below: the node's role or one of its extra roles
         if (! empty($constraints['region'])) {
             $query->where('region_code', $constraints['region']);
         }
@@ -45,7 +56,7 @@ final class NodeScheduler
                 $query->where('id', (string) $constraints['placement']['node_id']);
             }
         }
-        $nodes = $query->get()->filter(fn (Node $n) => $n->providerInstance !== null && $n->providerInstance->isUsable()
+        $nodes = $query->get()->filter(fn (Node $n) => self::serves($n, (string) $constraints['role']) && $n->providerInstance !== null && $n->providerInstance->isUsable()
             && (empty($constraints['provider']) || $n->providerInstance->provider === $constraints['provider'])
             && ! in_array($n->id, $constraints['exclude_nodes'] ?? [], true)
             && ! in_array($n->name, $constraints['exclude_nodes'] ?? [], true)

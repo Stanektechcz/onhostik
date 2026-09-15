@@ -21,7 +21,7 @@ use Throwable;
  */
 final class NodesDiscover extends Command
 {
-    protected $signature = 'onhost:nodes:discover {instance : provider instance key, e.g. ispconfig-shared01} {--region= : region code for an instance without one, e.g. cz1} {--role= : set this role on the nodes of the instance (web, managed, game, compute, mail, dns)} {--sell-ratio= : share of a node the scheduler may sell on this instance, 0.5–1.0 (default 0.75 keeps an N+1 reserve)}';
+    protected $signature = 'onhost:nodes:discover {instance : provider instance key, e.g. ispconfig-shared01} {--region= : region code for an instance without one, e.g. cz1} {--role= : set this role on the nodes of the instance (web, managed, game, compute, mail, dns)} {--add-role=* : an extra role the nodes also serve, e.g. --add-role=mail for an ISPConfig host with web and mail} {--sell-ratio= : share of a node the scheduler may sell on this instance, 0.5–1.0 (default 0.75 keeps an N+1 reserve)}';
 
     protected $description = 'Import the nodes of a provider instance through its API so the scheduler can place services on them';
 
@@ -64,6 +64,18 @@ final class NodesDiscover extends Command
             }
             Node::query()->where('provider_instance_id', $instance->id)->update(['role' => $role]);
         }
+        foreach (array_filter((array) $this->option('add-role')) as $extra) {
+            if (! in_array($extra, ['compute', 'web', 'managed', 'game', 'mail', 'dns', 'apps', 'backup'], true)) {
+                $this->error("Unknown role {$extra}.");
+
+                return self::FAILURE;
+            }
+            foreach (Node::query()->where('provider_instance_id', $instance->id)->get() as $node) {
+                $tags = (array) ($node->tags ?? []);
+                $tags['roles'] = array_values(array_unique(array_merge((array) ($tags['roles'] ?? []), [$extra])));
+                $node->forceFill(['tags' => $tags])->save();
+            }
+        }
         if ((string) $this->option('sell-ratio') !== '') {
             $ratio = (float) $this->option('sell-ratio');
             if ($ratio < 0.5 || $ratio > 1.0) {
@@ -75,7 +87,7 @@ final class NodesDiscover extends Command
         }
         $ratio = (float) ($instance->option('sell_ratio') ?? config('onhost.provisioning.n_plus_one_sell_ratio', 0.75));
         $nodes = Node::query()->where('provider_instance_id', $instance->id)->orderBy('name')->get();
-        $this->table(['node', 'role', 'region', 'state', 'RAM MB', 'used MB', 'sellable MB', 'disk GB', 'used GB'], $nodes->map(fn (Node $n) => [$n->name, $n->role, $n->region_code, $n->state, (int) data_get($n->capacity, 'ram_mb', 0), (int) data_get($n->usage, 'ram_used_mb', 0), (int) floor((int) data_get($n->capacity, 'ram_mb', 0) * $ratio), (int) data_get($n->capacity, 'disk_gb', 0), (int) data_get($n->usage, 'disk_used_gb', 0)])->all());
+        $this->table(['node', 'role', 'region', 'state', 'RAM MB', 'used MB', 'sellable MB', 'disk GB', 'used GB'], $nodes->map(fn (Node $n) => [$n->name, implode('+', array_values(array_unique(array_merge([$n->role], (array) data_get($n->tags, 'roles', []))))), $n->region_code, $n->state, (int) data_get($n->capacity, 'ram_mb', 0), (int) data_get($n->usage, 'ram_used_mb', 0), (int) floor((int) data_get($n->capacity, 'ram_mb', 0) * $ratio), (int) data_get($n->capacity, 'disk_gb', 0), (int) data_get($n->usage, 'disk_used_gb', 0)])->all());
         $needed = match ($instance->provider) {
             'ispconfig' => 'web', 'aapanel' => 'managed', 'pterodactyl' => 'game', 'proxmox' => 'compute', default => null
         };

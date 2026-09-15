@@ -11,9 +11,12 @@ use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\Totp;
 use Onhost\Domain\Notifications\Mail\TemplatedMail;
+use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\PlacementService;
+use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Resilience\CircuitBreaker;
 
 /* The two commands a fresh installation needs before the console is usable: the first staff account and the provider instances. */
@@ -93,4 +96,19 @@ it('sends a test e-mail through the mailer and validates the smoke test products
     [, $org] = $this->customerWithOrganization();
     $this->artisan("onhost:smoke:order {$org->id} --product=neexistuje")->expectsOutputToContain('Neznámý produkt neexistuje')->assertExitCode(1);
     $this->artisan("onhost:smoke:order {$org->id} --product=wordpress@nope")->expectsOutputToContain('Neznámá instance: nope')->assertExitCode(1);
+});
+
+it('lets one panel host serve web and mail: --add-role adds a role the scheduler honours (audit §5z)', function () {
+    Region::query()->firstOrCreate(['code' => 'cz1'], ['name' => 'Praha', 'country' => 'CZ', 'state' => 'active']);
+    $instance = ProviderInstance::query()->create(['key' => 'ispconfig-roles', 'provider' => 'ispconfig', 'name' => 'ISPConfig', 'base_url' => 'https://s2.onhost.test:8080', 'region_code' => 'cz1', 'state' => 'active', 'options' => [], 'secret_ref' => 'db://test/ispconfig']);
+    Node::query()->create(['provider_instance_id' => $instance->id, 'name' => 's2.onhost.test', 'region_code' => 'cz1', 'role' => 'web', 'state' => 'active', 'capacity' => [], 'usage' => [], 'failure_domain' => 's2', 'tags' => ['ispconfig_roles' => ['web']]]);
+    $scheduler = app(NodeScheduler::class);
+    $mail = ['role' => 'mail', 'region' => 'cz1', 'provider' => 'ispconfig', 'placement' => ['instance_id' => $instance->id, 'instance_key' => 'ispconfig-roles']];
+    expect(fn () => $scheduler->pick($mail))->toThrow(DomainError::class);
+
+    $node = Node::query()->where('provider_instance_id', $instance->id)->sole();
+    $node->forceFill(['tags' => array_merge((array) $node->tags, ['roles' => ['mail']])])->save(); // what `onhost:nodes:discover ispconfig-roles --add-role=mail` stores
+    expect($scheduler->pick($mail)['node']->name)->toBe('s2.onhost.test')
+        ->and($scheduler->pick(['role' => 'web', 'region' => 'cz1', 'provider' => 'ispconfig'])['node']->name)->toBe('s2.onhost.test')
+        ->and(NodeScheduler::serves($node->refresh(), 'game'))->toBeFalse();
 });
