@@ -120,7 +120,9 @@ final class PlatformBackup
         }
         $ok = $problems === [];
         if ($ok) {
-            cache()->forever(self::VERIFIED_KEY, ['set' => $set, 'at' => now()->toIso8601String(), 'created_at' => $manifest['created_at'] ?? null]);
+            $verified = ['set' => $set, 'at' => now()->toIso8601String(), 'created_at' => $manifest['created_at'] ?? null];
+            cache()->forever(self::VERIFIED_KEY, $verified);
+            $this->disk()->put($set.'/verified.json', (string) json_encode($verified, JSON_UNESCAPED_SLASHES)); // survives a cache flush (deploys, cache:clear)
         }
 
         return ['set' => $set, 'ok' => $ok, 'problems' => $problems, 'created_at' => $manifest['created_at'] ?? null];
@@ -129,7 +131,24 @@ final class PlatformBackup
     /** @return array{last:?array<string,mixed>, verified:?array<string,mixed>, disk:string, retention_days:int} */
     public function status(): array
     {
-        return ['last' => cache()->get(self::LAST_KEY), 'verified' => cache()->get(self::VERIFIED_KEY), 'disk' => (string) config('onhost.platform_backup.disk', 'local'), 'retention_days' => (int) config('onhost.platform_backup.retention_days', 30)];
+        $last = cache()->get(self::LAST_KEY);
+        $verified = cache()->get(self::VERIFIED_KEY);
+        if ($last === null || $verified === null) { // the cache was flushed: read the newest set from the backup disk
+            $set = $this->latestSet();
+            if ($set !== null) {
+                $manifest = json_decode((string) ($this->disk()->get($set.'/manifest.json') ?? ''), true);
+                $last ??= is_array($manifest) ? ['set' => $set, 'at' => (string) ($manifest['created_at'] ?? ''), 'bytes' => array_sum(array_map(fn ($f) => (int) ($f['bytes'] ?? 0), (array) ($manifest['files'] ?? [])))] : null;
+                foreach (array_reverse((array) $this->disk()->directories(self::PREFIX)) as $candidate) {
+                    if ($verified !== null) {
+                        break;
+                    }
+                    $marker = $this->disk()->exists($candidate.'/verified.json') ? json_decode((string) $this->disk()->get($candidate.'/verified.json'), true) : null;
+                    $verified = is_array($marker) ? $marker : null;
+                }
+            }
+        }
+
+        return ['last' => $last, 'verified' => $verified, 'disk' => (string) config('onhost.platform_backup.disk', 'local'), 'retention_days' => (int) config('onhost.platform_backup.retention_days', 30)];
     }
 
     public function latestSet(): ?string

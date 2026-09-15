@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
@@ -51,6 +52,8 @@ it('backs up the database and private files, verifies the set and prunes old one
 
     $v = $backup->verify();
     expect($v)->toMatchArray(['set' => $r['set'], 'ok' => true, 'problems' => []])->and($backup->status()['verified']['set'])->toBe($r['set']);
+    Cache::flush(); // a deploy flushed the cache: the verified set is read back from the backup disk
+    expect($backup->status()['verified']['set'])->toBe($r['set'])->and($backup->status()['last']['set'])->toBe($r['set']);
     $this->artisan('onhost:doctor')->expectsOutputToContain('platform backup verified within 26 h');
 
     // a tampered dump fails verification; an old set is pruned by the next run, the newest never
