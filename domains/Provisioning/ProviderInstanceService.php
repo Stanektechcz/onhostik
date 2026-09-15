@@ -286,7 +286,7 @@ final class ProviderInstanceService
             $node->forceFill([
                 'region_code' => $node->region_code ?? $instance->region_code, 'role' => 'game',
                 'state' => $remote['maintenance'] ? 'maintenance' : ($node->exists && $node->state !== 'maintenance' ? $node->state : 'active'),
-                'capacity' => array_merge($capacity, ['cpu_cores' => (int) ($capacity['cpu_cores'] ?? 0), 'ram_mb' => (int) $remote['memory'], 'disk_gb' => (int) round($remote['disk'] / 1024)]), // the panel's limits win over what was stored (audit §5q follow-up: limits change from the console)
+                'capacity' => array_merge($capacity, ['cpu_cores' => (int) ($capacity['cpu_cores'] ?? 0), 'ram_mb' => self::overallocated((int) $remote['memory'], (int) ($remote['memory_overallocate'] ?? 0)), 'disk_gb' => (int) round(self::overallocated((int) $remote['disk'], (int) ($remote['disk_overallocate'] ?? 0)) / 1024)]), // the panel's overallocation (%) is what it really accepts // the panel's limits win over what was stored (audit §5q follow-up: limits change from the console)
                 'usage' => ['cpu_pct' => (int) data_get($node->usage, 'cpu_pct', 0), 'ram_used_mb' => (int) $remote['allocated_memory'], 'disk_used_gb' => (int) round($remote['allocated_disk'] / 1024), 'io_wait_pct' => 0],
                 'remote_id' => (string) $remote['id'], 'last_seen_at' => now(), 'failure_domain' => $node->failure_domain ?? (string) $remote['name'], 'tags' => array_merge((array) ($node->tags ?? []), ['maintenance' => (bool) $remote['maintenance']]),
             ])->save();
@@ -298,6 +298,12 @@ final class ProviderInstanceService
     }
 
     /** Manual node registration for executors without discovery (ISPConfig servers, aaPanel hosts, Wings nodes). */
+    /** A game-panel limit with its overallocation percentage (-1 = unlimited → the plain limit stays the reference). */
+    public static function overallocated(int $limit, int $percent): int
+    {
+        return $percent > 0 ? (int) floor($limit * (1 + $percent / 100)) : $limit;
+    }
+
     public function upsertNode(ProviderInstance $instance, array $input, CommandContext $context): Node
     {
         $name = trim((string) ($input['name'] ?? ''));

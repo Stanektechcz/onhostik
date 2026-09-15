@@ -87,7 +87,7 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider
         $out = [];
         foreach ($this->pages('/api/application/nodes', 'app', 'nodes.list') as $node) {
             $a = $node['attributes'];
-            $out[] = ['id' => (int) $a['id'], 'name' => (string) $a['name'], 'memory' => (int) $a['memory'], 'disk' => (int) $a['disk'], 'allocated_memory' => (int) ($a['allocated_resources']['memory'] ?? 0), 'allocated_disk' => (int) ($a['allocated_resources']['disk'] ?? 0), 'maintenance' => (bool) ($a['maintenance_mode'] ?? false)];
+            $out[] = ['id' => (int) $a['id'], 'name' => (string) $a['name'], 'memory' => (int) $a['memory'], 'disk' => (int) $a['disk'], 'allocated_memory' => (int) ($a['allocated_resources']['memory'] ?? 0), 'allocated_disk' => (int) ($a['allocated_resources']['disk'] ?? 0), 'maintenance' => (bool) ($a['maintenance_mode'] ?? false), 'memory_overallocate' => (int) ($a['memory_overallocate'] ?? 0), 'disk_overallocate' => (int) ($a['disk_overallocate'] ?? 0)];
         }
 
         return $out;

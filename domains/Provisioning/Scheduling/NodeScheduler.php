@@ -58,11 +58,13 @@ final class NodeScheduler
         $ramNeed = (float) ($constraints['ram_mb'] ?? 0);
         $cpuNeed = (float) ($constraints['cpu_cores'] ?? 0);
         $diskNeed = (float) ($constraints['disk_gb'] ?? 0);
-        $sellRatio = (float) config('onhost.provisioning.n_plus_one_sell_ratio', 0.75);
         $antiAffinity = $constraints['anti_affinity'] ?? [];
 
         $candidates = [];
+        $blocked = [];
         foreach ($nodes as $node) {
+            $instance = $node->providerInstance;
+            $sellRatio = (float) ($instance instanceof ProviderInstance ? $instance->option('sell_ratio', config('onhost.provisioning.n_plus_one_sell_ratio', 0.75)) : config('onhost.provisioning.n_plus_one_sell_ratio', 0.75)); // an instance may sell more of its nodes (option sell_ratio)
             $ramTotal = $node->cap('ram_mb');
             $cpuTotal = $node->cap('cpu_cores');
             $diskTotal = $node->cap('disk_gb');
@@ -71,12 +73,18 @@ final class NodeScheduler
             $diskFree = $diskTotal - $node->use('disk_used_gb');
             // Hard capacity: placement must fit inside the sellable share (N+1 reserve kept on every node).
             if ($ramTotal > 0 && ($node->use('ram_used_mb') + $ramNeed) > $ramTotal * $sellRatio) {
+                $blocked[] = sprintf('%s RAM %d+%d > %d MB (%d %%)', $node->name, (int) $node->use('ram_used_mb'), (int) $ramNeed, (int) ($ramTotal * $sellRatio), (int) round($sellRatio * 100));
+
                 continue;
             }
             if ($diskTotal > 0 && ($node->use('disk_used_gb') + $diskNeed) > $diskTotal * 0.85) {
+                $blocked[] = sprintf('%s disk %d+%d > %d GB', $node->name, (int) $node->use('disk_used_gb'), (int) $diskNeed, (int) ($diskTotal * 0.85));
+
                 continue;
             }
             if ($cpuTotal > 0 && $cpuNeed > 0 && $node->use('cpu_pct') > 85.0) {
+                $blocked[] = sprintf('%s CPU %d %%', $node->name, (int) $node->use('cpu_pct'));
+
                 continue;
             }
             $hosts = (array) data_get($node->usage, 'hosted_services', []);
@@ -94,7 +102,7 @@ final class NodeScheduler
             $candidates[] = ['node' => $node, 'score' => round($score, 4)];
         }
         if ($candidates === []) {
-            throw new DomainError('capacity_unavailable', 'All matching nodes are at their N+1 sellable limit.', 503, ['role' => $constraints['role']]);
+            throw new DomainError('capacity_unavailable', 'All matching nodes are at their N+1 sellable limit: '.implode('; ', $blocked).'.', 503, ['role' => $constraints['role'], 'blocked' => $blocked]);
         }
         usort($candidates, fn ($a, $b) => $b['score'] <=> $a['score'] ?: strcmp($a['node']->name, $b['node']->name));
         $best = $candidates[0];

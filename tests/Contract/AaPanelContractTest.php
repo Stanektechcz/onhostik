@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
+use Onhost\Domain\Provisioning\ProviderInstanceService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
 use Onhost\Platform\Errors\DomainError;
@@ -79,4 +80,24 @@ it('imports the aaPanel host as one managed node through the panel API; the sche
         $message = $e->getMessage();
     }
     expect($message)->toContain('php artisan onhost:nodes:discover aapanel-managed01');
+});
+
+it('says which node is full and lets an instance sell more of its node (audit §5z)', function () {
+    Region::query()->firstOrCreate(['code' => 'cz1'], ['name' => 'Praha', 'country' => 'CZ', 'state' => 'active']);
+    aaAdapter();
+    $instance = ProviderInstance::query()->where('key', 'aapanel-managed01')->firstOrFail();
+    $instance->forceFill(['region_code' => 'cz1'])->save();
+    Node::query()->create(['provider_instance_id' => $instance->id, 'name' => 'game-test-01', 'region_code' => 'cz1', 'role' => 'managed', 'state' => 'active', 'capacity' => ['ram_mb' => 14964, 'disk_gb' => 195], 'usage' => ['ram_used_mb' => 10240, 'disk_used_gb' => 20, 'cpu_pct' => 5, 'io_wait_pct' => 0], 'failure_domain' => 'game-test-01', 'tags' => []]);
+    $scheduler = app(NodeScheduler::class);
+    $constraints = ['role' => 'managed', 'region' => 'cz1', 'provider' => 'aapanel', 'ram_mb' => 2048, 'placement' => ['instance_id' => $instance->id, 'instance_key' => 'aapanel-managed01']];
+    try {
+        $scheduler->pick($constraints);
+        $message = '';
+    } catch (DomainError $e) {
+        $message = $e->getMessage();
+    }
+    expect($message)->toContain('game-test-01 RAM 10240+2048 > 11223 MB (75 %)');
+    $instance->forceFill(['options' => array_merge((array) $instance->options, ['sell_ratio' => 0.95])])->save();
+    expect($scheduler->pick($constraints)['node']->name)->toBe('game-test-01');
+    expect(ProviderInstanceService::overallocated(14964, 20))->toBe(17956)->and(ProviderInstanceService::overallocated(14964, -1))->toBe(14964);
 });
