@@ -290,6 +290,10 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
         if ($site !== null && $expected !== '' && strtolower((string) ($site['domain'] ?? '')) !== strtolower($expected)) {
             throw new ProviderException('ispconfig', ProviderErrorCode::CONFLICT, "ISPConfig web domain {$ref->remoteId} is {$site['domain']}, not {$expected}; refusing to delete it.");
         }
+        $user = (string) ($ref->meta['system_user'] ?? ''); // and never a site of another customer on a shared panel
+        if ($site !== null && $user !== '' && (string) ($site['system_user'] ?? '') !== $user) {
+            throw new ProviderException('ispconfig', ProviderErrorCode::CONFLICT, "ISPConfig web domain {$ref->remoteId} ({$site['domain']}) belongs to another site user; refusing to delete it.");
+        }
         if ($site === null) {
             return ProviderResult::completed(null, ['already_deleted' => true], alreadyExisted: true);
         }

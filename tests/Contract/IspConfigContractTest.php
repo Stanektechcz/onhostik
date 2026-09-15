@@ -106,6 +106,7 @@ it('never touches a web site when a mail service is read, suspended or terminate
 
     // a web reference whose stored domain does not match the site with that number is refused, and unknown types are refused
     expect(fn () => $adapter->terminate(new ResourceRef('web_domain', '41', '1', ['domain' => 'muj-web.cz'])))->toThrow(ProviderException::class, 'refusing to delete it');
+    expect(fn () => $adapter->terminate(new ResourceRef('web_domain', '41', '1', ['system_user' => 'web99'])))->toThrow(ProviderException::class, 'another site user');
     expect(fn () => $adapter->terminate(new ResourceRef('database', '41', '1')))->toThrow(ProviderException::class);
     Http::assertNotSent(fn ($r) => str_contains($r->url(), 'sites_web_domain_delete'));
 });
