@@ -42,6 +42,8 @@ if [ ! -f "$ENV_DIR/app.env" ]; then
 fi
 grep -qE '^DB_PASSWORD=.+' "$ENV_DIR/app.env" || { echo "DB_PASSWORD is empty in $ENV_DIR/app.env — fill the file first" >&2; exit 1; }
 ln -sfn "$ENV_DIR/app.env" "$APP_DIR/.env"
+# PHP-FPM runs as the web user: it must read the environment when the config cache is cleared (root owns, group reads, nobody else)
+chown root:"$RUN_USER" "$ENV_DIR" "$ENV_DIR/app.env" && chmod 750 "$ENV_DIR" && chmod 640 "$ENV_DIR/app.env"
 
 say "Composer (production, no dev packages)"
 COMPOSER_ALLOW_SUPERUSER=1 "$PHP" "$COMPOSER" install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
