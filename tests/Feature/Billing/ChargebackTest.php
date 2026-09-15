@@ -39,6 +39,9 @@ it('requests, approves, cancels and refunds the configured share of the unused p
         'state' => Subscription::ACTIVE, 'current_period_start' => now()->subDays(20), 'current_period_end' => now()->addDays(10), 'next_renewal_at' => now()->addDays(10), 'auto_renew' => true, 'renewal_priority' => 'normal',
     ]);
     Http::fake(function (Request $request) {
+        if (str_contains($request->url(), 'wings.test/download')) { // the signed archive download of the final backup
+            return Http::response(str_repeat('game archive', 40));
+        }
         if (! str_starts_with($request->url(), PTERO)) {
             return null;
         }
@@ -49,6 +52,7 @@ it('requests, approves, cancels and refunds the configured share of the unused p
             $path === '/api/client/servers/e4c1abcd/backups' && $request->method() === 'POST' => Http::response(['object' => 'backup', 'attributes' => ['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => false, 'is_locked' => false, 'bytes' => 0, 'completed_at' => null, 'created_at' => now()->toIso8601String()]]),
             $path === '/api/client/servers/e4c1abcd/backups' && $request->method() === 'GET' => Http::response(['object' => 'list', 'data' => [['object' => 'backup', 'attributes' => ['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => true, 'is_locked' => false, 'bytes' => 1024, 'completed_at' => now()->toIso8601String(), 'created_at' => now()->toIso8601String()]]]]),
             $path === '/api/client/servers/e4c1abcd/backups/bk-final' => Http::response(['object' => 'backup', 'attributes' => ['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => true, 'is_locked' => false, 'bytes' => 1024, 'completed_at' => now()->toIso8601String(), 'created_at' => now()->toIso8601String()]]),
+            $path === '/api/client/servers/e4c1abcd/backups/bk-final/download' => Http::response(['object' => 'signed_url', 'attributes' => ['url' => 'https://wings.test/download/backup?token=abc']]),
             $path === '/api/application/servers/77/force' => Http::response('', 204),
             default => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => "no fake for {$path}"]]], 404),
         };

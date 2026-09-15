@@ -1185,3 +1185,20 @@ The on-call rota exports/imports iCalendar (`/v1/staff/oncall/shifts.ics`, `/imp
 **After §5u.** `docker compose -f infra/docker-compose.yml up -d clamav otel-collector tempo grafana` gives a local
 scanner and trace backend (Grafana on :3000, the console's *Trasa* links open Explore). Template inputs are a form with
 rule hints; the rota has a personal subscription URL; operator variables older than 180 days are reported.
+
+## Záloha před zrušením služby (audit §5aa)
+
+Žádná služba se nesmaže dřív, než je kompletně zazálohovaná. Krok „Záloha před zrušením“ běží jako první krok akce
+`terminate` a ukládá na zálohovací disk (`ONHOST_PLATFORM_BACKUP_DISK`) sadu `service-archives/<organizace>/<služba>-<čas>`:
+
+| Rodina | Co se archivuje |
+| --- | --- |
+| web, managed | soubory webu (`site-files.tar.gz`) + dump každé databáze + metadata služby |
+| game | záloha serveru z panelu stažená přes podepsanou URL (`game-backup.tar.gz`) + metadata |
+| mail | poštovní doména, schránky, aliasy a veřejný DKIM klíč (obsah schránek panel neexportuje) |
+| cloud, data | chráněný snapshot u poskytovatele (obraz disku se nepřenáší), jeho id a velikost v záznamu zálohy |
+
+Sada má `manifest.json` s SHA-256 každé části, záznam v `backups` je `kind=final`, `protected`, `verify_status=ok`
+a drží se `ONHOST_SERVICE_ARCHIVE_DAYS` (60) dní; po expiraci ji maže `onhost:backups:run`. Když kterákoli část selže,
+operace skončí chybou a **nic se nemaže**. Výjimku má jen obsluha: `service.terminate` s parametrem
+`archive_before_delete=false` a důvodem v `archive_skip_reason` (zapíše se do auditu).

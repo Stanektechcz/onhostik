@@ -12,6 +12,7 @@ use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Workflow\StepContext;
 use Onhost\Domain\Provisioning\Workflow\StepResult;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
+use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\RestoreJob;
 use Onhost\Domain\Services\Models\Service;
@@ -37,6 +38,7 @@ use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\WebHostingProvider;
 use Onhost\Providers\Contracts\WebToolsProvider;
 use Onhost\Providers\Shell\Q;
+use Throwable;
 
 /**
  * Day-2 operations on an existing service (blueprint §5.3): power, suspend/resume,
@@ -86,10 +88,10 @@ final class ServiceActionWorkflow implements Workflow
 
         return match ($action) {
             'power' => [$this->powerStep(), $this->verifyPowerStep()],
-            'suspend' => [$this->suspendStep(), $this->finishStateStep(ServiceStateMachine::SUSPENDED, 'service.suspended')],
-            'resume' => [$this->resumeStep(), $this->finishStateStep(ServiceStateMachine::ACTIVE, 'service.resumed')],
+            'suspend' => [$this->suspendStep(), $this->finishStateStep(ServiceStateMachine::SUSPENDED)],
+            'resume' => [$this->resumeStep(), $this->finishStateStep(ServiceStateMachine::ACTIVE)],
             'resize' => [$this->resizeStep(), $this->finishResizeStep()],
-            'terminate' => [$this->finalBackupStep(), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
+            'terminate' => [$this->finalArchiveStep(), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
             'backup' => [$this->backupStep()],
             'restore' => [$this->restoreStep()],
             'snapshot' => [$this->snapshotStep()],
@@ -469,11 +471,11 @@ final class ServiceActionWorkflow implements Workflow
         };
     }
 
-    private function finishStateStep(string $state, string $event): ServiceStep
+    private function finishStateStep(string $state): ServiceStep
     {
-        return new class($state, $event) extends ServiceStep
+        return new class($state) extends ServiceStep
         {
-            public function __construct(private readonly string $state, private readonly string $event) {}
+            public function __construct(private readonly string $state) {}
 
             public function label(): string
             {
@@ -543,44 +545,41 @@ final class ServiceActionWorkflow implements Workflow
         };
     }
 
-    private function finalBackupStep(): ServiceStep
+    /**
+     * Everything the provider can hand over lands on the backup disk before anything is deleted (audit §5aa): site
+     * files and database dumps, the game server's archive, the mail domain with its mailboxes, always the service
+     * metadata. Kept for 60 days as a protected backup. A failure stops the termination — nothing is deleted without it.
+     */
+    private function finalArchiveStep(): ServiceStep
     {
         return new class extends ServiceStep
         {
             public function label(): string
             {
-                return 'Poslední záloha';
+                return 'Záloha před zrušením';
             }
 
             public function run(StepContext $context): StepResult
             {
                 $service = $this->service($context);
-                $adapter = $context->adapter();
-                if (! $adapter instanceof BackupCapable || $context->desired('final_backup', true) !== true || $service->family !== 'cloud') {
-                    return StepResult::skip();
+                $archives = $context->container->make(FinalArchive::class);
+                $existing = $archives->existing($service, $context->operation->id);
+                if ($existing !== null) {
+                    return StepResult::done(['final_archive_id' => $existing->id, 'final_archive_set' => data_get($existing->meta, 'set')]);
                 }
-                $ref = $this->ref($context);
-                $state = $this->capability($context, InfrastructureProvider::class)->getActualState($ref);
-                if (! $state->exists) {
-                    return StepResult::skip();
+                if ($context->desired('archive_before_delete', true) === false) { // staff override with a reason (service.terminate params), recorded in the audit
+                    return StepResult::done(['final_archive_id' => null, 'final_archive_skipped' => (string) $context->desired('archive_skip_reason', 'operator override')]);
                 }
-                $backup = Backup::query()->create(['service_id' => $service->id, 'organization_id' => $service->organization_id, 'provider_instance_id' => $service->provider_instance_id, 'kind' => 'final', 'state' => 'running', 'started_at' => now(), 'operation_id' => $context->operation->id, 'retention_until' => now()->addDays((int) config('onhost.compliance.retention_after_termination_days', 30)), 'protected' => true]);
+                $ref = $context->binding(null)?->ref();
+                try {
+                    $result = $archives->create($service, $context->adapter(), $ref, $context->actor, $context->operation->id);
+                } catch (DomainError $e) {
+                    return StepResult::fail('final archive failed: '.$e->getMessage(), $e->status >= 500, ['error' => $e->error], 120);
+                } catch (Throwable $e) {
+                    return StepResult::fail('final archive failed: '.$e->getMessage(), true, [], 120);
+                }
 
-                return $this->settle($adapter->backup($ref, ['mode' => 'stop', 'protected' => true, 'notes' => 'final backup before termination']), ['final_backup_id' => $backup->id]);
-            }
-
-            protected function afterAsyncSuccess(StepContext $context, AsyncStatus $status): StepResult
-            {
-                $this->recordBackup($context, (string) $context->get('final_backup_id'));
-
-                return StepResult::done(['final_backup_done' => true]);
-            }
-
-            private function recordBackup(StepContext $context, string $backupId): void
-            {
-                $adapter = $context->adapter();
-                $latest = $adapter instanceof BackupCapable ? collect($adapter->listBackups($this->ref($context)))->sortByDesc('created_at')->first() : null;
-                Backup::query()->whereKey($backupId)->update(['state' => 'completed', 'finished_at' => now(), 'remote_id' => $latest['remote_id'] ?? null, 'size_bytes' => $latest['size_bytes'] ?? null, 'remote_datastore' => $context->instance()->option('backup_storage')]);
+                return StepResult::done(['final_archive_id' => $result['backup']->id, 'final_archive_set' => $result['set'], 'final_archive_gaps' => $result['gaps']]);
             }
         };
     }
@@ -596,6 +595,10 @@ final class ServiceActionWorkflow implements Workflow
 
             public function run(StepContext $context): StepResult
             {
+                if ($context->get('final_archive_id') === null && $context->get('final_archive_skipped') === null) { // audit §5aa: never delete without the archive
+                    return StepResult::fail('the final archive is missing; refusing to delete the service', true, [], 60);
+                }
+
                 return $this->settle($this->capability($context, InfrastructureProvider::class)->terminate($this->ref($context)), ['terminated' => true]);
             }
         };
@@ -622,7 +625,7 @@ final class ServiceActionWorkflow implements Workflow
                 [$zone, $relative] = $platform;
                 try {
                     $version = $dns->syncHostname($zone, $relative, null, null, $context->actor, "service:{$service->id}", "service terminated {$service->id}");
-                } catch (\Throwable $e) {
+                } catch (Throwable $e) {
                     return StepResult::done(['dns_cleanup' => 'failed', 'error' => mb_substr($e->getMessage(), 0, 200)]); // the reconciler retries; termination must not hang on DNS
                 }
 

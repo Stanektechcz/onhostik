@@ -60,6 +60,7 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\QueueScaler;
 use Onhost\Domain\Provisioning\Reconciler;
 use Onhost\Domain\Provisioning\Scheduling\NodeRebalancer;
+use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\UsageWatch;
@@ -612,8 +613,9 @@ Artisan::command('onhost:backups:run {--limit=100}', function (BackupScheduler $
         return;
     }
     $result = $scheduler->tick((int) $this->option('limit'));
+    $result['archives_pruned'] = app(FinalArchive::class)->prune(); // final archives past their 60-day retention (audit §5aa)
     $ledger->record('backups.run', $result);
-    $this->table(['started', 'skipped', 'deleted', 'offsite', 'errors'], [$result]);
+    $this->table(['started', 'skipped', 'deleted', 'offsite', 'errors', 'archives'], [$result]);
 })->purpose('Start scheduled backups, apply retention and generation caps, copy off-site');
 
 Artisan::command('onhost:certificates:renew {--limit=20}', function (CertificateService $certificates) {

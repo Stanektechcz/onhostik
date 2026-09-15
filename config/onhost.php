@@ -43,6 +43,9 @@ return [
         'disk' => env('ONHOST_PLATFORM_BACKUP_DISK', 'local'),      // a filesystems.disks entry; S3-compatible and off the server in production
         'retention_days' => (int) env('ONHOST_PLATFORM_BACKUP_RETENTION_DAYS', 30),
         'files_root' => env('ONHOST_PLATFORM_BACKUP_FILES_ROOT'),   // default storage/app/private
+        'service_archive_days' => (int) env('ONHOST_SERVICE_ARCHIVE_DAYS', 60), // a terminated service is archived (files, databases, metadata) and kept this long — audit §5aa
+        'game_archive_timeout' => (int) env('ONHOST_GAME_ARCHIVE_TIMEOUT', 1800),
+        'download_timeout' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_TIMEOUT', 900),
         'pg_bin' => env('ONHOST_PG_BIN', ''),                       // directory with pg_dump/pg_restore matching the server version (aaPanel: /www/server/pgsql/bin); empty = auto-detect
     ],
     'backups' => [
