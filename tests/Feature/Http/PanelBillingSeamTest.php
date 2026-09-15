@@ -82,9 +82,9 @@ it('feeds the panel billing tab with the organization\'s real document, bank det
         ->toContain("['status', _('Stav infrastruktury', 'Infrastructure status'), ((window.ONHOST_PANEL && window.ONHOST_PANEL.kpis && window.ONHOST_PANEL.kpis.uptime) || '99,993 %'),")
         ->toContain("['housing', _('Housing a racky', 'Housing and racks'), (window.ONHOST_PANEL ? '' : '24 U'),")
         ->toContain('rows: (window.OnhostPanelOverview && window.OnhostPanelOverview.events(this)) || [')
-        ->toContain("[_('Zákazník', 'Customer'), (window.ONHOST_PANEL && window.ONHOST_PANEL.billing && window.ONHOST_PANEL.billing.organization.name) || 'Skladomat s.r.o.'],")
-        ->toContain("[_('Splatnost', 'Payment terms'), window.ONHOST_PANEL ? (window.ONHOST_PANEL.billing.terms.due_days + _(' dní · kredit, karta nebo převod', ' days · credit, card or transfer'))")
-        ->toContain("(window.ONHOST_PANEL && window.ONHOST && window.ONHOST.user ? !!window.ONHOST.user.mfa : s.twofa) ? _('zapnuto', 'on') : _('vypnuto', 'off')],")
+        ->toContain("[_('Zákazník', 'Customer'), ((window.ONHOST_PANEL && window.ONHOST_PANEL.billing && window.ONHOST_PANEL.billing.organization && window.ONHOST_PANEL.billing.terms) && window.ONHOST_PANEL.billing && window.ONHOST_PANEL.billing.organization.name) || 'Skladomat s.r.o.'],") // a staff account without an organisation has no billing block
+        ->toContain("[_('Splatnost', 'Payment terms'), (window.ONHOST_PANEL && window.ONHOST_PANEL.billing && window.ONHOST_PANEL.billing.organization && window.ONHOST_PANEL.billing.terms) ? (window.ONHOST_PANEL.billing.terms.due_days + _(' dní · kredit, karta nebo převod', ' days · credit, card or transfer'))")
+        ->toContain("((window.ONHOST_PANEL && window.ONHOST_PANEL.billing && window.ONHOST_PANEL.billing.organization && window.ONHOST_PANEL.billing.terms) && window.ONHOST && window.ONHOST.user ? !!window.ONHOST.user.mfa : s.twofa) ? _('zapnuto', 'on') : _('vypnuto', 'off')],")
         ->toContain("wide: window.ONHOST_PANEL ? null : {\n        title: _('Poslední deploye', 'Recent deploys'),")
         ->toContain("readOnly: !!window.ONHOST_PANEL, tableTitle: _('Služby s nejvyšší zátěží', 'Busiest services'),")
         ->toContain("stat(_('Otevřené tikety', 'Open tickets'), String(openTickets), (window.ONHOST_PANEL ? '' : _('1 nový', '1 new')),")
