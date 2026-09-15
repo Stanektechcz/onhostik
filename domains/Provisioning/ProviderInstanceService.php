@@ -15,6 +15,7 @@ use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Platform\Secrets\DbSecretStore;
 use Onhost\Platform\Secrets\SecretRef;
 use Onhost\Platform\Secrets\SecretStore;
+use Onhost\Providers\AaPanel\AaPanelWebProvider;
 use Onhost\Providers\Contracts\GameProvider;
 use Onhost\Providers\IspConfig\IspConfigWebProvider;
 use Onhost\Providers\Proxmox\ProxmoxComputeProvider;
@@ -183,8 +184,11 @@ final class ProviderInstanceService
         if ($adapter instanceof GameProvider) {
             return $this->discoverGameNodes($instance, $adapter, $context);
         }
+        if ($adapter instanceof AaPanelWebProvider) {
+            return $this->discoverAaPanel($instance, $adapter, $context);
+        }
         if (! $adapter instanceof ProxmoxComputeProvider) {
-            throw new DomainError('instance_discovery_unsupported', 'Node discovery is available for Proxmox, ISPConfig and game-panel instances; register other nodes manually.', 422);
+            throw new DomainError('instance_discovery_unsupported', 'Node discovery is available for Proxmox, ISPConfig, aaPanel and game-panel instances; register other nodes manually.', 422);
         }
         $seen = [];
         foreach ($adapter->clusterNodes() as $remote) {
@@ -236,6 +240,34 @@ final class ProviderInstanceService
         $this->audit->record($context, 'provider.instance.discover', 'succeeded', ['key' => $instance->key, 'nodes' => $seen], 'provider_instance', $instance->id);
 
         return ['instance' => $instance->key, 'nodes' => $seen];
+    }
+
+    /**
+     * aaPanel discovery (audit §5z): an aaPanel is one server, so it becomes one scheduler node with role `managed` (the
+     * role the website workflow asks for on aaPanel) — its memory from the panel's system totals, reachable when the
+     * panel answers. A node staff already registered keeps its role, state and tags.
+     *
+     * @return array{instance:string, nodes:list<string>}
+     */
+    private function discoverAaPanel(ProviderInstance $instance, AaPanelWebProvider $adapter, CommandContext $context): array
+    {
+        $health = $adapter->health();
+        if (! $health->healthy) {
+            throw new DomainError('instance_unreachable', 'The aaPanel did not answer: '.(string) $health->error, 422);
+        }
+        $name = (string) (parse_url((string) $instance->base_url, PHP_URL_HOST) ?: $instance->key);
+        $node = Node::query()->where('provider_instance_id', $instance->id)->orderBy('created_at')->first() ?? new Node(['provider_instance_id' => $instance->id, 'name' => $name]);
+        $capacity = (array) ($node->capacity ?? []);
+        $node->forceFill([
+            'region_code' => $node->region_code ?? $instance->region_code, 'role' => $node->role ?? 'managed',
+            'state' => $node->exists ? $node->state : 'active',
+            'capacity' => array_merge($capacity, array_filter(['ram_mb' => (int) data_get($health->detail, 'mem_total', 0)])),
+            'usage' => array_merge((array) ($node->usage ?? []), ['ram_used_mb' => (int) data_get($health->detail, 'mem_realused', 0)]),
+            'remote_id' => $node->remote_id, 'last_seen_at' => now(), 'failure_domain' => $node->failure_domain ?? $name, 'tags' => (array) ($node->tags ?? []),
+        ])->save();
+        $this->audit->record($context, 'provider.instance.discover', 'succeeded', ['key' => $instance->key, 'nodes' => [$node->name]], 'provider_instance', $instance->id);
+
+        return ['instance' => $instance->key, 'nodes' => [$node->name]];
     }
 
     /**

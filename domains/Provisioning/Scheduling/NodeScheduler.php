@@ -51,7 +51,8 @@ final class NodeScheduler
             && ! in_array($n->name, $constraints['exclude_nodes'] ?? [], true)
             && (bool) data_get($n->providerInstance->options, 'sandbox', false) === (bool) ($constraints['sandbox'] ?? false)); // sandbox tenants land on lab instances only; everyone else never does (audit §5j-9)
         if ($nodes->isEmpty()) {
-            throw new DomainError('capacity_unavailable', 'No schedulable node matches the constraints.', 503, ['role' => $constraints['role'], 'region' => $constraints['region'] ?? null]);
+            $pinnedKey = (string) data_get($constraints, 'placement.instance_key', '');
+            throw new DomainError('capacity_unavailable', 'No schedulable node matches the constraints.'.($pinnedKey !== '' ? " Import the nodes of {$pinnedKey}: php artisan onhost:nodes:discover {$pinnedKey}" : ''), 503, ['role' => $constraints['role'], 'region' => $constraints['region'] ?? null, 'instance' => $pinnedKey !== '' ? $pinnedKey : null]);
         }
 
         $ramNeed = (float) ($constraints['ram_mb'] ?? 0);

@@ -150,6 +150,9 @@ final class SmokeOrder extends Command
             if ($service !== null) {
                 $operation = Operation::query()->where('service_id', $service->id)->orderByDesc('created_at')->first();
                 $now = $service->state.' · '.($operation ? $operation->state.' krok '.(int) $operation->step.'/'.(int) $operation->steps_total : 'bez operace');
+                if ($operation !== null && in_array($operation->state, [Operation::PENDING, Operation::WAITING], true) && is_array($operation->error) && ! empty($operation->error['message'])) {
+                    $now .= ' · čeká: '.$operation->error['message']; // the step failed on a retryable error and is rescheduled
+                }
                 if ($now !== $last) {
                     $this->line('  3. služba '.$service->id.' · '.$now);
                     $last = $now;

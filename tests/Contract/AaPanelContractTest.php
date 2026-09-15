@@ -3,8 +3,12 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\ProviderRegistry;
+use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
@@ -56,4 +60,23 @@ it('normalises status:false into typed exceptions and bare-string bodies', funct
         expect($e->errorCode)->toBe(ProviderErrorCode::AUTH);
     }
     expect($adapter->tailLog(new ResourceRef('site', '41', 'aapanel-managed01', ['name' => 'shop.cz']), 'access', 2))->toBe(['line2', 'line3']);
+});
+
+it('imports the aaPanel host as one managed node through the panel API; the scheduler error names the fix (audit §5z)', function () {
+    Http::fake(['managed01.mgmt.test:8888/system?action=GetSystemTotal' => Http::response(['version' => '8.0.6', 'memTotal' => 15988, 'memRealUsed' => 7312])]);
+    aaAdapter();
+    Region::query()->firstOrCreate(['code' => 'cz1'], ['name' => 'Praha', 'country' => 'CZ', 'state' => 'active']);
+    $this->artisan('onhost:nodes:discover aapanel-managed01')->expectsOutputToContain('--region')->assertExitCode(1);
+    $this->artisan('onhost:nodes:discover aapanel-managed01 --region=cz1')->expectsOutputToContain('1 node(s) imported')->assertExitCode(0);
+    $node = Node::query()->where('provider_instance_id', ProviderInstance::query()->where('key', 'aapanel-managed01')->value('id'))->sole();
+    expect($node->role)->toBe('managed')->and($node->region_code)->toBe('cz1')->and($node->state)->toBe('active')->and((int) $node->capacity['ram_mb'])->toBe(15988);
+
+    $instance = ProviderInstance::query()->where('key', 'aapanel-managed01')->firstOrFail();
+    try {
+        app(NodeScheduler::class)->pick(['role' => 'web', 'region' => 'cz1', 'provider' => 'aapanel', 'placement' => ['instance_id' => $instance->id, 'instance_key' => 'aapanel-managed01']]);
+        $message = '';
+    } catch (DomainError $e) {
+        $message = $e->getMessage();
+    }
+    expect($message)->toContain('php artisan onhost:nodes:discover aapanel-managed01');
 });
