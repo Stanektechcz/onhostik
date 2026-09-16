@@ -95,6 +95,12 @@ final class NotificationRouter
             'service.suspended' => $this->customer($m, 'service', 'Služba byla pozastavena', (string) ($p['reason'] ?? ''), '/panel/sluzby', 'hot', $email, 'service-suspended', ['duvod' => (string) ($p['reason'] ?? ''), 'url' => "{$portal}/panel/fakturace"]),
             'service.resumed' => $this->customer($m, 'service', 'Služba byla obnovena', '', '/panel/sluzby'),
             'service.terminated' => $this->customer($m, 'service', 'Služba byla ukončena', 'Zálohy držíme po dobu retenční lhůty.', '/panel/sluzby', 'warn'),
+            // the deletion lifecycle (audit §5ab): deactivation, the restore window, the removal and the archive
+            'service.deactivated' => $this->internal($m, 'service', 'Služba deaktivována ke zrušení', (string) ($p['reason'] ?? ''), '/sprava/sluzby'),
+            'service.deletion.scheduled' => $this->customer($m, 'service', 'Služba byla zrušena a deaktivována', 'Zálohu máme hotovou. Obnovit službu můžete do '.(int) ($p['grace_days'] ?? 30).' dnů. Data uchováme dalších '.(int) ($p['retention_days'] ?? 60).' dní.', '/panel/sluzby', 'warn', $email, 'service-deletion-scheduled', ['lhuta' => (string) (int) ($p['grace_days'] ?? 30), 'uchovani' => (string) (int) ($p['retention_days'] ?? 60), 'url' => "{$portal}/panel/sluzby"]),
+            'service.deletion.cancelled' => $this->customer($m, 'service', 'Zrušení služby jsme odvolali', 'Služba běží dál, plánované odstranění jsme zrušili.', '/panel/sluzby', 'info'),
+            'service.final_archive.created' => $this->internal($m, 'service', 'Záloha před zrušením hotová', number_format((int) ($p['bytes'] ?? 0) / 1048576, 1).' MB · '.(string) ($p['set'] ?? ''), '/sprava/sluzby'),
+            'service.archive.downloaded' => $this->internal($m, 'service', 'Zákazník stáhl archiv zrušené služby', $money($p['fee'] ?? null).' · '.(string) ($p['backup_id'] ?? ''), '/sprava#/money'),
             'service.degraded' => $this->internal($m, 'service', 'Služba degradována', (string) ($p['reason'] ?? ''), '/sprava/sluzby', 'hot'),
             'service.recovered' => $this->internal($m, 'service', 'Služba opět v pořádku', '', '/sprava/sluzby'),
             // one payment produces a proforma, a receipt and a statement: only the documents the customer acts on or files (proforma,

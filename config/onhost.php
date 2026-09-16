@@ -46,7 +46,16 @@ return [
         'service_archive_days' => (int) env('ONHOST_SERVICE_ARCHIVE_DAYS', 60), // a terminated service is archived (files, databases, metadata) and kept this long — audit §5aa
         'game_archive_timeout' => (int) env('ONHOST_GAME_ARCHIVE_TIMEOUT', 1800),
         'download_timeout' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_TIMEOUT', 900),
+        'stale_backup_hours' => (int) env('ONHOST_STALE_BACKUP_HOURS', 48), // how old the panel's own backup may be when it is the only way to archive the files
         'pg_bin' => env('ONHOST_PG_BIN', ''),                       // directory with pg_dump/pg_restore matching the server version (aaPanel: /www/server/pgsql/bin); empty = auto-detect
+    ],
+    // the deletion lifecycle (audit §5ab); staff override every number in "Nastavení systému → Životní cyklus služeb"
+    'services' => [
+        'deletion' => [
+            'grace_days' => (int) env('ONHOST_DELETE_GRACE_DAYS', 30),          // the customer may bring a deactivated service back within this window
+            'identity_checks' => (int) env('ONHOST_DELETE_IDENTITY_CHECKS', 5), // identifiers that must match before anything is deleted
+            'download_fee_minor' => ['CZK' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_CZK', 50000), 'EUR' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_EUR', 2000)],
+        ],
     ],
     'backups' => [
         'offsite_disk' => env('ONHOST_BACKUP_OFFSITE_DISK'), // a filesystems.disks entry (S3-compatible) for off-site copies; null = off

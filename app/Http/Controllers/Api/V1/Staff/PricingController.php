@@ -14,6 +14,7 @@ use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Catalog\PanelNavigation;
 use Onhost\Domain\Catalog\PricingRules;
+use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Platform\Commands\CommandScope;
 
 /**
@@ -136,6 +137,26 @@ final class PricingController extends ApiController
         ]);
 
         return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, 'catalog.panel_nav'), ['op' => 'panel_nav.set', 'config' => $data]), $this->api->context($request));
+    }
+
+    /** The deletion lifecycle (audit §5ab): the restore window, how long archives live and what their download costs. */
+    public function lifecycle(Request $request, DeletionPolicy $policy): JsonResponse
+    {
+        $this->api->authorize($request, 'catalog.manage', CommandScope::global());
+
+        return $this->ok(['lifecycle' => $policy->all()]);
+    }
+
+    public function setLifecycle(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'grace_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'retention_days' => ['nullable', 'integer', 'min:30', 'max:3650'],
+            'identity_checks' => ['nullable', 'integer', 'min:5', 'max:12'],
+            'download_fee_minor' => ['nullable', 'array'], 'download_fee_minor.*' => ['integer', 'min:0', 'max:10000000'],
+        ]);
+
+        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, 'catalog.lifecycle'), ['op' => 'lifecycle.set', 'config' => $data]), $this->api->context($request));
     }
 
     /** @return array<string,mixed> */

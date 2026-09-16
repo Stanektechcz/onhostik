@@ -68,26 +68,64 @@ it('guards actions by state, step-up, legal hold and concurrency', function () {
     Http::assertNothingSent();
 });
 
-it('terminates with a final protected backup, destroys the VM, quarantines the IPs and soft-deletes the service', function () {
+it('cancels in two phases: archive and deactivate now, remove the VM only after the restore window (audit §5ab)', function () {
     Http::fake([
         PVE.'/nodes/prg1-n2/qemu/1042/status/current' => Http::response(['data' => ['status' => 'running', 'uptime' => 100]]),
         PVE.'/nodes/prg1-n2/qemu/1042/config' => fn (Request $r) => $r->method() === 'GET' ? Http::response(pveVmConfig()) : Http::response(['data' => null]),
         PVE.'/nodes/prg1-n2/vzdump' => Http::response(['data' => 'UPID:prg1-n2:000A1B30:0004E1F9:66F0AA15:vzdump:1042:onhost@pve!cp:']),
         PVE.'/nodes/prg1-n2/storage/pbs-cz1/content*' => Http::response(['data' => [['volid' => 'pbs-cz1:backup/vm/1042/2026-09-06T10:00:00Z', 'ctime' => time(), 'size' => 123456789, 'protected' => 1, 'verification' => ['state' => 'ok']]]]),
+        PVE.'/nodes/prg1-n2/qemu/1042/status/shutdown' => Http::response(['data' => 'UPID:prg1-n2:000A1B35:0004E1FD:66F0AA19:qmshutdown:1042:onhost@pve!cp:']),
         PVE.'/nodes/prg1-n2/qemu/1042/status/stop' => Http::response(['data' => 'UPID:prg1-n2:000A1B31:0004E1FA:66F0AA16:qmstop:1042:onhost@pve!cp:']),
         PVE.'/nodes/prg1-n2/qemu/1042' => Http::response(['data' => 'UPID:prg1-n2:000A1B32:0004E1FB:66F0AA17:qmdestroy:1042:onhost@pve!cp:']),
         PVE.'/nodes/prg1-n2/tasks/*/status' => Http::response(['data' => ['status' => 'stopped', 'exitstatus' => 'OK']]),
     ]);
     [$user, $org] = $this->customerWithOrganization();
     $service = activeVps($org);
-    $operation = driveOperation(app(ServiceService::class)->requestAction($service, 'terminate', $this->contextFor($user, $org, 'webauthn'), 'act-term-1', ['reason' => 'customer request']));
+    $services = app(ServiceService::class);
 
-    expect($operation->state)->toBe(Operation::SUCCEEDED);
-    $gone = Service::withTrashed()->findOrFail($service->id);
-    expect($gone->state)->toBe(ServiceStateMachine::TERMINATED)->and($gone->deleted_at)->not->toBeNull()->and($gone->terminated_at)->not->toBeNull()->and($gone->retention_until)->not->toBeNull();
+    // phase 1 — the customer cancels: everything is archived, the VM is switched off, nothing is destroyed
+    $cancel = driveOperation($services->requestAction($service, 'terminate', $this->contextFor($user, $org, 'webauthn'), 'act-term-1', ['reason' => 'customer request']));
+    expect($cancel->state)->toBe(Operation::SUCCEEDED);
+    $deactivated = Service::query()->findOrFail($service->id);
+    expect($deactivated->state)->toBe(ServiceStateMachine::SUSPENDED)->and($deactivated->deleted_at)->toBeNull()
+        ->and($deactivated->terminate_at)->not->toBeNull()->and((int) now()->diffInDays($deactivated->terminate_at))->toBeGreaterThanOrEqual(29)
+        ->and(data_get($deactivated->tags, 'deletion.grace_days'))->toBe(30);
     $backup = Backup::query()->where('service_id', $service->id)->firstOrFail();
     expect($backup->kind)->toBe('final')->and($backup->state)->toBe('completed')->and($backup->protected)->toBeTrue()->and($backup->remote_id)->toBe('pbs-cz1:backup/vm/1042/2026-09-06T10:00:00Z')->and($backup->size_bytes)->toBe(123456789);
-    expect(IpAddress::query()->where('address', '192.0.2.2')->value('state'))->toBe('quarantine');
+    expect(data_get($backup->meta, 'identity.ok'))->toBeTrue()->and(data_get($backup->meta, 'identity.matched'))->toBeGreaterThanOrEqual(5);
     Http::assertSent(fn (Request $r) => str_ends_with($r->url(), '/vzdump') && $r['mode'] === 'stop' && $r['protected'] === 1);
+    Http::assertNotSent(fn (Request $r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/qemu/1042'));
+    expect(IpAddress::query()->where('address', '192.0.2.2')->value('state'))->toBe('allocated');
+
+    // the removal is refused while the restore window runs
+    expect(fn () => $services->requestAction($deactivated, 'purge', $this->contextFor($user, $org, 'webauthn'), 'act-purge-early'))->toThrow(DomainError::class, 'ochranné lhůtě');
+
+    // phase 2 — the window passed: the VM is destroyed, the IPs quarantined, the service soft-deleted, the archive's 60 days start now
+    $deactivated->forceFill(['terminate_at' => now()->subDay()])->save();
+    $purge = driveOperation($services->requestAction($deactivated->fresh(), 'purge', $this->contextFor($user, $org, 'webauthn'), 'act-purge-1', ['reason' => 'grace window over']));
+    expect($purge->state)->toBe(Operation::SUCCEEDED);
+    $gone = Service::withTrashed()->findOrFail($service->id);
+    expect($gone->state)->toBe(ServiceStateMachine::TERMINATED)->and($gone->deleted_at)->not->toBeNull()->and($gone->terminated_at)->not->toBeNull()->and($gone->retention_until)->not->toBeNull();
+    expect(IpAddress::query()->where('address', '192.0.2.2')->value('state'))->toBe('quarantine');
+    expect(Backup::query()->where('service_id', $service->id)->count())->toBe(1); // the archive of the cancellation is reused, not taken again
+    expect((int) now()->diffInDays($backup->fresh()->retention_until))->toBeGreaterThanOrEqual(59);
     Http::assertSent(fn (Request $r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/qemu/1042'));
+});
+
+it('brings a cancelled service back inside the restore window and calls the removal off (audit §5ab)', function () {
+    Http::fake([
+        PVE.'/nodes/prg1-n2/qemu/1042/status/current' => Http::response(['data' => ['status' => 'stopped']]),
+        PVE.'/nodes/prg1-n2/qemu/1042/config' => fn (Request $r) => $r->method() === 'GET' ? Http::response(pveVmConfig()) : Http::response(['data' => null]),
+        PVE.'/nodes/prg1-n2/qemu/1042/status/start' => Http::response(['data' => 'UPID:prg1-n2:000A1B36:0004E1FE:66F0AA1A:qmstart:1042:onhost@pve!cp:']),
+        PVE.'/nodes/prg1-n2/tasks/*/status' => Http::response(['data' => ['status' => 'stopped', 'exitstatus' => 'OK']]),
+    ]);
+    [$user, $org] = $this->customerWithOrganization();
+    $service = activeVps($org, ServiceStateMachine::SUSPENDED);
+    $service->forceFill(['terminate_at' => now()->addDays(30), 'tags' => ['deletion' => ['grace_until' => now()->addDays(30)->toIso8601String()]]])->save();
+
+    $operation = driveOperation(app(ServiceService::class)->requestAction($service, 'resume', $this->contextFor($user, $org), 'act-restore-1'));
+    expect($operation->state)->toBe(Operation::SUCCEEDED);
+    $back = Service::query()->findOrFail($service->id);
+    expect($back->state)->toBe(ServiceStateMachine::ACTIVE)->and($back->terminate_at)->toBeNull()
+        ->and(data_get($back->tags, 'deletion'))->toBeNull()->and(data_get($back->tags, 'deletion_cancelled.cancelled_at'))->not->toBeNull();
 });

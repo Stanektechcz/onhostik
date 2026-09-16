@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Provisioning\Workflows;
 
+use Illuminate\Support\Str;
+use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Models\IpAddress;
@@ -12,18 +14,22 @@ use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Workflow\StepContext;
 use Onhost\Domain\Provisioning\Workflow\StepResult;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
+use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\RestoreJob;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceFeatures;
+use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\DatabaseCredentials;
 use Onhost\Domain\Services\Web\WebFileStore;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
+use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Providers\Contracts\AsyncStatus;
 use Onhost\Providers\Contracts\BackupCapable;
 use Onhost\Providers\Contracts\ComputeProvider;
@@ -47,7 +53,7 @@ use Throwable;
  */
 final class ServiceActionWorkflow implements Workflow
 {
-    public const CORE_ACTIONS = ['power', 'suspend', 'resume', 'resize', 'terminate', 'backup', 'restore', 'snapshot', 'rollback_snapshot'];
+    public const CORE_ACTIONS = ['power', 'suspend', 'resume', 'resize', 'terminate', 'purge', 'backup', 'restore', 'archive.restore', 'snapshot', 'rollback_snapshot'];
 
     /** Feature actions: one provider call each, validated by ServiceService::featureParams, no service state change. */
     public const FEATURE_ACTIONS = [
@@ -91,9 +97,11 @@ final class ServiceActionWorkflow implements Workflow
             'suspend' => [$this->suspendStep(), $this->finishStateStep(ServiceStateMachine::SUSPENDED)],
             'resume' => [$this->resumeStep(), $this->finishStateStep(ServiceStateMachine::ACTIVE)],
             'resize' => [$this->resizeStep(), $this->finishResizeStep()],
-            'terminate' => [$this->finalArchiveStep(), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
+            'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->scheduleRemovalStep()],
+            'purge' => [$this->identityStep(), $this->finalArchiveStep(anyOperation: true), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
             'backup' => [$this->backupStep()],
             'restore' => [$this->restoreStep()],
+            'archive.restore' => [$this->archiveRestoreStep()],
             'snapshot' => [$this->snapshotStep()],
             'rollback_snapshot' => [$this->rollbackSnapshotStep()],
             default => in_array($action, self::FEATURE_ACTIONS, true) ? [$this->featureStep($action)] : throw new \InvalidArgumentException("Unknown service action {$action}"),
@@ -113,7 +121,8 @@ final class ServiceActionWorkflow implements Workflow
             'resize' => $services->settleTransient($service, ServiceStateMachine::ACTIVE, $context->actor, "resize failed: {$reason}", $context->operation),
             'suspend' => $services->settleTransient($service, ServiceStateMachine::ACTIVE, $context->actor, "suspend failed: {$reason}", $context->operation),
             'resume' => $services->settleTransient($service, ServiceStateMachine::SUSPENDED, $context->actor, "resume failed: {$reason}", $context->operation),
-            'terminate' => $services->settleTransient($service, ServiceStateMachine::FAILED, $context->actor, "terminate failed: {$reason}", $context->operation),
+            'terminate' => $services->settleTransient($service, $service->state === ServiceStateMachine::SUSPENDING ? ServiceStateMachine::SUSPENDED : ServiceStateMachine::FAILED, $context->actor, "terminate failed: {$reason}", $context->operation),
+            'purge' => $services->settleTransient($service, ServiceStateMachine::FAILED, $context->actor, "purge failed: {$reason}", $context->operation),
             'restore' => RestoreJob::query()->where('operation_id', $context->operation->id)->update(['state' => 'failed', 'finished_at' => now(), 'result' => ['error' => $reason]]),
             'backup' => Backup::query()->where('operation_id', $context->operation->id)->update(['state' => 'failed', 'finished_at' => now()]),
             default => null,
@@ -550,10 +559,107 @@ final class ServiceActionWorkflow implements Workflow
      * files and database dumps, the game server's archive, the mail domain with its mailboxes, always the service
      * metadata. Kept for 60 days as a protected backup. A failure stops the termination — nothing is deleted without it.
      */
-    private function finalArchiveStep(): ServiceStep
+    /**
+     * At least five independent identifiers must point at the same resource before anything is archived or deleted
+     * (audit §5ab). The report is carried in the operation context, written into the archive and into the audit.
+     */
+    private function identityStep(): ServiceStep
     {
         return new class extends ServiceStep
         {
+            public function label(): string
+            {
+                return 'Ověření identity služby';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                $report = $context->container->make(ServiceIdentityCheck::class)->verify($service, $context->adapter(), $context->binding(null)?->ref());
+                if (! $report['ok'] && ($report['missing'] ?? false)) { // the panel says the resource is already gone: nothing to delete, the archive keeps the metadata
+                    return StepResult::done(['identity' => $report, 'identity_matched' => $report['matched'], 'identity_missing' => true]);
+                }
+                if (! $report['ok']) {
+                    return StepResult::fail('identitu služby se nepodařilo ověřit ('.$report['matched'].'/'.$report['required'].' bodů, neshody: '.(implode(', ', $report['failed']) ?: 'žádné').')', false, ['identity' => $report]);
+                }
+
+                return StepResult::done(['identity' => $report, 'identity_matched' => $report['matched']]);
+            }
+        };
+    }
+
+    /** The cancellation only switches the service off; the data stays at the provider for the whole grace window. */
+    private function deactivateStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Deaktivace služby';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                if ($context->get('final_archive_id') === null && $context->get('final_archive_skipped') === null) { // audit §5aa: nothing is switched off before the archive is complete
+                    return StepResult::fail('záloha před zrušením chybí; služba nebude deaktivována', true, [], 60);
+                }
+
+                return $this->settle($this->capability($context, InfrastructureProvider::class)->suspend($this->ref($context)), ['deactivated' => true]);
+            }
+        };
+    }
+
+    /**
+     * The service is now deactivated and waits: the customer may bring it back for `DeletionPolicy::graceDays()`
+     * days (a plain resume does that), afterwards onhost:services:purge removes it for good.
+     */
+    private function scheduleRemovalStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Naplánování odstranění';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                $policy = $context->container->make(DeletionPolicy::class);
+                $graceUntil = now()->addDays($policy->graceDays());
+                $actual = null;
+                try {
+                    $actual = $this->capability($context, InfrastructureProvider::class)->getActualState($this->ref($context));
+                } catch (Throwable) {
+                    // the state read is a nicety here; the deactivation itself already succeeded
+                }
+                $reason = (string) $context->desired('reason', 'zrušení služby');
+                $context->container->make(ServiceService::class)->settleTransient($service, ServiceStateMachine::SUSPENDED, $context->actor, $reason, $context->operation, $actual, 'service.deactivated');
+                $fresh = Service::query()->findOrFail($service->id);
+                $tags = (array) $fresh->tags;
+                $tags['deletion'] = [
+                    'requested_at' => now()->toIso8601String(), 'grace_until' => $graceUntil->toIso8601String(), 'grace_days' => $policy->graceDays(),
+                    'retention_days' => $policy->retentionDays(), 'archive_backup_id' => $context->get('final_archive_id'), 'archive_set' => $context->get('final_archive_set'),
+                    'reason' => mb_substr($reason, 0, 200), 'operation_id' => $context->operation->id, 'identity_matched' => $context->get('identity_matched'),
+                ];
+                $fresh->forceFill(['terminate_at' => $graceUntil, 'tags' => $tags])->save();
+                Subscription::query()->where('service_id', $fresh->id)->whereNotIn('state', [Subscription::CANCELLED])->update(['state' => Subscription::CANCELLED, 'auto_renew' => false]);
+                $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.deletion.scheduled', 'service', $fresh->id, [
+                    'grace_until' => $graceUntil->toIso8601String(), 'grace_days' => $policy->graceDays(), 'retention_days' => $policy->retentionDays(),
+                    'archive_backup_id' => $context->get('final_archive_id'), 'product_key' => $fresh->product_key, 'reason' => mb_substr($reason, 0, 200),
+                ], $fresh->organization_id));
+
+                return StepResult::done(['deactivated' => true, 'grace_until' => $graceUntil->toIso8601String()]);
+            }
+        };
+    }
+
+    private function finalArchiveStep(bool $anyOperation = false): ServiceStep
+    {
+        return new class($anyOperation) extends ServiceStep
+        {
+            public function __construct(private readonly bool $anyOperation = false) {}
+
             public function label(): string
             {
                 return 'Záloha před zrušením';
@@ -563,7 +669,7 @@ final class ServiceActionWorkflow implements Workflow
             {
                 $service = $this->service($context);
                 $archives = $context->container->make(FinalArchive::class);
-                $existing = $archives->existing($service, $context->operation->id);
+                $existing = $archives->existing($service, $this->anyOperation ? null : $context->operation->id);
                 if ($existing !== null) {
                     return StepResult::done(['final_archive_id' => $existing->id, 'final_archive_set' => data_get($existing->meta, 'set')]);
                 }
@@ -572,7 +678,7 @@ final class ServiceActionWorkflow implements Workflow
                 }
                 $ref = $context->binding(null)?->ref();
                 try {
-                    $result = $archives->create($service, $context->adapter(), $ref, $context->actor, $context->operation->id);
+                    $result = $archives->create($service, $context->adapter(), $ref, $context->actor, $context->operation->id, is_array($context->get('identity')) ? $context->get('identity') : null);
                 } catch (DomainError $e) {
                     return StepResult::fail('final archive failed: '.$e->getMessage(), $e->status >= 500, ['error' => $e->error], 120);
                 } catch (Throwable $e) {
@@ -651,8 +757,12 @@ final class ServiceActionWorkflow implements Workflow
                     $ipam->release($address);
                 }
                 $context->container->make(ServiceService::class)->settleTransient($service, ServiceStateMachine::TERMINATED, $context->actor, (string) $context->desired('reason', 'terminated'), $context->operation, null, 'service.terminated');
+                $archive = Backup::query()->where('service_id', $service->id)->where('kind', 'final')->where('state', 'completed')->orderByDesc('finished_at')->first();
+                if ($archive !== null) { // audit §5ab: the retention of the archive is counted from the removal, not from the cancellation
+                    $context->container->make(FinalArchive::class)->startRetention($archive);
+                }
 
-                return StepResult::done(['released' => true]);
+                return StepResult::done(['released' => true, 'archive_backup_id' => $archive?->id, 'archive_retention_until' => $archive?->fresh()?->retention_until?->toIso8601String()]);
             }
         };
     }
@@ -720,6 +830,98 @@ final class ServiceActionWorkflow implements Workflow
                 $job->forceFill(['state' => 'completed', 'finished_at' => now(), 'duration_seconds' => $job->started_at ? (int) now()->diffInSeconds($job->started_at, true) : null, 'result' => $status->detail])->save();
 
                 return StepResult::done(['restored' => true]);
+            }
+        };
+    }
+
+    /**
+     * Free restore of a final archive onto a new paid service (audit §5ab): the site files go back through the
+     * panel's file transport, every database dump into a database of the new service. The archive itself is never
+     * touched — it stays on the backup disk until its retention runs out.
+     */
+    private function archiveRestoreStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Obnova z archivu';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                $backup = Backup::query()->find((string) $context->desired('backup_id'));
+                if ($backup === null || $backup->organization_id !== $service->organization_id || $backup->kind !== 'final' || $backup->state !== 'completed') {
+                    return StepResult::fail('archiv nepatří této organizaci nebo není dokončený', false);
+                }
+                $archives = $context->container->make(FinalArchive::class);
+                $disk = $archives->disk();
+                $set = (string) data_get($backup->meta, 'set', '');
+                if ($set === '' || $disk->files($set) === []) {
+                    return StepResult::fail('archivní sada už na disku není', false);
+                }
+                $job = RestoreJob::query()->firstOrCreate(['operation_id' => $context->operation->id], ['backup_id' => $backup->id, 'service_id' => $service->id, 'organization_id' => $service->organization_id,
+                    'target' => 'new_service', 'state' => 'running', 'requested_by' => $context->actor->actorId, 'started_at' => now()]);
+                $adapter = $this->capability($context, WebToolsProvider::class);
+                $ref = $this->ref($context);
+                $work = storage_path('app/onhost-restore-'.Str::random(8));
+                if (! is_dir($work) && ! mkdir($work, 0700, true) && ! is_dir($work)) {
+                    return StepResult::fail('pracovní adresář pro obnovu nelze vytvořit', true, [], 60);
+                }
+                $result = ['files' => null, 'databases' => []];
+                try {
+                    $databases = $adapter instanceof WebHostingProvider ? $adapter->listDatabases($ref) : [];
+                    foreach ($disk->files($set) as $file) {
+                        $name = basename($file);
+                        if (! str_starts_with($name, 'site-files') && ! (str_starts_with($name, 'database-') && str_ends_with($name, '.sql'))) {
+                            continue; // service.json and the manifest describe the archive, they are not restored onto the node
+                        }
+                        $local = $work.'/'.$name;
+                        $stream = $disk->readStream($file);
+                        $out = is_resource($stream) ? fopen($local, 'wb') : false;
+                        if (! is_resource($stream) || ! is_resource($out)) {
+                            return StepResult::fail("část archivu {$name} nelze načíst", true, [], 120);
+                        }
+                        stream_copy_to_stream($stream, $out);
+                        fclose($out);
+                        fclose($stream);
+                        if (str_starts_with($name, 'site-files')) {
+                            $transport = $adapter->transport($ref);
+                            $transport->upload($name, $local);
+                            $transport->extract($name, '.');
+                            try {
+                                $transport->delete($name);
+                            } catch (Throwable) {
+                                // the uploaded archive stays in the site root; the customer sees it and may delete it
+                            }
+                            $result['files'] = $name;
+                        } else {
+                            $target = array_shift($databases);
+                            if ($target === null && $adapter instanceof WebHostingProvider) {
+                                $created = $adapter->createDatabase($ref, ['name' => Str::slug(str_replace(['database-', '.sql'], '', $name), '_'), 'password' => Str::password(20)]);
+                                $target = ['remote_id' => $created->ref === null ? '' : $created->ref->remoteId, 'name' => $created->ref === null ? null : ($created->ref->meta['name'] ?? null)];
+                            }
+                            if ($target === null || (string) ($target['remote_id'] ?? '') === '') {
+                                return StepResult::fail("pro dump {$name} není kam importovat databázi", false);
+                            }
+                            $adapter->importDatabase($ref, (string) $target['remote_id'], $local);
+                            $result['databases'][] = ['dump' => $name, 'database' => $target['name'] ?? $target['remote_id']];
+                        }
+                        @unlink($local);
+                    }
+                } finally {
+                    foreach (glob($work.'/*') ?: [] as $left) {
+                        @unlink($left);
+                    }
+                    @rmdir($work);
+                }
+                $job->forceFill(['state' => 'completed', 'finished_at' => now(), 'duration_seconds' => $job->started_at ? (int) now()->diffInSeconds($job->started_at, true) : null, 'result' => $result])->save();
+                $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.archive.restored', 'service', $service->id, [
+                    'backup_id' => $backup->id, 'files' => $result['files'], 'databases' => count($result['databases']),
+                ], $service->organization_id));
+
+                return StepResult::done(['restored_from_archive' => $backup->id] + $result);
             }
         };
     }

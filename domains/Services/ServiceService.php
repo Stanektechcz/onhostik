@@ -244,7 +244,7 @@ final class ServiceService
         }
         match ($state) {
             ServiceStateMachine::SUSPENDED => $patch += ['suspended_at' => now(), 'suspended_reason' => mb_substr($reason, 0, 120)],
-            ServiceStateMachine::ACTIVE => $patch += ['suspended_at' => null, 'suspended_reason' => null],
+            ServiceStateMachine::ACTIVE => $patch += ['suspended_at' => null, 'suspended_reason' => null] + $this->cancellationCleared($fresh),
             ServiceStateMachine::TERMINATED => $patch += ['terminated_at' => now(), 'retention_until' => now()->addDays((int) config('onhost.compliance.retention_after_termination_days', 30))],
             default => null,
         };
@@ -259,6 +259,28 @@ final class ServiceService
         }
     }
 
+    /**
+     * Bringing a deactivated service back inside the grace window (audit §5ab): the planned removal is dropped and
+     * the archive stays where it is — it is only pruned when its own retention runs out.
+     *
+     * @return array<string,mixed>
+     */
+    private function cancellationCleared(Service $service): array
+    {
+        if ($service->terminate_at === null && ! isset(((array) $service->tags)['deletion'])) {
+            return [];
+        }
+        $tags = (array) $service->tags;
+        $deletion = $tags['deletion'] ?? [];
+        unset($tags['deletion']);
+        $tags['deletion_cancelled'] = array_merge(is_array($deletion) ? $deletion : [], ['cancelled_at' => now()->toIso8601String()]);
+        $this->outbox->publish(GenericEvent::of('service.deletion.cancelled', 'service', $service->id, [
+            'product_key' => $service->product_key, 'grace_until' => $service->terminate_at?->toIso8601String(),
+        ], $service->organization_id));
+
+        return ['terminate_at' => null, 'tags' => $tags];
+    }
+
     public function recordActual(Service $service, ActualState $actual, CommandContext $context, string $auditAction, array $detail = []): void
     {
         $service->forceFill(['actual_spec' => $actual->attributes, 'last_reconciled_at' => now(), 'health' => array_replace((array) $service->health, ['status' => $actual->status, 'checked_at' => now()->toISOString()])])->save();
@@ -268,7 +290,7 @@ final class ServiceService
     // ── customer/staff actions ───────────────────────────────────────────────
 
     /**
-     * @param  'power'|'suspend'|'resume'|'resize'|'terminate'|'backup'|'restore'|'snapshot'|'rollback_snapshot'  $action
+     * @param  'power'|'suspend'|'resume'|'resize'|'terminate'|'purge'|'backup'|'restore'|'archive.restore'|'snapshot'|'rollback_snapshot'|string  $action
      * @param  array<string,mixed>  $params  power_action, entitlements, backup_id, name, reason, final_backup …
      */
     public function requestAction(Service $service, string $action, CommandContext $context, string $idempotencyKey, array $params = [], bool $chained = false): Operation
@@ -290,21 +312,14 @@ final class ServiceService
         if ($this->freeze->isFrozen() && ! in_array($action, ['power', 'backup', 'snapshot'], true)) {
             throw new DomainError('provisioning_frozen', 'Provisioning is frozen by an incident switch.', 423);
         }
-        $allowed = match ($action) {
-            'power', 'resize', 'snapshot', 'rollback_snapshot' => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED],
-            'suspend' => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED],
-            'resume' => [ServiceStateMachine::SUSPENDED],
-            'terminate' => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED],
-            'backup', 'restore' => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED],
-            default => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], // feature actions (php, databases, ftp, cron, ssl, mail …)
-        };
+        $allowed = self::statesAllowing($action);
         if (! in_array($service->state, $allowed, true)) {
             throw new DomainError('service_state_invalid', "{$action} is not allowed while the service is {$service->state}.", 409, ['state' => $service->state]);
         }
         if ($action === 'power' && ! in_array($params['power_action'] ?? '', ['start', 'stop', 'shutdown', 'reboot', 'reset', 'kill'], true)) {
             throw new DomainError('power_action_invalid', 'power_action must be one of start, stop, shutdown, reboot, reset, kill.', 422);
         }
-        if ($action === 'terminate') {
+        if ($action === 'terminate' || $action === 'purge') {
             if ($service->legal_hold) {
                 throw new DomainError('legal_hold', 'The service is under legal hold and cannot be terminated.', 423);
             }
@@ -315,6 +330,15 @@ final class ServiceService
                 throw new DomainError('ai_action_forbidden', 'AI actors may not terminate services.', 403);
             }
         }
+        if ($action === 'purge') { // the real removal runs only after the customer's grace window, unless staff force it with a reason (audit §5ab)
+            $graceUntil = $service->terminate_at;
+            if (empty($params['force']) && ($graceUntil === null || $graceUntil->isFuture())) {
+                throw new DomainError('grace_period_active', 'Služba je v ochranné lhůtě'.($graceUntil === null ? '' : ' do '.$graceUntil->format('j. n. Y')).'; do té doby ji lze obnovit a nelze ji odstranit.', 409, ['grace_until' => $graceUntil?->toIso8601String()]);
+            }
+            if (! empty($params['force']) && $context->actorType === 'user' && (string) ($params['reason'] ?? '') === '') {
+                throw new DomainError('reason_required', 'Předčasné odstranění služby vyžaduje důvod.', 422);
+            }
+        }
         if ($action === 'resize' && empty($params['entitlements'])) {
             throw new DomainError('resize_target_required', 'Resize needs the target entitlements.', 422);
         }
@@ -322,7 +346,11 @@ final class ServiceService
             $params = $this->featureParams($service, $action, $params);
         }
         $transient = match ($action) {
-            'suspend' => ServiceStateMachine::SUSPENDING, 'resume' => ServiceStateMachine::RESUMING, 'resize' => ServiceStateMachine::RESIZING, 'terminate' => ServiceStateMachine::TERMINATING, default => null,
+            'suspend' => ServiceStateMachine::SUSPENDING, 'resume' => ServiceStateMachine::RESUMING, 'resize' => ServiceStateMachine::RESIZING,
+            // a cancellation deactivates first (audit §5ab): the removal itself is the later purge operation
+            'terminate' => in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true) ? ServiceStateMachine::SUSPENDING : null,
+            'purge' => $service->state === ServiceStateMachine::TERMINATING ? null : ServiceStateMachine::TERMINATING,
+            default => null,
         };
         if ($transient !== null) {
             $this->transition($service, $transient, $context, (string) ($params['reason'] ?? $action));
@@ -331,6 +359,24 @@ final class ServiceService
         $this->audit->record($context->withScope($service->organization_id), "service.action.{$action}", 'succeeded', ['params' => self::auditParams($params), 'operation_id' => $operation->id], 'service', $service->id, stepUp: $context->stepUpMethod, approvalIds: $context->approvalIds);
 
         return $operation;
+    }
+
+    /**
+     * The states an action may start from. A cancellation (`terminate`) runs from a live or already suspended
+     * service, the removal (`purge`) only from one that is switched off (audit §5ab).
+     *
+     * @return list<string>
+     */
+    private static function statesAllowing(string $action): array
+    {
+        return match ($action) {
+            'power', 'resize', 'snapshot', 'rollback_snapshot', 'suspend' => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED],
+            'resume' => [ServiceStateMachine::SUSPENDED],
+            'terminate' => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED],
+            'purge' => [ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED, ServiceStateMachine::TERMINATING],
+            'backup', 'restore' => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED],
+            default => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], // feature actions (php, databases, ftp, cron, ssl, mail …)
+        };
     }
 
     /** What the audit keeps of an action's parameters: secrets and key material never (passwords, private keys, tokens), file bodies only as their length. @param array<string,mixed> $params @return array<string,mixed> */

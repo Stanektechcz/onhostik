@@ -1199,6 +1199,45 @@ rule hints; the rota has a personal subscription URL; operator variables older t
 | cloud, data | chráněný snapshot u poskytovatele (obraz disku se nepřenáší), jeho id a velikost v záznamu zálohy |
 
 Sada má `manifest.json` s SHA-256 každé části, záznam v `backups` je `kind=final`, `protected`, `verify_status=ok`
-a drží se `ONHOST_SERVICE_ARCHIVE_DAYS` (60) dní; po expiraci ji maže `onhost:backups:run`. Když kterákoli část selže,
+a drží se podle nastavení (výchozí 60 dní); po expiraci ji maže `onhost:backups:run`. Když kterákoli část selže,
 operace skončí chybou a **nic se nemaže**. Výjimku má jen obsluha: `service.terminate` s parametrem
 `archive_before_delete=false` a důvodem v `archive_skip_reason` (zapíše se do auditu).
+
+Soubory webu mají dvě nezávislé cesty, protože sdílený uzel nemusí nabídnout obě: přenos souborů (SFTP nebo file API
+panelu) a vlastní zálohu panelu (aaPanel `ToBackup`, ISPConfig noční archiv). Každý pokus se zapíše do `meta.attempts`
+zálohy; archiv selže teprve tehdy, když selžou obě cesty. Když je archiv sestavený z existující zálohy panelu, je to
+vidět v `meta.gaps` i s časem té zálohy. Metadata služby (`service.json`) se ukládají na disk **před** prvním voláním
+providera, takže i neúspěšný pokus po sobě nechá kompletní popis služby.
+
+## Životní cyklus zrušení služby (audit §5ab)
+
+Zrušení služby je pět kroků a mezi nimi se nedá přeskočit:
+
+| # | Krok | Co se stane | Kde se to řídí |
+| --- | --- | --- | --- |
+| 1 | Ověření identity | `ServiceIdentityCheck` porovná nejméně 5 nezávislých identifikátorů (záznam služby, organizace, typ zdroje, id v panelu, instance providera, výhradní vlastnictví zdroje, právní blokace, stav, existence v panelu, doména/název, vlastník, uzel). Panel musí zdroj potvrdit a aspoň jeden jeho vlastní identifikátor musí sedět. Neshoda = konec, nic se nemaže. | „Ověřovacích bodů“ v administraci |
+| 2 | Záloha | `FinalArchive` (viz výše). Bez dokončené zálohy se služba ani nedeaktivuje. | — |
+| 3 | Deaktivace | Služba se u providera pozastaví (`suspend`), přejde do `SUSPENDED`, dostane `terminate_at` = konec lhůty a předplatné se ukončí. Data zůstávají u providera. | „Lhůta na obnovu“ |
+| 4 | Obnova zákazníkem | Kdykoli do konce lhůty: `POST /v1/services/{id}/resume` (v panelu tlačítko u služby). Naplánované odstranění se zruší (`service.deletion.cancelled`). | — |
+| 5 | Odstranění | `onhost:services:purge` (denně 03:40) spustí akci `purge`: znovu ověří identitu, zkontroluje archiv, smaže zdroj u providera, uklidí DNS, uvolní IP a od té chvíle běží doba uchování archivu. | „Uchování archivu“ |
+
+Po odstranění má zákazník dvě možnosti, obě v panelu v sekci **Zálohy**:
+
+* **obnova archivu k nové placené službě je zdarma** (`POST /v1/services/archives/{backup}/restore` → akce
+  `archive.restore`: soubory se nahrají přes přenos panelu a rozbalí, každý dump se naimportuje do databáze nové služby),
+* **stažení archivu jako jednoho komprimovaného souboru je zpoplatněné** (`POST /v1/services/archives/{backup}/download`)
+  — poplatek se strhne z kreditu, vystaví se na něj doklad a účtuje se jednou; podepsaný odkaz platí 30 minut.
+
+Vše se nastavuje v **Nastavení systému → Životní cyklus služeb** (`/sprava/nastaveni/zivotni-cyklus`): lhůta na obnovu,
+doba uchování archivu, počet ověřovacích bodů a poplatek za stažení. Výchozí hodnoty drží `config/onhost.php`
+(`services.deletion`, `platform_backup.service_archive_days`); hodnoty se nedají nastavit pod bezpečné minimum
+(30 dní uchování, 5 ověřovacích bodů).
+
+Provozní příkazy:
+
+```bash
+php artisan onhost:services:archive <služba>            # co archiv obsahuje + živé ověření identity
+php artisan onhost:services:archive <služba> --create   # vytvoří archiv teď, nic nemaže (test cesty k panelu)
+php artisan onhost:services:purge --dry-run             # co je po lhůtě a čeká na odstranění
+php artisan onhost:services:purge --service=<id> --force --reason="…"   # odstranění před koncem lhůty
+```

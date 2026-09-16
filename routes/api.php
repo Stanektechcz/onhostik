@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\ArchiveController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BillingController;
 use App\Http\Controllers\Api\V1\CalendarController;
@@ -254,6 +255,10 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
     Route::post('invoices/{invoice}/mark-paid', [InvoiceController::class, 'markPaid']);
 
     Route::get('services', [ServiceController::class, 'index']);
+    // archives of cancelled services (audit §5ab): free restore onto a new paid service, paid download of the compressed file
+    Route::get('services/archives', [ArchiveController::class, 'index']);
+    Route::post('services/archives/{backup}/download', [ArchiveController::class, 'download']);
+    Route::post('services/archives/{backup}/restore', [ArchiveController::class, 'restore']);
     Route::get('services/{service}', [ServiceController::class, 'show']);
     Route::post('services/{service}/project', [ProjectController::class, 'assignService']);
     Route::get('services/{service}/plans', [ServiceController::class, 'plans']);
@@ -443,6 +448,9 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::delete('pricing/options/{product}/{key}', [PricingController::class, 'deleteOption']);
         Route::put('pricing/addon-products', [PricingController::class, 'setAddonProducts']);
         // customer panel sidebar: category switches, order, labels (admin "Navigace klientského panelu")
+        // the deletion lifecycle: restore window, archive retention, download fee (audit §5ab)
+        Route::get('settings/lifecycle', [PricingController::class, 'lifecycle']);
+        Route::put('settings/lifecycle', [PricingController::class, 'setLifecycle']);
         Route::get('settings/panel-nav', [PricingController::class, 'panelNav']);
         Route::put('settings/panel-nav', [PricingController::class, 'setPanelNav']);
         Route::get('capacity', [ProvisioningController::class, 'capacity']);
@@ -468,6 +476,9 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::post('provisioning/freeze', [ProvisioningController::class, 'freeze']);
         Route::post('provisioning/thaw', [ProvisioningController::class, 'thaw']);
         Route::post('provisioning/services/{service}/reconcile', [ProvisioningController::class, 'reconcile']);
+        // the deletion lifecycle board and the early removal (audit §5ab)
+        Route::get('provisioning/deletions', [ProvisioningController::class, 'deletions']);
+        Route::post('provisioning/services/{service}/purge', [ProvisioningController::class, 'purgeService']);
         Route::get('services/{service}/panel-login', [WebToolsController::class, 'panelLogin']); // staff SSO into the customer's hosting panel (audited)
         Route::get('resource-mappings', [ProvisioningController::class, 'drifts']);
         Route::post('resource-mappings/{drift}/resolve', [ProvisioningController::class, 'resolveDrift']);

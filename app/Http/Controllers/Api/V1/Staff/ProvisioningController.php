@@ -9,6 +9,7 @@ use App\Http\Presenters\Presenters;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\BulkActionService;
 use Onhost\Domain\Provisioning\CapacityBudget;
@@ -32,6 +33,11 @@ use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderInstanceService;
 use Onhost\Domain\Provisioning\Scheduling\NodeRebalancer;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
+use Onhost\Domain\Services\Commands\ServiceActionCommand;
+use Onhost\Domain\Services\DeletionPolicy;
+use Onhost\Domain\Services\Models\Backup;
+use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 
@@ -166,6 +172,47 @@ final class ProvisioningController extends ApiController
         $data = $request->validate(['resolution' => ['required', 'in:approved,ignored,repair'], 'note' => ['required', 'string', 'min:5', 'max:250']]);
 
         return $this->dispatch(new ProvisioningCommand("drift:{$drift}:".$data['resolution'], ['op' => 'resolve_drift', 'drift_id' => $drift] + $data), $this->api->context($request, null, $data['note']));
+    }
+
+    /**
+     * The deletion lifecycle board (audit §5ab): services waiting out their restore window, the archives we hold and
+     * how long each of them still lives. Nothing here deletes anything — the removal runs on its own schedule.
+     */
+    public function deletions(Request $request, DeletionPolicy $policy): JsonResponse
+    {
+        $this->api->authorize($request, 'service.read', CommandScope::global());
+        $pending = Service::query()->withTrashed()->whereNotNull('terminate_at')->whereIn('state', [ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED])
+            ->orderBy('terminate_at')->limit(200)->get();
+        $archives = Backup::query()->where('kind', 'final')->whereIn('state', ['completed', 'failed'])->orderByDesc('created_at')->limit(200)->get();
+        $organizations = Organization::query()->whereIn('id', $pending->pluck('organization_id')->merge($archives->pluck('organization_id'))->unique()->all())->pluck('name', 'id');
+
+        return $this->ok([
+            'policy' => $policy->all(),
+            'pending' => $pending->map(fn (Service $s) => [
+                'id' => $s->id, 'name' => $s->name, 'label' => $s->label ?: $s->hostname, 'family' => $s->family, 'state' => $s->state,
+                'organization' => $organizations[$s->organization_id] ?? $s->organization_id,
+                'grace_until' => $s->terminate_at?->toIso8601String(), 'days_left' => $s->terminate_at === null ? null : (int) now()->diffInDays($s->terminate_at, false),
+                'archive_backup_id' => data_get($s->tags, 'deletion.archive_backup_id'), 'reason' => data_get($s->tags, 'deletion.reason'),
+                'due' => $s->terminate_at !== null && $s->terminate_at->isPast(),
+            ])->values()->all(),
+            'archives' => $archives->map(fn (Backup $b) => [
+                'id' => $b->id, 'service_id' => $b->service_id, 'organization' => $organizations[$b->organization_id] ?? $b->organization_id,
+                'state' => $b->state, 'size_bytes' => (int) $b->size_bytes, 'created_at' => $b->created_at?->toIso8601String(), 'retention_until' => $b->retention_until?->toIso8601String(),
+                'parts' => (array) data_get($b->meta, 'parts', []), 'gaps' => (array) data_get($b->meta, 'gaps', []), 'attempts' => (array) data_get($b->meta, 'attempts', []),
+                'error' => data_get($b->meta, 'error'), 'identity_matched' => data_get($b->meta, 'identity.matched'), 'paid' => (bool) data_get($b->meta, 'download.paid', false),
+            ])->values()->all(),
+        ]);
+    }
+
+    /** Remove a service now instead of waiting out its restore window — with a reason, and only after the archive. */
+    public function purgeService(Request $request, string $service): JsonResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:250']]);
+        $model = Service::query()->withTrashed()->findOrFail($service);
+
+        return $this->dispatch(new ServiceActionCommand($model->organization_id, $this->idempotencyKey($request, 'staff.purge:'.$service), [
+            'service_id' => $model->id, 'action' => 'purge', 'params' => ['force' => true, 'reason' => $data['reason']],
+        ]), $this->api->context($request, null, $data['reason']), 202);
     }
 
     public function integrations(Request $request): JsonResponse

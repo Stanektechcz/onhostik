@@ -240,11 +240,51 @@
     };
   }
 
+  /* ── archives of cancelled services (audit §5ab) ──────────────────────── */
+  function archiveFee(a, cs) { return a.paid ? '' : money({ minor: a.fee_minor, currency: a.currency }, cs); }
+  function downloadArchive(cmp, _, a, cs) {
+    return function () {
+      var fee = archiveFee(a, cs);
+      var ask = fee ? _('Stažení archivu je zpoplatněné částkou ', 'Downloading the archive costs ') + fee + _(' bez DPH a strhneme ho z kreditu. Obnovení archivu k nové placené službě je zdarma. Pokračovat?', ' excl. VAT, taken from your credit. Restoring it onto a new paid service is free. Continue?') : null;
+      if (ask && !window.confirm(ask)) return;
+      A().post('/services/archives/' + encodeURIComponent(a.id) + '/download', {}, A().key())
+        .then(function (r) {
+          var d = r.data || r;
+          flash(cmp, _('Archiv je připravený', 'The archive is ready'), (d.filename || '') + (d.charged ? ' · ' + _('poplatek stržen z kreditu', 'fee taken from your credit') : ''));
+          if (d.url) window.open(d.url, '_blank');
+          reload(cmp, ['archives']);
+        })
+        .catch(function (e) { fail(cmp, _, e); });
+    };
+  }
+  function restoreArchive(cmp, _, a, cs) {
+    return function () {
+      load(cmp, 'services', '/services?limit=200');
+      var services = (S.services && S.services.data) || [];
+      var targets = services.filter(function (x) { return x.family === a.family && (x.state === 'ACTIVE' || x.state === 'DEGRADED'); });
+      if (!targets.length) { flash(cmp, _('Není kam obnovit', 'Nothing to restore into'), _('Objednejte si novou službu stejného typu — obnova do ní je zdarma.', 'Order a new service of the same kind — restoring into it is free.')); return; }
+      var target = targets[0];
+      if (targets.length > 1) {
+        var menu = targets.map(function (x, i) { return (i + 1) + ') ' + (x.label || x.name); }).join('\n');
+        var pick = window.prompt(_('Do které služby archiv obnovit? Zadejte číslo:\n', 'Which service should the archive go into? Enter the number:\n') + menu, '1');
+        var idx = Number(pick) - 1;
+        if (!pick || !(idx >= 0 && idx < targets.length)) return;
+        target = targets[idx];
+      }
+      if (!window.confirm(_('Obnova přepíše soubory a databáze služby ', 'The restore overwrites the files and databases of ') + (target.label || target.name) + _('. Je zdarma. Pokračovat?', '. It is free. Continue?'))) return;
+      A().post('/services/archives/' + encodeURIComponent(a.id) + '/restore', { service_id: target.id }, A().key())
+        .then(function () { flash(cmp, _('Obnova běží', 'The restore is running'), _('Sledujte ji v operacích služby.', 'Follow it in the service operations.')); reload(cmp, ['archives']); })
+        .catch(function (e) { fail(cmp, _, e); });
+    };
+  }
   /* ── backups ──────────────────────────────────────────────────────────── */
   function backups(cmp, _, H) {
     var cs = isCs(cmp);
     load(cmp, 'backups', '/backups?limit=100');
+    load(cmp, 'archives', '/services/archives');
     var rows = (S.backups && S.backups.data) || [];
+    var archives = (S.archives && S.archives.archives) || [];
+    var policy = (S.archives && S.archives.policy) || {};
     var ok = rows.filter(function (b) { return b.state === 'completed' || b.state === 'ok' || b.state === 'succeeded'; });
     var size = rows.reduce(function (a, b) { return a + (b.size_bytes || 0); }, 0);
     var byService = {};
@@ -256,7 +296,8 @@
         H.stat(_('Zálohy', 'Backups'), String(rows.length), ok.length + _(' dokončených', ' completed'), 5, Math.min(100, rows.length * 4), 12, 'ok'),
         H.stat(_('Služeb se zálohou', 'Services with a backup'), String(latest.length), '', 9, Math.min(100, latest.length * 20), 10, 'ok'),
         H.stat(_('Objem', 'Volume'), bytes(size), _('offsite, šifrované', 'off-site, encrypted'), 13, 60, 8, 'ok'),
-        H.stat(_('Poslední', 'Latest'), rows[0] ? when(rows[0].finished_at || rows[0].started_at, cs) : '—', rows[0] && rows[0].service ? rows[0].service.label : '', 17, rows[0] ? 90 : 5, 8, 'ok')
+        H.stat(_('Poslední', 'Latest'), rows[0] ? when(rows[0].finished_at || rows[0].started_at, cs) : '—', rows[0] && rows[0].service ? rows[0].service.label : '', 17, rows[0] ? 90 : 5, 8, 'ok'),
+        H.stat(_('Archivy zrušených služeb', 'Archives of cancelled services'), String(archives.length), _('držíme ', 'kept for ') + (policy.retention_days || 60) + _(' dní od zrušení', ' days after removal'), 21, Math.min(100, archives.length * 25), 9, archives.length ? 'warn' : 'ok')
       ],
       tableTitle: _('Poslední zálohy', 'Latest backups'), tableNote: _('obnovu a stažení najdete v nástrojích služby', 'restore and download live in the service tools'),
       cols: [_('Služba', 'Service'), _('Druh', 'Kind'), _('Stav', 'State'), _('Dokončeno', 'Finished'), ''],
@@ -267,9 +308,19 @@
           state: b.state, stateStyle: H.pill(good ? 'ok' : (b.state === 'failed' ? 'warn' : 'off')), barStyle: H.bar(good ? 100 : 40, good ? 'ok' : 'warn'), metric: when(b.finished_at || b.started_at, cs), rowStyle: H.rowStyle,
           action: _('Otevřít službu', 'Open service'), actionCls: 'btn btn-secondary', onAction: openService(cmp, b.service_id)
         };
-      }),
+      }).concat(archives.filter(function (a) { return H.match(a.service) || H.match(a.label) || H.match('archiv'); }).map(function (a) {
+        var left = a.days_left == null ? '' : (a.days_left + _(' dní do smazání', ' days until deletion'));
+        return {
+          name: (a.label || a.service || a.service_id) + _(' · archiv zrušené služby', ' · archive of a cancelled service'),
+          sub: bytes(a.size_bytes) + ' · ' + (a.parts || []).join(', ') + (a.gaps && a.gaps.length ? ' · ' + a.gaps.join(' · ') : ''),
+          c2: _('archiv', 'archive'), state: left || _('archiv', 'archive'), stateStyle: H.pill(a.days_left != null && a.days_left < 15 ? 'warn' : 'off'),
+          barStyle: H.bar(a.days_left == null ? 50 : Math.max(5, Math.min(100, a.days_left)), a.days_left != null && a.days_left < 15 ? 'warn' : 'ok'),
+          metric: day(a.retention_until, cs), rowStyle: H.rowStyle,
+          action: a.paid ? _('Stáhnout', 'Download') : _('Stáhnout za ', 'Download for ') + archiveFee(a, cs), actionCls: 'btn btn-secondary', onAction: downloadArchive(cmp, _, a, cs)
+        };
+      })),
       filters: [], readOnly: true,
-      side: { title: _('Poslední záloha každé služby', 'Every service\'s latest backup'), rows: latest.length ? latest.map(function (b) { return { title: (b.service && b.service.label) || b.service_id, meta: when(b.finished_at || b.started_at, cs) + ' · ' + bytes(b.size_bytes), value: b.state, kind: (b.state === 'completed' || b.state === 'ok') ? 'ok' : 'warn', on: openService(cmp, b.service_id) }; }) : [{ title: _('Zatím žádná záloha', 'No backup yet'), meta: _('automatické zálohy běží každou noc; ruční zálohu spustíte v nástrojích služby', 'automatic backups run every night; start a manual one in the service tools'), value: '', kind: 'off' }] },
+      side: { title: archives.length ? _('Archivy zrušených služeb', 'Archives of cancelled services') : _('Poslední záloha každé služby', 'Every service\'s latest backup'), rows: archives.map(function (a) { return { title: (a.label || a.service || a.service_id), meta: _('obnova do nové placené služby zdarma · ', 'restoring into a new paid service is free · ') + (a.days_left == null ? '' : a.days_left + _(' dní', ' days')), value: _('Obnovit', 'Restore'), kind: 'warn', on: restoreArchive(cmp, _, a, cs) }; }).concat(latest.length ? latest.map(function (b) { return { title: (b.service && b.service.label) || b.service_id, meta: when(b.finished_at || b.started_at, cs) + ' · ' + bytes(b.size_bytes), value: b.state, kind: (b.state === 'completed' || b.state === 'ok') ? 'ok' : 'warn', on: openService(cmp, b.service_id) }; }) : (archives.length ? [] : [{ title: _('Zatím žádná záloha', 'No backup yet'), meta: _('automatické zálohy běží každou noc; ruční zálohu spustíte v nástrojích služby', 'automatic backups run every night; start a manual one in the service tools'), value: '', kind: 'off' }])) },
       advice: { title: _('Záloha, kterou jsme neobnovili, není záloha', 'A backup we never restored is not a backup'), lead: _('Zálohy ověřujeme obnovou na zkoušku a výsledek vidíte u každé z nich. Obnovu spustíte sami v nástrojích služby — do původního místa nebo vedle něj.', 'Backups are verified by a trial restore and the result shows on each. Restore yourself in the service tools — in place or next to it.'), cta: '', on: function () {} }
     };
   }

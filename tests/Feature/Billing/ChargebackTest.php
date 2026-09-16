@@ -53,6 +53,7 @@ it('requests, approves, cancels and refunds the configured share of the unused p
             $path === '/api/client/servers/e4c1abcd/backups' && $request->method() === 'GET' => Http::response(['object' => 'list', 'data' => [['object' => 'backup', 'attributes' => ['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => true, 'is_locked' => false, 'bytes' => 1024, 'completed_at' => now()->toIso8601String(), 'created_at' => now()->toIso8601String()]]]]),
             $path === '/api/client/servers/e4c1abcd/backups/bk-final' => Http::response(['object' => 'backup', 'attributes' => ['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => true, 'is_locked' => false, 'bytes' => 1024, 'completed_at' => now()->toIso8601String(), 'created_at' => now()->toIso8601String()]]),
             $path === '/api/client/servers/e4c1abcd/backups/bk-final/download' => Http::response(['object' => 'signed_url', 'attributes' => ['url' => 'https://wings.test/download/backup?token=abc']]),
+            $path === '/api/application/servers/77/suspend' => Http::response('', 204), // the cancellation deactivates first, the removal comes after the restore window
             $path === '/api/application/servers/77/force' => Http::response('', 204),
             default => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => "no fake for {$path}"]]], 404),
         };
@@ -102,8 +103,9 @@ it('requests, approves, cancels and refunds the configured share of the unused p
     $this->flushHeaders();
     expect($cancelling['state'])->toBe('cancelling')->and($cancelling['refund']['minor'])->toBe(5000)->and($cancelling['operation_id'])->not->toBeNull();
     $operation = driveOperation(Operation::query()->findOrFail($cancelling['operation_id']));
-    expect($operation->state)->toBe(Operation::SUCCEEDED)->and(Service::query()->withTrashed()->findOrFail($service->id)->state)->toBe('TERMINATED');
-    app(OutboxPublisher::class)->relayPending(); // service.terminated → the chargeback settles
+    $cancelled = Service::query()->withTrashed()->findOrFail($service->id);
+    expect($operation->state)->toBe(Operation::SUCCEEDED)->and($cancelled->state)->toBe('SUSPENDED')->and($cancelled->terminate_at)->not->toBeNull(); // deactivated with the archive done; the removal follows the restore window
+    app(OutboxPublisher::class)->relayPending(); // service.deactivated → the chargeback settles right away, the customer does not wait 30 days for the credit
     $request = ChargebackRequest::query()->findOrFail($requested['id']);
     expect($request->state)->toBe('refunded')->and($request->refunded_at)->not->toBeNull()->and($request->refund_minor)->toBe(5000);
     expect(app(WalletService::class)->balances($org, 'CZK')['posted']->minor)->toBe(5000);

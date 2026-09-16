@@ -11,6 +11,7 @@ use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Catalog\PanelNavigation;
 use Onhost\Domain\Catalog\PricingRules;
+use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandHandler;
@@ -44,6 +45,8 @@ final class CatalogCommandHandler implements CommandHandler
             })(),
             'option.upsert' => ['option' => $this->upsertOption((string) $command->get('product_key'), (array) $command->get('option', []))],
             'product.state' => ['products' => $this->productState((string) $command->get('state'), (array) $command->get('products', []))], // on sale or off sale (audit §5z)
+            // the deletion lifecycle: how long a cancelled service can come back, how long the archive lives, what its download costs (audit §5ab)
+            'lifecycle.set' => ['lifecycle' => app(DeletionPolicy::class)->set((array) $command->get('config', []), $by)],
             // the customer panel's sidebar: category switches, order and labels (domains/Catalog/PanelNavigation.php)
             'panel_nav.set' => ['panel_nav' => app(PanelNavigation::class)->save((array) $command->get('config', []), $by)],
             'option.delete' => (function () use ($command) {

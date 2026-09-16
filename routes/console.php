@@ -60,9 +60,13 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\QueueScaler;
 use Onhost\Domain\Provisioning\Reconciler;
 use Onhost\Domain\Provisioning\Scheduling\NodeRebalancer;
+use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
+use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\ServiceIdentityCheck;
+use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\UsageWatch;
 use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Services\Web\CdnService;
@@ -618,6 +622,107 @@ Artisan::command('onhost:backups:run {--limit=100}', function (BackupScheduler $
     $this->table(['started', 'skipped', 'deleted', 'offsite', 'errors', 'archives'], [$result]);
 })->purpose('Start scheduled backups, apply retention and generation caps, copy off-site');
 
+/*
+ * The deletion lifecycle (audit §5ab): a cancelled service is archived, deactivated and kept for the grace window
+ * (30 days by default, "Nastavení systému → Životní cyklus služeb"). This pass removes the ones whose window ran
+ * out — every removal re-verifies the identity of the resource and refuses without a complete archive.
+ */
+Artisan::command('onhost:services:purge {--service= : one service id or name, otherwise everything that is due} {--force : ignore the grace window (needs --reason)} {--reason=} {--limit=20} {--dry-run}', function (ServiceService $services, DeletionPolicy $policy, AutomationLedger $ledger) {
+    if ($ledger->off('services.purge')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    $one = (string) ($this->option('service') ?? '');
+    $due = Service::query()
+        ->when($one !== '', fn ($q) => $q->where(fn ($w) => $w->where('id', $one)->orWhere('name', $one)->orWhere('hostname', $one)))
+        ->when($one === '', fn ($q) => $q->whereNotNull('terminate_at')->where('terminate_at', '<=', now()))
+        ->whereIn('state', [ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED])
+        ->where('legal_hold', false)->orderBy('terminate_at')->limit(max(1, (int) $this->option('limit')))->get();
+    if ($due->isEmpty()) {
+        $this->info('nothing to remove ('.$policy->graceDays().' days of grace, '.$policy->retentionDays().' days of retention)');
+
+        return;
+    }
+    $rows = [];
+    foreach ($due as $service) {
+        $archive = app(FinalArchive::class)->existing($service);
+        $status = 'čeká';
+        if ((bool) $this->option('dry-run')) {
+            $status = 'dry-run';
+        } else {
+            try {
+                $operation = $services->requestAction($service, 'purge', CommandContext::system('cli:services:purge'), 'purge:'.$service->id.':'.now()->format('YmdH'),
+                    array_filter(['force' => (bool) $this->option('force'), 'reason' => (string) ($this->option('reason') ?? 'ochranná lhůta vypršela')]));
+                $status = $operation->state;
+            } catch (Throwable $e) {
+                $status = 'chyba: '.mb_substr($e->getMessage(), 0, 60);
+            }
+        }
+        $rows[] = [$service->id, $service->name, $service->terminate_at?->format('j. n. Y'), $archive?->id ?? '— bez archivu —', $status];
+    }
+    $ledger->record('services.purge', ['due' => $due->count(), 'dry_run' => (bool) $this->option('dry-run')]);
+    $this->table(['služba', 'název', 'lhůta do', 'archiv', 'stav'], $rows);
+})->purpose('Remove services whose restore window expired — after a fresh identity check and with the archive in place');
+
+/*
+ * The archive of one service: what is stored, whether the identity matches, and — with --create — building it now
+ * without deleting anything (the way to prove the archive path of a panel before a real cancellation).
+ */
+Artisan::command('onhost:services:archive {service : service id, name or hostname} {--create : build the archive now (nothing is deleted)} {--package : build the downloadable zip of the newest archive} {--identity : only the identity verification}', function (ProviderRegistry $registry, FinalArchive $archives, ServiceIdentityCheck $identity) {
+    $key = (string) $this->argument('service');
+    $service = Service::query()->where(fn ($w) => $w->where('id', $key)->orWhere('name', $key)->orWhere('hostname', $key))->withTrashed()->first();
+    if ($service === null) {
+        $this->error('service not found: '.$key);
+
+        return 1;
+    }
+    $binding = $service->primaryBinding();
+    $adapter = null;
+    if ($service->provider_instance_id !== null) {
+        $instance = ProviderInstance::query()->find($service->provider_instance_id);
+        $adapter = $instance === null ? null : $registry->forInstance($instance);
+    }
+    $report = $identity->verify($service, $adapter, $binding?->ref());
+    $this->line('<info>'.$service->id.'</info> '.$service->name.' · '.$service->family.' · '.$service->state);
+    $this->table(['bod', 'shoda', 'očekáváno', 'v panelu', 'poznámka'], array_map(fn (array $c) => [
+        $c['label'], $c['ok'] === null ? '—' : ($c['ok'] ? 'ano' : 'NE'), (string) $c['expected'], (string) $c['actual'], (string) $c['note'],
+    ], $report['checks']));
+    $this->line(($report['ok'] ? '<info>ověřeno</info>' : '<error>NEOVĚŘENO</error>').': '.$report['matched'].'/'.$report['required'].' bodů'.($report['failed'] === [] ? '' : ', neshody: '.implode(', ', $report['failed'])));
+    if ((bool) $this->option('identity')) {
+        return $report['ok'] ? 0 : 1;
+    }
+    if ((bool) $this->option('create')) {
+        if (! $report['ok']) {
+            $this->error('identity not verified — the archive is refused');
+
+            return 1;
+        }
+        $result = $archives->create($service, $adapter, $binding?->ref(), CommandContext::system('cli:services:archive'), null, $report);
+        $this->info('archive created: '.$result['set']);
+    }
+    $rows = [];
+    foreach (Backup::query()->where('service_id', $service->id)->where('kind', 'final')->orderByDesc('created_at')->limit(10)->get() as $backup) {
+        $rows[] = [
+            $backup->id, $backup->state, number_format((int) $backup->size_bytes / 1048576, 1).' MB', $backup->retention_until?->format('j. n. Y'),
+            implode(', ', (array) data_get($backup->meta, 'parts', [])),
+            mb_substr(implode(' | ', array_map(fn ($k, $v) => "{$k}: {$v}", array_keys((array) data_get($backup->meta, 'attempts', [])), array_values((array) data_get($backup->meta, 'attempts', [])))).' '.(string) data_get($backup->meta, 'error', ''), 0, 160),
+        ];
+    }
+    $this->table(['archiv', 'stav', 'velikost', 'uchovat do', 'části', 'pokusy / chyba'], $rows);
+    if ((bool) $this->option('package')) {
+        $newest = $archives->existing($service);
+        if ($newest === null) {
+            $this->error('no completed archive to package');
+
+            return 1;
+        }
+        $package = $archives->package($newest);
+        $this->info('package: '.$package['path'].' · '.number_format($package['bytes'] / 1048576, 1).' MB · sha256 '.mb_substr($package['sha256'], 0, 16).'…');
+    }
+
+    return 0;
+})->purpose('Show, verify or build the final archive of one service (nothing is deleted)');
 Artisan::command('onhost:certificates:renew {--limit=20}', function (CertificateService $certificates) {
     $this->info('renewals started: '.$certificates->renewDue((int) $this->option('limit')));
 })->purpose('Renew platform-issued (wildcard) certificates before they expire');
@@ -780,5 +885,6 @@ Schedule::command('onhost:monitoring:check')->everyMinute()->withoutOverlapping(
 Schedule::command('onhost:monitoring:prune')->dailyAt('04:20')->onOneServer();
 Schedule::command('onhost:backups:run')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:certificates:renew')->dailyAt('03:10')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:services:purge')->dailyAt('03:40')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:cdn:refresh')->hourlyAt(35)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:web-tools:prune')->hourlyAt(50)->onOneServer();

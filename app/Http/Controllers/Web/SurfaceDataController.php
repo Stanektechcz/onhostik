@@ -568,11 +568,17 @@ final class SurfaceDataController extends Controller
             $usageTop = is_array($usage['metrics'] ?? null) ? UsageWatch::top($usage['metrics']) : null;
             $usageNote = ($usage['level'] ?? 'ok') !== 'ok' && $usageTop !== null ? ' · '.$t('kapacita ', 'capacity ').$usageTop['pct'].' % ('.UsageWatch::metricLabel($usageTop['key'], $locale).')' : '';
             $kind = $usageNote !== '' && $kind === 'ok' ? 'warn' : $kind;
+            // a cancelled service waits deactivated for its restore window; the row says how long (audit §5ab)
+            $deletion = (array) (($s->tags ?? [])['deletion'] ?? []);
+            $graceLeft = $s->terminate_at === null ? null : (int) now()->diffInDays($s->terminate_at, false);
+            $deletionNote = $graceLeft === null ? '' : ' · '.($graceLeft > 0 ? $t('obnovit lze ještě ', 'restorable for ').$graceLeft.$t(' dní', ' days') : $t('čeká na odstranění', 'awaiting removal'));
+            $kind = $graceLeft === null ? $kind : 'warn';
             $groups[$category][] = [
                 'id' => $s->id, 'type' => $type, 'name' => $s->label ?: ($s->hostname ?: $s->name), 'spec' => $sizes ?? ($s->name.($spec['php_version'] ?? null ? ' · PHP '.$spec['php_version'] : '')),
-                'meta' => trim(($s->hostname ? $s->hostname.' · ' : '').strtoupper((string) $s->region_code).($s->sla_class !== 'standard' ? ' · SLA '.$s->sla_class : '').($planName ? ' · '.$planName : '').($billing !== '' ? ' · '.$billing : '').$usageNote), 'value' => $s->activated_at?->toDateString() ?? '',
+                'meta' => trim(($s->hostname ? $s->hostname.' · ' : '').strtoupper((string) $s->region_code).($s->sla_class !== 'standard' ? ' · SLA '.$s->sla_class : '').($planName ? ' · '.$planName : '').($billing !== '' ? ' · '.$billing : '').$usageNote.$deletionNote), 'value' => $s->activated_at?->toDateString() ?? '',
                 'state' => $stateLabel, 'kind' => $kind, 'product' => $s->product_key, 'apiState' => $s->state, 'usage' => $usageTop !== null ? ['level' => $usage['level'] ?? 'ok', 'pct' => $usageTop['pct'], 'metric' => $usageTop['key']] : null,
                 'plan' => $planName, 'period' => $sub?->period, 'renews_at' => $renewsAt?->toIso8601String(), 'monthly' => $monthly, 'renewal' => $renewalAmount !== '' ? $renewalAmount : null,
+                'deletion' => $graceLeft === null ? null : ['grace_until' => $s->terminate_at?->toIso8601String(), 'days_left' => max(0, $graceLeft), 'archive_backup_id' => $deletion['archive_backup_id'] ?? null],
             ];
             if (in_array($s->family, ['cloud', 'game'], true)) {
                 $health = (array) ($s->health ?? []);

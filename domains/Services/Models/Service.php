@@ -6,12 +6,25 @@ namespace Onhost\Domain\Services\Models;
 
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Platform\Eloquent\Model;
 
 /**
  * Canonical desired state of a sold resource (blueprint §5.1). Public id `srv_…`.
  * Provider ids live only in provider_bindings.
+ *
+ * @property ?Carbon $activated_at
+ * @property ?Carbon $suspended_at
+ * @property ?Carbon $terminate_at
+ * @property ?Carbon $terminated_at
+ * @property ?Carbon $retention_until
+ * @property ?Carbon $last_reconciled_at
+ * @property array<string,mixed>|null $tags
+ * @property array<string,mixed>|null $health
+ * @property array<string,mixed>|null $desired_spec
+ * @property array<string,mixed>|null $actual_spec
+ * @property array<string,mixed>|null $entitlements
  */
 final class Service extends Model
 {

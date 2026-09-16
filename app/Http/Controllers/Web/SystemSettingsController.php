@@ -55,6 +55,24 @@ final class SystemSettingsController extends Controller
     }
 
     /** Staff operations board (audit §5e-3): stalled, failed and long-running operations, nodes with drain/resume. */
+    /** Nastavení systému → Životní cyklus služeb: lhůta na obnovu, uchování archivů, poplatek za stažení (audit §5ab). */
+    public function lifecycle(Request $request): View|RedirectResponse
+    {
+        $user = $request->user();
+        if ($user === null) {
+            return redirect('/prihlaseni?next='.urlencode($request->getRequestUri()));
+        }
+        if (! $user->is_staff) {
+            return redirect('/panel');
+        }
+        $ds = glob(base_path('apps/surfaces/_ds/*/styles.css')) ?: [];
+
+        return view('admin.lifecycle', [
+            'user' => $user,
+            'stylesheet' => $ds === [] ? null : '/surfaces/'.str_replace('\\', '/', substr($ds[0], strlen(base_path('apps/surfaces')) + 1)),
+        ]);
+    }
+
     public function operations(Request $request): View|RedirectResponse
     {
         $user = $request->user();

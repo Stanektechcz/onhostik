@@ -27,19 +27,29 @@ use Onhost\Providers\Contracts\WebToolsProvider;
 use Throwable;
 
 /**
- * The archive a service is never deleted without (audit §5aa). Before a termination reaches the panel this pulls
+ * The archive a service is never deleted without (audit §5aa). Before a cancellation touches the panel this pulls
  * everything the provider can hand over — the site files and every database dump, the game server's backup archive,
  * the mail domain with its mailboxes and aliases, always the service metadata (plan, entitlements, desired spec,
- * bindings, access) — onto the platform backup disk, checksums every part and keeps the set for
- * `onhost.platform_backup.service_archive_days` (60 by default) as a protected, immutable backup row.
+ * bindings, the identity report) — onto the platform backup disk, checksums every part and keeps the set for
+ * `DeletionPolicy::retentionDays()` (60 by default) as a protected, immutable backup row.
  *
- * A component the provider offers but that fails is a hard error: the workflow stops and nothing is deleted.
+ * Rules that hold without exception:
+ *  • the identity of the service is verified first (ServiceIdentityCheck) — a mismatch stops everything,
+ *  • the service metadata reaches the disk before any provider call that could disturb the service,
+ *  • a component the provider offers but that fails is a hard error: the workflow stops and nothing is deleted,
+ *  • the files of a web service have two independent paths (file transport, the panel's own backup); only when both
+ *    fail does the archive fail.
  */
 final class FinalArchive
 {
     public const PREFIX = 'service-archives';
 
-    public function __construct(private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox) {}
+    public function __construct(
+        private readonly AuditRecorder $audit,
+        private readonly OutboxPublisher $outbox,
+        private readonly DeletionPolicy $policy,
+        private readonly ServiceIdentityCheck $identity,
+    ) {}
 
     public function disk(): Filesystem
     {
@@ -48,7 +58,7 @@ final class FinalArchive
 
     public function retentionDays(): int
     {
-        return max(1, (int) config('onhost.platform_backup.service_archive_days', 60));
+        return $this->policy->retentionDays();
     }
 
     /** An existing, completed archive of this service (a retry of the same termination must not archive twice). */
@@ -62,10 +72,12 @@ final class FinalArchive
     /**
      * Writes the archive set and returns its backup row; throws when a part the provider offers cannot be stored.
      *
-     * @return array{backup:Backup, set:string, parts:array<string,array{bytes:int,sha256:string}>, gaps:list<string>}
+     * @param  array<string,mixed>|null  $identity  the identity report of the caller; verified here when absent
+     * @return array{backup:Backup, set:string, parts:array<string,array{bytes:int,sha256:string}>, gaps:list<string>, identity:array<string,mixed>}
      */
-    public function create(Service $service, ?object $adapter, ?ResourceRef $ref, CommandContext $context, ?string $operationId = null): array
+    public function create(Service $service, ?object $adapter, ?ResourceRef $ref, CommandContext $context, ?string $operationId = null, ?array $identity = null): array
     {
+        $identity ??= $this->identity->assert($service, $adapter, $ref); // §5ab: never archive (and therefore never delete) a resource we cannot identify
         $set = self::PREFIX.'/'.$service->organization_id.'/'.$service->id.'-'.now()->format('Ymd-His');
         $work = storage_path('app/onhost-final-'.Str::random(10));
         if (! is_dir($work) && ! mkdir($work, 0700, true) && ! is_dir($work)) {
@@ -76,30 +88,36 @@ final class FinalArchive
             'service_id' => $service->id, 'organization_id' => $service->organization_id, 'provider_instance_id' => $service->provider_instance_id,
             'kind' => 'final', 'state' => 'running', 'started_at' => now(), 'protected' => true, 'operation_id' => $operationId,
             'retention_until' => $retention, 'immutable_until' => $retention,
-            'meta' => ['set' => $set, 'family' => $service->family, 'reason' => 'termination'],
+            'meta' => ['set' => $set, 'family' => $service->family, 'reason' => 'termination', 'identity' => $identity],
         ]);
         $parts = [];
         $gaps = [];
         $snapshot = [];
+        $attempts = [];
         try {
-            $this->write($work, 'service.json', (string) json_encode($this->metadata($service, $adapter, $ref), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            $this->write($work, 'service.json', (string) json_encode($this->metadata($service, $adapter, $ref, $identity), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            $this->flush($set, $work, $parts); // the metadata is on the disk before the first provider call
             match ($service->family) {
-                'web', 'managed' => $this->web($service, $adapter, $ref, $work, $parts, $gaps),
-                'game' => $this->game($adapter, $ref, $work, $parts, $gaps),
+                'web', 'managed' => $this->web($adapter, $ref, $work, $gaps, $attempts),
+                'game' => $this->game($adapter, $ref, $work, $gaps),
                 'mail' => $this->mail($adapter, $ref, $work, $gaps),
                 'cloud', 'data' => $snapshot = $this->snapshot($adapter, $ref, $gaps),
                 default => $gaps[] = "family {$service->family}: only the service metadata is archived",
             };
-            foreach (glob($work.'/*') ?: [] as $file) {
-                $parts[basename($file)] = $this->store($set, basename($file), $file);
-            }
+            $this->flush($set, $work, $parts);
             $manifest = ['service_id' => $service->id, 'organization_id' => $service->organization_id, 'family' => $service->family, 'created_at' => now()->toIso8601String(),
-                'retention_until' => $retention->toIso8601String(), 'parts' => $parts, 'gaps' => $gaps];
+                'retention_until' => $retention->toIso8601String(), 'parts' => $parts, 'gaps' => $gaps, 'identity' => $identity, 'attempts' => $attempts];
             $this->disk()->put($set.'/manifest.json', (string) json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         } catch (Throwable $e) {
-            $backup->forceFill(['state' => 'failed', 'finished_at' => now(), 'meta' => array_merge((array) $backup->meta, ['error' => mb_substr($e->getMessage(), 0, 400)])])->save();
+            try {
+                $this->flush($set, $work, $parts); // whatever did reach the working directory is kept for the operator
+            } catch (Throwable) {
+                // the disk is the problem itself; the error below is the one that matters
+            }
+            $backup->forceFill(['state' => 'failed', 'finished_at' => now(), 'size_bytes' => array_sum(array_map(fn (array $p) => $p['bytes'], $parts)),
+                'meta' => array_merge((array) $backup->meta, ['error' => mb_substr($e->getMessage(), 0, 400), 'parts' => array_keys($parts), 'gaps' => $gaps, 'attempts' => $attempts])])->save();
             $this->cleanup($work);
-            $this->audit->record($context->withScope($service->organization_id), 'service.final_archive', 'failed', ['service' => $service->id, 'set' => $set, 'error' => mb_substr($e->getMessage(), 0, 200)], 'service', $service->id);
+            $this->audit->record($context->withScope($service->organization_id), 'service.final_archive', 'failed', ['service' => $service->id, 'set' => $set, 'error' => mb_substr($e->getMessage(), 0, 200), 'attempts' => $attempts], 'service', $service->id);
 
             throw $e;
         }
@@ -107,11 +125,79 @@ final class FinalArchive
         $bytes = array_sum(array_map(fn (array $p) => $p['bytes'], $parts));
         $backup->forceFill(['state' => 'completed', 'finished_at' => now(), 'size_bytes' => (int) ($snapshot['size_bytes'] ?? 0) ?: $bytes, 'verified_at' => now(), 'verify_status' => 'ok',
             'remote_id' => $snapshot['remote_id'] ?? null, 'remote_datastore' => (string) ($snapshot['datastore'] ?? config('onhost.platform_backup.disk', 'local')),
-            'meta' => array_merge((array) $backup->meta, ['parts' => array_keys($parts), 'gaps' => $gaps, 'snapshot' => $snapshot ?: null])])->save();
+            'meta' => array_merge((array) $backup->meta, ['parts' => array_keys($parts), 'gaps' => $gaps, 'snapshot' => $snapshot ?: null, 'attempts' => $attempts])])->save();
         $this->audit->record($context->withScope($service->organization_id), 'service.final_archive', 'succeeded', ['service' => $service->id, 'set' => $set, 'bytes' => $bytes, 'parts' => array_keys($parts), 'gaps' => $gaps], 'backup', $backup->id);
         $this->outbox->publish(GenericEvent::of('service.final_archive.created', 'service', $service->id, ['backup_id' => $backup->id, 'set' => $set, 'bytes' => $bytes, 'retention_until' => $retention->toIso8601String(), 'gaps' => $gaps], $service->organization_id));
 
-        return ['backup' => $backup->refresh(), 'set' => $set, 'parts' => $parts, 'gaps' => $gaps];
+        return ['backup' => $backup->refresh(), 'set' => $set, 'parts' => $parts, 'gaps' => $gaps, 'identity' => $identity];
+    }
+
+    /**
+     * The retention clock starts when the service is really removed, not when it was deactivated (audit §5ab):
+     * the purge calls this so the customer's 30 days of grace do not eat into the 60 days of data retention.
+     */
+    public function startRetention(Backup $backup): Backup
+    {
+        $until = now()->addDays($this->retentionDays());
+        $backup->forceFill([
+            'retention_until' => $until, 'immutable_until' => $until, 'protected' => true,
+            'meta' => array_merge((array) $backup->meta, ['retention_started_at' => now()->toIso8601String(), 'retention_days' => $this->retentionDays()]),
+        ])->save();
+
+        return $backup->refresh();
+    }
+
+    /**
+     * One compressed file with the whole set, built on demand (the paid download and the free restore both use it).
+     *
+     * @return array{path:string, filename:string, bytes:int, sha256:string}
+     */
+    public function package(Backup $backup): array
+    {
+        $set = (string) data_get($backup->meta, 'set', '');
+        if ($set === '' || ! str_starts_with($set, self::PREFIX.'/')) {
+            throw new DomainError('archive_missing', 'Tato záloha nemá archivní sadu ke stažení.', 404);
+        }
+        $filename = ($backup->service_id ?? 'service').'-archive-'.$backup->created_at?->format('Ymd').'.zip';
+        $target = $set.'/download/'.$filename;
+        if ($this->disk()->exists($target)) {
+            return ['path' => $target, 'filename' => $filename, 'bytes' => (int) $this->disk()->size($target), 'sha256' => (string) data_get($backup->meta, 'download.sha256', '')];
+        }
+        $local = storage_path('app/onhost-archive-'.Str::random(8).'.zip');
+        $zip = new \ZipArchive;
+        if ($zip->open($local, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            throw new DomainError('archive_package', 'Archiv se nepodařilo zabalit.', 500);
+        }
+        foreach ($this->disk()->files($set) as $file) {
+            $stream = $this->disk()->readStream($file);
+            if (! is_resource($stream)) {
+                continue;
+            }
+            $temp = storage_path('app/onhost-part-'.Str::random(8));
+            $out = fopen($temp, 'wb');
+            if (is_resource($out)) {
+                stream_copy_to_stream($stream, $out);
+                fclose($out);
+                $zip->addFile($temp, basename($file));
+            }
+            fclose($stream);
+        }
+        $zip->close();
+        foreach (glob(storage_path('app/onhost-part-*')) ?: [] as $temp) {
+            @unlink($temp);
+        }
+        $stream = fopen($local, 'rb');
+        if (! is_resource($stream)) {
+            throw new DomainError('archive_package', 'Zabalený archiv nelze číst.', 500);
+        }
+        $this->disk()->writeStream($target, $stream);
+        fclose($stream);
+        $result = ['path' => $target, 'filename' => $filename, 'bytes' => (int) filesize($local), 'sha256' => (string) hash_file('sha256', $local)];
+        @unlink($local);
+        // whatever the download meta already carries (paid, fee, waiver) stays — packaging only adds where the file is
+        $backup->forceFill(['meta' => array_merge((array) $backup->meta, ['download' => array_merge((array) data_get($backup->meta, 'download', []), $result, ['built_at' => now()->toIso8601String()])])])->save();
+
+        return $result;
     }
 
     /** Deletes archive sets whose retention has passed (called by onhost:backups:run). @return int removed sets */
@@ -131,7 +217,7 @@ final class FinalArchive
     }
 
     /** @return array<string,mixed> */
-    private function metadata(Service $service, ?object $adapter, ?ResourceRef $ref): array
+    private function metadata(Service $service, ?object $adapter, ?ResourceRef $ref, array $identity): array
     {
         $actual = null;
         if ($adapter instanceof InfrastructureProvider && $ref !== null) {
@@ -147,12 +233,16 @@ final class FinalArchive
             'service' => $service->only(['id', 'organization_id', 'product_key', 'family', 'name', 'label', 'state', 'region_code', 'hostname', 'sla_class', 'created_at', 'activated_at']),
             'entitlements' => $service->entitlements, 'desired_spec' => $service->desired_spec, 'actual_spec' => $service->actual_spec, 'health' => $service->health,
             'bindings' => ProviderBinding::query()->where('service_id', $service->id)->get(['remote_type', 'remote_id', 'remote_node', 'meta'])->all(),
-            'actual_state' => $actual, 'archived_at' => now()->toIso8601String(),
+            'actual_state' => $actual, 'identity' => $identity, 'archived_at' => now()->toIso8601String(),
         ];
     }
 
-    /** Site files and every database of a web or managed service. */
-    private function web(Service $service, ?object $adapter, ?ResourceRef $ref, string $work, array &$parts, array &$gaps): void
+    /**
+     * Site files and every database of a web or managed service. The files have two independent paths because a
+     * shared node does not always offer both: the file transport (SFTP or the panel's file API) and the panel's own
+     * site backup. Each attempt is recorded; only when both fail does the archive — and with it the deletion — stop.
+     */
+    private function web(?object $adapter, ?ResourceRef $ref, string $work, array &$gaps, array &$attempts): void
     {
         if (! $adapter instanceof WebToolsProvider || $ref === null) {
             $gaps[] = 'web: the panel offers no file or database export';
@@ -165,10 +255,35 @@ final class FinalArchive
                 $adapter->exportDatabase($ref, (string) $database['remote_id'], $work.'/database-'.Str::slug($name).'.sql');
             }
         }
+        try {
+            $this->filesByTransport($adapter, $ref, $work, $gaps);
+            $attempts['transport'] = 'ok';
+
+            return;
+        } catch (Throwable $e) {
+            $attempts['transport'] = mb_substr($e->getMessage(), 0, 300);
+        }
+        try {
+            $attempts['panel_backup'] = $this->filesByPanelBackup($adapter, $ref, $work, $gaps);
+
+            return;
+        } catch (Throwable $e) {
+            $attempts['panel_backup'] = mb_substr($e->getMessage(), 0, 300);
+        }
+
+        throw new DomainError('final_archive_files', 'Soubory webu se nepodařilo zazálohovat žádnou cestou (přenos: '.$attempts['transport'].'; záloha panelu: '.$attempts['panel_backup'].'); nic nebylo smazáno.', 503);
+    }
+
+    /** Path 1: pack the site root on the node and pull the archive through the provider's file transport. */
+    private function filesByTransport(WebToolsProvider $adapter, ResourceRef $ref, string $work, array &$gaps): void
+    {
         $remote = 'onhost-final-'.Str::random(6).'.tar.gz';
         $transport = $adapter->transport($ref);
         $transport->archive(['.'], $remote);
         $transport->download($remote, $work.'/site-files.tar.gz');
+        if (! is_file($work.'/site-files.tar.gz') || filesize($work.'/site-files.tar.gz') < 32) {
+            throw new DomainError('final_archive_files', 'the file transport produced an empty archive', 503);
+        }
         try {
             $transport->delete($remote);
         } catch (Throwable) {
@@ -176,8 +291,56 @@ final class FinalArchive
         }
     }
 
+    /**
+     * Path 2: ask the panel for its own site backup and download that. aaPanel packs the site itself (`ToBackup`),
+     * ISPConfig keeps the nightly archives — when no fresh one appears in time, a recent existing backup is taken
+     * and the age is recorded as a gap, because an archive from last night beats no archive at all.
+     */
+    private function filesByPanelBackup(WebToolsProvider $adapter, ResourceRef $ref, string $work, array &$gaps): string
+    {
+        if (! $adapter instanceof BackupCapable) {
+            throw new DomainError('final_archive_files', 'the panel offers no site backup', 503);
+        }
+        $before = array_map(fn (array $b) => (string) $b['remote_id'], $adapter->listBackups($ref));
+        $adapter->backup($ref, ['name' => 'onhost-final-'.now()->format('Ymd-His'), 'protected' => true, 'notes' => 'final archive before termination']);
+        $deadline = time() + (int) config('onhost.platform_backup.game_archive_timeout', 1800);
+        $fresh = null;
+        while (true) { // aaPanel packs the site during the call, ISPConfig hands the job to its queue — so look first, wait afterwards
+            $fresh = collect($adapter->listBackups($ref))->reject(fn (array $b) => in_array((string) $b['remote_id'], $before, true))
+                ->sortByDesc('created_at')->first();
+            if (is_array($fresh) && ($fresh['size_bytes'] ?? 1) > 0) {
+                break;
+            }
+            $fresh = null;
+            if (time() >= $deadline) {
+                break;
+            }
+            sleep(10);
+        }
+        $note = 'fresh';
+        if ($fresh === null) { // no new archive in time: the newest recent one, clearly marked
+            $stale = (int) config('onhost.platform_backup.stale_backup_hours', 48);
+            $fresh = collect($adapter->listBackups($ref))->sortByDesc('created_at')
+                ->first(fn (array $b) => ($b['created_at'] ?? '') !== '' && strtotime((string) $b['created_at']) > time() - $stale * 3600);
+            if (! is_array($fresh)) {
+                throw new DomainError('final_archive_files', 'the panel produced no site backup in time and has none from the last '.$stale.' h', 503);
+            }
+            $gaps[] = 'web: the files come from the panel backup of '.$fresh['created_at'].', not from a fresh archive';
+            $note = 'existing backup from '.$fresh['created_at'];
+        }
+        $name = (string) (data_get($fresh, 'meta.filename') ?? '');
+        $target = $work.'/site-files'.(str_ends_with(strtolower($name), '.zip') ? '.zip' : '.tar.gz');
+        $adapter->downloadBackup($ref, (string) $fresh['remote_id'], $target);
+        if (! is_file($target) || filesize($target) < 32) {
+            throw new DomainError('final_archive_files', 'the panel backup could not be downloaded', 503);
+        }
+        $gaps[] = 'web: the archive is the panel\'s own site backup (the node offers no file transport)';
+
+        return $note;
+    }
+
     /** The game server's own backup archive, downloaded through the panel's signed URL. */
-    private function game(?object $adapter, ?ResourceRef $ref, string $work, array &$parts, array &$gaps): void
+    private function game(?object $adapter, ?ResourceRef $ref, string $work, array &$gaps): void
     {
         if (! $adapter instanceof BackupCapable || $ref === null) {
             $gaps[] = 'game: the panel offers no backups';
@@ -266,6 +429,15 @@ final class FinalArchive
     {
         if (file_put_contents($work.'/'.$name, $content) === false) {
             throw new DomainError('archive_write', "Cannot write {$name} of the final archive.", 500);
+        }
+    }
+
+    /** Moves everything produced so far onto the backup disk (checksummed) and empties the working directory. */
+    private function flush(string $set, string $work, array &$parts): void
+    {
+        foreach (glob($work.'/*') ?: [] as $file) {
+            $parts[basename($file)] = $this->store($set, basename($file), $file);
+            @unlink($file);
         }
     }
 

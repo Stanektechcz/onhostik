@@ -64,6 +64,8 @@ use Onhost\Domain\Provisioning\Commands\ProvisioningCommand;
 use Onhost\Domain\Provisioning\Commands\ProvisioningCommandHandler;
 use Onhost\Domain\Services\Commands\IssueConsoleTokenCommand;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
+use Onhost\Domain\Services\Commands\ServiceArchiveCommand;
+use Onhost\Domain\Services\Commands\ServiceArchiveCommandHandler;
 use Onhost\Domain\Services\Commands\ServicesCommandHandler;
 use Onhost\Domain\Services\Commands\WebToolsCommand;
 use Onhost\Domain\Services\Commands\WebToolsCommandHandler;
@@ -98,6 +100,7 @@ final class DomainServiceProvider extends ServiceProvider
         RemovePaymentMethodCommand::class => WalletCommandHandler::class,
         BankCommand::class => BankCommandHandler::class,
         ServiceActionCommand::class => ServicesCommandHandler::class,
+        ServiceArchiveCommand::class => ServiceArchiveCommandHandler::class,
         IssueConsoleTokenCommand::class => ServicesCommandHandler::class,
         WebToolsCommand::class => WebToolsCommandHandler::class,
         IntegrationCommand::class => IntegrationCommandHandler::class,

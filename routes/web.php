@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\ArchiveController;
 use App\Http\Controllers\Web\AuthPagesController;
 use App\Http\Controllers\Web\CalendarFeedController;
 use App\Http\Controllers\Web\ConsoleRelayController;
@@ -54,6 +55,8 @@ Route::get('console/ws/{token}', [ConsoleRelayController::class, 'resolve'])->na
 Route::get('console/check/{token}', [ConsoleRelayController::class, 'check'])->middleware('auth:sanctum')->name('console.check');
 
 // the organization's dates as a calendar subscription: the signed link (GET /v1/calendar/feed) is the credential, rotating the feed version revokes it
+// the archive of a cancelled service as one compressed file: the signed link is the credential (audit §5ab)
+Route::get('archiv/{organization}/{backup}', [ArchiveController::class, 'file'])->middleware('signed')->name('archive.file');
 Route::get('calendar/{organization}.ics', [CalendarFeedController::class, 'feed'])->where('organization', '[A-Za-z0-9_-]+')->middleware('signed')->name('calendar.feed');
 
 // the prototype links surfaces by file name (Onhost-app.dc.html …); keep those links working
@@ -89,6 +92,7 @@ Route::get('sprava/nastaveni', fn () => redirect('/sprava/nastaveni/integrace'))
 Route::get('sprava/nastaveni/integrace', [SystemSettingsController::class, 'integrations'])->middleware('auth:sanctum')->name('settings.integrations');
 Route::get('sprava/nastaveni/provoz', [SystemSettingsController::class, 'operations'])->middleware('auth:sanctum')->name('settings.operations');
 Route::get('sprava/nastaveni/hromadne-akce', [SystemSettingsController::class, 'bulk'])->middleware('auth:sanctum')->name('settings.bulk');
+Route::get('sprava/nastaveni/zivotni-cyklus', [SystemSettingsController::class, 'lifecycle'])->middleware('auth:sanctum')->name('settings.lifecycle'); // audit §5ab
 Route::get('sprava/konzole/{service}', [StaffConsoleController::class, 'show'])->middleware('auth:sanctum')->name('staff.console'); // the staff-side server console (audit §5p-2)
 Route::get('sprava/{path?}', [SurfaceController::class, 'admin'])->where('path', '.*')->name('surface.admin');
 Route::get('partner/{path?}', [SurfaceController::class, 'partner'])->where('path', '.*')->name('surface.partner');
