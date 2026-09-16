@@ -141,3 +141,25 @@ it('never archives (and so never deletes) a resource whose identity does not mat
     expect(fn () => ProviderBinding::query()->create(['service_id' => archivableWebService($org->id)->id, 'provider_instance_id' => $service->provider_instance_id,
         'remote_type' => 'web_domain', 'remote_id' => '41', 'remote_node' => '1', 'meta' => [], 'idempotency_key' => 'twin']))->toThrow(QueryException::class);
 });
+
+it('re-hashes stored archives against their manifest and flags a corrupted one (audit §5aa)', function () {
+    Storage::fake('local');
+    [, $org] = $this->customerWithOrganization();
+    $service = archivableWebService($org->id);
+    $archives = app(FinalArchive::class);
+    $result = $archives->create($service, archiveWebAdapter(), new ResourceRef('web_domain', '41', '1', ['domain' => 'firma.cz', 'system_user' => 'web41']), CommandContext::system('test'));
+    $backup = $result['backup'];
+
+    // a fresh archive is not re-checked; an older one is, and it matches
+    expect($archives->verifyStored())->toMatchArray(['checked' => 0, 'ok' => 0, 'failed' => 0]);
+    $backup->forceFill(['verified_at' => now()->subDays(30)])->save();
+    expect($archives->verifyStored())->toMatchArray(['checked' => 1, 'ok' => 1, 'failed' => 0]);
+    expect($backup->fresh()->verify_status)->toBe('ok');
+
+    // bit rot on the disk: the next pass finds it and says which part
+    Storage::disk('local')->put($result['set'].'/site-files.tar.gz', 'corrupted');
+    $backup->refresh()->forceFill(['verified_at' => now()->subDays(30)])->save();
+    $second = $archives->verifyStored();
+    expect($second['failed'])->toBe(1)->and(implode(' ', $second['problems']))->toContain('site-files.tar.gz');
+    expect($backup->fresh()->verify_status)->toBe('failed')->and(data_get($backup->fresh()->meta, 'verify_problem'))->toContain('checksum');
+});

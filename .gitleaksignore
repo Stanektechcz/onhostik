@@ -1,0 +1,4 @@
+# The initial public commit contains an intentionally empty COMGATE_SECRET= template line.
+efa43e0e626b8eaa1ffa6ef7f5598c00b5cfbb60:.env.example:generic-api-key:89
+# Public Turnstile feature test uses a synthetic password literal.
+c8407c40c23d49f59b6fb650f08f5bd4c83d9761:tests/Feature/Orders/TurnstileTest.php:generic-api-key:30

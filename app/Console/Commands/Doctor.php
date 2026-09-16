@@ -7,6 +7,7 @@ namespace App\Console\Commands;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\TldPolicy;
@@ -23,6 +24,11 @@ use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderInstanceService;
+use Onhost\Domain\Services\DeletionPolicy;
+use Onhost\Domain\Services\FinalArchive;
+use Onhost\Domain\Services\Models\Backup;
+use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\WalletLedger\AutoTopup;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Ops\PlatformBackup;
@@ -57,6 +63,7 @@ final class Doctor extends Command
         $this->documents();
         $this->identity();
         $this->mailAndObservability();
+        $this->deletionLifecycle();
 
         $fails = count(array_filter($this->rows, fn ($r) => $r['status'] === 'FAIL'));
         $warns = count(array_filter($this->rows, fn ($r) => $r['status'] === 'WARN'));
@@ -68,6 +75,45 @@ final class Doctor extends Command
         }
 
         return $fails > 0 ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * The end of a service (audit §5ab): the archive disk has to be writable *before* a cancellation needs it, the
+     * policy has to stay inside its safe bounds, no archive may be left failed or unverified, and nothing may sit
+     * past its restore window without being removed — that would quietly keep customer data alive.
+     */
+    private function deletionLifecycle(): void
+    {
+        $policy = app(DeletionPolicy::class)->all();
+        $this->add('lifecycle', 'restore window and retention set', $policy['grace_days'] >= 1 && $policy['retention_days'] >= 30,
+            $policy['grace_days'].' days to restore · archive kept '.$policy['retention_days'].' days · '.$policy['identity_checks'].' identity points · download '.number_format($policy['download_fee_minor']['CZK'] / 100, 0, ',', ' ').' Kč', false);
+
+        $disk = (string) config('onhost.platform_backup.disk', 'local');
+        $probe = FinalArchive::PREFIX.'/.doctor-'.now()->format('Ymd-His');
+        $writable = false;
+        try {
+            Storage::disk($disk)->put($probe, 'probe');
+            $writable = Storage::disk($disk)->exists($probe);
+            Storage::disk($disk)->delete($probe);
+        } catch (\Throwable $e) {
+            $this->add('lifecycle', 'archive disk writable', false, $disk.': '.mb_substr($e->getMessage(), 0, 120));
+
+            return;
+        }
+        $this->add('lifecycle', 'archive disk writable', $writable, $disk.' · '.FinalArchive::PREFIX);
+
+        $failed = Backup::query()->where('kind', 'final')->where('state', 'failed')->where('created_at', '>', now()->subDays(30))->count();
+        $this->add('lifecycle', 'no failed archive in the last 30 days', $failed === 0, $failed === 0 ? '' : $failed.' × — onhost:services:archive <service> shows the attempts', false);
+
+        $unverified = Backup::query()->where('kind', 'final')->where('state', 'completed')->where('verify_status', '!=', 'ok')->count();
+        $this->add('lifecycle', 'archives verified', $unverified === 0, $unverified === 0 ? '' : $unverified.' × without a checksum verification — onhost:backups:run re-verifies', false);
+
+        $overdue = Service::query()->withTrashed()->whereNotNull('terminate_at')->where('terminate_at', '<', now()->subDay())
+            ->whereIn('state', [ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED])->where('legal_hold', false)->count();
+        $this->add('lifecycle', 'nothing past its restore window', $overdue === 0, $overdue === 0 ? '' : $overdue.' service(s) should already be removed — onhost:services:purge (scheduler 03:40)', false);
+
+        $orphan = Backup::query()->where('kind', 'final')->where('state', 'completed')->whereNull('retention_until')->count();
+        $this->add('lifecycle', 'every archive has a retention date', $orphan === 0, $orphan === 0 ? '' : $orphan.' × without retention_until — they would never be pruned', false);
     }
 
     private function add(string $area, string $check, bool $ok, string $detail = '', bool $blocking = true): void

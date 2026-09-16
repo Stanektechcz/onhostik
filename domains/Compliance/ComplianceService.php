@@ -19,6 +19,8 @@ use Onhost\Domain\Incidents\IncidentService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
+use Onhost\Domain\Services\FinalArchive;
+use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
@@ -442,8 +444,15 @@ final class ComplianceService
     public function assertDeletable(Organization $organization): void
     {
         $blocks = [];
-        if (Service::query()->where('organization_id', $organization->id)->whereNotIn('state', [ServiceStateMachine::TERMINATED])->exists()) {
+        // a cancelled service is deactivated first and removed after its restore window (audit §5ab): that is a wait,
+        // not a refusal, so it is reported apart from services the customer is still using
+        $pending = Service::query()->where('organization_id', $organization->id)->whereNotNull('terminate_at')
+            ->whereIn('state', [ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED])->count();
+        if (Service::query()->where('organization_id', $organization->id)->whereNotIn('state', [ServiceStateMachine::TERMINATED])->count() > $pending) {
             $blocks[] = 'active_services';
+        }
+        if ($pending > 0) {
+            $blocks[] = 'pending_deletion';
         }
         if (Service::query()->withTrashed()->where('organization_id', $organization->id)->where('legal_hold', true)->exists() || ($organization->settings['legal_hold'] ?? false)) {
             $blocks[] = 'legal_hold';
@@ -529,12 +538,47 @@ final class ComplianceService
     }
 
     /** Anonymise PII while keeping tax documents (10-year retention) and the hash-chained audit trail. */
+    /**
+     * An erasure request reaches the archives of cancelled services too (audit §5ab): they carry the site files,
+     * database dumps and mail metadata of the very customer asking to be forgotten, so the retention that would
+     * otherwise keep them for another sixty days ends here. A legal hold blocks the whole deletion beforehand.
+     *
+     * @return array{sets:int, bytes:int}
+     */
+    private function eraseArchives(Organization $organization, Carbon $now): array
+    {
+        $archives = app(FinalArchive::class);
+        $sets = 0;
+        $bytes = 0;
+        foreach (Backup::query()->where('organization_id', $organization->id)->where('kind', 'final')->whereNotIn('state', ['purged'])->get() as $backup) {
+            $set = (string) data_get($backup->meta, 'set', '');
+            if ($set !== '' && str_starts_with($set, FinalArchive::PREFIX.'/')) {
+                $archives->disk()->deleteDirectory($set);
+                $sets++;
+                $bytes += (int) $backup->size_bytes;
+            }
+            $backup->forceFill(['state' => 'purged', 'protected' => false, 'retention_until' => $now, 'immutable_until' => null,
+                'meta' => array_merge((array) $backup->meta, ['erased_at' => $now->toIso8601String(), 'erased_by' => 'gdpr_request'])])->save();
+        }
+
+        return ['sets' => $sets, 'bytes' => $bytes];
+    }
+
     private function executeDeletion(DataRequest $request, Organization $organization, Carbon $now, array &$stats): void
     {
         try {
             $this->assertDeletable($organization);
         } catch (DomainError $e) {
-            $request->forceFill(['state' => 'rejected', 'meta' => ['reason' => $e->error, 'blocks' => $e->extra['blocks'] ?? []]])->save();
+            $blocks = (array) ($e->extra['blocks'] ?? []);
+            if ($blocks === ['pending_deletion']) { // the services are already cancelled: the erasure runs the moment the last restore window closes
+                $until = Service::query()->where('organization_id', $organization->id)->whereNotNull('terminate_at')->max('terminate_at');
+                $request->forceFill(['state' => 'requested', 'meta' => array_merge((array) $request->meta, [
+                    'waiting_for' => 'pending_deletion', 'retry_after' => $until === null ? null : Carbon::parse($until)->toIso8601String(),
+                ])])->save();
+
+                return;
+            }
+            $request->forceFill(['state' => 'rejected', 'meta' => ['reason' => $e->error, 'blocks' => $blocks]])->save();
 
             return;
         }
@@ -549,8 +593,12 @@ final class ComplianceService
             }
             $organization->forceFill(['name' => 'Smazaná organizace', 'billing_email' => "deleted+{$organization->id}@invalid.onhost", 'street' => null, 'city' => null, 'postal_code' => null, 'ico' => null, 'dic' => null, 'vat_id' => null, 'state' => 'closed', 'closed_at' => $now])->save();
         });
-        $request->forceFill(['state' => 'completed', 'completed_at' => $now, 'meta' => ['anonymised' => ['organization', 'users'], 'retained' => ['invoices', 'ledger', 'audit']]])->save();
-        $this->audit->record(CommandContext::system('gdpr.deletion')->withScope($organization->id), 'compliance.data_request.deleted', 'succeeded', ['request' => $request->id], 'organization', $organization->id);
+        $archives = $this->eraseArchives($organization, $now); // §5ab: the archives of cancelled services hold the customer's files and databases — an erasure covers them too
+        $request->forceFill(['state' => 'completed', 'completed_at' => $now, 'meta' => [
+            'anonymised' => ['organization', 'users'], 'retained' => ['invoices', 'ledger', 'audit'],
+            'archives_erased' => $archives['sets'], 'archive_bytes_erased' => $archives['bytes'],
+        ]])->save();
+        $this->audit->record(CommandContext::system('gdpr.deletion')->withScope($organization->id), 'compliance.data_request.deleted', 'succeeded', ['request' => $request->id, 'archives_erased' => $archives['sets']], 'organization', $organization->id);
         $stats['deleted']++;
     }
 

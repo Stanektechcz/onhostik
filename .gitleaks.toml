@@ -1,0 +1,24 @@
+title = "ONHOST Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known documentation placeholders that contain no usable credential"
+regexTarget = "match"
+regexes = [
+  '''(?i)example[_-]?(key|token|secret|password)''',
+  '''(?i)(your|replace-me|change-me)[_-]?(key|token|secret|password)?''',
+  '''COMGATE_SECRET\s*=\s*$''',
+  '''\$ONHOST_TOKEN''',
+  '''6f2a91c4-7d1e-4c33-9b2f-0a5e''',
+  '''pi_3QAbCdEfGhIjKlMn0123_secret_REDACTED''',
+  '''reset-token''',
+  '''Correct-Horse-Battery-9-Staple''',
+  '''Stare-Heslo-2026a''',
+  '''remember-me-elsewhere''',
+  '''Nove-Heslo-(2026b|1234567)''',
+  '''Velmi-(Silne|Tajne)-Heslo-2026''',
+  '''jine-heslo-2026''',
+  '''aap_live_secret_0123456789'''
+]

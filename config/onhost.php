@@ -46,7 +46,9 @@ return [
         'service_archive_days' => (int) env('ONHOST_SERVICE_ARCHIVE_DAYS', 60), // a terminated service is archived (files, databases, metadata) and kept this long — audit §5aa
         'game_archive_timeout' => (int) env('ONHOST_GAME_ARCHIVE_TIMEOUT', 1800),
         'download_timeout' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_TIMEOUT', 900),
-        'stale_backup_hours' => (int) env('ONHOST_STALE_BACKUP_HOURS', 48), // how old the panel's own backup may be when it is the only way to archive the files
+        'stale_backup_hours' => (int) env('ONHOST_STALE_BACKUP_HOURS', 48),
+        'archive_verify_days' => (int) env('ONHOST_ARCHIVE_VERIFY_DAYS', 14),   // how often a stored service archive is re-hashed against its manifest
+        'archive_verify_batch' => (int) env('ONHOST_ARCHIVE_VERIFY_BATCH', 3),   // archives re-hashed per onhost:backups:run pass // how old the panel's own backup may be when it is the only way to archive the files
         'pg_bin' => env('ONHOST_PG_BIN', ''),                       // directory with pg_dump/pg_restore matching the server version (aaPanel: /www/server/pgsql/bin); empty = auto-detect
     ],
     // the deletion lifecycle (audit §5ab); staff override every number in "Nastavení systému → Životní cyklus služeb"

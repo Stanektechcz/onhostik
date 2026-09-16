@@ -204,6 +204,79 @@ final class FinalArchive
         return $result;
     }
 
+    /**
+     * A backup nobody ever read back is not a backup: every archive is re-hashed against its own manifest on a
+     * schedule (onhost:backups:run), so bit rot or a half-written upload is found while the data still matters —
+     * not on the day a customer asks for it. A mismatch marks the archive failed and is reported by onhost:doctor.
+     *
+     * @return array{checked:int, ok:int, failed:int, problems:list<string>}
+     */
+    public function verifyStored(int $limit = 3): array
+    {
+        $stats = ['checked' => 0, 'ok' => 0, 'failed' => 0, 'problems' => []];
+        $due = Backup::query()->where('kind', 'final')->where('state', 'completed')
+            ->where(fn ($q) => $q->whereNull('verified_at')->orWhere('verified_at', '<', now()->subDays(max(1, (int) config('onhost.platform_backup.archive_verify_days', 14)))))
+            ->orderBy('verified_at')->limit(max(1, $limit))->get();
+        foreach ($due as $backup) {
+            $stats['checked']++;
+            $problem = $this->verifyOne($backup);
+            if ($problem === null) {
+                $backup->forceFill(['verified_at' => now(), 'verify_status' => 'ok'])->save();
+                $stats['ok']++;
+
+                continue;
+            }
+            $stats['failed']++;
+            $stats['problems'][] = $backup->id.': '.$problem;
+            $backup->forceFill(['verified_at' => now(), 'verify_status' => 'failed', 'meta' => array_merge((array) $backup->meta, ['verify_problem' => $problem])])->save();
+            $this->outbox->publish(GenericEvent::of('service.final_archive.corrupt', 'backup', $backup->id, [
+                'service_id' => $backup->service_id, 'set' => data_get($backup->meta, 'set'), 'problem' => $problem,
+            ], $backup->organization_id));
+        }
+
+        return $stats;
+    }
+
+    /** @return string|null the first problem found, or null when the set matches its manifest */
+    private function verifyOne(Backup $backup): ?string
+    {
+        $set = (string) data_get($backup->meta, 'set', '');
+        if ($set === '' || ! str_starts_with($set, self::PREFIX.'/')) {
+            return 'the backup row carries no archive set';
+        }
+        $disk = $this->disk();
+        if (! $disk->exists($set.'/manifest.json')) {
+            return 'the manifest is missing from '.$set;
+        }
+        $manifest = json_decode((string) $disk->get($set.'/manifest.json'), true);
+        $parts = is_array($manifest) ? (array) ($manifest['parts'] ?? []) : [];
+        if ($parts === []) {
+            return 'the manifest lists no parts';
+        }
+        foreach ($parts as $name => $part) {
+            $path = $set.'/'.$name;
+            if (! $disk->exists($path)) {
+                return "part {$name} is missing";
+            }
+            $expected = (string) ($part['sha256'] ?? '');
+            if ($expected === '') {
+                continue; // an older set without checksums: existence and size are all that can be checked
+            }
+            $stream = $disk->readStream($path);
+            if (! is_resource($stream)) {
+                return "part {$name} cannot be read";
+            }
+            $hash = hash_init('sha256');
+            hash_update_stream($hash, $stream);
+            fclose($stream);
+            if (! hash_equals($expected, hash_final($hash))) {
+                return "part {$name} does not match its checksum";
+            }
+        }
+
+        return null;
+    }
+
     /** Deletes archive sets whose retention has passed (called by onhost:backups:run). @return int removed sets */
     public function prune(): int
     {

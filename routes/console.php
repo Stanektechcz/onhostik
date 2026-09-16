@@ -617,9 +617,16 @@ Artisan::command('onhost:backups:run {--limit=100}', function (BackupScheduler $
         return;
     }
     $result = $scheduler->tick((int) $this->option('limit'));
-    $result['archives_pruned'] = app(FinalArchive::class)->prune(); // final archives past their 60-day retention (audit §5aa)
+    $archives = app(FinalArchive::class);
+    $result['archives_pruned'] = $archives->prune(); // final archives past their retention (audit §5aa)
+    $verified = $archives->verifyStored((int) config('onhost.platform_backup.archive_verify_batch', 3)); // and the ones still held are re-hashed against their manifest
+    $result['archives_verified'] = $verified['ok'];
+    $result['archives_corrupt'] = $verified['failed'];
     $ledger->record('backups.run', $result);
-    $this->table(['started', 'skipped', 'deleted', 'offsite', 'errors', 'archives'], [$result]);
+    foreach ($verified['problems'] as $problem) {
+        $this->warn('archive: '.$problem);
+    }
+    $this->table(['started', 'skipped', 'deleted', 'offsite', 'errors', 'archives', 'verified', 'corrupt'], [$result]);
 })->purpose('Start scheduled backups, apply retention and generation caps, copy off-site');
 
 /*

@@ -10,6 +10,8 @@ use Onhost\Domain\Compliance\Models\DataRequest;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\FinalArchive;
+use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Support\Models\Ticket;
@@ -118,4 +120,31 @@ it('builds GDPR data exports and blocks deletion while services are live or a le
     $this->withHeaders($headers)->postJson('/v1/data-requests', ['kind' => 'deletion'])->assertStatus(202);
     expect(app(ComplianceService::class)->processDataRequests()['deleted'])->toBe(1);
     expect($org->fresh()->name)->toBe('Smazaná organizace')->and($customer->fresh()->email)->toStartWith('deleted+')->and($customer->fresh()->state)->toBe('deleted');
+});
+
+it('waits out the restore window of a cancelled service and erases its archive with the organization (audit §5ab)', function () {
+    Storage::fake('local');
+    [$customer, $org] = $this->customerWithOrganization();
+    $service = Service::query()->create(['organization_id' => $org->id, 'product_key' => 'web-hosting', 'family' => 'web', 'name' => 'Webhosting', 'state' => ServiceStateMachine::SUSPENDED,
+        'region_code' => 'cz1', 'entitlements' => [], 'desired_spec' => [], 'sla_class' => 'standard', 'terminate_at' => now()->addDays(30), 'tags' => ['deletion' => ['grace_days' => 30]]]);
+    $set = FinalArchive::PREFIX.'/'.$org->id.'/'.$service->id.'-20260901-120000';
+    Storage::disk('local')->put($set.'/service.json', '{"service":{}}');
+    Storage::disk('local')->put($set.'/site-files.tar.gz', str_repeat('data', 100));
+    $archive = Backup::query()->create(['service_id' => $service->id, 'organization_id' => $org->id, 'kind' => 'final', 'state' => 'completed', 'protected' => true,
+        'started_at' => now(), 'finished_at' => now(), 'size_bytes' => 400, 'retention_until' => now()->addDays(60), 'meta' => ['set' => $set, 'family' => 'web']]);
+    $request = DataRequest::query()->create(['organization_id' => $org->id, 'requested_by' => $customer->id, 'kind' => 'deletion', 'state' => 'requested', 'meta' => []]);
+
+    // the service is cancelled but still restorable: the erasure waits instead of being rejected
+    app(ComplianceService::class)->processDataRequests();
+    $request->refresh();
+    expect($request->state)->toBe('requested')->and($request->meta['waiting_for'])->toBe('pending_deletion')->and($request->meta['retry_after'])->not->toBeNull();
+    expect(Storage::disk('local')->exists($set.'/site-files.tar.gz'))->toBeTrue();
+
+    // once the service is really gone, the erasure completes and takes the archive with it
+    $service->forceFill(['state' => ServiceStateMachine::TERMINATED, 'terminated_at' => now(), 'terminate_at' => null])->save();
+    expect(app(ComplianceService::class)->processDataRequests()['deleted'])->toBe(1);
+    expect(Storage::disk('local')->exists($set.'/site-files.tar.gz'))->toBeFalse()
+        ->and(Backup::query()->findOrFail($archive->id)->state)->toBe('purged')
+        ->and(Backup::query()->findOrFail($archive->id)->protected)->toBeFalse()
+        ->and($request->refresh()->meta['archives_erased'])->toBe(1);
 });

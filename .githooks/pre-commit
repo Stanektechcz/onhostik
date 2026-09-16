@@ -1,0 +1,20 @@
+#!/bin/sh
+# ONhost pre-commit: nothing private and no credential ever reaches the history.
+# Enable once per clone:  git config core.hooksPath .githooks
+set -eu
+
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+blocked="$(printf '%s\n' "$staged" \
+  | grep -E '^(\.env($|\.)|auth\.json$|storage/app/private/|storage/logs/|database/.*\.sqlite($|-)|infra/edge/.*\.generated$)' \
+  | grep -Ev '^(\.env\.example|storage/app/private/\.gitignore|storage/logs/\.gitignore)$' || true)"
+
+if [ -n "$blocked" ]; then
+  echo "ONhost: commit blocked, a private runtime file is staged:" >&2
+  printf '  %s\n' $blocked >&2
+  exit 1
+fi
+
+# gitleaks is optional locally; the security workflow runs it on every push either way
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --config .gitleaks.toml --no-banner
+fi
