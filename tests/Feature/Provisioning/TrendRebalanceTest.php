@@ -46,8 +46,8 @@ it('samples the nodes hourly and plans from the projected trend', function () {
 
     // a week of hourly samples climbing from 30 to 45 GB: the projection crosses the high mark although today does not
     NodeUsageSample::query()->where('node_id', $hot->id)->delete();
-    for ($h = 7 * 24; $h >= 1; $h--) {
-        $ram = (int) round(30000 + (7 * 24 - $h) * (15000 / (7 * 24)));
+    for ($h = 7 * 24 - 1; $h >= 0; $h--) { // the newest sample is "now": the oldest one never slips out of the seven-day window while the test runs
+        $ram = (int) round(30000 + (7 * 24 - 1 - $h) * (15000 / (7 * 24)));
         NodeUsageSample::query()->create(['node_id' => $hot->id, 'sampled_at' => now()->subHours($h), 'cpu_pct' => 40, 'ram_used_mb' => $ram, 'disk_used_gb' => 100, 'source' => 'snapshot']);
     }
     $trend = $rebalancer->trend($hot);

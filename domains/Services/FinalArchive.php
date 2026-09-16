@@ -97,13 +97,17 @@ final class FinalArchive
         try {
             $this->write($work, 'service.json', (string) json_encode($this->metadata($service, $adapter, $ref, $identity), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             $this->flush($set, $work, $parts); // the metadata is on the disk before the first provider call
-            match ($service->family) {
-                'web', 'managed' => $this->web($adapter, $ref, $work, $gaps, $attempts),
-                'game' => $this->game($adapter, $ref, $work, $gaps),
-                'mail' => $this->mail($adapter, $ref, $work, $gaps),
-                'cloud', 'data' => $snapshot = $this->snapshot($adapter, $ref, $gaps),
-                default => $gaps[] = "family {$service->family}: only the service metadata is archived",
-            };
+            if (($identity['missing'] ?? false) === true) { // the panel says the resource is already gone: there is nothing left to pull
+                $gaps[] = 'the resource no longer exists at the provider; only the service metadata is archived';
+            } else {
+                match ($service->family) {
+                    'web', 'managed' => $this->web($adapter, $ref, $work, $gaps, $attempts),
+                    'game' => $this->game($adapter, $ref, $work, $gaps),
+                    'mail' => $this->mail($adapter, $ref, $work, $gaps),
+                    'cloud', 'data' => $snapshot = $this->snapshot($adapter, $ref, $gaps),
+                    default => $gaps[] = "family {$service->family}: only the service metadata is archived",
+                };
+            }
             $this->flush($set, $work, $parts);
             $manifest = ['service_id' => $service->id, 'organization_id' => $service->organization_id, 'family' => $service->family, 'created_at' => now()->toIso8601String(),
                 'retention_until' => $retention->toIso8601String(), 'parts' => $parts, 'gaps' => $gaps, 'identity' => $identity, 'attempts' => $attempts];

@@ -603,6 +603,9 @@ final class ServiceActionWorkflow implements Workflow
                 if ($context->get('final_archive_id') === null && $context->get('final_archive_skipped') === null) { // audit §5aa: nothing is switched off before the archive is complete
                     return StepResult::fail('záloha před zrušením chybí; služba nebude deaktivována', true, [], 60);
                 }
+                if ($context->get('identity_missing') === true) {
+                    return StepResult::done(['deactivated' => true, 'already_gone' => true]);
+                }
 
                 return $this->settle($this->capability($context, InfrastructureProvider::class)->suspend($this->ref($context)), ['deactivated' => true]);
             }
@@ -703,6 +706,9 @@ final class ServiceActionWorkflow implements Workflow
             {
                 if ($context->get('final_archive_id') === null && $context->get('final_archive_skipped') === null) { // audit §5aa: never delete without the archive
                     return StepResult::fail('the final archive is missing; refusing to delete the service', true, [], 60);
+                }
+                if ($context->get('identity_missing') === true) { // the panel already has no such resource; the rest of the cleanup still runs
+                    return StepResult::done(['terminated' => true, 'already_gone' => true]);
                 }
 
                 return $this->settle($this->capability($context, InfrastructureProvider::class)->terminate($this->ref($context)), ['terminated' => true]);

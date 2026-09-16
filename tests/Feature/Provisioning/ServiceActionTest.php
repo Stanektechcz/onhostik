@@ -129,3 +129,21 @@ it('brings a cancelled service back inside the restore window and calls the remo
     expect($back->state)->toBe(ServiceStateMachine::ACTIVE)->and($back->terminate_at)->toBeNull()
         ->and(data_get($back->tags, 'deletion'))->toBeNull()->and(data_get($back->tags, 'deletion_cancelled.cancelled_at'))->not->toBeNull();
 });
+
+it('still finishes a cancellation when the resource is already gone from the panel (audit §5ab)', function () {
+    Http::fake([
+        PVE.'/nodes/prg1-n2/qemu/1042/status/current' => Http::response(['data' => null, 'errors' => ['vmid' => 'no such VM']], 404), // the VM is not there any more
+        PVE.'/nodes/prg1-n2/qemu/1042/config' => Http::response(['data' => null], 404),
+        PVE.'/nodes/prg1-n2/tasks/*/status' => Http::response(['data' => ['status' => 'stopped', 'exitstatus' => 'OK']]),
+    ]);
+    [$user, $org] = $this->customerWithOrganization();
+    $service = activeVps($org);
+    $operation = driveOperation(app(ServiceService::class)->requestAction($service, 'terminate', $this->contextFor($user, $org, 'webauthn'), 'act-gone-1', ['reason' => 'resource already deleted']));
+
+    expect($operation->state)->toBe(Operation::SUCCEEDED);
+    $backup = Backup::query()->where('service_id', $service->id)->firstOrFail();
+    expect($backup->state)->toBe('completed')->and(implode(' ', (array) data_get($backup->meta, 'gaps')))->toContain('no longer exists')
+        ->and((array) data_get($backup->meta, 'parts'))->toContain('service.json'); // the description of the service is kept even so
+    expect(Service::query()->findOrFail($service->id)->state)->toBe(ServiceStateMachine::SUSPENDED);
+    Http::assertNotSent(fn (Request $r) => $r->method() === 'DELETE');
+});
