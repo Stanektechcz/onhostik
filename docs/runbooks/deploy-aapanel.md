@@ -173,3 +173,29 @@ $P artisan onhost:doctor
 ```
 
 Pojistky instance po opakovaných chybách: `onhost:integrations:breaker <instance> [--reset]` (reset až po opravě příčiny).
+
+### 5a. Životní cyklus zrušení (audit §5ab)
+
+Po nasazení ověřte, že se zálohy před zrušením daří sestavit na **každém** panelu — dřív, než něco zruší zákazník.
+`--create` nic nemaže, jen projde stejnou cestou jako zrušení:
+
+```bash
+cd /www/wwwroot/staging.onhost.cz
+P=/www/server/php/83/bin/php
+$P artisan onhost:services:archive <služba na ISPConfigu> --create   # ověření identity + archiv (soubory, databáze, metadata)
+$P artisan onhost:services:archive <služba na aaPanelu> --create     # padne-li přenos souborů, nastoupí záloha panelu
+$P artisan onhost:services:archive <herní služba> --create
+$P artisan onhost:services:purge --dry-run                           # co je po lhůtě a čeká na odstranění
+```
+
+V tabulce archivu musí být u dokončeného archivu `site-files…`, `database-…` a `service.json`; sloupec *pokusy / chyba*
+ukazuje, kterou cestou soubory přišly. Denní odstraňování po vypršení lhůty jede v plánovači
+(`Schedule::command(onhost:services:purge)->dailyAt(03:40)`), takže ověřte i běžící `onhost-scheduler`.
+
+Služba, která uvázla v `TERMINATING` (starší nasazení bez záložní cesty k souborům), se rozjede takto:
+
+```bash
+$P artisan onhost:provisioning:jobs 2>/dev/null || true   # případnou zaseknutou operaci zrušte v administraci (Provoz)
+$P artisan onhost:services:purge --service=<srv_…> --force --reason="dokončení zrušení po opravě archivu"
+```
+

@@ -178,6 +178,16 @@
         }));
         rows.push({ cells: [cell(_('Vrácení kreditu (chargeback)', 'Credit refund (chargeback)'), '1 1 220px'), cell(cbState, '0 0 260px'), cell(_('nyní by se vrátilo ', 'would return now ') + fmtM(est.refund_minor != null ? { minor: est.refund_minor, currency: est.currency } : null) + ' (' + pct + ' %)', '1 1 220px', 1)], note: req && req.decision_reason ? req.decision_reason : (req && req.reason && !closed ? req.reason : ''), actions: cbActs });
       }
+      var del = sel.deletion && sel.deletion.grace_until ? sel.deletion : null; // a cancelled service waits deactivated; the customer may bring it back (audit §5ab)
+      if (del) {
+        var dayD = function (v) { return v ? new Date(v).toLocaleDateString('cs-CZ') : '—'; };
+        rows.unshift({ cells: [cell(_('Zrušená služba', 'Cancelled service'), '1 1 220px'), cell(_('deaktivovaná, data máme zazálohovaná', 'deactivated, the data is archived'), '1 1 300px'), cell(_('obnovit do ', 'restore by ') + dayD(del.grace_until) + (del.days_left != null ? ' (' + del.days_left + _(' dní', ' days') + ')' : ''), '0 0 200px', 1)],
+          note: _('Po uplynutí lhůty službu odstraníme a zůstane jen archiv ke stažení nebo k obnově do nové služby.', 'After the window we remove the service; only the archive is left, to download or restore into a new service.'),
+          actions: [A(_('Obnovit službu', 'Restore the service'), function () {
+            if (!window.confirm(_('Obnovit službu a zrušit plánované odstranění?', 'Restore the service and call the removal off?'))) return;
+            act(cmp, sel, 'resume', {}, [], _('Služba se obnovuje', 'The service is coming back'), _('Plánované odstranění jsme zrušili.', 'The planned removal is cancelled.'));
+          })] });
+      }
       var mg = sel.migration && sel.migration.operation_id ? sel.migration : null; // a migration: scheduled (the customer may move it), running, finished or failed (audit §5h-3, §5i-7)
       if (mg && mg.state && mg.state !== 'scheduled') {
         var whenM = function (v) { return v ? new Date(v).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'; };
