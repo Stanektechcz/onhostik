@@ -637,7 +637,7 @@ Artisan::command('onhost:services:purge {--service= : one service id or name, ot
     $due = Service::query()
         ->when($one !== '', fn ($q) => $q->where(fn ($w) => $w->where('id', $one)->orWhere('name', $one)->orWhere('hostname', $one)))
         ->when($one === '', fn ($q) => $q->whereNotNull('terminate_at')->where('terminate_at', '<=', now()))
-        ->whereIn('state', [ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED])
+        ->when($one === '', fn ($q) => $q->whereIn('state', [ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED])) // a named service may also be one stuck mid-termination
         ->where('legal_hold', false)->orderBy('terminate_at')->limit(max(1, (int) $this->option('limit')))->get();
     if ($due->isEmpty()) {
         $this->info('nothing to remove ('.$policy->graceDays().' days of grace, '.$policy->retentionDays().' days of retention)');
@@ -669,7 +669,7 @@ Artisan::command('onhost:services:purge {--service= : one service id or name, ot
  * The archive of one service: what is stored, whether the identity matches, and — with --create — building it now
  * without deleting anything (the way to prove the archive path of a panel before a real cancellation).
  */
-Artisan::command('onhost:services:archive {service : service id, name or hostname} {--create : build the archive now (nothing is deleted)} {--package : build the downloadable zip of the newest archive} {--identity : only the identity verification}', function (ProviderRegistry $registry, FinalArchive $archives, ServiceIdentityCheck $identity) {
+Artisan::command('onhost:services:archive {service : service id, name or hostname} {--create : build the archive now (nothing is deleted)} {--package : build the downloadable zip of the newest archive} {--identity : only the identity verification}', function (ProviderRegistry $registry, FinalArchive $archives, ServiceIdentityCheck $identityCheck) {
     $key = (string) $this->argument('service');
     $service = Service::query()->where(fn ($w) => $w->where('id', $key)->orWhere('name', $key)->orWhere('hostname', $key))->withTrashed()->first();
     if ($service === null) {
@@ -683,7 +683,7 @@ Artisan::command('onhost:services:archive {service : service id, name or hostnam
         $instance = ProviderInstance::query()->find($service->provider_instance_id);
         $adapter = $instance === null ? null : $registry->forInstance($instance);
     }
-    $report = $identity->verify($service, $adapter, $binding?->ref());
+    $report = $identityCheck->verify($service, $adapter, $binding?->ref());
     $this->line('<info>'.$service->id.'</info> '.$service->name.' · '.$service->family.' · '.$service->state);
     $this->table(['bod', 'shoda', 'očekáváno', 'v panelu', 'poznámka'], array_map(fn (array $c) => [
         $c['label'], $c['ok'] === null ? '—' : ($c['ok'] ? 'ano' : 'NE'), (string) $c['expected'], (string) $c['actual'], (string) $c['note'],

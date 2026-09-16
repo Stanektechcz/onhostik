@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Web\SurfaceDataController;
 use Database\Seeders\CatalogSeeder;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Onhost\Domain\Catalog\Models\Product;
@@ -111,4 +112,32 @@ it('lets one panel host serve web and mail: --add-role adds a role the scheduler
     expect($scheduler->pick($mail)['node']->name)->toBe('s2.onhost.test')
         ->and($scheduler->pick(['role' => 'web', 'region' => 'cz1', 'provider' => 'ispconfig'])['node']->name)->toBe('s2.onhost.test')
         ->and(NodeScheduler::serves($node->refresh(), 'game'))->toBeFalse();
+});
+
+it('recreates a deleted ISPConfig site from its data-log record and lists the backups the node still has (§5z incident)', function () {
+    $_ENV['ISPCONFIG_S2_REMOTE_USER'] = 'onhost-remote';
+    $_ENV['ISPCONFIG_S2_REMOTE_PASSWORD'] = 'remote-secret';
+    ProviderInstance::query()->create(['key' => 'ispconfig-s2', 'provider' => 'ispconfig', 'name' => 'ISPConfig s2', 'base_url' => 'https://s2.onhost.test:8080', 'state' => 'active', 'options' => ['server_id' => 1, 'verify_tls' => false], 'secret_ref' => 'env://ISPCONFIG_S2']);
+    $record = tempnam(sys_get_temp_dir(), 'rec').'.json';
+    file_put_contents($record, json_encode(['old' => ['domain_id' => 27, 'domain' => 's4s.electree.cz', 'server_id' => 1, 'client_id' => 9, 'system_user' => 'web27', 'system_group' => 'client5',
+        'document_root' => '/var/www/clients/client5/web27', 'hd_quota' => 10240, 'php' => 'php-fpm', 'fastcgi_php_version' => 'PHP 8.3:/etc/php/8.3/fpm:/run/php/php8.3-fpm.sock', 'active' => 'n', 'backup_copies' => 7]]));
+
+    Http::fake([
+        's2.onhost.test:8080/remote/json.php?login' => Http::response(['code' => 'ok', 'message' => '', 'response' => 'sess-restore']),
+        's2.onhost.test:8080/remote/json.php?sites_web_domain_get' => Http::sequence()
+            ->push(['code' => 'ok', 'message' => '', 'response' => []])                                       // the site is really gone
+            ->push(['code' => 'ok', 'message' => '', 'response' => ['domain_id' => 33, 'domain' => 's4s.electree.cz', 'system_user' => 'web33', 'document_root' => '/var/www/clients/client5/web33']])
+            ->push(['code' => 'ok', 'message' => '', 'response' => ['domain_id' => 33, 'domain' => 's4s.electree.cz', 'system_user' => 'web33']]),
+        's2.onhost.test:8080/remote/json.php?sites_web_domain_add' => Http::response(['code' => 'ok', 'message' => '', 'response' => 33]),
+        's2.onhost.test:8080/remote/json.php?monitor_jobqueue_count' => Http::response(['code' => 'ok', 'message' => '', 'response' => 0]),
+        's2.onhost.test:8080/remote/json.php?sites_web_domain_backup_list' => Http::response(['code' => 'ok', 'message' => '', 'response' => [['backup_id' => 41, 'backup_type' => 'web', 'tstamp' => time() - 3600, 'filesize' => 52428800, 'filename' => 'web27_2026-09-15.tar.gz']]]),
+    ]);
+
+    expect(Artisan::call('onhost:ispconfig:restore-site', ['domain' => 's4s.electree.cz', '--instance' => 'ispconfig-s2', '--record' => $record]))->toBe(0);
+    expect(Artisan::output())->toContain('site recreated: domain_id 33')->toContain('web33');
+    Http::assertSent(fn ($r) => str_ends_with($r->url(), '?sites_web_domain_add') && $r['client_id'] === 9 && $r['params']['domain'] === 's4s.electree.cz' && $r['params']['system_user'] === 'web27' && $r['params']['active'] === 'y');
+
+    expect(Artisan::call('onhost:ispconfig:restore-site', ['domain' => 's4s.electree.cz', '--instance' => 'ispconfig-s2', '--list-backups' => true]))->toBe(0);
+    expect(Artisan::output())->toContain('web27_2026-09-15.tar.gz');
+    @unlink($record);
 });
