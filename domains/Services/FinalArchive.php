@@ -310,8 +310,41 @@ final class FinalArchive
             'service' => $service->only(['id', 'organization_id', 'product_key', 'family', 'name', 'label', 'state', 'region_code', 'hostname', 'sla_class', 'created_at', 'activated_at']),
             'entitlements' => $service->entitlements, 'desired_spec' => $service->desired_spec, 'actual_spec' => $service->actual_spec, 'health' => $service->health,
             'bindings' => ProviderBinding::query()->where('service_id', $service->id)->get(['remote_type', 'remote_id', 'remote_node', 'meta'])->all(),
-            'actual_state' => $actual, 'identity' => $identity, 'archived_at' => now()->toIso8601String(),
+            'actual_state' => $actual, 'access' => $this->access($adapter, $ref), 'identity' => $identity, 'archived_at' => now()->toIso8601String(),
         ];
+    }
+
+    /**
+     * Who could reach the service through the panel (H346): FTP and shell accounts, database users, collaborators —
+     * names and ids only, never a password or key. The cancellation removes the delegated ones right after this
+     * archive is written, so this is the list the customer needs when a restore asks "who had access".
+     *
+     * @return array<string,mixed>
+     */
+    private function access(?object $adapter, ?ResourceRef $ref): array
+    {
+        if ($ref === null) {
+            return [];
+        }
+        $keep = array_flip(['remote_id', 'user', 'email', 'username', 'path', 'permissions', 'databases', 'has_key', 'active']);
+        $inventory = [];
+        $read = function (string $key, callable $call) use (&$inventory, $keep): void {
+            try {
+                $inventory[$key] = array_values(array_map(fn ($row) => is_array($row) ? array_intersect_key($row, $keep) : $row, (array) $call()));
+            } catch (Throwable $e) {
+                $inventory[$key] = ['error' => mb_substr($e->getMessage(), 0, 160)];
+            }
+        };
+        if ($adapter instanceof WebHostingProvider) {
+            $read('ftp_accounts', fn () => $adapter->listFtpAccounts($ref));
+            $read('shell_users', fn () => $adapter->listShellUsers($ref));
+            $read('db_users', fn () => $adapter->listDbUsers($ref));
+        }
+        if ($adapter instanceof GameToolsProvider) {
+            $read('subusers', fn () => $adapter->listSubusers($ref));
+        }
+
+        return $inventory;
     }
 
     /**

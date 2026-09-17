@@ -6,10 +6,19 @@ namespace Onhost\Domain\Provisioning\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 use Onhost\Platform\Eloquent\Model;
 use Onhost\Platform\Secrets\SecretRef;
 
-/** Provider Capability Registry row (blueprint §60.3). Credentials are a secret reference, never a value. */
+/**
+ * Provider Capability Registry row (blueprint §60.3). Credentials are a secret reference, never a value.
+ *
+ * @property ?Carbon $maintenance_until
+ * @property ?Carbon $health_checked_at
+ * @property ?string $state_reason
+ * @property array<string,mixed>|null $health
+ * @property array<string,mixed>|null $options
+ */
 final class ProviderInstance extends Model
 {
     protected static string $idPrefix = 'pvi';
@@ -50,13 +59,20 @@ final class ProviderInstance extends Model
         return data_get($this->options, $key, $default);
     }
 
+    /**
+     * Whether automation may place on, reconcile against and repair through this instance. Only `active` counts;
+     * a maintenance lock never lifts itself when its time runs out — an expired lock stays a lock until a health
+     * probe proves the panel is back (IntegrationHealthProbe) or staff set the state by hand (audit §5ab, card H322).
+     */
     public function isUsable(): bool
     {
-        if ($this->state !== 'active') {
-            return false;
-        }
+        return $this->state === 'active';
+    }
 
-        return $this->maintenance_until === null || $this->maintenance_until->isPast();
+    /** A maintenance lock whose planned end has passed: still locked, waiting for a fresh check before anything moves. */
+    public function maintenanceExpired(): bool
+    {
+        return $this->state === 'maintenance' && $this->maintenance_until !== null && $this->maintenance_until->isPast();
     }
 
     public function supports(string $capability): bool

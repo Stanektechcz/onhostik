@@ -1,21 +1,26 @@
 # Current state
 
-**Updated:** 2026-09-16
+**Updated:** 2026-09-17
 **Branch:** `development`
 
 ## Now
 
 - Finish the production version of the control plane; every change is tried on `staging.onhost.cz` against the real
   panels (ISPConfig, aaPanel, Pterodactyl, Proxmox, WEDOS) before it is called done.
-- The whole cancellation path is in place (audit §5aa, §5ab): identity check → archive → deactivation → restore
-  window → removal → archive retention, with the numbers set in *Nastavení systému → Životní cyklus služeb*.
+- The whole cancellation path is in place (audit §5aa, §5ab): identity check → archive → deactivation → revocation
+  of delegated access → restore window → removal → archive retention, with the numbers set in *Nastavení systému →
+  Životní cyklus služeb*.
+- The Brain's requirement cards drive the hardening now: a changed panel address locks the instance until a probe
+  confirms it (H311), a maintenance lock never lifts itself (H322), a panel answer larger than the ceiling is refused
+  before it can exhaust a worker (H318). The assessment of the remaining unanchored cards lives in the vault
+  (`Hosting/ASSESSMENT-2026-09-17`).
 - What remains is operational: the staging run of the new lifecycle, the payment gateway and bank tokens, staff MFA,
   the virus scanner, the console relay and the production deployment itself (`docs/runbooks/go-live-checklist.md`).
 
 ## Verified baseline
 
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 387 tests, 9 740 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 393 tests, 9 821 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

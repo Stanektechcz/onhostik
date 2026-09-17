@@ -36,5 +36,7 @@ final class ProviderRequest
         public readonly ?string $bucket = null, // token bucket name; null = provider default
         /** @var array<string, array{contents:string|resource, filename:string}> multipart file parts (bodyType `multipart`; `body` carries the plain fields) */
         public readonly array $files = [],
+        /** Largest response body this call accepts, in bytes; null = `onhost.provisioning.provider_max_body_bytes` (H318) */
+        public readonly ?int $maxBodyBytes = null,
     ) {}
 }

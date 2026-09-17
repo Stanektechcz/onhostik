@@ -66,9 +66,12 @@ final class Reconciler
     {
         $instance = ProviderInstance::query()->find($service->provider_instance_id);
         $binding = $service->primaryBinding();
-        if ($instance === null || $binding === null || ! $instance->isUsable()) {
+        if ($instance === null || $binding === null || ! in_array($instance->state, ['active', 'draining', 'maintenance'], true)) {
             return;
         }
+        // a maintenance lock (H322): the panel is still read and every difference recorded, but nothing is repaired,
+        // degraded or recovered on the strength of what a panel under maintenance answers
+        $observeOnly = $instance->state === 'maintenance';
         try {
             $adapter = $this->providers->forInstance($instance);
         } catch (\RuntimeException $e) { // credentials missing / secret store unreachable: the health probe reports it, reconcile just skips
@@ -86,8 +89,8 @@ final class Reconciler
 
         if (! $actual->exists) {
             $stats['missing'] = ($stats['missing'] ?? 0) + 1;
-            $this->openDrift($service, 'existence', 'present', 'missing', 'ONHOST_MANAGED', 'SECURITY_SUSPICIOUS', $context);
-            if ($service->state !== ServiceStateMachine::DEGRADED) {
+            $this->openDrift($service, 'existence', 'present', 'missing', 'ONHOST_MANAGED', $observeOnly ? 'REQUIRES_APPROVAL' : 'SECURITY_SUSPICIOUS', $context);
+            if ($service->state !== ServiceStateMachine::DEGRADED && ! $observeOnly) {
                 $service->forceFill(['state' => ServiceStateMachine::DEGRADED, 'health' => ['status' => 'missing', 'checked_at' => now()->toISOString()]])->save();
                 $this->outbox->publish(GenericEvent::of('service.degraded', 'service', $service->id, ['reason' => 'resource missing at provider', 'binding' => $binding->remote_type.':'.$binding->remote_id], $service->organization_id));
             }
@@ -96,8 +99,8 @@ final class Reconciler
         }
         $spec = new ResourceSpec($service->id, $this->kindFor($service), "reconcile:{$service->id}", array_replace((array) $service->desired_spec, ['entitlements' => $service->entitlements]), $binding->remote_node, $service->region_code, $service->organization_id);
         $plan = $adapter->reconcile($spec, $actual);
-        $service->forceFill(['health' => array_replace((array) $service->health, ['status' => $actual->status, 'checked_at' => now()->toISOString(), 'drift' => count($plan->drifts)])])->save();
-        if ($service->state === ServiceStateMachine::DEGRADED && ! $plan->hasDrift()) {
+        $service->forceFill(['health' => array_replace((array) $service->health, ['status' => $actual->status, 'checked_at' => now()->toISOString(), 'drift' => count($plan->drifts), 'observe_only' => $observeOnly ?: null])])->save();
+        if ($service->state === ServiceStateMachine::DEGRADED && ! $plan->hasDrift() && ! $observeOnly) {
             $service->forceFill(['state' => ServiceStateMachine::ACTIVE])->save();
             ResourceDrift::query()->where('service_id', $service->id)->where('state', 'open')->update(['state' => 'repaired', 'resolved_at' => now(), 'resolution' => 'resource back in sync']);
             $this->outbox->publish(GenericEvent::of('service.recovered', 'service', $service->id, [], $service->organization_id));
@@ -113,7 +116,7 @@ final class Reconciler
                 $autoRepair[] = $drift['field'];
             }
         }
-        if ($autoRepair !== [] && $service->state === ServiceStateMachine::ACTIVE && ! Operation::query()->where('service_id', $service->id)->whereIn('state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING])->exists()) {
+        if ($autoRepair !== [] && ! $observeOnly && $service->state === ServiceStateMachine::ACTIVE && ! Operation::query()->where('service_id', $service->id)->whereIn('state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING])->exists()) {
             $this->operations->start(ServiceActionWorkflow::class, 'repair:'.$service->id.':'.now()->format('YmdH'), ['action' => 'resize', 'entitlements' => $service->entitlements, 'reason' => 'drift repair: '.implode(',', $autoRepair), 'service_id' => $service->id], $context, $service->id, $service->organization_id, null, $service->provider_instance_id);
             $service->forceFill(['state' => ServiceStateMachine::RESIZING])->save();
             $stats['repaired'] = ($stats['repaired'] ?? 0) + 1;

@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\ServiceSpecService;
 use Onhost\Domain\Services\UsageWatch;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Outbox\OutboxMessage;
 
 /*
  * Game servers through the customer API: the tabs a game panel offers (startup, settings, schedules, databases,
@@ -22,6 +25,9 @@ beforeEach(fn () => Http::preventStrayRequests());
 function gameToolsFake(array &$state): void
 {
     Http::fake(function (Request $request) use (&$state) {
+        if (str_contains($request->url(), 'wings.test/download')) {
+            return Http::response(str_repeat('game archive', 40));
+        }
         if (! str_starts_with($request->url(), PTERO)) {
             return null;
         }
@@ -87,6 +93,25 @@ function gameToolsFake(array &$state): void
 
                 return $ok($state['databases'][$id], 'server_database');
             })(),
+            preg_match('~/users/(su-\d+)$~', $path, $mm) === 1 && $m === 'DELETE' => (function () use (&$state, $mm) {
+                unset($state['subusers'][$mm[1]]);
+
+                return Http::response('', 204);
+            })(),
+            str_ends_with($path, '/api/application/servers/77/suspend') && $m === 'POST' => (function () use (&$state) {
+                $state['suspended'] = true;
+
+                return Http::response('', 204);
+            })(),
+            str_ends_with($path, '/api/application/servers/77/unsuspend') && $m === 'POST' => (function () use (&$state) {
+                $state['suspended'] = false;
+
+                return Http::response('', 204);
+            })(),
+            str_ends_with($path, '/backups') && $m === 'POST' => $ok(['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => false, 'is_locked' => false, 'bytes' => 0, 'completed_at' => null, 'created_at' => now()->toIso8601String()], 'backup'),
+            str_ends_with($path, '/backups') && $m === 'GET' => $list([['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => true, 'is_locked' => false, 'bytes' => 1024, 'completed_at' => now()->toIso8601String(), 'created_at' => now()->toIso8601String()]], 'backup'),
+            str_ends_with($path, '/backups/bk-final') => $ok(['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => true, 'is_locked' => false, 'bytes' => 1024, 'completed_at' => now()->toIso8601String(), 'created_at' => now()->toIso8601String()], 'backup'),
+            str_ends_with($path, '/backups/bk-final/download') => Http::response(['object' => 'signed_url', 'attributes' => ['url' => 'https://wings.test/download/backup?token=abc']]),
             str_ends_with($path, '/users') && $m === 'GET' => $list(array_values($state['subusers']), 'server_subuser'),
             str_ends_with($path, '/users') && $m === 'POST' => (function () use ($request, &$state, $ok) {
                 $uuid = 'su-'.(count($state['subusers']) + 1);
@@ -224,4 +249,30 @@ it('reads and applies the declarative spec of a game server and measures its usa
     expect($watch->measure($service))->toMatchArray(['disk' => ['used' => 57 * 1024 ** 3, 'limit' => 60 * 1024 ** 3, 'pct' => 95]]);
     expect($watch->run())->toMatchArray(['checked' => 1, 'critical' => 1, 'errors' => 0]);
     expect($service->fresh()->tags['usage']['level'])->toBe('critical');
+});
+
+it('revokes every collaborator when a game server is cancelled, after listing them in the archive (Brain card H346)', function () {
+    Storage::fake('local');
+    [$user, $org] = $this->customerWithOrganization();
+    $service = featureGameService($org, ['subusers' => 3]);
+    $state = gameToolsState();
+    $state['subusers'] = [
+        'su-1' => ['uuid' => 'su-1', 'email' => 'admin@liga.test', 'permissions' => ['control.console'], 'created_at' => null],
+        'su-2' => ['uuid' => 'su-2', 'email' => 'mod@liga.test', 'permissions' => ['control.start'], 'created_at' => null],
+    ];
+    gameToolsFake($state);
+
+    $operation = driveOperation(app(ServiceService::class)->requestAction($service, 'terminate', $this->contextFor($user, $org, 'webauthn'), 'game-cancel-1', ['reason' => 'season over']));
+    expect($operation->state)->toBe(Operation::SUCCEEDED);
+    expect($state['subusers'])->toBe([])->and($state['suspended'] ?? false)->toBeTrue();
+
+    $cancelled = $service->fresh();
+    $revoked = (array) data_get($cancelled->tags, 'deletion.revoked');
+    expect($cancelled->state)->toBe('SUSPENDED')->and(array_column($revoked, 'label'))->toBe(['admin@liga.test', 'mod@liga.test'])->and(array_column($revoked, 'kind'))->toBe(['subuser', 'subuser']);
+
+    // the archive written before the revocation still knows who had access — names only, no secret
+    $backup = Backup::query()->where('service_id', $service->id)->where('kind', 'final')->firstOrFail();
+    $metadata = json_decode((string) Storage::disk('local')->get(data_get($backup->meta, 'set').'/service.json'), true);
+    expect(array_column($metadata['access']['subusers'], 'email'))->toBe(['admin@liga.test', 'mod@liga.test']);
+    expect(OutboxMessage::query()->where('name', 'service.delegations.revoked')->exists())->toBeTrue();
 });

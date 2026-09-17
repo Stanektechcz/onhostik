@@ -28,6 +28,9 @@ use Onhost\Providers\Proxmox\ProxmoxComputeProvider;
  */
 final class ProviderInstanceService
 {
+    /** The state reason of an instance whose panel address moved: only a successful probe lifts this lock (H311). */
+    public const ADDRESS_CHANGE_REASON = 'panel address changed, awaiting a probe of';
+
     /** Credential keys each adapter reads (see docs/provider-adapters/*). `required` must be present to activate. */
     public const CREDENTIALS = [
         'proxmox' => ['required' => ['token_id', 'token_secret'], 'optional' => [], 'hint' => 'PVE API token: user@realm!tokenid + secret (privileges VM.*, Datastore.AllocateSpace, Sys.Audit)'],
@@ -91,13 +94,19 @@ final class ProviderInstanceService
         if ($existing !== null && $existing->provider !== $provider) {
             throw new DomainError('instance_provider_immutable', 'The provider of an existing instance cannot change; create a new instance.', 409, ['field' => 'provider']);
         }
+        // a new host is where the stored credentials would be sent next (H311): it has to be acknowledged, and automation
+        // stays off the instance until a probe run by staff confirms the panel answers there — the change never activates itself
+        $hostChanged = $existing !== null && strtolower((string) parse_url($existing->base_url, PHP_URL_HOST)) !== strtolower((string) parse_url($baseUrl, PHP_URL_HOST));
+        if ($hostChanged && ! (bool) ($input['confirm_host_change'] ?? false)) {
+            throw new DomainError('instance_host_change_unconfirmed', 'The panel address points at another host; confirm the change (confirm_host_change) — the instance is then locked until a probe confirms the new address.', 409, ['field' => 'base_url', 'current_host' => parse_url($existing->base_url, PHP_URL_HOST), 'new_host' => parse_url($baseUrl, PHP_URL_HOST)]);
+        }
         $credentials = array_filter((array) ($input['credentials'] ?? []), fn ($v) => is_string($v) && $v !== '');
         $secretRef = isset($input['secret_ref']) && $input['secret_ref'] !== '' ? SecretRef::parse((string) $input['secret_ref']) : null;
         if ($secretRef === null && ($credentials !== [] || $existing === null)) {
             $secretRef = SecretRef::parse("db://provider_instances/{$key}");
         }
 
-        return DB::transaction(function () use ($input, $key, $provider, $baseUrl, $existing, $credentials, $secretRef, $context) {
+        return DB::transaction(function () use ($input, $key, $provider, $baseUrl, $existing, $credentials, $secretRef, $hostChanged, $context) {
             $ref = $secretRef ?? $existing?->secretRef();
             if ($credentials !== []) {
                 if ($ref === null || $ref->scheme !== 'db') {
@@ -119,11 +128,15 @@ final class ProviderInstanceService
                 'capabilities' => array_key_exists('capabilities', $input) ? (array) $input['capabilities'] : ($existing?->capabilities ?? self::CAPABILITIES[$provider]),
                 'quotas' => array_key_exists('quotas', $input) ? (array) $input['quotas'] : ($existing?->quotas ?? null),
                 'rate_limits' => array_key_exists('rate_limits', $input) ? (array) $input['rate_limits'] : ($existing?->rate_limits ?? null),
-                'state' => $input['state'] ?? $existing?->state ?? 'active',
+                'state' => $hostChanged ? 'maintenance' : ($input['state'] ?? $existing?->state ?? 'active'),
                 'adapter_version' => $existing?->adapter_version ?? '1.0.0',
             ], fn ($v) => $v !== null));
+            if ($hostChanged) {
+                $instance->forceFill(['maintenance_until' => null, 'state_reason' => self::ADDRESS_CHANGE_REASON.' '.(string) parse_url($baseUrl, PHP_URL_HOST)])->save();
+            }
             $this->providers->forget($instance);
-            $this->audit->record($context, $existing ? 'provider.instance.update' : 'provider.instance.create', 'succeeded', ['key' => $key, 'provider' => $provider, 'base_url' => $instance->base_url, 'secret_ref' => (string) $ref, 'credential_keys' => array_keys($credentials)], 'provider_instance', $instance->id);
+            $this->audit->record($context, $existing ? 'provider.instance.update' : 'provider.instance.create', 'succeeded', ['key' => $key, 'provider' => $provider, 'base_url' => $instance->base_url, 'secret_ref' => (string) $ref, 'credential_keys' => array_keys($credentials),
+                'host_changed' => $hostChanged ? ['from' => parse_url((string) $existing?->base_url, PHP_URL_HOST), 'to' => parse_url($baseUrl, PHP_URL_HOST)] : null], 'provider_instance', $instance->id);
 
             return $instance;
         });
@@ -164,9 +177,9 @@ final class ProviderInstanceService
         if (! in_array($state, ['active', 'draining', 'maintenance', 'disabled'], true)) {
             throw new DomainError('instance_state_invalid', 'State must be active, draining, maintenance or disabled.', 422, ['field' => 'state']);
         }
-        $instance->forceFill(['state' => $state, 'maintenance_until' => $state === 'maintenance' ? $maintenanceUntil : null])->save();
+        $instance->forceFill(['state' => $state, 'maintenance_until' => $state === 'maintenance' ? $maintenanceUntil : null, 'state_reason' => $state === 'active' ? null : ($reason !== null ? mb_substr($reason, 0, 250) : null)])->save();
         $this->providers->forget($instance);
-        $this->audit->record($context, 'provider.instance.state', 'succeeded', ['key' => $instance->key, 'state' => $state, 'reason' => $reason], 'provider_instance', $instance->id);
+        $this->audit->record($context, 'provider.instance.state', 'succeeded', ['key' => $instance->key, 'state' => $state, 'reason' => $reason, 'maintenance_until' => $maintenanceUntil?->format(DATE_ATOM)], 'provider_instance', $instance->id);
 
         return $instance;
     }

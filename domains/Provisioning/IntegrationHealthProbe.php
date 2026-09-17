@@ -66,7 +66,9 @@ final class IntegrationHealthProbe
             'error_rate_1h' => $hourCalls > 0 ? round($hourErrors / $hourCalls * 100, 2) : 0, 'p95_ms' => (int) ($latency ?? $record->p95_ms ?? 0), 'calls_24h' => $calls24h, 'errors_24h' => $errors24h,
             'budget_used_pct' => $this->budgetUsed($instance), 'circuit_state' => $circuit, 'last_error' => $error !== null ? mb_substr($error, 0, 500) : null, 'checked_at' => now(),
         ])->save();
+        $overdueBefore = (bool) data_get($instance->health, 'maintenance_overdue', false);
         $instance->forceFill(['health' => array_merge(['up' => $up, 'latency_ms' => $latency, 'error' => $error], $detail), 'health_checked_at' => now(), 'vendor_version' => $version ?? $instance->vendor_version])->save();
+        $this->settleMaintenanceLock($instance, $up, $overdueBefore);
         if ($wasUp !== null && $wasUp !== $up) {
             $this->outbox->publish(GenericEvent::of($up ? 'integration.recovered' : 'integration.down', 'provider_instance', $instance->id, ['key' => $instance->key, 'provider' => $instance->provider, 'error' => $error]));
         } elseif ($wasUp === null && ! $up) {
@@ -74,6 +76,35 @@ final class IntegrationHealthProbe
         }
 
         return ['up' => $up, 'error' => $error, 'latency_ms' => $latency, 'version' => $version, 'detail' => $detail, 'circuit_state' => $circuit, 'checked_at' => now()->toIso8601String()];
+    }
+
+    /**
+     * A maintenance lock never lifts itself (H322): when its planned end has passed, or when it was set because the
+     * panel address moved (H311), only a probe that finds the panel up returns the instance to automation. A lock
+     * that outlived its window with the panel still down is reported once, not on every probe.
+     */
+    private function settleMaintenanceLock(ProviderInstance $instance, bool $up, bool $overdueBefore): void
+    {
+        if ($instance->state !== 'maintenance') {
+            return;
+        }
+        $awaitingProbe = str_starts_with((string) $instance->state_reason, ProviderInstanceService::ADDRESS_CHANGE_REASON);
+        $expired = $instance->maintenanceExpired();
+        if (! $awaitingProbe && ! $expired) {
+            return; // a lock inside its window stays exactly as staff set it
+        }
+        if ($up) {
+            $reason = (string) $instance->state_reason;
+            $instance->forceFill(['state' => 'active', 'maintenance_until' => null, 'state_reason' => null, 'health' => array_merge((array) $instance->health, ['maintenance_overdue' => false])])->save();
+            $this->providers->forget($instance);
+            $this->outbox->publish(GenericEvent::of('integration.maintenance.lifted', 'provider_instance', $instance->id, ['key' => $instance->key, 'provider' => $instance->provider, 'reason' => $reason, 'by' => $awaitingProbe ? 'address_probe' : 'expired_probe']));
+
+            return;
+        }
+        $instance->forceFill(['health' => array_merge((array) $instance->health, ['maintenance_overdue' => true])])->save();
+        if (! $overdueBefore) {
+            $this->outbox->publish(GenericEvent::of('integration.maintenance.overdue', 'provider_instance', $instance->id, ['key' => $instance->key, 'provider' => $instance->provider, 'reason' => $instance->state_reason, 'maintenance_until' => $instance->maintenance_until?->toIso8601String(), 'error' => data_get($instance->health, 'error')]));
+        }
     }
 
     private function budgetUsed(ProviderInstance $instance): float

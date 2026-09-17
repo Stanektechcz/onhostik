@@ -244,6 +244,7 @@ return [
         'autoscale' => ['enabled' => (bool) env('ONHOST_QUEUE_AUTOSCALE', false), 'max_helpers' => (int) env('ONHOST_QUEUE_MAX_HELPERS', 3), 'cooldown_minutes' => (int) env('ONHOST_QUEUE_COOLDOWN_MINUTES', 15), 'max_time_seconds' => (int) env('ONHOST_QUEUE_MAX_TIME', 900)], // helper workers started on the backlog gauge (audit §5i-3)
         'console_token_ttl_seconds' => (int) env('ONHOST_CONSOLE_TOKEN_TTL', 120),
         'provider_timeout_seconds' => (int) env('ONHOST_PROVIDER_TIMEOUT', 10),
+        'provider_max_body_bytes' => (int) env('ONHOST_PROVIDER_MAX_BODY_BYTES', 8388608), // a panel answer larger than this is refused before it can exhaust a worker (H318)
         'reconcile' => [
             'critical_minutes' => 5,
             'normal_minutes' => 15,

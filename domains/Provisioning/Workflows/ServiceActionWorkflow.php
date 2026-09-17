@@ -27,6 +27,8 @@ use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\DatabaseCredentials;
 use Onhost\Domain\Services\Web\WebFileStore;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Errors\ProviderErrorCode;
+use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
 use Onhost\Platform\Outbox\OutboxPublisher;
@@ -97,7 +99,7 @@ final class ServiceActionWorkflow implements Workflow
             'suspend' => [$this->suspendStep(), $this->finishStateStep(ServiceStateMachine::SUSPENDED)],
             'resume' => [$this->resumeStep(), $this->finishStateStep(ServiceStateMachine::ACTIVE)],
             'resize' => [$this->resizeStep(), $this->finishResizeStep()],
-            'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->scheduleRemovalStep()],
+            'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->revokeDelegationsStep(), $this->scheduleRemovalStep()],
             'purge' => [$this->identityStep(), $this->finalArchiveStep(anyOperation: true), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
             'backup' => [$this->backupStep()],
             'restore' => [$this->restoreStep()],
@@ -589,6 +591,78 @@ final class ServiceActionWorkflow implements Workflow
     }
 
     /** The cancellation only switches the service off; the data stays at the provider for the whole grace window. */
+    /**
+     * Delegated access dies with the service (H346): the FTP and shell accounts of a web site, the collaborator
+     * accounts of a game server. They are removed right after the deactivation — the archive already lists them —
+     * and recorded on the service, so a panel resource that is reused later never keeps a stranger's login and the
+     * customer knows what to create again after a restore. Database users stay: they belong to the application,
+     * not to a person, and a restore inside the window must find them.
+     */
+    private function revokeDelegationsStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Odvolání delegovaných přístupů';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                if ($context->get('identity_missing') === true) {
+                    return StepResult::done(['revoked_access' => [], 'already_gone' => true]);
+                }
+                $service = $this->service($context);
+                $adapter = $context->adapter();
+                $ref = $this->ref($context);
+                $revoked = [];
+                $failed = [];
+                $attempt = function (string $kind, string $remoteId, string $label, callable $call) use (&$revoked, &$failed): void {
+                    try {
+                        $call();
+                        $revoked[] = ['kind' => $kind, 'remote_id' => $remoteId, 'label' => $label];
+                    } catch (ProviderException $e) {
+                        if ($e->errorCode === ProviderErrorCode::NOT_FOUND) {
+                            $revoked[] = ['kind' => $kind, 'remote_id' => $remoteId, 'label' => $label, 'already_gone' => true];
+
+                            return;
+                        }
+                        $failed[] = "{$kind} {$label}: ".mb_substr($e->getMessage(), 0, 120);
+                    } catch (Throwable $e) {
+                        $failed[] = "{$kind} {$label}: ".mb_substr($e->getMessage(), 0, 120);
+                    }
+                };
+                try {
+                    if ($adapter instanceof WebHostingProvider) {
+                        foreach ($adapter->listFtpAccounts($ref) as $account) {
+                            $attempt('ftp', (string) $account['remote_id'], (string) ($account['user'] ?? $account['remote_id']), fn () => $adapter->deleteFtpAccount($ref, (string) $account['remote_id']));
+                        }
+                        foreach ($adapter->listShellUsers($ref) as $user) {
+                            $attempt('shell', (string) $user['remote_id'], (string) ($user['user'] ?? $user['remote_id']), fn () => $adapter->deleteShellUser($ref, (string) $user['remote_id']));
+                        }
+                    }
+                    if ($adapter instanceof GameToolsProvider) {
+                        foreach ($adapter->listSubusers($ref) as $subuser) {
+                            $attempt('subuser', (string) $subuser['remote_id'], (string) ($subuser['email'] ?? $subuser['remote_id']), fn () => $adapter->deleteSubuser($ref, (string) $subuser['remote_id']));
+                        }
+                    }
+                } catch (Throwable $e) { // the listing itself failed: nothing was removed, the step is retried
+                    return StepResult::fail('delegované přístupy nelze načíst: '.mb_substr($e->getMessage(), 0, 160), true, ['revoked' => $revoked], 120);
+                }
+                if ($failed !== []) {
+                    return StepResult::fail('některé delegované přístupy se nepodařilo odvolat: '.implode('; ', $failed), true, ['revoked' => $revoked, 'failed' => $failed], 120);
+                }
+                if ($revoked !== []) {
+                    $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.delegations.revoked', 'service', $service->id, [
+                        'product_key' => $service->product_key, 'count' => count($revoked), 'kinds' => array_values(array_unique(array_column($revoked, 'kind'))),
+                    ], $service->organization_id));
+                }
+
+                return StepResult::done(['revoked_access' => $revoked]);
+            }
+        };
+    }
+
     private function deactivateStep(): ServiceStep
     {
         return new class extends ServiceStep
@@ -644,6 +718,7 @@ final class ServiceActionWorkflow implements Workflow
                     'requested_at' => now()->toIso8601String(), 'grace_until' => $graceUntil->toIso8601String(), 'grace_days' => $policy->graceDays(),
                     'retention_days' => $policy->retentionDays(), 'archive_backup_id' => $context->get('final_archive_id'), 'archive_set' => $context->get('final_archive_set'),
                     'reason' => mb_substr($reason, 0, 200), 'operation_id' => $context->operation->id, 'identity_matched' => $context->get('identity_matched'),
+                    'revoked' => (array) $context->get('revoked_access', []), // H346: the delegated logins removed with the deactivation, apart from the runtime itself
                 ];
                 $fresh->forceFill(['terminate_at' => $graceUntil, 'tags' => $tags])->save();
                 Subscription::query()->where('service_id', $fresh->id)->whereNotIn('state', [Subscription::CANCELLED])->update(['state' => Subscription::CANCELLED, 'auto_renew' => false]);

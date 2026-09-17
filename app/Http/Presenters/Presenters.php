@@ -234,7 +234,7 @@ final class Presenters
 
     public static function providerInstance(ProviderInstance $instance, ?array $health = null): array
     {
-        return ['id' => $instance->id, 'key' => $instance->key, 'provider' => $instance->provider, 'name' => $instance->name, 'region' => $instance->region_code, 'state' => $instance->state, 'capabilities' => $instance->capabilities, 'vendor_version' => $instance->vendor_version, 'adapter_version' => $instance->adapter_version, 'health' => $health ?? $instance->health, 'health_checked_at' => $instance->health_checked_at?->toIso8601String(), 'maintenance_until' => $instance->maintenance_until?->toIso8601String()];
+        return ['id' => $instance->id, 'key' => $instance->key, 'provider' => $instance->provider, 'name' => $instance->name, 'region' => $instance->region_code, 'state' => $instance->state, 'capabilities' => $instance->capabilities, 'vendor_version' => $instance->vendor_version, 'adapter_version' => $instance->adapter_version, 'health' => $health ?? $instance->health, 'health_checked_at' => $instance->health_checked_at?->toIso8601String(), 'maintenance_until' => $instance->maintenance_until?->toIso8601String(), 'state_reason' => $instance->state_reason];
     }
 
     public static function drift(ResourceDrift $drift): array

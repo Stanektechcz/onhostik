@@ -109,11 +109,21 @@ final class ProviderHttpClient
             throw new ProviderException($request->provider, ProviderErrorCode::UNKNOWN, 'Transport error: '.$e->getMessage(), previous: $e);
         }
 
+        // the body is read in chunks against a ceiling (H318): a panel that answers with gigabytes — a broken export,
+        // a proxy error page in a loop — ends in one controlled error instead of an exhausted worker
+        $limit = $request->maxBodyBytes ?? max(65536, (int) config('onhost.provisioning.provider_max_body_bytes', 8388608));
+        $body = $this->readBody($response, $limit);
         $duration = (int) ((hrtime(true) - $started) / 1_000_000);
+        if ($body === null) {
+            $breaker->recordFailure();
+            $this->logger->log($request, $response->status(), 'response_too_large', false, $duration, $this->summarize($request), null, "response body exceeds {$limit} bytes");
+            throw new ProviderException($request->provider, ProviderErrorCode::PROVIDER_BUG, "Response of {$request->action} exceeds {$limit} bytes; refused before it could exhaust the worker");
+        }
         $status = $response->status();
         $transportOk = $status < 500 && $status !== 429;
-        $bodyCode = $this->bodyCode($response);
-        $callId = $this->logger->log($request, $status, $bodyCode, $transportOk, $duration, $this->summarize($request), $this->summarizeResponse($response));
+        $json = json_decode($body, true);
+        $bodyCode = $this->bodyCode(is_array($json) ? $json : null);
+        $callId = $this->logger->log($request, $status, $bodyCode, $transportOk, $duration, $this->summarize($request), is_array($json) ? $json : mb_substr($body, 0, 2000));
 
         if ($status >= 500) {
             $breaker->recordFailure();
@@ -121,7 +131,31 @@ final class ProviderHttpClient
             $breaker->recordSuccess();
         }
 
-        return new ProviderResponse($status, $response->body(), $response->headers(), $duration, $callId);
+        return new ProviderResponse($status, $body, $response->headers(), $duration, $callId);
+    }
+
+    /** The body up to `$limit` bytes, or null when the provider sent more than that. */
+    private function readBody(Response $response, int $limit): ?string
+    {
+        $stream = $response->toPsrResponse()->getBody();
+        if ($stream->isSeekable()) {
+            $stream->rewind();
+        }
+        $body = '';
+        while (! $stream->eof()) {
+            $chunk = $stream->read(65536);
+            if ($chunk === '') {
+                break;
+            }
+            $body .= $chunk;
+            if (strlen($body) > $limit) {
+                $stream->close();
+
+                return null;
+            }
+        }
+
+        return $body;
     }
 
     /**
@@ -148,7 +182,7 @@ final class ProviderHttpClient
             ->timeout($request->timeoutSeconds)
             ->connectTimeout($request->connectTimeoutSeconds)
             ->withHeaders(array_merge(['User-Agent' => 'ONhost-ControlPlane/1.0'], $request->headers))
-            ->withOptions(array_merge(['http_errors' => false, 'allow_redirects' => false], $request->options));
+            ->withOptions(array_merge(['http_errors' => false, 'allow_redirects' => false, 'stream' => true], $request->options)); // streamed so the size ceiling applies before the body sits in memory
         if ($request->bodyType === 'json') {
             $pending = $pending->acceptJson();
         }
@@ -168,19 +202,9 @@ final class ProviderHttpClient
         ];
     }
 
-    private function summarizeResponse(Response $response): mixed
+    /** @param array<string,mixed>|null $json */
+    private function bodyCode(?array $json): ?string
     {
-        $json = $response->json();
-        if (is_array($json)) {
-            return $json;
-        }
-
-        return mb_substr($response->body(), 0, 2000);
-    }
-
-    private function bodyCode(Response $response): ?string
-    {
-        $json = $response->json();
         if (! is_array($json)) {
             return null;
         }
