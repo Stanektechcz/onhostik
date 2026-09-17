@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 653ef4a | 2026-09-17 | Panel safety from the Brain's requirement cards: a moved panel address locks the instance, a maintenance lock never lifts itself, oversized panel answers are refused, and a cancellation revokes delegated access |
+| bb3a4a2 | 2026-09-16 | Refresh the generated project context on the clean tree |
 | cf59c58 | 2026-09-16 | Production hardening: the archives are re-verified, an erasure request reaches them, and the repository carries its own context and secret gate again |
 | 0f85117 | 2026-09-16 | A cancellation finishes even when the panel no longer has the resource, and the trend test stops depending on the clock |
 | 91ca6ed | 2026-09-16 | The customer sees and undoes a cancellation: restore button in the service workbench, archives in the panel's backups page |
@@ -12,5 +14,3 @@
 | 6bf7495 | 2026-09-16 | Never delete a service without a full archive first (audit §5aa): FinalArchive stores site files, every database dump, the game backup, the mail domain and the service metadata on the backup disk with checksums, kept 60 days as a protected backup; the terminate step refuses to run without it and onhost:backups:run prunes expired archives |
 | cf91900 | 2026-09-16 | ISPConfig: a web site whose site user differs from the binding is never deleted either (shared panel safety on top of the domain check) |
 | c5b6d2d | 2026-09-15 | ISPConfig: mail services are read, suspended, resumed and terminated through their mail domain — the lifecycle calls used the web domain functions with the mail domain's number, so terminating a mail service could delete an unrelated web site; unknown resource types are refused and a web domain whose stored name differs is never deleted |
-| 9645e71 | 2026-09-15 | Platform backup: the verification is written next to the backup set and the status falls back to the backup disk, so a flushed cache (deploy) never reports a verified backup as missing |
-| 674b315 | 2026-09-15 | Scheduler: a node serves its role and the extra roles in its tags (one ISPConfig host with web and mail); onhost:nodes:discover --add-role; onhost:mail:test --retry-failed resends the queued and failed mails after a successful test (audit §5z) |
