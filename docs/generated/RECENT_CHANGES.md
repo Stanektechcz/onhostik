@@ -4,6 +4,7 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| aed18b5 | 2026-09-19 | Plan versions from the administration (H01): a plan is never edited |
 | b125c01 | 2026-09-19 | Paid work on a ticket needs an approved price (H29); support replies reach the customer |
 | 0027dfe | 2026-09-19 | Availability alarm for VPS and game servers; P0 proofs for H14, H16, H01 |
 | 88d161c | 2026-09-19 | Pin what happens when a registry refuses a domain renewal (H23) |
@@ -13,4 +14,3 @@
 | 5c5834f | 2026-09-19 | Pin the permission matrix of the customer roles (H11) |
 | 387aaea | 2026-09-19 | Sweep tenant isolation across the API; an ended membership stops counting everywhere (H03, H343) |
 | fc49b36 | 2026-09-19 | A suspension belongs to whoever imposed it; a refused transition no longer strands a service (H17) |
-| 662f680 | 2026-09-19 | Bound and pin the development stack (H190, the part that is ours) |

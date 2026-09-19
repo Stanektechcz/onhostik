@@ -33,7 +33,7 @@ final class ScheduleNodeStep extends ServiceStep
         }
         $ent = (array) $service->entitlements;
         try {
-            $pick = $context->container->make(NodeScheduler::class)->pick(array_filter([
+            $pick = $context->container->make(NodeScheduler::class)->place($service, array_filter([ // picks and holds in one step: a parallel placement waits and counts this one (H04)
                 'role' => $this->role, 'provider' => $this->provider ?? $context->desired('executor'), 'region' => $service->region_code ?? $context->desired('region'),
                 'ram_mb' => (int) ($ent['ram_mb'] ?? 0), 'cpu_cores' => (int) ($ent['vcpu'] ?? 0), 'disk_gb' => (int) ($ent['nvme_gb'] ?? 0),
                 'anti_affinity' => (array) $context->desired('anti_affinity', []), 'affinity_failure_domain' => $context->desired('failure_domain'),
@@ -45,7 +45,6 @@ final class ScheduleNodeStep extends ServiceStep
 
             return StepResult::fail($e->getMessage(), true, $e->extra, 900); // capacity may free up; retry with backoff instead of failing the order
         }
-        $service->forceFill(['node_id' => $pick['node']->id, 'provider_instance_id' => $pick['instance']->id, 'region_code' => $pick['node']->region_code])->save();
         $context->operation->forceFill(['provider_instance_id' => $pick['instance']->id])->save();
 
         return StepResult::done(['node_id' => $pick['node']->id, 'node_name' => $pick['node']->name, 'node_remote_id' => $pick['node']->remote_id, 'provider_instance_id' => $pick['instance']->id, 'region' => $pick['node']->region_code, 'placement_score' => $pick['score'], 'placement_candidates' => $pick['candidates']]);

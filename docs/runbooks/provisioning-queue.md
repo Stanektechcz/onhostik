@@ -40,3 +40,18 @@ continue. Use during provider outages, data-centre work and while an SLO error b
 `GET /v1/staff/capacity` shows node scheduler headroom (CPU/RAM/NVMe, IP pools). `capacity.unavailable` and
 `ipam.threshold/exhausted` events mean orders will wait: add a node (`InfrastructureSeeder` env or admin), extend
 an IP pool, or set the family to sold-out in the catalog.
+
+How a node's free space is judged (Brain card H04): the node's last measurement (`usage`, stamped `last_seen_at`) plus
+everything **placed on it since** — services paid and waiting to be built, and services activated after the sample.
+Without that hold every order between two measurements was promised the same free space. Placement itself
+(`NodeScheduler::place`) locks the node rows while it decides, so two workers cannot take the same reserve; the hold is
+released when the service fails or is terminated, and disappears by itself once the next measurement contains it.
+
+* `capacity_basis: sold` in a provider instance's options judges its nodes by the RAM **sold** on them instead of the
+  RAM their guests use right now (Proxmox reports real use: a node full of idle VMs looks empty). The default stays
+  `measured` — switching is a commercial decision, a node that is already oversold stops taking orders at once.
+* A VPS or a game server that **no registered node can take** is refused in the cart: `capacity_sold_out` (409), before
+  an order or a payment exists. With no node of the kind registered at all nothing is judged (provisioning is then not
+  automatic). A drained or locked node sells nothing. `ONHOST_CAPACITY_GATE=false` accepts such orders again and lets
+  provisioning wait for capacity. Known limits: a plan pinned to one panel is judged against the whole region, and a
+  migration in flight does not hold space on its target node.

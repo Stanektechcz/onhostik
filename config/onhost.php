@@ -261,6 +261,7 @@ return [
             'io_health' => 0.10, 'failure_domain_affinity' => 0.10, 'network_health' => 0.05,
         ],
         'n_plus_one_sell_ratio' => 0.75,
+        'capacity_gate' => (bool) env('ONHOST_CAPACITY_GATE', true), // a server no registered node can take is refused in the cart (H04); off = accept and let provisioning wait
         'default_region' => env('ONHOST_DEFAULT_REGION', 'cz1'),
         'hostname_suffix' => env('ONHOST_VM_HOSTNAME_SUFFIX', 'cust.onhost.cz'),
         'web_preview_suffix' => env('ONHOST_WEB_PREVIEW_SUFFIX', 'web.onhost.cz'),

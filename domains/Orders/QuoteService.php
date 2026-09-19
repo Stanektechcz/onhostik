@@ -15,6 +15,7 @@ use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\GameConfigurator;
 use Onhost\Domain\Provisioning\GameTemplates;
+use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\PlanChangeService;
@@ -182,6 +183,9 @@ final class QuoteService
                     'period' => $period, 'from_period' => $change['from_period'], 'period_change' => $change['period_change'], 'unused_credit_minor' => $unusedCredit, 'service_id' => $change['service']->id,
                 ]]);
             }
+            if ($change === null) { // a server that no node can take is refused while it is a cart, not after it was paid (H04)
+                $this->assertCapacity($product, app(ServiceService::class)->entitlementsFor($resolved['version'], (array) ($config['options'] ?? []), $product), $config, $organization);
+            }
             $versions['plans'][] = $resolved['version']->id;
             $versions['prices'][] = $price->id;
             $lines[] = [
@@ -264,6 +268,30 @@ final class QuoteService
      *
      * @return array{service:Service, subscription:Subscription, from_plan:?string, period:string, from_period:string, period_change:bool, fraction:float, old_net_minor:int}
      */
+    /**
+     * Servers take a dedicated share of a node. When nodes of the kind are registered and none of them can take this one
+     * within its sellable share, the product is sold out for now — said here, before an order or a payment exists.
+     * Without registered nodes there is nothing to judge by and the order goes on (provisioning is then not automatic).
+     *
+     * @param  array<string,mixed>  $entitlements
+     * @param  array<string,mixed>  $config
+     */
+    private function assertCapacity(Product $product, array $entitlements, array $config, ?Organization $organization): void
+    {
+        $role = ['proxmox' => 'compute', 'pterodactyl' => 'game'][(string) $product->executor] ?? null;
+        if ($role === null || ! config('onhost.provisioning.capacity_gate', true)) {
+            return;
+        }
+        $region = (string) ($config['region'] ?? config('onhost.provisioning.default_region', 'cz1'));
+        $fits = app(NodeScheduler::class)->canHost([
+            'role' => $role, 'provider' => (string) $product->executor, 'region' => $region, 'sandbox' => NodeScheduler::sandboxFor($organization?->id),
+            'ram_mb' => (int) ($entitlements['ram_mb'] ?? 0), 'cpu_cores' => (int) ($entitlements['vcpu'] ?? 0), 'disk_gb' => (int) ($entitlements['nvme_gb'] ?? 0),
+        ]);
+        if ($fits === false) {
+            throw new DomainError('capacity_sold_out', "{$product->key} of this size is sold out in {$region} right now. Nothing was ordered or charged; a smaller plan or another location may be available.", 409, ['field' => 'items', 'product' => $product->key, 'region' => $region]);
+        }
+    }
+
     private function planChange(?Organization $organization, string $serviceId, Product $product, string $planKey, ?string $requestedPeriod = null): array
     {
         if ($organization === null) {
