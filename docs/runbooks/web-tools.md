@@ -574,6 +574,18 @@ The percentage: *Finance* → *Procento vrácení* (`PUT /v1/staff/chargebacks/s
 `system_settings` key `chargeback.percent`; default `ONHOST_CHARGEBACK_PERCENT=70`). Money never leaves the
 platform: a chargeback is wallet credit for the requesting organization only.
 
+**Access that ends on a date (Brain card H343).** An invitation, a change of role and a project role take
+`access_until` (a future date; never for the owner). The membership row and its policy binding carry the same moment,
+and the authorizer does not read an expired binding — so the permission stops **at that second by itself**, including
+for a run already in progress (H315 asks again before each step). A project role never outlives the membership it
+builds on; a change of role keeps the end unless `access_until` is sent (`null` = no end). What an expired row cannot do
+for itself is done by `onhost:access:expire` (every 5 minutes, automation rule `access.expire`): it removes the
+membership or the project role through the same path as a removal by hand, which publishes
+`organization.member.removed` / `project.member.removed` — and that is what takes the person's collaborator accounts
+(H333) and SSH keys (H185) off the panels. A project role that ends revokes only on that project's services, and only
+where the person can no longer `service.manage` through another role. The organization is told
+(`organization.member.expired`). Switching the rule off delays the clean-up, never the refusal.
+
 **SSH keys on shell accounts (Brain card H185).** A panel keeps a public key as text on the shell account and knows no
 people. `SshKeyLedger` keeps what the panel does not: the fingerprint (never the key), the member it belongs to, who
 installed it and whether a revocation has reached the panel. `shell.create` / `shell.key` take an optional

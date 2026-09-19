@@ -108,12 +108,14 @@ final class SshKeyLedger
     }
 
     /**
+     * @param  ?list<string>  $serviceIds
      * @return array{keys:int, requested:int, pending:int, accounts:list<array{service_id:string, service:string, account:?string, fingerprint:string}>}
      */
-    public function revokeForUser(Organization $organization, string $userId, CommandContext $context, string $reason = 'member removed'): array
+    public function revokeForUser(Organization $organization, string $userId, CommandContext $context, string $reason = 'member removed', ?array $serviceIds = null): array
     {
         $report = ['keys' => 0, 'requested' => 0, 'pending' => 0, 'accounts' => []];
-        $grants = SshKeyGrant::query()->where('organization_id', $organization->id)->where('owner_user_id', $userId)->where('state', SshKeyGrant::ACTIVE)->get();
+        $grants = SshKeyGrant::query()->where('organization_id', $organization->id)->where('owner_user_id', $userId)->where('state', SshKeyGrant::ACTIVE)
+            ->when($serviceIds !== null, fn ($q) => $q->whereIn('service_id', $serviceIds))->get(); // null = every site of the organization; a list = the services of one project
         foreach ($grants as $grant) {
             $report['keys']++;
             $grant->forceFill(['state' => SshKeyGrant::REVOKING, 'revoke_reason' => mb_substr($reason, 0, 190), 'revoke_requested_at' => now()])->save();

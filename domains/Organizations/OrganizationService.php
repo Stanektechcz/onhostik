@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Organizations;
 
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
@@ -67,35 +68,49 @@ final class OrganizationService
         });
     }
 
-    public function attachMember(Organization $organization, User $user, string $roleKey, CommandContext $context, bool $joinedNow = false): OrganizationMembership
+    /**
+     * `$accessUntil` makes the membership end on a date (H343). The policy binding carries the same moment, so the
+     * permission stops at that second without any job; `AccessExpiry` removes the membership afterwards, which takes the
+     * person's panel accounts and SSH keys with it. The owner's access never expires.
+     */
+    public function attachMember(Organization $organization, User $user, string $roleKey, CommandContext $context, bool $joinedNow = false, ?CarbonInterface $accessUntil = null): OrganizationMembership
     {
         $this->assertCustomerRole($roleKey);
+        if ($accessUntil !== null && ($roleKey === 'owner' || $organization->owner_user_id === $user->id)) {
+            throw new DomainError('owner_access_cannot_expire', 'The owner of the organization cannot have access that ends on a date.', 422, ['field' => 'access_until']);
+        }
+        if ($accessUntil !== null && $accessUntil->isPast()) {
+            throw new DomainError('access_until_past', 'access_until must be in the future.', 422, ['field' => 'access_until']);
+        }
 
-        return DB::transaction(function () use ($organization, $user, $roleKey, $context, $joinedNow) {
+        return DB::transaction(function () use ($organization, $user, $roleKey, $context, $joinedNow, $accessUntil) {
             $membership = OrganizationMembership::query()->updateOrCreate(
                 ['organization_id' => $organization->id, 'user_id' => $user->id],
-                ['role_key' => $roleKey, 'state' => 'active', 'joined_at' => $joinedNow ? now() : null, 'invited_by' => $context->actorId],
+                ['role_key' => $roleKey, 'state' => 'active', 'joined_at' => $joinedNow ? now() : null, 'invited_by' => $context->actorId, 'expires_at' => $accessUntil],
             );
             PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)
                 ->where('scope_type', 'organization')->where('scope_id', $organization->id)->delete();
             PolicyBinding::query()->create([
                 'principal_type' => 'user', 'principal_id' => $user->id, 'role_key' => $roleKey,
                 'scope_type' => 'organization', 'scope_id' => $organization->id, 'organization_id' => $organization->id,
-                'granted_by' => $context->actorId,
+                'granted_by' => $context->actorId, 'expires_at' => $accessUntil,
             ]);
-            $this->audit->record($context->withScope($organization->id), 'organization.member.attach', 'succeeded', ['user_id' => $user->id, 'role' => $roleKey], 'organization', $organization->id);
+            $this->audit->record($context->withScope($organization->id), 'organization.member.attach', 'succeeded', ['user_id' => $user->id, 'role' => $roleKey, 'access_until' => $accessUntil?->toIso8601String()], 'organization', $organization->id);
 
             return $membership;
         });
     }
 
-    public function changeRole(Organization $organization, User $user, string $roleKey, CommandContext $context): OrganizationMembership
+    /** A new role keeps the end of the access the member already has; `$setAccess` replaces it (null = no end). */
+    public function changeRole(Organization $organization, User $user, string $roleKey, CommandContext $context, bool $setAccess = false, ?CarbonInterface $accessUntil = null): OrganizationMembership
     {
         if ($organization->owner_user_id === $user->id && $roleKey !== 'owner') {
             throw new DomainError('owner_role_locked', 'The organization owner keeps the owner role; transfer ownership first.');
         }
 
-        return $this->attachMember($organization, $user, $roleKey, $context, joinedNow: false);
+        $until = $setAccess ? $accessUntil : OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->first()?->expires_at;
+
+        return $this->attachMember($organization, $user, $roleKey, $context, joinedNow: false, accessUntil: $until);
     }
 
     public function removeMember(Organization $organization, User $user, CommandContext $context): void
@@ -114,9 +129,12 @@ final class OrganizationService
     }
 
     /** @return array{invitation: OrganizationInvitation, token: string} */
-    public function invite(Organization $organization, string $email, string $roleKey, CommandContext $context): array
+    public function invite(Organization $organization, string $email, string $roleKey, CommandContext $context, ?CarbonInterface $accessUntil = null): array
     {
         $this->assertCustomerRole($roleKey);
+        if ($accessUntil !== null && ($roleKey === 'owner' || $accessUntil->isPast())) {
+            throw new DomainError('access_until_invalid', 'access_until must be in the future and cannot be set for the owner role.', 422, ['field' => 'access_until']);
+        }
         $token = Str::random(48);
         $invitation = OrganizationInvitation::query()->create([
             'organization_id' => $organization->id,
@@ -125,8 +143,9 @@ final class OrganizationService
             'token_hash' => hash('sha256', $token),
             'invited_by' => $context->actorId,
             'expires_at' => now()->addDays(7),
+            'access_expires_at' => $accessUntil,
         ]);
-        $this->audit->record($context->withScope($organization->id), 'organization.member.invite', 'succeeded', ['email' => $invitation->email, 'role' => $roleKey], 'organization', $organization->id);
+        $this->audit->record($context->withScope($organization->id), 'organization.member.invite', 'succeeded', ['email' => $invitation->email, 'role' => $roleKey, 'access_until' => $accessUntil?->toIso8601String()], 'organization', $organization->id);
         // The accept token travels only inside the invitation mail; the (redacted, durable) outbox never carries it.
         app(NotificationService::class)->queueMail('invitation', $invitation->email, [
             'organizace' => $organization->name, 'role' => $roleKey, 'url' => rtrim((string) config('onhost.portal_url'), '/').'/panel/tym?pozvanka='.rawurlencode($token),
@@ -160,7 +179,7 @@ final class OrganizationService
     public function acceptInvitation(string $token, User $user, CommandContext $context): OrganizationMembership
     {
         $invitation = OrganizationInvitation::query()->where('token_hash', hash('sha256', $token))->first();
-        if ($invitation === null || ! $invitation->isUsable()) {
+        if ($invitation === null || ! $invitation->isUsable() || ($invitation->access_expires_at !== null && $invitation->access_expires_at->isPast())) { // an access that has already ended is not worth joining
             throw new DomainError('invitation_invalid', 'This invitation is invalid or has expired.', 410);
         }
         if (mb_strtolower($user->email) !== $invitation->email) {
@@ -171,7 +190,7 @@ final class OrganizationService
         return DB::transaction(function () use ($invitation, $organization, $user, $context) {
             $invitation->forceFill(['accepted_at' => now()])->save();
 
-            return $this->attachMember($organization, $user, $invitation->role_key, $context, joinedNow: true);
+            return $this->attachMember($organization, $user, $invitation->role_key, $context, joinedNow: true, accessUntil: $invitation->access_expires_at);
         });
     }
 

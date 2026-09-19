@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Organizations\Commands;
 
+use Illuminate\Support\Carbon;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\OrganizationStatusService;
 use Onhost\Domain\Notifications\CalendarFeed;
@@ -40,9 +41,10 @@ final class OrganizationsCommandHandler implements CommandHandler
         return match ($command->op()) {
             'update' => ['organization' => $this->organizations->update($organization, array_diff_key($command->payload, array_flip(['op'])), $context)->fresh()],
             'status_page.verify' => app(OrganizationStatusService::class)->verifyDomain($organization, $context), // the customer's own status host (audit §5k-3)
-            'invite' => $this->organizations->invite($organization, (string) $command->get('email'), (string) $command->get('role', 'viewer'), $context),
+            'invite' => $this->organizations->invite($organization, (string) $command->get('email'), (string) $command->get('role', 'viewer'), $context, self::until($command)),
             'cancel_invitation' => ['invitation' => $this->organizations->cancelInvitation($organization, (string) $command->get('invitation_id'), $context), 'cancelled' => true],
-            'change_role' => ['membership' => $this->organizations->changeRole($organization, $this->user($command), (string) $command->get('role'), $context)],
+            'change_role' => ['membership' => $this->organizations->changeRole($organization, $this->user($command), (string) $command->get('role'), $context, array_key_exists('access_until', $command->payload), self::until($command))], // an absent access_until keeps the end the member has
+
             'remove_member' => (function () use ($organization, $command, $context) {
                 $this->organizations->removeMember($organization, $this->user($command), $context);
 
@@ -52,7 +54,7 @@ final class OrganizationsCommandHandler implements CommandHandler
             'update_project' => ['project' => $this->projects->update($organization, $this->project($organization, $command), array_diff_key($command->payload, array_flip(['op', 'project_id'])), $context)],
             'archive_project' => ['project' => $this->projects->archive($organization, $this->project($organization, $command), $context)],
             'restore_project' => ['project' => $this->projects->restore($organization, $this->project($organization, $command), $context)],
-            'add_project_member' => ['membership' => $this->projects->addMember($organization, $this->project($organization, $command), $this->user($command), (string) $command->get('role', 'viewer'), $context)],
+            'add_project_member' => ['membership' => $this->projects->addMember($organization, $this->project($organization, $command), $this->user($command), (string) $command->get('role', 'viewer'), $context, self::until($command))],
             'remove_project_member' => (function () use ($organization, $command, $context) {
                 $this->projects->removeMember($organization, $this->project($organization, $command), $this->user($command), $context);
 
@@ -63,6 +65,14 @@ final class OrganizationsCommandHandler implements CommandHandler
             'transfer_ownership' => ['organization' => $this->organizations->transferOwnership($organization, $this->user($command), $context)],
             default => throw new DomainError('organization_op_unknown', "Unknown organization operation {$command->op()}.", 422),
         };
+    }
+
+    /** The date an access ends (H343); the controller has validated it as a future date. */
+    private static function until(OrganizationCommand $command): ?Carbon
+    {
+        $value = $command->get('access_until');
+
+        return $value === null || $value === '' ? null : Carbon::parse((string) $value);
     }
 
     private function project(Organization $organization, OrganizationCommand $command): Project

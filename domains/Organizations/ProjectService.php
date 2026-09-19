@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Organizations;
 
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
@@ -20,7 +21,9 @@ use Onhost\Domain\WalletLedger\WalletForecast;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Money\Money;
+use Onhost\Platform\Outbox\OutboxPublisher;
 
 /**
  * Projects split an organization: services are assigned to a project, spend is reported per project, and a member's
@@ -29,7 +32,7 @@ use Onhost\Platform\Money\Money;
  */
 final class ProjectService
 {
-    public function __construct(private readonly AuditRecorder $audit, private readonly WalletForecast $forecast) {}
+    public function __construct(private readonly AuditRecorder $audit, private readonly WalletForecast $forecast, private readonly OutboxPublisher $outbox) {}
 
     /** @param array<string,mixed> $attributes */
     public function update(Organization $organization, Project $project, array $attributes, CommandContext $context): Project
@@ -86,25 +89,33 @@ final class ProjectService
     }
 
     /** A project role builds on an organization membership: the member keeps the organization role everywhere and gains this role inside the project. */
-    public function addMember(Organization $organization, Project $project, User $user, string $roleKey, CommandContext $context): ProjectMembership
+    public function addMember(Organization $organization, Project $project, User $user, string $roleKey, CommandContext $context, ?CarbonInterface $accessUntil = null): ProjectMembership
     {
         $this->assertOwned($organization, $project);
         if (! RoleCatalog::exists($roleKey) || RoleCatalog::all()[$roleKey]['staff'] || $roleKey === 'owner') {
             throw new DomainError('invalid_role', "Role {$roleKey} cannot be assigned inside a project.", 422, ['field' => 'role']);
         }
-        $member = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->where('state', 'active')->exists();
+        $membership = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->where('state', 'active')->first();
+        $member = $membership !== null;
+        if ($accessUntil !== null && $accessUntil->isPast()) {
+            throw new DomainError('access_until_past', 'access_until must be in the future.', 422, ['field' => 'access_until']);
+        }
+        // a project role never outlives the membership it builds on (H343)
+        if ($membership?->expires_at !== null && ($accessUntil === null || $accessUntil->gt($membership->expires_at))) {
+            $accessUntil = $membership->expires_at;
+        }
         if (! $member) {
             throw new DomainError('not_a_member', 'Invite the user to the organization first; project roles build on an organization membership.', 422, ['field' => 'user_id']);
         }
 
-        return DB::transaction(function () use ($organization, $project, $user, $roleKey, $context) {
-            $membership = ProjectMembership::query()->updateOrCreate(['project_id' => $project->id, 'user_id' => $user->id], ['role_key' => $roleKey]);
+        return DB::transaction(function () use ($organization, $project, $user, $roleKey, $context, $accessUntil) {
+            $membership = ProjectMembership::query()->updateOrCreate(['project_id' => $project->id, 'user_id' => $user->id], ['role_key' => $roleKey, 'expires_at' => $accessUntil]);
             PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)->where('scope_type', 'project')->where('scope_id', $project->id)->delete();
             PolicyBinding::query()->create([
                 'principal_type' => 'user', 'principal_id' => $user->id, 'role_key' => $roleKey,
-                'scope_type' => 'project', 'scope_id' => $project->id, 'organization_id' => $organization->id, 'granted_by' => $context->actorId,
+                'scope_type' => 'project', 'scope_id' => $project->id, 'organization_id' => $organization->id, 'granted_by' => $context->actorId, 'expires_at' => $accessUntil,
             ]);
-            $this->audit->record($context->withScope($organization->id, $project->id), 'project.member.add', 'succeeded', ['user_id' => $user->id, 'role' => $roleKey], 'project', $project->id);
+            $this->audit->record($context->withScope($organization->id, $project->id), 'project.member.add', 'succeeded', ['user_id' => $user->id, 'role' => $roleKey, 'access_until' => $accessUntil?->toIso8601String()], 'project', $project->id);
 
             return $membership;
         });
@@ -118,6 +129,8 @@ final class ProjectService
             PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)->where('scope_type', 'project')->where('scope_id', $project->id)->delete();
             $this->audit->record($context->withScope($organization->id, $project->id), 'project.member.remove', 'succeeded', ['user_id' => $user->id], 'project', $project->id);
         });
+        // panel accounts and SSH keys on this project's services outlive the role unless somebody takes them back (H343, H185, H333)
+        $this->outbox->publish(GenericEvent::of('project.member.removed', 'project', $project->id, ['user_id' => $user->id, 'email' => mb_strtolower((string) $user->email), 'organization_id' => $organization->id], $organization->id));
     }
 
     public function assignService(Organization $organization, Service $service, ?Project $project, CommandContext $context): Service

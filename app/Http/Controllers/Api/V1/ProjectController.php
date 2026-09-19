@@ -40,7 +40,7 @@ final class ProjectController extends ApiController
         $members = ProjectMembership::query()->where('project_id', $model->id)->get()->map(function (ProjectMembership $m) {
             $user = User::query()->find($m->user_id);
 
-            return ['user_id' => $m->user_id, 'email' => $user?->email, 'name' => $user?->name, 'role' => $m->role_key, 'since' => $m->created_at?->toIso8601String()];
+            return ['user_id' => $m->user_id, 'email' => $user?->email, 'name' => $user?->name, 'role' => $m->role_key, 'since' => $m->created_at?->toIso8601String(), 'access_until' => $m->expires_at?->toIso8601String()];
         })->all();
         $services = Service::query()->where('project_id', $model->id)->orderBy('created_at')->get()->map(fn (Service $s) => Presenters::service($s))->all();
         $spend = collect($projects->spend($org, (string) $org->currency)['projects'])->firstWhere('project_id', $model->id);
@@ -78,7 +78,7 @@ final class ProjectController extends ApiController
     {
         $org = $this->organization($request, $organization, 'project.manage');
         $model = $this->project($org, $project);
-        $data = $request->validate(['user_id' => ['required_without:email', 'nullable', 'string', 'max:40'], 'email' => ['required_without:user_id', 'nullable', 'email'], 'role' => ['required', 'string', 'max:40']]);
+        $data = $request->validate(['user_id' => ['required_without:email', 'nullable', 'string', 'max:40'], 'email' => ['required_without:user_id', 'nullable', 'email'], 'role' => ['required', 'string', 'max:40'], 'access_until' => ['nullable', 'date', 'after:now']]); // a project role that ends on a date (H343)
         $userId = $data['user_id'] ?? null;
         if ($userId === null) {
             $userId = User::query()->where('email', strtolower((string) $data['email']))->value('id');
@@ -87,7 +87,7 @@ final class ProjectController extends ApiController
             }
         }
 
-        return $this->dispatch(new OrganizationCommand($org->id, $this->idempotencyKey($request, "org.project.member:{$model->id}"), ['op' => 'add_project_member', 'project_id' => $model->id, 'user_id' => $userId, 'role' => $data['role']]), $this->api->context($request, $org), 201);
+        return $this->dispatch(new OrganizationCommand($org->id, $this->idempotencyKey($request, "org.project.member:{$model->id}"), ['op' => 'add_project_member', 'project_id' => $model->id, 'user_id' => $userId, 'role' => $data['role'], 'access_until' => $data['access_until'] ?? null]), $this->api->context($request, $org), 201);
     }
 
     public function removeMember(Request $request, string $organization, string $project, string $user): JsonResponse

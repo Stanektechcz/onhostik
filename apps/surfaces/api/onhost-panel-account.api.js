@@ -395,12 +395,18 @@
       stats: [H.stat(_('Členů', 'Members'), String(members.length), '', 3, Math.min(100, members.length * 20), 12, 'ok'), H.stat(_('Vlastníků', 'Owners'), String(members.filter(function (m) { return m.role === 'owner'; }).length), '', 11, 40, 8, 'ok'), H.stat(_('Vaše role', 'Your role'), roleLabel(u.member_role || 'owner', cs), '', 19, 100, 6, 'ok'), H.stat(_('Rolí k dispozici', 'Roles available'), String(ROLES.length), '', 27, 60, 6, 'ok')],
       form: canManage ? {
         title: _('Pozvat člena', 'Invite a member'), note: _('pozvánka platí 7 dní · role určuje rozsah, ne důvěru', 'the invitation is valid 7 days · a role grants scope, not trust'),
-        fields: [{ key: 'invEmail', label: 'E-mail', ph: 'kolega@firma.cz', kind: 'text' }, { key: 'invRole', label: _('Role', 'Role'), kind: 'select', options: ROLES.filter(function (r) { return r[0] !== 'owner'; }).map(function (r) { return cs ? r[1] : r[2]; }) }],
+        fields: [{ key: 'invEmail', label: 'E-mail', ph: 'kolega@firma.cz', kind: 'text' }, { key: 'invRole', label: _('Role', 'Role'), kind: 'select', options: ROLES.filter(function (r) { return r[0] !== 'owner'; }).map(function (r) { return cs ? r[1] : r[2]; }) }, { key: 'invUntil', label: _('Přístup do (volitelné)', 'Access until (optional)'), ph: 'RRRR-MM-DD', kind: 'text' }],
         cta: _('Poslat pozvánku', 'Send invitation'), hint: _('Pozvaný dostane e-mail s odkazem; do přijetí nemá k účtu přístup.', 'The invitee gets an e-mail link; no access until it is accepted.'),
         submit: function () {
           var email = String(s.invEmail || '').trim(), role = roleKey(s.invRole || (cs ? 'jen čtení' : 'viewer'));
           if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { flash(cmp, _('Neplatný e-mail', 'Invalid e-mail'), ''); return; }
-          A().post('/organizations/' + encodeURIComponent(orgId()) + '/invitations', { email: email, role: role }, A().key()).then(function () { cmp.setState({ invEmail: '' }); flash(cmp, _('Pozvánka odeslána', 'Invitation sent'), email + ' · ' + roleLabel(role, cs)); reload(cmp, 'org'); }).catch(function (e) { fail(cmp, _, e); });
+          var untilText = String(s.invUntil || '').trim(), until = null; // lecturers, contractors: the access ends by itself on that day
+          if (untilText !== '') {
+            var parsed = /^\d{4}-\d{2}-\d{2}$/.test(untilText) ? new Date(untilText + 'T23:59:59') : null;
+            if (!parsed || isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) { flash(cmp, _('Neplatné datum konce přístupu', 'Invalid end of access'), _('zadejte budoucí den ve tvaru RRRR-MM-DD', 'enter a future day as YYYY-MM-DD')); return; }
+            until = parsed.toISOString();
+          }
+          A().post('/organizations/' + encodeURIComponent(orgId()) + '/invitations', until ? { email: email, role: role, access_until: until } : { email: email, role: role }, A().key()).then(function () { cmp.setState({ invEmail: '', invUntil: '' }); flash(cmp, _('Pozvánka odeslána', 'Invitation sent'), email + ' · ' + roleLabel(role, cs)); reload(cmp, 'org'); }).catch(function (e) { fail(cmp, _, e); });
         }
       } : null,
       tableTitle: _('Členové', 'Members'), tableNote: _('role a stav přístupu', 'role and access state'),
@@ -408,7 +414,7 @@
       rows: members.filter(function (m) { return H.match(m.name) || H.match(m.email); }).map(function (m) {
         var self = m.user_id === u.id, owner = m.role === 'owner';
         return {
-          name: (m.name || m.email || '—') + (self ? _(' (vy)', ' (you)') : ''), sub: m.email || '', c2: roleLabel(m.role, cs),
+          name: (m.name || m.email || '—') + (self ? _(' (vy)', ' (you)') : ''), sub: (m.email || '') + (m.access_until ? _(' · přístup do ', ' · access until ') + day(m.access_until, cs) : ''), c2: roleLabel(m.role, cs),
           state: m.state === 'active' ? _('aktivní', 'active') : (m.state || '—'), stateStyle: H.pill(m.state === 'active' ? 'ok' : 'warn'), barStyle: H.bar(owner ? 100 : 60, 'ok'), metric: day(m.joined_at, cs), rowStyle: H.rowStyle,
           action: canManage && !self && !owner ? _('Změnit roli', 'Change role') : (canManage && !self && owner ? '' : ''), actionCls: 'btn btn-secondary',
           onAction: function () {

@@ -43,11 +43,11 @@ final class OrganizationController extends ApiController
     public function show(Request $request, string $organization): JsonResponse
     {
         $org = $this->resolve($request, $organization, 'organization.read');
-        $members = OrganizationMembership::query()->with('user')->where('organization_id', $org->id)->get()->map(fn ($m) => ['user_id' => $m->user_id, 'email' => $m->user?->email, 'name' => $m->user?->name, 'role' => $m->role_key, 'state' => $m->state, 'joined_at' => $m->joined_at?->toIso8601String()])->all();
+        $members = OrganizationMembership::query()->with('user')->where('organization_id', $org->id)->get()->map(fn ($m) => ['user_id' => $m->user_id, 'email' => $m->user?->email, 'name' => $m->user?->name, 'role' => $m->role_key, 'state' => $m->state, 'joined_at' => $m->joined_at?->toIso8601String(), 'access_until' => $m->expires_at?->toIso8601String()])->all();
         $projects = Project::query()->where('organization_id', $org->id)->orderBy('name')->get()->map(fn ($p) => Presenters::project($p))->all();
         // pending invitations (not accepted, not expired) — the team page lists and cancels them; the accept token never leaves the mail
         $invitations = OrganizationInvitation::query()->where('organization_id', $org->id)->whereNull('accepted_at')->where('expires_at', '>', now())->orderBy('created_at')->get()
-            ->map(fn ($i) => ['id' => $i->id, 'email' => $i->email, 'role' => $i->role_key, 'expires_at' => $i->expires_at?->toIso8601String(), 'created_at' => $i->created_at?->toIso8601String()])->all();
+            ->map(fn ($i) => ['id' => $i->id, 'email' => $i->email, 'role' => $i->role_key, 'expires_at' => $i->expires_at?->toIso8601String(), 'access_until' => $i->access_expires_at?->toIso8601String(), 'created_at' => $i->created_at?->toIso8601String()])->all();
 
         return response()->json(['data' => Presenters::organization($org) + ['members' => $members, 'projects' => $projects, 'invitations' => $invitations]]);
     }
@@ -78,7 +78,7 @@ final class OrganizationController extends ApiController
     public function invite(Request $request, string $organization): JsonResponse
     {
         $org = $this->resolve($request, $organization, 'organization.members.manage');
-        $data = $request->validate(['email' => ['required', 'email'], 'role' => ['required', 'string', 'max:40']]);
+        $data = $request->validate(['email' => ['required', 'email'], 'role' => ['required', 'string', 'max:40'], 'access_until' => ['nullable', 'date', 'after:now']]); // access_until: the membership ends on that date (H343)
 
         return $this->dispatch(new OrganizationCommand($org->id, $this->idempotencyKey($request, 'org.invite'), ['op' => 'invite'] + $data), $this->api->context($request, $org), 201);
     }
@@ -94,9 +94,9 @@ final class OrganizationController extends ApiController
     public function changeRole(Request $request, string $organization, string $user): JsonResponse
     {
         $org = $this->resolve($request, $organization, 'organization.members.manage');
-        $data = $request->validate(['role' => ['required', 'string', 'max:40']]);
+        $data = $request->validate(['role' => ['required', 'string', 'max:40'], 'access_until' => ['sometimes', 'nullable', 'date', 'after:now']]); // absent = keep the end the member has; null = no end
 
-        return $this->dispatch(new OrganizationCommand($org->id, $this->idempotencyKey($request, 'org.role'), ['op' => 'change_role', 'user_id' => $user, 'role' => $data['role']]), $this->api->context($request, $org));
+        return $this->dispatch(new OrganizationCommand($org->id, $this->idempotencyKey($request, 'org.role'), ['op' => 'change_role', 'user_id' => $user] + $data), $this->api->context($request, $org));
     }
 
     public function removeMember(Request $request, string $organization, string $user): JsonResponse

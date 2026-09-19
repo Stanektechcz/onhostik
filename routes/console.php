@@ -38,6 +38,7 @@ use Onhost\Domain\Notifications\DigestService;
 use Onhost\Domain\Notifications\NotificationService;
 use Onhost\Domain\Notifications\WebhookDispatcher;
 use Onhost\Domain\Orders\CommerceHousekeeping;
+use Onhost\Domain\Organizations\AccessExpiry;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Partners\PartnerService;
@@ -679,6 +680,22 @@ Artisan::command('onhost:services:purge {--service= : one service id or name, ot
  * without deleting anything (the way to prove the archive path of a panel before a real cancellation).
  */
 /*
+ * Access that ended on its date (Brain card H343). The permission stopped by itself at that second; this pass removes
+ * the membership or the project role afterwards, the same way a removal by hand does — which is what takes the person's
+ * collaborator accounts and SSH keys off the panels — and tells the organization.
+ */
+Artisan::command('onhost:access:expire', function (AccessExpiry $expiry, AutomationLedger $ledger) {
+    if ($ledger->off('access.expire')) {
+        $this->warn('switched off by staff (console → automation); expired permissions stay refused, only the clean-up waits');
+
+        return;
+    }
+    $stats = $expiry->sweep();
+    $ledger->record('access.expire', $stats);
+    $this->table(['memberships', 'project_roles', 'errors'], [$stats]);
+})->purpose('Remove memberships and project roles whose access ended on its date, with the panel accounts and SSH keys that were theirs');
+
+/*
  * SSH key revocations a panel has not taken yet (Brain card H185). Removing a member asks every panel to drop their
  * keys at once; this pass repeats the ones that failed or could not be queued — a locked panel, a site busy with
  * another operation — and tells staff about one that keeps failing. Until it is confirmed the key may still work.
@@ -928,6 +945,7 @@ Schedule::command('onhost:backups:run')->everyFifteenMinutes()->withoutOverlappi
 Schedule::command('onhost:certificates:renew')->dailyAt('03:10')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:purge')->dailyAt('03:40')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:access:review')->weeklyOn(1, '04:50')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:access:expire')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:ssh-keys:settle')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:cdn:refresh')->hourlyAt(35)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:web-tools:prune')->hourlyAt(50)->onOneServer();

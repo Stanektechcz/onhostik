@@ -37,9 +37,10 @@ final class DelegatedAccessReview
     ) {}
 
     /**
+     * @param  ?list<string>  $serviceIds
      * @return array{services:int, revoked:list<array{service_id:string, email:string, operation_id:?string}>, deferred:list<array{service_id:string, reason:string}>}
      */
-    public function revokeForMember(Organization $organization, string $email, CommandContext $context): array
+    public function revokeForMember(Organization $organization, string $email, CommandContext $context, ?array $serviceIds = null): array
     {
         $email = mb_strtolower(trim($email));
         $report = ['services' => 0, 'revoked' => [], 'deferred' => []];
@@ -47,6 +48,9 @@ final class DelegatedAccessReview
             return $report;
         }
         foreach ($this->gameServices($organization->id) as $service) {
+            if ($serviceIds !== null && ! in_array($service->id, $serviceIds, true)) {
+                continue; // a project role ended: only that project's servers
+            }
             $report['services']++;
             try {
                 foreach ($this->subusers($service) as $subuser) {
