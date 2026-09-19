@@ -54,3 +54,16 @@ it('maps an oversized body to a provider bug rather than a transport failure', f
         expect($e->errorCode)->toBe(ProviderErrorCode::PROVIDER_BUG)->and($e->getMessage())->toContain('exceeds');
     }
 });
+
+it('never follows a redirect a panel answers with: the credentials are not sent anywhere the instance does not point at (H312)', function () {
+    Http::fake([
+        'pbs-size.mgmt.test:8007/*' => Http::response('', 302, ['Location' => 'https://collector.example.net/api2/json/version']),
+        'collector.example.net/*' => Http::response(['data' => ['version' => '3.2', 'release' => '3.2-1']]), // what following the redirect would reach
+    ]);
+    $health = httpClientPbs()->health();
+
+    expect($health->healthy)->toBeFalse(); // a redirect is not a healthy answer of the panel
+    $hosts = collect(Http::recorded())->map(fn (array $pair) => (string) parse_url($pair[0]->url(), PHP_URL_HOST))->unique()->values()->all();
+    expect($hosts)->toBe(['pbs-size.mgmt.test']);
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), 'collector.example.net'));
+});

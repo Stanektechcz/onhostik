@@ -225,7 +225,9 @@ final class ProviderHttpClient
             ->timeout($request->timeoutSeconds)
             ->connectTimeout($request->connectTimeoutSeconds)
             ->withHeaders(array_merge(['User-Agent' => 'ONhost-ControlPlane/1.0'], $request->headers))
-            ->withOptions(array_merge(['http_errors' => false, 'allow_redirects' => false, 'stream' => true], $request->options)); // streamed so the size ceiling applies before the body sits in memory
+            // streamed so the size ceiling applies before the body sits in memory; the three transport rules come last, so no
+            // adapter's own options (verify, cert, proxy) can switch them off — a redirect is never followed (H312)
+            ->withOptions(array_merge($request->options, ['http_errors' => false, 'allow_redirects' => false, 'stream' => true]));
         if ($request->bodyType === 'json') {
             $pending = $pending->acceptJson();
         }

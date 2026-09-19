@@ -155,6 +155,36 @@ it('requires step-up and a second approver for critical commands', function () {
         ->and(AuditEvent::query()->where('action', 'test.backup.delete')->where('result', 'succeeded')->value('step_up_method'))->toBe('totp');
 });
 
+it('refuses an approval the requester gave themselves, one given for another payload, and one already used (H336)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $bus = app(CommandBus::class);
+    app(StepUpService::class)->grant($owner, 'totp', 'test-session', '127.0.0.1');
+    $command = new DangerousTestCommand($org->id, 'gen-1', 'idem-h336-1');
+    $approval = fn (string $decidedBy, array $audit) => Approval::query()->create([
+        'action' => 'test.backup.delete', 'payload_hash' => HashChain::hashPayload($audit), 'requested_by' => $owner->id, 'state' => 'approved',
+        'decided_by' => $decidedBy, 'decided_at' => now(), 'expires_at' => now()->addHour(), 'organization_id' => $org->id,
+    ]);
+    $with = fn (Approval $a) => new CommandContext('user', $owner->id, $org->id, null, '127.0.0.1', 'pest', 'test-session', approvalIds: [$a->id]);
+    $refused = function (Command $command, CommandContext $context) use ($bus): void {
+        expect(fn () => $bus->dispatch($command, $context))->toThrow(fn (DomainError $e) => expect($e->error)->toBe('approval_required'));
+    };
+
+    // the author cannot be their own second pair of eyes
+    $own = $approval($owner->id, $command->toAudit());
+    $refused($command, $with($own));
+    expect($own->refresh()->state)->toBe('approved'); // and the attempt did not burn it
+
+    // an approval is for exactly what was shown to the approver
+    $other = $approval('usr_second_person', (new DangerousTestCommand($org->id, 'gen-OTHER', 'idem-h336-x'))->toAudit());
+    $refused($command, $with($other));
+
+    // a real one works once
+    $real = $approval('usr_second_person', $command->toAudit());
+    expect($bus->dispatch($command, $with($real)))->toBe(['renamed' => 'gen-1'])->and($real->refresh()->state)->toBe('consumed');
+    $refused(new DangerousTestCommand($org->id, 'gen-1', 'idem-h336-2'), $with($real));
+    expect(AuditEvent::query()->where('action', 'test.backup.delete')->where('result', 'succeeded')->count())->toBe(1);
+});
+
 it('keeps the audit hash chain verifiable', function () {
     [$owner, $org] = $this->customerWithOrganization();
     $bus = app(CommandBus::class);
