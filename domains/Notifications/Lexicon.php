@@ -92,6 +92,7 @@ final class Lexicon
         'Nové přihlášení' => 'New sign-in', 'Dvoufázové ověření změněno' => 'Two-factor authentication changed', 'Heslo bylo změněno' => 'Password changed', 'Účet dočasně uzamčen' => 'Account temporarily locked', 'Opakované neúspěšné přihlášení z ' => 'Repeated failed sign-ins from ',
         'Vytvořen API token „' => 'API token created „', 'rozsah: ' => 'scope: ',
         // support, incidents
+        'Nabídka placeného zásahu · ' => 'Offer of paid work · ', 'Čeká na vaše rozhodnutí: ' => 'Waiting for your decision: ', ' bez DPH. Bez schválení nic neúčtujeme.' => ' excl. VAT. Nothing is billed without your approval.',
         'Ohodnoťte prosím řešení.' => 'Please rate the resolution.', 'Probíhá incident' => 'Incident in progress', 'Incident vyřešen' => 'Incident resolved', 'Plánovaná údržba' => 'Planned maintenance',
         // partners and marketplace
         'Partnerský účet schválen' => 'Partner account approved', 'Stupeň přepočítán: ' => 'Tier recalculated: ', 'Sazba ' => 'Rate ', 'Provize vyplacena' => 'Commission paid out',

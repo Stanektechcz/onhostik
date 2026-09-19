@@ -26,6 +26,7 @@ final class Redactor
     private const ALLOW_KEYS = [
         'keyset', 'nsset', 'key_name', 'keyid', 'token_id', 'tokenid', 'ticket_id', 'ticket_ref', 'ticket_number',
         'public_key', 'card_last4', 'card_brand', 'signature_ok', 'auth_method', 'authenticated', 'tokens_total',
+        'author', 'author_type', 'author_id', 'author_name', // who wrote a message — "auth" is only how the word starts
     ];
 
     public function redact(mixed $value, int $depth = 0): mixed

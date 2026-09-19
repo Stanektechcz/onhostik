@@ -229,6 +229,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
     Route::post('tickets/{ticket}/messages', [SupportController::class, 'reply']);
     Route::post('tickets/{ticket}/close', [SupportController::class, 'close']);
     Route::post('tickets/{ticket}/csat', [SupportController::class, 'rate']);
+    Route::get('tickets/{ticket}/work-offers', [SupportController::class, 'workOffers']); // paid work outside the plan: offered with a price, billed only after approval (H29)
+    Route::post('tickets/{ticket}/work-offers/{offer}/decision', [SupportController::class, 'decideWorkOffer']);
     Route::post('assistant/chat', [SupportController::class, 'assistant']);
 
     Route::get('notifications', [NotificationController::class, 'index']);
@@ -495,6 +497,10 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::post('tickets/{ticket}/transition', [StaffSupportController::class, 'transition']);
         Route::post('tickets/{ticket}/assign', [StaffSupportController::class, 'assign']);
         Route::post('tickets/{ticket}/escalate', [StaffSupportController::class, 'escalate']);
+        Route::get('tickets/{ticket}/work-offers', [StaffSupportController::class, 'workOffers']);
+        Route::post('tickets/{ticket}/work-offers', [StaffSupportController::class, 'proposeWork']);
+        Route::post('tickets/{ticket}/work-offers/{offer}/withdraw', [StaffSupportController::class, 'withdrawWork']);
+        Route::post('tickets/{ticket}/work-offers/{offer}/complete', [StaffSupportController::class, 'completeWork']);
         Route::get('outbox', [NotificationController::class, 'outbox']);
         Route::post('outbox/{mail}/send', [NotificationController::class, 'sendMail']);
         Route::get('templates', [NotificationController::class, 'templates']);

@@ -7,11 +7,15 @@ namespace App\Http\Controllers\Api\V1;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Support\Assistant\AssistantService;
+use Onhost\Domain\Support\Commands\WorkOfferDecisionCommand;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\Models\TicketMessage;
+use Onhost\Domain\Support\Models\WorkOffer;
 use Onhost\Domain\Support\TicketService;
 use Onhost\Domain\Support\TicketStateMachine;
+use Onhost\Domain\Support\WorkOfferService;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 
@@ -53,6 +57,24 @@ final class SupportController extends ApiController
         $tickets->reply($model, 'customer', $user->id, $user->name, $data['body'], $this->api->context($request), 'public', (array) ($data['attachments'] ?? []));
 
         return response()->json(['data' => self::ticket($model->fresh(), true)]);
+    }
+
+    /** Offers of paid work on the ticket (H29): what is offered, for how much, and what was decided. */
+    public function workOffers(Request $request, WorkOfferService $offers, string $ticket): JsonResponse
+    {
+        return response()->json(['data' => $offers->forTicket($this->resolve($request, $ticket))]);
+    }
+
+    /** The customer's answer to the price. Approving takes the right to place orders; declining only the right to write on the ticket. */
+    public function decideWorkOffer(Request $request, string $ticket, string $offer): JsonResponse
+    {
+        $model = $this->resolve($request, $ticket);
+        $data = $request->validate(['approve' => ['required', 'boolean'], 'note' => ['nullable', 'string', 'max:500']]);
+        if (! WorkOffer::query()->where('ticket_id', $model->id)->whereKey($offer)->exists()) {
+            throw DomainError::notFound('work offer');
+        }
+
+        return $this->dispatch(new WorkOfferDecisionCommand((string) $model->organization_id, $this->idempotencyKey($request, 'ticket.work_offer.decide:'.$offer), ['offer_id' => $offer, 'approve' => (bool) $data['approve'], 'note' => $data['note'] ?? null, 'author_name' => $this->api->user($request)->name]), $this->api->context($request, Organization::query()->find($model->organization_id)));
     }
 
     public function resolve(Request $request, string $id, string $permission = 'support.ticket.read'): Ticket

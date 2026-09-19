@@ -80,6 +80,7 @@ use Onhost\Domain\Services\Web\CertificateService;
 use Onhost\Domain\Services\Web\UptimeMonitor;
 use Onhost\Domain\Services\Web\WebFileStore;
 use Onhost\Domain\Support\TicketService;
+use Onhost\Domain\Support\WorkOfferService;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\WalletForecast;
 use Onhost\Domain\WalletLedger\WalletService;
@@ -388,8 +389,8 @@ Artisan::command('onhost:platform:backup:verify {set?}', function (PlatformBacku
     return $r['ok'] ? 0 : 1;
 })->purpose('Read the newest platform backup back and check it restores (sizes, checksums, dump integrity)');
 
-Artisan::command('onhost:support:sla', function (TicketService $tickets) {
-    $this->table(['breached', 'closed'], [$tickets->tick()]);
+Artisan::command('onhost:support:sla', function (TicketService $tickets, WorkOfferService $offers) {
+    $this->table(['breached', 'closed', 'offers_expired'], [$tickets->tick() + ['offers_expired' => $offers->expire()]]);
 })->purpose('Detect support SLA breaches (escalate) and auto-close resolved tickets');
 
 Artisan::command('onhost:ledger:verify', function (LedgerService $ledger) {

@@ -23,6 +23,23 @@ DUE → OVERDUE_NOTICE (day 3, 7, 14 notices) → GRACE → SUSPENDED (day 30) �
 | Cancel an unpaid order | `POST /v1/orders/{id}/transition` `{to: CANCELLED}` (customer or staff) | voids the proforma (`invoice.cancelled`, audit `invoice.cancel`) and cancels the bank payment intent, so a late transfer with that symbol lands in reconciliation instead of paying a dead order; paid documents are never voided — use a credit note |
 | Bank-transfer top-up | `POST /v1/payments/init` `{provider: bank}` | variable symbol series `9` + year + sequence (`TU` sequence), distinct from document symbols (year + sequence); every attempt is its own intent |
 
+## Paid work on a ticket (Brain card H29)
+
+Support covers the infrastructure. Administering the customer's own system, repairing their application or custom
+development is work outside the plan and needs a price the customer approved:
+
+1. Support offers it on the ticket: `POST /v1/staff/tickets/{ticket}/work-offers` `{scope: administration|application|development,
+   description, price_net, minutes?}` (`support.ticket.manage`). `scope: infrastructure` is refused (`work_in_scope`) —
+   that is what the plan pays for. The customer reads the offer in the ticket and gets the ordinary reply mail.
+2. The customer answers: `POST /v1/tickets/{ticket}/work-offers/{offer}/decision` `{approve, note?}`. Approving takes
+   `catalog.order.create` (the right that places orders — a support contact can read the offer and decline it, not accept
+   it). Nothing is charged at approval. An offer is valid `ONHOST_WORK_OFFER_VALID_DAYS` (14) days; a declined or
+   expired one is not revived — make a new offer.
+3. When the work is done: `POST …/work-offers/{offer}/complete`. It bills exactly the approved net price (the amount is
+   not a parameter) plus tax: from credit when it covers the total, otherwise by an invoice with the usual due date and
+   a dunning case. Anything not approved answers 409 `work_offer_not_approved`. A second "complete" bills nothing.
+4. `…/withdraw {reason}` takes back an open or approved offer that will not be carried out; nothing is billed.
+
 ## Bank transfers (proformas and top-ups)
 
 Transfers have no webhook. Incoming statement lines are matched by variable symbol + amount to the pending bank

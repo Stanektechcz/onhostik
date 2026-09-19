@@ -658,7 +658,7 @@ final class MarketplaceService
                 }, (array) ($order->period_evidence ?? []));
                 $order->forceFill(['period_uploads' => $uploads ?: null, 'period_evidence' => $history ?: null])->save();
                 if ($stats['infected'] > $before) {
-                    $this->outbox->publish(GenericEvent::of('files.infected', 'marketplace_order', $order->id, ['name' => 'evidence', 'subject' => 'marketplace_order', 'signature' => null, 'actor' => 'files.scan'], $order->organization_id));
+                    $this->outbox->publish(GenericEvent::of('files.infected', 'marketplace_order', $order->id, ['name' => 'evidence', 'subject' => 'marketplace_order', 'malware' => null, 'actor' => 'files.scan'], $order->organization_id));
                 }
             }
         });

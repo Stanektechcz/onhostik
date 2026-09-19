@@ -21,7 +21,7 @@ final class UploadGuard
     {
         if ($scan['result'] === VirusScanner::INFECTED) {
             app(AuditRecorder::class)->record($context, 'files.upload.infected', 'denied', ['subject' => $subjectType, 'name' => mb_substr($name, 0, 120), 'signature' => $scan['signature']], $subjectType, $subjectId);
-            app(OutboxPublisher::class)->publish(GenericEvent::of('files.infected', $subjectType, $subjectId, ['name' => mb_substr($name, 0, 120), 'signature' => $scan['signature'], 'subject' => $subjectType, 'actor' => $context->actorId], $context->organizationId));
+            app(OutboxPublisher::class)->publish(GenericEvent::of('files.infected', $subjectType, $subjectId, ['name' => mb_substr($name, 0, 120), 'malware' => $scan['signature'], 'subject' => $subjectType, 'actor' => $context->actorId], $context->organizationId));
 
             throw new DomainError('upload_infected', 'The file contains malware ('.$scan['signature'].') and was deleted.', 422, ['field' => 'file', 'signature' => $scan['signature']]);
         }

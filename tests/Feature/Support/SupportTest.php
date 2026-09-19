@@ -63,6 +63,11 @@ it('runs the conversation: staff reply pauses clocks, customer reply resumes, re
     $this->postJson("/v1/staff/tickets/{$ticket->id}/messages", ['body' => 'Doklad s IČO jsme přegenerovali, najdete jej v sekci Fakturace.', 'macro' => 'billing-invoice-where'])->assertOk()->assertJsonPath('data.state', TicketStateMachine::WAITING_CUSTOMER);
     $ticket->refresh();
     expect($ticket->first_responded_at)->not->toBeNull()->and($ticket->waiting_since)->not->toBeNull();
+    // the customer hears about it: the event says who wrote, and the outbox must not mask that (`author_type` starts with "auth")
+    app(OutboxPublisher::class)->relayPending();
+    expect(Notification::query()->where('audience', 'customer')->where('event', 'ticket.replied')->where('organization_id', $org->id)->sole()->title)->toBe("Odpověď podpory · {$ticket->number}")
+        ->and(MailOutbox::query()->where('template_key', 'ticket-reply')->where('to', strtolower($user->email))->exists())->toBeTrue()
+        ->and(Notification::query()->where('audience', 'internal')->where('event', 'ticket.replied')->exists())->toBeFalse();
     $first = SlaEvent::query()->where('ticket_id', $ticket->id)->where('kind', 'first_response')->firstOrFail();
     expect($first->met)->toBeTrue()->and($first->delta_minutes)->toBeLessThan(0);
     expect($ticket->messages()->where('visibility', 'public')->count())->toBe(2)->and($ticket->messages()->where('visibility', 'internal')->count())->toBe(1);

@@ -9,13 +9,16 @@ use App\Http\Controllers\Api\V1\SupportController as CustomerSupportController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Support\Assistant\AssistantService;
+use Onhost\Domain\Support\Commands\WorkOfferStaffCommand;
 use Onhost\Domain\Support\Models\SupportMacro;
 use Onhost\Domain\Support\Models\SupportQueue;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\Models\TicketMessage;
+use Onhost\Domain\Support\Models\WorkOffer;
 use Onhost\Domain\Support\TicketService;
 use Onhost\Domain\Support\TicketStateMachine;
 use Onhost\Domain\Support\Triage;
+use Onhost\Domain\Support\WorkOfferService;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 
@@ -112,6 +115,44 @@ final class SupportController extends ApiController
         $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:250']]);
 
         return response()->json(['data' => CustomerSupportController::ticket($tickets->escalate($this->find($ticket), $this->api->context($request), $data['reason']))]);
+    }
+
+    /** Offers of paid work on a ticket (H29). */
+    public function workOffers(Request $request, WorkOfferService $offers, string $ticket): JsonResponse
+    {
+        $this->api->authorize($request, 'support.ticket.manage', CommandScope::global());
+
+        return response()->json(['data' => $offers->forTicket($this->find($ticket))]);
+    }
+
+    /** Offer work outside the plan with its price; nothing is billed until the customer approves it and the work is marked done. */
+    public function proposeWork(Request $request, string $ticket): JsonResponse
+    {
+        $data = $request->validate(['scope' => ['required', 'string', 'max:24'], 'description' => ['required', 'string', 'min:10', 'max:1000'], 'price_net' => ['required', 'numeric', 'gt:0'], 'minutes' => ['nullable', 'integer', 'min:1', 'max:100000']]);
+
+        return $this->dispatch(new WorkOfferStaffCommand($this->idempotencyKey($request, 'ticket.work_offer.propose'), ['op' => 'propose', 'ticket_id' => $this->find($ticket)->id, 'price_net' => (string) $data['price_net']] + $data), $this->api->context($request), 201);
+    }
+
+    public function withdrawWork(Request $request, string $ticket, string $offer): JsonResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:500']]);
+
+        return $this->dispatch(new WorkOfferStaffCommand($this->idempotencyKey($request, 'ticket.work_offer.withdraw:'.$offer), ['op' => 'withdraw', 'offer_id' => $this->offerOf($ticket, $offer), 'reason' => $data['reason']]), $this->api->context($request));
+    }
+
+    /** The work is done: bill the approved price. Refused with 409 `work_offer_not_approved` for anything the customer did not approve. */
+    public function completeWork(Request $request, string $ticket, string $offer): JsonResponse
+    {
+        return $this->dispatch(new WorkOfferStaffCommand($this->idempotencyKey($request, 'ticket.work_offer.complete:'.$offer), ['op' => 'complete', 'offer_id' => $this->offerOf($ticket, $offer)]), $this->api->context($request));
+    }
+
+    private function offerOf(string $ticket, string $offer): string
+    {
+        if (! WorkOffer::query()->where('ticket_id', $this->find($ticket)->id)->whereKey($offer)->exists()) {
+            throw DomainError::notFound('work offer');
+        }
+
+        return $offer;
     }
 
     public function clusters(Request $request, TicketService $tickets): JsonResponse

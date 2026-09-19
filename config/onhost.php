@@ -118,6 +118,10 @@ return [
         'iban' => env('ONHOST_BANK_IBAN', ''), 'bic' => env('ONHOST_BANK_BIC', ''), 'bank_account' => env('ONHOST_BANK_ACCOUNT', ''),
     ],
 
+    'support' => [ // paid work on a ticket (H29): offered with a price, billed only after the customer approved it
+        'work_offer' => ['valid_days' => (int) env('ONHOST_WORK_OFFER_VALID_DAYS', 14), 'max_net' => (string) env('ONHOST_WORK_OFFER_MAX_NET', '250000')],
+    ],
+
     'billing' => [
         'currencies' => ['CZK', 'EUR'],
         'default_currency' => 'CZK',

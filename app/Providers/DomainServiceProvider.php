@@ -70,6 +70,9 @@ use Onhost\Domain\Services\Commands\ServicesCommandHandler;
 use Onhost\Domain\Services\Commands\WebToolsCommand;
 use Onhost\Domain\Services\Commands\WebToolsCommandHandler;
 use Onhost\Domain\Services\Listeners\RevokeDelegatedAccess;
+use Onhost\Domain\Support\Commands\WorkOfferCommandHandler;
+use Onhost\Domain\Support\Commands\WorkOfferDecisionCommand;
+use Onhost\Domain\Support\Commands\WorkOfferStaffCommand;
 use Onhost\Domain\WalletLedger\Commands\AutoTopupCommand;
 use Onhost\Domain\WalletLedger\Commands\RemovePaymentMethodCommand;
 use Onhost\Domain\WalletLedger\Commands\TopUpWalletCommand;
@@ -115,6 +118,8 @@ final class DomainServiceProvider extends ServiceProvider
         CapacityCommand::class => CapacityCommandHandler::class,
         InvoiceCommand::class => InvoicingCommandHandler::class,
         IncidentCommand::class => IncidentsCommandHandler::class,
+        WorkOfferStaffCommand::class => WorkOfferCommandHandler::class,
+        WorkOfferDecisionCommand::class => WorkOfferCommandHandler::class,
         OnCallCommand::class => OnCallCommandHandler::class,
         ComplianceCommand::class => ComplianceCommandHandler::class,
         PartnerCommand::class => PartnersCommandHandler::class,

@@ -45,7 +45,9 @@
   and none when the stop has an explanation (H14); an incident reaches only the affected customers and shows them
   nothing internal (H16). A cart the catalogue does not offer is refused before an order, a document or a movement of
   money exists, and an order keeps the plan version, limits and price it was sold with after a new version of the plan
-  is published (H01). A member removed from an organization loses their collaborator accounts on its game servers at once, and a
+  is published (H01). Work outside the plan is offered on the ticket with a price and billed only after the customer
+  approved it, for exactly that price (H29). Event payloads keep who wrote a message (`author_*`): the outbox masked
+  `author_type`, so a reply of support never reached the customer — fixed, with a guard test over every published key. A member removed from an organization loses their collaborator accounts on its game servers at once, and a
   weekly review reports panel accounts of people who are not members (H333, H332). Assessments live in the
   vault (`Hosting/ASSESSMENT-2026-09-17`, `Hosting/ASSESSMENT-2026-09-19`).
 - What remains is operational: the staging run of the new lifecycle, the payment gateway and bank tokens, staff MFA,
@@ -54,7 +56,7 @@
 ## Verified baseline
 
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 462 tests, 10 901 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 466 tests, 10 990 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
