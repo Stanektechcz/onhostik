@@ -279,7 +279,7 @@ final class Doctor extends Command
 
     private function identity(): void
     {
-        $this->add('identity', 'staff MFA required', (bool) config('onhost.security.staff_mfa_required'), config('onhost.security.staff_mfa_required') ? '' : 'ONHOST_STAFF_MFA_REQUIRED=false');
+        $this->add('identity', 'staff MFA required', (bool) config('onhost.identity.staff_mfa_required', true), config('onhost.identity.staff_mfa_required', true) ? '' : 'ONHOST_STAFF_MFA_REQUIRED=false');
         $demo = User::query()->whereIn('email', ['demo@onhost.cz', 'agentura@onhost.cz', 'admin@onhost.cz', 'noc@onhost.cz', 'finance@onhost.cz', 'support@onhost.cz'])->count();
         $this->add('identity', 'no development accounts', $demo === 0, $demo > 0 ? "{$demo} DevAccountSeeder account(s) present" : '');
         $staff = User::query()->where('is_staff', true)->count();

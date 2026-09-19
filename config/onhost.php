@@ -10,6 +10,7 @@ use Onhost\Providers\Wedos\WedosPublicPriceList;
  */
 return [
     'brand' => 'ONhost',
+    'version' => '4.0', // reported by /health, the OpenAPI document, traces and error reports
     'portal_url' => env('ONHOST_PORTAL_URL', env('APP_URL', 'http://localhost:8000')),
     'default_locale' => env('ONHOST_DEFAULT_LOCALE', 'cs'),
     'locales' => ['cs', 'sk', 'en'],
@@ -129,6 +130,7 @@ return [
         'min_topup' => ['CZK' => '100', 'EUR' => '5'],
         'legal_entity' => env('ONHOST_LEGAL_ENTITY', 'onhost-cz'),
         'invoice_due_days' => 14,
+        'manual_credit_max' => 100000, // the most staff may credit to a wallet in one step, in major units (OrdersCommandHandler)
         'renew_lead_days' => (int) env('ONHOST_SERVICE_RENEW_LEAD_DAYS', 7),
         'refund_approval_threshold' => ['CZK' => 2000000, 'EUR' => 80000], // minor units: 20 000 Kč / 800 €
         'adjustment_step_up_threshold' => ['CZK' => 100000, 'EUR' => 4000],
@@ -199,6 +201,7 @@ return [
             'secret_ref' => env('AI_ANTHROPIC_SECRET_REF', 'env://AI_ANTHROPIC'),
         ],
         'max_context_articles' => 6,
+        'timeout_seconds' => 30,
         'prompt_version' => 'support-assistant/v1',
     ],
 
@@ -530,6 +533,8 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
 
     'content' => [
         'changelog_year' => 2026,
+        'domain_page_tlds' => ['cz', 'com', 'eu'], // the TLDs the domain page leads with
+        'game_product' => 'game',                 // the product the game configurator sells
         'plans_product' => 'web-hosting',
         // marketing comparison table (prototype onhost-data.js compare(cs)); columns: parameter, start, pro, scale
         'compare' => [

@@ -114,11 +114,17 @@ it('grants a password step-up to accounts without TOTP and refuses it once staff
     $this->postJson('/v1/auth/step-up', ['method' => 'password', 'code' => 'wrong-password-1234'])->assertForbidden()->assertJsonPath('error', 'step_up_failed');
     $this->postJson('/v1/auth/step-up', ['method' => 'password', 'code' => STRONG])->assertOk()->assertJsonPath('data.method', 'password');
 
-    config()->set('onhost.security.staff_mfa_required', false);
+    config()->set('onhost.identity.staff_mfa_required', false);
     $staff = $this->staff('platform_owner', ['password' => STRONG]);
     $this->actingAs($staff, 'sanctum');
     $this->postJson('/v1/auth/step-up', ['method' => 'password', 'code' => STRONG])->assertOk()->assertJsonPath('data.method', 'password');
-    config()->set('onhost.security.staff_mfa_required', true);
+    config()->set('onhost.identity.staff_mfa_required', true);
     $this->postJson('/v1/auth/step-up', ['method' => 'password', 'code' => STRONG])->assertForbidden(); // production: staff need TOTP or a recovery code
     $this->postJson('/v1/auth/step-up', ['method' => 'sms', 'code' => '1'])->assertUnprocessable();
+
+    // once an authenticator is enrolled, it is the second factor: the password alone no longer opens a high-risk action
+    $owner->forceFill(['totp_secret' => 'JBSWY3DPEHPK3PXP', 'totp_confirmed_at' => now()])->save();
+    expect($owner->fresh()->hasTotp())->toBeTrue();
+    $this->actingAs($owner->fresh(), 'sanctum');
+    $this->postJson('/v1/auth/step-up', ['method' => 'password', 'code' => STRONG])->assertForbidden()->assertJsonPath('error', 'step_up_failed');
 });

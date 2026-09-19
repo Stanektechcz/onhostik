@@ -53,8 +53,10 @@ final class StepUpService
         $ok = match ($method) {
             'totp' => $user->hasTotp() && $this->verifyTotp($user, $secret),
             'recovery' => $this->consumeRecoveryCode($user, $secret),
-            // customers may re-enter their password; staff only while TOTP is not enrolled and staff MFA is not enforced (development, first login)
-            'password' => $user->password !== null && Hash::check($secret, $user->password) && (! $user->is_staff || (! $user->hasTotp() && ! config('onhost.security.staff_mfa_required'))),
+            // the password is a second verification only for somebody who has no authenticator: once TOTP is enrolled it is the
+            // second factor, for customers and staff alike — and staff may use the password only while staff MFA is not enforced
+            // (development, first login). The key is `onhost.identity.*`; `onhost.security.*` never existed and read as "off".
+            'password' => $user->password !== null && ! $user->hasTotp() && Hash::check($secret, $user->password) && (! $user->is_staff || ! config('onhost.identity.staff_mfa_required', true)),
             default => false,
         };
         if (! $ok) {

@@ -4,7 +4,11 @@ Instances are registered in **Nastavení systému → Integrace providerů** (`/
 from the console's user menu) or through the staff API below; credentials never go into git or `.env` files on
 workstations — the console stores them encrypted under `db://provider_instances/<key>` and only ever shows which
 keys are present. Registration needs `provider.instance.manage` and a fresh step-up (TOTP or recovery code; a
-staff password is accepted only while TOTP is not enrolled and `ONHOST_STAFF_MFA_REQUIRED` is off).
+staff password is accepted only while TOTP is not enrolled and `ONHOST_STAFF_MFA_REQUIRED` is off). The same holds for
+customers: the password is a second verification only for an account without an authenticator — once TOTP is enrolled,
+a step-up takes the code or a recovery code. The setting is `onhost.identity.staff_mfa_required`; the step-up and the
+doctor used to read `onhost.security.staff_mfa_required`, which never existed, so the doctor reported staff MFA as off
+whatever the environment said.
 
 TLS: vendor APIs are verified against the system CA bundle. Self-signed panels (Proxmox, PBS, aaPanel without a
 public certificate) are pinned by pasting the certificate PEM into "Připnutý certifikát / CA" (option `tls_ca`);

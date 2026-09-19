@@ -165,7 +165,7 @@ final class ChargebackAnalyst
         $keys = StatusComponent::query()->pluck('key')->all();
         $candidates = array_values(array_filter([
             $family && $region ? "{$family}s-{$region}" : null, $family && $region ? "{$family}-{$region}" : null,
-            $family ? "{$family}s-".config('onhost.default_region', 'cz1') : null, $family ? "{$family}-".config('onhost.default_region', 'cz1') : null, $family,
+            $family ? "{$family}s-".config('onhost.provisioning.default_region', 'cz1') : null, $family ? "{$family}-".config('onhost.provisioning.default_region', 'cz1') : null, $family,
         ]));
         foreach ($candidates as $candidate) {
             if (in_array($candidate, $keys, true)) {

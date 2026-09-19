@@ -197,7 +197,7 @@ final class OrganizationStatusService
     private function componentKeys(Collection $services): array
     {
         $keys = [];
-        $default = (string) config('onhost.default_region', 'cz1');
+        $default = (string) config('onhost.provisioning.default_region', 'cz1');
         foreach ($services as $service) {
             $region = (string) ($service->region_code ?: $default);
             $keys[] = match ($service->family) {
