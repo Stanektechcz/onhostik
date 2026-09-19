@@ -17,6 +17,14 @@ Roles: **incident commander** (IC, role `incident_commander` or SRE), **communic
   suspended service, a panel under a maintenance lock and a game server whose own schedule stops it. Detection takes
   one to two reconcile intervals (15 min standard, 5 min for SLA classes) — many of these at once on one node is a
   node problem: open an incident.
+* The platform's **own mail** (Brain card H24) is watched by `onhost:mail:health` every five minutes from the outbox
+  the sender already keeps: `platform.mail.failing` when deliveries errored and none went through in the last
+  `ONHOST_MAIL_HEALTH_WINDOW` (30) minutes, or when a due mail waited `ONHOST_MAIL_HEALTH_STALLED` (15) minutes without
+  an attempt (nobody runs `onhost:mail:send`). It goes to the staff inbox and the pager — never by mail — once per
+  outage. **While it lasts, dunning suspends and terminates nobody**: reminders that did not arrive are no ground for
+  it. The alarm ends only on a delivery that went through (silence after everything gave up is not recovery; one dead
+  mail is put back as a probe each pass) or on a successful `php artisan onhost:mail:test <address>`. Mails that gave
+  up during the outage are queued again automatically. The doctor shows the same reading (`mail · outbox is leaving`).
 * Customer reports arrive as tickets in the `dostupnost` topic; support opens an incident with
   `POST /v1/staff/incidents` when more than one customer or a shared component is affected.
 * Security suspicion → open a **cyber incident** first (`POST /v1/staff/security/incidents`), which starts the

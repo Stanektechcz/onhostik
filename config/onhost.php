@@ -28,6 +28,7 @@ return [
         'contact' => env('ONHOST_ACME_CONTACT'), // mailto: address registered with the ACME account
         'renew_days_before' => (int) env('ONHOST_ACME_RENEW_DAYS', 30),
     ],
+    'mail_health' => ['window_minutes' => (int) env('ONHOST_MAIL_HEALTH_WINDOW', 30), 'min_errors' => (int) env('ONHOST_MAIL_HEALTH_MIN_ERRORS', 3), 'stalled_minutes' => (int) env('ONHOST_MAIL_HEALTH_STALLED', 15)], // does the platform's own mail still leave (H24)
     'monitoring' => [
         'user_agent' => 'ONhost-Uptime/1.0 (+https://onhost.cz/stav)',
         'failures_before_down' => (int) env('ONHOST_MONITORING_FAILURES', 3),
@@ -494,8 +495,8 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'inbound_secret' => env('ONHOST_ONCALL_INBOUND_SECRET', ''),            // PagerDuty webhook signature secret, or X-ONhost-Oncall-Token for the others
         'escalate_after_minutes' => (int) env('ONHOST_ONCALL_ESCALATE_MINUTES', 15),
         'max_escalations' => (int) env('ONHOST_ONCALL_MAX_ESCALATIONS', 2),
-        'events' => ['platform.queue.stalled' => 'hot', 'integration.down' => 'hot', 'node.bmc.alert' => 'hot', 'sla.burn_rate' => 'hot', 'capacity.forecast.low' => 'warn', 'incident.opened' => 'warn', 'integration.prereqs.regressed' => 'warn', 'platform.queue.backlog' => 'warn'],
-        'resolves' => ['integration.recovered' => 'integration.down', 'integration.prereqs.recovered' => 'integration.prereqs.regressed', 'incident.resolved' => 'incident.opened'],
+        'events' => ['platform.queue.stalled' => 'hot', 'platform.mail.failing' => 'hot', 'integration.down' => 'hot', 'node.bmc.alert' => 'hot', 'sla.burn_rate' => 'hot', 'capacity.forecast.low' => 'warn', 'incident.opened' => 'warn', 'integration.prereqs.regressed' => 'warn', 'platform.queue.backlog' => 'warn'],
+        'resolves' => ['platform.mail.recovered' => 'platform.mail.failing', 'integration.recovered' => 'integration.down', 'integration.prereqs.recovered' => 'integration.prereqs.regressed', 'incident.resolved' => 'incident.opened'],
     ],
 
     'observability' => [ // error tracking and traces (audit §5q-2); both off without an endpoint

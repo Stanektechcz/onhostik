@@ -17,6 +17,7 @@ use Onhost\Domain\Domains\RegistrarPricing;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
+use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\Node;
@@ -290,6 +291,8 @@ final class Doctor extends Command
         $mailer = (string) config('mail.default');
         $this->add('mail', 'transactional mailer', ! in_array($mailer, ['log', 'array'], true), $mailer);
         $this->add('mail', 'sender address set', (string) config('mail.from.address', '') !== '' && ! str_contains((string) config('mail.from.address'), 'example.com'), (string) config('mail.from.address'));
+        $mail = app(MailHealth::class)->measure(); // H24: a configured mailer proves nothing about mail leaving
+        $this->add('mail', 'outbox is leaving', $mail['state'] === 'ok', "sent {$mail['sent']} · errors {$mail['errors']} · waiting {$mail['waiting']} (oldest {$mail['oldest_minutes']} min) · gave up {$mail['dead']}".($mail['last_error'] !== null ? ' · '.$mail['last_error'] : ''));
         $this->add('observability', 'metrics token or allow-list', (string) config('onhost.metrics.token') !== '' || (array) config('onhost.metrics.allow_ips') !== [], (string) config('onhost.metrics.token') !== '' ? 'bearer token set' : 'allow-list only', false);
         $otlp = (string) config('onhost.observability.otlp_endpoint', ''); // §5u-2: spans exported and the console can open them
         $this->add('observability', 'traces exported and linked', $otlp !== '' && (string) config('onhost.observability.trace_url', '') !== '', $otlp === '' ? 'OTEL_EXPORTER_OTLP_ENDPOINT not set (infra/docker-compose.yml: otel-collector + tempo + grafana)' : ((string) config('onhost.observability.trace_url', '') === '' ? 'spans go to '.$otlp.' but ONHOST_TRACE_URL is empty — the console shows no trace links' : 'spans to '.$otlp), false);

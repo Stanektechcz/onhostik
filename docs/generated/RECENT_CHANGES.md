@@ -4,6 +4,7 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 92fe019 | 2026-09-19 | Portable archive download (H28); the customer's monthly budget works (H30) |
 | ee61fe8 | 2026-09-19 | One definition of planned maintenance for the SLA (H15) |
 | 8f53615 | 2026-09-19 | Placement holds what it took; a server no node can take is refused in the cart (H04) |
 | aed18b5 | 2026-09-19 | Plan versions from the administration (H01): a plan is never edited |
@@ -13,4 +14,3 @@
 | 09c869c | 2026-09-19 | Keep the ISPConfig session and one-time panel links out of the call log (H12) |
 | 5a7bf29 | 2026-09-19 | Queue a customer's change while the panel is away, plan limits included (H02) |
 | 6bd9427 | 2026-09-19 | A legal hold suspends every deletion, not only the termination (H18) |
-| 5c5834f | 2026-09-19 | Pin the permission matrix of the customer roles (H11) |

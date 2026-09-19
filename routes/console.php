@@ -35,6 +35,7 @@ use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Loyalty\MissionService;
 use Onhost\Domain\Marketplace\MarketplaceService;
 use Onhost\Domain\Notifications\DigestService;
+use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Notifications\NotificationService;
 use Onhost\Domain\Notifications\WebhookDispatcher;
 use Onhost\Domain\Orders\CommerceHousekeeping;
@@ -281,6 +282,16 @@ Artisan::command('onhost:billing:dunning', function (DunningService $dunning) {
     $this->table(['cases', 'notices', 'suspended', 'scheduled', 'terminated', 'resolved'], [$dunning->tick()]);
 })->purpose('Advance dunning cases: notices, grace, suspension, scheduled termination');
 
+Artisan::command('onhost:mail:health', function (MailHealth $health) {
+    $r = $health->observe();
+    $this->table(['state', 'sent', 'errors', 'waiting', 'oldest_minutes', 'dead', 'turn'], [[$r['state'], $r['sent'], $r['errors'], $r['waiting'], $r['oldest_minutes'], $r['dead'], $r['turn'] ?? '—']]);
+    if ($r['last_error'] !== null) {
+        $this->warn('latest error: '.$r['last_error']);
+    }
+
+    return $r['state'] === 'ok' ? 0 : 1;
+})->purpose('Does the platform\'s own mail still leave? Alerts once when it stops and once when it flows again');
+
 Artisan::command('onhost:mail:send {--limit=100}', function (NotificationService $notifications) {
     $this->table(['sent', 'failed'], [$notifications->sendQueued((int) $this->option('limit'))]);
 })->purpose('Deliver queued transactional mails');
@@ -409,6 +420,7 @@ Artisan::command('onhost:ledger:verify', function (LedgerService $ledger) {
 
 Schedule::command('onhost:outbox:relay')->everyMinute()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:mail:send')->everyMinute()->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:mail:health')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:webhooks:retry')->everyMinute()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:oncall:escalate')->everyMinute()->withoutOverlapping()->onOneServer(); // unacknowledged pages escalate (audit §5q-1)
 Schedule::command('onhost:files:prune')->dailyAt('04:25')->onOneServer(); // file retention (audit §5q-4)

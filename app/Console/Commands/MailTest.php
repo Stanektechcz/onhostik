@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Onhost\Domain\Notifications\Mail\TemplatedMail;
+use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Notifications\NotificationService;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -38,6 +39,10 @@ final class MailTest extends Command
             Mail::to($to)->send(new TemplatedMail('ONhost · test e-mailu', 'Tento e-mail ověřuje odesílání z ONhost ('.config('app.url').").\n\nOdesláno ".now()->format('j. n. Y H:i:s').'.', 'mail.test', null));
             $this->info("Sent to {$to}. Check the inbox and the spam folder (SPF/DKIM of the sender domain).");
             $audit->record(CommandContext::system('cli:mail:test'), 'mail.test', 'succeeded', ['to' => $to], 'mail', null);
+            $requeued = app(MailHealth::class)->confirmDelivery();
+            if ($requeued > 0) {
+                $this->info("Mail was reported as failing: the alarm is closed and {$requeued} mails that had given up are queued again.");
+            }
         } catch (Throwable $e) {
             $this->error('Delivery failed: '.mb_substr($e->getMessage(), 0, 300));
             $exit = self::FAILURE;

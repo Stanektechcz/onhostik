@@ -7,6 +7,7 @@ namespace Onhost\Domain\Billing;
 use Onhost\Domain\Billing\Models\DunningAction;
 use Onhost\Domain\Billing\Models\DunningCase;
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -48,6 +49,8 @@ final class DunningService
         $notices = array_map('intval', (array) ($policy['overdue_notice_days'] ?? [3, 7, 14]));
         sort($notices);
         $stats = ['cases' => 0, 'notices' => 0, 'suspended' => 0, 'scheduled' => 0, 'terminated' => 0, 'resolved' => 0];
+        // while the platform's mail does not leave, the reminders did not arrive: nobody is suspended or terminated for not answering them (H24)
+        $enforce = ! app(MailHealth::class)->failing();
         $cases = DunningCase::query()->whereNotIn('state', [DunningCase::RESOLVED, DunningCase::TERMINATED])->where(fn ($q) => $q->whereNull('next_action_at')->orWhere('next_action_at', '<=', now()))->orderBy('due_at')->limit(500)->get();
         foreach ($cases as $case) {
             $stats['cases']++;
@@ -79,17 +82,17 @@ final class DunningService
             if ($case->state === DunningCase::OVERDUE_NOTICE && $days >= $graceStart) {
                 $this->transition($case, DunningCase::GRACE, $context);
             }
-            if (in_array($case->state, [DunningCase::OVERDUE_NOTICE, DunningCase::GRACE], true) && $days >= $suspendAt) {
+            if ($enforce && in_array($case->state, [DunningCase::OVERDUE_NOTICE, DunningCase::GRACE], true) && $days >= $suspendAt) {
                 $this->suspend($case, $context);
                 $stats['suspended']++;
             }
-            if ($case->state === DunningCase::SUSPENDED && $days >= $terminateAt - 7) {
+            if ($enforce && $case->state === DunningCase::SUSPENDED && $days >= $terminateAt - 7) {
                 $case->forceFill(['termination_at' => $case->due_at->copy()->addDays($terminateAt)])->save();
                 $this->transition($case, DunningCase::TERMINATION_SCHEDULED, $context, ['termination_at' => $case->termination_at->toIso8601String()]);
                 $this->act($case, 'schedule_termination', ['termination_at' => $case->termination_at->toIso8601String()], $context);
                 $stats['scheduled']++;
             }
-            if ($case->state === DunningCase::TERMINATION_SCHEDULED && $case->termination_at !== null && $case->termination_at <= now()) {
+            if ($enforce && $case->state === DunningCase::TERMINATION_SCHEDULED && $case->termination_at !== null && $case->termination_at <= now()) {
                 $this->terminate($case, $context);
                 $stats['terminated']++;
             }
