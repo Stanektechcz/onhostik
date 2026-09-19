@@ -141,7 +141,7 @@ final class ProvisioningController extends ApiController
 
     public function retry(Request $request, string $operation): JsonResponse
     {
-        $data = $request->validate(['reason' => ['nullable', 'string', 'max:250']]);
+        $data = $request->validate(['reason' => ['nullable', 'string', 'max:250'], 'acknowledge_vendor_task' => ['nullable', 'boolean']]); // H327: a timed-out provider task has to be looked at before the workflow starts over
 
         return $this->dispatch(new ProvisioningCommand("op.retry:{$operation}:".now()->timestamp, ['op' => 'retry', 'operation_id' => $operation] + $data), $this->api->context($request, null, $data['reason'] ?? null), 202);
     }

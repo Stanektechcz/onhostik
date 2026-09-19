@@ -80,6 +80,11 @@ final class StepContext
     /** Upsert a binding for the service (unique per idempotency key + remote id). */
     public function bind(ProviderInstance $instance, string $remoteType, string $remoteId, ?string $node = null, array $meta = [], array $ownership = []): ProviderBinding
     {
+        // a panel that answers 200 without an identifier has created nothing we can address (H319): binding a service to
+        // '' or '0' would activate it against no resource, and every later call would hit whatever owns that number
+        if (trim($remoteId) === '' || trim($remoteId) === '0' || trim($remoteType) === '') {
+            throw new \RuntimeException("The provider returned no usable identifier for {$remoteType}; the service is not bound and will not be activated.");
+        }
         $serviceId = (string) ($this->service?->id ?? $this->operation->service_id);
         $key = $this->operation->idempotency_key.':'.$remoteType;
 

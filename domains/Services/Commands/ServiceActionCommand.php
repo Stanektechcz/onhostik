@@ -28,9 +28,15 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
 
     public function permission(): ?string
     {
-        return match ((string) $this->get('action')) {
+        return self::permissionFor((string) $this->get('action'));
+    }
+
+    /** One map for the bus and for the operation row: a long run asks for the same permission again before each privileged step (H315). */
+    public static function permissionFor(string $action): string
+    {
+        return match ($action) {
             'terminate', 'purge' => 'service.delete',
-            'restore', 'rollback_snapshot' => 'backup.restore',
+            'restore', 'rollback_snapshot', 'archive.restore' => 'backup.restore',
             default => 'service.manage',
         };
     }

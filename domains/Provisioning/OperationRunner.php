@@ -8,6 +8,8 @@ use Carbon\Carbon;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\OperationAttempt;
 use Onhost\Domain\Provisioning\Workflow\Step;
@@ -16,6 +18,7 @@ use Onhost\Domain\Provisioning\Workflow\StepResult;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Observability\Tracer;
@@ -40,6 +43,7 @@ final class OperationRunner
         private readonly FreezeSwitch $freeze,
         private readonly Redactor $redactor,
         private readonly Tracer $tracer,
+        private readonly Authorizer $authorizer,
     ) {}
 
     /** Run as many steps as possible within the time budget. Returns the operation's new state. */
@@ -70,6 +74,12 @@ final class OperationRunner
                 return $this->succeed($operation);
             }
             $step = $steps[$operation->step];
+            // a run started by a person asks again before each new privileged step (H315): a role revoked an hour ago must not
+            // send the next mutation. A poll is not a mutation — a task already sent is followed to its end and stays on record.
+            if ($operation->external_handle === null && ($refusal = $this->authorizationLost($operation)) !== null) {
+                // the detail keys stay clear of the redactor's vocabulary (anything with "auth" is masked) so staff can read why the run stopped
+                return $this->fail($operation, $workflow, $context, $refusal, false, ['access_revoked' => true, 'required_permission' => $operation->authorized_permission, 'step' => $step->label()]);
+            }
             $attempt = $this->beginAttempt($operation, $step);
             Context::add('operation', $operation->id);
             try {
@@ -103,7 +113,9 @@ final class OperationRunner
                         'next_run_at' => now()->addSeconds($result->handle?->pollIntervalSeconds ?? 5),
                     ])->save();
                     if ($this->handleTimedOut($operation)) {
-                        return $this->fail($operation, $workflow, $context, 'provider task exceeded its timeout', false, []);
+                        // our deadline passing stops nothing at the panel (H327): the task may still finish there, so the
+                        // handle stays on the row and a retry has to acknowledge it instead of silently starting a second copy
+                        return $this->fail($operation, $workflow, $context, 'provider task exceeded its timeout; its final state at the provider is not confirmed', false, ['vendor_task_unconfirmed' => true, 'vendor_task' => $operation->external_handle]);
                     }
 
                     return Operation::WAITING;
@@ -183,6 +195,27 @@ final class OperationRunner
         $this->outbox->publish(GenericEvent::of('operation.failed', 'operation', $operation->id, ['kind' => $operation->kind, 'service_id' => $operation->service_id, 'order_item_id' => $operation->order_item_id, 'domain_id' => $operation->domain_id, 'step' => $operation->step, 'step_label' => $operation->step_label, 'error' => $operation->error], $operation->organization_id));
 
         return Operation::FAILED;
+    }
+
+    /** Why the person who started this run may no longer continue it, or null when they may (system and staff-CLI runs have no user to revoke). */
+    private function authorizationLost(Operation $operation): ?string
+    {
+        if ($operation->actor_type !== 'user' || $operation->actor_id === null || $operation->authorized_permission === null) {
+            return null;
+        }
+        $user = User::query()->find($operation->actor_id);
+        if ($user === null || ! $user->isActive()) {
+            return 'the account that started this operation is no longer active; no further step was sent to the provider';
+        }
+        $scope = $operation->service_id !== null ? CommandScope::resource((string) $operation->service_id, (string) $operation->organization_id) : CommandScope::organization((string) $operation->organization_id);
+        // queue workers live for hours and the authorizer keeps a principal's bindings for the life of its instance: without
+        // dropping them here the answer would be the one from when the worker first met this user, not today's
+        $this->authorizer->forget($user);
+        if (! $this->authorizer->can($user, (string) $operation->authorized_permission, $scope)) {
+            return "the permission {$operation->authorized_permission} was revoked while the operation was running; no further step was sent to the provider";
+        }
+
+        return null;
     }
 
     private function handleTimedOut(Operation $operation): bool

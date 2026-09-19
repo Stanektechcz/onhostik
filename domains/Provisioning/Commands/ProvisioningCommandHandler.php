@@ -63,7 +63,7 @@ final class ProvisioningCommandHandler implements CommandHandler
         }
 
         return match ($command->op()) {
-            'retry' => $this->operation($this->operations->retry($this->findOperation($command), $context, $command->get('reason'))),
+            'retry' => $this->operation($this->operations->retry($this->findOperation($command), $context, $command->get('reason'), (bool) $command->get('acknowledge_vendor_task', false))),
             'cancel' => $this->operation($this->operations->cancel($this->findOperation($command), $context, (string) $command->get('reason', 'cancelled by operator'))),
             'resolve_drift' => $this->resolveDrift($command, $context),
             'freeze' => (function () use ($command, $context) {

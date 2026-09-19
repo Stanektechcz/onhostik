@@ -31,7 +31,7 @@ final class ServicesCommandHandler implements CommandHandler
 
     private function action(ServiceActionCommand $command, Service $service, CommandContext $context): array
     {
-        $operation = $this->services->requestAction($service, (string) $command->get('action'), $context, $command->idempotencyKey, (array) $command->get('params', []));
+        $operation = $this->services->requestAction($service, (string) $command->get('action'), $context, $command->idempotencyKey, (array) $command->get('params', []), authorizedPermission: $command->permission()); // the permission the bus just checked is the one the run asks for again before each step (H315)
 
         return ['operation_id' => $operation->id, 'state' => $operation->state, 'kind' => $operation->kind, 'service_state' => $service->fresh()->state];
     }

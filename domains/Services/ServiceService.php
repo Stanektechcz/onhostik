@@ -293,7 +293,7 @@ final class ServiceService
      * @param  'power'|'suspend'|'resume'|'resize'|'terminate'|'purge'|'backup'|'restore'|'archive.restore'|'snapshot'|'rollback_snapshot'|string  $action
      * @param  array<string,mixed>  $params  power_action, entitlements, backup_id, name, reason, final_backup …
      */
-    public function requestAction(Service $service, string $action, CommandContext $context, string $idempotencyKey, array $params = [], bool $chained = false): Operation
+    public function requestAction(Service $service, string $action, CommandContext $context, string $idempotencyKey, array $params = [], bool $chained = false, ?string $authorizedPermission = null): Operation
     {
         if (! in_array($action, ServiceActionWorkflow::ACTIONS, true)) {
             throw new DomainError('service_action_unknown', "Unknown service action {$action}.", 422);
@@ -355,7 +355,7 @@ final class ServiceService
         if ($transient !== null) {
             $this->transition($service, $transient, $context, (string) ($params['reason'] ?? $action));
         }
-        $operation = $this->operations->start(self::actionWorkflowFor($action), $idempotencyKey, array_merge($params, ['action' => $action, 'service_id' => $service->id]), $context, $service->id, $service->organization_id, null, $service->provider_instance_id);
+        $operation = $this->operations->start(self::actionWorkflowFor($action), $idempotencyKey, array_merge($params, ['action' => $action, 'service_id' => $service->id]), $context, $service->id, $service->organization_id, null, $service->provider_instance_id, authorizedPermission: $authorizedPermission);
         $this->audit->record($context->withScope($service->organization_id), "service.action.{$action}", 'succeeded', ['params' => self::auditParams($params), 'operation_id' => $operation->id], 'service', $service->id, stepUp: $context->stepUpMethod, approvalIds: $context->approvalIds);
 
         return $operation;

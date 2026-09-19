@@ -142,7 +142,8 @@ final class ServiceArchiveService
         }
         $this->waive($backup, $context, 'restore to a new paid service ('.$target->id.')');
 
-        return $this->services->requestAction($target, 'archive.restore', $context, $idempotencyKey, ['backup_id' => $backup->id]);
+        // the customer's bus command was checked for backup.restore; a restore writes over a live service for minutes, so the run asks again before each step (H315)
+        return $this->services->requestAction($target, 'archive.restore', $context, $idempotencyKey, ['backup_id' => $backup->id], authorizedPermission: 'backup.restore');
     }
 
     private function chargeFee(Organization $organization, Backup $backup, Money $net, CommandContext $context): void

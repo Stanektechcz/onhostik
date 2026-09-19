@@ -29,7 +29,7 @@ final class OperationService
      * @param  class-string<Workflow>  $workflow
      * @param  array<string,mixed>  $desired
      */
-    public function start(string $workflow, string $idempotencyKey, array $desired, CommandContext $actor, ?string $serviceId = null, ?string $organizationId = null, ?string $orderItemId = null, ?string $providerInstanceId = null, ?string $domainId = null, bool $dispatch = true): Operation
+    public function start(string $workflow, string $idempotencyKey, array $desired, CommandContext $actor, ?string $serviceId = null, ?string $organizationId = null, ?string $orderItemId = null, ?string $providerInstanceId = null, ?string $domainId = null, bool $dispatch = true, ?string $authorizedPermission = null): Operation
     {
         if (! is_subclass_of($workflow, Workflow::class)) {
             throw new DomainError('workflow_invalid', "{$workflow} is not a Workflow", 500);
@@ -53,6 +53,7 @@ final class OperationService
             'step_label' => $steps[0]?->label(),
             'actor_type' => $actor->actorType,
             'actor_id' => $actor->actorId,
+            'authorized_permission' => $authorizedPermission, // H315: asked again before every privileged step of a user-started run
             'idempotency_key' => $idempotencyKey,
             'correlation_id' => $actor->correlationId ?? CommandContext::currentCorrelationId(),
             'desired' => $desired,
@@ -82,10 +83,18 @@ final class OperationService
         $this->bus->dispatch($job);
     }
 
-    public function retry(Operation $operation, CommandContext $actor, ?string $reason = null): Operation
+    public function retry(Operation $operation, CommandContext $actor, ?string $reason = null, bool $acknowledgeVendorTask = false): Operation
     {
         if ($operation->state !== Operation::FAILED) {
             throw new DomainError('operation_not_failed', "Operation {$operation->id} is {$operation->state}; only FAILED operations can be retried.", 409);
+        }
+        // a timeout on our side is not a cancellation at the provider (H327): starting over while that task may still
+        // complete would create the resource twice, so the operator has to look at the panel and say so
+        if ((bool) data_get($operation->error, 'detail.vendor_task_unconfirmed', false) && ! $acknowledgeVendorTask) {
+            throw new DomainError('vendor_task_unconfirmed', 'The provider task of this operation timed out without a confirmed result. Check its state at the provider, then retry with acknowledge_vendor_task and a reason.', 409, ['vendor_task' => data_get($operation->error, 'detail.vendor_task')]);
+        }
+        if ($acknowledgeVendorTask && trim((string) $reason) === '') {
+            throw new DomainError('reason_required', 'Acknowledging an unconfirmed provider task needs a reason.', 422, ['field' => 'reason']);
         }
         if ($this->freeze->isFrozen()) {
             throw new DomainError('provisioning_frozen', 'Provisioning is frozen by an incident switch.', 423);
