@@ -4,6 +4,7 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 02b6a1c | 2026-09-19 | Take back what a smaller role no longer covers (Brain card H332) |
 | 442d6ca | 2026-09-19 | Let a membership or a project role end on a date (Brain card H343) |
 | ddc38da | 2026-09-19 | Know whose SSH key sits on a shell account and take it back (Brain card H185) |
 | 2a83e11 | 2026-09-19 | Try a new panel access before it replaces the working one (Brain card H314) |
@@ -13,4 +14,3 @@
 | 92251ae | 2026-09-19 | Generated context after the delegated-access work |
 | 2cc8235 | 2026-09-19 | A removed member loses the panel accounts that were theirs, and a weekly review reports the ones nobody can judge (Brain cards H333, H332) |
 | 6a582a3 | 2026-09-19 | Generated context after the staff-scope re-check and the freshness verdict |
-| 56e8792 | 2026-09-19 | A reading the reconciler has not refreshed no longer looks current (Brain card H325) |

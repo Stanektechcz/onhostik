@@ -152,9 +152,9 @@ final class ConsoleController extends ApiController
     /** One game server to another node of its panel (audit §5g-2): a saga with backup, rebuild, data transfer, switch and clean-up. */
     public function migrate(Request $request, string $service): JsonResponse
     {
-        $data = $request->validate(['target_node_id' => ['nullable', 'string', 'max:60'], 'reason' => ['nullable', 'string', 'max:250'], 'window_from' => ['nullable', 'date'], 'window_to' => ['nullable', 'date', 'after:window_from']]);
+        $data = $request->validate(['target_node_id' => ['nullable', 'string', 'max:60'], 'reason' => ['nullable', 'string', 'max:250'], 'window_from' => ['nullable', 'date'], 'window_to' => ['nullable', 'date', 'after:window_from'], 'collaborator_policy' => ['nullable', 'in:strict,drop']]); // drop = move without collaborators that cannot be carried with the same permissions (H341)
 
-        return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, "service.migrate:{$service}:".now()->format('YmdHi')), ['op' => 'service.migrate', 'service_id' => $service, 'target_node_id' => $data['target_node_id'] ?? null, 'reason' => $data['reason'] ?? null, 'window_from' => $data['window_from'] ?? null, 'window_to' => $data['window_to'] ?? null]), $this->api->context($request, null, $data['reason'] ?? null), 202);
+        return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, "service.migrate:{$service}:".now()->format('YmdHi')), ['op' => 'service.migrate', 'service_id' => $service, 'collaborator_policy' => $data['collaborator_policy'] ?? 'strict', 'target_node_id' => $data['target_node_id'] ?? null, 'reason' => $data['reason'] ?? null, 'window_from' => $data['window_from'] ?? null, 'window_to' => $data['window_to'] ?? null]), $this->api->context($request, null, $data['reason'] ?? null), 202);
     }
 
     /** Every game server of a node to another one (maintenance): the node is drained first, each server is its own saga. */

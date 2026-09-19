@@ -9,6 +9,7 @@ use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Notifications\Models\Notification;
+use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
@@ -31,6 +32,34 @@ beforeEach(function () {
 });
 
 /** The panel double for a two-node game panel; `$state` records what happened, `$failUpload` breaks the transfer. */
+/**
+ * The collaborators endpoint of the panel's client API, per server identifier. `$state['panel_widens']` makes the panel
+ * give more than it was asked for, `$state['panel_forgets']` lists permissions it does not know and silently drops.
+ */
+function gameMigrationUsers(array &$state, Request $request, string $server, ?string $uuid)
+{
+    $state['subusers'][$server] ??= [];
+    $present = fn (array $u) => ['object' => 'server_subuser', 'attributes' => $u];
+    if ($request->method() === 'GET') {
+        return Http::response(['object' => 'list', 'data' => array_map($present, array_values($state['subusers'][$server]))]);
+    }
+    if ($request->method() === 'DELETE') {
+        unset($state['subusers'][$server][(string) $uuid]);
+        $state['subuser_calls'][] = ['delete', $server, (string) $uuid];
+
+        return Http::response('', 204);
+    }
+    $permissions = array_values(array_diff((array) $request->data()['permissions'], (array) ($state['panel_forgets'] ?? [])));
+    if ($state['panel_widens'] ?? false) {
+        $permissions[] = 'user.create';
+    }
+    $id = 'su-'.$server.'-'.(count($state['subusers'][$server]) + 1);
+    $state['subusers'][$server][$id] = ['uuid' => $id, 'email' => (string) $request->data()['email'], 'username' => null, 'permissions' => $permissions, 'created_at' => '2026-09-19T10:00:00+00:00'];
+    $state['subuser_calls'][] = ['create', $server, (string) $request->data()['email']];
+
+    return Http::response($present($state['subusers'][$server][$id]));
+}
+
 function gameMigrationPanel(array &$state, bool $failUpload = false): void
 {
     Http::fake(function (Request $request) use (&$state, $failUpload) {
@@ -92,6 +121,7 @@ function gameMigrationPanel(array &$state, bool $failUpload = false): void
                 return Http::response('', 204);
             })(),
             $path === '/api/client/account' => Http::response(['object' => 'user', 'attributes' => ['id' => 1, 'admin' => true]]),
+            preg_match('#^/api/client/servers/(e4c1abcd|f00dbabe)/users(?:/([\w-]+))?$#', $path, $u) === 1 => gameMigrationUsers($state, $request, $u[1], $u[2] ?? null),
             default => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => "no fake for {$m} {$path}"]]], 404),
         };
     });
@@ -226,6 +256,7 @@ function gameMigrationSecondPanel(array &$state): ProviderInstance
 
                 return Http::response('', 204);
             })(),
+            preg_match('#^/api/client/servers/(cafebabe)/users(?:/([\w-]+))?$#', $path, $u) === 1 => gameMigrationUsers($state, $request, $u[1], $u[2] ?? null),
             default => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => "no fake for {$m} games02:{$path}"]]], 404),
         };
     });
@@ -311,4 +342,94 @@ it('waits for the window the customer chooses: the saga starts at the chosen tim
     $done = driveOperation($operation->fresh());
     expect($done->state)->toBe(Operation::SUCCEEDED)->and($done->context['swapped'])->toBeTrue()->and($service->fresh()->tags['migration'])->toMatchArray(['state' => 'finished', 'to_node' => 'games02', 'address' => '203.0.113.20:25566'])->and($state['deleted'])->toBe([77]);
     $this->putJson("/v1/services/{$service->id}/migration", ['starts_at' => $chosen->toIso8601String()])->assertStatus(409)->assertJsonPath('error', 'migration_not_scheduled');
+});
+
+/** The fixture of the first scenario: one server on games01, a free node games02 on the same panel. */
+function collaboratorMigrationFixture(Organization $org): Service
+{
+    $service = featureGameService($org);
+    $instance = ProviderInstance::query()->where('key', 'pterodactyl-games01')->firstOrFail();
+    Node::query()->create(['provider_instance_id' => $instance->id, 'name' => 'games02', 'region_code' => 'cz1', 'role' => 'game', 'state' => 'active', 'capacity' => ['cpu_cores' => 32, 'ram_mb' => 131072, 'disk_gb' => 2000], 'usage' => [], 'remote_id' => '3']);
+    GameServer::query()->create(['service_id' => $service->id, 'egg_key' => 'minecraft-paper', 'nest_id' => 1, 'egg_id' => 3, 'ptero_id' => 77, 'ptero_uuid' => '11111111-1111-4111-8111-111111111111', 'ptero_identifier' => 'e4c1abcd', 'ptero_user_id' => 9, 'ptero_node_id' => 2, 'allocation' => ['id' => 11, 'ip' => '203.0.113.10', 'port' => 25565], 'memory_mb' => 8192, 'cpu_pct' => 300, 'disk_mb' => 61440]);
+
+    return $service;
+}
+
+/*
+ * Who may do what on the server moves with the server, unchanged (Brain card H341). The new server is a new resource at
+ * the panel: without this its collaborators would silently vanish, and a panel that reads a permission list differently
+ * could hand a limited helper more than the customer approved.
+ */
+it('carries the collaborators to the new server with exactly the permissions they had', function () {
+    [, $org] = $this->customerWithOrganization();
+    $service = collaboratorMigrationFixture($org);
+    $this->actingAs($this->staff('infrastructure_admin'), 'sanctum');
+    $console = ['control.console', 'control.start', 'control.stop', 'control.restart', 'websocket.connect'];
+    $state = ['calls' => [], 'power' => [], 'files' => [], 'deleted' => [], 'subusers' => ['e4c1abcd' => [
+        'su-a' => ['uuid' => 'su-a', 'email' => 'Helper@Example.test', 'username' => 'helper', 'permissions' => $console, 'created_at' => null],
+        'su-b' => ['uuid' => 'su-b', 'email' => 'builder@example.test', 'username' => 'builder', 'permissions' => ['file.read', 'file.read-content', 'websocket.connect'], 'created_at' => null],
+    ]]];
+    gameMigrationPanel($state);
+
+    $started = $this->withHeader('Idempotency-Key', 'h341-1')->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'games02', 'reason' => 'údržba'])->assertStatus(202)->json();
+    $operation = driveOperation(Operation::query()->findOrFail($started['id']));
+
+    expect($operation->state)->toBe(Operation::SUCCEEDED, json_encode($operation->error))
+        ->and($operation->context['collaborators_state'])->toBe('read')->and($operation->context['collaborators_carried'])->toBe(2)->and($operation->context['collaborators_dropped'])->toBe([]);
+    $onTarget = collect($state['subusers']['f00dbabe'])->keyBy('email');
+    $sorted = fn (array $p) => tap($p, fn (&$x) => sort($x));
+    expect($onTarget->keys()->all())->toBe(['helper@example.test', 'builder@example.test'])
+        ->and($sorted($onTarget['helper@example.test']['permissions']))->toBe($sorted($console))                    // not one permission more
+        ->and($sorted($onTarget['builder@example.test']['permissions']))->toBe(['file.read', 'file.read-content', 'websocket.connect']); // and not one fewer
+
+    // read before anything was stopped, carried before anything was switched
+    $paths = array_map(fn (array $c) => $c[0].' '.$c[1], array_values(array_filter($state['calls'], fn (array $c) => isset($c[1]) && str_starts_with((string) $c[1], '/api/'))));
+    $firstRead = array_search('GET /api/client/servers/e4c1abcd/users', $paths, true);
+    $firstStop = array_search('POST /api/client/servers/e4c1abcd/power', $paths, true);
+    $lastCarry = max(array_keys($paths, 'POST /api/client/servers/f00dbabe/users', true));
+    $sourceDeleted = array_search('DELETE /api/application/servers/77/force', $paths, true);
+    expect($firstRead)->toBeLessThan($firstStop)->and($lastCarry)->toBeLessThan($sourceDeleted);
+});
+
+it('stops before the switch when the target panel would give a collaborator more than was approved, and removes what it created', function () {
+    [, $org] = $this->customerWithOrganization();
+    $service = collaboratorMigrationFixture($org);
+    $this->actingAs($this->staff('infrastructure_admin'), 'sanctum');
+    $binding = $service->primaryBinding();
+    $state = ['calls' => [], 'power' => [], 'files' => [], 'deleted' => [], 'panel_widens' => true, 'subusers' => ['e4c1abcd' => [
+        'su-a' => ['uuid' => 'su-a', 'email' => 'helper@example.test', 'username' => 'helper', 'permissions' => ['control.console', 'websocket.connect'], 'created_at' => null],
+    ]]];
+    gameMigrationPanel($state);
+
+    $started = $this->withHeader('Idempotency-Key', 'h341-2')->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'games02', 'reason' => 'údržba'])->assertStatus(202)->json();
+    $operation = driveOperation(Operation::query()->findOrFail($started['id']));
+
+    expect($operation->state)->toBeIn([Operation::FAILED, 'COMPENSATED'])
+        ->and($operation->error['message'])->toContain('more: user.create')->toContain('nothing was switched')->toContain('collaborator_policy=drop');
+    // the wrong grant did not survive, the half-built target is gone, the customer runs where they ran
+    expect($state['subusers']['f00dbabe'])->toBe([])->and($state['subuser_calls'])->toContain(['delete', 'f00dbabe', 'su-f00dbabe-1'])
+        ->and($state['deleted'])->toBe([88])
+        ->and($binding->fresh()->remote_id)->toBe('77')
+        ->and(collect($state['subusers']['e4c1abcd'])->pluck('email')->all())->toBe(['helper@example.test']);
+});
+
+it('moves without a collaborator the target cannot take unchanged only when that is asked for, and names them to the customer', function () {
+    [, $org] = $this->customerWithOrganization();
+    $service = collaboratorMigrationFixture($org);
+    $this->actingAs($this->staff('infrastructure_admin'), 'sanctum');
+    $state = ['calls' => [], 'power' => [], 'files' => [], 'deleted' => [], 'panel_forgets' => ['backup.restore'], 'subusers' => ['e4c1abcd' => [
+        'su-a' => ['uuid' => 'su-a', 'email' => 'helper@example.test', 'username' => 'helper', 'permissions' => ['control.console', 'websocket.connect'], 'created_at' => null],
+        'su-b' => ['uuid' => 'su-b', 'email' => 'backups@example.test', 'username' => 'backups', 'permissions' => ['backup.read', 'backup.restore', 'websocket.connect'], 'created_at' => null],
+    ]]];
+    gameMigrationPanel($state);
+    $this->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'games02', 'collaborator_policy' => 'whatever'])->assertUnprocessable();
+
+    $started = $this->withHeader('Idempotency-Key', 'h341-3')->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'games02', 'reason' => 'údržba', 'collaborator_policy' => 'drop'])->assertStatus(202)->json();
+    $operation = driveOperation(Operation::query()->findOrFail($started['id']));
+
+    expect($operation->state)->toBe(Operation::SUCCEEDED, json_encode($operation->error))->and($operation->context['collaborators_carried'])->toBe(1)
+        ->and($operation->context['collaborators_dropped'][0])->toMatchArray(['email' => 'backups@example.test'])->and($operation->context['collaborators_dropped'][0]['reason'])->toContain('fewer: backup.restore');
+    expect(collect($state['subusers']['f00dbabe'])->pluck('email')->all())->toBe(['helper@example.test']); // the one that could not be carried unchanged is not there with less either
+    app(OutboxPublisher::class)->relayPending();
+    expect(Notification::query()->where('organization_id', $service->organization_id)->where('title', 'like', '%spolupracovníky se nepodařilo přenést')->value('body'))->toContain('spolupracovníci: 1.');
 });

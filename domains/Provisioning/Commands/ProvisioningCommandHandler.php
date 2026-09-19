@@ -151,7 +151,7 @@ final class ProvisioningCommandHandler implements CommandHandler
 
                 $window = fn (string $k) => $command->get($k) !== null && $command->get($k) !== '' ? CarbonImmutable::parse((string) $command->get($k)) : null;
 
-                return Presenters::operation(app(ServiceMigrationService::class)->start($service, $command->get('target_node_id') !== null ? (string) $command->get('target_node_id') : null, $command->get('reason') !== null ? (string) $command->get('reason') : null, $context, $window('window_from'), $window('window_to')), true);
+                return Presenters::operation(app(ServiceMigrationService::class)->start($service, $command->get('target_node_id') !== null ? (string) $command->get('target_node_id') : null, $command->get('reason') !== null ? (string) $command->get('reason') : null, $context, $window('window_from'), $window('window_to'), (string) $command->get('collaborator_policy', 'strict')), true);
             })(),
             'game.evacuate', 'service.evacuate' => (function () use ($command, $context) {
                 $instance = $this->findInstance($command);

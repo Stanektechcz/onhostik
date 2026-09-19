@@ -63,7 +63,8 @@ final class GameMigrationWorkflow implements Workflow
 
     public function steps(Operation $operation): array
     {
-        return [$this->targetStep(), $this->stopSourceStep(), $this->backupStep(), $this->allocationStep(), $this->createStep(), $this->transferStep(), $this->switchStep(), $this->cleanupStep()];
+        // collaborators are read before anything is touched and carried before anything is switched (H341)
+        return [$this->targetStep(), $this->collaboratorsReadStep(), $this->stopSourceStep(), $this->backupStep(), $this->allocationStep(), $this->createStep(), $this->transferStep(), $this->collaboratorsCarryStep(), $this->switchStep(), $this->cleanupStep()];
     }
 
     /** The server the customer runs on now, from the facts recorded at the start (the binding is rewritten at the switch). */
@@ -390,6 +391,155 @@ final class GameMigrationWorkflow implements Workflow
     }
 
     /** The platform now points at the new server; the customer keeps the service, gets the new address, the game starts. */
+    /**
+     * Who may do what on the server, as the customer approved it (Brain card H341). The new server is a new resource
+     * at the panel and starts with no collaborators; what the old one has is read here — before the source is stopped,
+     * so a panel that cannot be read costs the customer nothing.
+     */
+    private function collaboratorsReadStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Spolupracovníci serveru';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $adapter = $context->adapter();
+                if (! $adapter instanceof GameToolsProvider) {
+                    return StepResult::done(['collaborators' => [], 'collaborators_state' => 'unavailable']);
+                }
+                try {
+                    $rows = $adapter->listSubusers(GameMigrationWorkflow::sourceRef($context));
+                } catch (ProviderException $e) {
+                    return StepResult::fail('The collaborators of the server cannot be read, so they could not be carried over: '.mb_substr($e->getMessage(), 0, 200), $e->errorCode->isRetryable());
+                }
+                $collaborators = [];
+                foreach ($rows as $row) {
+                    $email = mb_strtolower(trim((string) ($row['email'] ?? '')));
+                    if ($email !== '') {
+                        $collaborators[] = ['email' => $email, 'permissions' => GameMigrationWorkflow::permissionSet((array) ($row['permissions'] ?? []))];
+                    }
+                }
+
+                return StepResult::done(['collaborators' => $collaborators, 'collaborators_state' => 'read']);
+            }
+        };
+    }
+
+    /**
+     * The same people with the same rights on the new server, or no switch (H341). Each collaborator is created with the
+     * exact permission list and read back: a panel that gives more, or less, than was approved is a blocker — the
+     * account is removed from the target and the migration stops before the customer is moved. `collaborator_policy:
+     * drop` is the explicit exception: the server moves without the ones that cannot be carried, and they are named.
+     */
+    private function collaboratorsCarryStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Přenos spolupracovníků';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $wanted = (array) $context->get('collaborators', []);
+                if ($wanted === []) {
+                    return StepResult::done(['collaborators_carried' => 0, 'collaborators_dropped' => []]);
+                }
+                $binding = GameMigrationWorkflow::targetBinding($this->service($context)->id);
+                $adapter = GameMigrationWorkflow::targetAdapter($context);
+                $drop = (string) $context->desired('collaborator_policy', 'strict') === 'drop';
+                $carried = 0;
+                $dropped = [];
+                foreach ($wanted as $collaborator) {
+                    $email = (string) $collaborator['email'];
+                    $permissions = (array) $collaborator['permissions'];
+                    try {
+                        $problem = $binding === null || ! $adapter instanceof GameToolsProvider ? 'the target panel offers no collaborator accounts' : GameMigrationWorkflow::carry($adapter, $binding->ref(), $email, $permissions);
+                    } catch (ProviderException $e) { // a panel that is briefly away is no verdict on the permissions: try the step again
+                        return StepResult::fail('The target panel did not answer while collaborators were carried over: '.mb_substr($e->getMessage(), 0, 200), true);
+                    }
+                    if ($problem === null) {
+                        $carried++;
+
+                        continue;
+                    }
+                    if (! $drop) {
+                        return StepResult::fail("A collaborator cannot be carried to the new server with the same permissions ({$problem}); nothing was switched. Start the migration with collaborator_policy=drop to move the server without them.", false, ['collaborator' => $email, 'collaborators_carried' => $carried]);
+                    }
+                    $dropped[] = ['email' => $email, 'reason' => $problem];
+                }
+
+                return StepResult::done(['collaborators_carried' => $carried, 'collaborators_dropped' => $dropped]);
+            }
+        };
+    }
+
+    /**
+     * One collaborator on the target with exactly these permissions; null = done, otherwise why not. Whatever was
+     * created and turned out different is removed again: a wrong grant is never left behind.
+     *
+     * @param  list<string>  $permissions
+     *
+     * @throws ProviderException when the panel is only briefly away (the step is repeated)
+     */
+    public static function carry(GameToolsProvider $adapter, ResourceRef $target, string $email, array $permissions): ?string
+    {
+        $find = function () use ($adapter, $target, $email): ?array {
+            foreach ($adapter->listSubusers($target) as $row) {
+                if (mb_strtolower((string) ($row['email'] ?? '')) === $email) {
+                    return $row;
+                }
+            }
+
+            return null;
+        };
+        try {
+            $existing = $find(); // a repeated step: the account may be there already
+            if ($existing !== null && self::permissionSet($existing['permissions']) === $permissions) {
+                return null;
+            }
+            if ($existing !== null) {
+                $adapter->deleteSubuser($target, (string) $existing['remote_id']);
+            }
+            $adapter->createSubuser($target, $email, $permissions);
+            $created = $find();
+            $got = $created === null ? null : self::permissionSet($created['permissions']);
+            if ($got === $permissions) {
+                return null;
+            }
+            if ($created !== null) {
+                $adapter->deleteSubuser($target, (string) $created['remote_id']);
+            }
+            $extra = $got === null ? [] : array_values(array_diff($got, $permissions));
+            $missing = $got === null ? $permissions : array_values(array_diff($permissions, $got));
+
+            return $got === null ? 'the target panel did not create the account' : 'the target panel gave different permissions'.($extra !== [] ? ', more: '.implode(' ', $extra) : '').($missing !== [] ? ', fewer: '.implode(' ', $missing) : '');
+        } catch (ProviderException $e) {
+            if ($e->errorCode->isRetryable()) {
+                throw $e;
+            }
+
+            return mb_substr($e->getMessage(), 0, 160);
+        }
+    }
+
+    /**
+     * @param  array<int|string, mixed>  $permissions
+     * @return list<string>
+     */
+    public static function permissionSet(array $permissions): array
+    {
+        $set = array_values(array_unique(array_map('strval', $permissions)));
+        sort($set);
+
+        return $set;
+    }
+
     private function switchStep(): ServiceStep
     {
         return new class extends ServiceStep
@@ -436,6 +586,11 @@ final class GameMigrationWorkflow implements Workflow
                 }
                 $context->container->make(AuditRecorder::class)->record($context->actor->withScope($service->organization_id), 'service.migrated', 'succeeded', ['from_node' => $context->get('source_node_name'), 'to_node' => $context->get('target_node_name'), 'to_panel' => $context->get('target_instance_key'), 'address' => $address, 'operation_id' => $context->operation->id], 'service', $service->id);
                 $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.migrated', 'service', $service->id, ['label' => $service->label ?: $service->name, 'address' => $address, 'from_node' => $context->get('source_node_name'), 'to_node' => $context->get('target_node_name'), 'reason' => $context->desired('reason')], $service->organization_id));
+
+                $left = (array) $context->get('collaborators_dropped', []);
+                if ($left !== []) { // the explicit exception (H341): the server moved, these people did not — the customer adds them again or not
+                    $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.migration.collaborators_dropped', 'service', $service->id, ['label' => $service->label ?: $service->name, 'count' => count($left), 'collaborators' => array_slice($left, 0, 20)], $service->organization_id));
+                }
 
                 return StepResult::done(['swapped' => true, 'address' => $address]);
             }

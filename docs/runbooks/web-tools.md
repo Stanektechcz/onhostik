@@ -551,6 +551,17 @@ Customers pick or move their window in the workbench (`PUT /v1/services/{id}/mig
 `migration_unsupported` (409). The workbench operations row shows the schedule, the step label while running, the
 new address when finished and the failure when it failed (`tags.migration.state`).
 
+**Collaborators move with a game server, unchanged (Brain card H341).** The new server is a new resource at the panel
+and would start with nobody on it. The migration reads the collaborators of the source **before it stops anything**
+(a panel that cannot be read fails the run while the customer is still untouched) and, after the data is over and
+**before the switch**, creates each of them on the target with the exact permission list and reads it back. A panel
+that answers with more permissions, or fewer, than were approved is a blocker: the account is removed from the target,
+the run fails with the difference named (`more: …` / `fewer: …`), compensation deletes the half-built target and starts
+the source again. `collaborator_policy: drop` on the migrate request is the explicit exception — the server moves
+without the ones that cannot be carried unchanged, never with different rights, and the organization is told
+(`service.migration.collaborators_dropped`). A panel that is only briefly away repeats the step instead of deciding.
+The evacuation of a node uses the default (`strict`). A virtual server keeps its identity across a Proxmox live
+migration and carries no panel-side roles, so there is nothing to carry there; ONhost's own roles never depend on the node.
 **Rebalancing.** `GET /v1/staff/provisioning/rebalance?role=compute|game` plans: load = sold RAM / capacity per
 node (`nodes[].load_pct`), hot nodes above `ONHOST_REBALANCE_HIGH` (0.85) hand their smallest services to the
 coldest node of the same role and region (same instance for compute; a matching template on the target panel for

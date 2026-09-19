@@ -62,7 +62,8 @@ final class ServiceMigrationService
         $service->forceFill(['tags' => $tags])->save();
     }
 
-    public function start(Service $service, ?string $targetNodeId, ?string $reason, CommandContext $context, ?CarbonImmutable $windowFrom = null, ?CarbonImmutable $windowTo = null): Operation
+    /** `$collaboratorPolicy`: `strict` stops a migration that cannot carry a collaborator with the same permissions, `drop` moves without them (H341). */
+    public function start(Service $service, ?string $targetNodeId, ?string $reason, CommandContext $context, ?CarbonImmutable $windowFrom = null, ?CarbonImmutable $windowTo = null, string $collaboratorPolicy = 'strict'): Operation
     {
         $workflow = self::WORKFLOWS[$service->family] ?? null;
         if ($workflow === null) {
@@ -93,7 +94,7 @@ final class ServiceMigrationService
             }
         }
         $scoped = $context->withScope($service->organization_id, $service->project_id);
-        $operation = $this->operations->start($workflow, "smig:{$service->id}:".now()->format('YmdHis.u'), ['target_node_id' => $targetNodeId, 'reason' => $reason, 'window' => $window ? ['from' => $windowFrom->toIso8601String(), 'to' => $windowTo->toIso8601String()] : null], $scoped, $service->id, $service->organization_id, null, $service->provider_instance_id, null, ! $window);
+        $operation = $this->operations->start($workflow, "smig:{$service->id}:".now()->format('YmdHis.u'), ['target_node_id' => $targetNodeId, 'reason' => $reason, 'collaborator_policy' => $collaboratorPolicy === 'drop' ? 'drop' : 'strict', 'window' => $window ? ['from' => $windowFrom->toIso8601String(), 'to' => $windowTo->toIso8601String()] : null], $scoped, $service->id, $service->organization_id, null, $service->provider_instance_id, null, ! $window);
         $schedule = ['operation_id' => $operation->id, 'state' => $window ? 'scheduled' : 'running', 'target' => $targetNodeId, 'reason' => $reason, 'kind' => $workflow::kind()];
         if ($window) {
             $startsAt = $windowFrom->isPast() ? CarbonImmutable::now() : $windowFrom;
