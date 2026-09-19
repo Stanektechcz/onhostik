@@ -10,6 +10,7 @@ use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Catalog\PanelNavigation;
+use Onhost\Domain\Catalog\PlanVersioning;
 use Onhost\Domain\Catalog\PricingRules;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Platform\Commands\Command;
@@ -44,6 +45,13 @@ final class CatalogCommandHandler implements CommandHandler
                 return ['deleted' => $deleted > 0];
             })(),
             'option.upsert' => ['option' => $this->upsertOption((string) $command->get('product_key'), (array) $command->get('option', []))],
+            // versions of a plan (H01): a change is a new version, those who bought keep theirs
+            'plan.publish' => ['version' => app(PlanVersioning::class)->publish((string) $command->get('product_key'), (string) $command->get('plan_key'), $command->payload, $context)->version, 'plan' => app(PlanVersioning::class)->history((string) $command->get('product_key'), (string) $command->get('plan_key'))],
+            'plan.activate_version' => (function () use ($command, $context) {
+                app(PlanVersioning::class)->activate((string) $command->get('product_key'), (string) $command->get('plan_key'), (int) $command->get('version'), $command->payload, $context);
+
+                return ['plan' => app(PlanVersioning::class)->history((string) $command->get('product_key'), (string) $command->get('plan_key'))];
+            })(),
             'product.state' => ['products' => $this->productState((string) $command->get('state'), (array) $command->get('products', []))], // on sale or off sale (audit §5z)
             // the deletion lifecycle: how long a cancelled service can come back, how long the archive lives, what its download costs (audit §5ab)
             'lifecycle.set' => ['lifecycle' => app(DeletionPolicy::class)->set((array) $command->get('config', []), $by)],

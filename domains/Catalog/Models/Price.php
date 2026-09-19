@@ -7,6 +7,22 @@ namespace Onhost\Domain\Catalog\Models;
 use Onhost\Platform\Eloquent\Model;
 use Onhost\Platform\Money\Money;
 
+/**
+ * What one version of a plan costs in one currency for one billing period (net amounts in minor units).
+ *
+ * @property string $id
+ * @property string $plan_version_id
+ * @property string $currency
+ * @property string $period
+ * @property int $amount_minor
+ * @property ?int $renewal_amount_minor
+ * @property int $setup_minor
+ * @property ?int $promo_amount_minor
+ * @property ?int $promo_periods
+ * @property ?int $monthly_cap_minor
+ * @property ?array<string,mixed> $included
+ * @property string $state
+ */
 final class Price extends Model
 {
     protected static string $idPrefix = 'prc';

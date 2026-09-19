@@ -199,6 +199,8 @@ final class NotificationRouter
             'partner.payout.requested' => $this->internal($m, 'partner', 'Žádost o výplatu provize', ($org?->name ?? '').' · '.$money($p['amount'] ?? null), '/sprava/fakturace', 'warn'),
             'partner.payout.paid' => $this->customer($m, 'partner', 'Provize vyplacena', $money($p['amount'] ?? null), '/partner/vyplaty', 'info', $email, 'payout', ['castka' => $money($p['amount'] ?? null), 'obdobi' => $p['period'] ?? '', 'url' => "{$portal}/partner/vyplaty"]),
             'compliance.data_export.ready' => $this->customer($m, 'legal.notice', 'Export dat je připraven', 'Ke stažení '.($p['days'] ?? 30).' dní.', '/panel/nastaveni', 'info', $email, 'data-export', ['url' => "{$portal}/panel/nastaveni", 'dni' => $p['days'] ?? 30]),
+            // a plan version decides what new customers get and pay (H01): finance hears about it, it is not an alarm
+            'catalog.plan.version_published', 'catalog.plan.version_activated' => $this->internal($m, 'finance', self::internalTitle($m->name, $p), 'Změněno: '.implode(', ', array_merge((array) ($p['changed']['entitlements'] ?? []), (array) ($p['changed']['limits'] ?? []), (array) ($p['changed']['prices'] ?? []))).' · důvod: '.($p['reason'] ?? ''), '/sprava/fakturace', 'warn'),
             'registrar.credit.low', 'integration.down', 'integration.maintenance.lifted', 'integration.maintenance.overdue', 'security.ssh_key.revocation.stuck', 'platform.load_shedding.started', 'platform.load_shedding.ended', 'platform.queue.stalled', 'platform.queue.backlog', 'node.drained', 'node.resumed', 'capacity.unavailable', 'ipam.exhausted', 'ipam.threshold', 'provisioning.drift.detected', 'operation.failed', 'finance.reconciliation.mismatch', 'registrar.notification.dead', 'domain.reconcile.missing_remote', 'domain.reconcile.unknown_remote', 'payment.orphan_callback', 'security.incident.opened', 'abuse.case.opened', 'compliance.timer.due', 'compliance.timer.missed', 'sla.burn_rate', 'sla.budget.exhausted', 'maintenance.unapproved' => $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), mb_substr(json_encode(array_diff_key($p, array_flip(['row', 'raw'])), JSON_UNESCAPED_UNICODE) ?: '', 0, 250), self::internalSurface($m->name), 'hot'),
             // marketplace (audit §5j-1): the partner gets the brief, the customer the delivery; disputes reach support and the partner
             'marketplace.ordered' => $this->customer($m, 'order', 'Objednávka z marketplace: '.($p['title'] ?? ''), 'Partner dostal zadání; dodání do '.self::when($p['due_at'] ?? null).'. Zaplaceno z kreditu ('.$money($p['total'] ?? null).').', '/panel/nastaveni', 'info'),
@@ -370,6 +372,8 @@ final class NotificationRouter
     private static function internalTitle(string $event, array $p): string
     {
         return match ($event) {
+            'catalog.plan.version_published' => 'Nová verze tarifu '.($p['product'] ?? '').'/'.($p['plan'] ?? '').': v'.(int) ($p['version'] ?? 0).' v prodeji',
+            'catalog.plan.version_activated' => 'Tarif '.($p['product'] ?? '').'/'.($p['plan'] ?? '').' se prodává ve verzi '.(int) ($p['version'] ?? 0).' (dříve '.(int) ($p['previous_version'] ?? 0).')',
             'registrar.credit.low' => 'Kredit registrátora je nízký',
             'integration.down' => 'Integrace nedostupná: '.($p['key'] ?? ''),
             'integration.maintenance.lifted' => 'Servisní režim ukončen, instance opět v provozu: '.($p['key'] ?? ''),

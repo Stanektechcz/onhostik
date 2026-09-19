@@ -39,6 +39,31 @@ stored in `system_settings` / the catalogue tables and read by the quote (`Quote
 Every change goes through `CatalogCommand` (audited) and drops the generated data script, so the web follows on the
 next request.
 
+## Versions of a plan (Brain card H01)
+
+A plan is never edited. Quotes, orders, services and subscriptions point at the plan VERSION they were sold with, so
+a change of limits or prices is a new version: new orders get it, everybody who bought keeps their version, limits and
+renewal price. Page: **Nastavení systému → Tarify a verze** (`/sprava/nastaveni/tarify`).
+
+* `GET /v1/staff/pricing/plans/{product}/{plan}/versions` — every version with its prices and **who is on it**
+  (services, live subscriptions): the impact of a change before it is made.
+* `POST …/versions` `{reason, entitlements?, limits?, features?, prices?[{currency, period, amount, renewal_amount?, setup?,
+  monthly_cap?}], confirm_large_change?}` — publishes version N+1 from the one on sale. What is not mentioned is carried
+  over, so a currency or a billing period can neither appear nor vanish by omission. `catalog.manage`, risk HIGH, fresh
+  step-up, reason kept in the audit trail; finance gets a notification.
+* `POST …/versions/{n}/activate` `{reason}` — puts an existing version (back) on sale: the rollback. Customers of the
+  version in between keep it; version numbers are never reused.
+
+Refusals (422): `plan_key_unknown` (a new entitlement key comes with the code that provisions it, not from a form),
+`plan_value_invalid` (a number stays a number, a switch a switch), `price_period_unknown`, `price_invalid` (a paid
+plan does not become free by a version — take it off sale or use a promo code), `price_change_large` (more than 50 %
+either way needs `confirm_large_change`: a slipped decimal place is the usual way to a wrong price list),
+`plan_version_unchanged`, `reason_required`.
+
+The prices of an old version stay `active` on purpose — renewals and hourly rating of the services sold with it read
+them. Do not retire them by hand. A promo price (`promo_amount_minor`) belongs to its version and is not carried over.
+`CatalogSeeder` writes version 1 only and never moves `current_version`; it is not part of a deployment.
+
 ## The configurator ("Tarif na míru")
 
 Product `web-custom` (family web, executor ISPConfig) has one base plan (`custom`, 49 Kč: 1 site, 5 GB, 3 mailboxes,

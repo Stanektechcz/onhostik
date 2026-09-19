@@ -73,6 +73,24 @@ final class SystemSettingsController extends Controller
         ]);
     }
 
+    /** Nastavení systému → Tarify a verze: a plan is never edited, a change is a new version (Brain card H01). */
+    public function plans(Request $request): View|RedirectResponse
+    {
+        $user = $request->user();
+        if ($user === null) {
+            return redirect('/prihlaseni?next='.urlencode($request->getRequestUri()));
+        }
+        if (! $user->is_staff) {
+            return redirect('/panel');
+        }
+        $ds = glob(base_path('apps/surfaces/_ds/*/styles.css')) ?: [];
+
+        return view('admin.plans', [
+            'user' => $user,
+            'stylesheet' => $ds === [] ? null : '/surfaces/'.str_replace('\\', '/', substr($ds[0], strlen(base_path('apps/surfaces')) + 1)),
+        ]);
+    }
+
     public function operations(Request $request): View|RedirectResponse
     {
         $user = $request->user();

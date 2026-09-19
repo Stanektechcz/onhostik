@@ -46,7 +46,9 @@
   nothing internal (H16). A cart the catalogue does not offer is refused before an order, a document or a movement of
   money exists, and an order keeps the plan version, limits and price it was sold with after a new version of the plan
   is published (H01). Work outside the plan is offered on the ticket with a price and billed only after the customer
-  approved it, for exactly that price (H29). Event payloads keep who wrote a message (`author_*`): the outbox masked
+  approved it, for exactly that price (H29). A plan is never edited: staff publish a new version (limits, prices) with a
+  step-up and a reason, new orders get it, existing customers keep theirs, and an earlier version can be put back on
+  sale (H01, `/sprava/nastaveni/tarify`). Event payloads keep who wrote a message (`author_*`): the outbox masked
   `author_type`, so a reply of support never reached the customer — fixed, with a guard test over every published key. A member removed from an organization loses their collaborator accounts on its game servers at once, and a
   weekly review reports panel accounts of people who are not members (H333, H332). Assessments live in the
   vault (`Hosting/ASSESSMENT-2026-09-17`, `Hosting/ASSESSMENT-2026-09-19`).
@@ -56,7 +58,7 @@
 ## Verified baseline
 
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 466 tests, 10 990 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 469 tests, 11 064 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

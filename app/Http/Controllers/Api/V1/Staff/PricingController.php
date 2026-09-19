@@ -13,6 +13,7 @@ use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Catalog\PanelNavigation;
+use Onhost\Domain\Catalog\PlanVersioning;
 use Onhost\Domain\Catalog\PricingRules;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Platform\Commands\CommandScope;
@@ -118,6 +119,34 @@ final class PricingController extends ApiController
         $data = $request->validate(['product_key' => ['required', 'string', 'max:60'], 'addon_products' => ['present', 'array', 'max:20'], 'addon_products.*' => ['string', 'max:60']]);
 
         return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, 'catalog.addon_products:'.$data['product_key']), ['op' => 'pricing.addon_products.set', 'product_key' => $data['product_key'], 'addon_products' => $data['addon_products']]), $this->api->context($request));
+    }
+
+    /** Every version of a plan with its prices and who is on it (H01): the impact of a change before it is made. */
+    public function planVersions(Request $request, PlanVersioning $versions, string $product, string $plan): JsonResponse
+    {
+        $this->api->authorize($request, 'catalog.manage', CommandScope::global());
+
+        return $this->ok($versions->history($product, $plan));
+    }
+
+    /** Publish a new version of a plan: changed limits and/or prices for new orders; nobody's agreed version changes. HIGH, step-up. */
+    public function publishPlanVersion(Request $request, string $product, string $plan): JsonResponse
+    {
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'min:5', 'max:250'], 'entitlements' => ['nullable', 'array'], 'limits' => ['nullable', 'array'], 'features' => ['nullable', 'array'], 'confirm_large_change' => ['nullable', 'boolean'],
+            'prices' => ['nullable', 'array', 'max:12'], 'prices.*.currency' => ['required', 'string', 'size:3'], 'prices.*.period' => ['required', 'in:month,year,hour,day,once'], 'prices.*.amount' => ['required', 'numeric', 'min:0'],
+            'prices.*.renewal_amount' => ['nullable', 'numeric', 'min:0'], 'prices.*.setup' => ['nullable', 'numeric', 'min:0'], 'prices.*.monthly_cap' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, "catalog.plan.publish:{$product}/{$plan}"), ['op' => 'plan.publish', 'product_key' => $product, 'plan_key' => $plan] + $data), $this->api->context($request, null, $data['reason']), 201);
+    }
+
+    /** Put an existing version (back) on sale — the rollback of a published version. HIGH, step-up. */
+    public function activatePlanVersion(Request $request, string $product, string $plan, int $version): JsonResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:250']]);
+
+        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, "catalog.plan.activate:{$product}/{$plan}/{$version}"), ['op' => 'plan.activate_version', 'product_key' => $product, 'plan_key' => $plan, 'version' => $version, 'reason' => $data['reason']]), $this->api->context($request, null, $data['reason']));
     }
 
     /** The customer panel's sidebar: category switches, order, labels, optional links — plus what the catalogue offers and who owns what. */

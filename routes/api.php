@@ -450,6 +450,9 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::put('pricing/options', [PricingController::class, 'upsertOption']);
         Route::delete('pricing/options/{product}/{key}', [PricingController::class, 'deleteOption']);
         Route::put('pricing/addon-products', [PricingController::class, 'setAddonProducts']);
+        Route::get('pricing/plans/{product}/{plan}/versions', [PricingController::class, 'planVersions']); // a plan is never edited: a change is a new version (H01)
+        Route::post('pricing/plans/{product}/{plan}/versions', [PricingController::class, 'publishPlanVersion']);
+        Route::post('pricing/plans/{product}/{plan}/versions/{version}/activate', [PricingController::class, 'activatePlanVersion'])->whereNumber('version');
         // customer panel sidebar: category switches, order, labels (admin "Navigace klientského panelu")
         // the deletion lifecycle: restore window, archive retention, download fee (audit §5ab)
         Route::get('settings/lifecycle', [PricingController::class, 'lifecycle']);

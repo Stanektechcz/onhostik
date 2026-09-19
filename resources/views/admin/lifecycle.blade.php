@@ -53,6 +53,7 @@
   <a href="/sprava/nastaveni/integrace">Integrace</a>
   <a href="/sprava/nastaveni/provoz">Provoz</a>
   <a href="/sprava/nastaveni/zivotni-cyklus"><strong>Životní cyklus služeb</strong></a>
+  <a href="/sprava/nastaveni/tarify">Tarify a verze</a>
   <span class="spacer"></span>
   <span class="muted">{{ $user->name }} · {{ $user->email }}</span>
 </header>
