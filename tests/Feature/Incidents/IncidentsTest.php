@@ -160,3 +160,61 @@ it('tells only the affected customers, and never who else is affected or what st
     $mail = MailOutbox::query()->where('to', $affected->email)->where('template_key', 'incident')->firstOrFail();
     expect((string) json_encode($mail->toArray(), JSON_UNESCAPED_UNICODE))->not->toContain('Interní')->not->toContain('on-call');
 });
+
+/*
+ * What "planned maintenance" means for the SLA (Brain card H15): approved by a second person — the approval is what
+ * tells the customers — at least the lead time before it starts. A window at short notice, approved late or drawn
+ * over an outage afterwards is downtime like any other, and the record says which it is.
+ */
+it('takes a window out of the SLA only when it was announced in time, and says so in the record and on the status page', function () {
+    $owner = $this->staff('sre');
+    $approver = $this->staff('sre');
+    foreach ([$owner, $approver] as $person) {
+        app(StepUpService::class)->grant($person, 'totp', null, '127.0.0.1');
+    }
+    $schedule = function (array $window) use ($owner) {
+        $this->actingAs($owner, 'sanctum');
+
+        return $this->postJson('/v1/staff/maintenance', $window + ['title' => 'Údržba', 'components' => ['web-cz1'], 'rollback' => 'vrátit zpět']);
+    };
+    $approve = function (string $id) use ($approver) {
+        $this->actingAs($approver, 'sanctum');
+
+        return $this->postJson("/v1/staff/maintenance/{$id}/approve");
+    };
+
+    // an outage that already happened cannot be turned into maintenance afterwards
+    $schedule(['starts_at' => now()->subHours(3)->toIso8601String(), 'ends_at' => now()->subHour()->toIso8601String(), 'emergency' => true])->assertUnprocessable()->assertJsonPath('error', 'maintenance_in_past');
+
+    // an emergency window is allowed at short notice, and always counts — whatever the request asks for
+    $emergency = $schedule(['starts_at' => now()->addHour()->toIso8601String(), 'ends_at' => now()->addHours(2)->toIso8601String(), 'emergency' => true, 'sla_treatment' => 'excluded'])->assertCreated()->json();
+    expect($emergency['emergency'])->toBeTrue()->and($emergency['sla_treatment'])->toBe('counted')->and($emergency['sla_excluded'])->toBeFalse();
+    expect($approve($emergency['id'])->assertOk()->json('sla_excluded'))->toBeFalse();
+
+    // announced in time: excluded, with the moment of the announcement on record
+    $planned = $schedule(['starts_at' => now()->addHours(72)->toIso8601String(), 'ends_at' => now()->addHours(74)->toIso8601String()])->assertCreated()->json();
+    expect($planned['sla_excluded'])->toBeFalse(); // not approved yet: nobody was told
+    $approved = $approve($planned['id'])->assertOk()->json();
+    expect($approved['sla_excluded'])->toBeTrue()->and($approved['announced_at'])->not->toBeNull()->and($approved['lead_hours'])->toBe(48);
+    expect(AuditEvent::query()->where('action', 'maintenance.approve')->where('resource_id', $planned['id'])->sole()->detail)->toMatchArray(['sla' => 'excluded', 'late' => false]);
+
+    // scheduled in time but approved a day before it starts: the customers heard too late, so it counts
+    $late = $schedule(['starts_at' => now()->addHours(96)->toIso8601String(), 'ends_at' => now()->addHours(98)->toIso8601String()])->assertCreated()->json();
+    $this->travel(72)->hours();
+    foreach ([$owner, $approver] as $person) {
+        app(StepUpService::class)->grant($person, 'totp', null, '127.0.0.1');
+    }
+    $lateApproved = $approve($late['id'])->assertOk()->json();
+    expect($lateApproved['sla_excluded'])->toBeFalse()->and($lateApproved['sla_treatment'])->toBe('counted');
+    expect(AuditEvent::query()->where('action', 'maintenance.approve')->where('resource_id', $late['id'])->sole()->detail)->toMatchArray(['sla' => 'counted', 'late' => true]);
+
+    // the status page tells the customer which of the coming windows count
+    $public = collect($this->getJson('/v1/status')->assertOk()->json('data.maintenance'))->keyBy('number');
+    expect($public[$late['number']]['counts_toward_sla'])->toBeTrue()->and($public[$planned['number']]['counts_toward_sla'])->toBeFalse();
+
+    // a window nobody approved before it ended was not planned maintenance
+    $forgotten = $schedule(['starts_at' => now()->addHours(50)->toIso8601String(), 'ends_at' => now()->addHours(51)->toIso8601String()])->assertCreated()->json();
+    $this->travel(60)->hours();
+    app(StepUpService::class)->grant($approver, 'totp', null, '127.0.0.1');
+    $approve($forgotten['id'])->assertStatus(409)->assertJsonPath('error', 'maintenance_window_passed');
+});

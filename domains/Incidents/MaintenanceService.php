@@ -45,8 +45,12 @@ final class MaintenanceService
         if ($ends <= $starts) {
             throw new DomainError('maintenance_window_invalid', 'The window must end after it starts.', 422, ['field' => 'ends_at']);
         }
-        $lead = (int) config('onhost.status.maintenance_lead_hours', 48);
-        if ($starts < now()->addHours($lead) && ! ($input['emergency'] ?? false)) {
+        if ($starts < now()->subMinutes(5)) { // a window is announced, never drawn over something that already happened
+            throw new DomainError('maintenance_in_past', 'A maintenance window cannot start in the past; an outage that already happened is an incident.', 422, ['field' => 'starts_at']);
+        }
+        $emergency = (bool) ($input['emergency'] ?? false);
+        $lead = Maintenance::leadHours();
+        if ($starts < now()->addHours($lead) && ! $emergency) {
             throw new DomainError('maintenance_lead_time', "Planned maintenance must be announced at least {$lead} h ahead (or flagged as emergency).", 422, ['field' => 'starts_at', 'lead_hours' => $lead]);
         }
         if (trim((string) ($input['rollback'] ?? '')) === '') {
@@ -58,7 +62,8 @@ final class MaintenanceService
             'number' => $number, 'title' => $title, 'components' => $components, 'affected_services' => $services,
             'starts_at' => $starts, 'ends_at' => $ends, 'impact' => $input['impact'] ?? null, 'rollback' => $input['rollback'],
             'owner_id' => $context->actorId, 'change_ticket' => $input['change_ticket'] ?? null,
-            'sla_treatment' => ($input['sla_treatment'] ?? 'excluded') === 'counted' ? 'counted' : 'excluded',
+            // short notice is the opposite of planned: an emergency window always counts toward the SLA (H15)
+            'sla_treatment' => $emergency || ($input['sla_treatment'] ?? 'excluded') === 'counted' ? 'counted' : 'excluded', 'emergency' => $emergency,
             'state' => 'planned',
         ])));
         $this->audit->record($context, 'maintenance.schedule', 'succeeded', ['number' => $maintenance->number, 'components' => $components, 'window' => [$starts->toIso8601String(), $ends->toIso8601String()], 'emergency' => (bool) ($input['emergency'] ?? false)], 'maintenance', $maintenance->id);
@@ -75,8 +80,13 @@ final class MaintenanceService
         if ($context->actorType === 'user' && $context->actorId !== null && $context->actorId === $maintenance->owner_id) {
             throw new DomainError('maintenance_self_approval', 'Maintenance must be approved by a second person.', 403, ['requirement' => 'four_eyes']);
         }
-        $maintenance->forceFill(['state' => 'approved', 'approved_by' => $context->actorId])->save();
-        $this->audit->record($context, 'maintenance.approve', 'succeeded', ['number' => $maintenance->number], 'maintenance', $maintenance->id);
+        if ($maintenance->ends_at->isPast()) {
+            throw new DomainError('maintenance_window_passed', 'The window is over; what was not approved before it ended was not planned maintenance.', 409);
+        }
+        // the approval is the announcement: a window approved less than the lead time ahead was not announced in time and counts
+        $late = now()->greaterThan($maintenance->starts_at->copy()->subHours(Maintenance::leadHours()));
+        $maintenance->forceFill(['state' => 'approved', 'approved_by' => $context->actorId, 'announced_at' => now()] + ($late ? ['sla_treatment' => 'counted'] : []))->save();
+        $this->audit->record($context, 'maintenance.approve', 'succeeded', ['number' => $maintenance->number, 'announced_at' => now()->toIso8601String(), 'sla' => $maintenance->excludesFromSla() ? 'excluded' : 'counted', 'late' => $late], 'maintenance', $maintenance->id);
         $payload = ['number' => $maintenance->number, 'title' => $maintenance->title, 'components' => $maintenance->components, 'starts_at' => $maintenance->starts_at->toIso8601String(), 'ends_at' => $maintenance->ends_at->toIso8601String(), 'impact' => $maintenance->impact];
         $organizations = $maintenance->affected_services ? Service::query()->whereIn('id', $maintenance->affected_services)->pluck('organization_id')->unique() : collect();
         if ($organizations->isEmpty()) {

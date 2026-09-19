@@ -92,8 +92,17 @@ it('computes SLO windows with error budget and burn-rate alerts, excluding SLA-e
         ->and($windows['5m']->availability_pct)->toBe(0.0)->and($windows['30d']->policy_state)->toBe('freeze');
     expect(OutboxMessage::query()->where('name', 'sla.burn_rate')->exists())->toBeTrue()->and(OutboxMessage::query()->where('name', 'sla.budget.exhausted')->exists())->toBeTrue();
 
-    // the same five minutes inside an approved, SLA-excluded maintenance window do not count
-    Maintenance::query()->create(['number' => 'MNT-2026-0001', 'title' => 'Deploy', 'components' => ['portal'], 'starts_at' => $now->copy()->subMinutes(6), 'ends_at' => $now->copy()->addMinute(), 'rollback' => 'x', 'sla_treatment' => 'excluded', 'state' => 'completed']);
+    // a window drawn over the outage without an announcement takes nothing out of the SLA (H15) …
+    $window = Maintenance::query()->create(['number' => 'MNT-2026-0001', 'title' => 'Deploy', 'components' => ['portal'], 'starts_at' => $now->copy()->subMinutes(6), 'ends_at' => $now->copy()->addMinute(), 'rollback' => 'x', 'sla_treatment' => 'excluded', 'state' => 'completed']);
+    expect(app(SlaService::class)->computeWindows($component, $now)['1h']->total)->toBe(60);
+    // … nor does one announced an hour ahead, nor an emergency one
+    $window->forceFill(['announced_at' => $now->copy()->subHour(), 'approved_by' => 'usr_second'])->save();
+    expect(app(SlaService::class)->computeWindows($component, $now)['1h']->total)->toBe(60);
+    $window->forceFill(['announced_at' => $now->copy()->subDays(3), 'emergency' => true])->save();
+    expect(app(SlaService::class)->computeWindows($component, $now)['1h']->total)->toBe(60);
+
+    // the same five minutes inside a window approved and announced three days ahead do not count
+    $window->forceFill(['emergency' => false])->save();
     $windows = app(SlaService::class)->computeWindows($component, $now);
     expect($windows['1h']->total)->toBe(53)->and((float) $windows['1h']->availability_pct)->toBe(100.0)->and($windows['30d']->policy_state)->toBe('normal');
 

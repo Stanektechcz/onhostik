@@ -245,7 +245,7 @@ final class IncidentService
             'overall' => $overall,
             'components' => $out,
             'incidents' => $incidents->map(fn (Incident $i) => $this->publicIncident($i))->values()->all(),
-            'maintenance' => $maintenance->map(fn (Maintenance $m) => ['number' => $m->number, 'title' => $m->title, 'components' => $m->components, 'starts_at' => $m->starts_at->toIso8601String(), 'ends_at' => $m->ends_at->toIso8601String(), 'impact' => $m->impact, 'state' => $m->state])->values()->all(),
+            'maintenance' => $maintenance->map(fn (Maintenance $m) => ['number' => $m->number, 'title' => $m->title, 'components' => $m->components, 'starts_at' => $m->starts_at->toIso8601String(), 'ends_at' => $m->ends_at->toIso8601String(), 'impact' => $m->impact, 'state' => $m->state, 'emergency' => (bool) $m->emergency, 'counts_toward_sla' => ! $m->excludesFromSla()])->values()->all(),
             'generated_at' => now()->toIso8601String(),
         ];
     }

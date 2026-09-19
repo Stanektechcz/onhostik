@@ -68,6 +68,21 @@ Within 5 working days: `POST /v1/staff/incidents/{id}/postmortem` with summary, 
 corrective actions (owner + deadline each). Publish it (`publish: true`) unless legal or security says no.
 The status page lists published post-mortems at `GET /v1/incidents/postmortems`.
 
+## What counts as planned maintenance (Brain card H15)
+
+One definition, in `Maintenance::excludesFromSla()`, used by the SLO windows and by the downtime behind SLA credits:
+a window takes minutes out of the SLA only when it was **approved by a second person at least
+`onhost.status.maintenance_lead_hours` (48 h) before it starts** — the approval is what announces it to the customers,
+and its moment is kept as `announced_at`. Everything else is downtime like any other:
+
+* an **emergency** window (short notice) is allowed and always `counted`, whatever the request asked for;
+* a window scheduled in time but **approved late** becomes `counted` at approval (audit detail `late: true`);
+* a window **cannot start in the past** (`maintenance_in_past`) — an outage that already happened is an incident — and
+  cannot be approved after it ended (`maintenance_window_passed`).
+
+The staff record shows `announced_at`, `emergency` and `sla_excluded`; the public status page shows
+`counts_toward_sla` for every coming window. Windows approved before this rule have `announced_at` = their creation.
+
 ## 7. SLA credits
 
 After resolution, `POST /v1/staff/incidents/{id}/sla-credits` computes candidates for contractual services

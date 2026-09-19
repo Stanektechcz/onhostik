@@ -196,7 +196,7 @@ final class SlaService
         $now ??= now();
         $objective = (float) config("onhost.sla.classes.{$component->sla_class}.objective", 99.9);
         $budget = max(0.0001, (100 - $objective) / 100);
-        $excluded = Maintenance::query()->where('sla_treatment', 'excluded')->whereIn('state', ['approved', 'in_progress', 'completed'])->where('ends_at', '>=', $now->copy()->subSeconds(self::WINDOWS['30d']))->get()->filter(fn (Maintenance $m) => in_array($component->key, $m->components, true));
+        $excluded = Maintenance::query()->where('sla_treatment', 'excluded')->whereIn('state', ['approved', 'in_progress', 'completed'])->where('ends_at', '>=', $now->copy()->subSeconds(self::WINDOWS['30d']))->get()->filter(fn (Maintenance $m) => $m->excludesFromSla() && in_array($component->key, $m->components, true));
         $out = [];
         foreach (self::WINDOWS as $name => $seconds) {
             $start = $now->copy()->subSeconds($seconds);
@@ -429,7 +429,7 @@ final class SlaService
         $end = $incident->resolved_at ?? now();
         $seconds = max(0, (int) $start->diffInSeconds($end));
         $windows = Maintenance::query()->where('sla_treatment', 'excluded')->whereIn('state', ['approved', 'in_progress', 'completed'])->where('starts_at', '<', $end)->where('ends_at', '>', $start)->get()
-            ->filter(fn (Maintenance $m) => array_intersect($m->components, $incident->components) !== []);
+            ->filter(fn (Maintenance $m) => $m->excludesFromSla() && array_intersect($m->components, $incident->components) !== []);
         foreach ($windows as $w) {
             $overlap = max(0, (int) $w->starts_at->max($start)->diffInSeconds($w->ends_at->min($end)));
             $seconds -= $overlap;
