@@ -69,6 +69,7 @@ use Onhost\Domain\Services\Commands\ServiceArchiveCommandHandler;
 use Onhost\Domain\Services\Commands\ServicesCommandHandler;
 use Onhost\Domain\Services\Commands\WebToolsCommand;
 use Onhost\Domain\Services\Commands\WebToolsCommandHandler;
+use Onhost\Domain\Services\Listeners\RevokeDelegatedAccess;
 use Onhost\Domain\WalletLedger\Commands\AutoTopupCommand;
 use Onhost\Domain\WalletLedger\Commands\RemovePaymentMethodCommand;
 use Onhost\Domain\WalletLedger\Commands\TopUpWalletCommand;
@@ -133,6 +134,7 @@ final class DomainServiceProvider extends ServiceProvider
         Event::listen(OutboxEventDispatched::class, WebhookDispatcher::class);
         Event::listen(OutboxEventDispatched::class, OnCallService::class); // operational events page the on-call (audit §5q-1)
         Event::listen(OutboxEventDispatched::class, ChargebackSettlement::class); // credit back once the service is gone
+        Event::listen(OutboxEventDispatched::class, RevokeDelegatedAccess::class); // a removed member loses the panel accounts that were theirs (H333)
         Event::listen(OutboxEventDispatched::class, LoyaltyRouter::class); // points for what customers do
 
         $this->app->afterResolving(CommandBus::class, function (CommandBus $bus): void {

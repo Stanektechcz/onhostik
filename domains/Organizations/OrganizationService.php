@@ -109,6 +109,8 @@ final class OrganizationService
                 ->where('organization_id', $organization->id)->delete();
             $this->audit->record($context->withScope($organization->id), 'organization.member.remove', 'succeeded', ['user_id' => $user->id], 'organization', $organization->id);
         });
+        // panel accounts are keyed by e-mail and would outlive the membership (H333): the listener removes them through audited operations
+        $this->outbox->publish(GenericEvent::of('organization.member.removed', 'organization', $organization->id, ['user_id' => $user->id, 'email' => mb_strtolower((string) $user->email)], $organization->id));
     }
 
     /** @return array{invitation: OrganizationInvitation, token: string} */

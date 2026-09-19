@@ -60,6 +60,7 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\QueueScaler;
 use Onhost\Domain\Provisioning\Reconciler;
 use Onhost\Domain\Provisioning\Scheduling\NodeRebalancer;
+use Onhost\Domain\Services\DelegatedAccessReview;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
@@ -676,6 +677,22 @@ Artisan::command('onhost:services:purge {--service= : one service id or name, ot
  * The archive of one service: what is stored, whether the identity matches, and — with --create — building it now
  * without deleting anything (the way to prove the archive path of a panel before a real cancellation).
  */
+/*
+ * Panel accounts that outlived a membership (Brain cards H332, H333). Removing a member deletes their collaborator
+ * accounts at once; this pass finds what slipped through — the panel was down that day, the account was added by hand
+ * later — and tells the organization. Nothing is removed here: an outside collaborator is the customer's call.
+ */
+Artisan::command('onhost:access:review {--organization= : only this organization}', function (DelegatedAccessReview $accessReview, AutomationLedger $ledger) {
+    if ($ledger->off('access.review')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    $stats = $accessReview->review($this->option('organization') ?: null);
+    $ledger->record('access.review', $stats);
+    $this->table(['organizations', 'services', 'findings', 'errors'], [$stats]);
+})->purpose('Report collaborator accounts on game servers that belong to people who are no longer members of the organization');
+
 Artisan::command('onhost:services:archive {service : service id, name or hostname} {--create : build the archive now (nothing is deleted)} {--package : build the downloadable zip of the newest archive} {--identity : only the identity verification}', function (ProviderRegistry $registry, FinalArchive $archives, ServiceIdentityCheck $identityCheck) {
     $key = (string) $this->argument('service');
     $service = Service::query()->where(fn ($w) => $w->where('id', $key)->orWhere('name', $key)->orWhere('hostname', $key))->withTrashed()->first();
@@ -893,5 +910,6 @@ Schedule::command('onhost:monitoring:prune')->dailyAt('04:20')->onOneServer();
 Schedule::command('onhost:backups:run')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:certificates:renew')->dailyAt('03:10')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:purge')->dailyAt('03:40')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:access:review')->weeklyOn(1, '04:50')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:cdn:refresh')->hourlyAt(35)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:web-tools:prune')->hourlyAt(50)->onOneServer();

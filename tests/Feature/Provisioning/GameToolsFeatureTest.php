@@ -5,13 +5,17 @@ declare(strict_types=1);
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
+use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Services\DelegatedAccessReview;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\ServiceSpecService;
 use Onhost\Domain\Services\UsageWatch;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Outbox\OutboxMessage;
+use Onhost\Platform\Outbox\OutboxPublisher;
 
 /*
  * Game servers through the customer API: the tabs a game panel offers (startup, settings, schedules, databases,
@@ -275,4 +279,34 @@ it('revokes every collaborator when a game server is cancelled, after listing th
     $metadata = json_decode((string) Storage::disk('local')->get(data_get($backup->meta, 'set').'/service.json'), true);
     expect(array_column($metadata['access']['subusers'], 'email'))->toBe(['admin@liga.test', 'mod@liga.test']);
     expect(OutboxMessage::query()->where('name', 'service.delegations.revoked')->exists())->toBeTrue();
+});
+
+it('takes a removed member off the game servers at once and only reports the collaborators it cannot judge (Brain cards H333, H332)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = featureGameService($org, ['subusers' => 5]);
+    $contractor = $this->customer(['email' => 'dodavatel@studio.test']);
+    OrganizationMembership::query()->create(['organization_id' => $org->id, 'user_id' => $contractor->id, 'role_key' => 'developer', 'state' => 'active']);
+    $stranger = $this->customer(['email' => 'byvaly@jinde.test']); // has an ONhost account, was never a member here
+    $state = gameToolsState();
+    $state['subusers'] = [
+        'su-1' => ['uuid' => 'su-1', 'email' => 'dodavatel@studio.test', 'permissions' => ['control.console'], 'created_at' => null],
+        'su-2' => ['uuid' => 'su-2', 'email' => 'kamarad@bez-uctu.test', 'permissions' => ['control.start'], 'created_at' => null],
+        'su-3' => ['uuid' => 'su-3', 'email' => 'byvaly@jinde.test', 'permissions' => ['file.read'], 'created_at' => null],
+    ];
+    gameToolsFake($state);
+
+    // the contractor leaves the organization: their panel account goes with them, through an audited operation
+    app(OrganizationService::class)->removeMember($org, $contractor, $this->contextFor($owner, $org));
+    app(OutboxPublisher::class)->relayPending();
+    expect(array_keys($state['subusers']))->toBe(['su-2', 'su-3']);
+    $operation = Operation::query()->where('service_id', $service->id)->where('idempotency_key', 'like', 'member-removed:%')->firstOrFail();
+    expect($operation->state)->toBe(Operation::SUCCEEDED)->and($operation->actor_type)->toBe('system')->and(data_get($operation->desired, 'action'))->toBe('subuser.delete');
+
+    // the weekly review: an account of someone with an ONhost login who is not a member is reported, an outside friend is not, nothing is deleted
+    $stats = app(DelegatedAccessReview::class)->review($org->id);
+    expect($stats)->toMatchArray(['organizations' => 1, 'services' => 1, 'findings' => 1, 'errors' => 0]);
+    $finding = OutboxMessage::query()->where('name', 'access.review.findings')->latest('created_at')->firstOrFail();
+    expect(data_get($finding->payload, 'findings.0.email'))->toBe('byvaly@jinde.test')->and(data_get($finding->payload, 'count'))->toBe(1);
+    expect(array_keys($state['subusers']))->toBe(['su-2', 'su-3']);
+    expect($stranger->id)->not->toBe($contractor->id);
 });
