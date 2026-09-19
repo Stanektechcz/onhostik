@@ -108,9 +108,15 @@ final class OrganizationService
             throw new DomainError('owner_role_locked', 'The organization owner keeps the owner role; transfer ownership first.');
         }
 
-        $until = $setAccess ? $accessUntil : OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->first()?->expires_at;
+        $current = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->first();
+        $membership = $this->attachMember($organization, $user, $roleKey, $context, joinedNow: false, accessUntil: $setAccess ? $accessUntil : $current?->expires_at);
+        // a smaller role may no longer cover what the old one put on the panels (H332): the listener takes back the person's
+        // SSH keys and collaborator accounts on the services they can no longer manage
+        if ($current !== null && $current->role_key !== $roleKey) {
+            $this->outbox->publish(GenericEvent::of('organization.member.role_changed', 'organization', $organization->id, ['user_id' => $user->id, 'email' => mb_strtolower((string) $user->email), 'from' => $current->role_key, 'to' => $roleKey], $organization->id));
+        }
 
-        return $this->attachMember($organization, $user, $roleKey, $context, joinedNow: false, accessUntil: $until);
+        return $membership;
     }
 
     public function removeMember(Organization $organization, User $user, CommandContext $context): void

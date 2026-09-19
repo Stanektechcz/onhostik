@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 442d6ca | 2026-09-19 | Let a membership or a project role end on a date (Brain card H343) |
+| ddc38da | 2026-09-19 | Know whose SSH key sits on a shell account and take it back (Brain card H185) |
 | 2a83e11 | 2026-09-19 | Try a new panel access before it replaces the working one (Brain card H314) |
 | 83b95f6 | 2026-09-19 | Keep a slice of every panel quota for health reads (Brain card H323) |
 | e2a2502 | 2026-09-19 | Keep servicing a customer apart from moving their money (Brain card H348) |
@@ -12,5 +14,3 @@
 | 2cc8235 | 2026-09-19 | A removed member loses the panel accounts that were theirs, and a weekly review reports the ones nobody can judge (Brain cards H333, H332) |
 | 6a582a3 | 2026-09-19 | Generated context after the staff-scope re-check and the freshness verdict |
 | 56e8792 | 2026-09-19 | A reading the reconciler has not refreshed no longer looks current (Brain card H325) |
-| 088456c | 2026-09-19 | The permission re-check now covers runs started by staff: the scope the bus checked is stored next to the permission (H315) |
-| c01704b | 2026-09-19 | Current state and generated context after the operation-safety work |

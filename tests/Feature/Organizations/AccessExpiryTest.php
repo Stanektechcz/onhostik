@@ -55,12 +55,13 @@ it('ends a membership on its date: the permission stops at once, the clean-up fo
     expect(collect($this->getJson("/v1/organizations/{$org->id}")->json('data.members'))->firstWhere('user_id', $lecturer->id)['access_until'])->toBe($until->toIso8601String());
     $scope = CommandScope::resource($service->id, $org->id, $service->project_id);
     expect(app(Authorizer::class)->can($lecturer, 'service.manage', $scope))->toBeTrue();
-    $key = expiryKeyFor($org->id, $service->id, $lecturer->id);
 
     // a change of role keeps the end; only an explicit null makes the access permanent
     $this->withHeader('Idempotency-Key', 'role-1')->patchJson("/v1/organizations/{$org->id}/members/{$lecturer->id}", ['role' => 'viewer'])->assertOk();
     expect(OrganizationMembership::query()->where('user_id', $lecturer->id)->value('expires_at'))->not->toBeNull();
     $this->withHeader('Idempotency-Key', 'role-2')->patchJson("/v1/organizations/{$org->id}/members/{$lecturer->id}", ['role' => 'developer', 'access_until' => $until->toIso8601String()])->assertOk();
+    app(OutboxPublisher::class)->relayPending(); // the role changes are settled before the key exists: what follows is about the date alone
+    $key = expiryKeyFor($org->id, $service->id, $lecturer->id);
     // the owner's access never ends
     $this->withHeader('Idempotency-Key', 'role-own')->patchJson("/v1/organizations/{$org->id}/members/{$owner->id}", ['role' => 'owner', 'access_until' => $until->toIso8601String()])->assertUnprocessable()->assertJsonPath('error', 'owner_access_cannot_expire');
 
@@ -128,4 +129,31 @@ it('ends a project role on its date, never later than the membership, and leaves
         ->and($kept->fresh()->state)->toBe(SshKeyGrant::ACTIVE); // a developer of the whole organization lost nothing with the project role
     app(OutboxPublisher::class)->relayPending();
     expect(Notification::query()->where('organization_id', $org->id)->where('title', 'Dočasný přístup skončil')->where('body', 'like', '%projekt Kurz PHP 2026%')->count())->toBe(2);
+});
+
+it('takes back what a smaller role no longer covers, and nothing from a role that never covered it', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'ispconfig');
+    $organizations = app(OrganizationService::class);
+    $developer = $this->customer();
+    $organizations->attachMember($org, $developer, 'developer', CommandContext::system('test'), true);
+    $accountant = $this->customer();
+    $organizations->attachMember($org, $accountant, 'viewer', CommandContext::system('test'), true);
+    $theirs = expiryKeyFor($org->id, $service->id, $developer->id, '30');
+    $given = expiryKeyFor($org->id, $service->id, $accountant->id, '31'); // the owner put a key in a viewer's name on purpose
+
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'password', null, '127.0.0.1');
+    $this->withHeader('Idempotency-Key', 'down-1')->patchJson("/v1/organizations/{$org->id}/members/{$developer->id}", ['role' => 'viewer'])->assertOk();
+    $this->withHeader('Idempotency-Key', 'side-1')->patchJson("/v1/organizations/{$org->id}/members/{$accountant->id}", ['role' => 'billing_admin'])->assertOk();
+    app(OutboxPublisher::class)->relayPending();
+
+    expect($theirs->fresh()->state)->toBe(SshKeyGrant::REVOKING)->and($theirs->fresh()->getAttribute('revoke_reason'))->toBe('role changed')
+        ->and($given->fresh()->state)->toBe(SshKeyGrant::ACTIVE);
+
+    // a bigger role loses nothing
+    $other = expiryKeyFor($org->id, $service->id, $developer->id, '32');
+    $this->withHeader('Idempotency-Key', 'up-1')->patchJson("/v1/organizations/{$org->id}/members/{$developer->id}", ['role' => 'org_admin'])->assertOk();
+    app(OutboxPublisher::class)->relayPending();
+    expect($other->fresh()->state)->toBe(SshKeyGrant::ACTIVE);
 });

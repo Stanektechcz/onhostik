@@ -586,6 +586,10 @@ membership or the project role through the same path as a removal by hand, which
 where the person can no longer `service.manage` through another role. The organization is told
 (`organization.member.expired`). Switching the rule off delays the clean-up, never the refusal.
 
+The same take-back runs when a member is moved to a smaller role (`organization.member.role_changed`, H332): if the
+old role could `service.manage` and the person now cannot on a service, their keys and collaborator accounts there are
+revoked. A key the owner deliberately put in the name of a viewer is left alone — that role never covered it.
+
 **SSH keys on shell accounts (Brain card H185).** A panel keeps a public key as text on the shell account and knows no
 people. `SshKeyLedger` keeps what the panel does not: the fingerprint (never the key), the member it belongs to, who
 installed it and whether a revocation has reached the panel. `shell.create` / `shell.key` take an optional
