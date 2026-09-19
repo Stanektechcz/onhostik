@@ -2,8 +2,14 @@
 # Providers (Proxmox, ISPConfig, aaPanel, Pterodactyl, PowerDNS, WEDOS) are NOT emulated here: point the
 # `*_URL` variables at a lab or use the DevInfrastructureSeeder + HTTP fakes from the test suite.
 #   docker compose -f infra/docker-compose.yml up -d
+# Reproducible and bounded (Brain card H190): every image is pinned to a version, every container has a memory and CPU
+# ceiling (just under 8 GB and 7.5 CPUs if everything peaks at once; ClamAV alone needs ~3 GB for its signatures — leave it
+# out with `--scale clamav=0` on a small laptop). The credentials in this file are local defaults of throw-away
+# containers; nothing here is, or may become, a production secret.
 services:
   app:
+    mem_limit: 768m
+    cpus: 1.0
     build:
       context: ..
       dockerfile: infra/docker/app.Dockerfile
@@ -33,6 +39,8 @@ services:
     command: ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
 
   worker:
+    mem_limit: 768m
+    cpus: 1.0
     build:
       context: ..
       dockerfile: infra/docker/app.Dockerfile
@@ -42,6 +50,8 @@ services:
     command: ["php", "artisan", "queue:work", "--queue=default,mails,provider-proxmox,provider-ispconfig,provider-aapanel,provider-pterodactyl,provider-powerdns,provider-registrar,provider-kubernetes", "--tries=1", "--timeout=900"]
 
   scheduler:
+    mem_limit: 512m
+    cpus: 0.5
     build:
       context: ..
       dockerfile: infra/docker/app.Dockerfile
@@ -51,6 +61,8 @@ services:
     command: ["php", "artisan", "schedule:work"]
 
   console-relay:
+    mem_limit: 128m
+    cpus: 0.25
     build:
       context: ./console-relay
     environment:
@@ -64,21 +76,29 @@ services:
     depends_on: [app]
 
   postgres:
+    mem_limit: 512m
+    cpus: 1.0
     image: postgres:16-alpine
     environment: { POSTGRES_DB: onhost, POSTGRES_USER: onhost, POSTGRES_PASSWORD: onhost }
     volumes: ["pgdata:/var/lib/postgresql/data"]
     ports: ["5432:5432"]
 
   redis:
+    mem_limit: 128m
+    cpus: 0.25
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     volumes: ["redisdata:/data"]
 
   mailpit:
-    image: axllent/mailpit:latest
+    mem_limit: 128m
+    cpus: 0.25
+    image: axllent/mailpit:v1.31 # pinned: `latest` changes under a developer without a commit (H190)
     ports: ["8025:8025", "1025:1025"]
 
   prometheus:
+    mem_limit: 512m
+    cpus: 0.5
     image: prom/prometheus:v2.53.0
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -86,6 +106,8 @@ services:
     ports: ["9090:9090"]
 
   clamav: # virus scan of uploads (audit §5u-1); freshclam runs inside the image
+    mem_limit: 3g
+    cpus: 1.0
     image: clamav/clamav:1.4
     volumes: ["clamdb:/var/lib/clamav"]
     healthcheck:
@@ -93,19 +115,27 @@ services:
       interval: 60s
       retries: 5
   alertmanager: # pages and tickets from the Prometheus rules (infra/monitoring/alertmanager.yml)
+    mem_limit: 128m
+    cpus: 0.25
     image: prom/alertmanager:v0.27.0
     volumes: ["./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro"]
     ports: ["9093:9093"]
   otel-collector: # OTLP/HTTP receiver in front of Tempo (audit §5u-2)
+    mem_limit: 256m
+    cpus: 0.5
     image: otel/opentelemetry-collector-contrib:0.108.0
     command: ["--config=/etc/otel/config.yaml"]
     volumes: ["./monitoring/otel-collector.yaml:/etc/otel/config.yaml:ro"]
     depends_on: [tempo]
   tempo:
+    mem_limit: 512m
+    cpus: 0.5
     image: grafana/tempo:2.6.0
     command: ["-config.file=/etc/tempo.yaml"]
     volumes: ["./monitoring/tempo.yaml:/etc/tempo.yaml:ro", "tempodata:/var/tempo"]
   grafana: # the console's trace links open Explore here
+    mem_limit: 512m
+    cpus: 0.5
     image: grafana/grafana:11.2.0
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
