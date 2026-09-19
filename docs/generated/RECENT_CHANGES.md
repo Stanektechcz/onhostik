@@ -4,6 +4,7 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 2cc8235 | 2026-09-19 | A removed member loses the panel accounts that were theirs, and a weekly review reports the ones nobody can judge (Brain cards H333, H332) |
 | 6a582a3 | 2026-09-19 | Generated context after the staff-scope re-check and the freshness verdict |
 | 56e8792 | 2026-09-19 | A reading the reconciler has not refreshed no longer looks current (Brain card H325) |
 | 088456c | 2026-09-19 | The permission re-check now covers runs started by staff: the scope the bus checked is stored next to the permission (H315) |
@@ -13,4 +14,3 @@
 | 653ef4a | 2026-09-17 | Panel safety from the Brain's requirement cards: a moved panel address locks the instance, a maintenance lock never lifts itself, oversized panel answers are refused, and a cancellation revokes delegated access |
 | bb3a4a2 | 2026-09-16 | Refresh the generated project context on the clean tree |
 | cf59c58 | 2026-09-16 | Production hardening: the archives are re-verified, an erasure request reaches them, and the repository carries its own context and secret gate again |
-| 0f85117 | 2026-09-16 | A cancellation finishes even when the panel no longer has the resource, and the trend test stops depending on the clock |
