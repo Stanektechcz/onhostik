@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\WalletLedger\Models\Budget;
 use Onhost\Domain\WalletLedger\Models\CreditLine;
+use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
 use Onhost\Domain\WalletLedger\Models\Wallet;
 use Onhost\Domain\WalletLedger\Models\WalletAdjustment;
 use Onhost\Domain\WalletLedger\Models\WalletHold;
@@ -261,14 +262,20 @@ final class WalletService
     }
 
     /** Direct charge without a prior hold (metered usage). */
-    public function charge(Organization|string $organization, Money $amount, string $revenueFamily, string $idempotencyKey, CommandContext $context, ?string $referenceType = null, ?string $referenceId = null, ?Money $taxPart = null, bool $allowNegative = false): void
+    public function charge(Organization|string $organization, Money $amount, string $revenueFamily, string $idempotencyKey, CommandContext $context, ?string $referenceType = null, ?string $referenceId = null, ?Money $taxPart = null, bool $allowNegative = false, bool $enforceBudget = true): void
     {
         $organizationId = $organization instanceof Organization ? $organization->id : $organization;
-        DB::transaction(function () use ($organizationId, $amount, $revenueFamily, $idempotencyKey, $context, $referenceType, $referenceId, $taxPart, $allowNegative) {
+        DB::transaction(function () use ($organizationId, $amount, $revenueFamily, $idempotencyKey, $context, $referenceType, $referenceId, $taxPart, $allowNegative, $enforceBudget) {
             $wallet = $this->lockWallet($organizationId, $amount->currency);
+            if (LedgerTransaction::query()->where('idempotency_key', 'ledger:'.$idempotencyKey)->exists()) {
+                return; // the same charge again: it was taken once, and it is counted against the budget once
+            }
             $spendable = $wallet->available()->add($this->approvedCreditLine($organizationId, $wallet->currency));
             if (! $allowNegative && $spendable->lessThan($amount)) {
                 throw new DomainError('insufficient_funds', 'Insufficient wallet balance.', 402, ['required' => $amount, 'available' => $spendable]);
+            }
+            if ($enforceBudget && ! $allowNegative) { // renewals and metered usage spend the budget like an order does (H30); settling an issued invoice is a debt, not a purchase
+                $this->assertBudget($organizationId, $amount, $context);
             }
             $tax = $taxPart ?? Money::zero($amount->currency);
             $postings = [['account' => LedgerService::walletAccount($organizationId, $amount->currency), 'debit' => $amount->minor]];
@@ -452,11 +459,15 @@ final class WalletService
     {
         $budgets = Budget::query()->where('organization_id', $organizationId)->where('currency', $amount->currency->value)
             ->where(fn ($q) => $q->whereNull('project_id')->orWhere('project_id', $context->projectId))->get();
+        $held = null;
         foreach ($budgets as $budget) {
+            $this->rollOver($budget);
             if ($budget->max_single_service_minor !== null && $amount->minor > $budget->max_single_service_minor) {
                 throw new DomainError('budget_single_service_exceeded', 'This purchase exceeds the maximum single service price set in the budget.', 409, ['limit' => Money::minor($budget->max_single_service_minor, $amount->currency)]);
             }
-            if ($budget->hard && $budget->spent_minor + $amount->minor > $budget->limit_minor) {
+            // money already promised to open orders is spent as far as the limit is concerned
+            $held ??= (int) WalletHold::query()->where('organization_id', $organizationId)->where('currency', $amount->currency->value)->where('state', 'active')->sum('amount_minor');
+            if ($budget->hard && $budget->spent_minor + $held + $amount->minor > $budget->limit_minor) {
                 throw new DomainError('budget_exceeded', 'The monthly hard budget would be exceeded.', 409, ['limit' => Money::minor($budget->limit_minor, $amount->currency), 'spent' => Money::minor($budget->spent_minor, $amount->currency)]);
             }
         }
@@ -466,6 +477,7 @@ final class WalletService
     {
         $budgets = Budget::query()->where('organization_id', $organizationId)->where('currency', $amount->currency->value)->get();
         foreach ($budgets as $budget) {
+            $this->rollOver($budget);
             $spent = $budget->spent_minor + $amount->minor;
             $notified = $budget->notified ?? [];
             foreach ($budget->alert_thresholds ?? [50, 75, 90, 100] as $threshold) {
@@ -476,6 +488,17 @@ final class WalletService
             }
             $budget->forceFill(['spent_minor' => $spent, 'notified' => $notified])->save();
         }
+    }
+
+    /** A budget is a monthly one: the first touch in a new month starts it from zero, and its thresholds warn again. */
+    public function rollOver(Budget $budget): Budget
+    {
+        $month = now()->startOfMonth();
+        if ($budget->period_start === null || $budget->period_start->lt($month)) {
+            $budget->forceFill(['spent_minor' => 0, 'notified' => [], 'period_start' => $month->toDateString()])->save();
+        }
+
+        return $budget;
     }
 
     private function actor(CommandContext $context): string

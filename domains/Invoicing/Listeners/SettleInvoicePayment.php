@@ -35,7 +35,7 @@ final class SettleInvoicePayment
         }
         $context = $event->context->withScope($invoice->organization_id);
         $tax = Money::minor((int) round($invoice->tax_minor * ($open->minor / max(1, $invoice->total_minor))), $invoice->currency);
-        $this->wallets->charge($invoice->organization_id, $open, $invoice->meta['revenue_family'] ?? 'services', "invoice:{$invoice->id}:payment:{$intent->id}", $context, 'invoice', $invoice->id, $tax);
+        $this->wallets->charge($invoice->organization_id, $open, $invoice->meta['revenue_family'] ?? 'services', "invoice:{$invoice->id}:payment:{$intent->id}", $context, 'invoice', $invoice->id, $tax, enforceBudget: false);
         $this->invoices->markPaid($invoice, $open, $intent->method ?? $intent->provider, $context, postLedger: false, paymentReference: $intent->id);
     }
 }

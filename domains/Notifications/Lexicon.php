@@ -75,6 +75,7 @@ final class Lexicon
         'Automatické dobití kreditu ji použije, když kredit nepokryje obnovy příštího týdne. Odebrat ji můžete ve Fakturaci.' => "Auto top-up uses it when the credit does not cover next week's renewals. You can remove it under Billing.",
         'Zapněte automatické dobití kreditu ve Fakturaci a obnovy proběhnou bez vašeho zásahu. Kartu můžete kdykoli odebrat.' => 'Enable auto top-up under Billing and renewals run without your action. You can remove the card any time.',
         'Kredit dobit' => 'Credit topped up', 'Peněženka byla zmrazena' => 'Wallet has been frozen', 'Peněženka zmrazena' => 'Wallet frozen', 'Kontaktujte prosím podporu.' => 'Please contact support.',
+        'Měsíční rozpočet je vyčerpaný · potřeba ' => 'The monthly budget is used up · needed ',
         'Rozpočet: ' => 'Budget: ', 'Útrata dosáhla nastaveného prahu.' => 'Spending reached the configured threshold.',
         'Upomínka — neuhrazený doklad' => 'Reminder — unpaid invoice', 'Po splatnosti ' => 'Overdue by ', ' dní.' => ' days.',
         'Automatické prodloužení je zapnuté.' => 'Auto-renewal is on.', 'Automatické prodloužení je vypnuté — prodlužte ručně.' => 'Auto-renewal is off — renew manually.', 'zapnuté' => 'on', 'vypnuté' => 'off',

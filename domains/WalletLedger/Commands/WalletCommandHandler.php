@@ -8,6 +8,7 @@ use Onhost\Domain\Invoicing\InvoiceNumberAllocator;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\PaymentService;
 use Onhost\Domain\WalletLedger\AutoTopup;
+use Onhost\Domain\WalletLedger\BudgetService;
 use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandHandler;
@@ -20,6 +21,9 @@ final class WalletCommandHandler implements CommandHandler
 
     public function handle(Command $command, CommandContext $context): mixed
     {
+        if ($command instanceof BudgetCommand) {
+            return ['data' => app(BudgetService::class)->set(Organization::query()->findOrFail($command->organizationId), $command->payload, $context)];
+        }
         if ($command instanceof AutoTopupCommand) {
             return $this->autoTopup->configure(Organization::query()->findOrFail($command->organizationId), $command->payload, $context);
         }

@@ -8,7 +8,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Payments\PaymentService;
 use Onhost\Domain\WalletLedger\AutoTopup;
+use Onhost\Domain\WalletLedger\BudgetService;
 use Onhost\Domain\WalletLedger\Commands\AutoTopupCommand;
+use Onhost\Domain\WalletLedger\Commands\BudgetCommand;
 use Onhost\Domain\WalletLedger\Commands\RemovePaymentMethodCommand;
 use Onhost\Domain\WalletLedger\Commands\TopUpWalletCommand;
 use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
@@ -46,6 +48,24 @@ final class WalletController extends ApiController
         $data = $request->validate(['enabled' => ['required', 'boolean'], 'threshold' => ['nullable', 'numeric', 'min:0'], 'amount' => ['nullable', 'numeric', 'min:1'], 'max_per_day' => ['nullable', 'integer', 'min:1', 'max:10'], 'monthly_limit' => ['nullable', 'numeric', 'min:1'], 'payment_method_id' => ['nullable', 'string', 'max:40']]);
 
         return $this->dispatch(new AutoTopupCommand($organization->id, $this->idempotencyKey($request, 'wallet.auto_topup'), $data), $this->api->context($request, $organization));
+    }
+
+    /** The organization's monthly spending limit (H30): what it is, how much of it is spent, when it starts again. */
+    public function budget(Request $request, BudgetService $budgets): JsonResponse
+    {
+        $organization = $this->api->organization($request);
+        $this->api->authorize($request, 'billing.wallet.read', CommandScope::organization($organization->id));
+
+        return response()->json(['data' => $budgets->show($organization)]);
+    }
+
+    /** Set, change or (limit 0) remove the budget. A hard budget stops new orders and lets renewals that do not fit run into reminders. */
+    public function setBudget(Request $request): JsonResponse
+    {
+        $organization = $this->api->organization($request);
+        $data = $request->validate(['limit' => ['required', 'numeric', 'min:0', 'max:100000000'], 'hard' => ['nullable', 'boolean'], 'alert_thresholds' => ['nullable', 'array', 'max:6'], 'alert_thresholds.*' => ['integer', 'min:1', 'max:100'], 'max_single_service' => ['nullable', 'numeric', 'min:0']]);
+
+        return $this->dispatch(new BudgetCommand($organization->id, $this->idempotencyKey($request, 'billing.budget'), $data), $this->api->context($request, $organization));
     }
 
     public function topup(Request $request): JsonResponse

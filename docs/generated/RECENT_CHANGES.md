@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| ee61fe8 | 2026-09-19 | One definition of planned maintenance for the SLA (H15) |
+| 8f53615 | 2026-09-19 | Placement holds what it took; a server no node can take is refused in the cart (H04) |
 | aed18b5 | 2026-09-19 | Plan versions from the administration (H01): a plan is never edited |
 | b125c01 | 2026-09-19 | Paid work on a ticket needs an approved price (H29); support replies reach the customer |
 | 0027dfe | 2026-09-19 | Availability alarm for VPS and game servers; P0 proofs for H14, H16, H01 |
@@ -12,5 +14,3 @@
 | 5a7bf29 | 2026-09-19 | Queue a customer's change while the panel is away, plan limits included (H02) |
 | 6bd9427 | 2026-09-19 | A legal hold suspends every deletion, not only the termination (H18) |
 | 5c5834f | 2026-09-19 | Pin the permission matrix of the customer roles (H11) |
-| 387aaea | 2026-09-19 | Sweep tenant isolation across the API; an ended membership stops counting everywhere (H03, H343) |
-| fc49b36 | 2026-09-19 | A suspension belongs to whoever imposed it; a refused transition no longer strands a service (H17) |

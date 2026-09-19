@@ -11,6 +11,7 @@ use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
+use Onhost\Domain\Services\PortableArchive;
 use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandContext;
@@ -120,4 +121,59 @@ it('verifies at least five identifiers of a service before anything may be delet
     expect($report['required'])->toBe(5)->and($report['checks'])->not->toBeEmpty();
     expect(collect($report['checks'])->firstWhere('key', 'remote_exists')['ok'])->toBeNull(); // no adapter: unknown, never assumed
     expect($report['ok'])->toBeFalse(); // and without the panel's confirmation the deletion does not start
+});
+
+/*
+ * Usable without us (Brain card H28: "export lze obnovit mimo původní instanci"). The download is a plain zip of plain
+ * formats; what makes it portable is that it says so itself: checksums a stock tool verifies, what each file is, how to
+ * put it back on any server, and what is NOT in it. The test restores it the way a stranger would — with nothing of ours.
+ */
+it('hands over an archive that verifies and restores with stock tools only, and says what is missing', function () {
+    [, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'ispconfig');
+    $backup = storedArchive($org->id, $service->id);
+    $set = (string) $backup->meta['set'];
+    Storage::disk('local')->put($set.'/database-eshop.sql', "CREATE TABLE t (id INT);\nINSERT INTO t VALUES (1);\n");
+    Storage::disk('local')->put($set.'/manifest.json', json_encode(['service_id' => $service->id, 'family' => 'web', 'created_at' => '2026-09-01T12:00:00+00:00', 'gaps' => ['mail: mailbox contents are not exportable through the panel API (IMAP copy is a separate migration)']]));
+
+    $package = app(FinalArchive::class)->package($backup);
+    $zipPath = tempnam(sys_get_temp_dir(), 'onhost-portable');
+    file_put_contents($zipPath, Storage::disk('local')->get($package['path']));
+    $zip = new ZipArchive;
+    expect($zip->open($zipPath))->toBeTrue();
+    $names = [];
+    for ($i = 0; $i < $zip->numFiles; $i++) {
+        $names[] = $zip->getNameIndex($i);
+    }
+    sort($names);
+    expect($names)->toBe(['README.txt', 'SHA256SUMS', 'database-eshop.sql', 'manifest.json', 'service.json', 'site-files.tar.gz']);
+
+    // what `sha256sum -c SHA256SUMS` does, done by hand: every listed file is in the zip and hashes to the listed sum
+    $listed = [];
+    foreach (array_filter(explode("\n", (string) $zip->getFromName('SHA256SUMS'))) as $line) {
+        expect($line)->toMatch('/^[0-9a-f]{64}  \S+$/'); // the exact format the tool reads
+        [$hash, $name] = explode('  ', $line, 2);
+        $listed[$name] = $hash;
+        expect(hash('sha256', (string) $zip->getFromName($name)))->toBe($hash);
+    }
+    expect(array_keys($listed))->toBe(['database-eshop.sql', 'manifest.json', 'service.json', 'site-files.tar.gz']);
+
+    // the word about it: each part, a stock command for it, the gap, and no tool of ours
+    $readme = (string) $zip->getFromName('README.txt');
+    expect($readme)->toContain($service->id)->toContain('sha256sum -c SHA256SUMS')->toContain('tar -xzf site-files.tar.gz')->toContain('mysql -u')->toContain('database-eshop.sql')
+        ->toContain('mailbox contents are not exportable')->toContain('NENÍ')
+        ->not->toContain('artisan')->not->toContain('onhost:');
+    $zip->close();
+    @unlink($zipPath);
+
+    // a package built before these files existed is rebuilt on the next download, a current one is reused
+    expect($backup->fresh()->meta['download']['format'])->toBe(PortableArchive::FORMAT);
+    $builtAt = $backup->fresh()->meta['download']['built_at'];
+    $this->travel(5)->minutes();
+    app(FinalArchive::class)->package($backup->fresh());
+    expect($backup->fresh()->meta['download']['built_at'])->toBe($builtAt);
+    $old = $backup->fresh();
+    $old->forceFill(['meta' => array_replace_recursive((array) $old->meta, ['download' => ['format' => 1]])])->save();
+    app(FinalArchive::class)->package($old->fresh());
+    expect($backup->fresh()->meta['download']['built_at'])->not->toBe($builtAt)->and($backup->fresh()->meta['download']['format'])->toBe(PortableArchive::FORMAT);
 });

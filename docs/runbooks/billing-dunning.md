@@ -23,6 +23,22 @@ DUE → OVERDUE_NOTICE (day 3, 7, 14 notices) → GRACE → SUSPENDED (day 30) �
 | Cancel an unpaid order | `POST /v1/orders/{id}/transition` `{to: CANCELLED}` (customer or staff) | voids the proforma (`invoice.cancelled`, audit `invoice.cancel`) and cancels the bank payment intent, so a late transfer with that symbol lands in reconciliation instead of paying a dead order; paid documents are never voided — use a credit note |
 | Bank-transfer top-up | `POST /v1/payments/init` `{provider: bank}` | variable symbol series `9` + year + sequence (`TU` sequence), distinct from document symbols (year + sequence); every attempt is its own intent |
 
+## The customer's monthly budget (Brain card H30)
+
+`GET/PUT /v1/wallet/budget` (`billing.budget.manage` to change, `billing.wallet.read` to see):
+`{limit, hard?, alert_thresholds?[1..100], max_single_service?}`; `limit: 0` removes it. One budget per organization
+in its currency, counted from the first of the month — the first touch in a new month starts it from zero and arms
+its warnings again (`budget.threshold`, once per share and month).
+
+* A **hard** budget refuses what would go over it: an order's hold (money already held by open orders counts as
+  spent) **and direct charges** — renewals and metered usage. A refused renewal or usage charge is handled exactly
+  like one the credit does not cover: the subscription goes past due, a dunning case opens, and the customer is told
+  the cause is the budget, not the credit (`cause: budget` on `subscription.renewal_failed` / `usage.charge_deferred`).
+  Raising the budget and the next retry settle it.
+* **Settling an invoice that already exists is never refused** (`charge(..., enforceBudget: false)`): a debt is not
+  a purchase. It still counts as money spent this month, so the warnings stay truthful.
+* A repeated charge with the same key is one charge and is counted against the budget once.
+
 ## Paid work on a ticket (Brain card H29)
 
 Support covers the infrastructure. Administering the customer's own system, repairing their application or custom

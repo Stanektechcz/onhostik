@@ -164,7 +164,7 @@ final class FinalArchive
         }
         $filename = ($backup->service_id ?? 'service').'-archive-'.$backup->created_at?->format('Ymd').'.zip';
         $target = $set.'/download/'.$filename;
-        if ($this->disk()->exists($target)) {
+        if ($this->disk()->exists($target) && (int) data_get($backup->meta, 'download.format', 1) >= PortableArchive::FORMAT) {
             return ['path' => $target, 'filename' => $filename, 'bytes' => (int) $this->disk()->size($target), 'sha256' => (string) data_get($backup->meta, 'download.sha256', '')];
         }
         $local = storage_path('app/onhost-archive-'.Str::random(8).'.zip');
@@ -172,6 +172,8 @@ final class FinalArchive
         if ($zip->open($local, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
             throw new DomainError('archive_package', 'Archiv se nepodařilo zabalit.', 500);
         }
+        $sums = [];
+        $sizes = [];
         foreach ($this->disk()->files($set) as $file) {
             $stream = $this->disk()->readStream($file);
             if (! is_resource($stream)) {
@@ -183,9 +185,16 @@ final class FinalArchive
                 stream_copy_to_stream($stream, $out);
                 fclose($out);
                 $zip->addFile($temp, basename($file));
+                $sums[basename($file)] = (string) hash_file('sha256', $temp);
+                $sizes[basename($file)] = (int) filesize($temp);
             }
             fclose($stream);
         }
+        // usable without us (H28): checksums a stock tool verifies, and a word about what each file is and how to put it back
+        $manifest = json_decode((string) ($this->disk()->exists($set.'/manifest.json') ? $this->disk()->get($set.'/manifest.json') : '{}'), true);
+        $manifest = (is_array($manifest) ? $manifest : []) + ['service_id' => $backup->service_id, 'family' => data_get($backup->meta, 'family'), 'created_at' => $backup->created_at?->toIso8601String(), 'gaps' => (array) data_get($backup->meta, 'gaps', [])];
+        $zip->addFromString('SHA256SUMS', PortableArchive::sums($sums));
+        $zip->addFromString('README.txt', PortableArchive::readme($manifest, $sizes));
         $zip->close();
         foreach (glob(storage_path('app/onhost-part-*')) ?: [] as $temp) {
             @unlink($temp);
@@ -199,7 +208,7 @@ final class FinalArchive
         $result = ['path' => $target, 'filename' => $filename, 'bytes' => (int) filesize($local), 'sha256' => (string) hash_file('sha256', $local)];
         @unlink($local);
         // whatever the download meta already carries (paid, fee, waiver) stays — packaging only adds where the file is
-        $backup->forceFill(['meta' => array_merge((array) $backup->meta, ['download' => array_merge((array) data_get($backup->meta, 'download', []), $result, ['built_at' => now()->toIso8601String()])])])->save();
+        $backup->forceFill(['meta' => array_merge((array) $backup->meta, ['download' => array_merge((array) data_get($backup->meta, 'download', []), $result, ['built_at' => now()->toIso8601String(), 'format' => PortableArchive::FORMAT])])])->save();
 
         return $result;
     }

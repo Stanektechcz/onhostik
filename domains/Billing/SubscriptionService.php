@@ -153,14 +153,14 @@ final class SubscriptionService
         try {
             $this->wallets->charge($organization, $line['total'], $service->family, "sub_renew:{$subscription->id}:{$periodKey}", $context, 'subscription', $subscription->id, $line['tax']);
         } catch (DomainError $e) {
-            if ($e->error !== 'insufficient_funds') {
+            if (! in_array($e->error, ['insufficient_funds', 'budget_exceeded', 'budget_single_service_exceeded'], true)) {
                 throw $e;
             }
             $graceEnd = $subscription->current_period_end->copy()->addDays((int) config('onhost.billing.dunning.grace_days', 14));
             $subscription->forceFill(['state' => Subscription::PAST_DUE, 'renewal_failures' => $subscription->renewal_failures + 1, 'next_renewal_at' => now()->addDay()->min($graceEnd->copy()->addDay())])->save();
             $this->dunning->open($organization->id, null, $service->id, $subscription->current_period_end);
             $this->audit->record($context, 'subscription.renewal_failed', 'failed', ['service_id' => $service->id, 'required' => $line['total'], 'attempt' => $subscription->renewal_failures], 'subscription', $subscription->id);
-            $this->outbox->publish(GenericEvent::of('subscription.renewal_failed', 'subscription', $subscription->id, ['service_id' => $service->id, 'required' => $line['total'], 'period_end' => $subscription->current_period_end->toIso8601String(), 'attempt' => $subscription->renewal_failures], $organization->id));
+            $this->outbox->publish(GenericEvent::of('subscription.renewal_failed', 'subscription', $subscription->id, ['service_id' => $service->id, 'required' => $line['total'], 'cause' => $e->error === 'insufficient_funds' ? 'credit' : 'budget', 'period_end' => $subscription->current_period_end->toIso8601String(), 'attempt' => $subscription->renewal_failures], $organization->id));
 
             return 'failed';
         }

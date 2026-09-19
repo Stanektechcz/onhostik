@@ -155,11 +155,11 @@ final class RatingService
         try {
             $this->wallets->charge($organization, $line['total'], $service->family, "usage:{$rated->id}", $context->withScope($organization->id), 'rated_usage', $rated->id, $line['tax']);
         } catch (DomainError $e) {
-            if ($e->error !== 'insufficient_funds') {
+            if (! in_array($e->error, ['insufficient_funds', 'budget_exceeded', 'budget_single_service_exceeded'], true)) {
                 throw $e;
             }
             $this->dunning->open($organization->id, null, $service->id, now());
-            $this->outbox->publish(GenericEvent::of('usage.charge_deferred', 'service', $service->id, ['rated_usage_id' => $rated->id, 'required' => $line['total']], $organization->id));
+            $this->outbox->publish(GenericEvent::of('usage.charge_deferred', 'service', $service->id, ['rated_usage_id' => $rated->id, 'required' => $line['total'], 'cause' => $e->error === 'insufficient_funds' ? 'credit' : 'budget'], $organization->id));
 
             return false;
         }

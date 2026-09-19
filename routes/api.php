@@ -216,6 +216,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
     Route::get('wallet/transactions', [WalletController::class, 'transactions']);
     Route::post('wallet/topup', [WalletController::class, 'topup']);
     Route::put('wallet/auto-topup', [WalletController::class, 'autoTopup']);
+    Route::get('wallet/budget', [WalletController::class, 'budget']); // the customer's own monthly spending limit (H30)
+    Route::put('wallet/budget', [WalletController::class, 'setBudget']);
     Route::get('payment-methods', [WalletController::class, 'paymentMethods']);
     Route::delete('payment-methods/{method}', [WalletController::class, 'removePaymentMethod']);
     Route::post('payments/init', [WalletController::class, 'topup']);

@@ -74,6 +74,7 @@ use Onhost\Domain\Support\Commands\WorkOfferCommandHandler;
 use Onhost\Domain\Support\Commands\WorkOfferDecisionCommand;
 use Onhost\Domain\Support\Commands\WorkOfferStaffCommand;
 use Onhost\Domain\WalletLedger\Commands\AutoTopupCommand;
+use Onhost\Domain\WalletLedger\Commands\BudgetCommand;
 use Onhost\Domain\WalletLedger\Commands\RemovePaymentMethodCommand;
 use Onhost\Domain\WalletLedger\Commands\TopUpWalletCommand;
 use Onhost\Domain\WalletLedger\Commands\WalletCommandHandler;
@@ -101,6 +102,7 @@ final class DomainServiceProvider extends ServiceProvider
         CatalogCommand::class => CatalogCommandHandler::class,
         TopUpWalletCommand::class => WalletCommandHandler::class,
         AutoTopupCommand::class => WalletCommandHandler::class,
+        BudgetCommand::class => WalletCommandHandler::class,
         RemovePaymentMethodCommand::class => WalletCommandHandler::class,
         BankCommand::class => BankCommandHandler::class,
         ServiceActionCommand::class => ServicesCommandHandler::class,

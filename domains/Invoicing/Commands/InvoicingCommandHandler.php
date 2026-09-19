@@ -80,7 +80,7 @@ final class InvoicingCommandHandler implements CommandHandler
             throw new DomainError('invoice_not_payable', "Invoice {$invoice->number} is {$invoice->state}.", 409);
         }
         $open = $invoice->total()->subtract(Money::minor((int) $invoice->paid_minor, $invoice->currency));
-        $this->wallets->charge($invoice->organization_id, $open, $invoice->meta['revenue_family'] ?? 'services', "invoice:{$invoice->id}:wallet", $context, 'invoice', $invoice->id, Money::minor((int) round($invoice->tax_minor * ($open->minor / max(1, $invoice->total_minor))), $invoice->currency));
+        $this->wallets->charge($invoice->organization_id, $open, $invoice->meta['revenue_family'] ?? 'services', "invoice:{$invoice->id}:wallet", $context, 'invoice', $invoice->id, Money::minor((int) round($invoice->tax_minor * ($open->minor / max(1, $invoice->total_minor))), $invoice->currency), enforceBudget: false);
         $paid = $this->invoices->markPaid($invoice, $open, 'wallet', $context, postLedger: false);
 
         return ['invoice_id' => $paid->id, 'number' => $paid->number, 'state' => $paid->state, 'paid' => $open];
