@@ -95,7 +95,7 @@ final class ProjectService
         if (! RoleCatalog::exists($roleKey) || RoleCatalog::all()[$roleKey]['staff'] || $roleKey === 'owner') {
             throw new DomainError('invalid_role', "Role {$roleKey} cannot be assigned inside a project.", 422, ['field' => 'role']);
         }
-        $membership = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->where('state', 'active')->first();
+        $membership = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->current()->first();
         $member = $membership !== null;
         if ($accessUntil !== null && $accessUntil->isPast()) {
             throw new DomainError('access_until_past', 'access_until must be in the future.', 422, ['field' => 'access_until']);

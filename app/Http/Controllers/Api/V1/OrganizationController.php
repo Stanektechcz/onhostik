@@ -24,7 +24,7 @@ final class OrganizationController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $user = $this->api->user($request);
-        $memberships = OrganizationMembership::query()->with('organization')->where('user_id', $user->id)->where('state', 'active')->get();
+        $memberships = OrganizationMembership::query()->with('organization')->where('user_id', $user->id)->current()->get();
 
         return response()->json(['data' => $memberships->map(fn ($m) => $m->organization ? Presenters::organization($m->organization, $m->role_key) : null)->filter()->values()->all()]);
     }

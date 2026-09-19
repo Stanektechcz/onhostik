@@ -48,14 +48,14 @@ final class ApiContext
             if ($organization === null) {
                 throw DomainError::notFound('organization');
             }
-            $member = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->where('state', 'active')->exists();
+            $member = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->current()->exists(); // active and not past its end date (H343)
             if (! $member && ! $this->authorizer->can($user, 'staff.customer.read', CommandScope::organization($organization->id))) {
                 throw DomainError::forbidden('You are not a member of this organization.');
             }
 
             return $organization;
         }
-        $membership = OrganizationMembership::query()->where('user_id', $user->id)->where('state', 'active')->orderBy('created_at')->first();
+        $membership = OrganizationMembership::query()->where('user_id', $user->id)->current()->orderBy('created_at')->first();
         $organization = $membership ? Organization::query()->find($membership->organization_id) : null;
         if ($organization === null && $required) {
             throw new DomainError('organization_required', 'Choose an organization (X-Organization header).', 422, ['field' => 'organization']);

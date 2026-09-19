@@ -138,7 +138,7 @@ final class AuthController extends ApiController
     public function me(Request $request): JsonResponse
     {
         $user = $this->api->user($request);
-        $memberships = OrganizationMembership::query()->with('organization')->where('user_id', $user->id)->where('state', 'active')->get();
+        $memberships = OrganizationMembership::query()->with('organization')->where('user_id', $user->id)->current()->get();
         $current = $this->api->organization($request, false);
         $grant = app(StepUpService::class)->activeGrant($user, $this->api->sessionId($request));
 

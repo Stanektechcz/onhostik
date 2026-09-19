@@ -55,7 +55,7 @@ final class ConsoleRelayController extends Controller
             return response()->json(['data' => ['valid' => false]]);
         }
         $organizationId = $descriptor['organization_id'] ?? null;
-        $member = $organizationId === null || OrganizationMembership::query()->where('user_id', $user->id)->where('organization_id', $organizationId)->where('state', 'active')->exists() || $user->is_staff;
+        $member = $organizationId === null || OrganizationMembership::query()->where('user_id', $user->id)->where('organization_id', $organizationId)->current()->exists() || $user->is_staff;
 
         return response()->json(['data' => ['valid' => (bool) $member, 'kind' => $descriptor['kind'] ?? null, 'expires_at' => $descriptor['expires_at'] ?? null]]);
     }

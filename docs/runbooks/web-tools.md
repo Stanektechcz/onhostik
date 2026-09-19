@@ -629,7 +629,11 @@ membership or the project role through the same path as a removal by hand, which
 `organization.member.removed` / `project.member.removed` — and that is what takes the person's collaborator accounts
 (H333) and SSH keys (H185) off the panels. A project role that ends revokes only on that project's services, and only
 where the person can no longer `service.manage` through another role. The organization is told
-(`organization.member.expired`). Switching the rule off delays the clean-up, never the refusal.
+(`organization.member.expired`). Switching the rule off delays the clean-up, never the refusal: besides the policy
+binding, everything that lets somebody in on membership alone — which organization a request speaks for
+(`X-Organization`), the list of one's organizations, the panel's data script, the console relay — asks
+`OrganizationMembership::current()` (active **and** not past its end), so an ended access stops there at the same
+second. New code that decides access by membership uses that scope, never `state = active` alone.
 
 The same take-back runs when a member is moved to a smaller role (`organization.member.role_changed`, H332): if the
 old role could `service.manage` and the person now cannot on a service, their keys and collaborator accounts there are

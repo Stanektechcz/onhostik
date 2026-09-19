@@ -257,8 +257,8 @@ final class SurfaceDataController extends Controller
         if ($user === null) {
             abort(401);
         }
-        $organizationId = $request->query('organization') ?: OrganizationMembership::query()->where('user_id', $user->id)->where('state', 'active')->orderBy('joined_at')->value('organization_id');
-        if ($organizationId === null || ! OrganizationMembership::query()->where('user_id', $user->id)->where('organization_id', $organizationId)->where('state', 'active')->exists()) {
+        $organizationId = $request->query('organization') ?: OrganizationMembership::query()->where('user_id', $user->id)->current()->orderBy('joined_at')->value('organization_id');
+        if ($organizationId === null || ! OrganizationMembership::query()->where('user_id', $user->id)->where('organization_id', $organizationId)->current()->exists()) {
             $locale = $user->locale ?? 'cs';
             $payload = ['services' => [], 'servers' => [], 'organization' => null, 'needs_organization' => true, 'kpis' => ['credit' => 0.0, 'currency' => 'CZK'], // audit §5z: the order centre asks for a customer profile first
                 'catalog' => $this->panelCatalog($locale), 'regions' => Region::query()->where('state', 'active')->orderBy('code')->get()->map(fn ($r) => ['code' => $r->code, 'name' => $r->name, 'datacenter' => $r->datacenter])->all(),

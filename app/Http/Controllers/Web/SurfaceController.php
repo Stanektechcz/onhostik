@@ -157,7 +157,7 @@ final class SurfaceController extends Controller
 
     private function userBoot(User $user): array
     {
-        $memberships = OrganizationMembership::query()->where('user_id', $user->id)->where('state', 'active')->orderBy('joined_at')->get();
+        $memberships = OrganizationMembership::query()->where('user_id', $user->id)->current()->orderBy('joined_at')->get();
         $organizations = Organization::query()->whereIn('id', $memberships->pluck('organization_id'))->get();
         $current = $organizations->first();
         $partner = $current === null ? null : Partner::query()->where('organization_id', $current->id)->where('state', 'active')->first();
