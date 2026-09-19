@@ -68,6 +68,7 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 | `compliance.data_export.ready` | data_request | `kind`, `days`, `bytes` | ComplianceService::processDataRequests |
 | `api_token.created` / `api_token.revoked` | api_token | `name`, `scopes` (never the token) | IdentityCommandHandler |
 | `security.login` / `security.mfa` / `security.password_changed` / `security.account_locked` / `identity.password_reset_requested` | user | `ip`, `user_agent`, `method` | AuthController, MeController |
+| `service.stopped_unexpectedly` / `service.running_again` | service | `family`, `label`, `hostname`, `since`, `status`, `passes`, `minutes`, `sla_class`, `notify` | AvailabilityWatch::observe (from the reconciler's reading) |
 | `monitoring.down` / `monitoring.up` | service | `monitor_id`, `incident_id`, `url`, `error`, `minutes`, `notify` | UptimeMonitor::check |
 | `deploy.started` / `deploy.succeeded` / `deploy.failed` | service | `deployment_id`, `ref`, `sha`, `release`, `trigger`, `error` | DeployService, DeployWorkflow |
 | `staging.created` / `staging.synced` / `staging.pushed` / `staging.deleted` / `staging.failed` | service | `staging_service_id`, `domain`, `mode`, `action`, `error` | StagingService, StagingWorkflow |

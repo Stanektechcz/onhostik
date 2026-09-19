@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 88d161c | 2026-09-19 | Pin what happens when a registry refuses a domain renewal (H23) |
+| 09c869c | 2026-09-19 | Keep the ISPConfig session and one-time panel links out of the call log (H12) |
 | 5a7bf29 | 2026-09-19 | Queue a customer's change while the panel is away, plan limits included (H02) |
 | 6bd9427 | 2026-09-19 | A legal hold suspends every deletion, not only the termination (H18) |
 | 5c5834f | 2026-09-19 | Pin the permission matrix of the customer roles (H11) |
@@ -12,5 +14,3 @@
 | 662f680 | 2026-09-19 | Bound and pin the development stack (H190, the part that is ours) |
 | 06e7848 | 2026-09-19 | Shed reports before operations when the platform is overloaded (H139) |
 | 441c9c1 | 2026-09-19 | Prove three cards that were only read, and pin the redirect ban (H312, H329, H336) |
-| 7019017 | 2026-09-19 | Reading a service is not getting into it or taking its data (H334, H344) |
-| 78df2f8 | 2026-09-19 | Carry a game server's collaborators through a migration unchanged (H341) |

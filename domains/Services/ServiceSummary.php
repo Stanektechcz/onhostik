@@ -49,7 +49,8 @@ final class ServiceSummary
             'operations' => ['active' => $active, 'last_failed' => $lastFailed ? ['kind' => $lastFailed->kind, 'finished_at' => $lastFailed->finished_at?->toIso8601String()] : null],
             // the usage watch's last measurement (level, per-metric share) and the customer's automation policy
             'usage' => is_array(($service->tags ?? [])['usage'] ?? null) ? array_intersect_key($service->tags['usage'], ['level' => 1, 'metrics' => 1, 'checked_at' => 1, 'auto_upgrade_on' => 1]) : null,
-            'policy' => ['auto_upgrade' => (bool) (($service->tags ?? [])['policy']['auto_upgrade'] ?? false)],
+            'policy' => ['auto_upgrade' => (bool) (($service->tags ?? [])['policy']['auto_upgrade'] ?? false), 'availability_alerts' => (bool) (($service->tags ?? [])['policy']['availability_alerts'] ?? true)],
+            'availability' => in_array($service->family, AvailabilityWatch::FAMILIES, true) ? AvailabilityWatch::of($service) : null,
             'checklist' => $this->checklist($service, $backup, $monitor, $access),
         ];
     }

@@ -57,6 +57,8 @@ final class DiscordMessage
         return match (true) {
             $event === 'monitoring.down' => ['🔴 Web neodpovídá', ($p['url'] ?? '').' · '.($p['error'] ?? ''), self::RED],
             $event === 'monitoring.up' => ['🟢 Web opět běží', ($p['url'] ?? '').' · výpadek '.(int) ($p['minutes'] ?? 0).' min', self::GREEN],
+            $event === 'service.stopped_unexpectedly' => ['🔴 Server neběží', (string) (($p['label'] ?? '') ?: ($p['hostname'] ?? '')), self::RED],
+            $event === 'service.running_again' => ['🟢 Server opět běží', (($p['label'] ?? '') ?: ($p['hostname'] ?? '')).' · '.(int) ($p['minutes'] ?? 0).' min', self::GREEN],
             $event === 'deploy.started' => ['🚀 Deploy spuštěn', (string) ($p['ref'] ?? ''), self::BLUE],
             $event === 'deploy.succeeded' => ['✅ Deploy dokončen', ($p['ref'] ?? '').' · '.substr((string) ($p['sha'] ?? ''), 0, 7), self::GREEN],
             $event === 'deploy.failed' => ['❌ Deploy selhal', (string) ($p['error'] ?? ''), self::RED],

@@ -40,7 +40,7 @@ final class WebToolsCommandHandler implements CommandHandler
             // per-service automation policy (audit §5e-1): whether the usage watch may move the service to the next plan on its own
             'policy.set' => (function () use ($service, $params, $context) {
                 $tags = (array) ($service->tags ?? []);
-                $policy = array_merge((array) ($tags['policy'] ?? []), array_intersect_key(array_map(fn ($v) => filter_var($v, FILTER_VALIDATE_BOOLEAN), $params), ['auto_upgrade' => 1]));
+                $policy = array_merge((array) ($tags['policy'] ?? []), array_intersect_key(array_map(fn ($v) => filter_var($v, FILTER_VALIDATE_BOOLEAN), $params), ['auto_upgrade' => 1, 'availability_alerts' => 1]));
                 $service->forceFill(['tags' => array_merge($tags, ['policy' => $policy])])->save();
                 $this->audit->record($context->withScope($service->organization_id, $service->project_id), 'service.policy', 'succeeded', $policy, 'service', $service->id);
 

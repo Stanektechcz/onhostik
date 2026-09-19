@@ -215,11 +215,14 @@ final class ServiceController extends ApiController
         return $this->dispatch(new WebToolsCommand($model->organization_id, $this->idempotencyKey($request, 'service.migration:'.now()->format('YmdHi')), ['service_id' => $model->id, 'op' => 'migration.window', 'params' => $data]), $this->api->context($request, Organization::query()->find($model->organization_id)));
     }
 
-    /** Automation policy of one service (audit §5e-1): `auto_upgrade` lets the usage watch order the next plan from credit at 95 %. */
+    /**
+     * Automation policy of one service: `auto_upgrade` lets the usage watch order the next plan from credit at 95 % (audit §5e-1),
+     * `availability_alerts` (on unless switched off) mails the customer when a server stops on its own (H14).
+     */
     public function policy(Request $request, string $service): JsonResponse
     {
         $model = $this->resolve($request, $service, 'service.manage');
-        $data = $request->validate(['auto_upgrade' => ['required', 'boolean']]);
+        $data = $request->validate(['auto_upgrade' => ['required_without:availability_alerts', 'boolean'], 'availability_alerts' => ['required_without:auto_upgrade', 'boolean']]);
 
         return $this->dispatch(new WebToolsCommand($model->organization_id, $this->idempotencyKey($request, 'service.policy'), ['service_id' => $model->id, 'op' => 'policy.set', 'params' => $data]), $this->api->context($request, Organization::query()->find($model->organization_id)));
     }

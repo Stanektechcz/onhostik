@@ -34,6 +34,7 @@ use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\ServiceMigrationService;
+use Onhost\Domain\Services\AvailabilityWatch;
 use Onhost\Domain\Services\ControlPlaneStatus;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -572,6 +573,11 @@ final class SurfaceDataController extends Controller
             $usageTop = is_array($usage['metrics'] ?? null) ? UsageWatch::top($usage['metrics']) : null;
             $usageNote = ($usage['level'] ?? 'ok') !== 'ok' && $usageTop !== null ? ' · '.$t('kapacita ', 'capacity ').$usageTop['pct'].' % ('.UsageWatch::metricLabel($usageTop['key'], $locale).')' : '';
             $kind = $usageNote !== '' && $kind === 'ok' ? 'warn' : $kind;
+            // a VPS or a game server that stopped on its own says so on its row (H14)
+            $availability = in_array($s->family, AvailabilityWatch::FAMILIES, true) ? AvailabilityWatch::of($s) : null;
+            $downNote = $availability !== null && $availability['alerted'] && $availability['down_since'] !== null
+                ? ' · '.$t('neběží od ', 'not running since ').Carbon::parse($availability['down_since'])->timezone((string) config('onhost.timezone_display', 'Europe/Prague'))->format($cs ? 'j. n. H:i' : 'Y-m-d H:i') : '';
+            $kind = $downNote !== '' && $kind === 'ok' ? 'warn' : $kind;
             // a cancelled service waits deactivated for its restore window; the row says how long (audit §5ab)
             $deletion = (array) (($s->tags ?? [])['deletion'] ?? []);
             $graceLeft = $s->terminate_at === null ? null : (int) now()->diffInDays($s->terminate_at, false);
@@ -590,11 +596,11 @@ final class SurfaceDataController extends Controller
             };
             $groups[$category][] = [
                 'id' => $s->id, 'type' => $type, 'name' => $s->label ?: ($s->hostname ?: $s->name), 'spec' => $sizes ?? ($s->name.($spec['php_version'] ?? null ? ' · PHP '.$spec['php_version'] : '')),
-                'meta' => trim(($s->hostname ? $s->hostname.' · ' : '').strtoupper((string) $s->region_code).($s->sla_class !== 'standard' ? ' · SLA '.$s->sla_class : '').($planName ? ' · '.$planName : '').($billing !== '' ? ' · '.$billing : '').$usageNote.$deletionNote.$staleNote.$controlNote), 'value' => $s->activated_at?->toDateString() ?? '',
+                'meta' => trim(($s->hostname ? $s->hostname.' · ' : '').strtoupper((string) $s->region_code).($s->sla_class !== 'standard' ? ' · SLA '.$s->sla_class : '').($planName ? ' · '.$planName : '').($billing !== '' ? ' · '.$billing : '').$usageNote.$downNote.$deletionNote.$staleNote.$controlNote), 'value' => $s->activated_at?->toDateString() ?? '',
                 'state' => $stateLabel, 'kind' => $kind, 'product' => $s->product_key, 'apiState' => $s->state, 'usage' => $usageTop !== null ? ['level' => $usage['level'] ?? 'ok', 'pct' => $usageTop['pct'], 'metric' => $usageTop['key']] : null,
                 'plan' => $planName, 'period' => $sub?->period, 'renews_at' => $renewsAt?->toIso8601String(), 'monthly' => $monthly, 'renewal' => $renewalAmount !== '' ? $renewalAmount : null,
                 'deletion' => $graceLeft === null ? null : ['grace_until' => $s->terminate_at?->toIso8601String(), 'days_left' => max(0, $graceLeft), 'archive_backup_id' => $deletion['archive_backup_id'] ?? null],
-                'freshness' => $freshness, 'control_plane' => $control, 'suspension' => SuspensionHold::of($s),
+                'freshness' => $freshness, 'control_plane' => $control, 'suspension' => SuspensionHold::of($s), 'availability' => $availability,
             ];
             if (in_array($s->family, ['cloud', 'game'], true)) {
                 $health = (array) ($s->health ?? []);

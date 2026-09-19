@@ -42,6 +42,8 @@ final class Lexicon
         'Stěhování serveru ' => 'Migration of server ', ' je naplánované' => ' is scheduled', 'Začne ' => 'It starts ', '; termín můžete posunout v okně ' => '; you can move the date within the window ',
         'Server ' => 'Server ', ' byl přestěhován' => ' has been migrated', 'Nová adresa: ' => 'New address: ', '. Data, nastavení i plány zůstaly.' => '. Data, settings and schedules were kept.',
         // web tools
+        ' neběží' => ' is not running', ' opět běží' => ' is running again', 'Mimo provoz byl ' => 'It was down for ',
+        'Server je vypnutý, aniž jste ho u nás vypínali. Zapnete ho v panelu; pokud jste ho vypnuli sami zevnitř, nic se neděje.' => 'The server is off although you did not switch it off here. Start it in the panel; if you shut it down from the inside yourself, all is well.',
         'Web neodpovídá' => 'Website is down', 'Web opět běží' => 'Website is up again', ' · výpadek ' => ' · outage ', 'Deploy dokončen' => 'Deploy finished', 'Deploy selhal' => 'Deploy failed',
         'Staging přenesen do produkce' => 'Staging pushed to production', 'Staging obnoven z produkce' => 'Staging refreshed from production', 'Staging: operace selhala' => 'Staging: operation failed',
         'Import webu dokončen' => 'Website import finished', 'Import webu selhal' => 'Website import failed', ' souborů, ' => ' files, ', ' souborů · ' => ' files · ', ' databází' => ' databases',

@@ -114,6 +114,10 @@ it('runs the toolkit on an aaPanel-backed site: terminal, PHP settings, monitori
     expect(OutboxMessage::query()->where('name', 'monitoring.down')->exists())->toBeTrue()
         ->and(Notification::query()->where('audience', 'customer')->where('title', 'Web neodpovídá')->exists())->toBeTrue()
         ->and(MailOutbox::query()->where('template_key', 'site-down')->exists())->toBeTrue();
+    // the alarm says which service it is about, in every form it takes (H14)
+    expect(OutboxMessage::query()->where('name', 'monitoring.down')->sole()->aggregate_id)->toBe($monitor->service_id)
+        ->and(Notification::query()->where('title', 'Web neodpovídá')->sole()->ref_id)->toBe($monitor->service_id)
+        ->and(MailOutbox::query()->where('template_key', 'site-down')->sole()->ref_id)->toBe($monitor->service_id);
     $checker->check($monitor->fresh());
     expect($monitor->fresh()->state)->toBe('up')->and(UptimeIncident::query()->where('monitor_id', $monitorId)->whereNull('resolved_at')->exists())->toBeFalse();
     app(OutboxPublisher::class)->relayPending();

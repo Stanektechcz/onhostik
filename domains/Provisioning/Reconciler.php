@@ -7,6 +7,7 @@ namespace Onhost\Domain\Provisioning;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\ResourceDrift;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
+use Onhost\Domain\Services\AvailabilityWatch;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -31,6 +32,7 @@ final class Reconciler
         private readonly OperationService $operations,
         private readonly AuditRecorder $audit,
         private readonly OutboxPublisher $outbox,
+        private readonly AvailabilityWatch $availability,
     ) {}
 
     /** @return array{checked:int, drifted:int, missing:int, repaired:int, errors:int} */
@@ -100,6 +102,7 @@ final class Reconciler
         $spec = new ResourceSpec($service->id, $this->kindFor($service), "reconcile:{$service->id}", array_replace((array) $service->desired_spec, ['entitlements' => $service->entitlements]), $binding->remote_node, $service->region_code, $service->organization_id);
         $plan = $adapter->reconcile($spec, $actual);
         $service->forceFill(['health' => array_replace((array) $service->health, ['status' => $actual->status, 'checked_at' => now()->toISOString(), 'drift' => count($plan->drifts), 'observe_only' => $observeOnly ?: null])])->save();
+        $this->availability->observe($service, (string) $actual->status, $observeOnly); // a server that stopped on its own is an alarm, not a drift (H14)
         if ($service->state === ServiceStateMachine::DEGRADED && ! $plan->hasDrift() && ! $observeOnly) {
             $service->forceFill(['state' => ServiceStateMachine::ACTIVE])->save();
             ResourceDrift::query()->where('service_id', $service->id)->where('state', 'open')->update(['state' => 'repaired', 'resolved_at' => now(), 'resolution' => 'resource back in sync']);

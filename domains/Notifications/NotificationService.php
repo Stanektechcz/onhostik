@@ -29,7 +29,7 @@ final class NotificationService
         'domain-registered' => 'domain', 'domain-renewal' => 'domain.expiry', 'domain-renewed' => 'domain', 'domain-renewal-failed' => 'domain.expiry', 'domain-expired' => 'domain.expiry', 'domain-auth-info' => 'security.mfa',
         'security-login' => 'security.login', 'security-mfa' => 'security.mfa', 'security-password' => 'security.mfa', 'security-locked' => 'security.login', 'api-token' => 'api_token.created',
         'incident' => 'incident.affecting', 'incident-resolved' => 'incident.affecting', 'maintenance' => 'incident.affecting', 'payout' => 'partner', 'sla-credit' => 'invoice.issued', 'data-export' => 'legal.notice', 'legal-notice' => 'legal.notice',
-        'site-down' => 'service', 'site-up' => 'service', 'deploy-failed' => 'service', 'import-finished' => 'service', 'certificate-failed' => 'service',
+        'site-down' => 'service', 'site-up' => 'service', 'service-stopped' => 'service', 'service-running' => 'service', 'deploy-failed' => 'service', 'import-finished' => 'service', 'certificate-failed' => 'service',
         'wallet-topup' => 'wallet', 'payment-received' => 'invoice.issued', 'wallet-runway' => 'wallet',
     ];
 

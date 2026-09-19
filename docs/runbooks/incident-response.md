@@ -7,6 +7,16 @@ Roles: **incident commander** (IC, role `incident_commander` or SRE), **communic
 
 * Probe quorum (2 of 3 external locations) opens a `source=probes` incident automatically
   (`SlaService::evaluateQuorum`, every 5 min via `onhost:sla:evaluate`, immediately on ingest).
+* One customer's service (Brain card H14) is watched per service, not per component: sites by the HTTP uptime monitor
+  (`monitoring.down` / `monitoring.up`, every minute), a VPS or a game server by the power state the reconciler reads
+  from the panel anyway (`AvailabilityWatch`: `service.stopped_unexpectedly` after
+  `ONHOST_MONITORING_POWER_PASSES` = 2 consecutive readings, `service.running_again` on recovery). Every alarm carries
+  the service id (event aggregate, notification and mail reference). The customer is told once per episode and can
+  switch the mail off per service (`PUT /v1/services/{id}/policy {availability_alerts:false}`); operations are told only
+  for a service with an SLA class. It stays quiet for a stop ordered through the platform, an operation in flight, a
+  suspended service, a panel under a maintenance lock and a game server whose own schedule stops it. Detection takes
+  one to two reconcile intervals (15 min standard, 5 min for SLA classes) — many of these at once on one node is a
+  node problem: open an incident.
 * Customer reports arrive as tickets in the `dostupnost` topic; support opens an incident with
   `POST /v1/staff/incidents` when more than one customer or a shared component is affected.
 * Security suspicion → open a **cyber incident** first (`POST /v1/staff/security/incidents`), which starts the

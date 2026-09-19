@@ -14,6 +14,7 @@ use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Workflow\StepContext;
 use Onhost\Domain\Provisioning\Workflow\StepResult;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
+use Onhost\Domain\Services\AvailabilityWatch;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
@@ -460,6 +461,7 @@ final class ServiceActionWorkflow implements Workflow
                     return StepResult::fail("Expected {$target}, provider reports {$state->status}", true, $state->attributes, 5);
                 }
                 $context->container->make(ServiceService::class)->recordActual($service, $state, $context->actor, 'service.power', ['action' => $context->desired('power_action')]);
+                $context->container->make(AvailabilityWatch::class)->intend($service, $target); // a stop ordered here is not an outage (H14)
 
                 return StepResult::done(['status' => $state->status]);
             }

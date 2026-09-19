@@ -106,6 +106,16 @@ final class NotificationRouter
             'service.delegations.revoked' => $this->customer($m, 'service', 'Delegované přístupy ke zrušené službě byly odvolány', 'FTP, SSH a účty spolupracovníků jsme odstranili. Po případné obnově služby je založte znovu.', '/panel/sluzby', 'info'),
             'service.final_archive.created' => $this->internal($m, 'service', 'Záloha před zrušením hotová', number_format((int) ($p['bytes'] ?? 0) / 1048576, 1).' MB · '.(string) ($p['set'] ?? ''), '/sprava/sluzby'),
             'service.archive.downloaded' => $this->internal($m, 'service', 'Zákazník stáhl archiv zrušené služby', $money($p['fee'] ?? null).' · '.(string) ($p['backup_id'] ?? ''), '/sprava#/money'),
+            // availability of a VPS / game server (H14): the customer always; operations only where an SLA class says somebody is on the hook
+            'service.stopped_unexpectedly' => (function () use ($m, $p, $email, $portal) {
+                $name = (string) (($p['label'] ?? '') ?: ($p['hostname'] ?? ''));
+                $what = ($p['family'] ?? '') === 'game' ? 'Herní server' : 'Server';
+                $this->customer($m, 'service', "{$what} {$name} neběží", 'Server je vypnutý, aniž jste ho u nás vypínali. Zapnete ho v panelu; pokud jste ho vypnuli sami zevnitř, nic se neděje.', '/panel/sluzby', 'hot', ! empty($p['notify']) ? $email : null, 'service-stopped', ['sluzba' => $name, 'url' => $portal.'/panel/sluzby']);
+                if (($p['sla_class'] ?? 'standard') !== 'standard') {
+                    $this->internal($m, 'service', "{$what} {$name} neběží (SLA ".($p['sla_class'] ?? '').')', 'Vypnutý bez zásahu zákazníka od '.($p['since'] ?? '?').'.', '/sprava/sluzby', 'hot');
+                }
+            })(),
+            'service.running_again' => $this->customer($m, 'service', ((($p['family'] ?? '') === 'game') ? 'Herní server ' : 'Server ').(($p['label'] ?? '') ?: ($p['hostname'] ?? '')).' opět běží', 'Mimo provoz byl '.(int) ($p['minutes'] ?? 0).' min.', '/panel/sluzby', 'info', ! empty($p['notify']) ? $email : null, 'service-running', ['sluzba' => (string) (($p['label'] ?? '') ?: ($p['hostname'] ?? '')), 'trvani' => (int) ($p['minutes'] ?? 0).' min', 'url' => $portal.'/panel/sluzby']),
             'service.degraded' => $this->internal($m, 'service', 'Služba degradována', (string) ($p['reason'] ?? ''), '/sprava/sluzby', 'hot'),
             'service.recovered' => $this->internal($m, 'service', 'Služba opět v pořádku', '', '/sprava/sluzby'),
             // one payment produces a proforma, a receipt and a statement: only the documents the customer acts on or files (proforma,

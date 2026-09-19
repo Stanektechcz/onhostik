@@ -120,3 +120,43 @@ it('schedules maintenance with lead time, rollback plan and four-eyes approval, 
     expect(app(MaintenanceService::class)->tick()['completed'])->toBe(1);
     expect(Maintenance::query()->find($id)->state)->toBe('completed')->and(StatusComponent::query()->find('web-cz1')->state)->toBe('operational');
 });
+
+/*
+ * The right customers, and nothing internal (Brain card H16). An incident reaches the organizations whose services it
+ * touches and nobody else, and what leaves the building — the status page, the customer's own list, the mail — has a
+ * fixed shape: a field added to it later (who else is affected, which node, who is on call) has to be added here on purpose.
+ */
+it('tells only the affected customers, and never who else is affected or what staff said among themselves', function () {
+    [$affected, $orgA] = $this->customerWithOrganization();
+    [$bystander, $orgB] = $this->customerWithOrganization();
+    $service = incidentWebService($orgA);
+    $this->actingAs($this->staff('sre'), 'sanctum');
+    $id = $this->postJson('/v1/staff/incidents', ['title' => 'Výpadek webhostingu CZ1', 'severity' => 'p1', 'components' => ['web-cz1'], 'impact' => 'Část webů je nedostupná.', 'affected_services' => [$service->id]])->assertCreated()->json('id');
+    $this->postJson("/v1/staff/incidents/{$id}/updates", ['note' => 'Interní: zákazník '.$orgA->name.' volal, eskalováno na on-call.', 'public' => false])->assertOk();
+    $this->postJson("/v1/staff/incidents/{$id}/updates", ['note' => 'Příčinu známe, opravujeme.', 'state' => 'IDENTIFIED'])->assertOk();
+    app(OutboxPublisher::class)->relayPending();
+
+    // the bystander hears nothing and sees nothing of their own
+    expect(Notification::query()->where('organization_id', $orgB->id)->where('kind', 'incident.affecting')->count())->toBe(0)
+        ->and(MailOutbox::query()->where('to', $bystander->email)->count())->toBe(0)
+        ->and(Notification::query()->where('organization_id', $orgA->id)->where('kind', 'incident.affecting')->count())->toBeGreaterThan(0);
+    $this->actingAs($bystander, 'sanctum');
+    $this->withHeader('X-Organization', $orgB->id)->getJson('/v1/my/incidents')->assertOk()->assertHeader('X-Total-Count', '0');
+    $this->flushHeaders();
+
+    // what anybody can read has exactly these fields, and none of them names a customer, a service or an internal note
+    $allowed = ['number', 'title', 'sev', 'state', 'ui_state', 'state_label', 'components', 'impact', 'started_at', 'resolved_at', 'duration', 'hist', 'postmortem'];
+    $number = Incident::query()->findOrFail($id)->number;
+    $this->actingAs($affected, 'sanctum');
+    foreach ([$this->getJson("/v1/incidents/{$number}")->assertOk()->json('data'), $this->withHeader('X-Organization', $orgA->id)->getJson('/v1/my/incidents')->assertOk()->json('data.0'), $this->getJson('/v1/status')->assertOk()->json('data.incidents.0')] as $seen) {
+        expect(array_values(array_diff(array_keys($seen), $allowed)))->toBe([]);
+        $text = (string) json_encode($seen, JSON_UNESCAPED_UNICODE);
+        expect($text)->not->toContain($orgA->id)->not->toContain($orgA->name)->not->toContain($service->id)->not->toContain('Interní')->not->toContain('on-call');
+        foreach ((array) ($seen['hist'] ?? []) as $entry) {
+            expect(array_keys($entry))->toBe(['state', 'ui_state', 'at', 'note']); // no author, no audience flag
+        }
+    }
+    // the mail to the affected customer carries the public wording only
+    $mail = MailOutbox::query()->where('to', $affected->email)->where('template_key', 'incident')->firstOrFail();
+    expect((string) json_encode($mail->toArray(), JSON_UNESCAPED_UNICODE))->not->toContain('Interní')->not->toContain('on-call');
+});

@@ -31,6 +31,7 @@ return [
     'monitoring' => [
         'user_agent' => 'ONhost-Uptime/1.0 (+https://onhost.cz/stav)',
         'failures_before_down' => (int) env('ONHOST_MONITORING_FAILURES', 3),
+        'power_passes_before_down' => (int) env('ONHOST_MONITORING_POWER_PASSES', 2), // reconciler readings of a stopped VPS / game server before the alarm (H14)
         'retention_days' => (int) env('ONHOST_MONITORING_RETENTION_DAYS', 30),
     ],
     'web_tools' => [
