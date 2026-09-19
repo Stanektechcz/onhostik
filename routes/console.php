@@ -53,6 +53,7 @@ use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Jobs\QueueHeartbeat;
 use Onhost\Domain\Provisioning\LoadShedding;
 use Onhost\Domain\Provisioning\Models\Node;
+use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\NodePrerequisites;
 use Onhost\Domain\Provisioning\NodeSampler;
@@ -638,6 +639,34 @@ Artisan::command('onhost:backups:run {--limit=100}', function (BackupScheduler $
     }
     $this->table(['started', 'skipped', 'deleted', 'offsite', 'errors', 'archives', 'verified', 'corrupt'], [$result]);
 })->purpose('Start scheduled backups, apply retention and generation caps, copy off-site');
+
+/*
+ * Services stranded in a transient state (SUSPENDING, RESUMING, RESIZING) with no operation left to finish it. Until
+ * 2026-09-19 a suspend or a resume the panel refused could not return the service to where it really was — the state
+ * machine had no way back — and nothing is accepted in a transient state. This lists them; `--apply` puts each back
+ * (a suspend that never happened → ACTIVE, a resume that never happened → SUSPENDED with its reason and holds, a
+ * resize → ACTIVE) through the ordinary audited settle. Nothing is sent to a panel.
+ */
+Artisan::command('onhost:services:release-stranded {--apply : put them back; without it only the list} {--minutes=15 : how long a transient state must have lasted}', function (ServiceService $services) {
+    $back = [ServiceStateMachine::SUSPENDING => ServiceStateMachine::ACTIVE, ServiceStateMachine::RESUMING => ServiceStateMachine::SUSPENDED, ServiceStateMachine::RESIZING => ServiceStateMachine::ACTIVE];
+    $stranded = ServiceService::stranded(max(1, (int) $this->option('minutes')));
+    $rows = [];
+    foreach ($stranded as $service) {
+        $to = $back[$service->state];
+        $done = 'listed';
+        if ($this->option('apply')) {
+            $operation = Operation::query()->where('service_id', $service->id)->orderByDesc('created_at')->first();
+            if ($operation === null) {
+                $done = 'skipped: no operation on record';
+            } else {
+                $services->settleTransient($service, $to, CommandContext::system('stranded transition released')->withScope($service->organization_id), 'stranded transition released', $operation);
+                $done = 'released';
+            }
+        }
+        $rows[] = [$service->id, $service->label ?: ($service->hostname ?: $service->name), $service->state, $to, $done];
+    }
+    $rows === [] ? $this->info('No stranded services.') : $this->table(['service', 'name', 'stranded in', 'belongs in', 'result'], $rows);
+})->purpose('List or release services stranded in a transient state by a suspend, resume or resize the panel refused');
 
 /*
  * The deletion lifecycle (audit §5ab): a cancelled service is archived, deactivated and kept for the grace window

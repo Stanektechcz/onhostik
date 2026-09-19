@@ -24,6 +24,7 @@ use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\TicketService;
 use Onhost\Platform\Audit\AuditEvent;
@@ -305,6 +306,9 @@ final class ComplianceService
             $service = Service::query()->find($case->service_id ?? '');
             if ($service === null) {
                 throw new DomainError('abuse_service_missing', 'No service is linked to this case.', 409);
+            }
+            if ($service->state === ServiceStateMachine::SUSPENDED) { // paused by the customer or stopped for non-payment: without a hold of its own the quarantine would end with theirs (H17)
+                $this->services->imposeHold($service, SuspensionHold::ABUSE, "abuse:{$case->number}", $context);
             }
             if ($service->state !== ServiceStateMachine::SUSPENDED && $service->state !== ServiceStateMachine::SUSPENDING) {
                 $this->services->requestAction($service, 'suspend', $context->withScope($service->organization_id), "abuse:{$case->number}:suspend", ['reason' => "abuse:{$case->number}"], authorizedPermission: 'abuse.case.manage', authorizedScope: 'global'); // this branch is reached only through the staff command abuse.action

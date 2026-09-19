@@ -585,6 +585,28 @@ The percentage: *Finance* → *Procento vrácení* (`PUT /v1/staff/chargebacks/s
 `system_settings` key `chargeback.percent`; default `ONHOST_CHARGEBACK_PERCENT=70`). Money never leaves the
 platform: a chargeback is wallet credit for the requesting organization only.
 
+**A suspension belongs to whoever imposed it (Brain card H17).** `tags.suspension.holds` records why a suspended
+service may not simply be switched back on: `abuse` (a Trust & Safety case), `payment` (dunning, an ended
+subscription), `review` (any other suspension by staff or the platform). The customer's own pause carries no hold.
+`POST /v1/services/{id}/resume` by a customer on a held service answers 409 `service_suspension_held` with the way out
+(never the case number); `GET /v1/services/{id}` carries `suspension {hold, holds, customer_can_resume, message}` and
+the workbench shows it instead of the restore button. Holds stack: the abuse team quarantining a site that is already
+down, or an invoice falling overdue on a paused one, adds a hold without touching the panel
+(`ServiceService::imposeHold`). The platform lifts only the hold it names — a paid invoice resumes with
+`lift: payment`, and when a quarantine remains the payment hold goes and the service stays down. Staff lift every hold
+with a resume that carries a `reason` (`reason_required` otherwise); both are audited (`service.hold.impose`,
+`service.hold.lift`). A failed resume and a cancellation on top of a suspension keep the original reason and holds, so
+an unpaid service cannot be "restored" for free inside its restore window. Services suspended before holds existed are
+read from `suspended_reason`.
+
+A suspend or a resume the panel refuses returns the service to the state it is really in (ACTIVE, or SUSPENDED with
+its original reason and holds). Before 2026-09-19 the state machine had no way back and such a service stayed in
+SUSPENDING / RESUMING, where no action is accepted. The fix does not release a service that is already stranded:
+`onhost:doctor` reports them (`no service stranded in a transient state`), `php artisan
+onhost:services:release-stranded` lists them and `--apply` puts each back through the ordinary audited settle — a
+suspend that never happened to ACTIVE, a resume that never happened to SUSPENDED, a resize to ACTIVE. Nothing is sent
+to a panel; only services with no open operation and at least 15 minutes in the transient state are touched.
+
 **Reading is not getting in, and seeing a backup is not taking it (Brain cards H334, H344).** `service.read` is
 diagnostics: state, usage, logs, operations, listings, the list of backups. It does not open a console
 (`service.console`), run a command or create a shell account (`service.manage`), read the contents of a file

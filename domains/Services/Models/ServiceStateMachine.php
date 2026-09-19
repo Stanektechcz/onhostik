@@ -45,9 +45,9 @@ final class ServiceStateMachine
             self::ACTIVE => ['label' => 'Aktivní', 'next' => [self::DEGRADED, self::RESIZING, self::SUSPENDING, self::TERMINATING, self::FAILED], 'tone' => 'ok', 'ui' => 'aktivni'],
             self::DEGRADED => ['label' => 'Degradováno', 'next' => [self::ACTIVE, self::SUSPENDING, self::TERMINATING, self::FAILED], 'tone' => 'hot', 'ui' => 'aktivni'],
             self::RESIZING => ['label' => 'Změna zdrojů', 'next' => [self::ACTIVE, self::DEGRADED, self::FAILED], 'tone' => 'warn', 'ui' => 'aktivni'],
-            self::SUSPENDING => ['label' => 'Pozastavuje se', 'next' => [self::SUSPENDED, self::FAILED], 'tone' => 'warn', 'ui' => 'pozastaveno'],
+            self::SUSPENDING => ['label' => 'Pozastavuje se', 'next' => [self::SUSPENDED, self::ACTIVE, self::FAILED], 'tone' => 'warn', 'ui' => 'pozastaveno'], // ACTIVE: the panel refused the suspend, the service never stopped
             self::SUSPENDED => ['label' => 'Pozastaveno', 'next' => [self::RESUMING, self::TERMINATING], 'tone' => 'hot', 'ui' => 'pozastaveno'],
-            self::RESUMING => ['label' => 'Obnovuje se', 'next' => [self::ACTIVE, self::FAILED], 'tone' => 'warn', 'ui' => 'pozastaveno'],
+            self::RESUMING => ['label' => 'Obnovuje se', 'next' => [self::ACTIVE, self::SUSPENDED, self::FAILED], 'tone' => 'warn', 'ui' => 'pozastaveno'], // SUSPENDED: the panel refused the resume, the service is still down
             self::TERMINATING => ['label' => 'Ukončuje se', 'next' => [self::TERMINATED, self::FAILED], 'tone' => 'warn', 'ui' => 'zruseno'],
             self::TERMINATED => ['label' => 'Ukončeno', 'next' => [], 'tone' => 'off', 'ui' => 'zruseno'],
             self::FAILED => ['label' => 'Selhalo (zásah operátora)', 'next' => [self::PROVISIONING, self::ACTIVE, self::SUSPENDED, self::TERMINATING, self::TERMINATED], 'tone' => 'hot', 'ui' => 'provisioning'],

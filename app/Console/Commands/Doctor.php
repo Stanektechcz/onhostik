@@ -31,6 +31,7 @@ use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
+use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\WalletLedger\AutoTopup;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Ops\PlatformBackup;
@@ -109,6 +110,8 @@ final class Doctor extends Command
         // a key revocation no panel has confirmed for an hour is a key that may still open a session (H185); not blocking, but never silent
         $openKeys = SshKeyGrant::query()->where('state', SshKeyGrant::REVOKING)->where('revoke_requested_at', '<', now()->subHour())->count();
         $this->add('access', 'SSH key revocations confirmed by the panels', $openKeys === 0, $openKeys === 0 ? 'none open for longer than an hour' : "{$openKeys} open for longer than an hour — GET /v1/staff/provisioning/ssh-key-revocations", false);
+        $strandedServices = ServiceService::stranded()->count(); // nothing is accepted in a transient state: a stranded service is unusable until released
+        $this->add('lifecycle', 'no service stranded in a transient state', $strandedServices === 0, $strandedServices === 0 ? 'none' : "{$strandedServices} in SUSPENDING/RESUMING/RESIZING with no open operation — php artisan onhost:services:release-stranded", false);
         $policy = app(DeletionPolicy::class)->all();
         $this->add('lifecycle', 'restore window and retention set', $policy['grace_days'] >= 1 && $policy['retention_days'] >= 30,
             $policy['grace_days'].' days to restore · archive kept '.$policy['retention_days'].' days · '.$policy['identity_checks'].' identity points · download '.number_format($policy['download_fee_minor']['CZK'] / 100, 0, ',', ' ').' Kč', false);

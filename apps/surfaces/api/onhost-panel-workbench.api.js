@@ -178,7 +178,12 @@
         }));
         rows.push({ cells: [cell(_('Vrácení kreditu (chargeback)', 'Credit refund (chargeback)'), '1 1 220px'), cell(cbState, '0 0 260px'), cell(_('nyní by se vrátilo ', 'would return now ') + fmtM(est.refund_minor != null ? { minor: est.refund_minor, currency: est.currency } : null) + ' (' + pct + ' %)', '1 1 220px', 1)], note: req && req.decision_reason ? req.decision_reason : (req && req.reason && !closed ? req.reason : ''), actions: cbActs });
       }
-      var del = sel.deletion && sel.deletion.grace_until ? sel.deletion : null; // a cancelled service waits deactivated; the customer may bring it back (audit §5ab)
+      var held = sel.suspension && sel.suspension.customer_can_resume === false ? sel.suspension : null; // a suspension we imposed is not the customer's to lift (H17)
+      if (held) {
+        rows.unshift({ cells: [cell(_('Pozastavená služba', 'Suspended service'), '1 1 220px'), cell(held.hold === 'payment' ? _('čeká na úhradu', 'waiting for payment') : (held.hold === 'abuse' ? _('pozastaveno kvůli porušení podmínek', 'suspended for a breach of terms') : _('pozastavil ji náš tým', 'suspended by our team')), '1 1 300px'), cell(_('obnoví ji ONhost', 'ONhost brings it back'), '0 0 170px', 1)],
+          note: held.hold === 'payment' ? _('Po úhradě službu obnovíme; pokud to nejde, napište podpoře.', 'We bring the service back once it is paid; write to support if that is not possible.') : _('Napište prosím podpoře — obnovit ji může jen náš tým.', 'Please write to support — only our team can bring it back.'), actions: [] });
+      }
+      var del = !held && sel.deletion && sel.deletion.grace_until ? sel.deletion : null; // a cancelled service waits deactivated; the customer may bring it back (audit §5ab)
       if (del) {
         var dayD = function (v) { return v ? new Date(v).toLocaleDateString('cs-CZ') : '—'; };
         rows.unshift({ cells: [cell(_('Zrušená služba', 'Cancelled service'), '1 1 220px'), cell(_('deaktivovaná, data máme zazálohovaná', 'deactivated, the data is archived'), '1 1 300px'), cell(_('obnovit do ', 'restore by ') + dayD(del.grace_until) + (del.days_left != null ? ' (' + del.days_left + _(' dní', ' days') + ')' : ''), '0 0 200px', 1)],

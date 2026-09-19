@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 662f680 | 2026-09-19 | Bound and pin the development stack (H190, the part that is ours) |
+| 06e7848 | 2026-09-19 | Shed reports before operations when the platform is overloaded (H139) |
 | 441c9c1 | 2026-09-19 | Prove three cards that were only read, and pin the redirect ban (H312, H329, H336) |
 | 7019017 | 2026-09-19 | Reading a service is not getting into it or taking its data (H334, H344) |
 | 78df2f8 | 2026-09-19 | Carry a game server's collaborators through a migration unchanged (H341) |
@@ -12,5 +14,3 @@
 | ddc38da | 2026-09-19 | Know whose SSH key sits on a shell account and take it back (Brain card H185) |
 | 2a83e11 | 2026-09-19 | Try a new panel access before it replaces the working one (Brain card H314) |
 | 83b95f6 | 2026-09-19 | Keep a slice of every panel quota for health reads (Brain card H323) |
-| e2a2502 | 2026-09-19 | Keep servicing a customer apart from moving their money (Brain card H348) |
-| 31487d9 | 2026-09-19 | Report the panel API apart from the service (Brain card H324) |

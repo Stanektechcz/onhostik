@@ -38,6 +38,7 @@ use Onhost\Domain\Services\ControlPlaneStatus;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceFreshness;
+use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\Services\UsageWatch;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\WalletLedger\AutoTopup;
@@ -593,7 +594,7 @@ final class SurfaceDataController extends Controller
                 'state' => $stateLabel, 'kind' => $kind, 'product' => $s->product_key, 'apiState' => $s->state, 'usage' => $usageTop !== null ? ['level' => $usage['level'] ?? 'ok', 'pct' => $usageTop['pct'], 'metric' => $usageTop['key']] : null,
                 'plan' => $planName, 'period' => $sub?->period, 'renews_at' => $renewsAt?->toIso8601String(), 'monthly' => $monthly, 'renewal' => $renewalAmount !== '' ? $renewalAmount : null,
                 'deletion' => $graceLeft === null ? null : ['grace_until' => $s->terminate_at?->toIso8601String(), 'days_left' => max(0, $graceLeft), 'archive_backup_id' => $deletion['archive_backup_id'] ?? null],
-                'freshness' => $freshness, 'control_plane' => $control,
+                'freshness' => $freshness, 'control_plane' => $control, 'suspension' => SuspensionHold::of($s),
             ];
             if (in_array($s->family, ['cloud', 'game'], true)) {
                 $health = (array) ($s->health ?? []);

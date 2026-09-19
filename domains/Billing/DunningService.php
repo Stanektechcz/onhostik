@@ -11,6 +11,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -123,9 +124,13 @@ final class DunningService
         $this->act($case, 'resolve', ['reason' => $reason], $context);
         if ($wasSuspended && $case->service_id !== null) {
             $service = Service::query()->find($case->service_id);
-            if ($service !== null && $service->state === ServiceStateMachine::SUSPENDED && ($service->suspended_reason ?? '') === 'dunning') {
+            if ($service !== null && $service->state === ServiceStateMachine::SUSPENDED && ($service->suspended_reason ?? '') !== 'dunning' && in_array(SuspensionHold::PAYMENT, SuspensionHold::holds($service), true)) {
+                // the site was down for another reason before it fell overdue (the customer's own pause, a quarantine): the money lifts its own hold only
+                app(ServiceService::class)->liftHold($service, SuspensionHold::PAYMENT, CommandContext::system('dunning resolved')->withScope($service->organization_id));
+            } elseif ($service !== null && $service->state === ServiceStateMachine::SUSPENDED && ($service->suspended_reason ?? '') === 'dunning') {
                 try {
-                    app(ServiceService::class)->requestAction($service, 'resume', CommandContext::system('dunning resolved')->withScope($service->organization_id), "dunning_resume:{$case->id}", ['reason' => 'dunning resolved']);
+                    // `lift` names the one hold the payment answers: a quarantine on the same service stays, and so does the suspension (H17)
+                    app(ServiceService::class)->requestAction($service, 'resume', CommandContext::system('dunning resolved')->withScope($service->organization_id), "dunning_resume:{$case->id}", ['reason' => 'dunning resolved', 'lift' => SuspensionHold::PAYMENT]);
                     $this->act($case, 'resume', ['service_id' => $service->id], $context);
                 } catch (DomainError $e) {
                     $this->act($case, 'resume', ['service_id' => $service->id, 'error' => $e->error], $context);
@@ -146,6 +151,9 @@ final class DunningService
         $case->forceFill(['suspended_at' => now()])->save();
         if ($case->service_id !== null) {
             $service = Service::query()->find($case->service_id);
+            if ($service !== null && $service->state === ServiceStateMachine::SUSPENDED) { // already down (paused by the customer, quarantined): it must not come back while unpaid
+                app(ServiceService::class)->imposeHold($service, SuspensionHold::PAYMENT, 'dunning', CommandContext::system('dunning')->withScope($service->organization_id));
+            }
             if ($service !== null && in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
                 try {
                     app(ServiceService::class)->requestAction($service, 'suspend', CommandContext::system('dunning')->withScope($service->organization_id), "dunning_suspend:{$case->id}", ['reason' => 'dunning']);

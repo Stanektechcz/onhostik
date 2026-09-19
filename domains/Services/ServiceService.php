@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\Models\Subscription;
@@ -246,8 +247,8 @@ final class ServiceService
             $patch['last_reconciled_at'] = now();
         }
         match ($state) {
-            ServiceStateMachine::SUSPENDED => $patch += ['suspended_at' => now(), 'suspended_reason' => mb_substr($reason, 0, 120)],
-            ServiceStateMachine::ACTIVE => $patch += ['suspended_at' => null, 'suspended_reason' => null] + $this->cancellationCleared($fresh),
+            ServiceStateMachine::SUSPENDED => $patch += $this->suspensionPatch($fresh, $context, $reason),
+            ServiceStateMachine::ACTIVE => $patch += ['suspended_at' => null, 'suspended_reason' => null] + $this->activePatch($fresh),
             ServiceStateMachine::TERMINATED => $patch += ['terminated_at' => now(), 'retention_until' => now()->addDays((int) config('onhost.compliance.retention_after_termination_days', 30))],
             default => null,
         };
@@ -268,6 +269,118 @@ final class ServiceService
      *
      * @return array<string,mixed>
      */
+    /**
+     * @param  array<string,mixed>  $params
+     *
+     * @throws DomainError `service_suspension_held` when a hold remains that this caller may not lift
+     */
+    private function liftHolds(Service $service, CommandContext $context, array $params): Service
+    {
+        $holds = SuspensionHold::holds($service);
+        if ($holds === []) {
+            return $service;
+        }
+        $staff = $context->actorType === 'user' && $context->actorId !== null && (bool) User::query()->whereKey($context->actorId)->value('is_staff');
+        if ($context->actorType === 'user' && ! $staff) { // the customer, or anything acting as them
+            $state = SuspensionHold::of($service);
+
+            throw new DomainError('service_suspension_held', (string) ($state['message'] ?? 'The service is suspended by ONhost and cannot be resumed from here.'), 409, ['hold' => $holds[0], 'holds' => $holds]);
+        }
+        if ($staff && trim((string) ($params['reason'] ?? '')) === '') {
+            throw new DomainError('reason_required', 'Obnovení služby, kterou drží blokace ('.implode(', ', $holds).'), vyžaduje důvod.', 422, ['field' => 'reason', 'holds' => $holds]);
+        }
+        // the platform names the one hold it is lifting (a paid invoice lifts `payment`, never a quarantine); staff lift all, on the record
+        $lift = $staff ? null : (string) ($params['lift'] ?? '');
+        if (! $staff && ! in_array($lift, $holds, true)) {
+            throw new DomainError('service_suspension_held', 'The service is held for another reason: '.implode(', ', $holds).'.', 409, ['hold' => $holds[0], 'holds' => $holds]);
+        }
+        $service->forceFill(['tags' => SuspensionHold::without((array) $service->tags, $lift)])->save();
+        $this->audit->record($context->withScope($service->organization_id), 'service.hold.lift', 'succeeded', ['lifted' => $lift ?? $holds, 'reason' => $params['reason'] ?? null], 'service', $service->id);
+        $left = SuspensionHold::holds($service);
+        if ($left !== []) {
+            throw new DomainError('service_suspension_held', 'One hold is lifted, the service stays suspended for: '.implode(', ', $left).'.', 409, ['hold' => $left[0], 'holds' => $left, 'lifted' => $lift]);
+        }
+
+        return $service;
+    }
+
+    /**
+     * Who imposed the suspension decides who may lift it (H17). A failed resume comes back here too: it changes
+     * nothing — the original reason, date and holds stand, so a quarantine never dissolves into "resume failed".
+     *
+     * @return array<string,mixed>
+     */
+    private function suspensionPatch(Service $service, CommandContext $context, string $reason): array
+    {
+        if ($service->state === ServiceStateMachine::RESUMING) {
+            return [];
+        }
+        $kind = SuspensionHold::kindFor($context, $reason);
+        $tags = (array) $service->tags;
+        if ($service->suspended_at !== null) { // already down: keep why, add the new hold if this suspension carries one
+            return $kind === null ? [] : ['tags' => SuspensionHold::with($tags, $kind, $reason, $context)];
+        }
+        $tags['suspension'] = ['holds' => []];
+
+        return ['suspended_at' => now(), 'suspended_reason' => mb_substr($reason, 0, 120), 'tags' => $kind === null ? $tags : SuspensionHold::with($tags, $kind, $reason, $context)];
+    }
+
+    /**
+     * A hold on a service that is already suspended (H17): the abuse team quarantines a site the customer had paused,
+     * an invoice falls overdue on a quarantined one. Nothing happens at the panel — the service is down already — but
+     * from now on the customer cannot bring it back, and lifting another hold will not either.
+     */
+    public function imposeHold(Service $service, string $kind, string $reason, CommandContext $context): Service
+    {
+        $fresh = Service::query()->findOrFail($service->id);
+        if (! in_array($kind, SuspensionHold::KINDS, true) || $fresh->suspended_at === null) {
+            return $fresh;
+        }
+        $fresh->forceFill(['tags' => SuspensionHold::with((array) $fresh->tags, $kind, $reason, $context)])->save();
+        $this->audit->record($context->withScope($fresh->organization_id), 'service.hold.impose', 'succeeded', ['hold' => $kind, 'reason' => $reason], 'service', $fresh->id);
+
+        return $fresh;
+    }
+
+    /**
+     * Services in a transient state that nothing will finish: no open operation, and the state older than `$minutes`.
+     *
+     * @return Collection<int, Service>
+     */
+    public static function stranded(int $minutes = 15): Collection
+    {
+        return Service::query()->whereIn('state', [ServiceStateMachine::SUSPENDING, ServiceStateMachine::RESUMING, ServiceStateMachine::RESIZING])
+            ->where('updated_at', '<', now()->subMinutes($minutes))
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('operations')->whereColumn('operations.service_id', 'services.id')->whereIn('operations.state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING]))
+            ->orderBy('updated_at')->limit(200)->get();
+    }
+
+    /** One hold goes, the suspension stays: what was the customer's own pause is the customer's to end. */
+    public function liftHold(Service $service, string $kind, CommandContext $context): Service
+    {
+        $fresh = Service::query()->findOrFail($service->id);
+        if (! in_array($kind, SuspensionHold::holds($fresh), true)) {
+            return $fresh;
+        }
+        $fresh->forceFill(['tags' => SuspensionHold::without((array) $fresh->tags, $kind)])->save();
+        $this->audit->record($context->withScope($fresh->organization_id), 'service.hold.lift', 'succeeded', ['lifted' => $kind], 'service', $fresh->id);
+
+        return $fresh;
+    }
+
+    /** @return array<string,mixed> */
+    private function activePatch(Service $service): array
+    {
+        $patch = $this->cancellationCleared($service);
+        $tags = (array) ($patch['tags'] ?? $service->tags);
+        if (isset($tags['suspension'])) {
+            unset($tags['suspension']);
+            $patch['tags'] = $tags;
+        }
+
+        return $patch;
+    }
+
     private function cancellationCleared(Service $service): array
     {
         if ($service->terminate_at === null && ! isset(((array) $service->tags)['deletion'])) {
@@ -351,6 +464,9 @@ final class ServiceService
             if (! empty($params['force']) && $context->actorType === 'user' && (string) ($params['reason'] ?? '') === '') {
                 throw new DomainError('reason_required', 'Předčasné odstranění služby vyžaduje důvod.', 422);
             }
+        }
+        if ($action === 'resume') {
+            $service = $this->liftHolds($service, $context, $params);
         }
         if ($action === 'resize' && empty($params['entitlements'])) {
             throw new DomainError('resize_target_required', 'Resize needs the target entitlements.', 422);
