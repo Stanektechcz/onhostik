@@ -31,8 +31,18 @@ operations piling up in WAITING/FAILED, circuit breaker open (`provider_circuit_
 * **RKE2 apps** — `kubectl get pods -n <service namespace>`; deploy jobs are BuildKit rootless jobs with a
   timeout; a failed deploy keeps the previous revision live.
 
-## Is it the panel, or is it us?
+## What the customer can still do while a panel is away
 
+The service keeps its state and keeps running; only its management waits (Brain card H02). A change is accepted into
+the durable operations queue and retried until the panel answers, then carried out exactly once — the same
+`Idempotency-Key` returns the same operation, and a job the queue hands over twice does not repeat the panel call.
+Actions that count against a plan limit (databases, FTP accounts, cron jobs, mailboxes …) count at the panel; when the
+count cannot be had the request is **not** refused for it: the limit travels with the operation (`desired._limit`) and
+the step counts again before it touches anything. With the panel up the same request is refused at the door
+(`feature_limit_reached`), as before. A panel under *maintenance* is different on purpose: customers get
+`control_plane_maintenance` with the planned end (H324).
+
+## Is it the panel, or is it us?
 Every panel quota (`provider_instances.rate_limits`, per minute or per hour) is split three ways: ordinary work, a
 reserve for critical calls (suspend, renewals) and a top slice only health reads may use
 (`ONHOST_PROVIDER_DIAGNOSTIC_RESERVE`, 5 % of the window, never fewer than 3 calls, none for quotas under 20 calls;

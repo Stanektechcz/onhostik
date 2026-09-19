@@ -45,6 +45,7 @@ use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Providers\Contracts\ActualState;
@@ -587,9 +588,26 @@ final class ServiceService
         };
         $remote = fn () => $need('remote_id', '/^[A-Za-z0-9:_.-]{1,120}$/', 'remote_id is required.');
         $hostname = '/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i';
-        $limit = function (string $feature, string $kind) use ($service, $features, $action): void {
+        // The plan's limit is counted at the panel. When the panel is away the count cannot be had — and refusing the request
+        // for that would break the promise of a durable queue (H02): the change is accepted, the limit travels with it as
+        // `_limit` and the step counts again before it touches anything, when the panel is back.
+        $deferredLimit = null;
+        $limit = function (string $feature, string $kind) use ($service, $features, $action, &$deferredLimit): void {
             $limit = $features->features($service)[$feature]['limit'] ?? null;
-            if ($limit !== null && $limit > 0 && count($features->resources($service, $kind, true)) >= $limit) {
+            if ($limit === null || $limit <= 0) {
+                return;
+            }
+            try {
+                $count = count($features->resources($service, $kind, true));
+            } catch (ProviderException $e) {
+                if (! $e->errorCode->isRetryable()) {
+                    throw $e;
+                }
+                $deferredLimit = ['kind' => $kind, 'limit' => (int) $limit];
+
+                return;
+            }
+            if ($count >= $limit) {
                 throw new DomainError('feature_limit_reached', "{$action}: the plan allows {$limit} of these.", 422, ['limit' => $limit]);
             }
         };
@@ -1141,7 +1159,7 @@ final class ServiceService
             'gbackup.lock' => ['remote_id' => $remote(), 'locked' => filter_var($params['locked'] ?? true, FILTER_VALIDATE_BOOLEAN)],
             'panel.password' => ['password' => $password()],
             default => throw new DomainError('action_unknown', "Unknown action {$action}.", 422),
-        } + ['reason' => $params['reason'] ?? null];
+        } + ['reason' => $params['reason'] ?? null] + ($deferredLimit === null ? [] : ['_limit' => $deferredLimit]);
     }
 
     /** @return array{kind:string,url:string,token:string,expires_at:string,meta?:array<string,mixed>} */

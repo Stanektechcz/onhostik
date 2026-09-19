@@ -191,6 +191,10 @@ final class ServiceActionWorkflow implements Workflow
             {
                 $ref = $this->ref($context);
                 $p = fn (string $k, mixed $d = null) => $context->desired($k, $d);
+                $owed = (array) $p('_limit', []); // the plan's limit could not be counted when the request came in: the panel was away (H02)
+                if (isset($owed['kind'], $owed['limit']) && count($context->container->make(ServiceFeatures::class)->resources($this->service($context), (string) $owed['kind'], true)) >= (int) $owed['limit']) {
+                    return StepResult::fail("{$this->action}: the plan allows {$owed['limit']} of these.", false, ['feature_limit_reached' => true, 'limit' => (int) $owed['limit']]);
+                }
                 $result = match ($this->action) {
                     'php.set' => $this->capability($context, WebHostingProvider::class)->setPhpVersion($ref, (string) $p('version')),
                     'database.create' => $this->capability($context, WebHostingProvider::class)->createDatabase($ref, ['name' => $p('name'), 'user' => $p('user'), 'password' => $p('password'), 'charset' => $p('charset', 'utf8mb4')]),
