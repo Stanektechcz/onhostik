@@ -5,7 +5,7 @@
 | Item | Value |
 | --- | --- |
 | Branch | development |
-| Base revision | e2a25024d32f |
+| Base revision | 83b95f69f085 |
 | Working changes outside generated context | 0 |
 | PHP requirement | ^8.3 |
 | Laravel requirement | ^13.17 |

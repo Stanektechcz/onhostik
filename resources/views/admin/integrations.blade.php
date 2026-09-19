@@ -436,7 +436,15 @@
     var creds = {}; Array.prototype.forEach.call(document.querySelectorAll('#f-credentials input[data-cred]'), function (c) { if (c.value !== '') creds[c.getAttribute('data-cred')] = c.value; });
     var body = { key: $('f-key').value.trim(), provider: $('f-provider').value, name: $('f-name').value.trim() || undefined, region_code: $('f-region').value || null, base_url: $('f-base').value.trim(), state: $('f-state').value, options: options, capabilities: caps, credentials: creds };
     var editing = !!state.editing;
-    guarded(function () { return api(editing ? 'PUT' : 'POST', editing ? '/staff/integrations/' + encodeURIComponent(body.key) : '/staff/integrations', body); })
+    // two refusals are questions, not dead ends: a panel address on another host (H311) and an access the panel did not confirm (H314)
+    var save = function () {
+      return guarded(function () { return api(editing ? 'PUT' : 'POST', editing ? '/staff/integrations/' + encodeURIComponent(body.key) : '/staff/integrations', body); }).catch(function (e) {
+        if (e.error === 'instance_host_change_unconfirmed' && !body.confirm_host_change && window.confirm('Adresa panelu míří na jiný server. Uložené přístupy by se příště posílaly tam.\n\nPotvrdit změnu? Instance zůstane zamčená, dokud Probe nepotvrdí, že panel na nové adrese odpovídá.')) { body.confirm_host_change = true; return save(); }
+        if (e.error === 'instance_credentials_unverified' && !body.force_credentials && window.confirm('Panel nový přístup nepřijal, takže zůstal platný ten uložený:\n' + e.message + '\n\nUložit nový přístup i tak? Jen pokud je uložený přístup kompromitovaný nebo je panel nedostupný — instance s ním přestane fungovat, dokud přístup neopravíte.')) { body.force_credentials = true; return save(); }
+        throw e;
+      });
+    };
+    save()
       .then(function (r) {
         Array.prototype.forEach.call(document.querySelectorAll('#f-credentials input[data-cred]'), function (c) { c.value = ''; });
         say('Instance ' + body.key + ' uložena. Spusťte Probe pro ověření spojení.', true); log('Uloženo', r);

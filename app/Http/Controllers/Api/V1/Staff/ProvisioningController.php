@@ -342,6 +342,7 @@ final class ProvisioningController extends ApiController
             'region_code' => ['nullable', 'string', 'max:16'], 'base_url' => ['required', 'url', 'max:250'], 'options' => ['nullable', 'array'], 'capabilities' => ['nullable', 'array'], 'quotas' => ['nullable', 'array'], 'rate_limits' => ['nullable', 'array'],
             'secret_ref' => ['nullable', 'string', 'max:190', 'regex:~^(bao|env|file|db)://~'], 'credentials' => ['nullable', 'array'], 'credentials.*' => ['nullable', 'string', 'max:4096'], 'state' => ['nullable', 'in:active,draining,maintenance,disabled'],
             'confirm_host_change' => ['nullable', 'boolean'], // a new panel host locks the instance until a probe confirms it (H311)
+            'force_credentials' => ['nullable', 'boolean'], // store a new access the panel could not confirm: the stored one is compromised (H314)
         ]);
 
         return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, "instance.upsert:{$data['key']}"), ['op' => 'instance.upsert'] + $data), $this->api->context($request), 201);

@@ -12,6 +12,7 @@ use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Outbox\OutboxPublisher;
+use Onhost\Platform\ProviderHttp\ProviderHttpClient;
 use Onhost\Platform\Secrets\DbSecretStore;
 use Onhost\Platform\Secrets\SecretRef;
 use Onhost\Platform\Secrets\SecretStore;
@@ -65,6 +66,7 @@ final class ProviderInstanceService
         private readonly IntegrationHealthProbe $probe,
         private readonly AuditRecorder $audit,
         private readonly OutboxPublisher $outbox,
+        private readonly ProviderHttpClient $http,
     ) {}
 
     /**
@@ -106,6 +108,15 @@ final class ProviderInstanceService
             $secretRef = SecretRef::parse("db://provider_instances/{$key}");
         }
 
+        // a stored access belongs to one instance (H314): the console's own secret of another instance can never be pointed at
+        // this one, whatever the two are called — its credentials would be sent to this panel's host
+        if ($secretRef !== null && $secretRef->scheme === 'db' && str_starts_with($secretRef->path, 'provider_instances/') && $secretRef->path !== "provider_instances/{$key}") {
+            throw new DomainError('instance_secret_ref_foreign', 'This secret belongs to another instance; every instance keeps its own access.', 422, ['field' => 'secret_ref']);
+        }
+        if ($existing !== null && $credentials !== [] && ! (bool) ($input['force_credentials'] ?? false)) {
+            $this->verifyRotation($existing, $credentials, $baseUrl, $context);
+        }
+
         return DB::transaction(function () use ($input, $key, $provider, $baseUrl, $existing, $credentials, $secretRef, $hostChanged, $context) {
             $ref = $secretRef ?? $existing?->secretRef();
             if ($credentials !== []) {
@@ -135,11 +146,55 @@ final class ProviderInstanceService
                 $instance->forceFill(['maintenance_until' => null, 'state_reason' => self::ADDRESS_CHANGE_REASON.' '.(string) parse_url($baseUrl, PHP_URL_HOST)])->save();
             }
             $this->providers->forget($instance);
-            $this->audit->record($context, $existing ? 'provider.instance.update' : 'provider.instance.create', 'succeeded', ['key' => $key, 'provider' => $provider, 'base_url' => $instance->base_url, 'secret_ref' => (string) $ref, 'credential_keys' => array_keys($credentials),
+            $this->audit->record($context, $existing ? 'provider.instance.update' : 'provider.instance.create', 'succeeded', ['key' => $key, 'provider' => $provider, 'base_url' => $instance->base_url, 'secret_ref' => (string) $ref, 'credentials_forced' => $credentials !== [] && (bool) ($input['force_credentials'] ?? false), 'credential_keys' => array_keys($credentials),
                 'host_changed' => $hostChanged ? ['from' => parse_url((string) $existing?->base_url, PHP_URL_HOST), 'to' => parse_url($baseUrl, PHP_URL_HOST)] : null], 'provider_instance', $instance->id);
 
             return $instance;
         });
+    }
+
+    /**
+     * A new access is tried before it replaces the one that works (Brain card H314). The candidate is never stored: a
+     * trial adapter is built in memory on the stored values merged with the new ones, against the address the instance
+     * is about to have, and asked for its health in the diagnostic lane. Only an access the panel accepts goes on to be
+     * written; otherwise nothing changes and the working access stays. `force_credentials` skips this — for an access
+     * that is compromised while the panel cannot be reached — and says so in the audit record.
+     *
+     * @param  array<string,string>  $credentials
+     */
+    private function verifyRotation(ProviderInstance $existing, array $credentials, string $baseUrl, CommandContext $context): void
+    {
+        $ref = $existing->secretRef();
+        if ($ref->scheme !== 'db' || ! $this->secrets->exists($ref)) {
+            return; // nothing stored in the console yet: this is the first access, there is no working one to protect
+        }
+        $current = $this->secrets->read($ref);
+        $changed = array_keys(array_filter($credentials, fn (string $value, string $name) => ($current[$name] ?? null) !== $value, ARRAY_FILTER_USE_BOTH));
+        if ($changed === []) {
+            return;
+        }
+        $candidate = clone $existing;
+        $candidate->base_url = rtrim($baseUrl, '/');
+        $error = null;
+        try {
+            $adapter = $this->providers->trial($candidate, array_merge($current, $credentials));
+            $health = $this->http->diagnostic(fn () => $adapter->health());
+            $error = $health->healthy ? null : ($health->error ?? 'the panel did not confirm the new access');
+            // the game panel has two accesses with separate rights: a working application key says nothing about the client key
+            if ($error === null && in_array('client_key', $changed, true) && method_exists($adapter, 'clientApiStatus') && $adapter->clientApiStatus() !== 'ok') {
+                $error = 'the panel refused the new client key';
+            }
+        } catch (\Throwable $e) {
+            $error = $e->getMessage();
+        }
+        if ($error === null) {
+            return;
+        }
+        // from the terminal this row is the record of the refusal; inside the command bus it rolls back with the transaction
+        // and the bus's own `failed` row (error slug, message, credentials stripped) stands instead
+        $this->audit->record($context, 'provider.instance.credentials.rotate', 'failed', ['key' => $existing->key, 'credential_keys' => $changed, 'error' => mb_substr($error, 0, 300)], 'provider_instance', $existing->id);
+
+        throw new DomainError('instance_credentials_unverified', 'The panel did not accept the new access, so the stored one stays active: '.mb_substr($error, 0, 300), 422, ['field' => 'credentials', 'credential_keys' => $changed]);
     }
 
     /** An audited change of one option group of an instance (template mapping, allocations) made outside `upsert`. */

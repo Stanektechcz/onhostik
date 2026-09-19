@@ -4,6 +4,7 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 83b95f6 | 2026-09-19 | Keep a slice of every panel quota for health reads (Brain card H323) |
 | e2a2502 | 2026-09-19 | Keep servicing a customer apart from moving their money (Brain card H348) |
 | 31487d9 | 2026-09-19 | Report the panel API apart from the service (Brain card H324) |
 | 92251ae | 2026-09-19 | Generated context after the delegated-access work |
@@ -13,4 +14,3 @@
 | 088456c | 2026-09-19 | The permission re-check now covers runs started by staff: the scope the bus checked is stored next to the permission (H315) |
 | c01704b | 2026-09-19 | Current state and generated context after the operation-safety work |
 | 0cbe34e | 2026-09-19 | Three ways a long provisioning run could do harm without any call failing (Brain cards H319, H327, H315) |
-| 7e120d0 | 2026-09-17 | Refresh the generated project context after the panel-safety work |

@@ -87,6 +87,26 @@ final class ProviderRegistry
         return null;
     }
 
+    /**
+     * An adapter built on credentials that are not stored yet (Brain card H314): a new access is tried against the
+     * panel before it replaces the working one. Never cached, so it can never become the instance's own adapter.
+     *
+     * @param  array<string,string>  $credentials
+     */
+    public function trial(ProviderInstance $instance, array $credentials): ProviderAdapter
+    {
+        $class = $this->adapters[$instance->provider] ?? null;
+        if ($class === null) {
+            throw new DomainError('provider_unsupported', "No adapter registered for provider {$instance->provider}", 500);
+        }
+        $adapter = $this->container->make($class, ['instance' => $instance, 'credentials' => $credentials]);
+        if (! $adapter instanceof ProviderAdapter) {
+            throw new DomainError('provider_adapter_invalid', "{$class} is not a ProviderAdapter", 500);
+        }
+
+        return $adapter;
+    }
+
     public function forget(ProviderInstance $instance): void
     {
         unset($this->instances[$instance->id]);

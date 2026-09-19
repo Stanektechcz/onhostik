@@ -47,6 +47,17 @@ functions, `server_id` auto-resolved to 1, job queue read) and aaPanel 8.0.6 at 
   `"secret_ref": "bao://onhost/providers/proxmox-cz1"` and write the secret there.
 * `GET /v1/staff/integrations/schema` lists the credential keys and default capabilities per provider.
 * Blank credential fields on an update keep the stored values (rotate by sending new ones).
+* **Rotation is verified before it takes effect (Brain card H314).** A value that replaces a stored one is tried against
+  the panel first — a trial adapter in memory, the health read in the diagnostic lane, and for the game panel the
+  client key separately from the application key. The panel accepts it → it is stored. The panel refuses it →
+  `instance_credentials_unverified` (422), nothing is stored and the working access stays. Sending the same value again
+  is not a rotation and asks the panel nothing. When the stored access is compromised and the panel cannot confirm the
+  new one, store it anyway with `force_credentials: true` (console: the confirmation dialog; terminal:
+  `onhost:integrations:secret <instance> <key> --force`); the audit record carries `credentials_forced`. Values never
+  appear in an audit row, a log or a response.
+* **An access belongs to one instance.** `secret_ref: db://provider_instances/<key>` is accepted only for the instance
+  with that key (`instance_secret_ref_foreign` otherwise): a look-alike instance can never borrow another panel's
+  credentials and send them to its own host.
 
 ## 3. Test the connection
 
