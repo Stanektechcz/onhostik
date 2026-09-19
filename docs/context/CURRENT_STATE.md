@@ -30,7 +30,8 @@
   moved to a smaller role loses the keys and collaborator accounts the old role had put on the panels (H332). A game
   server takes its collaborators along when it migrates, with exactly the permissions they had, or does not switch (H341).
   A read-only role sees state and logs but no file contents, revealed passwords, build secrets or consoles, and taking
-  data out is the separate `backup.download`; deploys seed the role catalog and the doctor fails on a drift (H334, H344). A member removed from an organization loses their collaborator accounts on its game servers at once, and a
+  data out is the separate `backup.download`; deploys seed the role catalog and the doctor fails on a drift (H334, H344).
+  Under overload reports and overviews are refused so that actions, restores and payments keep their share (H139). A member removed from an organization loses their collaborator accounts on its game servers at once, and a
   weekly review reports panel accounts of people who are not members (H333, H332). Assessments live in the
   vault (`Hosting/ASSESSMENT-2026-09-17`, `Hosting/ASSESSMENT-2026-09-19`).
 - What remains is operational: the staging run of the new lifecycle, the payment gateway and bank tokens, staff MFA,
@@ -39,7 +40,7 @@
 ## Verified baseline
 
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 431 tests, 10 388 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 433 tests, 10 453 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

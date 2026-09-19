@@ -34,6 +34,16 @@ Roles: **incident commander** (IC, role `incident_commander` or SRE), **communic
 
 * Provider-side actions go through the provisioning queue (retry/cancel) or the service action API, never by
   hand on the hypervisor. If mutations must stop: `POST /v1/staff/provisioning/freeze` (step-up required).
+* **Overload: overviews go first (Brain card H139).** When operations pile up behind their due time
+  (`onhost.provisioning.backlog`: more than `threshold` operations overdue by `age_minutes`), the scheduled
+  `onhost:integrations:health` pass switches load shedding on by itself and says so
+  (`platform.load_shedding.started` / `.ended`). Reports (`/v1/staff/reports/*`), analytics and the customer's
+  cross-service overviews (`/v1/monitors`, `/v1/backups`) then answer 503 `load_shedding` with `Retry-After` — refused,
+  never served stale. Service actions, restores, access management, payments, the operations board and every
+  per-service page are **not** behind the switch. State and override: `GET /v1/staff/provisioning/load`,
+  `PUT /v1/staff/provisioning/load {mode: on|off|auto, reason}` (permission `provisioning.freeze`; `on`/`off` need a
+  reason, `auto` hands it back to the measurement). A verdict nobody refreshed for 15 minutes expires, so a stopped
+  scheduler cannot keep reports dark. New routes that can wait get the `shed` middleware; nothing else may.
 * For registrar/DNS incidents see [domains-registrar.md](domains-registrar.md); for billing side effects
   (renewals failing during the incident) see [billing-dunning.md](billing-dunning.md).
 

@@ -4,6 +4,7 @@ use App\Http\Middleware\RememberReferral;
 use App\Http\Middleware\RequestMetrics;
 use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\SetLocale;
+use App\Http\Middleware\ShedUnderLoad;
 use App\Http\Middleware\StatusHost;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
@@ -39,7 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->prepend(StatusHost::class); // the customer's own status host (audit §5k-3) — global, so `/badge.svg` on that host is served before routing
         $middleware->web(append: [RememberReferral::class]); // the remembered invite code (§5k-4)
         $middleware->encryptCookies(except: [RememberReferral::COOKIE]); // the API reads the invite cookie without the web cookie encryption
-        $middleware->alias(['idempotency' => IdempotencyKey::class]);
+        $middleware->alias(['idempotency' => IdempotencyKey::class, 'shed' => ShedUnderLoad::class]); // one call: alias() replaces, it does not merge. `shed`: reports and overviews give way under overload (H139)
         $middleware->trustProxies(at: env('TRUSTED_PROXIES') ? explode(',', (string) env('TRUSTED_PROXIES')) : null);
         // Surfaces are HTML: guests go to the sign-in surface. Scripts, API and relay endpoints answer 401 JSON instead.
         $middleware->redirectGuestsTo(fn (Request $request) => $request->is('v1/*') || $request->is('surfaces/*') || $request->is('console/*') || $request->expectsJson() ? null : '/prihlaseni?next='.urlencode($request->getRequestUri()));

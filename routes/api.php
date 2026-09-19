@@ -198,8 +198,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
     Route::get('orders/{order}', [OrderController::class, 'show']);
     Route::post('orders/{order}/transition', [OrderController::class, 'transition']);
 
-    Route::get('monitors', [InsightsController::class, 'monitors']);
-    Route::get('backups', [InsightsController::class, 'backups']);
+    Route::get('monitors', [InsightsController::class, 'monitors'])->middleware('shed');
+    Route::get('backups', [InsightsController::class, 'backups'])->middleware('shed');
     Route::get('calendar', [CalendarController::class, 'index']);
     Route::get('calendar/feed', [CalendarController::class, 'feed']);
     Route::post('calendar/feed/rotate', [CalendarController::class, 'rotate']);
@@ -380,7 +380,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         // chargebacks for support: the queue, the decision, the returned share
         Route::get('chargebacks', [ChargebackController::class, 'index']);
         Route::get('chargebacks/settings', [ChargebackController::class, 'settings']);
-        Route::get('chargebacks/analytics', [ChargebackController::class, 'analytics']); // why customers leave (audit §5j-6)
+        Route::get('chargebacks/analytics', [ChargebackController::class, 'analytics'])->middleware('shed'); // why customers leave (audit §5j-6)
         Route::post('chargebacks/analyse', [ChargebackController::class, 'analyse']);
         Route::put('chargebacks/settings', [ChargebackController::class, 'updateSettings']);
         Route::post('chargebacks/{chargeback}/decide', [ChargebackController::class, 'decide']);
@@ -393,7 +393,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::put('loyalty/missions', [RewardsController::class, 'setMissionCatalogue']);
         Route::get('loyalty/campaigns', [RewardsController::class, 'campaigns']); // mission campaigns (audit §5l-5)
         Route::put('loyalty/campaigns', [RewardsController::class, 'setCampaigns']);
-        Route::get('loyalty/campaigns/{campaign}/analytics', [RewardsController::class, 'campaignAnalytics']); // what a campaign did (audit §5m-5)
+        Route::get('loyalty/campaigns/{campaign}/analytics', [RewardsController::class, 'campaignAnalytics'])->middleware('shed'); // what a campaign did (audit §5m-5)
         Route::post('loyalty/campaigns/forecast', [RewardsController::class, 'forecastCampaign']); // what a campaign may cost (audit §5n-5)
         Route::get('referrals', [RewardsController::class, 'referrals']); // referral fraud review (audit §5l-4)
         Route::post('referrals/{referral}/review', [RewardsController::class, 'reviewReferral']);
@@ -476,6 +476,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::post('provisioning/jobs/{operation}/cancel', [ProvisioningController::class, 'cancel']);
         Route::post('provisioning/freeze', [ProvisioningController::class, 'freeze']);
         Route::post('provisioning/thaw', [ProvisioningController::class, 'thaw']);
+        Route::get('provisioning/load', [ProvisioningController::class, 'load']); // are overviews being shed, and why (H139)
+        Route::put('provisioning/load', [ProvisioningController::class, 'setLoad']);
         Route::post('provisioning/services/{service}/reconcile', [ProvisioningController::class, 'reconcile']);
         // the deletion lifecycle board and the early removal (audit §5ab)
         Route::get('provisioning/deletions', [ProvisioningController::class, 'deletions']);
@@ -497,10 +499,10 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::post('outbox/{mail}/send', [NotificationController::class, 'sendMail']);
         Route::get('templates', [NotificationController::class, 'templates']);
         Route::post('templates/render', [NotificationController::class, 'testRender']);
-        Route::get('reports/mrr', [ReportController::class, 'mrr']);
-        Route::get('reports/collections', [ReportController::class, 'collections']);
-        Route::get('reports/churn', [ReportController::class, 'churn']);
-        Route::get('reports/revenue', [ReportController::class, 'revenue']);
+        Route::get('reports/mrr', [ReportController::class, 'mrr'])->middleware('shed');
+        Route::get('reports/collections', [ReportController::class, 'collections'])->middleware('shed');
+        Route::get('reports/churn', [ReportController::class, 'churn'])->middleware('shed');
+        Route::get('reports/revenue', [ReportController::class, 'revenue'])->middleware('shed');
         Route::get('dunning', [ReportController::class, 'dunning']);
         Route::post('dunning/run', [ReportController::class, 'runDunning']);
 

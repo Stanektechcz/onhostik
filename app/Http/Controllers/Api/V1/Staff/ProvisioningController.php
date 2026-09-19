@@ -19,6 +19,7 @@ use Onhost\Domain\Provisioning\Commands\CapacityCommand;
 use Onhost\Domain\Provisioning\Commands\ProvisioningCommand;
 use Onhost\Domain\Provisioning\FreezeSwitch;
 use Onhost\Domain\Provisioning\IntegrationHealthProbe;
+use Onhost\Domain\Provisioning\LoadShedding;
 use Onhost\Domain\Provisioning\Models\BulkJob;
 use Onhost\Domain\Provisioning\Models\CapacityRequest;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
@@ -315,6 +316,22 @@ final class ProvisioningController extends ApiController
         $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:250']]);
 
         return $this->dispatch(new ProvisioningCommand('freeze:'.now()->timestamp, ['op' => 'freeze'] + $data), $this->api->context($request, null, $data['reason']));
+    }
+
+    /** Are reports and overviews being refused right now, why, and what the scheduled pass measured (H139). */
+    public function load(Request $request, LoadShedding $load): JsonResponse
+    {
+        $this->api->authorize($request, 'provisioning.operation.read', CommandScope::global());
+
+        return $this->ok($load->state());
+    }
+
+    /** `on` / `off` override the measurement during an incident (a reason is required), `auto` hands it back. */
+    public function setLoad(Request $request): JsonResponse
+    {
+        $data = $request->validate(['mode' => ['required', 'in:'.implode(',', LoadShedding::MODES)], 'reason' => ['required_unless:mode,auto', 'nullable', 'string', 'min:5', 'max:250']]);
+
+        return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, 'load.set:'.$data['mode'].':'.now()->format('YmdHis.u')), ['op' => 'load.set'] + $data), $this->api->context($request, null, $data['reason'] ?? null));
     }
 
     public function thaw(Request $request): JsonResponse

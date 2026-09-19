@@ -17,6 +17,7 @@ use Onhost\Domain\Provisioning\BulkActionService;
 use Onhost\Domain\Provisioning\FreezeSwitch;
 use Onhost\Domain\Provisioning\GamePanelBootstrap;
 use Onhost\Domain\Provisioning\GameTemplates;
+use Onhost\Domain\Provisioning\LoadShedding;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
@@ -75,6 +76,12 @@ final class ProvisioningCommandHandler implements CommandHandler
                 $this->freeze->thaw();
 
                 return ['frozen' => false];
+            })(),
+            'load.set' => (function () use ($command, $context) { // reports give way to operations, restores and payments (H139)
+                $load = app(LoadShedding::class);
+                $load->set((string) $command->get('mode', 'auto'), $command->get('reason') !== null ? (string) $command->get('reason') : null, $context->actorType.':'.($context->actorId ?? 'system'));
+
+                return $load->state();
             })(),
             'reconcile' => (function () use ($command, $context) {
                 $service = Service::query()->find((string) $command->get('service_id'));

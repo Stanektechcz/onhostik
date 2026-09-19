@@ -51,6 +51,7 @@ use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\IntegrationHealthProbe;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Jobs\QueueHeartbeat;
+use Onhost\Domain\Provisioning\LoadShedding;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\NodePrerequisites;
@@ -136,6 +137,12 @@ Artisan::command('onhost:integrations:health', function (IntegrationHealthProbe 
         $outbox->publish(GenericEvent::of('platform.queue.backlog', 'platform', 'queue', ['stale' => $backlog['stale'], 'threshold' => $backlog['threshold'], 'age_minutes' => $backlog['age_minutes'], 'by_queue' => $backlog['by_queue']]));
     }
     $result['backlog'] = $backlog['stale'];
+    // overviews give way while operations pile up (H139): requests only read this verdict, they never measure
+    $shedding = app(LoadShedding::class);
+    $turn = $shedding->observe($backlog);
+    if ($turn !== null && $shedding->mode() === 'auto') {
+        $outbox->publish(GenericEvent::of('platform.load_shedding.'.$turn, 'platform', 'load', ['stale' => $backlog['stale'], 'threshold' => $backlog['threshold'], 'age_minutes' => $backlog['age_minutes']]));
+    }
     $ledger->record('integrations.health', $result);
     $this->table(['checked', 'up', 'down', 'worker', 'backlog'], [$result]);
 })->purpose('Probe every provider instance and the queue worker heartbeat; record integration health');
