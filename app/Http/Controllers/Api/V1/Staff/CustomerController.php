@@ -58,6 +58,7 @@ final class CustomerController extends ApiController
             'domains' => Domain::query()->where('organization_id', $org->id)->orderBy('expires_at')->limit(100)->get()->map(fn (Domain $d) => Presenters::domain($d))->all(),
             'orders' => Order::query()->where('organization_id', $org->id)->orderByDesc('placed_at')->limit(50)->get()->map(fn (Order $o) => Presenters::order($o, false) + ['source' => $o->source, 'bank_instructions' => $o->meta['bank_instructions'] ?? null])->all(), // §5y: staff confirm a transfer by its variable symbol
             'spendable' => $wallets->spendable($org, $org->currency),
+            'can' => ['place_order' => $this->api->can($request, 'staff.order.manage', CommandScope::global()), 'move_money' => $this->api->can($request, 'billing.credit.adjust', CommandScope::global())], // H348: servicing a customer and moving their money are two permissions
             'invoices' => Invoice::query()->where('organization_id', $org->id)->where('state', '!=', Invoice::DRAFT)->orderByDesc('issued_at')->limit(50)->get()->map(fn (Invoice $i) => Presenters::invoice($i))->all(),
         ]]);
     }

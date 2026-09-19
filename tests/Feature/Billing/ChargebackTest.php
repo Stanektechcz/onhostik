@@ -84,6 +84,10 @@ it('requests, approves, cancels and refunds the configured share of the unused p
     $this->actingAs($staff, 'sanctum');
     $queue = $this->getJson('/v1/staff/chargebacks?state=open')->assertOk()->json('data');
     expect($queue['rows'])->toHaveCount(1)->and($queue['rows'][0])->toMatchArray(['state' => 'requested', 'organization' => 'Test s.r.o.'])->and($queue['rows'][0]['service']['label'])->toBe('mc-liga')->and($queue['open'])->toBe(1);
+    expect($queue['can_set_share'])->toBeTrue();
+    // the share is money policy for every customer: finance permission and a fresh step-up (H348)
+    $this->putJson('/v1/staff/chargebacks/settings', ['percent' => 50])->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1');
     $this->withHeader('Idempotency-Key', 'cb-set-1')->putJson('/v1/staff/chargebacks/settings', ['percent' => 50])->assertOk()->assertJsonPath('percent', 50);
     $this->flushHeaders();
     $this->putJson('/v1/staff/chargebacks/settings', ['percent' => 120])->assertStatus(422);

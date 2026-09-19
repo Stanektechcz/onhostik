@@ -13,10 +13,22 @@ use Onhost\Platform\Commands\GlobalCommand;
  *   wallet.credit   — organization_id, amount, currency?, kind (manual|promo), note — a manual credit adjustment (HIGH, step-up)
  *   order.assisted  — organization_id, items, payment (wallet|bank|postpaid), commit_months?, note — an order placed on the
  *                     customer's behalf through the same quote and checkout as the panel
+ *
+ * Whoever services the customer may place the order; paying it is the customer's act — a proforma they pay themselves.
+ * Spending their credit or putting the order on their invoice account moves their money without them, so those two
+ * modes ask for the finance permission and a fresh step-up, exactly like a manual credit (Brain card H348).
  */
 final class StaffCustomerCommand extends GlobalCommand implements RiskAwareCommand
 {
     public const OPS = ['wallet.credit', 'order.assisted'];
+
+    /** Payment modes of an assisted order that move the customer's money without the customer. */
+    public const MONEY_MODES = ['wallet', 'postpaid'];
+
+    public function movesMoney(): bool
+    {
+        return $this->op() === 'wallet.credit' || ($this->op() === 'order.assisted' && in_array((string) $this->get('payment', 'bank'), self::MONEY_MODES, true));
+    }
 
     public function op(): string
     {
@@ -25,7 +37,7 @@ final class StaffCustomerCommand extends GlobalCommand implements RiskAwareComma
 
     public function permission(): string
     {
-        return $this->op() === 'wallet.credit' ? 'billing.credit.adjust' : 'staff.order.manage';
+        return $this->movesMoney() ? 'billing.credit.adjust' : 'staff.order.manage';
     }
 
     public function name(): string
@@ -35,12 +47,12 @@ final class StaffCustomerCommand extends GlobalCommand implements RiskAwareComma
 
     public function riskLevel(): string
     {
-        return $this->op() === 'wallet.credit' ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
+        return $this->movesMoney() ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
     }
 
     public function requiresStepUp(): bool
     {
-        return $this->op() === 'wallet.credit';
+        return $this->movesMoney();
     }
 
     public function requiresApproval(): bool

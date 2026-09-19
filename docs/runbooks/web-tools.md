@@ -574,6 +574,15 @@ The percentage: *Finance* → *Procento vrácení* (`PUT /v1/staff/chargebacks/s
 `system_settings` key `chargeback.percent`; default `ONHOST_CHARGEBACK_PERCENT=70`). Money never leaves the
 platform: a chargeback is wallet credit for the requesting organization only.
 
+**Who may touch the money (Brain card H348).** Support decides a request (`staff.service.manage`) — the amount is
+never theirs to choose, it follows the share in force. The share itself is money policy for every customer at once:
+`billing.credit.adjust` and a fresh step-up, the same as a manual credit. The same line runs through the staff
+console's assisted order: anyone with `staff.order.manage` places an order the customer pays by proforma; paying it
+from the customer's credit or putting it on their invoice account (`payment: wallet|postpaid`) needs
+`billing.credit.adjust` and a step-up. The console reads `can.move_money` / `can_set_share` and does not offer what
+would end in 403. No staff role that services customers holds a `billing.*` write, a member or an ownership
+permission (`tests/Feature/Identity/SupportBillingSeparationTest.php` fails when one is added).
+
 **Loyalty (gamification).** `LoyaltyRouter` listens to the outbox: paid orders earn 1 point per 100 Kč
 (`loyalty.points.order.paid_per_100`), on-time payments 10, enabling MFA 50 (+ badge *guardian*), backups 30
 (*archivist*), monitoring 20 (*watchman*), the first service 100 (*first-service*), an approved partner referral

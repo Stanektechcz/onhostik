@@ -8,7 +8,11 @@ use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\RiskAwareCommand;
 use Onhost\Platform\Commands\GlobalCommand;
 
-/** Support decides a chargeback request (`decide`); staff set the returned share (`settings`). */
+/**
+ * Support decides a chargeback request (`decide`): the amount is never theirs to choose, it follows the share in force.
+ * The share itself (`settings`) is money policy for every customer at once, so it belongs to finance, behind a fresh
+ * step-up — a role that services a web site or a game server must not be able to move it (Brain card H348).
+ */
 final class ChargebackStaffCommand extends GlobalCommand implements RiskAwareCommand
 {
     public function op(): string
@@ -18,7 +22,7 @@ final class ChargebackStaffCommand extends GlobalCommand implements RiskAwareCom
 
     public function permission(): ?string
     {
-        return 'staff.service.manage';
+        return $this->op() === 'settings' ? 'billing.credit.adjust' : 'staff.service.manage';
     }
 
     public function name(): string
@@ -28,12 +32,12 @@ final class ChargebackStaffCommand extends GlobalCommand implements RiskAwareCom
 
     public function riskLevel(): string
     {
-        return PermissionCatalog::NORMAL;
+        return $this->op() === 'settings' ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
     }
 
     public function requiresStepUp(): bool
     {
-        return false;
+        return $this->op() === 'settings';
     }
 
     public function requiresApproval(): bool

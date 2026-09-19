@@ -20,7 +20,7 @@ final class ChargebackController extends ApiController
 {
     public function index(Request $request, ChargebackService $chargebacks): JsonResponse
     {
-        $this->api->authorize($request, 'staff.service.manage', CommandScope::global());
+        $this->authorizeRead($request);
         $state = (string) $request->query('state', '');
         $query = ChargebackRequest::query()->orderByDesc('created_at');
         if ($state !== '') {
@@ -33,7 +33,16 @@ final class ChargebackController extends ApiController
         return response()->json(['data' => ['rows' => $rows->map(fn (ChargebackRequest $r) => $chargebacks->present($r) + [
             'service' => ($s = $services->get($r->service_id)) ? ['label' => $s->label ?: $s->name, 'product_key' => $s->product_key, 'state' => $s->state] : null,
             'organization' => $organizations->get($r->organization_id)?->name,
-        ])->all(), 'percent' => $chargebacks->percent(), 'open' => ChargebackRequest::query()->whereIn('state', ChargebackRequest::OPEN)->count()]]);
+        ])->all(), 'percent' => $chargebacks->percent(), 'open' => ChargebackRequest::query()->whereIn('state', ChargebackRequest::OPEN)->count(),
+            'can_decide' => $this->api->can($request, 'staff.service.manage', CommandScope::global()), 'can_set_share' => $this->api->can($request, 'billing.credit.adjust', CommandScope::global())]]); // H348: support decides requests, finance sets the money
+    }
+
+    /** The queue is read by those who decide requests and by finance, who set the share (H348). */
+    private function authorizeRead(Request $request): void
+    {
+        if (! $this->api->can($request, 'billing.credit.adjust', CommandScope::global())) {
+            $this->api->authorize($request, 'staff.service.manage', CommandScope::global());
+        }
     }
 
     public function decide(Request $request, string $chargeback): JsonResponse
@@ -45,7 +54,7 @@ final class ChargebackController extends ApiController
 
     public function settings(Request $request, ChargebackService $chargebacks): JsonResponse
     {
-        $this->api->authorize($request, 'staff.service.manage', CommandScope::global());
+        $this->authorizeRead($request);
 
         return response()->json(['data' => ['percent' => $chargebacks->percent(), 'default' => (int) config('onhost.chargeback.percent', 70)]]);
     }
