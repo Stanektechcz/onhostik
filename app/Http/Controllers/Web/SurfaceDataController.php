@@ -36,6 +36,7 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\ServiceMigrationService;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\ServiceFreshness;
 use Onhost\Domain\Services\UsageWatch;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\WalletLedger\AutoTopup;
@@ -573,9 +574,14 @@ final class SurfaceDataController extends Controller
             $graceLeft = $s->terminate_at === null ? null : (int) now()->diffInDays($s->terminate_at, false);
             $deletionNote = $graceLeft === null ? '' : ' · '.($graceLeft > 0 ? $t('obnovit lze ještě ', 'restorable for ').$graceLeft.$t(' dní', ' days') : $t('čeká na odstranění', 'awaiting removal'));
             $kind = $graceLeft === null ? $kind : 'warn';
+            // a reading the reconciler has not refreshed must not look current (H325)
+            $freshness = ServiceFreshness::of($s);
+            $staleNote = $freshness['stale'] && in_array($s->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)
+                ? ' · '.($freshness['measured_at'] === null ? $t('stav zatím nezměřen', 'state not measured yet') : $t('stav z ', 'state as of ').Carbon::parse($freshness['measured_at'])->timezone((string) config('onhost.timezone_display', 'Europe/Prague'))->format($cs ? 'j. n. H:i' : 'Y-m-d H:i').$t(' (zastaralý)', ' (stale)')) : '';
+            $kind = $staleNote !== '' && $kind === 'ok' ? 'warn' : $kind;
             $groups[$category][] = [
                 'id' => $s->id, 'type' => $type, 'name' => $s->label ?: ($s->hostname ?: $s->name), 'spec' => $sizes ?? ($s->name.($spec['php_version'] ?? null ? ' · PHP '.$spec['php_version'] : '')),
-                'meta' => trim(($s->hostname ? $s->hostname.' · ' : '').strtoupper((string) $s->region_code).($s->sla_class !== 'standard' ? ' · SLA '.$s->sla_class : '').($planName ? ' · '.$planName : '').($billing !== '' ? ' · '.$billing : '').$usageNote.$deletionNote), 'value' => $s->activated_at?->toDateString() ?? '',
+                'meta' => trim(($s->hostname ? $s->hostname.' · ' : '').strtoupper((string) $s->region_code).($s->sla_class !== 'standard' ? ' · SLA '.$s->sla_class : '').($planName ? ' · '.$planName : '').($billing !== '' ? ' · '.$billing : '').$usageNote.$deletionNote.$staleNote), 'value' => $s->activated_at?->toDateString() ?? '',
                 'state' => $stateLabel, 'kind' => $kind, 'product' => $s->product_key, 'apiState' => $s->state, 'usage' => $usageTop !== null ? ['level' => $usage['level'] ?? 'ok', 'pct' => $usageTop['pct'], 'metric' => $usageTop['key']] : null,
                 'plan' => $planName, 'period' => $sub?->period, 'renews_at' => $renewsAt?->toIso8601String(), 'monthly' => $monthly, 'renewal' => $renewalAmount !== '' ? $renewalAmount : null,
                 'deletion' => $graceLeft === null ? null : ['grace_until' => $s->terminate_at?->toIso8601String(), 'days_left' => max(0, $graceLeft), 'archive_backup_id' => $deletion['archive_backup_id'] ?? null],
@@ -588,6 +594,7 @@ final class SurfaceDataController extends Controller
                     'state' => match ($s->state) {
                         ServiceStateMachine::ACTIVE => 'running', ServiceStateMachine::SUSPENDED, ServiceStateMachine::SUSPENDING => 'paused', ServiceStateMachine::PROVISIONING, ServiceStateMachine::VERIFYING => 'creating', ServiceStateMachine::RESIZING => 'scaling', ServiceStateMachine::DEGRADED => 'degraded', default => strtolower($s->state)
                     },
+                    'stale' => $freshness['stale'], 'measured_at' => $freshness['measured_at'],
                     'cpu' => (int) ($health['cpu_pct'] ?? 0), 'ram' => (int) ($health['ram_pct'] ?? 0), 'net' => (int) ($health['net_pct'] ?? 0), 'price' => $monthly,
                     'os' => (string) ($spec['image'] ?? $spec['egg'] ?? $s->product_key), 'ip' => (string) ($access['ipv4'] ?? $access['ip'] ?? $access['address'] ?? ''), 'migration' => ServiceMigrationService::status($s), 'created' => $s->activated_at?->format('j. n. Y') ?? $s->created_at->format('j. n. Y'), // game servers: address = ip:port of the primary allocation
                 ];

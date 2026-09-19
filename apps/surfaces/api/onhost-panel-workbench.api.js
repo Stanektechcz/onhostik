@@ -188,6 +188,12 @@
             act(cmp, sel, 'resume', {}, [], _('Služba se obnovuje', 'The service is coming back'), _('Plánované odstranění jsme zrušili.', 'The planned removal is cancelled.'));
           })] });
       }
+      var fr = sel.freshness && sel.freshness.stale && (sel.state === 'ACTIVE' || sel.state === 'DEGRADED') ? sel.freshness : null; // a reading nobody refreshed must not look current (H325)
+      if (fr) {
+        var whenF = fr.measured_at ? new Date(fr.measured_at).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+        rows.unshift({ cells: [cell(_('Stáří údajů', 'Age of the data'), '1 1 220px'), cell(whenF ? _('stav a zátěž jsou z ', 'state and load are from ') + whenF : _('stav služby jsme zatím nezměřili', 'the state has not been measured yet'), '1 1 300px'), cell(_('zastaralé', 'stale'), '0 0 130px', 1)],
+          note: _('Kontrola služby u panelu se opozdila. Služba sama může běžet normálně; zobrazené hodnoty jen nejsou aktuální.', 'The check of this service at the panel is late. The service itself may be running normally; the values shown are just not current.'), actions: [] });
+      }
       var mg = sel.migration && sel.migration.operation_id ? sel.migration : null; // a migration: scheduled (the customer may move it), running, finished or failed (audit §5h-3, §5i-7)
       if (mg && mg.state && mg.state !== 'scheduled') {
         var whenM = function (v) { return v ? new Date(v).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'; };
