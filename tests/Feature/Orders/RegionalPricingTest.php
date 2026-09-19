@@ -25,7 +25,12 @@ it('applies the region percentage to the list price, lets staff edit the table a
     $this->getJson('/v1/catalog/regions?country=deu')->assertStatus(422);
 
     [$owner, $org] = $this->customerWithOrganization([], ['country' => 'DE']);
-    $quote = fn (string $country) => app(QuoteService::class)->quote([['product_key' => 'web-hosting', 'plan_key' => 'start']], 'CZK', ['country' => $country, 'customer_class' => 'b2c', 'vat_status' => 'none'], 1, null, $org);
+    // the price group follows the country of the ORGANIZATION: what the request says about the country does not move it
+    $quote = function (string $country) use ($org) {
+        $org->forceFill(['country' => $country])->save();
+
+        return app(QuoteService::class)->quote([['product_key' => 'web-hosting', 'plan_key' => 'start']], 'CZK', ['country' => 'CZ', 'customer_class' => 'b2b', 'vat_status' => 'valid'], 1, null, $org->fresh());
+    };
     $home = $quote('CZ');
     $eu = $quote('DE');
     expect($eu->subtotal_minor)->toBe($home->subtotal_minor + Money::minor($home->subtotal_minor, 'CZK')->percent('5')->minor)->and($eu->lines[0]['config']['price_region'])->toBe('eu')->and($eu->versions['price_region'])->toBe('eu')->and($home->lines[0]['config']['price_region'])->toBe('home');

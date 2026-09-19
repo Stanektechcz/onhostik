@@ -49,6 +49,7 @@ use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Http\EgressGuard;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Providers\Contracts\ActualState;
 use Onhost\Providers\Contracts\ConsoleCapable;
@@ -1054,8 +1055,12 @@ final class ServiceService
                     throw new DomainError('action_param_invalid', "{$action}: kind must be cpanel, plesk, url or upload.", 422, ['field' => 'kind']);
                 }
                 $source = trim((string) ($params['source'] ?? ''));
-                if ($kind === 'url' ? ! filter_var($source, FILTER_VALIDATE_URL) || ! str_starts_with($source, 'http') : ! preg_match('/^up_[a-z0-9]{20}(\.[a-z0-9.]{1,12})?$/', $source)) {
+                if ($kind === 'url' ? ! filter_var($source, FILTER_VALIDATE_URL) || ! preg_match('#^https?://#i', $source) : ! preg_match('/^up_[a-z0-9]{20}(\.[a-z0-9.]{1,12})?$/', $source)) {
                     throw new DomainError('action_param_invalid', "{$action}: source must be an https URL (kind url) or an upload_id.", 422, ['field' => 'source']);
+                }
+
+                if ($kind === 'url') {
+                    app(EgressGuard::class)->check($source); // the download runs from the control plane: public destinations only
                 }
 
                 return ['kind' => $kind, 'source' => $source, 'files' => filter_var($params['files'] ?? true, FILTER_VALIDATE_BOOLEAN), 'databases' => filter_var($params['databases'] ?? true, FILTER_VALIDATE_BOOLEAN), 'subdir' => trim(preg_replace('~[^\w\/.-]~', '', (string) ($params['subdir'] ?? '')) ?? '', '/')];

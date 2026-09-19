@@ -62,7 +62,11 @@ final class CartController extends ApiController
         }
         $organization = $request->user() ? $this->api->organization($request, false) : null;
         $customer = $request->validate(['country' => ['nullable', 'string', 'size:2'], 'customer_class' => ['nullable', 'in:b2c,b2b'], 'vat_status' => ['nullable', 'string', 'max:20']]);
-        $customer = array_merge(['country' => $organization?->country ?? 'CZ', 'customer_class' => $organization?->customer_class ?? 'b2c', 'vat_status' => $organization?->vat_status ?? 'unknown', 'ip_country' => null], array_filter($customer));
+        // a guest may say where they are and whether they buy as a business, for an estimate; a signed-in organization's tax
+        // treatment comes from the organization alone (QuoteService enforces the same), and nobody claims a verified VAT number here
+        $customer = $organization !== null
+            ? ['country' => $organization->country ?? 'CZ', 'customer_class' => $organization->customer_class ?? 'b2c', 'vat_status' => $organization->vat_status ?? 'unknown', 'ip_country' => null]
+            : ['country' => strtoupper((string) ($customer['country'] ?? 'CZ')), 'customer_class' => $customer['customer_class'] ?? 'b2c', 'vat_status' => 'unknown', 'ip_country' => null];
         $quote = $quotes->quote((array) $cart->items, $cart->currency ?? 'CZK', $customer, (int) ($cart->commit_months ?? 1), $cart->promo_code, $organization, (string) $request->query('locale', 'cs'));
 
         return response()->json(['data' => [

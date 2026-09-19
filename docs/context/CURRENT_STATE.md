@@ -56,7 +56,12 @@
   holds its suspensions meanwhile, and what gave up is sent again after the first real delivery (H24). The customer API keeps only the parameters a customer may choose for a core action: no
   free resize, no skipped archive before a cancellation, no restore into another VM — through the API, stored action
   hooks and Discord alike (H21). An order delivers exactly the options that were priced: only what the product sells,
-  within each option's range. Event payloads keep who wrote a message (`author_*`): the outbox masked
+  within each option's range. A security review of the order, payment, egress and write paths (2026-09-20)
+  closed: a guest-checkout replay that signed the caller in as another account, orders readable by a foreign
+  idempotency key, VAT treatment and price region taken from the request, a captured payment rolled back when the
+  order could not be marked paid, server-side requests into the management network (uptime checks, webhooks, import
+  URLs — `EgressGuard`), bearer tokens reaching the account and the step-up (`token.scope`), and roles granted above
+  the granter's own. Event payloads keep who wrote a message (`author_*`): the outbox masked
   `author_type`, so a reply of support never reached the customer — fixed, with a guard test over every published key. A member removed from an organization loses their collaborator accounts on its game servers at once, and a
   weekly review reports panel accounts of people who are not members (H333, H332). Assessments live in the
   vault (`Hosting/ASSESSMENT-2026-09-17`, `Hosting/ASSESSMENT-2026-09-19`).
@@ -66,7 +71,7 @@
 ## Verified baseline
 
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 484 tests, 11 309 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 491 tests, 11 447 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

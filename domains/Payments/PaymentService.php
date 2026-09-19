@@ -201,13 +201,21 @@ final class PaymentService
         return strtolower($target);
     }
 
-    /** Idempotent settlement: wallet top-up + receipt + PaymentSucceeded. Returns false if already settled. */
+    /**
+     * Idempotent settlement: wallet top-up + receipt, then PaymentSucceeded. Returns false if already settled.
+     *
+     * The money was taken by the provider, so crediting it is one thing and applying it (marking an order or an invoice
+     * paid) is another: the credit commits on its own, and what is built on it runs afterwards. A listener that fails —
+     * a frozen wallet, a budget — used to roll the whole settlement back: the customer paid, and neither the credit, nor
+     * the receipt, nor the order existed, on every retry of the callback. Now the credit stays, and the payment that
+     * could not be applied is reported to finance.
+     */
     public function settle(PaymentIntent $intent, CommandContext $context, ?string $method = null): bool
     {
-        return DB::transaction(function () use ($intent, $context, $method) {
+        $settled = DB::transaction(function () use ($intent, $context, $method) {
             $intent = PaymentIntent::query()->lockForUpdate()->findOrFail($intent->id);
             if ($intent->isSucceeded()) {
-                return false;
+                return null;
             }
             S::machine()->assertTransition($intent->state, S::SUCCEEDED);
             $intent->forceFill(['state' => S::SUCCEEDED, 'paid_at' => now(), 'method' => $method ?? $intent->method])->save();
@@ -220,10 +228,23 @@ final class PaymentService
             if (! empty($intent->return_urls['save_method']) && $intent->provider_id) {
                 $this->rememberMethod($organization, $intent, $ctx);
             }
-            $this->events->dispatch(new PaymentSucceeded($intent, $ctx));
 
-            return true;
+            return [$intent, $ctx];
         }, 3);
+        if ($settled === null) {
+            return false;
+        }
+        [$intent, $ctx] = $settled;
+        try {
+            DB::transaction(fn () => $this->events->dispatch(new PaymentSucceeded($intent, $ctx)), 3); // a listener's half-done work rolls back; the settlement above does not
+        } catch (Throwable $e) {
+            report($e);
+            $reason = $e instanceof DomainError ? $e->error : class_basename($e);
+            $this->audit->record($ctx, 'payment.apply', 'failed', ['intent' => $intent->id, 'purpose' => $intent->purpose, 'reference' => [$intent->reference_type, $intent->reference_id], 'reason' => $reason], 'payment_intent', $intent->id);
+            $this->openReconciliationItem('paid_but_not_applied', $intent->id, $intent->amount_minor, $intent->amount_minor, "The payment is credited to the wallet, but {$intent->purpose} {$intent->reference_id} could not be marked paid: {$reason}");
+        }
+
+        return true;
     }
 
     /**

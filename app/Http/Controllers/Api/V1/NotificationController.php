@@ -17,6 +17,7 @@ use Onhost\Domain\Notifications\WebhookDispatcher;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Http\EgressGuard;
 
 /** In-app feed, preferences, customer webhooks; staff mail outbox and template test render. */
 final class NotificationController extends ApiController
@@ -83,6 +84,7 @@ final class NotificationController extends ApiController
         $organization = $this->api->organization($request);
         $this->api->authorize($request, 'organization.manage', CommandScope::organization($organization->id));
         $data = $request->validate(['url' => ['required', 'url', 'starts_with:https://', 'max:500'], 'events' => ['nullable', 'array', 'max:50'], 'events.*' => ['string', 'max:80']]);
+        app(EgressGuard::class)->check($data['url']); // refused now, with the reason, instead of failing quietly at the first delivery
         $created = $dispatcher->createEndpoint($organization->id, $data['url'], (array) ($data['events'] ?? ['*']), $this->api->user($request)->id);
         $audit->record($this->api->context($request, $organization), 'webhook.create', 'succeeded', ['url' => $data['url'], 'events' => $data['events'] ?? ['*']], 'webhook_endpoint', $created['endpoint']->id);
 

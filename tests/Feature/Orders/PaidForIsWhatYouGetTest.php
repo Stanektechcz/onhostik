@@ -89,3 +89,25 @@ it('refuses a region that does not exist and ignores a project of another organi
     $order = app(CheckoutService::class)->placeOrder($quote(['fqdn' => 'muj-projekt.cz', 'project_id' => $ownProject->id]), $org, $owner, $consents, ['mode' => 'wallet'], 'paid-for-3', $ctx)['order'];
     expect($services->createFromOrderItem(OrderItem::query()->where('order_id', $order->id)->sole(), $order, $ctx)->project_id)->toBe($ownProject->id);
 });
+
+/*
+ * Who the customer is for tax — and for the regional price list — is a fact of the organization. The quote endpoint
+ * let the request say it: a Czech consumer sent `country: DE, customer_class: b2b, vat_status: valid` and was quoted,
+ * ordered and invoiced with reverse charge, 0 % VAT.
+ */
+it('taxes a signed-in organization by what it is, not by what the cart claims', function () {
+    [$owner, $org] = $this->customerWithOrganization([], ['country' => 'CZ', 'customer_class' => 'b2c', 'vat_status' => 'unknown']);
+    $this->actingAs($owner, 'sanctum');
+    $this->putJson('/v1/cart', ['items' => [['product_key' => 'web-hosting', 'plan_key' => 'start', 'config' => ['fqdn' => 'dph.cz']]]])->assertOk();
+
+    $honest = $this->postJson('/v1/cart/quote')->assertOk()->json('data');
+    $claimed = $this->postJson('/v1/cart/quote', ['country' => 'DE', 'customer_class' => 'b2b', 'vat_status' => 'valid'])->assertOk()->json('data');
+    expect($honest['tax'])->toBe(Money::minor(8900, 'CZK')->percent(21)->minor)
+        ->and($claimed['tax'])->toBe($honest['tax'])->and($claimed['subtotal'])->toBe($honest['subtotal'])->and($claimed['total'])->toBe($honest['total']);
+
+    // a guest gets an estimate for the country they say, but never a verified VAT number
+    $this->app['auth']->forgetGuards();
+    $this->withHeaders(['X-Cart-Token' => 'guest-cart-token-0123456789'])->putJson('/v1/cart', ['items' => [['product_key' => 'web-hosting', 'plan_key' => 'start', 'config' => ['fqdn' => 'host.de']]]])->assertOk();
+    $guest = $this->withHeaders(['X-Cart-Token' => 'guest-cart-token-0123456789'])->postJson('/v1/cart/quote', ['country' => 'DE', 'customer_class' => 'b2b', 'vat_status' => 'valid'])->assertOk()->json('data');
+    expect($guest['tax'])->toBeGreaterThan(0);
+});

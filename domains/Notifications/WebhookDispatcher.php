@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 use Onhost\Domain\Integrations\ChatMessage;
 use Onhost\Domain\Notifications\Models\WebhookDelivery;
 use Onhost\Domain\Notifications\Models\WebhookEndpoint;
+use Onhost\Platform\Http\EgressGuard;
 use Onhost\Platform\Outbox\OutboxEventDispatched;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Throwable;
@@ -24,7 +25,7 @@ final class WebhookDispatcher
 
     public const CUSTOMER_EVENTS = ['order.', 'service.', 'invoice.', 'wallet.', 'domain.', 'dns.', 'subscription.', 'dunning.', 'ticket.', 'incident.', 'maintenance.', 'app.', 'backup.', 'sla.', 'monitoring.', 'deploy.', 'staging.', 'import.', 'certificate.', 'cdn.'];
 
-    public function __construct(private readonly HttpFactory $http) {}
+    public function __construct(private readonly HttpFactory $http, private readonly EgressGuard $egress) {}
 
     public function handle(OutboxEventDispatched $event): void
     {
@@ -73,7 +74,7 @@ final class WebhookDispatcher
         $signature = hash_hmac('sha256', $timestamp.'.'.$body, (string) $endpoint->secret);
         $attempt = $delivery->attempts + 1;
         try {
-            $response = $this->http->withHeaders([
+            $response = $this->http->withOptions($this->egress->options((string) $endpoint->url))->withHeaders([ // public destinations only, pinned, no redirects
                 'Content-Type' => 'application/json', 'User-Agent' => 'ONhost-Webhooks/1.0', 'X-ONhost-Event' => $delivery->event, 'X-ONhost-Delivery' => $delivery->id,
                 'X-ONhost-Timestamp' => $timestamp, 'X-ONhost-Signature' => "v1={$signature}",
             ])->timeout(8)->connectTimeout(3)->withBody((string) $body, 'application/json')->post($endpoint->url);

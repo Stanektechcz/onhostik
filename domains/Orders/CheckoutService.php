@@ -50,6 +50,11 @@ final class CheckoutService
     public function placeOrder(Quote $quote, Organization $organization, ?User $user, array $consents, array $payment, string $idempotencyKey, CommandContext $context, string $source = 'web'): array
     {
         $existing = Order::query()->where('idempotency_key', $idempotencyKey)->first();
+        if ($existing !== null && $existing->organization_id !== $organization->id) {
+            // the key is the client's own random value, but it is not a credential: a key that belongs to another organization's
+            // order answers with a conflict and nothing about that order (it used to return the order, its totals and its payment link)
+            throw new DomainError('idempotency_key_reused', 'This Idempotency-Key was already used for another request.', 409);
+        }
         if ($existing !== null) {
             return ['order' => $existing, 'redirect_url' => $existing->meta['redirect_url'] ?? null, 'payment_intent_id' => $existing->payment_intent_id, 'bank_instructions' => $existing->meta['bank_instructions'] ?? null];
         }
@@ -137,6 +142,10 @@ final class CheckoutService
             $result = ['order' => $order, 'redirect_url' => null, 'payment_intent_id' => null, 'bank_instructions' => null];
             $total = $order->total();
 
+            if (! $total->isZero() && in_array($mode, ['gateway', 'bank'], true)) {
+                // a hard budget refuses the order before anybody pays for it; after the payment the money is the order's
+                $this->wallets->assertWithinBudget($organization, $total, $context);
+            }
             if ($total->isZero()) { // nothing to pay (a plan downgrade): paid at once, whatever method was chosen
                 $this->markPaid($order, $context, 'wallet');
             } elseif ($mode === 'wallet' || $mode === 'postpaid') {
@@ -179,7 +188,7 @@ final class CheckoutService
             OrderStateMachine::machine()->assertTransition($order->state, OrderStateMachine::PAID);
             if ($order->wallet_hold_id === null && $paymentIntentId !== null) {
                 // Gateway/bank payments were credited to the wallet by PaymentService; reserve them now.
-                $hold = $this->wallets->hold($order->organization_id, $order->total(), 'order', "order:{$order->id}", $context, 'order', $order->id, $this->hasDomain($order) ? 'domain' : 'normal');
+                $hold = $this->wallets->hold($order->organization_id, $order->total(), 'order', "order:{$order->id}", $context, 'order', $order->id, $this->hasDomain($order) ? 'domain' : 'normal', enforceBudget: false); // this money was paid for this order; the budget was asked at placement
                 $order->forceFill(['wallet_hold_id' => $hold->id]);
             }
             $order->forceFill(['state' => OrderStateMachine::PAID, 'paid_at' => now(), 'payment_intent_id' => $paymentIntentId ?? $order->payment_intent_id])->save();

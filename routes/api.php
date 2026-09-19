@@ -119,7 +119,7 @@ Route::middleware('throttle:public')->group(function (): void {
 });
 
 // ── signed in (cookie session or bearer token) ───────────────────────────────
-Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(function (): void {
+Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency'])->group(function (): void { // token.scope: a bearer token reaches only the route families its scopes name
     Route::get('me', [AuthController::class, 'me']);
     Route::get('my/incidents', [StatusController::class, 'mine']);
     Route::get('sla-credits', [StatusController::class, 'credits']);

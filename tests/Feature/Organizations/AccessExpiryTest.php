@@ -3,8 +3,10 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
@@ -42,7 +44,7 @@ it('ends a membership on its date: the permission stops at once, the clean-up fo
 
     // the API takes the date with the invitation and refuses one in the past or one for the owner role
     $this->postJson("/v1/organizations/{$org->id}/invitations", ['email' => 'lektor@skola.cz', 'role' => 'developer', 'access_until' => now()->subDay()->toIso8601String()])->assertUnprocessable();
-    $this->withHeader('Idempotency-Key', 'inv-own')->postJson("/v1/organizations/{$org->id}/invitations", ['email' => 'lektor@skola.cz', 'role' => 'owner', 'access_until' => $until->toIso8601String()])->assertUnprocessable();
+    $this->withHeader('Idempotency-Key', 'inv-own')->postJson("/v1/organizations/{$org->id}/invitations", ['email' => 'lektor@skola.cz', 'role' => 'owner', 'access_until' => $until->toIso8601String()])->assertForbidden()->assertJsonPath('error', 'owner_role_locked'); // the owner role is not handed out at all, let alone for a while
     $this->withHeader('Idempotency-Key', 'inv-1')->postJson("/v1/organizations/{$org->id}/invitations", ['email' => 'lektor@skola.cz', 'role' => 'developer', 'access_until' => $until->toIso8601String()])->assertCreated();
     expect($this->getJson("/v1/organizations/{$org->id}")->assertOk()->json('data.invitations.0.access_until'))->toBe($until->toIso8601String());
 
@@ -156,4 +158,46 @@ it('takes back what a smaller role no longer covers, and nothing from a role tha
     $this->withHeader('Idempotency-Key', 'up-1')->patchJson("/v1/organizations/{$org->id}/members/{$developer->id}", ['role' => 'org_admin'])->assertOk();
     app(OutboxPublisher::class)->relayPending();
     expect($other->fresh()->state)->toBe(SshKeyGrant::ACTIVE);
+});
+
+/*
+ * Who may hand out what. Managing members said only THAT somebody manages members: an org admin could make anybody —
+ * themselves included — the owner, and a member on time-limited access could send `access_until: null` for themselves.
+ */
+it('lets nobody grant a role above their own, take the owner role, or edit their own membership', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $organizations = app(OrganizationService::class);
+    $admin = User::factory()->create();
+    $organizations->attachMember($org, $admin, 'org_admin', CommandContext::system('test'), true, now()->addDays(7)); // an administrator on time-limited access
+    $colleague = User::factory()->create();
+    $organizations->attachMember($org, $colleague, 'viewer', CommandContext::system('test'), true);
+    $billing = User::factory()->create();
+    $organizations->attachMember($org, $billing, 'billing_admin', CommandContext::system('test'), true);
+    foreach ([$owner, $admin, $billing] as $person) {
+        app(StepUpService::class)->grant($person, 'totp', null, '127.0.0.1'); // so that a refusal below is the rule's, not the step-up's
+    }
+    $patch = fn (User $as, User $target, array $body) => $this->actingAs($as, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->patchJson("/v1/organizations/{$org->id}/members/{$target->id}", $body);
+
+    // their own membership: neither the role nor the end of the access
+    $patch($admin, $admin, ['role' => 'owner'])->assertForbidden()->assertJsonPath('error', 'owner_role_locked');
+    $patch($admin, $admin, ['role' => 'developer'])->assertForbidden()->assertJsonPath('error', 'self_membership_locked');
+    $patch($admin, $admin, ['role' => 'org_admin', 'access_until' => null])->assertForbidden()->assertJsonPath('error', 'self_membership_locked');
+    expect(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $admin->id)->sole()->expires_at)->not->toBeNull();
+
+    // the owner role is not handed out, to anybody, by anybody but a transfer
+    $patch($admin, $colleague, ['role' => 'owner'])->assertForbidden()->assertJsonPath('error', 'owner_role_locked');
+    $this->actingAs($admin, 'sanctum')->withHeader('Idempotency-Key', (string) Str::ulid())->postJson("/v1/organizations/{$org->id}/invitations", ['email' => 'novy.majitel@example.cz', 'role' => 'owner'])->assertForbidden();
+
+    // a role is granted only by somebody whose own role covers it (billing_admin manages no members at all; a role with the right but less power cannot grant more)
+    $developer = User::factory()->create();
+    $organizations->attachMember($org, $developer, 'developer', CommandContext::system('test'), true);
+    $patch($billing, $colleague, ['role' => 'org_admin'])->assertForbidden(); // no right to manage members at all
+    $patch($admin, $developer, ['role' => 'org_admin'])->assertOk();         // within the administrator's own role
+    $patch($admin, $developer, ['role' => 'developer'])->assertOk();
+    expect(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $colleague->id)->sole()->role_key)->toBe('viewer');
+
+    // what stays possible: an administrator changes a colleague's role within their own, the owner does anything but hand out ownership
+    $patch($admin, $colleague, ['role' => 'developer'])->assertOk();
+    $patch($owner, $colleague, ['role' => 'org_admin'])->assertOk();
+    expect(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $colleague->id)->sole()->role_key)->toBe('org_admin');
 });

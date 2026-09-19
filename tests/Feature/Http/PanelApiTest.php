@@ -197,3 +197,31 @@ it('issues scoped API tokens after step-up and enforces the scopes on bearer req
     $this->app['auth']->forgetGuards();
     $this->withHeader('Authorization', "Bearer {$plain}")->getJson('/v1/services')->assertUnauthorized();
 });
+
+/*
+ * A token reaches only what its scopes name. The scope check lived inside the permission check, so an endpoint that
+ * asks for no permission was open to any token: `invoices:read` could change the profile, enrol TOTP on an account
+ * without one, read the recovery codes — and then step up, clearing the gate for whatever its scopes did cover.
+ */
+it('keeps a bearer token out of the account, the step-up and every route family its scopes do not name', function () {
+    Http::fake();
+    [$user, $org] = $this->customerWithOrganization(['password' => 'Correct-Horse-Battery-9']);
+    $service = panelVps($org);
+    $this->actingAs($user, 'sanctum');
+    app(StepUpService::class)->grant($user, 'totp', null, '127.0.0.1');
+    $plain = $this->postJson('/v1/tokens', ['name' => 'účetní export', 'scopes' => ['invoices:read']], ['Idempotency-Key' => 'tok-invoices'])->assertCreated()->json('token');
+    $this->app['auth']->forgetGuards();
+    $bearer = ['Authorization' => "Bearer {$plain}"];
+
+    $this->withHeaders($bearer)->getJson('/v1/invoices')->assertOk();   // what it is for
+    $this->withHeaders($bearer)->getJson('/v1/me')->assertOk();         // and who it is
+    foreach ([
+        ['PATCH', '/v1/me', ['name' => 'Převzatý účet']], ['POST', '/v1/me/totp/enroll', []], ['POST', '/v1/me/totp/confirm', ['code' => '123456']], ['POST', '/v1/me/password', ['current_password' => 'x', 'password' => 'y']],
+        ['POST', '/v1/auth/step-up', ['method' => 'password', 'code' => 'Correct-Horse-Battery-9']], ['POST', '/v1/notifications/read', ['ids' => []]], ['GET', '/v1/organizations', []],
+        ['GET', '/v1/services', []], ['POST', "/v1/services/{$service->id}/power", ['power_action' => 'stop']], ['GET', '/v1/wallet', []], ['POST', '/v1/webhooks', ['url' => 'https://example.com/h']], ['GET', '/v1/orders', []],
+    ] as [$method, $uri, $body]) {
+        $response = $this->withHeaders($bearer)->json($method, $uri, $body);
+        expect($response->status())->toBe(403, "{$method} {$uri} answered {$response->status()}");
+    }
+    expect($user->fresh()->name)->not->toBe('Převzatý účet')->and($user->fresh()->hasTotp())->toBeFalse();
+});

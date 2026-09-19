@@ -16,6 +16,7 @@ use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Http\EgressGuard;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
 /**
@@ -26,7 +27,7 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  */
 final class UptimeMonitor
 {
-    public function __construct(private readonly OutboxPublisher $outbox, private readonly AuditRecorder $audit, private readonly ServiceFeatures $features) {}
+    public function __construct(private readonly OutboxPublisher $outbox, private readonly AuditRecorder $audit, private readonly ServiceFeatures $features, private readonly EgressGuard $egress) {}
 
     /** @return array{monitors:list<array<string,mixed>>, limit:?int, threshold:int} */
     public function status(Service $service): array
@@ -74,6 +75,7 @@ final class UptimeMonitor
         if (! filter_var($url, FILTER_VALIDATE_URL) || ! preg_match('#^https?://#', $url) || strlen($url) > 500) {
             throw new DomainError('action_param_invalid', 'url must be an http(s) address.', 422, ['field' => 'url']);
         }
+        $this->egress->check($url); // a check is a request from inside the management network: public destinations only
         $monitor = isset($input['id']) ? Monitor::query()->where('service_id', $service->id)->find((string) $input['id']) : null;
         if ($monitor === null) {
             $limit = (int) ($feature['limit'] ?? 1);
@@ -136,7 +138,8 @@ final class UptimeMonitor
         $status = null;
         $error = null;
         try {
-            $response = Http::withUserAgent((string) config('onhost.monitoring.user_agent', 'ONhost-Uptime/1.0'))->timeout((int) $monitor->timeout_seconds)->connectTimeout(5)->withoutVerifying()->get($monitor->url);
+            // checked again at every run and pinned to the checked address: a name can start pointing inwards after it was saved
+            $response = Http::withOptions($this->egress->options((string) $monitor->url))->withUserAgent((string) config('onhost.monitoring.user_agent', 'ONhost-Uptime/1.0'))->timeout((int) $monitor->timeout_seconds)->connectTimeout(5)->withoutVerifying()->get($monitor->url);
             $status = $response->status();
             $ok = $status === (int) $monitor->expected_status;
             if ($ok && $monitor->keyword !== null && $monitor->keyword !== '' && ! str_contains($response->body(), $monitor->keyword)) {

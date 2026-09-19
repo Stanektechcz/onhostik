@@ -12,6 +12,7 @@ use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Http\HostResolver;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -29,6 +30,8 @@ abstract class TestCase extends BaseTestCase
     {
         parent::setUp();
         Cache::flush(); // the array store outlives the refreshed database: settings, ledgers and probes must not leak between tests
+        FakeHostResolver::$hosts = [];
+        $this->app->bind(HostResolver::class, FakeHostResolver::class); // customer-named destinations are resolved without touching the network
     }
 
     /** A customer with an organization they own (owner role binding). @return array{0:User,1:Organization} */

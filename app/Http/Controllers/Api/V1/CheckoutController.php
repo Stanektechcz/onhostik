@@ -56,15 +56,19 @@ final class CheckoutController extends ApiController
         $key = $this->idempotencyKey($request, 'order.place');
         $replay = Order::query()->where('idempotency_key', $key)->first();
         if ($replay !== null) {
-            $user = $replay->user_id ? User::query()->find($replay->user_id) : null;
-            $organization = Organization::query()->find($replay->organization_id);
-            if ($user !== null) {
-                $this->startSession($request, $user);
+            // An Idempotency-Key is not a credential. The replay used to sign the caller in as the account the order created —
+            // anybody who knew (or guessed, or found in a log) a key got a persistent session of somebody else. A retry is
+            // answered only when it is the same request — the same e-mail — and even then nobody is signed in and no account
+            // details are returned: the first response carried the session, and the account's owner has the set-password mail.
+            // (A signed-in caller never gets here: this endpoint refuses them above.)
+            $owner = $replay->user_id ? User::query()->find($replay->user_id) : null;
+            if ($owner === null || ! hash_equals(strtolower((string) $owner->email), strtolower(trim((string) data_get($data, 'customer.email', ''))))) {
+                throw new DomainError('idempotency_key_reused', 'This Idempotency-Key was already used for another request.', 409);
             }
 
             return response()->json([
                 'order_id' => $replay->id, 'number' => $replay->number, 'state' => $replay->state, 'redirect_url' => $replay->meta['redirect_url'] ?? null, 'payment_intent_id' => $replay->payment_intent_id, 'bank_instructions' => $replay->meta['bank_instructions'] ?? null,
-                'account' => ['created' => false, 'user' => $user ? Presenters::user($user) : null, 'organization' => $organization ? Presenters::organization($organization, 'owner') : null],
+                'account' => ['created' => false, 'user' => null, 'organization' => null],
             ]);
         }
 

@@ -153,13 +153,14 @@ final class WalletService
         ?string $referenceId = null,
         string $priority = 'normal',
         ?int $ttlMinutes = 60 * 24,
+        bool $enforceBudget = true,
     ): WalletHold {
         if (! $amount->isPositive()) {
             throw new DomainError('invalid_amount', 'Hold amount must be positive.');
         }
         $organizationId = $organization instanceof Organization ? $organization->id : $organization;
 
-        return DB::transaction(function () use ($organizationId, $amount, $purpose, $idempotencyKey, $context, $referenceType, $referenceId, $priority, $ttlMinutes) {
+        return DB::transaction(function () use ($organizationId, $amount, $purpose, $idempotencyKey, $context, $referenceType, $referenceId, $priority, $ttlMinutes, $enforceBudget) {
             $existing = WalletHold::query()->where('idempotency_key', $idempotencyKey)->first();
             if ($existing !== null) {
                 return $existing;
@@ -180,7 +181,9 @@ final class WalletService
                     'required' => $amount, 'available' => $available, 'hint' => 'Top up the wallet or enable auto top-up.',
                 ]);
             }
-            $this->assertBudget($organizationId, $amount, $context);
+            if ($enforceBudget) {
+                $this->assertBudget($organizationId, $amount, $context);
+            }
             $hold = WalletHold::query()->create([
                 'wallet_id' => $wallet->id,
                 'organization_id' => $organizationId,
@@ -488,6 +491,12 @@ final class WalletService
             }
             $budget->forceFill(['spent_minor' => $spent, 'notified' => $notified])->save();
         }
+    }
+
+    /** The budget question asked before money moves: an order paid by card or transfer is checked when it is placed. */
+    public function assertWithinBudget(Organization|string $organization, Money $amount, CommandContext $context): void
+    {
+        $this->assertBudget($organization instanceof Organization ? $organization->id : $organization, $amount, $context);
     }
 
     /** A budget is a monthly one: the first touch in a new month starts it from zero, and its thresholds warn again. */

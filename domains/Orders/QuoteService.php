@@ -49,7 +49,15 @@ final class QuoteService
     public function quote(array $items, Currency|string $currency, array $customer, int $commitMonths = 1, ?string $promoCode = null, ?Organization $organization = null, string $locale = 'cs'): Quote
     {
         $currency = $currency instanceof Currency ? $currency : Currency::fromString($currency);
-        $country = strtoupper((string) ($customer['country'] ?? $organization?->country ?? 'CZ'));
+        if ($organization !== null) {
+            // who the customer is for tax and for the regional price list is a fact of the organization — its country, whether it
+            // is a business, what VIES said about its VAT number — never something a request can say. A cart that claimed
+            // `b2b` + `vat_status: valid` from another EU country was quoted, ordered and invoiced without VAT.
+            $customer = ['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status] + ['ip_country' => $customer['ip_country'] ?? null];
+        } else {
+            $customer['vat_status'] = 'unknown'; // a guest's quote is an estimate; a VAT number is verified on the account, not claimed in a cart
+        }
+        $country = strtoupper((string) ($customer['country'] ?? 'CZ'));
         $region = $this->rules->regionFor($country); // regional list price (audit §5j-8)
         $loyaltyPct = $organization !== null ? round(max(0.0, min(30.0, (float) data_get($organization->settings, 'loyalty_discount.pct', 0))), 2) : 0.0; // the streak discount finance granted (audit §5j-3)
         if ($items === []) {

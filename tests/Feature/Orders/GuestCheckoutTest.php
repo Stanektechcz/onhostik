@@ -11,6 +11,7 @@ use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\Notifications\GuestAccountNotification;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
+use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Platform\Audit\AuditEvent;
 
@@ -64,4 +65,35 @@ it('refuses an e-mail that already has an account, wallet payment and orders wit
     $this->withHeaders(['Referer' => 'http://localhost'])->postJson('/v1/checkout/guest', guestOrderPayload(['payment' => ['mode' => 'wallet']]))->assertUnprocessable()->assertJsonValidationErrors(['payment.mode']);
     $this->withHeaders(['Referer' => 'http://localhost', 'Accept-Language' => 'cs'])->postJson('/v1/checkout/guest', guestOrderPayload(['terms' => false]))->assertUnprocessable()->assertJsonPath('errors.terms.0', 'Bez souhlasu s podmínkami účet nezaložíme.');
     expect(User::query()->where('email', 'nova@firma.cz')->exists())->toBeFalse();
+});
+
+/*
+ * An Idempotency-Key is not a credential. The replay branch used to sign the caller in as the account the first order
+ * created: whoever knew a key — from a log, a proxy, a shared device — got a persistent session of somebody else.
+ */
+it('never signs anybody in on a replayed key, and tells a stranger nothing about the order behind it', function () {
+    $first = $this->withHeaders(['Referer' => 'http://localhost', 'Idempotency-Key' => 'guest-victim'])->postJson('/v1/checkout/guest', guestOrderPayload())->assertCreated();
+    $victim = User::query()->where('email', 'nova@firma.cz')->firstOrFail();
+
+    // a stranger: another browser, another e-mail, the victim's key
+    $this->app['auth']->forgetGuards();
+    $this->flushSession();
+    $stolen = $this->withHeaders(['Referer' => 'http://localhost', 'Idempotency-Key' => 'guest-victim'])->postJson('/v1/checkout/guest', guestOrderPayload(['customer' => ['email' => 'utocnik@jinde.cz']]));
+    $stolen->assertStatus(409)->assertJsonPath('error', 'idempotency_key_reused');
+    expect((string) $stolen->getContent())->not->toContain($first->json('number'))->not->toContain('nova@firma.cz');
+    $this->withHeaders(['Referer' => 'http://localhost'])->getJson('/v1/me')->assertUnauthorized(); // and no session came with it
+
+    // the honest retry whose first response was lost: the same request, so the same order — but still no session and no account details
+    $retry = $this->withHeaders(['Referer' => 'http://localhost', 'Idempotency-Key' => 'guest-victim'])->postJson('/v1/checkout/guest', guestOrderPayload())->assertOk();
+    expect($retry->json('order_id'))->toBe($first->json('order_id'))->and($retry->json('account.user'))->toBeNull()->and($retry->json('account.organization'))->toBeNull();
+    $this->withHeaders(['Referer' => 'http://localhost'])->getJson('/v1/me')->assertUnauthorized();
+    expect(User::query()->count())->toBe(1)->and(Order::query()->count())->toBe(1);
+
+    // a signed-in customer of another organization cannot fetch the order with the key either
+    [$other, $otherOrg] = $this->customerWithOrganization();
+    $quote = app(QuoteService::class)->quote([['product_key' => 'web-hosting', 'plan_key' => 'start']], 'CZK', ['country' => 'CZ', 'customer_class' => 'b2c', 'vat_status' => 'unknown'], 1, null, $otherOrg);
+    $this->actingAs($other, 'sanctum');
+    $leak = $this->withHeaders(['Idempotency-Key' => 'guest-victim'])->postJson('/v1/orders', ['quote_id' => $quote->id, 'consents' => ['terms' => ['version' => '2026-09'], 'privacy' => [], 'dpa' => [], 'withdrawal_waiver' => [], 'sla' => []], 'payment' => ['mode' => 'bank']]);
+    expect($leak->status())->toBe(409)->and((string) $leak->getContent())->not->toContain($first->json('number'));
+    expect(Order::query()->where('user_id', $victim->id)->count())->toBe(1);
 });

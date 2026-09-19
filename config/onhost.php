@@ -29,6 +29,10 @@ return [
         'contact' => env('ONHOST_ACME_CONTACT'), // mailto: address registered with the ACME account
         'renew_days_before' => (int) env('ONHOST_ACME_RENEW_DAYS', 30),
     ],
+    'egress' => [ // destinations a CUSTOMER names (uptime checks, webhooks, import URLs): public addresses only (EgressGuard)
+        'deny_cidrs' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_EGRESS_DENY_CIDRS', ''))))),   // the operator's own public management ranges
+        'allow_cidrs' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_EGRESS_ALLOW_CIDRS', ''))))), // a lab on private addresses; empty in production
+    ],
     'mail_health' => ['window_minutes' => (int) env('ONHOST_MAIL_HEALTH_WINDOW', 30), 'min_errors' => (int) env('ONHOST_MAIL_HEALTH_MIN_ERRORS', 3), 'stalled_minutes' => (int) env('ONHOST_MAIL_HEALTH_STALLED', 15)], // does the platform's own mail still leave (H24)
     'monitoring' => [
         'user_agent' => 'ONhost-Uptime/1.0 (+https://onhost.cz/stav)',

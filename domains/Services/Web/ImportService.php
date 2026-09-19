@@ -13,6 +13,7 @@ use Onhost\Domain\Services\Models\SiteImport;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Http\EgressGuard;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Providers\Contracts\Naming;
 use Onhost\Providers\Contracts\WebHostingProvider;
@@ -69,7 +70,7 @@ final class ImportService
         $max = (int) config('onhost.web_tools.upload_max_bytes', 2 * 1024 * 1024 * 1024);
         if ($import->kind === 'url') {
             $target = $dir.'/source.bin';
-            $response = Http::withOptions(['sink' => $target])->timeout(900)->withUserAgent('ONhost-Importer/1.0')->get($import->source);
+            $response = Http::withOptions(['sink' => $target] + app(EgressGuard::class)->options((string) $import->source))->timeout(900)->withUserAgent('ONhost-Importer/1.0')->get($import->source);
             if (! $response->successful()) {
                 throw new DomainError('import_fetch_failed', 'Download failed with HTTP '.$response->status().'.', 502);
             }

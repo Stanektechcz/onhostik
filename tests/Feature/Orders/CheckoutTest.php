@@ -15,7 +15,9 @@ use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Payments\Models\BankStatementLine;
 use Onhost\Domain\Payments\PaymentService;
 use Onhost\Domain\WalletLedger\LedgerService;
+use Onhost\Domain\WalletLedger\Models\Budget;
 use Onhost\Domain\WalletLedger\WalletService;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxMessage;
@@ -152,4 +154,42 @@ it('issues a proforma with variable symbol for bank transfer and settles it from
     ]);
     $intent = app(PaymentService::class)->matchBankLine($line, $ctx);
     expect($intent)->not->toBeNull()->and($order->refresh()->state)->toBe(OrderStateMachine::PAID)->and($proforma->refresh()->state)->toBe(Invoice::PAID);
+});
+
+/*
+ * The provider took the money: crediting it must not depend on what is built on top of it. A frozen wallet (or, before
+ * this rule, a budget) made the order's hold throw inside the settlement transaction — the customer had paid, and
+ * neither the credit, nor the receipt, nor the order existed, on every retry of the callback.
+ */
+it('keeps a captured payment when the order cannot be marked paid, tells finance, and asks the budget before anybody pays', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $ctx = $this->contextFor($owner, $org);
+    putenv('COMGATE_MERCHANT=123456');
+    putenv('COMGATE_SECRET=topsecret');
+    $_ENV['COMGATE_MERCHANT'] = '123456';
+    $_ENV['COMGATE_SECRET'] = 'topsecret';
+    config(['onhost.payments.comgate.callback_allowlist' => []]);
+    $quote = quoteFor($org, [['product_key' => 'web-hosting', 'plan_key' => 'standard']]);
+    $total = $quote->total_minor;
+    Http::fake([
+        'payments.comgate.cz/v2.0/payment' => Http::response(['code' => 0, 'message' => 'OK', 'transId' => 'ZZ99-FR0Z-EN00', 'redirect' => 'https://payments.comgate.cz/client/instructions/index?id=ZZ99-FR0Z-EN00']),
+        'payments.comgate.cz/v2.0/payment/transId/ZZ99-FR0Z-EN00' => Http::response(['code' => 0, 'message' => 'OK', 'transId' => 'ZZ99-FR0Z-EN00', 'status' => 'PAID', 'price' => $total, 'curr' => 'CZK', 'method' => 'CARD_CZ_CSOB_2', 'refId' => 'x']),
+    ]);
+    $order = app(CheckoutService::class)->placeOrder($quote, $org, $owner, consentsFor(), ['mode' => 'gateway', 'provider' => 'comgate', 'method' => 'card'], 'chk-frozen', $ctx)['order'];
+
+    app(WalletService::class)->freeze($org, 'CZK', 'fraud review', CommandContext::system('test')); // between the order and the payment
+    $result = app(PaymentService::class)->handleWebhook('comgate', Request::create('/v1/webhooks/payments/comgate', 'POST', ['transId' => 'ZZ99-FR0Z-EN00', 'status' => 'PAID', 'price' => $total, 'curr' => 'CZK', 'secret' => 'topsecret']));
+
+    expect($result['result'])->toBe('settled'); // the callback is answered: the provider does not retry a payment we hold
+    expect(app(WalletService::class)->balances($org, 'CZK')['posted']->minor)->toBe($total) // the money is the customer's credit …
+        ->and(Invoice::query()->where('type', 'receipt')->count())->toBe(1)                  // … with its receipt
+        ->and($order->fresh()->state)->toBe(OrderStateMachine::PENDING_PAYMENT);             // the order is simply not paid yet
+    expect(OutboxMessage::query()->where('name', 'finance.reconciliation.mismatch')->get()->contains(fn (OutboxMessage $m) => ($m->payload['kind'] ?? '') === 'paid_but_not_applied'))->toBeTrue();
+    expect(app(LedgerService::class)->verifyInvariant()['balanced'])->toBeTrue();
+
+    // a hard budget refuses a card order when it is placed — not after the card was charged
+    [$owner2, $org2] = $this->customerWithOrganization();
+    Budget::query()->create(['organization_id' => $org2->id, 'currency' => 'CZK', 'limit_minor' => 10000, 'hard' => true, 'alert_thresholds' => [100], 'period_start' => now()->startOfMonth()->toDateString()]);
+    expect(fn () => app(CheckoutService::class)->placeOrder(quoteFor($org2, [['product_key' => 'web-hosting', 'plan_key' => 'standard']]), $org2, $owner2, consentsFor(), ['mode' => 'gateway', 'provider' => 'comgate', 'method' => 'card'], 'chk-budget', $this->contextFor($owner2, $org2)))
+        ->toThrow(fn (DomainError $e) => expect($e->error)->toBe('budget_exceeded'));
 });
