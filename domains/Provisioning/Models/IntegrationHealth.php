@@ -4,8 +4,15 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Provisioning\Models;
 
+use Illuminate\Support\Carbon;
 use Onhost\Platform\Eloquent\Model;
 
+/**
+ * @property bool $up
+ * @property ?Carbon $last_success_at
+ * @property ?Carbon $last_failure_at
+ * @property ?Carbon $checked_at
+ */
 final class IntegrationHealth extends Model
 {
     protected static string $idPrefix = 'ih';

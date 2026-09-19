@@ -63,23 +63,31 @@ final class OperationsBoard
         $health = IntegrationHealth::query()->get()->keyBy('provider_instance_id');
         $instances = ProviderInstance::query()->get()->keyBy('id');
 
-        return Node::query()->orderBy('region_code')->orderBy('name')->get()->map(function (Node $node) use ($window, $health, $instances) {
-            $ops = Operation::query()->where('provider_instance_id', $node->provider_instance_id)->where(fn ($q) => $q->where('queued_at', '>=', $window)->orWhere('finished_at', '>=', $window));
-            $succeeded = (clone $ops)->where('state', Operation::SUCCEEDED)->count();
-            $transient = (clone $ops)->whereIn('state', [Operation::WAITING, Operation::FAILED])->where('error->retryable', true)->count();
-            $instance = $instances->get($node->provider_instance_id);
-            $h = $health->get($node->provider_instance_id);
+        return Node::query()->orderBy('region_code')->orderBy('name')->get()->map(fn (Node $node): array => $this->nodeRow($node, $window, $health, $instances));
+    }
 
-            return [
-                'id' => $node->id, 'name' => $node->name, 'role' => $node->role, 'region' => $node->region_code, 'state' => $node->state,
-                'instance' => $instance ? ['id' => $instance->id, 'key' => $instance->key, 'provider' => $instance->provider, 'state' => $instance->state] : null,
-                'health' => $h ? ['up' => (bool) $h->up, 'error_rate_1h' => $h->error_rate_1h, 'checked_at' => $h->checked_at?->toIso8601String(), 'last_error' => $h->last_error] : null,
-                'window_minutes' => self::DRAIN_WINDOW_MINUTES, 'succeeded' => $succeeded, 'transient_failures' => $transient,
-                'auto_drained' => (bool) data_get($node->tags, 'auto_drain.at'), 'suggest_drain' => $node->state === 'active' && $transient >= self::DRAIN_FAILURES && $succeeded === 0,
-                'bmc' => is_array(data_get($node->usage, 'bmc')) ? array_intersect_key((array) data_get($node->usage, 'bmc'), array_flip(['temp_max_c', 'fans_failed', 'psu_failed', 'psus', 'at'])) : null, // §5p-6: what the controller reported last
-                'power_w' => data_get($node->usage, 'power_w'),
-            ];
-        });
+    /**
+     * @param  Collection<array-key, IntegrationHealth>  $health
+     * @param  Collection<array-key, ProviderInstance>  $instances
+     * @return array<string,mixed>
+     */
+    private function nodeRow(Node $node, CarbonImmutable $window, Collection $health, Collection $instances): array
+    {
+        $ops = Operation::query()->where('provider_instance_id', $node->provider_instance_id)->where(fn ($q) => $q->where('queued_at', '>=', $window)->orWhere('finished_at', '>=', $window));
+        $succeeded = (clone $ops)->where('state', Operation::SUCCEEDED)->count();
+        $transient = (clone $ops)->whereIn('state', [Operation::WAITING, Operation::FAILED])->where('error->retryable', true)->count();
+        $instance = $instances->get($node->provider_instance_id);
+        $h = $health->get($node->provider_instance_id);
+
+        return [
+            'id' => $node->id, 'name' => $node->name, 'role' => $node->role, 'region' => $node->region_code, 'state' => $node->state,
+            'instance' => $instance ? ['id' => $instance->id, 'key' => $instance->key, 'provider' => $instance->provider, 'state' => $instance->state] : null,
+            'health' => $h ? ['up' => (bool) $h->up, 'error_rate_1h' => $h->error_rate_1h, 'checked_at' => $h->checked_at?->toIso8601String(), 'last_error' => $h->last_error] : null,
+            'window_minutes' => self::DRAIN_WINDOW_MINUTES, 'succeeded' => $succeeded, 'transient_failures' => $transient,
+            'auto_drained' => (bool) data_get($node->tags, 'auto_drain.at'), 'suggest_drain' => $node->state === 'active' && $transient >= self::DRAIN_FAILURES && $succeeded === 0,
+            'bmc' => is_array(data_get($node->usage, 'bmc')) ? array_intersect_key((array) data_get($node->usage, 'bmc'), array_flip(['temp_max_c', 'fans_failed', 'psu_failed', 'psus', 'at'])) : null, // §5p-6: what the controller reported last
+            'power_w' => data_get($node->usage, 'power_w'),
+        ];
     }
 
     /**

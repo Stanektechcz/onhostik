@@ -34,6 +34,7 @@ use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\ServiceMigrationService;
+use Onhost\Domain\Services\ControlPlaneStatus;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceFreshness;
@@ -538,6 +539,7 @@ final class SurfaceDataController extends Controller
             ];
         }
 
+        $controlPlane = []; // per provider instance: can the service be managed right now (H324)
         foreach ($services as $s) {
             $spec = (array) ($s->desired_spec ?? []);
             $sub = $subs->get($s->id);
@@ -579,12 +581,19 @@ final class SurfaceDataController extends Controller
             $staleNote = $freshness['stale'] && in_array($s->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)
                 ? ' · '.($freshness['measured_at'] === null ? $t('stav zatím nezměřen', 'state not measured yet') : $t('stav z ', 'state as of ').Carbon::parse($freshness['measured_at'])->timezone((string) config('onhost.timezone_display', 'Europe/Prague'))->format($cs ? 'j. n. H:i' : 'Y-m-d H:i').$t(' (zastaralý)', ' (stale)')) : '';
             $kind = $staleNote !== '' && $kind === 'ok' ? 'warn' : $kind;
+            $control = $controlPlane[(string) $s->provider_instance_id] ??= ControlPlaneStatus::of($s);
+            $controlNote = $control['available'] ? '' : ' · '.match ($control['state']) {
+                'maintenance' => $t('správa pozastavena, údržba panelu', 'management paused, panel maintenance'),
+                'unreachable' => $t('panel neodpovídá, změny čekají', 'panel not answering, changes wait'),
+                default => $t('správa dočasně nedostupná', 'management temporarily unavailable'),
+            };
             $groups[$category][] = [
                 'id' => $s->id, 'type' => $type, 'name' => $s->label ?: ($s->hostname ?: $s->name), 'spec' => $sizes ?? ($s->name.($spec['php_version'] ?? null ? ' · PHP '.$spec['php_version'] : '')),
-                'meta' => trim(($s->hostname ? $s->hostname.' · ' : '').strtoupper((string) $s->region_code).($s->sla_class !== 'standard' ? ' · SLA '.$s->sla_class : '').($planName ? ' · '.$planName : '').($billing !== '' ? ' · '.$billing : '').$usageNote.$deletionNote.$staleNote), 'value' => $s->activated_at?->toDateString() ?? '',
+                'meta' => trim(($s->hostname ? $s->hostname.' · ' : '').strtoupper((string) $s->region_code).($s->sla_class !== 'standard' ? ' · SLA '.$s->sla_class : '').($planName ? ' · '.$planName : '').($billing !== '' ? ' · '.$billing : '').$usageNote.$deletionNote.$staleNote.$controlNote), 'value' => $s->activated_at?->toDateString() ?? '',
                 'state' => $stateLabel, 'kind' => $kind, 'product' => $s->product_key, 'apiState' => $s->state, 'usage' => $usageTop !== null ? ['level' => $usage['level'] ?? 'ok', 'pct' => $usageTop['pct'], 'metric' => $usageTop['key']] : null,
                 'plan' => $planName, 'period' => $sub?->period, 'renews_at' => $renewsAt?->toIso8601String(), 'monthly' => $monthly, 'renewal' => $renewalAmount !== '' ? $renewalAmount : null,
                 'deletion' => $graceLeft === null ? null : ['grace_until' => $s->terminate_at?->toIso8601String(), 'days_left' => max(0, $graceLeft), 'archive_backup_id' => $deletion['archive_backup_id'] ?? null],
+                'freshness' => $freshness, 'control_plane' => $control,
             ];
             if (in_array($s->family, ['cloud', 'game'], true)) {
                 $health = (array) ($s->health ?? []);

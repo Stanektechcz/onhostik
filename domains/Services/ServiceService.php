@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\OrderFulfilmentService;
@@ -311,6 +313,16 @@ final class ServiceService
         }
         if ($this->freeze->isFrozen() && ! in_array($action, ['power', 'backup', 'snapshot'], true)) {
             throw new DomainError('provisioning_frozen', 'Provisioning is frozen by an incident switch.', 423);
+        }
+        // a panel under maintenance stops changes, not the service (H324): a customer's action is refused with the reason and the
+        // planned end instead of failing in the queue for hours; staff working on the panel and system runs are not stopped
+        if ($context->actorType === 'user') {
+            $control = ControlPlaneStatus::of($service);
+            if (in_array($control['state'], ['maintenance', 'disabled'], true) && ! (bool) User::query()->whereKey((string) $context->actorId)->value('is_staff')) {
+                $wait = $control['until'] === null ? 0 : (int) now()->diffInSeconds(Carbon::parse($control['until']), false);
+
+                throw new DomainError('control_plane_maintenance', (string) $control['message'], 503, ['control_plane' => $control] + ($wait > 0 ? ['retry_after' => $wait] : []));
+            }
         }
         $allowed = self::statesAllowing($action);
         if (! in_array($service->state, $allowed, true)) {

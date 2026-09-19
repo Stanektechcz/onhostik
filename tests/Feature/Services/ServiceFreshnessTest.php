@@ -49,5 +49,7 @@ it('carries the verdict in the customer API and names a stale reading in the pan
     expect($api['freshness']['verdict'])->toBe('stale')->and($api['freshness']['stale'])->toBeTrue()->and($api['freshness']['measured_at'])->not->toBeNull();
 
     $panel = $this->get('/surfaces/onhost-panel.js')->assertOk()->getContent();
-    expect($panel)->toContain('zastaral'); // "stav z … (zastaralý)" on the service row
+    expect($panel)->toContain('zastaral') // "stav z … (zastaralý)" on the service row
+        ->and($panel)->toMatch('/"freshness":\{"measured_at":"[^"]+","age_seconds":\d+,"stale":true/') // the workbench row reads it from here
+        ->and($panel)->toContain('"apiState":"'.$service->state.'"');
 });

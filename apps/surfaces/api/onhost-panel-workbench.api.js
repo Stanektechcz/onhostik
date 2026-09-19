@@ -188,7 +188,13 @@
             act(cmp, sel, 'resume', {}, [], _('Služba se obnovuje', 'The service is coming back'), _('Plánované odstranění jsme zrušili.', 'The planned removal is cancelled.'));
           })] });
       }
-      var fr = sel.freshness && sel.freshness.stale && (sel.state === 'ACTIVE' || sel.state === 'DEGRADED') ? sel.freshness : null; // a reading nobody refreshed must not look current (H325)
+      var cp = sel.control_plane && sel.control_plane.available === false ? sel.control_plane : null; // the panel API and the service fail independently (H324)
+      if (cp) {
+        var untilC = cp.until ? new Date(cp.until).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+        rows.unshift({ cells: [cell(_('Správa služby', 'Service management'), '1 1 220px'), cell(cp.state === 'maintenance' ? _('pozastavená kvůli údržbě panelu', 'paused for panel maintenance') + (untilC ? _(' do ', ' until ') + untilC : '') : (cp.state === 'unreachable' ? _('panel právě neodpovídá', 'the panel is not answering') : _('dočasně nedostupná', 'temporarily unavailable')), '1 1 300px'), cell(_('služba běží dál', 'the service keeps running'), '0 0 160px', 1)],
+          note: cp.state === 'unreachable' ? _('Změny zařadíme a provedeme, jakmile se panel ozve.', 'Changes are queued and run once the panel answers.') : _('Změny služby jsou dočasně pozastavené; služba sama tím není dotčena.', 'Changes to the service are paused for now; the service itself is not affected.'), actions: [] });
+      }
+      var fr = sel.freshness && sel.freshness.stale && (sel.apiState === 'ACTIVE' || sel.apiState === 'DEGRADED') ? sel.freshness : null; // a reading nobody refreshed must not look current (H325)
       if (fr) {
         var whenF = fr.measured_at ? new Date(fr.measured_at).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
         rows.unshift({ cells: [cell(_('Stáří údajů', 'Age of the data'), '1 1 220px'), cell(whenF ? _('stav a zátěž jsou z ', 'state and load are from ') + whenF : _('stav služby jsme zatím nezměřili', 'the state has not been measured yet'), '1 1 300px'), cell(_('zastaralé', 'stale'), '0 0 130px', 1)],

@@ -16,7 +16,9 @@
   (H319), keeps a timed-out provider task on record and refuses a blind retry (H327), and a customer-started run asks
   for its permission again before each step, customer and staff runs alike, at the scope the bus checked (H315).
   What the panel shows about a service carries its age: a reading the reconciler has not refreshed is named stale
-  (H325). A member removed from an organization loses their collaborator accounts on its game servers at once, and a
+  (H325), and the panel API is reported apart from the service: a panel under maintenance refuses a customer's change
+  with the reason and the planned end (`control_plane_maintenance`, 503 with `Retry-After`) while the service keeps its
+  own state, and staff and system runs are not locked out (H324). A member removed from an organization loses their collaborator accounts on its game servers at once, and a
   weekly review reports panel accounts of people who are not members (H333, H332). Assessments live in the
   vault (`Hosting/ASSESSMENT-2026-09-17`, `Hosting/ASSESSMENT-2026-09-19`).
 - What remains is operational: the staging run of the new lifecycle, the payment gateway and bank tokens, staff MFA,
@@ -25,7 +27,7 @@
 ## Verified baseline
 
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 400 tests, 9 895 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 404 tests, 9 954 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

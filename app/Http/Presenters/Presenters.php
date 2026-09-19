@@ -20,6 +20,7 @@ use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\ResourceDrift;
 use Onhost\Domain\Provisioning\ServiceMigrationService;
+use Onhost\Domain\Services\ControlPlaneStatus;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceFreshness;
@@ -72,7 +73,7 @@ final class Presenters
         return [
             'id' => $service->id, 'product_key' => $service->product_key, 'family' => $service->family, 'name' => $service->name, 'label' => $service->label, 'hostname' => $service->hostname,
             'state' => $service->state, 'ui' => $ui, 'region' => $service->region_code, 'sla_class' => $service->sla_class, 'entitlements' => $service->entitlements, 'access' => $service->tags['access'] ?? [], 'migration' => ServiceMigrationService::status($service),
-            'health' => $service->health, 'freshness' => ServiceFreshness::of($service), 'activated_at' => $service->activated_at?->toIso8601String(), 'suspended_at' => $service->suspended_at?->toIso8601String(), 'suspended_reason' => $service->suspended_reason,
+            'health' => $service->health, 'freshness' => ServiceFreshness::of($service), 'control_plane' => ControlPlaneStatus::of($service), 'activated_at' => $service->activated_at?->toIso8601String(), 'suspended_at' => $service->suspended_at?->toIso8601String(), 'suspended_reason' => $service->suspended_reason,
             // a cancelled service is only deactivated and waits out its restore window (audit §5ab)
             'deletion' => $service->terminate_at === null ? null : [
                 'grace_until' => $service->terminate_at->toIso8601String(), 'days_left' => max(0, (int) now()->diffInDays($service->terminate_at, false)),
