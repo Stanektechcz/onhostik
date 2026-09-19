@@ -77,6 +77,7 @@ final class Lexicon
         'Upomínka — neuhrazený doklad' => 'Reminder — unpaid invoice', 'Po splatnosti ' => 'Overdue by ', ' dní.' => ' days.',
         'Automatické prodloužení je zapnuté.' => 'Auto-renewal is on.', 'Automatické prodloužení je vypnuté — prodlužte ručně.' => 'Auto-renewal is off — renew manually.', 'zapnuté' => 'on', 'vypnuté' => 'off',
         'Dobijte kredit nebo prodlužte ručně, doména jinak expiruje.' => 'Top up credit or renew manually, otherwise the domain expires.',
+        'Registr prodloužení nepřijal. Řešíme to a zkoušíme to každý den znovu; pokud je potřeba něco od vás, ozveme se. Z kreditu jsme nic nestrhli.' => 'The registry did not accept the renewal. We are on it and try again every day; if we need anything from you, we will be in touch. Nothing was taken from your credit.',
         'SLA kredit připsán' => 'SLA credit added', 'Export dat je připraven' => 'Data export is ready', 'Ke stažení ' => 'Available for download for ',
         // domains
         ' domén · automatická synchronizace, upozornění na expirace a párování s hostingem' => ' domains · automatic sync, expiry alerts and pairing with hosting',

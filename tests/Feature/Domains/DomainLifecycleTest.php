@@ -22,6 +22,7 @@ use Onhost\Domain\Domains\Models\RegistrarOperation;
 use Onhost\Domain\Domains\RegistrarCreditMonitor;
 use Onhost\Domain\Domains\RegistrarPollWorker;
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
@@ -32,6 +33,7 @@ use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
+use Onhost\Platform\Outbox\OutboxPublisher;
 
 beforeEach(function () {
     $this->seed([CatalogSeeder::class, TaxRuleSeeder::class, LegalEntitySeeder::class, DnsTemplateSeeder::class]);
@@ -190,4 +192,55 @@ it('reconciles with the registrar listing, samples credit runway and consumes th
     $again = app(RegistrarPollWorker::class)->drain(10, $ctx);
     expect($again)->toMatchArray(['received' => 1, 'processed' => 0, 'acked' => 1]);
     expect(RegistrarNotification::query()->count())->toBe(1);
+});
+
+/*
+ * A renewal the registry refuses (Brain card H23). A domain that silently fails to renew is a domain that expires: the
+ * money goes back at once, the customer and operations both hear about it the same day, every later pass tries again
+ * while the expiry comes closer — and when the registry accepts, the domain is extended and paid for exactly once.
+ */
+it('frees the money, tells the customer and operations, and keeps trying when the registry refuses a renewal', function () {
+    $expires = now()->addDays(10);
+    $state = ['registered' => true, 'nsset' => true, 'expiration' => $expires->toDateString(), 'created' => now()->subYear()->addDays(10)->toDateString(), 'renew_refused' => true];
+    registryFake($state);
+    [$user, $org] = $this->customerWithOrganization();
+    $ctx = $this->contextFor($user, $org);
+    app(WalletService::class)->topup($org, Money::decimal('2000', 'CZK'), 'bank', 'topup-h23', $ctx);
+    $contact = RegistrarContact::query()->create(['organization_id' => $org->id, 'kind' => 'registrant', 'name' => 'Jana Nováková', 'email' => 'jana@example.cz', 'country' => 'CZ', 'state' => 'synced', 'remote_id' => 'ONH-X']);
+    $domain = Domain::query()->create([
+        'organization_id' => $org->id, 'fqdn_ascii' => 'odmitnuta.cz', 'fqdn_unicode' => 'odmitnuta.cz', 'tld' => 'cz', 'state' => DomainStateMachine::ACTIVE, 'registered_at' => now()->subYear()->addDays(10), 'expires_at' => $expires,
+        'auto_renew' => true, 'renewal_period' => 1, 'dns_provider' => 'external', 'registrant_contact_id' => $contact->id, 'admin_contact_id' => $contact->id,
+    ]);
+    $scheduler = app(DomainRenewalScheduler::class);
+
+    // day one: refused
+    $scheduler->tick($ctx);
+    $job = DomainRenewalJob::query()->where('domain_id', $domain->id)->firstOrFail();
+    expect($job->state)->toBe(DomainRenewalJob::FAILED)->and((string) $job->last_error)->not->toBe('')
+        ->and($domain->fresh()->expires_at->toDateString())->toBe($expires->toDateString())           // nothing was extended
+        ->and(app(WalletService::class)->spendable($org, 'CZK')->minor)->toBe(200000)                 // and nothing is held or taken
+        ->and(Invoice::query()->where('meta->domain_id', $domain->id)->count())->toBe(0);
+    app(OutboxPublisher::class)->relayPending();
+    $notes = Notification::query()->where('title', 'like', '%odmitnuta.cz%')->get();
+    expect($notes->where('organization_id', $org->id)->where('title', 'Prodloužení domény odmitnuta.cz se nezdařilo')->count())->toBe(1) // the customer knows …
+        ->and($notes->where('audience', 'internal')->where('title', 'Prodloužení odmitnuta.cz selhalo')->count())->toBe(1); // … and so do operations, the same day
+    // the advice fits the cause: the registry refused, so the customer is not told to top up
+    expect((string) $notes->where('organization_id', $org->id)->where('title', 'Prodloužení domény odmitnuta.cz se nezdařilo')->first()->body)->toContain('Registr prodloužení nepřijal')->not->toContain('Dobijte kredit');
+
+    // day two: a new attempt by itself, still refused, said again — the expiry is one day closer
+    $this->travel(1)->days();
+    $scheduler->tick($ctx);
+    expect(DomainRenewalJob::query()->where('domain_id', $domain->id)->where('state', DomainRenewalJob::FAILED)->count())->toBe(2);
+    app(OutboxPublisher::class)->relayPending();
+    expect(Notification::query()->where('audience', 'internal')->where('title', 'like', 'Prodloužení odmitnuta.cz selhalo%')->count())->toBe(2);
+
+    // day three: the registry accepts — extended once, paid once
+    $state['renew_refused'] = false;
+    $this->travel(1)->days();
+    $scheduler->tick($ctx);
+    expect($domain->fresh()->expires_at->toDateString())->toBe($expires->copy()->addYear()->toDateString())
+        ->and(DomainRenewalJob::query()->where('domain_id', $domain->id)->where('state', DomainRenewalJob::SUCCEEDED)->count())->toBe(1)
+        ->and(WalletHold::query()->where('reference_type', 'domain')->where('reference_id', $domain->id)->where('state', 'captured')->count())->toBe(1)
+        ->and(Invoice::query()->where('type', 'statement')->where('meta->domain_id', $domain->id)->count())->toBe(1);
+    expect(array_count_values($state['commands'])['domain-renew'])->toBe(3);
 });

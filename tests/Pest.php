@@ -78,6 +78,9 @@ function registryFake(array &$state): void
                 return ['data' => ['domain' => ['name' => $data['name'], 'status' => $state['registered'] === true ? 'active' : 'pending', 'expiration' => $state['expiration'], 'created' => $state['created'] ?? '2026-09-06', 'dns' => [['name' => 'ns1.onhost.cz'], ['name' => 'ns2.onhost.cz']], 'owner_c' => 'ONH-X', 'nsset' => 'NSSET-ONHOST']]];
             })(),
             'domain-renew' => (function () use (&$state, $data) {
+                if ($state['renew_refused'] ?? false) { // opt-in: the registry refuses the renewal for good (a status that prohibits it)
+                    return ['code' => 2304, 'result' => 'Object status prohibits operation'];
+                }
                 $state['expiration'] = (new DateTimeImmutable($state['expiration']))->modify('+'.((int) $data['period']).' year')->format('Y-m-d');
 
                 return [];
