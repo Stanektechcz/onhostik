@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services;
 
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\Models\SshKeyGrant;
 use Onhost\Domain\Services\Web\CdnService;
 use Onhost\Domain\Services\Web\CertificateService;
 use Onhost\Domain\Services\Web\DeployService;
@@ -242,7 +244,7 @@ final class ServiceFeatures
                 return $list;
             })(),
             'db_users' => $this->web($adapter)->listDbUsers($ref),
-            'shell_users' => array_values(array_filter($this->web($adapter)->listShellUsers($ref), fn (array $u) => ($u['user'] ?? '') !== Naming::prefix($service->id).'ag')), // the platform's agent user is not the customer's account
+            'shell_users' => $this->withKeyOwners($service, array_values(array_filter($this->web($adapter)->listShellUsers($ref), fn (array $u) => ($u['user'] ?? '') !== Naming::prefix($service->id).'ag'))), // the platform's agent user is not the customer's account
 
             'files' => $this->web($adapter)->listFiles($ref, $path),
             'apps' => $this->web($adapter)->listApps($ref),
@@ -462,6 +464,31 @@ final class ServiceFeatures
         }
 
         return new ResourceRef('mailbox', $remoteId, $domain->node, ['client_id' => $domain->meta['client_id'] ?? null, 'domain' => $domain->meta['domain'] ?? null], $domain->serviceId);
+    }
+
+    /**
+     * The panel says an account has a key; the ledger says whose it is and whether a revocation is still open (H185).
+     * A key the ledger does not know — installed before the ledger, or at the panel by hand — is said to be unknown.
+     *
+     * @param  list<array<string,mixed>>  $accounts
+     * @return list<array<string,mixed>>
+     */
+    private function withKeyOwners(Service $service, array $accounts): array
+    {
+        $grants = SshKeyGrant::query()->where('service_id', $service->id)->whereIn('state', [SshKeyGrant::ACTIVE, SshKeyGrant::REVOKING])->get()->keyBy('target_remote_id');
+        $owners = User::query()->whereIn('id', $grants->pluck('owner_user_id')->filter()->unique()->all())->get()->keyBy('id');
+
+        return array_map(function (array $account) use ($grants, $owners): array {
+            $grant = $grants->get((string) ($account['remote_id'] ?? ''));
+            $owner = $grant === null || $grant->owner_user_id === null ? null : $owners->get($grant->owner_user_id);
+            $account['key'] = empty($account['has_key']) && $grant === null ? null : [
+                'known' => $grant !== null, 'fingerprint' => $grant?->fingerprint, 'state' => $grant === null ? 'unknown' : $grant->state,
+                'owner' => $grant === null || $grant->owner_user_id === null ? null : ['user_id' => $grant->owner_user_id, 'name' => $owner?->name, 'email' => $owner?->email],
+                'installed_at' => $grant?->installed_at?->toIso8601String(), 'revocation_pending' => $grant !== null && $grant->state === SshKeyGrant::REVOKING,
+            ];
+
+            return $account;
+        }, $accounts);
     }
 
     private function web(?ProviderAdapter $adapter): WebHostingProvider

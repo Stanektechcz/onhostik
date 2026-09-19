@@ -116,7 +116,9 @@ it('drives the extended ISPConfig site tabs: error pages, directives, protected 
 
     $run('shell.create', ['user' => 'deploy', 'password' => 'Correct-Horse-Battery-9', 'ssh_key' => SSH_KEY], 'sh-1');
     Http::assertSent(fn ($r) => str_contains($r->url(), 'sites_shell_user_add') && $r['params']['username'] === "{$prefix}_deploy" && $r['params']['chroot'] === 'jailkit' && $r['params']['puser'] === 'web7' && $r['params']['dir'] === '/var/www/clients/client3/web7' && $r['params']['ssh_rsa'] === SSH_KEY);
-    expect($this->getJson("/v1/services/{$service->id}/resources/shell_users?fresh=1")->assertOk()->json('data'))->toBe([['remote_id' => '30', 'user' => "{$prefix}_deploy", 'has_key' => true, 'chroot' => true, 'active' => true]]);
+    $accounts = $this->getJson("/v1/services/{$service->id}/resources/shell_users?fresh=1")->assertOk()->json('data');
+    expect($accounts)->toHaveCount(1)->and(array_diff_key($accounts[0], ['key' => 1]))->toBe(['remote_id' => '30', 'user' => "{$prefix}_deploy", 'has_key' => true, 'chroot' => true, 'active' => true])
+        ->and($accounts[0]['key'])->toMatchArray(['known' => true, 'state' => 'active', 'revocation_pending' => false])->and($accounts[0]['key']['owner']['user_id'])->toBe($user->id); // whose key it is (H185)
     $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'shell.create', 'params' => ['user' => 'ops', 'password' => 'Correct-Horse-Battery-9', 'ssh_key' => 'not a key']], ['Idempotency-Key' => 'sh-bad'])->assertUnprocessable()->assertJsonPath('error', 'action_param_invalid');
     $run('shell.key', ['remote_id' => '30', 'ssh_key' => ''], 'sh-2');
     expect($this->getJson("/v1/services/{$service->id}/resources/shell_users?fresh=1")->assertOk()->json('data.0.has_key'))->toBeFalse();

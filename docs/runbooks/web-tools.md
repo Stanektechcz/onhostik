@@ -574,6 +574,26 @@ The percentage: *Finance* → *Procento vrácení* (`PUT /v1/staff/chargebacks/s
 `system_settings` key `chargeback.percent`; default `ONHOST_CHARGEBACK_PERCENT=70`). Money never leaves the
 platform: a chargeback is wallet credit for the requesting organization only.
 
+**SSH keys on shell accounts (Brain card H185).** A panel keeps a public key as text on the shell account and knows no
+people. `SshKeyLedger` keeps what the panel does not: the fingerprint (never the key), the member it belongs to, who
+installed it and whether a revocation has reached the panel. `shell.create` / `shell.key` take an optional
+`owner_user_id` — a member of the organization, otherwise 422; a key nobody names belongs to the member who installed
+it, a key installed by staff or automation to nobody. The customer sees it on the account
+(`GET /v1/services/{id}/resources/shell_users` → `key`) and as history (`GET /v1/services/{id}/ssh-keys`).
+
+Removing a member of the organization takes their keys off every shell account of the organization at once, through
+ordinary audited `shell.key` operations run by the system; the organization is told (`access.ssh_keys.revoked`) and
+reminded to change passwords the person may know — a shell or FTP password is a shared credential the ledger cannot
+recall. A grant is `revoking` until the operation has **succeeded**: ISPConfig only accepts a change and applies it
+from its job queue, so "accepted" is not "gone". A revocation that failed or could not be queued (panel locked, site
+busy) is repeated by `onhost:ssh-keys:settle` (every 5 minutes, at most one attempt per 10 minutes; automation rule
+`ssh_keys.settle`); after three failures staff get `security.ssh_key.revocation.stuck`. Open ones:
+`GET /v1/staff/provisioning/ssh-key-revocations`, and `onhost:doctor` warns about any older than an hour. Until a
+revocation is confirmed the key may still open a session — nothing in the panel or the console says otherwise.
+
+Out of scope on purpose: keys injected into a virtual server at creation live under the customer's own root and cannot
+be recalled by the platform; keys set at the panel by hand show as "owner unknown".
+
 **Who may touch the money (Brain card H348).** Support decides a request (`staff.service.manage`) — the amount is
 never theirs to choose, it follows the share in force. The share itself is money policy for every customer at once:
 `billing.credit.adjust` and a fresh step-up, the same as a manual credit. The same line runs through the staff

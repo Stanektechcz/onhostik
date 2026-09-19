@@ -34,10 +34,13 @@ use Onhost\Domain\Provisioning\ProviderInstanceService;
 use Onhost\Domain\Provisioning\Scheduling\NodeRebalancer;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
+use Onhost\Domain\Services\ControlPlaneStatus;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\Models\SshKeyGrant;
+use Onhost\Domain\Services\SshKeyLedger;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 
@@ -178,6 +181,21 @@ final class ProvisioningController extends ApiController
      * The deletion lifecycle board (audit §5ab): services waiting out their restore window, the archives we hold and
      * how long each of them still lives. Nothing here deletes anything — the removal runs on its own schedule.
      */
+    /** SSH key revocations a panel has not taken yet (H185): until one is confirmed the key may still open a session. */
+    public function sshKeyRevocations(Request $request): JsonResponse
+    {
+        $this->api->authorize($request, 'service.read', CommandScope::global());
+        $open = SshKeyGrant::query()->where('state', SshKeyGrant::REVOKING)->orderBy('revoke_requested_at')->limit(200)->get();
+        $services = Service::query()->withTrashed()->whereIn('id', $open->pluck('service_id')->unique()->all())->get()->keyBy('id');
+        $organizations = Organization::query()->whereIn('id', $open->pluck('organization_id')->unique()->all())->pluck('name', 'id');
+
+        return $this->ok(['open' => $open->count(), 'rows' => $open->map(fn (SshKeyGrant $g) => SshKeyLedger::present($g, null, []) + [
+            'organization' => $organizations[$g->organization_id] ?? null,
+            'service' => ($s = $services->get($g->service_id)) === null ? null : ['label' => $s->label ?: ($s->hostname ?: $s->name), 'state' => $s->state, 'control_plane' => ControlPlaneStatus::of($s)],
+            'stuck' => $g->revoke_attempts >= SshKeyLedger::STUCK_AFTER_ATTEMPTS,
+        ])->values()->all()]);
+    }
+
     public function deletions(Request $request, DeletionPolicy $policy): JsonResponse
     {
         $this->api->authorize($request, 'service.read', CommandScope::global());

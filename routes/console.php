@@ -68,6 +68,7 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\SshKeyLedger;
 use Onhost\Domain\Services\UsageWatch;
 use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Services\Web\CdnService;
@@ -678,6 +679,22 @@ Artisan::command('onhost:services:purge {--service= : one service id or name, ot
  * without deleting anything (the way to prove the archive path of a panel before a real cancellation).
  */
 /*
+ * SSH key revocations a panel has not taken yet (Brain card H185). Removing a member asks every panel to drop their
+ * keys at once; this pass repeats the ones that failed or could not be queued — a locked panel, a site busy with
+ * another operation — and tells staff about one that keeps failing. Until it is confirmed the key may still work.
+ */
+Artisan::command('onhost:ssh-keys:settle', function (SshKeyLedger $sshKeys, AutomationLedger $ledger) {
+    if ($ledger->off('ssh_keys.settle')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    $stats = $sshKeys->settle();
+    $ledger->record('ssh_keys.settle', $stats);
+    $this->table(['open', 'confirmed', 'retried', 'stuck'], [$stats]);
+})->purpose('Repeat SSH key revocations the panels have not confirmed and report the ones that keep failing');
+
+/*
  * Panel accounts that outlived a membership (Brain cards H332, H333). Removing a member deletes their collaborator
  * accounts at once; this pass finds what slipped through — the panel was down that day, the account was added by hand
  * later — and tells the organization. Nothing is removed here: an outside collaborator is the customer's call.
@@ -911,5 +928,6 @@ Schedule::command('onhost:backups:run')->everyFifteenMinutes()->withoutOverlappi
 Schedule::command('onhost:certificates:renew')->dailyAt('03:10')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:purge')->dailyAt('03:40')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:access:review')->weeklyOn(1, '04:50')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:ssh-keys:settle')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:cdn:refresh')->hourlyAt(35)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:web-tools:prune')->hourlyAt(50)->onOneServer();

@@ -23,6 +23,7 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\SshKeyLedger;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\DatabaseCredentials;
 use Onhost\Domain\Services\Web\WebFileStore;
@@ -406,6 +407,17 @@ final class ServiceActionWorkflow implements Workflow
                 }
                 if ($this->action === 'dbuser.password' || $this->action === 'dbuser.create') {
                     $context->container->make(DatabaseCredentials::class)->rememberForUser($this->service($context), (string) ($p('user') ?: $p('remote_id')), (string) $p('password'));
+                }
+                if (in_array($this->action, ['shell.create', 'shell.key', 'shell.delete'], true)) { // whose key sits on which account (H185)
+                    $keys = $context->container->make(SshKeyLedger::class);
+                    $site = $this->service($context);
+                    $account = (string) ($this->action === 'shell.create' ? ($result->ref->remoteId ?? '') : $p('remote_id'));
+                    $publicKey = trim((string) $p('ssh_key', ''));
+                    if ($this->action === 'shell.delete' || ($this->action === 'shell.key' && $publicKey === '')) {
+                        $result->isAsync() ? $keys->removalRequested($site, $account, $context->operation->id) : $keys->removed($site, $account);
+                    } elseif ($publicKey !== '' && ! $result->alreadyExisted) { // an account that already existed kept its own key: nothing was installed
+                        $keys->installed($site, $account, $this->action === 'shell.create' ? (string) $p('user') : null, $publicKey, SshKeyLedger::ownerFor($site, $p('owner_user_id') ? (string) $p('owner_user_id') : null, $context->actor->actorType, $context->actor->actorId), $context->actor->actorType, $context->actor->actorId);
+                    }
                 }
                 if ($this->action === 'php.set') {
                     $service = $this->service($context);

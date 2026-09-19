@@ -20,11 +20,13 @@ use Onhost\Domain\Services\Commands\WebToolsCommand;
 use Onhost\Domain\Services\Mail\MailboxPasswordLinks;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\SshKeyGrant;
 use Onhost\Domain\Services\PlanChangeService;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\ServiceSpecService;
 use Onhost\Domain\Services\ServiceSummary;
+use Onhost\Domain\Services\SshKeyLedger;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Files\FileStore;
@@ -232,6 +234,14 @@ final class ServiceController extends ApiController
     }
 
     /** What the customer can do with this service: feature catalogue + the actions accepted right now (never the vendor). */
+    /** SSH keys on the shell accounts of a site (H185): fingerprint, owner, and whether a revocation is still open. Keys are taken off with the `shell.key` action. */
+    public function sshKeys(Request $request, SshKeyLedger $keys, string $service): JsonResponse
+    {
+        $rows = $keys->forService($this->resolve($request, $service));
+
+        return response()->json(['data' => ['keys' => $rows, 'pending_revocations' => count(array_filter($rows, fn (array $r) => $r['state'] === SshKeyGrant::REVOKING))]]);
+    }
+
     public function features(Request $request, ServiceFeatures $features, string $service): JsonResponse
     {
         $model = $this->resolve($request, $service);

@@ -23,7 +23,9 @@
   finance permission and a step-up, and no servicing role holds a billing, member or ownership right (H348). Every
   panel quota keeps a slice for health reads, so our own flood cannot make a working panel look down (H323). A new
   panel access is tried against the panel before it replaces the working one, and one instance can never be pointed at
-  the stored access of another (H314). A member removed from an organization loses their collaborator accounts on its game servers at once, and a
+  the stored access of another (H314). SSH keys on shell accounts are recorded by fingerprint with the member they
+  belong to; a removed member loses them on every site, and a revocation a panel has not confirmed stays visibly open
+  and is repeated (H185). A member removed from an organization loses their collaborator accounts on its game servers at once, and a
   weekly review reports panel accounts of people who are not members (H333, H332). Assessments live in the
   vault (`Hosting/ASSESSMENT-2026-09-17`, `Hosting/ASSESSMENT-2026-09-19`).
 - What remains is operational: the staging run of the new lifecycle, the payment gateway and bank tokens, staff MFA,
@@ -32,7 +34,7 @@
 ## Verified baseline
 
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 413 tests, 10 112 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 416 tests, 10 211 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

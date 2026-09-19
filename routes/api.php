@@ -271,6 +271,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
     Route::get('services/{service}/chargeback', [ServiceController::class, 'chargeback']);
     Route::post('services/{service}/chargeback', [ServiceController::class, 'requestChargeback']);
     Route::post('services/{service}/chargeback/cancel', [ServiceController::class, 'cancelWithChargeback']);
+    Route::get('services/{service}/ssh-keys', [ServiceController::class, 'sshKeys']); // whose key sits on which shell account, and revocations the panel has not taken yet (H185)
     Route::post('services/{service}/actions', [ServiceController::class, 'action']);
     Route::post('services/{service}/game-files/upload', [ServiceController::class, 'uploadFile']); // binary files to a game server, scanned first (audit §5r-3/§5r-4)
     foreach (['power', 'resize', 'backup', 'restore', 'snapshot', 'suspend', 'resume', 'terminate'] as $shorthand) {
@@ -478,6 +479,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'idempotency'])->group(functi
         Route::post('provisioning/services/{service}/reconcile', [ProvisioningController::class, 'reconcile']);
         // the deletion lifecycle board and the early removal (audit §5ab)
         Route::get('provisioning/deletions', [ProvisioningController::class, 'deletions']);
+        Route::get('provisioning/ssh-key-revocations', [ProvisioningController::class, 'sshKeyRevocations']); // keys that may still open a session (H185)
         Route::post('provisioning/services/{service}/purge', [ProvisioningController::class, 'purgeService']);
         Route::get('services/{service}/panel-login', [WebToolsController::class, 'panelLogin']); // staff SSO into the customer's hosting panel (audited)
         Route::get('resource-mappings', [ProvisioningController::class, 'drifts']);

@@ -16,6 +16,7 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\OrderFulfilmentService;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Provisioning\FreezeSwitch;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
@@ -379,6 +380,25 @@ final class ServiceService
      *
      * @return list<string>
      */
+    /**
+     * Whose key it is (H185): a member of the organization the site belongs to, or nobody. A key cannot be put in the
+     * name of a person outside the organization — the ledger could never take it back when they leave.
+     *
+     * @param  array<string,mixed>  $params
+     */
+    private static function keyOwner(Service $service, array $params): ?string
+    {
+        $owner = trim((string) ($params['owner_user_id'] ?? ''));
+        if ($owner === '') {
+            return null; // the step falls back to the member who installs it
+        }
+        if (! OrganizationMembership::query()->where('organization_id', $service->organization_id)->where('user_id', $owner)->exists()) {
+            throw new DomainError('action_param_invalid', 'owner_user_id must be a member of the organization the service belongs to.', 422, ['field' => 'owner_user_id']);
+        }
+
+        return $owner;
+    }
+
     private static function statesAllowing(string $action): array
     {
         return match ($action) {
@@ -571,15 +591,15 @@ final class ServiceService
                     throw new DomainError('action_param_invalid', 'shell.create: ssh_key must be an OpenSSH public key (ssh-ed25519, ssh-rsa or ecdsa).', 422, ['field' => 'ssh_key']);
                 }
 
-                return ['user' => ServiceFeatures::scopedName($service, $need('user', '/^[a-z0-9_-]{2,16}$/i', 'user may contain letters, digits, dashes and underscores (2–16)')), 'password' => $password(), 'ssh_key' => $key !== '' ? $key : null];
+                return ['user' => ServiceFeatures::scopedName($service, $need('user', '/^[a-z0-9_-]{2,16}$/i', 'user may contain letters, digits, dashes and underscores (2–16)')), 'password' => $password(), 'ssh_key' => $key !== '' ? $key : null, 'owner_user_id' => $key !== '' ? self::keyOwner($service, $params) : null];
             })(),
-            'shell.key' => (function () use ($remote, $params) {
+            'shell.key' => (function () use ($remote, $params, $service) {
                 $key = trim((string) ($params['ssh_key'] ?? ''));
                 if ($key !== '' && ! preg_match('/^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+\/=]{40,}( [^\r\n]{0,120})?$/', $key)) {
                     throw new DomainError('action_param_invalid', 'shell.key: ssh_key must be an OpenSSH public key (ssh-ed25519, ssh-rsa or ecdsa); empty removes it.', 422, ['field' => 'ssh_key']);
                 }
 
-                return ['remote_id' => $remote(), 'ssh_key' => $key];
+                return ['remote_id' => $remote(), 'ssh_key' => $key, 'owner_user_id' => $key !== '' ? self::keyOwner($service, $params) : null];
             })(),
             'stats.set' => (function () use ($params, $action) {
                 $type = strtolower((string) ($params['type'] ?? 'awstats'));
