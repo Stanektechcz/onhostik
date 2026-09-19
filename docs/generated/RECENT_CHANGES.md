@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 56e8792 | 2026-09-19 | A reading the reconciler has not refreshed no longer looks current (Brain card H325) |
+| 088456c | 2026-09-19 | The permission re-check now covers runs started by staff: the scope the bus checked is stored next to the permission (H315) |
 | c01704b | 2026-09-19 | Current state and generated context after the operation-safety work |
 | 0cbe34e | 2026-09-19 | Three ways a long provisioning run could do harm without any call failing (Brain cards H319, H327, H315) |
 | 7e120d0 | 2026-09-17 | Refresh the generated project context after the panel-safety work |
@@ -12,5 +14,3 @@
 | cf59c58 | 2026-09-16 | Production hardening: the archives are re-verified, an erasure request reaches them, and the repository carries its own context and secret gate again |
 | 0f85117 | 2026-09-16 | A cancellation finishes even when the panel no longer has the resource, and the trend test stops depending on the clock |
 | 91ca6ed | 2026-09-16 | The customer sees and undoes a cancellation: restore button in the service workbench, archives in the panel's backups page |
-| d68c459 | 2026-09-16 | Restore a deleted ISPConfig site through the API (§5z incident) and let the purge unblock a service stuck mid-termination |
-| 7055fa4 | 2026-09-16 | Deletion lifecycle (audit §5ab): nothing is deleted without five matching identifiers, a complete archive and a restore window |
