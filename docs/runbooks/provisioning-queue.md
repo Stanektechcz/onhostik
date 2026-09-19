@@ -35,6 +35,28 @@ Resolve at `POST /v1/staff/resource-mappings/{id}/resolve` with `approved | igno
 continue. Use during provider outages, data-centre work and while an SLO error budget is exhausted
 (`sla.budget.exhausted`). `thaw` when done. Both require a fresh step-up and are audited with the reason.
 
+## What a customer may say about an action (Brain card H21)
+
+`POST /v1/services/{id}/actions` and its shorthands hand `params` to the same workflow the platform's own callers use.
+For the core actions a request from anybody who is not staff keeps only these keys — the rest is dropped before it
+reaches the workflow (`ServicesCommandHandler::CUSTOMER_PARAMS`):
+
+| action | kept |
+| --- | --- |
+| `power` | `power_action`, `reason` |
+| `suspend`, `resume`, `terminate`, `purge`, `backup` | `reason` |
+| `restore`, `archive.restore` | `backup_id`, `reason` |
+| `snapshot` | `name`, `description`, `reason` |
+| `rollback_snapshot` | `name`, `reason` |
+| `resize` | refused: `resize_requires_plan_change` — the size follows the plan, a plan change order resizes after the payment |
+
+So a customer can neither resize for free, nor skip the archive before a cancellation (`archive_before_delete`), force a
+purge inside the restore window, dress a backup as the final one (`kind`, `retention_days`, `protected`), nor restore
+into a VM id or storage of their choosing (`options`, `target`). A restore also refuses at once a backup that is not of
+this very service (404) or not finished (`backup_not_restorable`). Staff keep their overrides (a forced purge with a
+reason) through the same command, on the record. A new parameter a core step reads is not reachable from the customer
+API until it is added to that list on purpose.
+
 ## Capacity
 
 `GET /v1/staff/capacity` shows node scheduler headroom (CPU/RAM/NVMe, IP pools). `capacity.unavailable` and

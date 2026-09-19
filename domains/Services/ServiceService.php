@@ -37,6 +37,7 @@ use Onhost\Domain\Provisioning\Workflows\ProvisionWebsiteWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Provisioning\Workflows\StagingWorkflow;
 use Onhost\Domain\Provisioning\Workflows\WordPressWorkflow;
+use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\DatabaseInstance;
 use Onhost\Domain\Services\Models\Service;
@@ -471,6 +472,17 @@ final class ServiceService
         }
         if ($action === 'resume') {
             $service = $this->liftHolds($service, $context, $params);
+        }
+        if ($action === 'restore') {
+            // a backup is restored onto the service it was taken from, and nowhere else (H21): somebody else's backup — or a
+            // backup of another service of the same customer — does not exist for this request, said now and not in a failed operation
+            $backup = Backup::query()->where('service_id', $service->id)->find((string) ($params['backup_id'] ?? ''));
+            if ($backup === null) {
+                throw DomainError::notFound('backup');
+            }
+            if ($backup->state !== 'completed' || $backup->remote_id === null) {
+                throw new DomainError('backup_not_restorable', 'Only a finished backup can be restored.', 409, ['state' => $backup->state]);
+            }
         }
         if ($action === 'resize' && empty($params['entitlements'])) {
             throw new DomainError('resize_target_required', 'Resize needs the target entitlements.', 422);
