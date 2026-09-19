@@ -30,15 +30,20 @@ final class DeployService
 {
     public function __construct(private readonly SecretStore $secrets, private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox, private readonly ServiceFeatures $features) {}
 
-    /** @return array<string,mixed> */
-    public function status(Service $service): array
+    /**
+     * `$withSecrets = false` is what a read-only role gets (H334): the build environment keeps its names and loses its
+     * values — they are API keys and database URLs far more often than not.
+     *
+     * @return array<string,mixed>
+     */
+    public function status(Service $service, bool $withSecrets = true): array
     {
         $source = DeploySource::query()->where('service_id', $service->id)->first();
         $last = $source?->last_deployment_id ? Deployment::query()->find($source->last_deployment_id) : null;
 
         return [
             'configured' => $source !== null,
-            'source' => $source === null ? null : $this->present($source),
+            'source' => $source === null ? null : self::masked($this->present($source), $withSecrets),
             'last_deployment' => $last === null ? null : $this->presentDeployment($last),
             'webhook_url' => $source === null ? null : $this->webhookUrl($source),
             'strategy' => (string) data_get($service->desired_spec, 'executor', '') === 'aapanel' ? 'run_path' : 'symlink',
@@ -252,6 +257,20 @@ final class DeployService
             return ['generic', $repository, preg_replace('#^.*[:/]([^/]+/[^/]+?)(?:\.git)?$#', '$1', $repository) ?? $repository];
         }
         throw new DomainError('action_param_invalid', 'repository must be owner/name on GitHub, a GitLab path or an SSH clone URL.', 422, ['field' => 'repository']);
+    }
+
+    /**
+     * @param  array<string,mixed>  $source
+     * @return array<string,mixed>
+     */
+    private static function masked(array $source, bool $withSecrets): array
+    {
+        if (! $withSecrets) {
+            $source['env'] = array_map(fn () => null, (array) ($source['env'] ?? []));
+            $source['env_hidden'] = true;
+        }
+
+        return $source;
     }
 
     /** @return array<string,mixed> */

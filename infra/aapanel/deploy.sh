@@ -31,6 +31,7 @@ COMPOSER_ALLOW_SUPERUSER=1 "$PHP" "$COMPOSER" install --no-dev --no-interaction 
 
 say "Migrations (additive, backward compatible for one release)"
 art migrate --force
+art db:seed --class=AuthorizationSeeder --force          # roles and permissions are code; the authorizer reads them from the database
 art db:seed --class=NotificationTemplateSeeder --force
 
 say "Caches and contract"

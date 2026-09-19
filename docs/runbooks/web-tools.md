@@ -585,6 +585,18 @@ The percentage: *Finance* → *Procento vrácení* (`PUT /v1/staff/chargebacks/s
 `system_settings` key `chargeback.percent`; default `ONHOST_CHARGEBACK_PERCENT=70`). Money never leaves the
 platform: a chargeback is wallet credit for the requesting organization only.
 
+**Reading is not getting in, and seeing a backup is not taking it (Brain cards H334, H344).** `service.read` is
+diagnostics: state, usage, logs, operations, listings, the list of backups. It does not open a console
+(`service.console`), run a command or create a shell account (`service.manage`), read the contents of a file
+(`GET …/files/download` needs `service.manage` — `wp-config.php` and `.env` are credentials), reveal stored passwords
+(`?reveal=1` needs `service.manage`) or show the values of the deploy environment (a read-only role gets the names and
+`env_hidden: true`). Taking the customer's data out of the platform is `backup.download`, a permission of its own:
+backup archives and the one-time exports (`…/backups/{id}/download`, `…/downloads/{token}`). Owner, organization
+admin, developer, cloud, game and mail operators hold it; viewer, billing, domain, DNS, auditor and support contact do
+not. The catalog of roles is code and the authorizer reads the database: every deploy runs
+`db:seed --class=AuthorizationSeeder` (`infra/aapanel/deploy.sh`) and `onhost:doctor` fails when a role in the
+database differs from the catalog.
+
 **Access that ends on a date (Brain card H343).** An invitation, a change of role and a project role take
 `access_until` (a future date; never for the owner). The membership row and its policy binding carry the same moment,
 and the authorizer does not read an expired binding — so the permission stops **at that second by itself**, including

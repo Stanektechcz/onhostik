@@ -14,6 +14,7 @@ use Onhost\Domain\Catalog\Models\TldPolicy;
 use Onhost\Domain\Domains\Models\RegistrarTldCost;
 use Onhost\Domain\Domains\RegistrarClient;
 use Onhost\Domain\Domains\RegistrarPricing;
+use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
 use Onhost\Domain\Provisioning\AutomationLedger;
@@ -65,6 +66,7 @@ final class Doctor extends Command
         $this->identity();
         $this->mailAndObservability();
         $this->deletionLifecycle();
+        $this->authorizationCatalog();
 
         $fails = count(array_filter($this->rows, fn ($r) => $r['status'] === 'FAIL'));
         $warns = count(array_filter($this->rows, fn ($r) => $r['status'] === 'WARN'));
@@ -83,6 +85,25 @@ final class Doctor extends Command
      * policy has to stay inside its safe bounds, no archive may be left failed or unverified, and nothing may sit
      * past its restore window without being removed — that would quietly keep customer data alive.
      */
+    /**
+     * Roles and permissions are code, the authorizer reads the database: a deploy that did not seed them leaves the old
+     * rights in force — a role keeps a permission the catalog took away, or lacks one a new feature checks.
+     */
+    private function authorizationCatalog(): void
+    {
+        $stored = DB::table('role_permissions')->get()->groupBy('role_key')->map(fn ($rows) => $rows->pluck('permission_key')->sort()->values()->all());
+        $drift = [];
+        foreach (RoleCatalog::all() as $key => $role) {
+            $expected = $role['permissions'];
+            sort($expected);
+            if (($stored[$key] ?? []) !== $expected) {
+                $drift[] = $key;
+            }
+        }
+        $this->add('identity', 'roles in the database match the catalog', $drift === [], $drift === [] ? count(RoleCatalog::all()).' roles'
+            : count($drift).' differ ('.implode(', ', array_slice($drift, 0, 6)).(count($drift) > 6 ? ', …' : '').') — php artisan db:seed --class=AuthorizationSeeder --force');
+    }
+
     private function deletionLifecycle(): void
     {
         // a key revocation no panel has confirmed for an hour is a key that may still open a session (H185); not blocking, but never silent

@@ -15,7 +15,9 @@
 
 1. `php artisan down --render=maintenance` is **not** used; the app is deployed behind a load balancer with
    rolling replacement.
-2. `composer install --no-dev --optimize-autoloader`, `php artisan migrate --force`, `php artisan config:cache`,
+2. `composer install --no-dev --optimize-autoloader`, `php artisan migrate --force`,
+   `php artisan db:seed --class=AuthorizationSeeder --force` (roles and permissions are code, the authorizer reads the
+   database — `onhost:doctor` fails when the two differ), `php artisan config:cache`,
    `php artisan route:cache`, `php artisan event:cache`.
 3. Restart queue workers (`queue:restart`) and the scheduler; verify `/up`, `GET /v1/status` and one
    authenticated call.

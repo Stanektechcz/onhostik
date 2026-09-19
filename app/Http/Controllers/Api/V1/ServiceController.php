@@ -252,15 +252,16 @@ final class ServiceController extends ApiController
     /** Live listing of one resource kind (databases, ftp, cron, subdomains, certificate, redirect, php, snapshots, mailboxes, aliases, dkim, firewall). */
     public function resources(Request $request, ServiceFeatures $features, string $service, string $kind): JsonResponse
     {
-        $model = $this->resolve($request, $service);
+        // a listing is diagnostics; a listing with its passwords revealed is access (H334)
+        $model = $this->resolve($request, $service, $request->boolean('reveal') ? 'service.manage' : 'service.read');
 
-        return response()->json(['data' => $features->resources($model, $kind, $request->boolean('fresh'), ['path' => (string) $request->query('path', ''), 'remote_id' => (string) $request->query('remote_id', ''), 'hours' => max(1, min(720, (int) $request->query('hours', 24))), 'reveal' => $request->boolean('reveal')]), 'kind' => $kind]);
+        return response()->json(['data' => $features->resources($model, $kind, $request->boolean('fresh'), ['path' => (string) $request->query('path', ''), 'remote_id' => (string) $request->query('remote_id', ''), 'hours' => max(1, min(720, (int) $request->query('hours', 24))), 'secrets' => $this->api->can($request, 'service.manage', CommandScope::resource($model->id, $model->organization_id, $model->project_id)), 'reveal' => $request->boolean('reveal')]), 'kind' => $kind]);
     }
 
     /** File manager download (aaPanel-backed sites): the file streams through the control plane, never a panel URL. */
     public function fileDownload(Request $request, ServiceFeatures $features, string $service): Response
     {
-        $model = $this->resolve($request, $service);
+        $model = $this->resolve($request, $service, 'service.manage'); // file contents hold the site's credentials (wp-config.php, .env): who may write files may read them, a read-only role may not (H334)
         $data = $request->validate(['path' => ['required', 'string', 'max:500']]);
         $content = $features->fileContents($model, $data['path']);
         if (strlen($content) > 20 * 1024 * 1024) {

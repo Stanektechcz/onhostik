@@ -68,7 +68,7 @@ final class WebToolsController extends ApiController
     /** One-time download of an export prepared by an action (database.export …). */
     public function download(Request $request, WebFileStore $files, string $service, string $token): Response
     {
-        $model = $this->resolve($request, $service);
+        $model = $this->resolve($request, $service, 'backup.download'); // a database dump is the customer's data leaving the platform (H344)
         $entry = $files->download($model, $token);
         if ($entry === null) {
             throw new DomainError('download_expired', 'The download is no longer available; export again.', 410);
@@ -80,7 +80,7 @@ final class WebToolsController extends ApiController
     /** Stream a backup archive from the node. */
     public function backupDownload(Request $request, ServiceFeatures $features, AuditRecorder $audit, string $service, string $backup): Response
     {
-        $model = $this->resolve($request, $service, 'backup.read');
+        $model = $this->resolve($request, $service, 'backup.download'); // seeing the list (`backup.read`) and starting a backup (`service.manage`) do not take the data away (H344)
         $row = Backup::query()->where('service_id', $model->id)->find($backup);
         if ($row === null) {
             throw DomainError::notFound('backup');
@@ -137,7 +137,9 @@ final class WebToolsController extends ApiController
     {
         $model = $this->resolve($request, $service);
 
-        return $this->ok(array_merge($deploy->status($model), ['deployments' => $deploy->deployments($model)]));
+        $manages = $this->api->can($request, 'service.manage', CommandScope::resource($model->id, $model->organization_id, $model->project_id)); // a read-only role sees the names of the build environment, not its values (H334)
+
+        return $this->ok(array_merge($deploy->status($model, $manages), ['deployments' => $deploy->deployments($model)]));
     }
 
     public function configureDeploy(Request $request, string $service): JsonResponse

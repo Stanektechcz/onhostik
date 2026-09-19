@@ -4,6 +4,7 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 78df2f8 | 2026-09-19 | Carry a game server's collaborators through a migration unchanged (H341) |
 | 02b6a1c | 2026-09-19 | Take back what a smaller role no longer covers (Brain card H332) |
 | 442d6ca | 2026-09-19 | Let a membership or a project role end on a date (Brain card H343) |
 | ddc38da | 2026-09-19 | Know whose SSH key sits on a shell account and take it back (Brain card H185) |
@@ -13,4 +14,3 @@
 | 31487d9 | 2026-09-19 | Report the panel API apart from the service (Brain card H324) |
 | 92251ae | 2026-09-19 | Generated context after the delegated-access work |
 | 2cc8235 | 2026-09-19 | A removed member loses the panel accounts that were theirs, and a weekly review reports the ones nobody can judge (Brain cards H333, H332) |
-| 6a582a3 | 2026-09-19 | Generated context after the staff-scope re-check and the freshness verdict |

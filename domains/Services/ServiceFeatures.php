@@ -205,7 +205,7 @@ final class ServiceFeatures
             throw new DomainError('feature_unavailable', 'This listing is not available for the service.', 422, ['kind' => $kind]);
         }
         $reveal = ! empty($params['reveal']);
-        $key = "onhost:service:{$service->id}:resources:{$kind}".(in_array($kind, ['files', 'game_files'], true) ? ':'.sha1($path) : '').(($params['remote_id'] ?? '') !== '' ? ':'.sha1((string) $params['remote_id']) : '').($reveal ? ':reveal' : '');
+        $key = "onhost:service:{$service->id}:resources:{$kind}".(in_array($kind, ['files', 'game_files'], true) ? ':'.sha1($path) : '').(($params['remote_id'] ?? '') !== '' ? ':'.sha1((string) $params['remote_id']) : '').($reveal ? ':reveal' : '').($kind === 'deploy' && empty($params['secrets']) ? ':masked' : ''); // the full view keeps the key `forget()` clears; only the masked view of a read-only role is kept apart
         if (! $fresh) {
             $cached = $this->cache->get($key);
             if (is_array($cached)) {
@@ -276,7 +276,7 @@ final class ServiceFeatures
             'default_docs' => ['names' => $this->tools($adapter)->defaultDocuments($ref)],
             // the platform's own records around the site
             'staging' => app(StagingService::class)->status($service),
-            'deploy' => app(DeployService::class)->status($service),
+            'deploy' => app(DeployService::class)->status($service, ! empty($params['secrets'])), // the caller says whether the role may see values (H334)
             'deployments' => app(DeployService::class)->deployments($service),
             'wordpress' => app(WordPressService::class)->status($service, $fresh),
             'monitoring' => app(UptimeMonitor::class)->status($service),

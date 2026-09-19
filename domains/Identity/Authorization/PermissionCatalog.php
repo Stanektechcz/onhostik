@@ -58,6 +58,7 @@ final class PermissionCatalog
             'mail.manage' => $c('Manage mail domains, mailboxes, aliases, relay'),
             'database.manage' => $c('Manage managed databases and users'),
             'backup.read' => $c('View backups and restore points'),
+            'backup.download' => $c('Download backup archives and data exports'), // seeing that a backup exists is not taking the data away (H344)
             'backup.restore' => $c('Restore from backups', self::HIGH),
             'backup.delete' => $c('Delete backup generations', self::CRITICAL),
 
