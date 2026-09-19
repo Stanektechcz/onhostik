@@ -22,6 +22,18 @@ the audit chain.
 flag and every service's `legal_hold`; blocks deletion and retention purges until lifted. Evidence on cyber
 incidents carries its own hold flag.
 
+What "blocks deletion" covers (Brain card H18, `domains/Services/LegalHold.php`) — the service and every copy of its
+data:
+
+* `terminate` and `purge` of a service, the scheduled `onhost:services:purge`, a GDPR erasure (`deletion_blocked`);
+* the archive of a cancelled service past its retention (`FinalArchive::prune`) — often the only copy left;
+* the retention of scheduled backups (`BackupScheduler`): no generation is deleted, new backups are still made;
+* by hand: `backup.delete`, `gbackup.delete`, `snapshot.delete` and `reinstall` answer 423 `legal_hold`.
+
+Retention keeps counting under a hold, it just does not act: what ran out meanwhile is removed by the first pass after
+the hold is lifted. A service created after the hold was applied has no flag of its own, so the organization's flag is
+always asked as well. Until 2026-09-19 only the first bullet was true; archives and backup generations expired under a
+hold.
 ## DSA notice-and-action
 
 1. Notice arrives via `POST /v1/abuse/reports` (public form; Art. 16 fields enforced). The reporter gets an

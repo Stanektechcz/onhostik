@@ -282,6 +282,9 @@ final class FinalArchive
     {
         $removed = 0;
         foreach (Backup::query()->where('kind', 'final')->where('state', 'completed')->whereNotNull('retention_until')->where('retention_until', '<', now())->get() as $backup) {
+            if (LegalHold::coversBackup($backup)) {
+                continue; // a legal hold suspends deletion (H18): the archive — often the only copy left — waits for the hold to be lifted
+            }
             $set = (string) data_get($backup->meta, 'set', '');
             if ($set !== '' && str_starts_with($set, self::PREFIX.'/')) {
                 $this->disk()->deleteDirectory($set);

@@ -445,8 +445,11 @@ final class ServiceService
         if ($action === 'power' && ! in_array($params['power_action'] ?? '', ['start', 'stop', 'shutdown', 'reboot', 'reset', 'kill'], true)) {
             throw new DomainError('power_action_invalid', 'power_action must be one of start, stop, shutdown, reboot, reset, kill.', 422);
         }
+        if (in_array($action, LegalHold::DESTRUCTIVE_ACTIONS, true) && LegalHold::coversService($service)) {
+            throw new DomainError('legal_hold', 'The service is under legal hold: backups and snapshots cannot be deleted and the server cannot be reinstalled until it is lifted.', 423, ['action' => $action]);
+        }
         if ($action === 'terminate' || $action === 'purge') {
-            if ($service->legal_hold) {
+            if (LegalHold::coversService($service)) {
                 throw new DomainError('legal_hold', 'The service is under legal hold and cannot be terminated.', 423);
             }
             if ($context->actorType === 'user' && $context->stepUpMethod === null) {

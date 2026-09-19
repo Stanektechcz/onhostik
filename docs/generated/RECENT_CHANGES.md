@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 5c5834f | 2026-09-19 | Pin the permission matrix of the customer roles (H11) |
+| 387aaea | 2026-09-19 | Sweep tenant isolation across the API; an ended membership stops counting everywhere (H03, H343) |
 | fc49b36 | 2026-09-19 | A suspension belongs to whoever imposed it; a refused transition no longer strands a service (H17) |
 | 662f680 | 2026-09-19 | Bound and pin the development stack (H190, the part that is ours) |
 | 06e7848 | 2026-09-19 | Shed reports before operations when the platform is overloaded (H139) |
@@ -12,5 +14,3 @@
 | 78df2f8 | 2026-09-19 | Carry a game server's collaborators through a migration unchanged (H341) |
 | 02b6a1c | 2026-09-19 | Take back what a smaller role no longer covers (Brain card H332) |
 | 442d6ca | 2026-09-19 | Let a membership or a project role end on a date (Brain card H343) |
-| ddc38da | 2026-09-19 | Know whose SSH key sits on a shell account and take it back (Brain card H185) |
-| 2a83e11 | 2026-09-19 | Try a new panel access before it replaces the working one (Brain card H314) |

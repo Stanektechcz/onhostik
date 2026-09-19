@@ -6,6 +6,7 @@ namespace Onhost\Domain\Services\Web;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
+use Onhost\Domain\Services\LegalHold;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
@@ -99,6 +100,9 @@ final class BackupScheduler
     /** Delete expired backups and trim generations beyond the plan; protected ones are never touched. */
     private function prune(Service $service, array $schedule, CommandContext $context): int
     {
+        if (LegalHold::coversService($service)) {
+            return 0; // a legal hold suspends deletion (H18): new backups are still made, old ones stay until the hold is lifted
+        }
         $deleted = 0;
         $expired = Backup::query()->where('service_id', $service->id)->where('state', 'completed')->where('protected', false)->where(function ($q) {
             $q->whereNotNull('retention_until')->where('retention_until', '<', now());
