@@ -89,7 +89,7 @@ final class WapiGateway
             timeoutSeconds: 30, critical: $critical, operationId: $operationId, bucket: in_array($command, self::DOMAIN_FAMILY, true) ? 'wapi:domain' : 'wapi:all',
             options: array_filter(['force_ip_resolve' => config('onhost.wapi.force_ip_resolve')]), // WAPI answers IPv6 clients with a redirect to a 404 page (observed 2026-09-07): stay on the allow-listed IPv4 egress
         ));
-        $this->http->bucket('wapi:all')?->tryConsume($critical); // the domain family counts against the global limit too
+        $this->http->bucket('wapi:all')?->tryConsume($critical, 1, $this->http->inDiagnostic()); // the domain family counts against the global limit too
         if ($response->status >= 500) {
             throw new ProviderException('wedos', ProviderErrorCode::TRANSIENT, "WAPI HTTP {$response->status}", (string) $response->status);
         }

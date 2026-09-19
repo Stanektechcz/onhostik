@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| e2a2502 | 2026-09-19 | Keep servicing a customer apart from moving their money (Brain card H348) |
+| 31487d9 | 2026-09-19 | Report the panel API apart from the service (Brain card H324) |
 | 92251ae | 2026-09-19 | Generated context after the delegated-access work |
 | 2cc8235 | 2026-09-19 | A removed member loses the panel accounts that were theirs, and a weekly review reports the ones nobody can judge (Brain cards H333, H332) |
 | 6a582a3 | 2026-09-19 | Generated context after the staff-scope re-check and the freshness verdict |
@@ -12,5 +14,3 @@
 | c01704b | 2026-09-19 | Current state and generated context after the operation-safety work |
 | 0cbe34e | 2026-09-19 | Three ways a long provisioning run could do harm without any call failing (Brain cards H319, H327, H315) |
 | 7e120d0 | 2026-09-17 | Refresh the generated project context after the panel-safety work |
-| 653ef4a | 2026-09-17 | Panel safety from the Brain's requirement cards: a moved panel address locks the instance, a maintenance lock never lifts itself, oversized panel answers are refused, and a cancellation revokes delegated access |
-| bb3a4a2 | 2026-09-16 | Refresh the generated project context on the clean tree |

@@ -39,8 +39,10 @@ final class IntegrationHealthProbe
     {
         $record = IntegrationHealth::query()->firstOrNew(['provider_instance_id' => $instance->id]);
         $wasUp = $record->exists ? (bool) $record->up : null;
+        $refusedBefore = $this->http->localRefusals();
         try {
-            $health = $this->providers->forInstance($instance)->health();
+            // health reads run in the diagnostic lane: the slice of the quota our own work cannot use up (H323)
+            $health = $this->http->diagnostic(fn () => $this->providers->forInstance($instance)->health());
             $up = $health->healthy;
             $error = $health->error;
             $latency = $health->latencyMs;
@@ -52,6 +54,13 @@ final class IntegrationHealthProbe
             $latency = null;
             $version = null;
             $detail = [];
+        }
+        if (! $up && $this->http->localRefusals() > $refusedBefore) {
+            // we refused our own call before it left: nothing was measured, so nothing may be concluded about the panel —
+            // the last verdict stands, no `integration.down`, no lifted or overdue maintenance lock
+            $record->forceFill(['budget_used_pct' => $this->budgetUsed($instance), 'last_error' => 'probe not sent: local quota exhausted'])->save();
+
+            return ['up' => $wasUp ?? true, 'error' => 'probe not sent: local quota exhausted', 'latency_ms' => null, 'version' => null, 'detail' => ['unmeasured' => true], 'circuit_state' => $this->http->breaker($instance->key)->state(), 'checked_at' => ($record->checked_at ?? now())->toIso8601String()];
         }
         $window = now()->subDay();
         $calls = DB::table('provider_calls')->where('instance_key', $instance->key)->where('created_at', '>=', $window);

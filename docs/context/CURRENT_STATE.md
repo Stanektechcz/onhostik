@@ -20,7 +20,8 @@
   with the reason and the planned end (`control_plane_maintenance`, 503 with `Retry-After`) while the service keeps its
   own state, and staff and system runs are not locked out (H324). Servicing a customer and moving their money are
   two permissions: the refunded share and an assisted order paid from the customer's credit or on invoice need the
-  finance permission and a step-up, and no servicing role holds a billing, member or ownership right (H348). A member removed from an organization loses their collaborator accounts on its game servers at once, and a
+  finance permission and a step-up, and no servicing role holds a billing, member or ownership right (H348). Every
+  panel quota keeps a slice for health reads, so our own flood cannot make a working panel look down (H323). A member removed from an organization loses their collaborator accounts on its game servers at once, and a
   weekly review reports panel accounts of people who are not members (H333, H332). Assessments live in the
   vault (`Hosting/ASSESSMENT-2026-09-17`, `Hosting/ASSESSMENT-2026-09-19`).
 - What remains is operational: the staging run of the new lifecycle, the payment gateway and bank tokens, staff MFA,
@@ -29,7 +30,7 @@
 ## Verified baseline
 
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 407 tests, 10 013 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 409 tests, 10 051 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

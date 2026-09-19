@@ -31,6 +31,18 @@ operations piling up in WAITING/FAILED, circuit breaker open (`provider_circuit_
 * **RKE2 apps** — `kubectl get pods -n <service namespace>`; deploy jobs are BuildKit rootless jobs with a
   timeout; a failed deploy keeps the previous revision live.
 
+## Is it the panel, or is it us?
+
+Every panel quota (`provider_instances.rate_limits`, per minute or per hour) is split three ways: ordinary work, a
+reserve for critical calls (suspend, renewals) and a top slice only health reads may use
+(`ONHOST_PROVIDER_DIAGNOSTIC_RESERVE`, 5 % of the window, never fewer than 3 calls, none for quotas under 20 calls;
+Brain card H323). The critical reserve is a share of the work, so the slice never eats it. The total never
+passes the vendor's limit. A flood of our own operations therefore cannot blind the probe: it still measures the panel.
+When even the slice is gone the probe is *not sent* — the health record keeps its last verdict with
+`last_error = probe not sent: local quota exhausted`, no `integration.down` is published and a maintenance lock is
+neither lifted nor declared overdue. Seeing that text means our quota is the bottleneck, not the panel: look at
+`budget_used_pct` on the integration and at the operations queue before touching the vendor.
+
 ## After recovery
 
 1. `POST /v1/staff/provisioning/thaw`.

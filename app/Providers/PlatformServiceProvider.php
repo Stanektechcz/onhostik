@@ -114,6 +114,7 @@ final class PlatformServiceProvider extends ServiceProvider
                 $app->make(HttpFactory::class),
                 $app->make(CacheRepository::class),
                 $app->make(ProviderCallLogger::class),
+                diagnosticReserve: (float) config('onhost.provisioning.diagnostic_reserve', 0.05),
             );
         });
     }

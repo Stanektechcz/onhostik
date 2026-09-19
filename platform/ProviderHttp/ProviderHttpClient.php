@@ -23,11 +23,18 @@ use Throwable;
  */
 final class ProviderHttpClient
 {
+    /** Quotas below this many calls per window carry no diagnostic slice (H323). */
+    public const DIAGNOSTIC_MIN_LIMIT = 20;
+
     /** @var array<string, TokenBucket> */
     private array $buckets = [];
 
     /** @var array<string, array{limit:int, window:int, reserve:float}> */
     private array $bucketConfig = [];
+
+    private bool $diagnostic = false;
+
+    private int $localRefusals = 0;
 
     public function __construct(
         private readonly HttpFactory $http,
@@ -35,7 +42,39 @@ final class ProviderHttpClient
         private readonly ProviderCallLogger $logger,
         private readonly int $breakerThreshold = 5,
         private readonly int $breakerCooldown = 60,
+        private readonly float $diagnosticReserve = 0.05,
     ) {}
+
+    /**
+     * Run health reads in the diagnostic lane (H323): every call sent inside may use the slice of the quota that ordinary
+     * and critical work cannot touch. The worker is single-threaded, so a scoped flag is enough; it nests and always resets.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $reads
+     * @return T
+     */
+    public function diagnostic(callable $reads): mixed
+    {
+        $before = $this->diagnostic;
+        $this->diagnostic = true;
+        try {
+            return $reads();
+        } finally {
+            $this->diagnostic = $before;
+        }
+    }
+
+    public function inDiagnostic(): bool
+    {
+        return $this->diagnostic;
+    }
+
+    /** Calls this process refused on its own quota, before anything reached a vendor: a refusal is not an outage. */
+    public function localRefusals(): int
+    {
+        return $this->localRefusals;
+    }
 
     public function configureBucket(string $name, int $limit, int $windowSeconds, float $reserve = 0.0): void
     {
@@ -50,7 +89,10 @@ final class ProviderHttpClient
         }
         $cfg = $this->bucketConfig[$name];
 
-        return $this->buckets[$name] ??= new TokenBucket($this->cache, $name, $cfg['limit'], $cfg['window'], $cfg['reserve']);
+        // a probe is a handful of reads, so never fewer than three; a quota too small to spare them keeps all of it for work
+        $slice = $this->diagnosticReserve <= 0 || $cfg['limit'] < self::DIAGNOSTIC_MIN_LIMIT ? 0 : max(3, (int) ceil($cfg['limit'] * $this->diagnosticReserve));
+
+        return $this->buckets[$name] ??= new TokenBucket($this->cache, $name, $cfg['limit'], $cfg['window'], $cfg['reserve'], $slice);
     }
 
     public function breaker(string $instanceKey): CircuitBreaker
@@ -79,7 +121,8 @@ final class ProviderHttpClient
 
         $bucketName = $request->bucket ?? $request->instanceKey;
         $bucket = $this->bucket($bucketName);
-        if ($bucket !== null && ! $bucket->tryConsume($request->critical)) {
+        if ($bucket !== null && ! $bucket->tryConsume($request->critical, 1, $this->diagnostic)) {
+            $this->localRefusals++;
             $this->logger->log($request, null, 'quota_exhausted', false, 0, $this->summarize($request), null, 'local quota exhausted');
             throw new ProviderException($request->provider, ProviderErrorCode::RATE_LIMIT, "Local quota for {$bucketName} exhausted", retryAfterSeconds: $bucket->secondsUntilReset());
         }
