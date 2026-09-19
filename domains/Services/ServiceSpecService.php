@@ -153,7 +153,7 @@ final class ServiceSpecService
      * @param  array<string,mixed>  $spec
      * @return array{operations:list<array{section:string,action:string,operation_id:string}>, unchanged:list<string>, skipped:list<array{section:string,reason:string}>}
      */
-    public function apply(Service $service, array $spec, CommandContext $context, string $idempotencyKey): array
+    public function apply(Service $service, array $spec, CommandContext $context, string $idempotencyKey, ?string $authorizedPermission = null): array
     {
         $known = self::sectionsFor($service->family);
         if ($known === []) {
@@ -166,8 +166,8 @@ final class ServiceSpecService
         $current = $this->current($service);
         $out = ['operations' => [], 'unchanged' => [], 'skipped' => []];
         $enabled = $current['features'];
-        $act = function (string $section, string $action, array $params, string $suffix = '') use ($service, $context, $idempotencyKey, &$out) {
-            $operation = $this->services->requestAction($service, $action, $context, "{$idempotencyKey}:{$section}{$suffix}", $params, chained: true);
+        $act = function (string $section, string $action, array $params, string $suffix = '') use ($service, $context, $idempotencyKey, $authorizedPermission, &$out) {
+            $operation = $this->services->requestAction($service, $action, $context, "{$idempotencyKey}:{$section}{$suffix}", $params, chained: true, authorizedPermission: $authorizedPermission);
             $out['operations'][] = ['section' => $section, 'action' => $action, 'operation_id' => $operation->id];
         };
         foreach ($spec as $section => $wanted) {

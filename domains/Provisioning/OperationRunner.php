@@ -207,7 +207,11 @@ final class OperationRunner
         if ($user === null || ! $user->isActive()) {
             return 'the account that started this operation is no longer active; no further step was sent to the provider';
         }
-        $scope = $operation->service_id !== null ? CommandScope::resource((string) $operation->service_id, (string) $operation->organization_id) : CommandScope::organization((string) $operation->organization_id);
+        $scope = match (true) {
+            $operation->authorized_scope === 'global' => CommandScope::global(), // a staff run: the role is held globally and was checked globally
+            $operation->service_id !== null => CommandScope::resource((string) $operation->service_id, (string) $operation->organization_id),
+            default => CommandScope::organization((string) $operation->organization_id),
+        };
         // queue workers live for hours and the authorizer keeps a principal's bindings for the life of its instance: without
         // dropping them here the answer would be the one from when the worker first met this user, not today's
         $this->authorizer->forget($user);

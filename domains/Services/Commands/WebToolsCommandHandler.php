@@ -34,7 +34,7 @@ final class WebToolsCommandHandler implements CommandHandler
         return match ((string) $command->get('op')) {
             'monitoring.set' => ['monitor' => $this->monitor->configure($service, $params, $context), 'status' => $this->monitor->status($service)],
             // declarative spec (audit §5e-6): converge the service on a document; every change is an ordinary action
-            'spec.apply' => app(ServiceSpecService::class)->apply($service, (array) ($params['spec'] ?? []), $context, $command->idempotencyKey()),
+            'spec.apply' => app(ServiceSpecService::class)->apply($service, (array) ($params['spec'] ?? []), $context, $command->idempotencyKey(), $command->permission()),
             // the customer's start time for a scheduled migration (audit §5h-3)
             'migration.window' => ['migration' => app(ServiceMigrationService::class)->reschedule($service, CarbonImmutable::parse((string) ($params['starts_at'] ?? '')), $context)],
             // per-service automation policy (audit §5e-1): whether the usage watch may move the service to the next plan on its own

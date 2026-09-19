@@ -28,13 +28,13 @@ final class ChargebackCommandHandler implements CommandHandler
 
             return match ($command->op()) {
                 'request' => $this->chargebacks->present($this->chargebacks->request($service, $context->actorType === 'user' && $context->actorId ? User::query()->find($context->actorId) : null, (string) $command->get('reason', ''), $context)),
-                'cancel' => (function () use ($service, $context) {
+                'cancel' => (function () use ($service, $context, $command) {
                     $open = $this->chargebacks->open($service);
                     if ($open === null) {
                         throw new DomainError('chargeback_not_approved', 'There is no approved chargeback request for this service.', 409);
                     }
 
-                    return $this->chargebacks->present($this->chargebacks->cancelService($open, $context));
+                    return $this->chargebacks->present($this->chargebacks->cancelService($open, $context, $command->permission()));
                 })(),
                 default => throw new DomainError('op_unknown', 'Unknown chargeback operation.', 422),
             };

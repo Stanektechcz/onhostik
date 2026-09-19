@@ -98,7 +98,7 @@ final class ProvisioningCommandHandler implements CommandHandler
             // node prerequisites (audit §5e-8): what the instance can deliver, recorded on it and read by siteFeatures()
             'instance.prereqs' => app(NodePrerequisites::class)->check($this->findInstance($command), $context),
             // bulk staff action (audit §5e-7): one operation per selected service through the ordinary workflow
-            'bulk.start' => app(BulkActionService::class)->present(app(BulkActionService::class)->start((array) $command->get('filter', []), (string) $command->get('action'), (array) $command->get('params', []), $context, $command->get('reason'))),
+            'bulk.start' => app(BulkActionService::class)->present(app(BulkActionService::class)->start((array) $command->get('filter', []), (string) $command->get('action'), (array) $command->get('params', []), $context, $command->get('reason'), $command->permission())),
             // staff switch of a scheduled rule (audit §5g-7); the rule keeps its slot and records skips while off
             'automation.toggle' => app(AutomationLedger::class)->setEnabled((string) $command->get('key'), filter_var($command->get('enabled', true), FILTER_VALIDATE_BOOLEAN), $context->actorType.':'.($context->actorId ?? 'system')),
             // staff drain / resume a node (audit §5e-3): draining nodes receive no new placements, running services stay
@@ -317,7 +317,7 @@ final class ProvisioningCommandHandler implements CommandHandler
             if ($service->state !== ServiceStateMachine::ACTIVE) {
                 throw new DomainError('service_state_invalid', 'Repair is only possible for active services.', 409);
             }
-            $operation = $this->services->requestAction($service, 'resize', $context, "drift-repair:{$drift->id}", ['entitlements' => $service->entitlements, 'reason' => "drift repair: {$drift->field} — {$note}"]);
+            $operation = $this->services->requestAction($service, 'resize', $context, "drift-repair:{$drift->id}", ['entitlements' => $service->entitlements, 'reason' => "drift repair: {$drift->field} — {$note}"], authorizedPermission: $command->permission(), authorizedScope: 'global');
             $drift->forceFill(['state' => 'repaired', 'resolved_at' => now(), 'resolved_by' => $context->actorId, 'resolution' => $note])->save();
 
             return ['drift_id' => $drift->id, 'state' => 'repaired', 'operation_id' => $operation->id];

@@ -29,7 +29,7 @@ final class OperationService
      * @param  class-string<Workflow>  $workflow
      * @param  array<string,mixed>  $desired
      */
-    public function start(string $workflow, string $idempotencyKey, array $desired, CommandContext $actor, ?string $serviceId = null, ?string $organizationId = null, ?string $orderItemId = null, ?string $providerInstanceId = null, ?string $domainId = null, bool $dispatch = true, ?string $authorizedPermission = null): Operation
+    public function start(string $workflow, string $idempotencyKey, array $desired, CommandContext $actor, ?string $serviceId = null, ?string $organizationId = null, ?string $orderItemId = null, ?string $providerInstanceId = null, ?string $domainId = null, bool $dispatch = true, ?string $authorizedPermission = null, ?string $authorizedScope = null): Operation
     {
         if (! is_subclass_of($workflow, Workflow::class)) {
             throw new DomainError('workflow_invalid', "{$workflow} is not a Workflow", 500);
@@ -54,6 +54,7 @@ final class OperationService
             'actor_type' => $actor->actorType,
             'actor_id' => $actor->actorId,
             'authorized_permission' => $authorizedPermission, // H315: asked again before every privileged step of a user-started run
+            'authorized_scope' => $authorizedPermission === null ? null : $authorizedScope, // … at the scope the bus asked: `global` for staff, the run's own resource otherwise
             'idempotency_key' => $idempotencyKey,
             'correlation_id' => $actor->correlationId ?? CommandContext::currentCorrelationId(),
             'desired' => $desired,

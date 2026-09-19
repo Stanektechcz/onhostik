@@ -34,7 +34,7 @@ final class BulkActionService
      * @param  array{provider_instance_id?:string, node_id?:string, organization_id?:string, product_key?:string, family?:string, service_ids?:list<string>}  $filter
      * @param  array<string,mixed>  $params
      */
-    public function start(array $filter, string $action, array $params, CommandContext $context, ?string $reason = null): BulkJob
+    public function start(array $filter, string $action, array $params, CommandContext $context, ?string $reason = null, ?string $authorizedPermission = null): BulkJob
     {
         if (! in_array($action, self::ACTIONS, true)) {
             throw new DomainError('bulk_action_not_allowed', 'This action is not offered in bulk: '.implode(', ', self::ACTIONS).'.', 422, ['field' => 'action']);
@@ -48,7 +48,7 @@ final class BulkActionService
         $refused = 0;
         foreach ($services as $service) {
             try {
-                $operation = $this->services->requestAction($service, $action, $context->withScope($service->organization_id, $service->project_id), "bulk:{$job->id}:{$service->id}", $params);
+                $operation = $this->services->requestAction($service, $action, $context->withScope($service->organization_id, $service->project_id), "bulk:{$job->id}:{$service->id}", $params, authorizedPermission: $authorizedPermission, authorizedScope: $authorizedPermission === null ? null : 'global'); // the staff command was checked globally (H315)
                 $items[] = ['service_id' => $service->id, 'organization_id' => $service->organization_id, 'label' => $service->label ?: $service->hostname ?: $service->name, 'operation_id' => $operation->id, 'error' => null];
             } catch (Throwable $e) {
                 $refused++;

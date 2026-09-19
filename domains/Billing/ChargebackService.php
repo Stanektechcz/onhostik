@@ -138,7 +138,7 @@ final class ChargebackService
      * The customer cancels an approved request's service: the refund is fixed now, the service terminates through
      * the ordinary saga (final backup included), and the credit is booked when the termination is confirmed.
      */
-    public function cancelService(ChargebackRequest $request, CommandContext $context): ChargebackRequest
+    public function cancelService(ChargebackRequest $request, CommandContext $context, ?string $authorizedPermission = null): ChargebackRequest
     {
         if ($request->state !== ChargebackRequest::APPROVED) {
             throw new DomainError('chargeback_not_approved', 'Support has not approved this request yet.', 409, ['state' => $request->state]);
@@ -152,7 +152,7 @@ final class ChargebackService
         if ($service->state === ServiceStateMachine::TERMINATED) {
             return $this->settle($request, $context);
         }
-        $operation = $this->services->requestAction($service, 'terminate', $context, "chargeback:{$request->id}:terminate", ['reason' => 'chargeback '.$request->id, 'final_backup' => true]);
+        $operation = $this->services->requestAction($service, 'terminate', $context, "chargeback:{$request->id}:terminate", ['reason' => 'chargeback '.$request->id, 'final_backup' => true], authorizedPermission: $authorizedPermission);
         $request->forceFill(['state' => ChargebackRequest::CANCELLING, 'operation_id' => $operation->id])->save();
         $this->audit->record($context->withScope($service->organization_id, $service->project_id), 'chargeback.cancel', 'succeeded', ['chargeback' => $request->id, 'operation_id' => $operation->id, 'refund_minor' => $request->refund_minor], 'service', $service->id);
 

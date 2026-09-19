@@ -307,7 +307,7 @@ final class ComplianceService
                 throw new DomainError('abuse_service_missing', 'No service is linked to this case.', 409);
             }
             if ($service->state !== ServiceStateMachine::SUSPENDED && $service->state !== ServiceStateMachine::SUSPENDING) {
-                $this->services->requestAction($service, 'suspend', $context->withScope($service->organization_id), "abuse:{$case->number}:suspend", ['reason' => "abuse:{$case->number}"]);
+                $this->services->requestAction($service, 'suspend', $context->withScope($service->organization_id), "abuse:{$case->number}:suspend", ['reason' => "abuse:{$case->number}"], authorizedPermission: 'abuse.case.manage', authorizedScope: 'global'); // this branch is reached only through the staff command abuse.action
             }
         }
         $case->forceFill(['state' => 'ACTIONED', 'action_taken' => $action, 'decision' => 'action', 'decision_reason' => $reason, 'decided_at' => now(), 'appeal_deadline_at' => now()->addMonths(6), 'handled_by' => $context->actorId])->save();

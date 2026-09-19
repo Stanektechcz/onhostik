@@ -120,3 +120,30 @@ it('stops a running operation before its next step when the permission it starte
     $system = app(ServiceService::class)->requestAction($service->fresh(), 'backup', CommandContext::system('nightly'), 'safe-backup-1');
     expect($system->actor_type)->toBe('system');
 });
+
+it('asks a staff run for its permission at the scope the bus checked: global, never the customer resource (H315)', function () {
+    Http::fake([
+        PVE.'/nodes/prg1-n2/qemu/1042/status/current' => Http::response(['data' => ['status' => 'running', 'uptime' => 100]]),
+        PVE.'/nodes/prg1-n2/qemu/1042/config' => Http::response(pveVmConfig()),
+        PVE.'/nodes/prg1-n2/qemu/1042/status/reboot' => Http::response(['data' => 'UPID:prg1-n2:000A1B2F:0004E1F8:66F0AA14:qmreboot:1042:onhost@pve!cp:']),
+        PVE.'/nodes/prg1-n2/tasks/*/status' => Http::response(['data' => ['status' => 'running']]),
+    ]);
+    [, $org] = $this->customerWithOrganization();
+    $service = safetyVps($org);
+    $staff = $this->staff('shared_hosting_admin');
+    $start = fn (string $key) => app(OperationService::class)->start(ServiceActionWorkflow::class, $key, ['action' => 'power', 'power_action' => 'reboot', 'service_id' => $service->id],
+        $this->contextFor($staff), $service->id, $org->id, null, $service->provider_instance_id, dispatch: false, authorizedPermission: 'staff.service.manage', authorizedScope: 'global');
+
+    // staff hold no role on the customer's resource, only globally: the run must still be allowed to reach the panel
+    $allowed = $start('staff-reboot-1');
+    expect($allowed->authorized_scope)->toBe('global');
+    expect(app(OperationRunner::class)->tick($allowed, 5))->toBe(Operation::WAITING);
+    Http::assertSent(fn (Request $r) => str_ends_with($r->url(), '/status/reboot'));
+
+    // the role is taken away before the next run is picked up: it stops before its first step
+    Operation::query()->whereKey($allowed->id)->update(['state' => Operation::CANCELLED]); // one operation per service at a time
+    $blocked = $start('staff-reboot-2');
+    PolicyBinding::query()->where('principal_id', $staff->id)->delete();
+    expect(app(OperationRunner::class)->tick($blocked, 5))->toBe(Operation::FAILED);
+    expect(data_get($blocked->fresh()->error, 'detail.access_revoked'))->toBeTrue()->and(data_get($blocked->fresh()->error, 'detail.required_permission'))->toBe('staff.service.manage');
+});

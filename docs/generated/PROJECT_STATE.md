@@ -5,8 +5,8 @@
 | Item | Value |
 | --- | --- |
 | Branch | development |
-| Base revision | 0cbe34eedcdb |
-| Working changes outside generated context | 1 |
+| Base revision | c01704be9468 |
+| Working changes outside generated context | 0 |
 | PHP requirement | ^8.3 |
 | Laravel requirement | ^13.17 |
 | Node requirement | 20+ |
