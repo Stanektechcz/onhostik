@@ -98,12 +98,15 @@ final class IspConfigConnector
     /** @return array{code:string, message:string, response:mixed} */
     private function raw(string $function, array $body, bool $critical = false, ?string $operationId = null): array
     {
+        // these answer with a credential under the neutral key `response` (H12): `login` with the session — whoever reads it holds the
+        // remote API for ten minutes — and `client_login_get` with a one-time link straight into the customer's panel
+        $secretAnswer = in_array($function, ['login', 'client_login_get'], true);
         $options = TlsOptions::verify($this->instance, 'ispconfig');
         $response = $this->http->send(new ProviderRequest(
             provider: 'ispconfig', instanceKey: $this->instance->key, method: 'POST',
             url: rtrim((string) $this->instance->base_url, '/').'/remote/json.php?'.$function, action: $function,
             headers: ['Content-Type' => 'application/json', 'Accept' => 'application/json'], body: $body, bodyType: 'json',
-            timeoutSeconds: 20, critical: $critical, options: $options, operationId: $operationId,
+            timeoutSeconds: 20, critical: $critical, options: $options, operationId: $operationId, secretResponse: $secretAnswer,
         ));
         if ($response->status >= 500) {
             throw new ProviderException('ispconfig', ProviderErrorCode::TRANSIENT, "ISPConfig {$function} returned HTTP {$response->status}", (string) $response->status);

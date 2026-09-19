@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 5a7bf29 | 2026-09-19 | Queue a customer's change while the panel is away, plan limits included (H02) |
+| 6bd9427 | 2026-09-19 | A legal hold suspends every deletion, not only the termination (H18) |
 | 5c5834f | 2026-09-19 | Pin the permission matrix of the customer roles (H11) |
 | 387aaea | 2026-09-19 | Sweep tenant isolation across the API; an ended membership stops counting everywhere (H03, H343) |
 | fc49b36 | 2026-09-19 | A suspension belongs to whoever imposed it; a refused transition no longer strands a service (H17) |
@@ -12,5 +14,3 @@
 | 441c9c1 | 2026-09-19 | Prove three cards that were only read, and pin the redirect ban (H312, H329, H336) |
 | 7019017 | 2026-09-19 | Reading a service is not getting into it or taking its data (H334, H344) |
 | 78df2f8 | 2026-09-19 | Carry a game server's collaborators through a migration unchanged (H341) |
-| 02b6a1c | 2026-09-19 | Take back what a smaller role no longer covers (Brain card H332) |
-| 442d6ca | 2026-09-19 | Let a membership or a project role end on a date (Brain card H343) |

@@ -38,5 +38,7 @@ final class ProviderRequest
         public readonly array $files = [],
         /** Largest response body this call accepts, in bytes; null = `onhost.provisioning.provider_max_body_bytes` (H318) */
         public readonly ?int $maxBodyBytes = null,
+        /** The answer itself is a credential (a session, a one-time token) under a key no redactor could know: it is never written to `provider_calls` (H12) */
+        public readonly bool $secretResponse = false,
     ) {}
 }

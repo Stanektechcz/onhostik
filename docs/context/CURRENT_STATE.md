@@ -38,7 +38,8 @@
   organization's identifiers and is refused everywhere, also with a body that would pass validation (H03). A legal
   hold now suspends every deletion — archives past retention, backup generations, manual deletes — not only the
   termination of the service (H18). A change asked for while a panel is away is queued and carried out exactly once,
-  plan limits included (H02). A member removed from an organization loses their collaborator accounts on its game servers at once, and a
+  plan limits included (H02). No panel credential reaches a log: answers that are themselves a credential are withheld
+  whole (H12). A member removed from an organization loses their collaborator accounts on its game servers at once, and a
   weekly review reports panel accounts of people who are not members (H333, H332). Assessments live in the
   vault (`Hosting/ASSESSMENT-2026-09-17`, `Hosting/ASSESSMENT-2026-09-19`).
 - What remains is operational: the staging run of the new lifecycle, the payment gateway and bank tokens, staff MFA,
@@ -47,7 +48,7 @@
 ## Verified baseline
 
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 452 tests, 10 692 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 454 tests, 10 708 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

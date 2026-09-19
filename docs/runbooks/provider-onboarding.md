@@ -55,6 +55,14 @@ functions, `server_id` auto-resolved to 1, job queue read) and aaPanel 8.0.6 at 
   new one, store it anyway with `force_credentials: true` (console: the confirmation dialog; terminal:
   `onhost:integrations:secret <instance> <key> --force`); the audit record carries `credentials_forced`. Values never
   appear in an audit row, a log or a response.
+* **After a rotation the old key is still valid at the panel** until somebody deletes it there: the platform replaces
+  what *it* uses, it cannot revoke a key the panel issued. Delete the old API key / remote user password at the panel
+  as the last step of every rotation — that is the one manual step at a panel the rotation needs (Brain card H12).
+* **No secret reaches a log (H12).** `provider_calls` and the audit trail are redacted by key name; an answer that is a
+  credential under a neutral key is withheld whole (`ProviderRequest::secretResponse`): the ISPConfig `login` (the
+  session) and `client_login_get` (a one-time link into the customer's panel). An adapter that adds such a call sets the
+  flag; `tests/Feature/Platform/SecretsInLogsTest.php` plants recognisable values and looks for them in everything
+  that was written.
 * **An access belongs to one instance.** `secret_ref: db://provider_instances/<key>` is accepted only for the instance
   with that key (`instance_secret_ref_foreign` otherwise): a look-alike instance can never borrow another panel's
   credentials and send them to its own host.

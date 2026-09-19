@@ -166,7 +166,7 @@ final class ProviderHttpClient
         $transportOk = $status < 500 && $status !== 429;
         $json = json_decode($body, true);
         $bodyCode = $this->bodyCode(is_array($json) ? $json : null);
-        $callId = $this->logger->log($request, $status, $bodyCode, $transportOk, $duration, $this->summarize($request), is_array($json) ? $json : mb_substr($body, 0, 2000));
+        $callId = $this->logger->log($request, $status, $bodyCode, $transportOk, $duration, $this->summarize($request), $request->secretResponse ? ['withheld' => 'the answer is a credential'] : (is_array($json) ? $json : mb_substr($body, 0, 2000)));
 
         if ($status >= 500) {
             $breaker->recordFailure();
