@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 9edcf04 | 2026-09-19 | The customer API keeps only what a customer may choose for a core action (H21) |
+| e9f5906 | 2026-09-19 | The platform notices when its own mail stops leaving (H24) |
 | 92fe019 | 2026-09-19 | Portable archive download (H28); the customer's monthly budget works (H30) |
 | ee61fe8 | 2026-09-19 | One definition of planned maintenance for the SLA (H15) |
 | 8f53615 | 2026-09-19 | Placement holds what it took; a server no node can take is refused in the cart (H04) |
@@ -12,5 +14,3 @@
 | 0027dfe | 2026-09-19 | Availability alarm for VPS and game servers; P0 proofs for H14, H16, H01 |
 | 88d161c | 2026-09-19 | Pin what happens when a registry refuses a domain renewal (H23) |
 | 09c869c | 2026-09-19 | Keep the ISPConfig session and one-time panel links out of the call log (H12) |
-| 5a7bf29 | 2026-09-19 | Queue a customer's change while the panel is away, plan limits included (H02) |
-| 6bd9427 | 2026-09-19 | A legal hold suspends every deletion, not only the termination (H18) |

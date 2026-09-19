@@ -18,6 +18,7 @@ use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\OrderFulfilmentService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
+use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Provisioning\FreezeSwitch;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
@@ -109,14 +110,19 @@ final class ServiceService
             throw new DomainError('product_not_provisionable', "Product {$product->key} has no executor or is not active.", 422);
         }
         $entitlements = $this->applyOptions((array) ($config['entitlements'] ?? $version?->entitlements ?? []), (array) ($config['options'] ?? []), $product);
-        $limits = (array) ($config['limits'] ?? $version?->limits ?? []);
+        // fair-use limits are the plan's; only an order placed by staff may carry its own (the cart strips them, this is the second lock)
+        $placedBy = $item?->order;
+        $trusted = $item === null || ($placedBy instanceof Order && in_array((string) $placedBy->source, ['staff', 'cli'], true));
+        $limits = (array) (($trusted ? ($config['limits'] ?? null) : null) ?? $version?->limits ?? []);
         if ($product->family === 'game' && (int) ($entitlements['vcpu'] ?? 0) > 0) {
             $limits['cpu_pct'] = max((int) ($limits['cpu_pct'] ?? 0), (int) $entitlements['vcpu'] * 100); // the panel's CPU limit follows the configured vCPU (audit §5v)
         }
         $region = (string) ($config['region'] ?? config('onhost.provisioning.default_region', 'cz1'));
-        $service = DB::transaction(function () use ($organization, $product, $version, $config, $item, $name, $entitlements, $limits, $region) {
+        // a service lands in a project of its own organization or in none: somebody else's project id is not a place
+        $projectId = isset($config['project_id']) && Project::query()->where('organization_id', $organization->id)->whereKey((string) $config['project_id'])->exists() ? (string) $config['project_id'] : null;
+        $service = DB::transaction(function () use ($organization, $product, $version, $config, $item, $name, $entitlements, $limits, $region, $projectId) {
             $service = Service::query()->create([
-                'organization_id' => $organization->id, 'project_id' => $config['project_id'] ?? null, 'product_key' => $product->key, 'plan_version_id' => $version?->id, 'family' => $product->family,
+                'organization_id' => $organization->id, 'project_id' => $projectId, 'product_key' => $product->key, 'plan_version_id' => $version?->id, 'family' => $product->family,
                 'name' => $name ?: ($product->localizedName('cs').($version ? ' '.$version->plan?->localizedName('cs') : '')), 'label' => $config['label'] ?? null,
                 'state' => ServiceStateMachine::PAID, 'region_code' => $region, 'entitlements' => $entitlements, 'sla_class' => (string) ($version?->plan?->sla_class ?? 'standard'),
                 'order_item_id' => $item?->id, 'tags' => array_filter(['parent_service_id' => $config['parent_service_id'] ?? null]), 'desired_spec' => [],
@@ -1244,6 +1250,9 @@ final class ServiceService
         $defs = $product?->options?->keyBy('key') ?? collect();
         foreach ($options as $key => $value) {
             $def = $defs->get($key);
+            if ($product !== null && $def === null) {
+                continue; // an option the product does not sell was never priced: it delivers nothing
+            }
             $rule = (array) data_get($def?->meta, 'entitlement', []);
             $target = (string) ($rule['key'] ?? $key);
             if (isset($rule['values']) && is_array($rule['values']) && array_key_exists((string) $value, $rule['values'])) {

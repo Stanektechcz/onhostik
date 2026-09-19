@@ -39,7 +39,8 @@ continue. Use during provider outages, data-centre work and while an SLO error b
 
 `POST /v1/services/{id}/actions` and its shorthands hand `params` to the same workflow the platform's own callers use.
 For the core actions a request from anybody who is not staff keeps only these keys — the rest is dropped before it
-reaches the workflow (`ServicesCommandHandler::CUSTOMER_PARAMS`):
+reaches the workflow (`Services\CustomerActionParams::filter()`, used by the API, by stored action hooks — at creation and
+again at every run — and by Discord commands):
 
 | action | kept |
 | --- | --- |

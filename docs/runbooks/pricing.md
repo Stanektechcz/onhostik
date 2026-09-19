@@ -39,6 +39,18 @@ stored in `system_settings` / the catalogue tables and read by the quote (`Quote
 Every change goes through `CatalogCommand` (audited) and drops the generated data script, so the web follows on the
 next request.
 
+## What is paid for is what is delivered
+
+A cart line carries a free-form `config`. The quote is where it becomes a commitment, so the quote keeps only what is
+priced (`CatalogService::normalizeOptions`): options **this product sells**, a slider inside its range and on whole
+steps, a select with a value the list offers, an add-on as a switch. The price (`configure`) and the delivered
+resources (`ServiceService::applyOptions`) are both computed from that one reading, and the order item stores it — the
+order itself says what was bought. `limits` and `entitlements` in a cart's `config` are dropped (they are the plan's),
+an unknown `region` is refused (`region_unknown` — otherwise an order is paid and never provisioned), and a
+`project_id` of another organization is ignored. Only an order placed by staff (`source` staff/cli) may carry its own
+`limits` or a `placement_instance`. Before this rule a web hosting ordered with `mailboxes: 1000` paid for the hundred
+the list allows and got a thousand, and a product was given options it does not sell for free.
+
 ## Versions of a plan (Brain card H01)
 
 A plan is never edited. Quotes, orders, services and subscriptions point at the plan VERSION they were sold with, so

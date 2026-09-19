@@ -15,6 +15,7 @@ use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\GameConfigurator;
 use Onhost\Domain\Provisioning\GameTemplates;
+use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -132,6 +133,16 @@ final class QuoteService
             if ($product->family === 'game' && $planKey === (string) config('onhost.game.configurator.plan', 'game-custom') && $change === null) {
                 $eggs = (array) data_get($product->meta, 'eggs', []);
                 $config['options'] = app(GameConfigurator::class)->clamp((string) ($config['egg'] ?? ($eggs[0] ?? '')), (array) ($config['options'] ?? [])); // never below the game's floors or outside the sliders
+            }
+            // what is delivered is what was priced: only the options this product sells, each within its range — and the
+            // plan's limits and resources are the plan's, never the cart's
+            $config['options'] = $this->catalog->normalizeOptions($product, (array) ($config['options'] ?? []));
+            if ($config['options'] === []) {
+                unset($config['options']);
+            }
+            unset($config['limits'], $config['entitlements']);
+            if (isset($config['region']) && ! Region::query()->where('code', (string) $config['region'])->where('state', 'active')->exists()) {
+                throw new DomainError('region_unknown', 'This location is not on offer.', 422, ['field' => 'region']);
             }
             if ($product->family === 'game' && $change === null) { // §5s: an available template, the RAM floor, the customer's inputs
                 app(GameTemplates::class)->assertOrderable($product, $config, app(ServiceService::class)->entitlementsFor($resolved['version'], (array) ($config['options'] ?? []), $product)); // the sliders' values count, not the bare base plan (audit §5v)

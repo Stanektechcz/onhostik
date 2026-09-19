@@ -9,6 +9,7 @@ use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Integrations\Models\ActionHook;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\CustomerActionParams;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceService;
@@ -57,6 +58,7 @@ final class ActionHookService
         if (ActionHook::query()->where('organization_id', $organization->id)->count() >= 50) {
             throw new DomainError('hook_limit', 'At most 50 action hooks per organization.', 422);
         }
+        $params = CustomerActionParams::filter($action, $params); // a stored action is a customer's words too (H21)
         $token = 'ahk_'.Str::random(40);
         $hook = ActionHook::query()->create(['organization_id' => $organization->id, 'service_id' => $service->id, 'created_by' => $user->id, 'name' => mb_substr(trim($name), 0, 80) ?: $action, 'action' => $action, 'params' => $params, 'token_hash' => hash('sha256', $token), 'enabled' => true]);
         $this->audit->record($context->withScope($organization->id), 'integration.hook.create', 'succeeded', ['action' => $action, 'name' => $hook->name], 'action_hook', $hook->id);
@@ -102,7 +104,7 @@ final class ActionHookService
         }
         $context = new CommandContext('user', $user->id, $service->organization_id, null, $ip, 'action-hook', 'hook:'.$hook->id, 'action hook '.$hook->name);
         try {
-            $operation = $this->services->requestAction($service, $hook->action, $context, 'hook:'.$hook->id.':'.intdiv(time(), 10), (array) $hook->params);
+            $operation = $this->services->requestAction($service, $hook->action, $context, 'hook:'.$hook->id.':'.intdiv(time(), 10), CustomerActionParams::filter((string) $hook->action, (array) $hook->params)); // hooks stored before the filter existed are read through it as well
         } catch (DomainError $e) {
             $hook->forceFill(['uses' => $hook->uses + 1, 'last_used_at' => now(), 'last_result' => mb_substr($e->error, 0, 40)])->save();
             $this->audit->record($context, 'integration.hook.trigger', 'failed', ['action' => $hook->action, 'error' => $e->error], 'action_hook', $hook->id);

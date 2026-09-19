@@ -12,6 +12,7 @@ use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Integrations\Models\DiscordLink;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Services\CustomerActionParams;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceFeatures;
@@ -358,7 +359,7 @@ final class DiscordService
             throw new DomainError('forbidden', 'Your account may not manage this service.', 403);
         }
         $context = $this->context($link, $user, $action);
-        $operation = $this->services->requestAction($service, $action, $context, 'discord:'.$link->id.':'.$action.':'.Str::lower(Str::random(12)), $params);
+        $operation = $this->services->requestAction($service, $action, $context, 'discord:'.$link->id.':'.$action.':'.Str::lower(Str::random(12)), CustomerActionParams::filter($action, $params));
         $this->audit->record($context, 'integration.discord.command', 'succeeded', ['action' => $action, 'params' => array_keys($params), 'operation_id' => $operation->id], 'service', $service->id);
 
         return $operation;

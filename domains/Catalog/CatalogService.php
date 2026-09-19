@@ -72,8 +72,45 @@ final class CatalogService
     }
 
     /**
-     * Configurator: base plan price + per-unit options (sliders/addons). Coefficients
-     * come from the catalog so the configurator can never disagree with the order.
+     * The one reading of a cart line's options. Only options this product sells survive: a slider inside its range and
+     * on whole steps, a select with a value the list offers, an add-on as a switch. The price and the delivered
+     * resources are both computed from this result, so nothing is delivered that was not priced.
+     *
+     * @param  array<string, mixed>  $selections  whatever the cart sent
+     * @return array<string, int|float|bool|string> only options this product sells, each within its range (H21, order-time twin)
+     */
+    public function normalizeOptions(Product $product, array $selections): array
+    {
+        $out = [];
+        foreach ($product->options as $option) {
+            /** @var ProductOption $option */
+            if (! array_key_exists($option->key, $selections)) {
+                continue;
+            }
+            $raw = $selections[$option->key];
+            if ($option->kind === 'addon') {
+                $out[$option->key] = filter_var($raw, FILTER_VALIDATE_BOOLEAN);
+            } elseif ($option->kind === 'select') {
+                if (is_scalar($raw) && collect($option->choices ?? [])->contains(fn ($choice) => (string) ($choice['key'] ?? '') === (string) $raw)) {
+                    $out[$option->key] = (string) $raw; // a value the list does not offer is not a choice
+                }
+            } elseif (is_numeric($raw)) {
+                $min = (float) ($option->min ?? 0);
+                $value = max($min, min((float) ($option->max ?? PHP_INT_MAX), (float) $raw));
+                $step = (float) ($option->step ?? 0);
+                if ($step > 0) {
+                    $value = $min + floor(($value - $min) / $step + 1e-9) * $step; // whole steps only: half a vCPU is priced, never delivered
+                }
+                $out[$option->key] = floor($value) === $value ? (int) $value : $value;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Configurator: base plan price + per-unit options (sliders/addons). Coefficients come from the catalog so the
+     * configurator can never disagree with the order. The selections are expected normalized (`normalizeOptions`).
      *
      * @param  array<string, float|int|bool|string>  $selections
      * @return array{net:Money, lines:list<array{key:string,label:string,qty:float,unit_net:Money,net:Money}>}

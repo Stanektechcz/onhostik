@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Onhost\Domain\Identity\StepUp\StepUpService;
+use Onhost\Domain\Integrations\Models\ActionHook;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Models\Node;
@@ -107,4 +108,18 @@ it('leaves staff their overrides, on the record', function () {
 
     $operationId = paramsPost($this, "/v1/staff/provisioning/services/{$vps->id}/purge", ['reason' => 'soudní příkaz k okamžitému odstranění'])->assertSuccessful()->json('operation_id');
     expect((array) Operation::query()->findOrFail($operationId)->desired)->toMatchArray(['action' => 'purge', 'force' => true]); // a forced purge inside the restore window stays a staff decision with a reason
+});
+
+it('reads a stored action hook through the same filter, including hooks stored before it existed', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $vps = paramsVps($org, '1042');
+    $this->actingAs($owner, 'sanctum');
+
+    $created = paramsPost($this, '/v1/hooks/actions', ['service_id' => $vps->id, 'name' => 'noční záloha', 'action' => 'backup', 'params' => ['kind' => 'final', 'retention_days' => 36500, 'protected' => true, 'reason' => 'noční']])->assertCreated()->json();
+    expect(ActionHook::query()->sole()->params)->toBe(['reason' => 'noční']); // what is stored is already only what a customer may choose
+    ActionHook::query()->update(['params' => json_encode(['kind' => 'final', 'protected' => true, 'reason' => 'starý hook'])]); // a hook from before the filter
+
+    app('auth')->forgetGuards();
+    $run = $this->postJson('/v1/hooks/run/'.$created['token'])->assertSuccessful()->json();
+    expect((array) Operation::query()->findOrFail($run['operation_id'])->desired)->toMatchArray(['action' => 'backup', 'reason' => 'starý hook'])->not->toHaveKeys(['kind', 'protected']);
 });
