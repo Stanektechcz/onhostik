@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 0cbe34e | 2026-09-19 | Three ways a long provisioning run could do harm without any call failing (Brain cards H319, H327, H315) |
+| 7e120d0 | 2026-09-17 | Refresh the generated project context after the panel-safety work |
 | 653ef4a | 2026-09-17 | Panel safety from the Brain's requirement cards: a moved panel address locks the instance, a maintenance lock never lifts itself, oversized panel answers are refused, and a cancellation revokes delegated access |
 | bb3a4a2 | 2026-09-16 | Refresh the generated project context on the clean tree |
 | cf59c58 | 2026-09-16 | Production hardening: the archives are re-verified, an erasure request reaches them, and the repository carries its own context and secret gate again |
@@ -12,5 +14,3 @@
 | d68c459 | 2026-09-16 | Restore a deleted ISPConfig site through the API (§5z incident) and let the purge unblock a service stuck mid-termination |
 | 7055fa4 | 2026-09-16 | Deletion lifecycle (audit §5ab): nothing is deleted without five matching identifiers, a complete archive and a restore window |
 | 6bf7495 | 2026-09-16 | Never delete a service without a full archive first (audit §5aa): FinalArchive stores site files, every database dump, the game backup, the mail domain and the service metadata on the backup disk with checksums, kept 60 days as a protected backup; the terminate step refuses to run without it and onhost:backups:run prunes expired archives |
-| cf91900 | 2026-09-16 | ISPConfig: a web site whose site user differs from the binding is never deleted either (shared panel safety on top of the domain check) |
-| c5b6d2d | 2026-09-15 | ISPConfig: mail services are read, suspended, resumed and terminated through their mail domain — the lifecycle calls used the web domain functions with the mail domain's number, so terminating a mail service could delete an unrelated web site; unknown resource types are refused and a web domain whose stored name differs is never deleted |
