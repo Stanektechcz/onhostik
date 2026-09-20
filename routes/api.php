@@ -80,7 +80,7 @@ Route::middleware('throttle:public')->group(function (): void {
     Route::post('auth/password/reset/confirm', [AuthController::class, 'confirmPasswordReset'])->middleware('throttle:auth');
     Route::post('auth/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:auth');
 
-    Route::post('webhooks/payments/{provider}', [PaymentController::class, 'webhook'])->withoutMiddleware('throttle:public');
+    Route::post('webhooks/payments/{provider}', [PaymentController::class, 'webhook'])->withoutMiddleware('throttle:public')->middleware('throttle:payment-callbacks'); // every callback makes us ask the provider: a ceiling per source
     Route::get('oncall/feed/{token}.ics', [OnCallController::class, 'feed'])->where('token', '[a-f0-9]{48}')->middleware('throttle:probes'); // the rota for a calendar app (audit §5u-4)
     Route::post('webhooks/alertmanager', [OnCallController::class, 'alertmanager'])->withoutMiddleware('throttle:public')->middleware('throttle:probes'); // Prometheus rules → on-call alerts (infra/monitoring/alertmanager.yml)
     Route::post('webhooks/oncall/{provider}', [OnCallController::class, 'inbound'])->withoutMiddleware('throttle:public')->middleware('throttle:probes'); // the pager acknowledged / resolved on its side (audit §5q-1)

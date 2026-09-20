@@ -61,7 +61,9 @@
   idempotency key, VAT treatment and price region taken from the request, a captured payment rolled back when the
   order could not be marked paid, server-side requests into the management network (uptime checks, webhooks, import
   URLs — `EgressGuard`), bearer tokens reaching the account and the step-up (`token.scope`), and roles granted above
-  the granter's own. Event payloads keep who wrote a message (`author_*`): the outbox masked
+  the granter's own. Second batch: promo codes are counted, custom vhost directives are judged statement by
+  statement, reverse-proxy upstreams stay off the node's panels and the network behind it, a forged payment callback
+  cannot swallow the real one. The rules are written down in `docs/runbooks/security-boundaries.md`. Event payloads keep who wrote a message (`author_*`): the outbox masked
   `author_type`, so a reply of support never reached the customer — fixed, with a guard test over every published key. A member removed from an organization loses their collaborator accounts on its game servers at once, and a
   weekly review reports panel accounts of people who are not members (H333, H332). Assessments live in the
   vault (`Hosting/ASSESSMENT-2026-09-17`, `Hosting/ASSESSMENT-2026-09-19`).
@@ -71,7 +73,7 @@
 ## Verified baseline
 
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 491 tests, 11 447 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 521 tests, 11 512 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

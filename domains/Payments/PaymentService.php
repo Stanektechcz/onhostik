@@ -149,8 +149,16 @@ final class PaymentService
                 'payload' => $this->redactor->redact($verified['raw']),
             ]));
         } catch (QueryException $e) {
-            // unique (provider, event_id) — duplicate delivery: exactly one business effect (S51)
-            return ['result' => 'duplicate', 'intent' => PaymentIntent::query()->where('provider', $providerKey)->where('provider_id', $verified['provider_id'])->first()];
+            // unique (provider, event_id) — duplicate delivery: exactly one business effect (S51). "Seen before" is not "settled",
+            // though: the event id is `transId:STATUS`, and the customer knows their transId — a `PAID` posted before paying took
+            // the id, and the provider's real `PAID` was then dropped as a duplicate, leaving a paid order unpaid until the daily
+            // reconciliation. While the intent is not settled the provider is simply asked again; settling is idempotent.
+            $intent = PaymentIntent::query()->where('provider', $providerKey)->where('provider_id', $verified['provider_id'])->first();
+            if ($intent !== null && ! $intent->isSucceeded() && $this->syncFromProvider($intent, CommandContext::system("webhook:{$providerKey}")) === 'settled') {
+                return ['result' => 'settled', 'intent' => $intent->refresh()];
+            }
+
+            return ['result' => 'duplicate', 'intent' => $intent];
         }
         $intent = PaymentIntent::query()->where('provider', $providerKey)->where('provider_id', $verified['provider_id'])->first();
         if ($intent === null) {

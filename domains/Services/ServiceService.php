@@ -44,6 +44,7 @@ use Onhost\Domain\Services\Models\DatabaseInstance;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Web\CommandRunner;
+use Onhost\Domain\Services\Web\CustomDirectives;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -719,9 +720,11 @@ final class ServiceService
                 if (strlen($content) > 20000) {
                     throw new DomainError('action_param_invalid', "{$action}: content may have at most 20 kB.", 422, ['field' => 'content']);
                 }
-                // customer directives may tune their own vhost, never reach outside it or load code into the server
-                if (preg_match('/^\s*(Include|IncludeOptional|LoadModule|SetHandler|php_admin_(value|flag)|ProxyPass|proxy_pass|include|load_module|fastcgi_pass|user|root\s+\/(etc|var\/lib|root|proc|sys))\b/mi', $content)) {
-                    throw new DomainError('action_param_invalid', "{$action}: directives may not include files, load modules, change handlers or point outside the site.", 422, ['field' => 'content']);
+                // customer directives may tune their own vhost, never reach outside it or load code into the server: judged
+                // statement by statement (nginx puts several on one line), by an allow-list for nginx and a deny-list for Apache
+                $refused = CustomDirectives::firstRefused($kind, $content);
+                if ($refused !== null) {
+                    throw new DomainError('action_param_invalid', "{$action}: directives may not include files, load modules, change handlers, proxy, write logs or point outside the site (refused: ".mb_substr($refused, 0, 60).').', 422, ['field' => 'content']);
                 }
 
                 return ['kind' => $kind, 'content' => $content];
@@ -937,6 +940,7 @@ final class ServiceService
                 if (! preg_match('~^https?://[A-Za-z0-9.\-]+(:\d{2,5})?(/[^\s]*)?$~', $target)) {
                     throw new DomainError('action_param_invalid', "{$action}: target must be an http(s) URL of the upstream, e.g. http://127.0.0.1:3000.", 422, ['field' => 'target']);
                 }
+                app(EgressGuard::class)->checkUpstream($target); // the site must not become a reverse proxy into the management network or to the node's own panel
                 $path = '/'.trim(preg_replace('~[^\w\/.-]~', '', str_replace('\\', '/', (string) ($params['path'] ?? '/'))) ?? '', '/');
 
                 return ['name' => $need('name', '/^[a-z0-9][a-z0-9_-]{1,30}$/i', 'name may contain letters, digits, dashes and underscores (2–31)'), 'target' => $target, 'path' => $path, 'cache' => filter_var($params['cache'] ?? false, FILTER_VALIDATE_BOOLEAN), 'host' => isset($params['host']) && preg_match($hostname, (string) $params['host']) ? strtolower((string) $params['host']) : null];
@@ -951,6 +955,7 @@ final class ServiceService
                     if (! preg_match('/^[a-z0-9][a-z0-9_-]{1,30}$/i', $name) || ! preg_match('~^https?://[A-Za-z0-9.\-]+(:\d{2,5})?(/[^\s]*)?$~', $target)) {
                         throw new DomainError('action_param_invalid', "{$action}: item {$i} needs a name (letters, digits, dashes, underscores; 2–31) and an http(s) upstream URL.", 422, ['field' => "items.{$i}"]);
                     }
+                    app(EgressGuard::class)->checkUpstream($target);
                     if (isset($items[strtolower($name)])) {
                         throw new DomainError('action_param_invalid', "{$action}: the name {$name} is used twice.", 422, ['field' => "items.{$i}.name"]);
                     }

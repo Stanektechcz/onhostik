@@ -7,6 +7,7 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | Runbook | When |
 | --- | --- |
 | [incident-response.md](incident-response.md) | probes or customers report an outage; severity, status page, post-mortem |
+| [security-boundaries.md](security-boundaries.md) | The rules the customer-facing edge keeps (parameter allow-lists, egress, keys and tokens, roles, money) — read before adding an endpoint |
 | [provider-outage.md](provider-outage.md) | Proxmox / ISPConfig / aaPanel / Pterodactyl / PowerDNS / WEDOS unreachable or erroring |
 | [provisioning-queue.md](provisioning-queue.md) | failed or stuck operations, drift, freeze switch, capacity |
 | [domains-registrar.md](domains-registrar.md) | WEDOS credit, renewals at risk, async registrations, reconciliation |

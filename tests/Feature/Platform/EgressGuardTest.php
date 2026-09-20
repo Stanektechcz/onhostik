@@ -87,3 +87,14 @@ it('keeps uptime checks, webhooks and imports out of the management network', fu
     }
     expect($sent)->toBe([]);
 });
+
+it('lets a reverse proxy point at the customer\'s own app on the node, not at the node\'s panel or the network behind it', function () {
+    $guard = app(EgressGuard::class);
+    foreach (['http://127.0.0.1:3000', 'http://localhost:8000/api', 'https://upstream.example.com/'] as $ok) {
+        $guard->checkUpstream($ok);
+    }
+    foreach (['http://127.0.0.1:8888/', 'http://127.0.0.1:8080', 'http://localhost:8006/api2/json', 'http://127.0.0.1:3306', 'http://127.0.0.1/', 'http://127.0.0.1:443',
+        'http://10.0.0.5:8888', 'http://192.168.1.10:3000', 'http://169.254.169.254/', 'http://pve.mgmt:8006'] as $refused) {
+        expect(fn () => $guard->checkUpstream($refused))->toThrow(fn (DomainError $e) => expect($e->error)->toBe('destination_not_allowed', $refused));
+    }
+});

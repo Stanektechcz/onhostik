@@ -7,6 +7,7 @@ namespace Onhost\Domain\Support;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\Models\Service;
@@ -50,6 +51,10 @@ final class TicketService
         $service = isset($input['service_id']) ? Service::query()->withTrashed()->find($input['service_id']) : null;
         if ($service !== null && $organization !== null && $service->organization_id !== $organization->id) {
             throw DomainError::notFound('service');
+        }
+        // a ticket points at the customer's own domain or at none: somebody else's domain id is not a reference (it steered staff triage)
+        if (isset($input['domain_id']) && $organization !== null && ! Domain::query()->where('organization_id', $organization->id)->whereKey((string) $input['domain_id'])->exists()) {
+            throw DomainError::notFound('domain');
         }
         $triage = Triage::classify($subject, $body);
         $topic = (string) ($input['category'] ?? $triage['topic']);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Database\Seeders\LegalEntitySeeder;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Notifications\Models\Notification;
@@ -202,4 +203,16 @@ it('classifies topics deterministically without diacritics and caps customer pri
     expect(Triage::priority('p1', 'objednavka', true, false))->toBe('p1');
     expect(Triage::priority('nizka', 'dostupnost', false, true, 'web je nedostupny, vypadek'))->toBe('p1');
     expect(Triage::priority(null, 'bezpecnost', false, false))->toBe('p2');
+});
+
+it('attaches a ticket to the customer\'s own domain only', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    [, $other] = $this->customerWithOrganization();
+    $foreign = Domain::query()->create(['organization_id' => $other->id, 'fqdn_ascii' => 'cizi-domena.cz', 'fqdn_unicode' => 'cizi-domena.cz', 'tld' => 'cz', 'state' => 'ACTIVE', 'expires_at' => now()->addYear()]);
+    $own = Domain::query()->create(['organization_id' => $org->id, 'fqdn_ascii' => 'moje-domena.cz', 'fqdn_unicode' => 'moje-domena.cz', 'tld' => 'cz', 'state' => 'ACTIVE', 'expires_at' => now()->addYear()]);
+    $this->actingAs($user, 'sanctum');
+    $body = ['subject' => 'Nejde mi nastavit DNS záznam', 'body' => 'Potřebuji poradit s MX záznamem u domény.'];
+    $this->postJson('/v1/tickets', $body + ['domain_id' => $foreign->id])->assertNotFound();
+    expect(Ticket::query()->count())->toBe(0);
+    expect($this->postJson('/v1/tickets', $body + ['domain_id' => $own->id])->assertCreated()->json('data.domain_id'))->toBe($own->id);
 });

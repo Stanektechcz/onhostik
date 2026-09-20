@@ -30,6 +30,7 @@ return [
         'renew_days_before' => (int) env('ONHOST_ACME_RENEW_DAYS', 30),
     ],
     'egress' => [ // destinations a CUSTOMER names (uptime checks, webhooks, import URLs): public addresses only (EgressGuard)
+        'node_service_ports' => [22, 25, 80, 443, 2022, 3306, 5432, 6379, 8006, 8080, 8081, 8443, 8888, 9000, 11211, 27017], // loopback ports of a node a customer's reverse proxy may not point at (panels, databases, caches)
         'deny_cidrs' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_EGRESS_DENY_CIDRS', ''))))),   // the operator's own public management ranges
         'allow_cidrs' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_EGRESS_ALLOW_CIDRS', ''))))), // a lab on private addresses; empty in production
     ],

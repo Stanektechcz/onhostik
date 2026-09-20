@@ -74,6 +74,31 @@ final class EgressGuard
         return $options;
     }
 
+    /**
+     * The upstream of a customer's reverse proxy runs on the NODE, not here: the customer's own app on the node's loopback
+     * (`http://127.0.0.1:3000`) is the whole point of the feature, so loopback is allowed — but not on a port where a
+     * panel, a database or a cache of the node listens, and never a private address beyond loopback. A public upstream
+     * follows the ordinary rule.
+     *
+     * @throws DomainError destination_not_allowed (422)
+     */
+    public function checkUpstream(string $url): void
+    {
+        $parts = parse_url(trim($url));
+        $host = strtolower(trim((string) ($parts['host'] ?? ''), '[]'));
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        if (in_array($host, ['127.0.0.1', 'localhost', '::1'], true) && in_array($scheme, ['http', 'https'], true) && ! isset($parts['user'])) {
+            $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
+            $reserved = array_map('intval', (array) config('onhost.egress.node_service_ports', [22, 25, 80, 443, 2022, 3306, 5432, 6379, 8006, 8080, 8081, 8443, 8888, 9000, 11211, 27017]));
+            if ($port < 1024 || in_array($port, $reserved, true)) {
+                throw $this->refused("port {$port} on the node belongs to the node's own services");
+            }
+
+            return;
+        }
+        $this->check($url);
+    }
+
     public function isPublic(string $ip): bool
     {
         foreach (array_map('strval', (array) config('onhost.egress.allow_cidrs', [])) as $cidr) { // a lab whose nodes live on private addresses says so explicitly

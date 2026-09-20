@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Orders;
 
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
@@ -95,6 +96,16 @@ final class CheckoutService
 
         return DB::transaction(function () use ($quote, $organization, $user, $consents, $payment, $idempotencyKey, $context, $source, $mode, $fingerprint, $risk) {
             $quote->forceFill(['state' => 'accepted', 'organization_id' => $organization->id])->save();
+            // a promo code is used when an order is placed with it — counted here, under a lock, so "the first hundred" is a
+            // hundred even when two checkouts race. The counter existed and nothing ever wrote to it: every limited code was unlimited.
+            $promoCode = (string) ($quote->versions['promo'] ?? '');
+            if ($promoCode !== '') {
+                $promo = PromoCode::query()->where('code', $promoCode)->lockForUpdate()->first();
+                if ($promo === null || ! $promo->isUsable()) {
+                    throw new DomainError('promo_exhausted', 'This promo code can no longer be used; refresh the cart to see the price without it.', 409, ['field' => 'promo']);
+                }
+                $promo->forceFill(['uses' => (int) $promo->uses + 1])->save();
+            }
             $number = $this->allocateNumber();
             $order = Order::query()->create([
                 'number' => $number,
@@ -250,6 +261,9 @@ final class CheckoutService
             }
             if ($to === OrderStateMachine::CANCELLED) {
                 $patch['cancelled_at'] = now();
+                if ($order->promo_code !== null && $order->paid_at === null) { // an order nobody paid gives its use of the code back
+                    PromoCode::query()->where('code', $order->promo_code)->where('uses', '>', 0)->decrement('uses');
+                }
                 if ($order->wallet_hold_id !== null) {
                     $hold = WalletHold::query()->find($order->wallet_hold_id);
                     if ($hold !== null && $hold->isActive()) {

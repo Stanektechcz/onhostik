@@ -33,7 +33,15 @@ final class AppServiceProvider extends ServiceProvider
             return Limit::perMinute($perMinute)->by($persistent !== null ? 'token:'.$persistent->getKey() : ($user ? 'user:'.$user->getAuthIdentifier() : 'ip:'.$request->ip()));
         });
         RateLimiter::for('public', fn (Request $request) => Limit::perMinute((int) config('onhost.api.public_rate_limit_per_minute', 600))->by('ip:'.$request->ip()));
-        RateLimiter::for('auth', fn (Request $request) => [Limit::perMinute(10)->by('ip:'.$request->ip()), Limit::perMinute(5)->by('email:'.strtolower((string) $request->input('email')))]);
+        // per address and per e-mail. A request without an e-mail (guest checkout carries it as customer.email, the public forms
+        // elsewhere or not at all) used to share ONE bucket keyed `email:` — five lead forms a minute from anywhere shut guest
+        // checkout down for everybody. No e-mail, no e-mail bucket.
+        RateLimiter::for('auth', function (Request $request) {
+            $email = strtolower(trim((string) ($request->input('email') ?? $request->input('customer.email') ?? '')));
+
+            return array_values(array_filter([Limit::perMinute(10)->by('ip:'.$request->ip()), $email === '' ? null : Limit::perMinute(5)->by('email:'.$email)]));
+        });
+        RateLimiter::for('payment-callbacks', fn (Request $request) => Limit::perMinute(120)->by('pay:'.$request->ip()));
         RateLimiter::for('probes', fn (Request $request) => Limit::perMinute(600)->by('probe:'.substr((string) $request->bearerToken(), 0, 16).':'.$request->ip()));
         RateLimiter::for('domain-check', fn (Request $request) => Limit::perMinute(30)->by(($request->user() ? 'user:'.$request->user()->getAuthIdentifier() : 'ip:'.$request->ip())));
     }
