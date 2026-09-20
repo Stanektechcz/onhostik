@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Domains\Workflows\Steps;
 
+use Onhost\Domain\Domains\DomainService;
 use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Domain\Domains\Models\DomainTransferSecret;
 use Onhost\Domain\Domains\Models\RegistrarContact;
@@ -36,6 +37,14 @@ final class SubmitTransferStep extends DomainStep
         $check = $adapter->transferCheck($domain->fqdn_ascii);
         if (($check['transferable'] ?? false) !== true) {
             return StepResult::fail('Registry reports the domain is not transferable (locked, pending or wrong registrar)', false, $check);
+        }
+        try { // a transfer renews the name — a premium one at the registry's price, from our credit
+            $answer = $adapter->checkAvailability([$domain->fqdn_ascii])[$domain->fqdn_ascii] ?? [];
+        } catch (ProviderException $e) {
+            return StepResult::fail('the registrar did not say whether the name is premium; the transfer waits for the answer', true, $e->toArray(), $e->retryAfterSeconds ?? 300);
+        }
+        if (DomainService::isPremium($answer)) {
+            return StepResult::fail("{$domain->fqdn_ascii} is a premium name: its transfer is priced by the registry, so it is not transferred at the list price — finance handle it by hand", false, ['premium' => true]);
         }
         $secret = DomainTransferSecret::query()->where('domain_id', $domain->id)->where('direction', 'in')->whereNull('used_at')->latest()->first();
         if ($secret === null || ! $secret->isUsable()) {

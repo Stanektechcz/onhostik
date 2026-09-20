@@ -78,7 +78,7 @@
     A.post('/domains/check', { names: [fqdn], currency: 'CZK' }).then(function (r) {
       var row = ((r.data || r)[0]) || {};
       if (row.available !== true) {
-        flash(cmp, _('Doménu nelze registrovat', 'The domain cannot be registered'), row.available === false ? _('Doména ' + fqdn + ' je už registrovaná. Pokud je vaše, převod k nám domluvíme přes podporu.', 'Domain ' + fqdn + ' is already registered. If it is yours, arrange a transfer through support.') : _('Dostupnost se teď nepodařilo ověřit, zkuste to za chvíli.', 'Availability could not be checked right now, try again shortly.'));
+        flash(cmp, _('Doménu nelze registrovat', 'The domain cannot be registered'), row.reason === 'premium' ? _('Doména ' + fqdn + ' je prémiové jméno: jeho cenu určuje registr. Napište podpoře, připravíme nabídku.', 'Domain ' + fqdn + ' is a premium name: the registry sets its price. Write to support for an offer.') : row.available === false ? _('Doména ' + fqdn + ' je už registrovaná. Pokud je vaše, převod k nám domluvíme přes podporu.', 'Domain ' + fqdn + ' is already registered. If it is yours, arrange a transfer through support.') : _('Dostupnost se teď nepodařilo ověřit, zkuste to za chvíli.', 'Availability could not be checked right now, try again shortly.'));
         throw new Error('unavailable');
       }
       var consents = {};

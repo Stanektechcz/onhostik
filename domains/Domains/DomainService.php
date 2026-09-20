@@ -109,6 +109,7 @@ final class DomainService
                 if (is_array($cached)) {
                     $entry['available'] = $cached['available'];
                     $entry['reason'] = $cached['reason'];
+                    $entry['premium'] = (bool) ($cached['premium'] ?? false);
                 } elseif ($entry['supported']) {
                     $toCheck[] = $fqdn;
                 }
@@ -123,8 +124,13 @@ final class DomainService
                 if ($entry['fqdn'] !== null && isset($results[$entry['fqdn']])) {
                     $entry['available'] = $results[$entry['fqdn']]['available'];
                     $entry['reason'] = $results[$entry['fqdn']]['reason'] ?? null;
+                    $entry['premium'] = self::isPremium($results[$entry['fqdn']]);
+                    if ($entry['premium']) { // the registry names its own price for it, and the registrar takes that from OUR credit: not sold at the price of its TLD
+                        $entry['available'] = false;
+                        $entry['reason'] = 'premium';
+                    }
                     if ($entry['available'] !== null) {
-                        $this->cache->put("onhost:domain:avail:{$entry['fqdn']}", ['available' => $entry['available'], 'reason' => $entry['reason']], (int) config('onhost.domains.search_cache_seconds', 60));
+                        $this->cache->put("onhost:domain:avail:{$entry['fqdn']}", ['available' => $entry['available'], 'reason' => $entry['reason'], 'premium' => $entry['premium']], (int) config('onhost.domains.search_cache_seconds', 60));
                     }
                 }
             }
@@ -135,6 +141,16 @@ final class DomainService
     }
 
     // ── registration ─────────────────────────────────────────────────────────
+
+    /**
+     * Whether a registrar's answer about a name says "premium" (Subreg: `price.premium`; any adapter may say `premium`).
+     *
+     * @param  array<string,mixed>  $answer  one entry of `checkAvailability()` or a `domainInfo()`
+     */
+    public static function isPremium(array $answer): bool
+    {
+        return (bool) ($answer['premium'] ?? false) || (bool) data_get($answer, 'price.premium', false);
+    }
 
     /** Called by order fulfilment for every `domain` order item (idempotent per item). */
     public function createFromOrderItem(OrderItem $item, Order $order, CommandContext $context): Operation

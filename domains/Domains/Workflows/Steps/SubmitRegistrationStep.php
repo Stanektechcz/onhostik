@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Domains\Workflows\Steps;
 
 use Illuminate\Support\Carbon;
+use Onhost\Domain\Domains\DomainService;
 use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Domains\Models\DomainConsent;
@@ -59,6 +60,23 @@ final class SubmitRegistrationStep extends DomainStep
             }
         }
         $this->forgetUnconfirmed($domain);
+        // A premium name costs what the registry says, and the registrar takes it from OUR credit the moment the create is accepted.
+        // The order was priced from the TLD's list, so the name is asked about once more right before the create — whatever the
+        // search said, whoever placed the order (the API quotes a domain without searching for it).
+        try {
+            $answer = $adapter->checkAvailability([$domain->fqdn_ascii])[$domain->fqdn_ascii] ?? [];
+        } catch (ProviderException $e) {
+            return StepResult::fail('the registrar did not say whether the name is premium; the create waits for the answer', true, $e->toArray(), $e->retryAfterSeconds ?? 120);
+        }
+        if (! array_key_exists('available', $answer) || $answer['available'] === null) { // no answer is not "ordinary": the create waits until the registrar says what the name is
+            return StepResult::fail('the registrar did not say whether the name is free and ordinary ('.(string) ($answer['reason'] ?? 'no answer').'); the create waits for the answer', true, [], 120);
+        }
+        if (DomainService::isPremium($answer)) {
+            return StepResult::fail("{$domain->fqdn_ascii} is a premium name: the registry sets its own price for it, so it is not registered at the list price of .{$domain->tld}", false, ['premium' => true, 'registry_price' => data_get($answer, 'price.amount'), 'currency' => data_get($answer, 'price.currency')]);
+        }
+        if (($answer['available'] ?? null) === false && ! $earlier) {
+            return StepResult::fail("{$domain->fqdn_ascii} is no longer available (".($answer['reason'] ?? 'registered').')', false, ['reason' => $answer['reason'] ?? 'registered']);
+        }
         $registrant = RegistrarContact::query()->find($domain->registrant_contact_id);
         $admin = $domain->admin_contact_id ? RegistrarContact::query()->find($domain->admin_contact_id) : $registrant;
         if ($registrant === null || ! $registrant->isSynced()) {

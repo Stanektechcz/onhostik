@@ -93,6 +93,8 @@ function registryFake(array &$state): void
 
                 return [];
             })(),
+            // live WAPI: a free name answers 1000 with `data.name` only, a registered one 3201 "Domain is registered"
+            'domain-check' => ($state['registered'] ?? false) === false ? ['data' => ['name' => $data['name'] ?? '']] : ['code' => 3201, 'result' => 'Domain is registered'],
             'domains-list' => ['data' => ['domain' => $state['listing'] ?? []]],
             'credit-info' => ['data' => ['credit' => $state['credit'] ?? '25000.00', 'currency' => 'CZK']],
             'poll-req' => ($event = array_shift($state['queue'])) === null ? ['data' => []] : ['data' => ['event' => $event]],
@@ -321,7 +323,7 @@ function subregRegistryFake(array &$state): void
 
         return match ($function) {
             'Login' => ['data' => ['ssid' => 'ssid-'.substr(sha1((string) ($params['login'] ?? '')), 0, 8)]],
-            'Check_Domain' => ['data' => ['name' => $params['domain'], 'avail' => $state['registered'] === false ? 1 : 0, 'price' => ['amount' => $state['prices'][substr((string) $params['domain'], strrpos((string) $params['domain'], '.') + 1)]['register'] ?? '140.00', 'premium' => 0, 'currency' => $state['currency']]]],
+            'Check_Domain' => ['data' => ['name' => $params['domain'], 'avail' => $state['registered'] === false ? 1 : 0, 'price' => ['amount' => $state['prices'][substr((string) $params['domain'], strrpos((string) $params['domain'], '.') + 1)]['register'] ?? '140.00', 'premium' => ($state['premium'] ?? false) ? 1 : 0, 'currency' => $state['currency']]]],
             'Get_TLD_Info' => ['data' => ['periodsCreate' => ['1', '2', '3'], 'periodsRenew' => ['1', '2'], 'transfer' => '1', 'ns' => 'hosts']],
             'Create_Contact' => ['data' => ['contactid' => 'G-'.str_pad((string) (++$state['contacts']), 6, '0', STR_PAD_LEFT)]],
             'Info_Contact' => ['data' => ['id' => $params['contact']['id'] ?? 'G-000001', 'name' => 'Jana', 'surname' => 'Nováková', 'email' => 'jana@example.cz', 'cc' => 'CZ']],
@@ -353,7 +355,7 @@ function subregRegistryFake(array &$state): void
             })(),
             'Info_Domain' => $state['registered'] === false
                 ? ['error' => ['You are not allowed for this domain!', 501, 1004]]
-                : ['data' => ['domain' => $params['domain'], 'contacts' => ['admin' => [['subregid' => 'G-000001', 'registryid' => 'ONH-1']]], 'hosts' => $state['hosts'] ?? ['ns1.onhost.cz', 'ns2.onhost.cz'], 'registrant' => ['subregid' => 'G-000001'], 'exDate' => $state['expiration'], 'crDate' => $state['created'] ?? '2026-09-06', 'authid' => 'Auth-Secret-1', 'status' => $state['registered'] === 'pending' ? ['pendingCreate'] : ['ok'], 'autorenew' => 0, 'options' => ['nsset' => $state['nsset'] ? 'NSSET-ONHOST' : '']]],
+                : ['data' => ['domain' => $params['domain'], 'contacts' => ['admin' => [['subregid' => 'G-000001', 'registryid' => 'ONH-1']]], 'hosts' => $state['hosts'] ?? ['ns1.onhost.cz', 'ns2.onhost.cz'], 'registrant' => ['subregid' => 'G-000001'], 'exDate' => $state['expiration'], 'crDate' => $state['created'] ?? '2026-09-06', 'authid' => 'Auth-Secret-1', 'status' => $state['registered'] === 'pending' ? ['pendingCreate'] : ['ok'], 'autorenew' => 0, 'premium' => ($state['premium'] ?? false) ? 1 : 0, 'options' => ['nsset' => $state['nsset'] ? 'NSSET-ONHOST' : '']]],
             'Domains_List' => ['data' => ['count' => count($state['listing']), 'domains' => $state['listing']]],
             'Get_Credit' => ['data' => ['credit' => ['amount' => $state['credit'], 'reserved' => '0.00', 'threshold' => '0.00', 'users' => '0.00', 'currency' => $state['currency']]]],
             'Prices' => isset($state['prices'][$params['tld']])

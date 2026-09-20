@@ -58,3 +58,22 @@ the registrant (`domain-auth-info` mandatory template); it is never logged or st
 Zones are canonical in PowerDNS; WEDOS Zone is a fallback selectable per zone. Two-phase editing:
 `POST /v1/domains/{zone}/zone/changes` (stage) → `…/commit` (atomic, versioned) → `…/rollback` (previous
 version). Enabling DNSSEC publishes DS records to the registrar through the same command bus.
+
+## Premium names
+
+A premium name costs at the registry what the registry says — hundreds or thousands of euros — and the registrar takes it
+from **our** credit the moment the order is accepted. The shop priced every name from the list of its TLD:
+
+* the search offered a premium name as free at the ordinary price (Subreg's `Check_Domain` says `price.premium = 1`; the
+  flag was read by the adapter and ignored by everything after it);
+* the registration sent the create without looking — whoever placed the order, the API quotes a domain without searching
+  for it; the renewal and the transfer did the same at the list price.
+
+Now: the search answers `available: false, reason: premium` (the shop says "premium name — write to us"); right before
+`domain-create` the name is asked about once more and a premium one — or one taken in the meantime — fails the line for
+good (the order settlement gives the money back), while **no answer** makes the create wait (it is not "ordinary" by
+default); a renewal or a transfer of a premium name fails before anything is sent or held, the customer and finance hear
+about it (`domain.renewal_failed`), and finance renew it by hand at the registry's price.
+
+Selling premium names is a business decision (the registry's price + a margin, quoted individually); until then they
+are not sold. Tests: `tests/Feature/Domains/PremiumDomainTest.php`.

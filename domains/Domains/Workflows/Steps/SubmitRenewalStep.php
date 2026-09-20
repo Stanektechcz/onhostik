@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Domains\Workflows\Steps;
 
+use Onhost\Domain\Domains\DomainService;
 use Onhost\Domain\Domains\Models\RegistrarOperation;
 use Onhost\Domain\Domains\Workflows\DomainStep;
 use Onhost\Domain\Provisioning\Workflow\StepContext;
@@ -29,6 +30,9 @@ final class SubmitRenewalStep extends DomainStep
         $before = $domain->expires_at;
         $expected = $before?->copy()->addYears($years);
         $info = $adapter->domainInfo($domain->fqdn_ascii);
+        if (DomainService::isPremium($info)) { // the customer was charged the list price of the TLD; the registrar would take the registry's premium price from our credit
+            return StepResult::fail("{$domain->fqdn_ascii} is a premium name: its renewal price is set by the registry, so it is not renewed at the list price — finance renew it by hand", false, ['premium' => true]);
+        }
         $current = isset($info['expires_at']) ? new \DateTimeImmutable((string) $info['expires_at']) : null;
         if ($expected !== null && $current !== null && $current >= $expected->startOfDay()) {
             return StepResult::done(['renewed' => true, 'expires_at' => $current->format(DATE_ATOM), 'already_renewed' => true]);
