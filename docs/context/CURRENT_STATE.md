@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A name on a shared node belongs to one service:** the 30-bit name prefix of a service is a unique column (`000760`);
+  a colliding id is replaced before anything exists, cancelled services keep theirs, the doctor names old collisions.
+
 - **Corrections that hold (2026-09-20, night):** the state of an order is not written by hand — the transition endpoint
   took any state from `staff.order.manage` outside the command bus (a support agent declared their own order paid and got
   the services for nothing); a person now only cancels, through the bus. A cancelled paid order credits its documents and

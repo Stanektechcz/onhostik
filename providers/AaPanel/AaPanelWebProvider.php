@@ -356,7 +356,7 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
         $prefix = Naming::prefix($site->serviceId);
         $out = [];
         foreach ((array) ($this->post('/data?action=getData&table=databases', ['limit' => 200, 'p' => 1, 'search' => $prefix], 'db.list')['data'] ?? []) as $row) {
-            if (! str_starts_with((string) ($row['name'] ?? ''), $prefix)) {
+            if (! str_starts_with((string) ($row['name'] ?? ''), $prefix.'_')) { // the prefix and its separator: `oh1yz8n6_…`
                 continue;
             }
             $out[] = ['remote_id' => (string) $row['id'], 'name' => (string) $row['name'], 'user' => $row['username'] ?? null, 'charset' => $row['codeing'] ?? null, 'size_bytes' => null];
@@ -415,7 +415,7 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
         $prefix = Naming::prefix($site->serviceId);
         $out = [];
         foreach ((array) ($this->post('/data?action=getData&table=ftps', ['limit' => 200, 'p' => 1, 'search' => $prefix], 'ftp.list')['data'] ?? []) as $row) {
-            if (! str_starts_with((string) ($row['name'] ?? ''), $prefix)) {
+            if (! str_starts_with((string) ($row['name'] ?? ''), $prefix.'_')) { // the prefix and its separator: `oh1yz8n6_…`
                 continue;
             }
             $out[] = ['remote_id' => (string) $row['id'], 'user' => (string) $row['name'], 'path' => $row['path'] ?? null, 'active' => (int) ($row['status'] ?? 1) === 1];

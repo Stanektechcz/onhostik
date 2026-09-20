@@ -178,6 +178,10 @@ final class Doctor extends Command
         $over = Invoice::query()->where('credited_minor', '>', 0)->whereColumn('credited_minor', '>', 'total_minor')->limit(50)->pluck('number');
         $this->add('money', 'no document is credited for more than it was issued for', $over->isEmpty(), $over->isEmpty() ? 'credit notes fit their documents' : $over->take(5)->implode(', ').' — finance review', false);
 
+        // what a service owns on a shared node is recognised by its name prefix; two services with one prefix own each other's databases
+        $shared = Service::query()->withTrashed()->whereNull('name_prefix')->limit(50)->pluck('id');
+        $this->add('security', 'every service has a node name prefix of its own', $shared->isEmpty(), $shared->isEmpty() ? 'prefixes are unique' : $shared->count().' service(s) share a prefix with an older one: '.$shared->take(5)->implode(', ').' — move their databases and FTP accounts before anything else (docs/runbooks/security-boundaries.md §14)');
+
         $slow = app(OperationLatency::class)->slow();
         $target = OperationLatency::targetSeconds();
         $this->add('speed', "actions a person waits for finish within {$target} s (p95, 24 h)", $slow === [], $slow === [] ? 'nothing slower' : implode('; ', array_map(fn (array $r) => "{$r['provider']} {$r['action']}: p95 {$r['p95_s']} s (queue {$r['wait_p95_s']} s, {$r['count']}×)", array_slice($slow, 0, 5))), false);

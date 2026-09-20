@@ -178,6 +178,22 @@ Tests: `tests/Feature/Support/AssistantReadToolsTest.php`.
 
 Tests: `tests/Feature/Orders/OrderTransitionGateTest.php`.
 
+## 14. A name on a shared node belongs to one service
+
+* What a service owns on a shared panel is recognised by its **name prefix** — `oh` + the last six characters of the
+  service id (`Naming::prefix`): databases and their users, FTP accounts, the unix agent user. Six characters are thirty
+  bits; with thousands of sites on one panel two services end up with the same prefix sooner or later, and each of them
+  then lists, changes and drops the other's databases (aaPanel lists by `search=<prefix>`).
+* `services.name_prefix` (migration `000760`) carries the prefix under a **unique index**. `Service::creating` replaces an
+  id whose prefix is taken — by a running service or a cancelled one, whose databases stay on the node through the
+  restore window — before anything exists; the index refuses what a race would let through. The aaPanel adapter matches
+  `prefix_` (the prefix **and** its separator), not just the first eight characters.
+* Services that already collided when the migration ran stay without a prefix of their own; `onhost:doctor` names them
+  (area `security`: *every service has a node name prefix of its own*). Nothing can fix that from here — their
+  resources on the node have to be told apart by hand and one of the services moved.
+
+Tests: `tests/Feature/Services/ServiceNamePrefixTest.php`.
+
 ## What to look at on staging after deploying this
 
 * migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;
