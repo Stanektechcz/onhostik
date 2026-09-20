@@ -4,6 +4,7 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 4ef56bb | 2026-09-20 | An operation forgets the secrets it carried; a generated password is read once, by whoever manages the service |
 | 236f564 | 2026-09-20 | Four eyes work: a critical staff action opens a request, somebody else decides it; consoles get named roles |
 | 38e1771 | 2026-09-20 | A backup is fresh and whole, or it fails; core actions belong to the families that have them |
 | 243babe | 2026-09-20 | The whole site can be packed and unpacked: "." is the site root for both file transports |
@@ -13,4 +14,3 @@
 | bfec8ae | 2026-09-20 | The assistant sees what the signed-in person sees, and works for support over one customer's account |
 | acccc04 | 2026-09-20 | One service shared with another person; the authorizer forgets between units of work; a project member's run finishes |
 | b382cf0 | 2026-09-20 | Audit: the shared NSSET finding needs the registry's answer, not a schema change |
-| d314ee9 | 2026-09-20 | Docs: what an order does with the money, secrets that are not kept, account rules, and what the review left open |
