@@ -105,8 +105,25 @@ per process and is emptied after every request and before every queued job, so a
 from memory. The assistant reads and proposes through `AssistantScope`, built from the same authorizer.
 Details: `docs/runbooks/service-sharing-and-assistant.md`.
 
-## What to look at on staging after deploying this
+## 10. An action belongs to the families that have it; a backup id belongs to the site that made it
 
+* The core actions (`backup`, `restore`, `snapshot`, `rollback_snapshot`, `power`) were never asked whether the service
+  offers them — only the feature actions were. A `backup` on a **mail** service reached the ISPConfig web adapter with
+  the mail domain's id, and a mail domain's id among web sites is a stranger's site: its backup plan was rewritten and
+  its archives listed (a restore of them was one request away). `ServiceService::assertCoreActionOffered` refuses by
+  family before an operation exists (`feature_unavailable`), and `backup` / `listBackups` / `restore` of the adapter
+  carry the same `assertWebDomain` guard as the other site calls (§8).
+* ISPConfig's `sites_web_domain_backup` and `mail_user_backup` take the **backup's** id and do not ask whose backup it
+  is. The adapter acts only on an id that stands in the site's (mailbox's) own list — `backupAction()`,
+  `restoreMailbox()`; the operator command `onhost:ispconfig:restore-site` does the same.
+* A backup row is deleted or restored only through the service it belongs to (`where service_id`), never when it is
+  `protected`, `final` or under a legal hold; the final archive is not served by the ordinary download.
+* The customer chooses nothing about a backup row (`CustomerActionParams`: kind, retention, protection are the
+  platform's) and holds at most `ONHOST_BACKUP_MANUAL_MAX` manual backups — they live on our disk.
+
+Tests: `tests/Feature/Services/WebBackupArchiveTest.php`, `tests/Contract/IspConfigToolsContractTest.php`.
+
+## What to look at on staging after deploying this
 * migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;
 * orders that were delivered and never charged (the query is in `billing-dunning.md`);
 * `provider_calls` of the last 90 days still hold what was logged before the new masks (Subreg password and session ids, private keys) — rotate the Subreg API password after deploying and let retention age the rows out, or delete `provider_calls` of `subreg` older than the deploy;

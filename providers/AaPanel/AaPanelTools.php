@@ -359,9 +359,11 @@ trait AaPanelTools
     public function exportDatabase(ResourceRef $site, string $remoteId, string $localFile, array $credentials = []): ProviderResult
     {
         $db = $this->siteDatabase($site, $remoteId);
+        $dumps = fn (): array => (array) ($this->post('/data?action=getData&table=backup', ['limit' => 20, 'p' => 1, 'search' => (int) $remoteId, 'type' => 1], 'db.backup.list')['data'] ?? []);
+        $before = array_map(fn ($b) => (string) ($b['id'] ?? ''), $dumps());
         $this->post('/database?action=ToBackup', ['id' => (int) $remoteId], 'db.backup', true);
-        $list = $this->post('/data?action=getData&table=backup', ['limit' => 5, 'p' => 1, 'search' => (int) $remoteId, 'type' => 1], 'db.backup.list');
-        $latest = collect((array) ($list['data'] ?? []))->sortByDesc('id')->first();
+        // the dump of THIS call: "the newest one" was an older dump whenever the panel made none — exported as today's data and then deleted
+        $latest = collect($dumps())->reject(fn ($b) => in_array((string) ($b['id'] ?? ''), $before, true))->sortByDesc('id')->first();
         $file = is_array($latest) ? (string) ($latest['filename'] ?? '') : '';
         if ($file === '') {
             throw new ProviderException('aapanel', ProviderErrorCode::PROVIDER_BUG, 'The panel did not produce a database dump');

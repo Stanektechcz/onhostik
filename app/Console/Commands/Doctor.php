@@ -134,7 +134,9 @@ final class Doctor extends Command
         $failed = Backup::query()->where('kind', 'final')->where('state', 'failed')->where('created_at', '>', now()->subDays(30))->count();
         $this->add('lifecycle', 'no failed archive in the last 30 days', $failed === 0, $failed === 0 ? '' : $failed.' × — onhost:services:archive <service> shows the attempts', false);
 
-        $unverified = Backup::query()->where('kind', 'final')->where('state', 'completed')->where('verify_status', '!=', 'ok')->count();
+        $unverified = Backup::query()->whereNotNull('meta->set')->where('state', 'completed')->where('verify_status', '!=', 'ok')->count(); // every set on the backup disk: final archives and the backups of web services
+        $stale = Backup::query()->where('state', 'running')->where('started_at', '<', now()->subHours(6))->count();
+        $this->add('lifecycle', 'no backup stuck in progress', $stale === 0, $stale === 0 ? '' : $stale.' × running for more than six hours — the operation behind it died; see docs/runbooks/backups.md', false);
         $this->add('lifecycle', 'archives verified', $unverified === 0, $unverified === 0 ? '' : $unverified.' × without a checksum verification — onhost:backups:run re-verifies', false);
 
         $overdue = Service::query()->withTrashed()->whereNotNull('terminate_at')->where('terminate_at', '<', now()->subDay())

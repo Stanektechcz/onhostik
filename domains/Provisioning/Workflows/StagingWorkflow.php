@@ -13,6 +13,7 @@ use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\StagingLink;
+use Onhost\Domain\Services\ServiceBackups;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\Web\StagingService;
 use Onhost\Platform\Events\GenericEvent;
@@ -20,6 +21,7 @@ use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Providers\Contracts\AsyncHandle;
 use Onhost\Providers\Contracts\AsyncStatus;
 use Onhost\Providers\Contracts\BackupCapable;
+use Throwable;
 
 /**
  * Staging lifecycle: create (new site on the same server, wait for it, copy), refresh (production → staging),
@@ -150,6 +152,17 @@ final class StagingWorkflow implements Workflow
             {
                 $service = $this->service($context);
                 $adapter = $context->adapter();
+                if (ServiceBackups::platformMade($service, $adapter)) {
+                    // the push overwrites the files AND the databases of production: the way back is a whole, fresh backup — not the
+                    // panel's files-only archive, and never last night's archive under a new date (ServiceBackups)
+                    try {
+                        $backup = $context->container->make(ServiceBackups::class)->take($service, $adapter, $this->ref($context), $context->actor, $context->operation->id, 'pre-push', 7);
+                    } catch (Throwable $e) {
+                        return StepResult::fail('zálohu produkce před přenosem se nepodařilo vytvořit, nic se nepřepsalo: '.$e->getMessage(), true, [], 120);
+                    }
+
+                    return StepResult::done(['backup_id' => $backup->id]);
+                }
                 if (! $adapter instanceof BackupCapable) {
                     return StepResult::skip();
                 }

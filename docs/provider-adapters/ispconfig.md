@@ -33,7 +33,7 @@ SFTP (`SftpTransport`, rooted at `<home>/web`); `ensureAgent()` is asynchronous 
 "prepared, run again" on first use. Remote-API pieces: `custom_php_ini` per site (editable keys from
 `SecurityRules::PHP_EDITABLE`), `nginx_directives`/`apache_directives` managed block, `sites_cron_update`,
 `sites_database_update` (`remote_access`, `remote_ips`), `quota_get_by_user`/`trafficquota_get_by_user`,
-`sites_web_domain_backup` downloads, `client_login_get` for the staff panel link, and the mail functions
+`sites_web_domain_backup` (`primary_id` = the **backup's** id, `backup_download` / `backup_restore`, only ids from the site's own list — docs/runbooks/backups.md; the panel has no "back up now", `siteFeatures()['backup_on_demand']` is false) downloads, `client_login_get` for the staff panel link, and the mail functions
 `mail_forward_*`, `mail_catchall_*`, `mail_user_get/update` (autoresponder), `mail_policy_get`,
 `mail_spamfilter_user_*`, `mail_spamfilter_whitelist/blacklist_*`, `mail_user_filter_*`, `mail_mailinglist_*`,
 `mail_fetchmail_*`, `mail_user_backup*`, `mailquota_get_by_user`. Instance options: `agent_chroot`, `webmail_url`,

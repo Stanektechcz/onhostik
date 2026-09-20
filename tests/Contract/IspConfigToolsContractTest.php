@@ -166,10 +166,14 @@ it('manages forwards, catch-all, autoresponder, spam policies and lists, filters
 
     $backups = $adapter->listMailboxBackups($domain);
     expect($backups)->toHaveCount(1)->and($backups[0])->toMatchArray(['remote_id' => '7', 'mailbox' => 'jana@shop.cz', 'size_bytes' => 1048576]);
-    expect($adapter->backupMailbox($mailbox)->isAsync())->toBeTrue();
-    expect(collect($calls)->last(fn ($c) => $c[0] === 'mail_user_backup')[1])->toMatchArray(['primary_id' => 21, 'action_type' => 'backup']);
+    // the panel backs mailboxes up nightly and cannot be asked for one now: the adapter says so instead of "succeeding"
+    expect(fn () => $adapter->backupMailbox($mailbox))->toThrow(ProviderException::class);
+    expect(collect($calls)->pluck(0)->all())->not->toContain('mail_user_backup');
+    // (session, primary_id, action_type): the primary id is the BACKUP's, and only one from this mailbox's own list
     $adapter->restoreMailbox($mailbox, '7');
-    expect(collect($calls)->last(fn ($c) => $c[0] === 'mail_user_backup')[1])->toMatchArray(['action_type' => 'restore', 'backup_id' => 7]);
+    expect(collect($calls)->last(fn ($c) => $c[0] === 'mail_user_backup')[1])->toMatchArray(['primary_id' => 7, 'action_type' => 'backup_restore_mail'])->not->toHaveKey('backup_id');
+    expect(fn () => $adapter->restoreMailbox($mailbox, '4242'))->toThrow(ProviderException::class);
+    expect(collect($calls)->filter(fn ($c) => $c[0] === 'mail_user_backup')->count())->toBe(1);
 
     expect($adapter->mailboxUsage($domain))->toBe([['mailbox' => 'jana@shop.cz', 'used_bytes' => 104857600, 'quota_bytes' => 2147483648]]);
     expect($adapter->webmailUrl($domain))->toBeNull();

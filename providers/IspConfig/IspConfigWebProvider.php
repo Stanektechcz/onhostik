@@ -383,15 +383,16 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function backup(ResourceRef $ref, array $policy): ProviderResult
     {
-        // ISPConfig backups run on the server's own schedule (backup_interval/backup_copies set at provisioning); an
-        // ad-hoc backup is requested through the sites_web_domain_update flag and listed via sites_web_domain_backup_list.
-        $this->updateSite($ref, ['backup_interval' => $policy['interval'] ?? 'daily', 'backup_copies' => (int) ($policy['copies'] ?? 7)]);
-
-        return ProviderResult::accepted($this->jobqueueHandle((int) $ref->node), $ref, ['scheduled' => true]);
+        $this->assertWebDomain($ref); // a mail domain's id among web sites is a stranger's site
+        // ISPConfig archives sites on the server's own schedule (backup_interval/backup_copies, set at provisioning) and its remote
+        // API has no "make one now". This used to rewrite the schedule and report success — and the caller took last night's
+        // archive for the backup it had asked for. A backup on demand is the platform's own archive (ServiceBackups).
+        throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'ISPConfig makes site backups on its own nightly schedule; a backup on demand is made by the platform (files and databases over the agent user).');
     }
 
     public function listBackups(ResourceRef $ref): array
     {
+        $this->assertWebDomain($ref); // a mail domain's id among web sites is a stranger's site
         $out = [];
         foreach ((array) $this->api->call('sites_web_domain_backup_list', ['site_id' => (int) $ref->remoteId]) as $b) {
             $out[] = ['remote_id' => (string) $b['backup_id'], 'created_at' => date('c', (int) ($b['tstamp'] ?? 0)), 'size_bytes' => isset($b['filesize']) ? (int) $b['filesize'] : null, 'verified' => null, 'protected' => null, 'meta' => ['type' => $b['backup_type'] ?? null, 'filename' => $b['filename'] ?? null]];
@@ -402,9 +403,27 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function restore(ResourceRef $ref, string $backupRemoteId, array $options = []): ProviderResult
     {
-        $this->api->call('sites_web_domain_backup', ['primary_id' => (int) $ref->remoteId, 'action_type' => 'restore', 'backup_id' => (int) $backupRemoteId], true);
+        $this->assertWebDomain($ref); // a mail domain's id among web sites is a stranger's site
+        $this->backupAction($ref, $backupRemoteId, 'backup_restore');
 
         return ProviderResult::accepted($this->jobqueueHandle((int) $ref->node, ['backup_id' => $backupRemoteId], 20, 3600), $ref);
+    }
+
+    /**
+     * `sites_web_domain_backup($session, $primary_id, $action_type)`: `primary_id` is the BACKUP's id and the action is
+     * `backup_restore` | `backup_download` | `backup_delete` (the server plugin registers exactly these). The panel does not ask
+     * whose backup it is — so the id has to stand in this site's own list first, or a number would restore a stranger's site.
+     */
+    public function backupAction(ResourceRef $site, string $backupRemoteId, string $action): void
+    {
+        $this->assertWebDomain($site);
+        if (! in_array($action, ['backup_restore', 'backup_download', 'backup_delete'], true) || ! ctype_digit($backupRemoteId)) {
+            throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'Unknown backup action or backup id.');
+        }
+        if (collect($this->listBackups($site))->firstWhere('remote_id', $backupRemoteId) === null) {
+            throw new ProviderException('ispconfig', ProviderErrorCode::NOT_FOUND, 'The backup does not belong to this site');
+        }
+        $this->api->call('sites_web_domain_backup', ['primary_id' => (int) $backupRemoteId, 'action_type' => $action], true);
     }
 
     // ── Mail (legacy executor) ────────────────────────────────────────────────
@@ -510,7 +529,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
             'errpages' => true, 'directives' => true, 'protected' => true, 'db_users' => true, 'stats' => true, 'ssl_upload' => true, 'files' => true, 'apps' => false, 'db_admin' => (bool) $this->instance->option('phpmyadmin_url'),
             // tools (WebToolsProvider) through the remote API and the jailed agent user; mail extras (MailToolsProvider) when the server carries mail
             'terminal' => true, 'php_settings' => true, 'security' => true, 'rate_limit' => false, 'http3' => false, 'cron_edit' => $this->prerequisite('cron_api') !== 'broken', 'cron_logs' => false, 'db_export' => true, 'db_access' => true,
-            'backup_download' => true, 'backup_delete' => false, 'files_advanced' => true, 'quotas' => true, 'node_projects' => false, 'staging' => true, 'deploy' => true, 'wordpress' => true, 'hsts' => true, 'panel_login' => true, 'proxy' => (string) $this->instance->option('mod_proxy', 'yes') !== 'no', 'default_docs' => true, // proxies and DirectoryIndex live in a managed block of the site directives (ManagedDirectives)
+            'backup_download' => true, 'backup_delete' => false, 'backup_on_demand' => false, 'mailbox_backup_on_demand' => false, 'files_advanced' => true, 'quotas' => true, 'node_projects' => false, 'staging' => true, 'deploy' => true, 'wordpress' => true, 'hsts' => true, 'panel_login' => true, 'proxy' => (string) $this->instance->option('mod_proxy', 'yes') !== 'no', 'default_docs' => true, // proxies and DirectoryIndex live in a managed block of the site directives (ManagedDirectives)
             'mail_tools' => (bool) ($this->instance->capabilities['mail.create'] ?? false),
         ];
     }

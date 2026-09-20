@@ -190,7 +190,13 @@ final class IspConfigRestoreSite extends Command
 
             return 0;
         }
-        $api->call('sites_web_domain_backup', ['primary_id' => $domainId, 'action_type' => 'restore', 'backup_id' => (int) $restore], true);
+        if (! ctype_digit($restore) || collect($backups)->first(fn ($b) => is_array($b) && (string) ($b['backup_id'] ?? '') === $restore) === null) {
+            $this->error("backup {$restore} is not in the list of {$domain}; the panel would not have asked whose backup it is");
+
+            return 1;
+        }
+        // (session, primary_id, action_type): the primary id is the backup's, the action `backup_restore`
+        $api->call('sites_web_domain_backup', ['primary_id' => (int) $restore, 'action_type' => 'backup_restore'], true);
         $this->info("restore of backup {$restore} requested; the node applies it through its job queue");
 
         return 0;

@@ -69,11 +69,21 @@ it('guards actions by state, step-up, legal hold and concurrency', function () {
 });
 
 it('cancels in two phases: archive and deactivate now, remove the VM only after the restore window (audit §5ab)', function () {
+    $dumped = false; // the backup storage holds an older archive of the machine; the final one appears only after this run's vzdump
     Http::fake([
         PVE.'/nodes/prg1-n2/qemu/1042/status/current' => Http::response(['data' => ['status' => 'running', 'uptime' => 100]]),
         PVE.'/nodes/prg1-n2/qemu/1042/config' => fn (Request $r) => $r->method() === 'GET' ? Http::response(pveVmConfig()) : Http::response(['data' => null]),
-        PVE.'/nodes/prg1-n2/vzdump' => Http::response(['data' => 'UPID:prg1-n2:000A1B30:0004E1F9:66F0AA15:vzdump:1042:onhost@pve!cp:']),
-        PVE.'/nodes/prg1-n2/storage/pbs-cz1/content*' => Http::response(['data' => [['volid' => 'pbs-cz1:backup/vm/1042/2026-09-06T10:00:00Z', 'ctime' => time(), 'size' => 123456789, 'protected' => 1, 'verification' => ['state' => 'ok']]]]),
+        PVE.'/nodes/prg1-n2/vzdump' => function () use (&$dumped) {
+            $dumped = true;
+
+            return Http::response(['data' => 'UPID:prg1-n2:000A1B30:0004E1F9:66F0AA15:vzdump:1042:onhost@pve!cp:']);
+        },
+        PVE.'/nodes/prg1-n2/storage/pbs-cz1/content*' => function () use (&$dumped) {
+            $older = ['volid' => 'pbs-cz1:backup/vm/1042/2026-08-30T02:00:00Z', 'ctime' => time() + 60, 'size' => 111, 'protected' => 0]; // even with a later clock it is not this run's archive
+            $final = ['volid' => 'pbs-cz1:backup/vm/1042/2026-09-06T10:00:00Z', 'ctime' => time(), 'size' => 123456789, 'protected' => 1, 'verification' => ['state' => 'ok']];
+
+            return Http::response(['data' => $dumped ? [$older, $final] : [$older]]);
+        },
         PVE.'/nodes/prg1-n2/qemu/1042/status/shutdown' => Http::response(['data' => 'UPID:prg1-n2:000A1B35:0004E1FD:66F0AA19:qmshutdown:1042:onhost@pve!cp:']),
         PVE.'/nodes/prg1-n2/qemu/1042/status/stop' => Http::response(['data' => 'UPID:prg1-n2:000A1B31:0004E1FA:66F0AA16:qmstop:1042:onhost@pve!cp:']),
         PVE.'/nodes/prg1-n2/qemu/1042' => Http::response(['data' => 'UPID:prg1-n2:000A1B32:0004E1FB:66F0AA17:qmdestroy:1042:onhost@pve!cp:']),

@@ -332,7 +332,7 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider
     {
         $this->request('POST', "/api/client/servers/{$this->identifier($ref)}/backups/{$backupRemoteId}/restore", 'client', 'backups.restore', ['truncate' => (bool) ($options['truncate'] ?? false)], critical: true);
 
-        return ProviderResult::accepted(new AsyncHandle('ptero_restore', $backupRemoteId, $ref->node, ['identifier' => $this->identifier($ref)], 15, 2 * 3600), $ref);
+        return ProviderResult::accepted(new AsyncHandle('ptero_restore', $backupRemoteId, $ref->node, ['identifier' => $this->identifier($ref), 'server_id' => $ref->remoteId], 15, 2 * 3600), $ref);
     }
 
     public function consoleAccess(ResourceRef $ref): array
@@ -360,6 +360,18 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider
             }
 
             return AsyncStatus::running((string) ($a['status'] ?? 'installing'));
+        }
+        if ($handle->kind === 'ptero_restore' && (string) ($handle->meta['server_id'] ?? '') !== '') {
+            // The panel marks the server `restoring_backup` for as long as Wings unpacks the archive and clears the mark when it
+            // is done. The power state said nothing: a server being restored is `offline`, which used to read as "finished" at the
+            // first poll — while the client API answers 409 to almost everything until the restore is over.
+            $status = $this->request('GET', "/api/application/servers/{$handle->meta['server_id']}", 'app', 'servers.get')['attributes']['status'] ?? null;
+
+            return match (true) {
+                $status === 'restoring_backup' => AsyncStatus::running('restoring the backup'),
+                $status === null || $status === '' => AsyncStatus::succeeded(['restored' => true]),
+                default => AsyncStatus::failed("the server is {$status} after the restore", ['status' => $status]),
+            };
         }
         if (in_array($handle->kind, ['ptero_backup', 'ptero_restore'], true)) {
             $backup = $this->request('GET', "/api/client/servers/{$handle->meta['identifier']}/backups/{$handle->handle}", 'client', 'backups.get');

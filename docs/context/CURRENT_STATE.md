@@ -91,9 +91,18 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **Backups are fresh and whole, or they fail** (`docs/runbooks/backups.md`). A backup of a web service is the
+  platform's own set — site files + every database, off the node, checksummed — for manual, scheduled and pre-push
+  backups on both panels; panel backups (games, VMs) are recognised by the name the panel gave them or as the entry
+  that was not there before, and the final archive follows the same rule. Found on the way: both file transports
+  refused the path `.` (packing a whole site never worked on a real node), core actions were not gated by family
+  (a `backup` on a mail service reached a stranger's web site on ISPConfig), the ISPConfig backup calls sent the
+  site's id where the panel expects the backup's. The ISPConfig calls are written from the API's documentation, not
+  checked against a live panel — staging checks are in the runbook.
+
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 553 tests, 12 003 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 563 tests, 12 132 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

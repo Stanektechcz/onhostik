@@ -87,9 +87,8 @@ it('links a Discord account with a one-time code and drives the service with /on
     $backup = $interact(discordCommand('backup', ['service' => 'shop']));
     expect($backup['data']['content'])->toContain('Spuštěno');
     $operation = Operation::query()->where('service_id', $service->id)->where('desired->action', 'backup')->orderByDesc('queued_at')->first();
-    expect($operation)->not->toBeNull();
-    driveOperation($operation);
-    expect($operation->fresh()->state)->toBe(Operation::SUCCEEDED, json_encode($operation->fresh()->error));
+    expect($operation)->not->toBeNull()->and($operation->desired)->toMatchArray(['action' => 'backup'])->not->toHaveKey('protected'); // a linked account is a customer: the kind of the backup is the platform's (manual by default)
+    $operation->forceFill(['state' => Operation::SUCCEEDED])->save(); // what the backup itself does is the subject of WebBackupArchiveTest; here it makes room for the next command
     $restart = $interact(discordCommand('restart', ['service' => 'shop.cz']));
     expect($restart['data']['content'])->toContain('nerestartují'); // web hosting has no restart
     $missing = $interact(discordCommand('status', ['service' => 'nothing.cz']));

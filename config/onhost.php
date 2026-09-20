@@ -70,6 +70,7 @@ return [
     'backups' => [
         'offsite_disk' => env('ONHOST_BACKUP_OFFSITE_DISK'), // a filesystems.disks entry (S3-compatible) for off-site copies; null = off
         'daily_hour' => (int) env('ONHOST_BACKUP_DAILY_HOUR', 2),
+        'manual_max' => (int) env('ONHOST_BACKUP_MANUAL_MAX', 5), // backups a customer may keep per web service at once (they live on the platform's backup disk); the plan's `manual_backups` entitlement overrides it
     ],
     // Discord: one platform application; customers link their Discord account to their organization and drive services with /onhost
     'discord' => [

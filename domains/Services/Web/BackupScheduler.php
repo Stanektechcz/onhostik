@@ -6,6 +6,7 @@ namespace Onhost\Domain\Services\Web;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
+use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\LegalHold;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\BackupPolicy;
@@ -29,7 +30,7 @@ final class BackupScheduler
 {
     public const FREQUENCIES = ['15m' => 15, 'hourly' => 60, '6h' => 360, 'daily' => 1440, 'weekly' => 10080];
 
-    public function __construct(private readonly ServiceService $services, private readonly ServiceFeatures $features, private readonly OutboxPublisher $outbox) {}
+    public function __construct(private readonly ServiceService $services, private readonly ServiceFeatures $features, private readonly OutboxPublisher $outbox, private readonly FinalArchive $archives) {}
 
     /** @return array{started:int, skipped:int, deleted:int, offsite:int, errors:int} */
     public function tick(int $limit = 100): array
@@ -122,6 +123,8 @@ final class BackupScheduler
     private function deleteOnNode(Service $service, Backup $backup): bool
     {
         if ($backup->remote_id === null) {
+            $this->archives->deleteSet($backup); // the platform's own set: marking the row deleted alone left the archive on the backup disk for good
+
             return true;
         }
         $features = $this->features->features($service);
@@ -141,9 +144,28 @@ final class BackupScheduler
         if (! $schedule['offsite'] || $disk === '' || config("filesystems.disks.{$disk}") === null) {
             return 0;
         }
-        $backup = Backup::query()->where('service_id', $service->id)->where('state', 'completed')->where('offsite', false)->whereNotNull('remote_id')->orderByDesc('started_at')->first();
+        $backup = Backup::query()->where('service_id', $service->id)->where('state', 'completed')->where('offsite', false)->where('kind', '!=', 'final')
+            ->where(fn ($q) => $q->whereNotNull('remote_id')->orWhereNotNull('meta->set'))->orderByDesc('started_at')->first();
         if ($backup === null) {
             return 0;
+        }
+        if ($backup->remote_id === null) { // the platform's own set: every part goes to the off-site disk as it stands (checksums are in its manifest)
+            if (! FinalArchive::isSet($backup)) {
+                return 0;
+            }
+            $prefix = 'backups/'.$service->organization_id.'/'.$service->id.'/'.$backup->id;
+            foreach ($this->archives->disk()->files((string) data_get($backup->meta, 'set')) as $file) {
+                $stream = $this->archives->disk()->readStream($file);
+                if (! is_resource($stream)) {
+                    throw new DomainError('offsite_read', 'A part of the backup set cannot be read for the off-site copy.', 503);
+                }
+                Storage::disk($disk)->put($prefix.'/'.basename($file), $stream);
+                fclose($stream);
+            }
+            $backup->forceFill(['offsite' => true, 'meta' => array_merge((array) $backup->meta, ['offsite_path' => $prefix, 'offsite_disk' => $disk, 'offsite_at' => now()->toIso8601String()])])->save();
+            $this->outbox->publish(GenericEvent::of('backup.offsite', 'service', $service->id, ['backup_id' => $backup->id, 'disk' => $disk], $service->organization_id));
+
+            return 1;
         }
         $features = $this->features->features($service);
         if (empty($features['backup_download']['enabled'])) {

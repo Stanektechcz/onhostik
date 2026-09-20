@@ -877,10 +877,10 @@
     var _ = ctx._, sel = ctx.sel;
     if (!ctx.on('mail_backups')) return null;
     var mb = mailboxChips(ctx, 'wbMailbox');
-    var panel = table(ctx, 'real:mbkp', _('Zálohy schránek · ', 'Mailbox backups · ') + sel.name, _('zálohy jednotlivých schránek (celý obsah); obnova nahradí aktuální obsah schránky', 'per-mailbox backups (whole contents); a restore replaces the current contents'),
+    var panel = table(ctx, 'real:mbkp', _('Zálohy schránek · ', 'Mailbox backups · ') + sel.name, _('zálohy jednotlivých schránek (celý obsah)' + (ctx.on('mail_backup_now') ? '' : ', server je vytváří každou noc') + '; obnova nahradí aktuální obsah schránky', 'per-mailbox backups (whole contents)' + (ctx.on('mail_backup_now') ? '' : ', made by the server every night') + '; a restore replaces the current contents'),
       res(ctx, 'mail_backups'), [ctx.cell(_('Schránka', 'Mailbox'), '1 1 220px'), ctx.cell(_('Vytvořena', 'Created'), '0 0 150px'), ctx.cell(_('Velikost', 'Size'), '0 0 100px')],
       function (x) { var box = (Array.isArray(res(ctx, 'mailboxes')) ? res(ctx, 'mailboxes') : []).filter(function (b) { return b.address === x.mailbox || String(b.remote_id) === String(x.mailbox); })[0]; return { cells: [ctx.cell(x.mailbox, '1 1 220px', 1), ctx.cell(ctx.X.since(ctx.cmp, x.created_at), '0 0 150px', 1), ctx.cell(bytes(x.size_bytes), '0 0 100px', 1)], note: '', actions: box ? [ctx.A(_('Obnovit', 'Restore'), function () { if (window.confirm(_('Obnovit schránku ' + x.mailbox + ' ze zálohy? Aktuální obsah se nahradí.', 'Restore ' + x.mailbox + ' from this backup? Current contents are replaced.'))) act(ctx, 'mailbox.restore', { remote_id: box.remote_id, backup_id: x.remote_id }, ['mail_backups'], _('Obnova běží', 'Restoring'), ''); })] : [] }; },
-      null, [{ label: _('Zálohovat ', 'Back up ') + (mb.box ? mb.box.address : ''), primary: true, on: function () { if (mb.current) act(ctx, 'mailbox.backup', { remote_id: mb.current }, ['mail_backups'], _('Záloha se vytváří', 'Creating the backup'), ''); } }], 'mail_backups');
+      null, ctx.on('mail_backup_now') ? [{ label: _('Zálohovat ', 'Back up ') + (mb.box ? mb.box.address : ''), primary: true, on: function () { if (mb.current) act(ctx, 'mailbox.backup', { remote_id: mb.current }, ['mail_backups'], _('Záloha se vytváří', 'Creating the backup'), ''); } }] : [], 'mail_backups');
     panel.chips = mb.chips; panel.chipsLabel = _('Schránka', 'Mailbox');
     return panel;
   };

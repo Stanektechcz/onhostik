@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Services\Commands\WebToolsCommand;
+use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\DeploySource;
 use Onhost\Domain\Services\Models\Service;
@@ -84,6 +85,16 @@ final class WebToolsController extends ApiController
         $row = Backup::query()->where('service_id', $model->id)->find($backup);
         if ($row === null) {
             throw DomainError::notFound('backup');
+        }
+        if ($row->kind === 'final') { // the archive of a cancelled service has a door of its own (fee, waiver, audit): ServiceArchiveService
+            throw DomainError::notFound('backup');
+        }
+        if ($row->state === 'completed' && (string) $row->remote_id === '' && FinalArchive::isSet($row)) { // the platform's own set: files, every database dump, checksums and a readme in one zip
+            $archives = app(FinalArchive::class);
+            $package = $archives->package($row);
+            $audit->record($this->api->context($request)->withScope($model->organization_id), 'service.backup.download', 'succeeded', ['backup_id' => $row->id, 'bytes' => $package['bytes'], 'set' => true], 'service', $model->id);
+
+            return $archives->disk()->download($package['path'], 'backup-'.$model->id.'-'.($row->started_at?->format('Ymd-His') ?? $row->id).'.zip', ['X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'no-store']);
         }
         if ($row->state !== 'completed' || (string) $row->remote_id === '') {
             throw new DomainError('backup_not_downloadable', 'Only completed backups can be downloaded.', 409, ['state' => $row->state]);

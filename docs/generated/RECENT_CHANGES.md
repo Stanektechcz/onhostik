@@ -4,13 +4,13 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| c0b5553 | 2026-09-20 | A guest invitation never takes a role away; sharing again sends no second mail |
+| e01da49 | 2026-09-20 | A lost answer to domain-create is neither a second registration nor a database error |
+| 3365208 | 2026-09-20 | The assistant reads one listing of a visible service; a guest is not shown the company behind the service |
+| bfec8ae | 2026-09-20 | The assistant sees what the signed-in person sees, and works for support over one customer's account |
+| acccc04 | 2026-09-20 | One service shared with another person; the authorizer forgets between units of work; a project member's run finishes |
 | b382cf0 | 2026-09-20 | Audit: the shared NSSET finding needs the registry's answer, not a schema change |
 | d314ee9 | 2026-09-20 | Docs: what an order does with the money, secrets that are not kept, account rules, and what the review left open |
 | fe8efe5 | 2026-09-20 | Periods end on the anchor day, a domain renews once, a quantity that cannot be delivered is refused |
 | 732a314 | 2026-09-20 | Accounts and the staff side: the lock comes before the password, a reset link is not a second factor, an invitation link is not kept |
 | d72d7a1 | 2026-09-20 | Panels: a cancelled mail service deletes nobody's FTP accounts, a retried clone makes no second server (H38), long TXT records publish |
-| c132fc4 | 2026-09-20 | Secrets: a domain's transfer code is never kept, SOAP bodies and private keys are masked, replays answer without the secret |
-| abd45c3 | 2026-09-20 | Money: an order is charged for what it delivered and gives back the rest; a postpaid invoice earns once |
-| f27db92 | 2026-09-20 | Egress: a redirect target is an http(s) address, mail is collected from public servers, a site check follows no redirect inwards |
-| 53bb2bd | 2026-09-20 | Security review, second batch: promo uses, vhost directives, proxy upstreams, payment callbacks |
-| 925f126 | 2026-09-20 | Security review, first batch: checkout replay, VAT claim, settlement, SSRF, token scope, role grants |

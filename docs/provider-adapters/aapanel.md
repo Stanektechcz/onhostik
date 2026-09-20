@@ -13,7 +13,7 @@ options `public_ipv4`, `verify_tls`, `default_php`.
 | | `suspend` / `resume` | `/site?action=SiteStop` / `SiteStart` |
 | | `destroy` | `/site?action=DeleteSite` (ftp, database, path) |
 | SSL | `enableSsl` | `/acme?action=apply_cert_api` (Let's Encrypt) |
-| Backups | `backup` | `/site?action=ToBackup` |
+| Backups | `backup` | `/site?action=ToBackup` — files only, and only the fallback: a backup of a web service is the platform's own set (files by `files?action=Zip` of the root entries + every database dump), see `docs/runbooks/backups.md` |
 | Usage | `usage()` | `/system?action=GetNetWork` + site disk sizes |
 
 Spec keys: `domain`, `php_version`, `entitlements`. Paths in aaPanel move between major versions

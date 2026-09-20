@@ -17,10 +17,12 @@ use Onhost\Domain\Provisioning\Workflow\Workflow;
 use Onhost\Domain\Services\AvailabilityWatch;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
+use Onhost\Domain\Services\LegalHold;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\RestoreJob;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\ServiceBackups;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Domain\Services\ServiceService;
@@ -301,8 +303,19 @@ final class ServiceActionWorkflow implements Workflow
                     })(),
                     'database.access' => $this->capability($context, WebToolsProvider::class)->setDatabaseAccess($ref, (string) $p('remote_id'), (bool) $p('remote', false), (array) $p('hosts', [])),
                     'backup.delete' => (function () use ($context, $ref, $p) {
+                        $service = $this->service($context);
+                        $row = Backup::query()->where('service_id', $service->id)->where(fn ($q) => $q->where('id', (string) $p('remote_id'))->orWhere('remote_id', (string) $p('remote_id')))->first();
+                        if ($row !== null && ($row->protected || $row->kind === 'final' || LegalHold::coversBackup($row))) { // asked again here: the row may have been protected since the request
+                            throw new ProviderException((string) $context->instance()->provider, ProviderErrorCode::VALIDATION, 'The backup is protected and cannot be deleted.');
+                        }
+                        if ($row !== null && $row->remote_id === null && FinalArchive::isSet($row)) { // the platform's own set: it lives on the backup disk, the panel knows nothing about it
+                            $context->container->make(FinalArchive::class)->deleteSet($row);
+                            $row->forceFill(['state' => 'deleted', 'meta' => array_merge((array) $row->meta, ['deleted_at' => now()->toIso8601String(), 'deleted_by' => (string) ($context->actor->actorId ?? 'system')])])->save();
+
+                            return ProviderResult::completed(null, ['deleted' => true, 'backup_id' => $row->id]);
+                        }
                         $result = $this->capability($context, WebToolsProvider::class)->deleteBackup($ref, (string) $p('remote_id'));
-                        Backup::query()->where('service_id', $this->service($context)->id)->where('remote_id', (string) $p('remote_id'))->update(['state' => 'deleted']);
+                        Backup::query()->where('service_id', $service->id)->where('remote_id', (string) $p('remote_id'))->update(['state' => 'deleted']);
 
                         return $result;
                     })(),
@@ -881,25 +894,65 @@ final class ServiceActionWorkflow implements Workflow
             public function run(StepContext $context): StepResult
             {
                 $service = $this->service($context);
-                $adapter = $this->capability($context, BackupCapable::class);
-                $backup = Backup::query()->firstOrCreate(['operation_id' => $context->operation->id], ['service_id' => $service->id, 'organization_id' => $service->organization_id, 'provider_instance_id' => $service->provider_instance_id, 'kind' => (string) $context->desired('kind', 'manual'), 'state' => 'running', 'started_at' => now(), 'retention_until' => now()->addDays((int) $context->desired('retention_days', 30)), 'protected' => (bool) $context->desired('protected', false)]);
+                $kind = (string) $context->desired('kind', 'manual');
+                $days = (int) $context->desired('retention_days', 30);
+                if (ServiceBackups::platformMade($service, $context->adapter())) {
+                    // a web backup is files + every database, pulled off the node (ServiceBackups): fresh and whole, or the step fails
+                    try {
+                        $backup = $context->container->make(ServiceBackups::class)->take($service, $context->adapter(), $this->ref($context), $context->actor, $context->operation->id, $kind, $days, (bool) $context->desired('protected', false));
+                    } catch (DomainError $e) {
+                        return StepResult::fail('záloha se nepodařila: '.$e->getMessage(), $e->status >= 500, ['error' => $e->error], 120);
+                    } catch (ProviderException $e) {
+                        return self::fromProviderException($e);
+                    } catch (Throwable $e) {
+                        return StepResult::fail('záloha se nepodařila: '.$e->getMessage(), true, [], 120);
+                    }
 
+                    return StepResult::done(['backup_id' => $backup->id, 'backup_set' => data_get($backup->meta, 'set'), 'backup_bytes' => $backup->size_bytes]);
+                }
+                $adapter = $this->capability($context, BackupCapable::class);
+                $backup = Backup::query()->firstOrCreate(['operation_id' => $context->operation->id], ['service_id' => $service->id, 'organization_id' => $service->organization_id, 'provider_instance_id' => $service->provider_instance_id, 'kind' => $kind, 'state' => 'running', 'started_at' => now(), 'retention_until' => now()->addDays($days), 'protected' => (bool) $context->desired('protected', false)]);
+
+                // what the panel already holds is written down first: the backup of this run is the one that was not there before
+                $before = array_map(fn (array $b) => (string) $b['remote_id'], $adapter->listBackups($this->ref($context)));
                 $result = $adapter->backup($this->ref($context), (array) $context->desired('policy', []));
+                $known = ['backup_id' => $backup->id, 'backup_before' => $before, 'backup_named' => (string) ($result->data['backup_uuid'] ?? '')];
                 if (! $result->isAsync()) { // panels that archive synchronously: the row is complete right away
-                    $latest = collect($adapter->listBackups($this->ref($context)))->sortByDesc('created_at')->first();
-                    $backup->forceFill(['state' => 'completed', 'finished_at' => now(), 'remote_id' => $latest['remote_id'] ?? null, 'size_bytes' => $latest['size_bytes'] ?? null])->save();
+                    return $this->adopt($context, $backup, $before, $known['backup_named']) ?? StepResult::done($known + ['backup_remote_id' => $backup->remote_id]);
                 }
 
-                return $this->settle($result, ['backup_id' => $backup->id, 'backup_remote_id' => $backup->remote_id]);
+                return $this->settle($result, $known);
             }
 
             protected function afterAsyncSuccess(StepContext $context, AsyncStatus $status): StepResult
             {
-                $adapter = $this->capability($context, BackupCapable::class);
-                $latest = collect($adapter->listBackups($this->ref($context)))->sortByDesc('created_at')->first();
-                Backup::query()->whereKey($context->get('backup_id'))->update(['state' => 'completed', 'finished_at' => now(), 'remote_id' => $latest['remote_id'] ?? null, 'size_bytes' => $latest['size_bytes'] ?? null, 'verify_status' => isset($latest['verified']) ? ($latest['verified'] ? 'ok' : 'pending') : null, 'remote_datastore' => $context->instance()->option('backup_storage')]);
+                $backup = Backup::query()->findOrFail((string) $context->get('backup_id'));
 
-                return StepResult::done(['backup_remote_id' => $latest['remote_id'] ?? null]);
+                return $this->adopt($context, $backup, (array) $context->get('backup_before', []), (string) $context->get('backup_named', ''), $status->detail) ?? StepResult::done(['backup_remote_id' => $backup->remote_id]);
+            }
+
+            /**
+             * The archive this run made: the one the panel named in its answer, else the newest that was not there before.
+             * "The newest one" alone was last night's archive whenever the panel made none — a backup that never happened,
+             * shown as done. Null when the row is complete, a failure otherwise.
+             *
+             * @param  list<string>  $before
+             * @param  array<string,mixed>  $finished  what the panel said about the task it finished
+             */
+            private function adopt(StepContext $context, Backup $backup, array $before, string $named, array $finished = []): ?StepResult
+            {
+                $list = collect($this->capability($context, BackupCapable::class)->listBackups($this->ref($context)));
+                $made = $named !== '' ? $list->firstWhere('remote_id', $named) : $list->reject(fn (array $b) => in_array((string) $b['remote_id'], $before, true))->sortByDesc('created_at')->first();
+                if (! is_array($made) && $named !== '' && (string) ($finished['uuid'] ?? '') === $named) { // a long list shows one page; the finished task named the archive itself
+                    $made = ['remote_id' => $named, 'size_bytes' => $finished['bytes'] ?? null, 'verified' => true];
+                }
+                if (! is_array($made) || (string) ($made['remote_id'] ?? '') === '') {
+                    return StepResult::fail('the panel reports the backup done, but its list holds no archive that was not there before', true, ['backup_unconfirmed' => true], 120);
+                }
+                $backup->forceFill(['state' => 'completed', 'finished_at' => now(), 'remote_id' => (string) $made['remote_id'], 'size_bytes' => $made['size_bytes'] ?? null,
+                    'verify_status' => isset($made['verified']) ? ($made['verified'] ? 'ok' : 'pending') : null, 'remote_datastore' => $context->instance()->option('backup_storage')])->save();
+
+                return null;
             }
         };
     }
@@ -917,10 +970,22 @@ final class ServiceActionWorkflow implements Workflow
             {
                 $service = $this->service($context);
                 $backup = Backup::query()->findOrFail((string) $context->desired('backup_id'));
-                if ($backup->service_id !== $service->id || $backup->remote_id === null) {
+                if ($backup->service_id !== $service->id || ($backup->remote_id === null && ! FinalArchive::isSet($backup))) {
                     return StepResult::fail('Backup does not belong to this service or has no remote id', false);
                 }
                 $job = RestoreJob::query()->firstOrCreate(['operation_id' => $context->operation->id], ['backup_id' => $backup->id, 'service_id' => $service->id, 'organization_id' => $service->organization_id, 'target' => (string) $context->desired('target', 'in_place'), 'state' => 'running', 'requested_by' => $context->actor->actorId, 'started_at' => now()]);
+                if ($backup->remote_id === null) { // the platform's own set (ServiceBackups): files over the site root, every dump into its database
+                    try {
+                        $restored = $context->container->make(ServiceBackups::class)->restoreInPlace($service, $this->capability($context, WebToolsProvider::class), $this->ref($context), $backup);
+                    } catch (DomainError $e) {
+                        return StepResult::fail('obnova se nepodařila: '.$e->getMessage(), $e->status >= 500, ['error' => $e->error], 120);
+                    } catch (ProviderException $e) {
+                        return self::fromProviderException($e);
+                    }
+                    $job->forceFill(['state' => 'completed', 'finished_at' => now(), 'duration_seconds' => $job->started_at ? (int) now()->diffInSeconds($job->started_at, true) : null, 'result' => $restored])->save();
+
+                    return StepResult::done(['restore_job_id' => $job->id, 'restored' => true, 'restored_files' => $restored['files'], 'restored_databases' => count($restored['databases'])]);
+                }
                 $adapter = $this->capability($context, BackupCapable::class);
 
                 return $this->settle($adapter->restore($this->ref($context), (string) $backup->remote_id, (array) $context->desired('options', [])), ['restore_job_id' => $job->id]);

@@ -292,14 +292,20 @@ trait IspConfigMailTools
 
     public function backupMailbox(ResourceRef $mailbox): ProviderResult
     {
-        $this->api->call('mail_user_backup', ['primary_id' => (int) $mailbox->remoteId, 'action_type' => 'backup'], true);
-
-        return ProviderResult::accepted($this->jobqueueHandle((int) $mailbox->node, [], 20, 3600), $mailbox, ['requested' => true]);
+        // `mail_user_backup` knows `backup_restore_mail` and `backup_delete_mail` only: the server backs mailboxes up on its nightly
+        // schedule and cannot be asked for one now. Saying so beats an operation that "succeeds" and leaves no backup behind.
+        throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'ISPConfig backs mailboxes up on its own nightly schedule; a backup on demand is not offered by the panel.');
     }
 
     public function restoreMailbox(ResourceRef $mailbox, string $backupRemoteId): ProviderResult
     {
-        $this->api->call('mail_user_backup', ['primary_id' => (int) $mailbox->remoteId, 'action_type' => 'restore', 'backup_id' => (int) $backupRemoteId], true);
+        // (session, primary_id, action_type): `primary_id` is the BACKUP's id, and the panel does not ask whose backup it is —
+        // so it has to stand in this mailbox's own list first, or a number would restore somebody else's mailbox
+        $own = collect((array) $this->api->call('mail_user_backup_list', ['primary_id' => (int) $mailbox->remoteId]))->first(fn ($row) => is_array($row) && (string) ($row['backup_id'] ?? '') === $backupRemoteId);
+        if (! is_array($own) || ! ctype_digit($backupRemoteId)) {
+            throw new ProviderException('ispconfig', ProviderErrorCode::NOT_FOUND, 'The backup does not belong to this mailbox');
+        }
+        $this->api->call('mail_user_backup', ['primary_id' => (int) $backupRemoteId, 'action_type' => 'backup_restore_mail'], true);
 
         return ProviderResult::accepted($this->jobqueueHandle((int) $mailbox->node, ['backup_id' => $backupRemoteId], 20, 3600), $mailbox, ['requested' => true]);
     }

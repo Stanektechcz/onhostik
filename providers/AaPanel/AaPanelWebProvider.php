@@ -295,7 +295,7 @@ final class AaPanelWebProvider implements WebHostingProvider, WebToolsProvider
             'errpages' => false, 'directives' => true, 'protected' => true, 'db_users' => false, 'stats' => false, 'ssl_upload' => true, 'files' => true, 'apps' => true, 'db_admin' => (bool) $this->instance->option('phpmyadmin_url'),
             // tools (WebToolsProvider): the panel API plus the node shell — terminal/WP-CLI instead of SSH keys, restore, exports, security rules, HTTP/3, Node projects
             'terminal' => true, 'php_settings' => true, 'security' => true, 'rate_limit' => true, 'http3' => true, 'cron_edit' => true, 'cron_logs' => true, 'db_export' => true, 'db_access' => true,
-            'backup_download' => true, 'backup_delete' => true, 'files_advanced' => true, 'quotas' => true, 'node_projects' => true, 'staging' => true, 'deploy' => true, 'wordpress' => true, 'hsts' => true, 'panel_login' => false, 'proxy' => true, 'default_docs' => true,
+            'backup_download' => true, 'backup_delete' => true, 'backup_on_demand' => true, 'files_advanced' => true, 'quotas' => true, 'node_projects' => true, 'staging' => true, 'deploy' => true, 'wordpress' => true, 'hsts' => true, 'panel_login' => false, 'proxy' => true, 'default_docs' => true,
         ];
     }
 

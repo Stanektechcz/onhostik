@@ -481,6 +481,7 @@ final class ServiceService
         if ($action === 'resume') {
             $service = $this->liftHolds($service, $context, $params);
         }
+        self::assertCoreActionOffered($service, $action);
         if ($action === 'restore') {
             // a backup is restored onto the service it was taken from, and nowhere else (H21): somebody else's backup — or a
             // backup of another service of the same customer — does not exist for this request, said now and not in a failed operation
@@ -488,9 +489,12 @@ final class ServiceService
             if ($backup === null) {
                 throw DomainError::notFound('backup');
             }
-            if ($backup->state !== 'completed' || $backup->remote_id === null) {
+            if ($backup->state !== 'completed' || ($backup->remote_id === null && ! FinalArchive::isSet($backup)) || $backup->kind === 'final') { // the final archive goes onto a new service (`archive.restore`)
                 throw new DomainError('backup_not_restorable', 'Only a finished backup can be restored.', 409, ['state' => $backup->state]);
             }
+        }
+        if ($action === 'backup' && (string) ($params['kind'] ?? 'manual') === 'manual' && in_array($service->family, ['web', 'managed'], true)) {
+            ServiceBackups::assertRoomForManual($service); // they live on the platform's backup disk
         }
         if ($action === 'resize' && empty($params['entitlements'])) {
             throw new DomainError('resize_target_required', 'Resize needs the target entitlements.', 422);
@@ -537,6 +541,24 @@ final class ServiceService
         }
 
         return $owner;
+    }
+
+    /**
+     * Backups, snapshots and power belong to the families that have them. The core actions were never asked whether the
+     * service offers them: a `backup` on a mail service reached the web adapter with the mail domain's id — and a mail domain's
+     * id among web sites is a stranger's site (its backup plan was rewritten, its archives listed, its restore one request away).
+     */
+    private static function assertCoreActionOffered(Service $service, string $action): void
+    {
+        $families = match ($action) {
+            'backup', 'restore' => ['web', 'managed', 'cloud', 'data', 'game'],
+            'snapshot', 'rollback_snapshot' => ['cloud', 'data'],
+            'power' => ['cloud', 'data', 'game'],
+            default => null,
+        };
+        if ($families !== null && ! in_array($service->family, $families, true)) {
+            throw new DomainError('feature_unavailable', "{$action} is not available for this service.", 422, ['action' => $action]);
+        }
     }
 
     private static function statesAllowing(string $action): array
@@ -873,7 +895,19 @@ final class ServiceService
 
                 return $out;
             })(),
-            'cron.run', 'database.export', 'backup.delete', 'mailbox.backup' => ['remote_id' => $remote()],
+            'cron.run', 'database.export', 'mailbox.backup' => ['remote_id' => $remote()],
+            'backup.delete' => (function () use ($service, $remote) { // the row's id for the platform's own sets, the panel's id for an archive that lives there
+                $id = $remote();
+                $row = Backup::query()->where('service_id', $service->id)->where(fn ($q) => $q->where('id', $id)->orWhere('remote_id', $id))->first();
+                if ($row !== null && ($row->protected || $row->kind === 'final')) {
+                    throw new DomainError('backup_protected', 'Tato záloha je chráněná a nelze ji smazat.', 409, ['field' => 'remote_id']);
+                }
+                if ($row !== null && $row->state !== 'completed' && $row->state !== 'failed') {
+                    throw new DomainError('backup_not_deletable', 'Smazat lze jen dokončenou zálohu.', 409, ['state' => $row->state]);
+                }
+
+                return ['remote_id' => $id];
+            })(),
             'database.import' => ['remote_id' => $remote(), 'upload_id' => $need('upload_id', '/^up_[a-z0-9]{20}(\.[a-z0-9.]{1,12})?$/', 'upload_id is required (upload the SQL file first)')],
             'database.access' => (function () use ($remote, $params, $action) {
                 $hosts = [];

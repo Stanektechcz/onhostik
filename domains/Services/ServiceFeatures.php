@@ -66,7 +66,7 @@ final class ServiceFeatures
         'cdn' => ['cdn.enable', 'cdn.disable', 'cdn.purge'], 'import' => ['import.run'],
         // mail tools (MailToolsProvider)
         'forwards' => ['forward.create', 'forward.delete'], 'catchall' => ['catchall.set'], 'autoresponder' => ['autoresponder.set'], 'spam' => ['spam.policy', 'spam.list.add', 'spam.list.delete'],
-        'mail_filters' => ['filter.create', 'filter.delete'], 'mailing_lists' => ['list.create', 'list.delete'], 'fetchmail' => ['fetchmail.create', 'fetchmail.delete'], 'mail_backups' => ['mailbox.backup', 'mailbox.restore'],
+        'mail_filters' => ['filter.create', 'filter.delete'], 'mailing_lists' => ['list.create', 'list.delete'], 'fetchmail' => ['fetchmail.create', 'fetchmail.delete'], 'mail_backups' => ['mailbox.restore'], 'mail_backup_now' => ['mailbox.backup'],
         // game tools (GameToolsProvider): startup variables and image, server settings, schedule housekeeping, databases, collaborators, files, ports, backup housekeeping, the customer's panel account
         'startup' => ['variable.set', 'image.set'], 'game_settings' => ['rename', 'reinstall'], 'schedule_tools' => ['schedule.delete', 'schedule.toggle', 'schedule.run'], 'game_databases' => ['gamedb.create', 'gamedb.rotate', 'gamedb.delete'],
         'subusers' => ['subuser.create', 'subuser.delete'], 'game_files' => ['gfile.save', 'gfile.upload', 'gfile.delete', 'gfile.mkdir', 'gfile.rename'], 'allocations' => ['allocation.add', 'allocation.primary', 'allocation.remove'],
@@ -119,7 +119,8 @@ final class ServiceFeatures
                     'terminal' => $on($flag('terminal') && $adapter instanceof WebToolsProvider && (! empty($ent['ssh']) || ! empty($ent['terminal']))),
                     'php_settings' => $on($flag('php_settings')), 'security' => $on($flag('security'), null, ['rate' => $flag('rate_limit'), 'waf' => (string) ($ent['waf'] ?? 'basic')]), 'http3' => $on($flag('http3')),
                     'cron_edit' => $on($flag('cron_edit')), 'cron_logs' => $on($flag('cron_logs')), 'db_export' => $on($flag('db_export')), 'db_access' => $on($flag('db_access')),
-                    'backup_download' => $on($flag('backup_download')), 'backup_delete' => $on($flag('backup_delete')),
+                    // backups of a web service are the platform's own sets (ServiceBackups): downloading and deleting them does not depend on what the panel can do with its archives
+                    'backup_download' => $on($flag('backup_download') || $adapter instanceof WebToolsProvider), 'backup_delete' => $on($flag('backup_delete') || $adapter instanceof WebToolsProvider),
                     'backup_schedule' => $on($flag('backups'), null, ['frequency' => (string) ($ent['backup_frequency'] ?? 'daily'), 'days' => (int) ($ent['backup_days'] ?? 7), 'generations' => (int) ($ent['backup_generations'] ?? 7)]),
                     'files_advanced' => $on($flag('files_advanced')), 'quotas' => $on($flag('quotas')), 'proxy' => $on($flag('proxy')), 'default_docs' => $on($flag('default_docs')), 'node_projects' => $on($flag('node_projects') && ($ent['node_projects'] ?? true) !== false),
                     'staging' => $on($flag('staging') && ! empty($ent['staging'])), 'deploy' => $on($flag('deploy') && (! empty($ent['deploy']) || ! empty($ent['staging']) || ! empty($ent['ssh']))),
@@ -158,6 +159,8 @@ final class ServiceFeatures
                     // mail tools (MailToolsProvider): forwards, catch-all, autoresponders, spam policies and lists, filters, mailing lists, fetchmail, mailbox backups, usage and webmail
                     'forwards' => $on($adapter instanceof MailToolsProvider), 'catchall' => $on($adapter instanceof MailToolsProvider), 'autoresponder' => $on($adapter instanceof MailToolsProvider), 'spam' => $on($adapter instanceof MailToolsProvider),
                     'mail_filters' => $on($adapter instanceof MailToolsProvider), 'mailing_lists' => $on($adapter instanceof MailToolsProvider), 'fetchmail' => $on($adapter instanceof MailToolsProvider), 'mail_backups' => $on($adapter instanceof MailToolsProvider),
+                    // the panel's nightly mailbox backups can always be listed and restored; one "now" only where the panel can make it (ISPConfig cannot)
+                    'mail_backup_now' => $on($adapter instanceof MailToolsProvider && (! $adapter instanceof WebHostingProvider || ($adapter->siteFeatures()['mailbox_backup_on_demand'] ?? true) !== false)),
                     'mail_usage' => $on($adapter instanceof MailToolsProvider), 'monitoring' => $on(true, 1),
                 ];
                 break;

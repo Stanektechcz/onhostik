@@ -346,8 +346,9 @@ trait IspConfigTools
         if ($filename === '') {
             throw new ProviderException('ispconfig', ProviderErrorCode::NOT_FOUND, 'The backup does not belong to this site');
         }
-        // "download" copies the archive from the server's backup store into the site's backup/ folder (applied by the job queue)
-        $this->api->call('sites_web_domain_backup', ['primary_id' => (int) $site->remoteId, 'action_type' => 'download', 'backup_id' => (int) $backupRemoteId], true);
+        // `backup_download` copies the archive from the server's backup store into the site's backup/ folder (applied by the job
+        // queue). The remote function takes the BACKUP's id as `primary_id`; the list above proved it is this site's.
+        $this->api->call('sites_web_domain_backup', ['primary_id' => (int) $backupRemoteId, 'action_type' => 'backup_download'], true);
         $transport = new SftpTransport($this->shell($site), $this->siteDirInShell($site), 'ispconfig');
         $deadline = microtime(true) + 600;
         while (! $transport->exists('backup/'.$filename)) {
