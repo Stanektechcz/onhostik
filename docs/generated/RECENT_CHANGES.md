@@ -4,13 +4,13 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 1eb2dfc | 2026-09-20 | Staff reading a customer's data is an event; a role reads what it may change |
+| 755fe65 | 2026-09-20 | Promo codes do what their form says: a fixed amount is spent once per order, a lasting code discounts the renewals |
+| 351ec82 | 2026-09-20 | The game panel's links are followed only to its own daemons; the adapter reads the instance's TLS settings |
+| bc68c68 | 2026-09-20 | A failed operation takes back only what it made: compensations delete through the identity check |
+| f1047d6 | 2026-09-20 | A premium name is not sold, registered, renewed or transferred at the list price of its TLD |
+| 04f1d1a | 2026-09-20 | Generated project state after the domain and suspension blocks |
 | 39a1076 | 2026-09-20 | A suspended site is more than a stopped vhost: its cron jobs and FTP accounts are paused too, and remembered |
 | d55387c | 2026-09-20 | Domains are not lost to a calendar: renewals go on through the protective period; a listing without a status is not "active" |
 | 0e064c9 | 2026-09-20 | Generated project state after the corrections, dunning and support-draft blocks |
 | c1f9053 | 2026-09-20 | AI for support: a reply drafted for the agent; what a person types is masked before a model sees it |
-| ce37fc4 | 2026-09-20 | Dunning acts on the service, not on the case |
-| 420efd1 | 2026-09-20 | A name on a shared node belongs to one service: the name prefix is unique |
-| 2cf02eb | 2026-09-20 | The state of an order is not written by hand; corrections that hold: credit notes, returns, cancelled orders |
-| 1b3d2d7 | 2026-09-20 | The accounting day, top-up ceilings that hold, a conversation that belongs to one person |
-| 59e88ea | 2026-09-20 | Control points as numbers; panels are asked what they really answer; the assistant checks a service |
-| 0a83c97 | 2026-09-20 | Audit: what waiting on ISPConfig really watches, why it cannot be seconds, and what to watch instead |
