@@ -8,6 +8,7 @@ use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Domains\DomainRenewalScheduler;
@@ -243,4 +244,35 @@ it('frees the money, tells the customer and operations, and keeps trying when th
         ->and(WalletHold::query()->where('reference_type', 'domain')->where('reference_id', $domain->id)->where('state', 'captured')->count())->toBe(1)
         ->and(Invoice::query()->where('type', 'statement')->where('meta->domain_id', $domain->id)->count())->toBe(1);
     expect(array_count_values($state['commands'])['domain-renew'])->toBe(3);
+});
+
+it('renews a domain once when the customer and the scheduler get there together, and reserves nothing when the registrar cannot be reached', function () {
+    $expires = now()->addDays(10);
+    $state = ['registered' => true, 'nsset' => true, 'expiration' => $expires->toDateString(), 'created' => now()->subYear()->toDateString()];
+    registryFake($state);
+    [$user, $org] = $this->customerWithOrganization();
+    $ctx = $this->contextFor($user, $org);
+    app(WalletService::class)->topup($org, Money::decimal('2000', 'CZK'), 'bank', 'topup-once', $ctx);
+    $contact = RegistrarContact::query()->create(['organization_id' => $org->id, 'kind' => 'registrant', 'name' => 'Jana Nováková', 'email' => 'jana@example.cz', 'country' => 'CZ', 'state' => 'synced', 'remote_id' => 'ONH-Y']);
+    $domain = Domain::query()->create(['organization_id' => $org->id, 'fqdn_ascii' => 'jednou.cz', 'fqdn_unicode' => 'jednou.cz', 'tld' => 'cz', 'state' => DomainStateMachine::ACTIVE, 'registered_at' => now()->subYear(), 'expires_at' => $expires, 'auto_renew' => true, 'renewal_period' => 1, 'dns_provider' => 'external', 'registrant_contact_id' => $contact->id, 'admin_contact_id' => $contact->id]);
+    $domains = app(DomainService::class);
+
+    // the registrar's instance is switched off: nothing is reserved, and the scheduler's job goes back into the queue
+    // (it used to stay in HOLD_PLACED — a state nothing picks up again — with the money held for a week)
+    ProviderInstance::query()->where('key', 'wedos-main')->update(['state' => 'disabled']);
+    Queue::fake();
+    $stats = app(DomainRenewalScheduler::class)->tick($ctx);
+    $job = DomainRenewalJob::query()->where('domain_id', $domain->id)->firstOrFail();
+    expect($stats['started'])->toBe(0)->and($stats['retried'])->toBe(1)->and($job->state)->toBe(DomainRenewalJob::SCHEDULED)->and($job->attempts)->toBe(1)->and($job->wallet_hold_id)->toBeNull();
+    expect(WalletHold::query()->where('reference_id', $domain->id)->count())->toBe(0)->and(app(WalletService::class)->balances($org, 'CZK')['reserved']->minor)->toBe(0);
+
+    // the registrar is back; the customer clicks „Prodloužit“ in the hour the scheduler runs
+    ProviderInstance::query()->where('key', 'wedos-main')->update(['state' => 'active']);
+    $first = $domains->renew($domain, 1, $ctx, 'domain.renew:customer-click');
+    expect(fn () => $domains->renew($domain, 1, $ctx, 'domain.renew:second-click'))->toThrow(fn (DomainError $e) => expect($e->error)->toBe('domain_renewal_in_progress')->and($e->status)->toBe(409));
+    $job->forceFill(['scheduled_for' => now()->subMinute()])->save();
+    [$started] = app(DomainRenewalScheduler::class)->execute($ctx);
+    expect($started)->toBe(0)->and($job->fresh()->state)->toBe(DomainRenewalJob::SCHEDULED)->and((string) $job->fresh()->last_error)->toContain('already in progress');
+    expect(WalletHold::query()->where('reference_id', $domain->id)->where('state', 'active')->count())->toBe(1)->and(Operation::query()->where('domain_id', $domain->id)->count())->toBe(1);
+    expect($domains->renew($domain, 1, $ctx, 'domain.renew:customer-click')->id)->toBe($first->id); // the same request again is the same renewal
 });

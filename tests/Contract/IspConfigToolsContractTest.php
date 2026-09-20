@@ -109,8 +109,8 @@ it('manages forwards, catch-all, autoresponder, spam policies and lists, filters
             : ['mailuser_id' => 21, 'email' => 'jana@shop.cz', 'autoresponder' => 'y', 'autoresponder_subject' => 'Dovolená', 'autoresponder_text' => 'Jsem pryč', 'autoresponder_start_date' => '2026-09-10 00:00:00', 'autoresponder_end_date' => '0000-00-00 00:00:00'],
         'mail_user_update' => true,
         'mail_policy_get' => [['id' => 1, 'policy_name' => 'Normal'], ['id' => 3, 'policy_name' => 'Wants all spam']],
-        'mail_spamfilter_user_get' => fn (array $body) => ($body['primary_id']['email'] ?? '') === 'jana@shop.cz' ? [['id' => 60, 'email' => 'jana@shop.cz', 'policy_id' => 3]] : [['id' => 61, 'email' => '@shop.cz', 'policy_id' => 1]],
-        'mail_spamfilter_whitelist_get' => [['wblist_id' => 70, 'email' => 'partner@example.com', 'active' => 'y']],
+        'mail_spamfilter_user_get' => fn (array $body) => ($body['primary_id']['email'] ?? '') === 'jana@shop.cz' ? [['id' => 60, 'email' => 'jana@shop.cz', 'policy_id' => 3]] : (($body['primary_id']['email'] ?? '') === '%shop.cz' ? [['id' => 61, 'email' => '@shop.cz', 'policy_id' => 1], ['id' => 99, 'email' => '@eshop.cz', 'policy_id' => 1]] : [['id' => 61, 'email' => '@shop.cz', 'policy_id' => 1]]), // `%shop.cz` without the @ is also somebody else's eshop.cz
+        'mail_spamfilter_whitelist_get' => fn (array $body) => (int) ($body['primary_id']['rid'] ?? 0) === 99 ? [['wblist_id' => 990, 'email' => 'cizi@eshop.cz', 'active' => 'y']] : [['wblist_id' => 70, 'email' => 'partner@example.com', 'active' => 'y']],
         'mail_spamfilter_blacklist_get' => [],
         'mail_spamfilter_blacklist_add' => 71,
         'mail_user_filter_get' => [['filter_id' => 80, 'rulename' => 'Newsletters', 'source' => 'Subject', 'op' => 'contains', 'searchterm' => 'newsletter', 'action' => 'move', 'target' => 'Newsletters', 'active' => 'y']],

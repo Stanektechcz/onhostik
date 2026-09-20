@@ -339,7 +339,7 @@ trait IspConfigMailTools
     private function domainSpamUserIds(ResourceRef $domain): array
     {
         $ids = [];
-        foreach ((array) $this->api->call('mail_spamfilter_user_get', ['primary_id' => ['email' => '%'.$this->mailDomainName($domain)]]) as $row) {
+        foreach ((array) $this->api->call('mail_spamfilter_user_get', ['primary_id' => ['email' => '%@'.$this->mailDomainName($domain)]] /* anchored at the @: `%example.cz` is also somebody else's myexample.cz */) as $row) {
             if (is_array($row) && ! empty($row['id'])) {
                 $ids[] = (int) $row['id'];
             }

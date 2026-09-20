@@ -64,7 +64,7 @@ final class SubscriptionService
         } else {
             $period = in_array($item?->period, ['month', 'year'], true) ? $item->period : 'month';
             $amount = (int) round(((int) ($config['renewal_net_minor'] ?? 0)) / $periodsBilled);
-            $end = $period === 'year' ? $start->copy()->addYears($periodsBilled) : $start->copy()->addMonths($periodsBilled);
+            $end = BillingPeriod::end($start, $period, $periodsBilled);
             $next = $end->copy()->subDays((int) config('onhost.billing.renew_lead_days', 7));
         }
         $subscription = Subscription::query()->create([
@@ -135,7 +135,7 @@ final class SubscriptionService
         $line = $calc['lines'][0];
         $periodKey = $subscription->current_period_end->format('Ymd');
         $newStart = $subscription->current_period_end->copy();
-        $newEnd = $subscription->period === 'year' ? $newStart->copy()->addYear() : $newStart->copy()->addMonth();
+        $newEnd = BillingPeriod::end($newStart, (string) $subscription->period, 1, $service->activated_at?->day); // anchored on the day the service started: 31 Jan → 28 Feb → 31 Mar
         $invoiceLine = [
             'sku' => $service->product_key.'-renewal', 'description' => "Prodloužení služby {$service->name}".($service->hostname ? " ({$service->hostname})" : ''), 'qty' => 1, 'unit' => 'ks',
             'unit_net' => $net->minor, 'discount' => 0, 'net' => $net->minor, 'tax_rate' => (string) $line['rate'], 'tax_category' => (string) $line['category'], 'tax' => $line['tax']->minor, 'total' => $line['total']->minor,
@@ -187,7 +187,7 @@ final class SubscriptionService
         if (! empty($config['plan_change']['period_change']) && $period !== $subscription->period) {
             // a billing-period change was paid for a whole new period: it starts now, the unused rest of the old one was credited in the quote
             $start = now();
-            $end = $period === 'year' ? $start->copy()->addYear() : $start->copy()->addMonth();
+            $end = BillingPeriod::end($start, $period);
             $dates = ['current_period_start' => $start, 'current_period_end' => $end, 'next_renewal_at' => $end->copy()->subDays((int) config('onhost.billing.renew_lead_days', 7)), 'last_renewed_at' => $start, 'renewal_failures' => 0];
         }
         $subscription->forceFill(['plan_version_id' => $item->plan_version_id, 'price_id' => $item->price_id, 'amount_minor' => $amount, 'period' => $period] + $dates)->save();

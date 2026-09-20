@@ -86,6 +86,11 @@ final class QuoteService
 
         foreach ($items as $index => $item) {
             $qty = max(1, (int) ($item['qty'] ?? 1));
+            // One line is one service. A quantity was priced (× N, renewals too) and then ONE service was delivered: ten VPS paid,
+            // one built, renewing at ten times the price. Until a line can be delivered N times it is refused, not overcharged.
+            if ($qty > 1) {
+                throw new DomainError('quantity_unsupported', 'Each service is its own cart line; add the product again for another one.', 422, ['field' => "items.{$index}.qty"]);
+            }
             $productKey = (string) ($item['product_key'] ?? '');
             $config = (array) ($item['config'] ?? []);
             $lineId = (string) ($item['line_id'] ?? ('l'.($index + 1)));

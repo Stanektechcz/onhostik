@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
+use Onhost\Domain\Billing\BillingPeriod;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Catalog\CatalogService;
@@ -86,7 +87,7 @@ final class PlanChangeService
                     'period' => $candidate, 'current' => $candidate === $period, 'price' => $net,
                     'change_now' => Money::minor($candidate === $period ? 0 : max(0, $net->minor - $unused), $currency), 'unused_credit' => Money::minor($unused, $currency),
                     'saving_per_year' => $candidate === 'year' && $monthly !== null ? Money::minor(max(0, $monthly->minor * 12 - $net->minor), $currency) : null,
-                    'period_end_after' => $candidate === $period ? $subscription?->current_period_end?->toIso8601String() : ($candidate === 'year' ? now()->addYear() : now()->addMonth())->toIso8601String(),
+                    'period_end_after' => $candidate === $period ? $subscription?->current_period_end?->toIso8601String() : BillingPeriod::end(now(), $candidate)->toIso8601String(),
                 ];
             }
         }

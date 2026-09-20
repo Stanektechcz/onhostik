@@ -8,6 +8,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Onhost\Domain\Billing\BillingPeriod;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\InvoiceService;
@@ -163,7 +164,7 @@ final class MarketplaceService
             if ($listing->billing === 'monthly') { // §5k-2: the listing renews monthly on the subscription engine; the partner's share is booked per period
                 $subscription = Subscription::query()->create([
                     'organization_id' => $organization->id, 'service_id' => null, 'currency' => $net->currency->value, 'period' => 'month', 'amount_minor' => $net->minor, 'state' => Subscription::ACTIVE,
-                    'current_period_start' => now(), 'current_period_end' => now()->addMonth(), 'next_renewal_at' => now()->addMonth(), 'auto_renew' => true, 'cancel_at_period_end' => false, 'renewal_priority' => 'normal',
+                    'current_period_start' => now(), 'current_period_end' => BillingPeriod::end(now(), 'month'), 'next_renewal_at' => BillingPeriod::end(now(), 'month'), 'auto_renew' => true, 'cancel_at_period_end' => false, 'renewal_priority' => 'normal',
                 ]);
                 $subscriptionId = $subscription->id;
             }
@@ -539,7 +540,7 @@ final class MarketplaceService
                 continue;
             }
             $start = $subscription->current_period_end->copy();
-            $end = $start->copy()->addMonth();
+            $end = BillingPeriod::end($start, 'month', 1, $subscription->created_at?->day);
             $draft = $this->invoices->draft($organization, 'statement', $net->currency->value, [[
                 'sku' => 'mkt-'.$listing->key.'-renewal', 'description' => 'Marketplace: '.$listing->title.' (měsíční)', 'qty' => 1, 'unit' => 'ks',
                 'unit_net' => $net->minor, 'discount' => 0, 'net' => $net->minor, 'tax_rate' => (string) $line['rate'], 'tax_category' => (string) $line['category'], 'tax' => (int) $line['tax']->minor, 'total' => $gross->minor,

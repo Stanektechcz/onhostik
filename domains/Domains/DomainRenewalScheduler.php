@@ -106,7 +106,13 @@ final class DomainRenewalScheduler
                 $this->domains->renew($domain, (int) $job->period_years, $context->withScope($domain->organization_id), "renewal_job:{$job->id}:{$job->attempts}", $job);
                 $started++;
             } catch (DomainError $e) {
-                $job->forceFill(['attempts' => $job->attempts + 1, 'last_error' => mb_substr($e->getMessage(), 0, 250)]);
+                $job->refresh(); // whatever the attempt wrote was rolled back with it
+                if ($e->error === 'domain_renewal_in_progress') { // the customer got there first: that renewal is this one
+                    $job->forceFill(['scheduled_for' => now()->addHours(6), 'last_error' => 'renewal already in progress'])->save();
+
+                    continue;
+                }
+                $job->forceFill(['state' => DomainRenewalJob::SCHEDULED, 'attempts' => $job->attempts + 1, 'last_error' => mb_substr($e->getMessage(), 0, 250)]);
                 $daysLeft = $domain->daysToExpiry() ?? 0;
                 if ($daysLeft >= 1) {
                     $job->forceFill(['scheduled_for' => now()->addDay()])->save(); // retry daily until the day before expiry

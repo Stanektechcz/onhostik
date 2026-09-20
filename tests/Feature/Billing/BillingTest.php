@@ -6,6 +6,7 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Billing\DunningService;
 use Onhost\Domain\Billing\MeteringService;
@@ -191,4 +192,16 @@ it('does not close an unpaid invoice\'s dunning case because some service of the
         ->and($invoiceCase->fresh()->state)->not->toBe(DunningCase::RESOLVED);
     // an invoice's case is closed by that invoice being paid
     expect($dunning->resolve($org->id, $work->id, null, $ctx))->toBe(1)->and($workCase->fresh()->state)->toBe(DunningCase::RESOLVED)->and($invoiceCase->fresh()->state)->not->toBe(DunningCase::RESOLVED);
+});
+
+it('ends a period on the anchor day where the month has one and on its last day where it has not', function () {
+    $end = fn (string $start, string $period, int $count = 1, ?int $anchor = null) => Onhost\Domain\Billing\BillingPeriod::end(Carbon::parse($start), $period, $count, $anchor)->toDateString();
+    // addMonth() overflows: 31 January plus a month was 3 March — three free days, and the renewal day drifted for good
+    expect($end('2026-01-31 10:00', 'month'))->toBe('2026-02-28')
+        ->and($end('2026-02-28 10:00', 'month', 1, 31))->toBe('2026-03-31')   // the anchor brings the day back after February
+        ->and($end('2026-03-31 10:00', 'month', 1, 31))->toBe('2026-04-30')
+        ->and($end('2026-05-15 10:00', 'month', 3))->toBe('2026-08-15')
+        ->and($end('2028-02-29 10:00', 'year'))->toBe('2029-02-28')           // a leap day plus a year is not 1 March
+        ->and($end('2029-02-28 10:00', 'year', 3, 29))->toBe('2032-02-29')
+        ->and($end('2026-12-31 23:30', 'month'))->toBe('2027-01-31');
 });

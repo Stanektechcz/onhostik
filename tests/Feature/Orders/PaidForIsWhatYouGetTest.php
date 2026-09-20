@@ -111,3 +111,12 @@ it('taxes a signed-in organization by what it is, not by what the cart claims', 
     $guest = $this->withHeaders(['X-Cart-Token' => 'guest-cart-token-0123456789'])->postJson('/v1/cart/quote', ['country' => 'DE', 'customer_class' => 'b2b', 'vat_status' => 'valid'])->assertOk()->json('data');
     expect($guest['tax'])->toBeGreaterThan(0);
 });
+
+it('refuses a quantity it cannot deliver instead of charging for it', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    // ten VPS were priced (and would renew) ten times over while fulfilment builds one service per line
+    expect(fn () => app(QuoteService::class)->quote([['product_key' => 'vps', 'plan_key' => 'compute-4', 'qty' => 10]], 'CZK', [], 1, null, $org))
+        ->toThrow(fn (DomainError $e) => expect($e->error)->toBe('quantity_unsupported')->and($e->status)->toBe(422));
+    $one = app(QuoteService::class)->quote([['product_key' => 'vps', 'plan_key' => 'compute-4', 'qty' => 1], ['product_key' => 'vps', 'plan_key' => 'compute-4']], 'CZK', [], 1, null, $org);
+    expect($one->lines)->toHaveCount(2); // another one is another line
+});

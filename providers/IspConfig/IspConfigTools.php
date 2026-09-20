@@ -267,9 +267,11 @@ trait IspConfigTools
         if ($current === null) {
             throw new ProviderException('ispconfig', ProviderErrorCode::NOT_FOUND, 'The cron job does not belong to this site');
         }
-        $run = $this->shell($site)->run((string) $current['command'], ['timeout' => 300, 'cwd' => '$HOME/web']);
+        // the session starts in the site's home; `cd '$HOME/web'` is a directory literally called $HOME/web (quoting is ours), so the
+        // command after `&&` never ran and the answer still said "started"
+        $run = $this->shell($site)->run((string) $current['command'], ['timeout' => 300, 'cwd' => 'web']);
 
-        return ProviderResult::completed(new ResourceRef('cron', $remoteId, $site->node, [], $site->serviceId), ['started' => true, 'exit_code' => $run->exitCode, 'output' => mb_substr($run->output(), 0, 20000)]);
+        return ProviderResult::completed(new ResourceRef('cron', $remoteId, $site->node, [], $site->serviceId), ['started' => $run->exitCode === 0, 'exit_code' => $run->exitCode, 'output' => mb_substr($run->output(), 0, 20000)]);
     }
 
     public function cronLogs(ResourceRef $site, string $remoteId, int $lines = 100): array

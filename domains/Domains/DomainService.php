@@ -273,15 +273,28 @@ final class DomainService
         }
         $organization = Organization::query()->findOrFail($domain->organization_id);
         $price = $this->renewalPrice($domain, $years, $organization);
-        $hold = $this->wallets->hold($organization, $price['gross'], 'domain_renewal', "domain_renewal:{$idempotencyKey}", $context, 'domain', $domain->id, 'domain', 60 * 24 * 7);
-        $job?->forceFill(['state' => DomainRenewalJob::HOLD_PLACED, 'wallet_hold_id' => $hold->id, 'attempts' => $job->attempts + 1])->save();
-        $operation = $this->operations->start(RenewDomainWorkflow::class, $idempotencyKey, [
-            'domain_id' => $domain->id, 'fqdn' => $domain->fqdn_ascii, 'period' => $years, 'wallet_hold_id' => $hold->id, 'renewal_job_id' => $job?->id,
-            'net_minor' => $price['net']->minor, 'tax_minor' => $price['tax']->minor, 'gross_minor' => $price['gross']->minor, 'tax_rate' => $price['rate'], 'tax_category' => $price['category'], 'currency' => $organization->currency,
-            'test_mode' => (bool) config('onhost.wapi.test_mode', false),
-        ], $context, null, $organization->id, null, $this->registrar->instanceForDomain($domain)->id, $domain->id, dispatch: false);
-        $job?->forceFill(['state' => DomainRenewalJob::SENT, 'operation_id' => $operation->id])->save();
-        $this->audit->record($context->withScope($organization->id), 'domain.renew', 'succeeded', ['fqdn' => $domain->fqdn_ascii, 'years' => $years, 'hold_id' => $hold->id], 'domain', $domain->id);
+        $instance = $this->registrar->instanceForDomain($domain); // before any money is touched: no registrar, no reservation
+        // One renewal of a domain at a time, and all of it or nothing. The reminder mail sends the customer to „Prodloužit“ in the
+        // same hour the scheduler renews: two operations with two keys each reserved the money and each sent its own renewal —
+        // two years, two charges. And a registrar that could not be reached AFTER the reservation left the job in HOLD_PLACED,
+        // a state nothing ever picks up again: that domain silently never renewed by itself any more.
+        $operation = DB::transaction(function () use ($domain, $years, $context, $idempotencyKey, $job, $organization, $price, $instance) {
+            Domain::query()->whereKey($domain->id)->lockForUpdate()->first();
+            $running = Operation::query()->where('domain_id', $domain->id)->where('kind', RenewDomainWorkflow::kind())->whereIn('state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING])->first();
+            if ($running !== null) {
+                throw new DomainError('domain_renewal_in_progress', "{$domain->fqdn_ascii} is being renewed right now; wait for that renewal to finish.", 409, ['operation_id' => $running->id]);
+            }
+            $hold = $this->wallets->hold($organization, $price['gross'], 'domain_renewal', "domain_renewal:{$idempotencyKey}", $context, 'domain', $domain->id, 'domain', 60 * 24 * 7);
+            $operation = $this->operations->start(RenewDomainWorkflow::class, $idempotencyKey, [
+                'domain_id' => $domain->id, 'fqdn' => $domain->fqdn_ascii, 'period' => $years, 'wallet_hold_id' => $hold->id, 'renewal_job_id' => $job?->id,
+                'net_minor' => $price['net']->minor, 'tax_minor' => $price['tax']->minor, 'gross_minor' => $price['gross']->minor, 'tax_rate' => $price['rate'], 'tax_category' => $price['category'], 'currency' => $organization->currency,
+                'test_mode' => (bool) config('onhost.wapi.test_mode', false),
+            ], $context, null, $organization->id, null, $instance->id, $domain->id, dispatch: false);
+            $job?->forceFill(['state' => DomainRenewalJob::SENT, 'wallet_hold_id' => $hold->id, 'operation_id' => $operation->id, 'attempts' => $job->attempts + 1])->save();
+            $this->audit->record($context->withScope($organization->id), 'domain.renew', 'succeeded', ['fqdn' => $domain->fqdn_ascii, 'years' => $years, 'hold_id' => $hold->id], 'domain', $domain->id);
+
+            return $operation;
+        }, 3);
         $this->operations->dispatch($operation); // after the job row points at the operation, so the saga's bookkeeping is never overwritten
 
         return $operation;

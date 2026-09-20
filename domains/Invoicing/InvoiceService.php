@@ -6,6 +6,7 @@ namespace Onhost\Domain\Invoicing;
 
 use Illuminate\Contracts\Filesystem\Factory as FilesystemFactory;
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Billing\BillingPeriod;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\InvoiceLine;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
@@ -375,10 +376,10 @@ final class InvoiceService
     private function periodEnd(string $period, int $units): string
     {
         return match ($period) {
-            'year' => now()->addYears(max(1, $units))->subDay()->toDateString(),
+            'year' => BillingPeriod::end(now(), 'year', $units)->subDay()->toDateString(),
             'day' => now()->addDays(max(1, $units))->subDay()->toDateString(),
             'hour' => now()->addHours(max(1, $units))->toDateString(),
-            default => now()->addMonths(max(1, $units))->subDay()->toDateString(),
+            default => BillingPeriod::end(now(), 'month', $units)->subDay()->toDateString(),
         };
     }
 }
