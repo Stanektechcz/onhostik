@@ -38,13 +38,40 @@ final class EgressGuard
         if (! is_array($parts) || ! in_array($scheme, ['http', 'https'], true) || $host === '' || isset($parts['user']) || isset($parts['pass'])) {
             throw $this->refused('only http(s) addresses without credentials are accepted');
         }
+        $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
+
+        return ['scheme' => $scheme, 'host' => $host, 'port' => $port, 'ip' => $this->publicAddresses($host)[0]];
+    }
+
+    /**
+     * A destination that is not a URL — the server a mail node collects mail from (POP3/IMAP). That connection is made by
+     * the node, later and repeatedly, so it cannot be pinned; what can be refused is a name or an address that is local or
+     * private when it is saved.
+     *
+     * @throws DomainError destination_not_allowed (422)
+     */
+    public function checkHost(string $host): void
+    {
+        $host = strtolower(trim(trim($host), '[]'));
+        if ($host === '') {
+            throw $this->refused('a host name is required');
+        }
+        $this->publicAddresses($host);
+    }
+
+    /**
+     * @return non-empty-list<string> every address the host stands for — all of them public
+     *
+     * @throws DomainError destination_not_allowed (422)
+     */
+    private function publicAddresses(string $host): array
+    {
         $isIp = filter_var($host, FILTER_VALIDATE_IP) !== false;
         // names that mean "here" or "inside" whatever a resolver says: localhost, a bare label (search domains), private-use suffixes
         if (! $isIp && (! str_contains($host, '.') || preg_match('/(^|\.)(localhost|local|internal|intranet|lan|home\.arpa|corp|mgmt)$/', $host) === 1)) {
             throw $this->refused("{$host} is a local name");
         }
-        $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
-        $addresses = $isIp ? [$host] : $this->resolver->resolve($host);
+        $addresses = $isIp ? [$host] : array_values($this->resolver->resolve($host));
         if ($addresses === []) {
             throw $this->refused("{$host} does not resolve");
         }
@@ -54,7 +81,7 @@ final class EgressGuard
             }
         }
 
-        return ['scheme' => $scheme, 'host' => $host, 'port' => $port, 'ip' => $addresses[0]];
+        return $addresses;
     }
 
     /**

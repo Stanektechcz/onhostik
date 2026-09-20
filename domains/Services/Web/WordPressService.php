@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services\Web;
 
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriResolver;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\ServiceFeatures;
+use Onhost\Platform\Http\EgressGuard;
 use Onhost\Providers\Contracts\ShellResult;
 use Onhost\Providers\Shell\Q;
 use Throwable;
@@ -22,7 +25,7 @@ final class WordPressService
 {
     private const TTL = 600;
 
-    public function __construct(private readonly ServiceFeatures $features, private readonly StagingService $staging) {}
+    public function __construct(private readonly ServiceFeatures $features, private readonly StagingService $staging, private readonly EgressGuard $egress) {}
 
     /** @return array<string,mixed> */
     public function status(Service $service, bool $fresh = false): array
@@ -154,7 +157,21 @@ final class WordPressService
     public function healthCheck(string $url): array
     {
         try {
-            $response = Http::withoutVerifying()->withUserAgent((string) config('onhost.monitoring.user_agent', 'ONhost-Monitor/1.0'))->timeout(25)->get($url);
+            // The site is the customer's code: it may answer with a redirect, and a redirect is a destination nobody checked
+            // (`Location: http://10.0.0.5:8888/…` would be fetched from inside the management network). Each hop is judged by
+            // the egress guard and pinned to the address that was judged; three hops cover / → /cs/ → /cs/uvod/.
+            $response = null;
+            for ($hop = 0; $hop < 4; $hop++) {
+                $response = Http::withOptions($this->egress->options($url))->withoutVerifying()->withUserAgent((string) config('onhost.monitoring.user_agent', 'ONhost-Monitor/1.0'))->timeout(25)->get($url);
+                $location = $response->redirect() ? trim((string) $response->header('Location')) : '';
+                if ($location === '') {
+                    break;
+                }
+                if ($hop === 3) {
+                    return ['ok' => false, 'status' => $response->status(), 'error' => 'the site keeps redirecting'];
+                }
+                $url = (string) UriResolver::resolve(new Uri($url), new Uri($location));
+            }
         } catch (Throwable $e) {
             return ['ok' => false, 'status' => null, 'error' => mb_substr($e->getMessage(), 0, 200)];
         }

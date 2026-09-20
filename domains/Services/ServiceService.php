@@ -664,8 +664,11 @@ final class ServiceService
             })(),
             'redirect.set' => (function () use ($params, $action) {
                 $target = trim((string) ($params['target'] ?? ''));
-                if ($target !== '' && ! filter_var($target, FILTER_VALIDATE_URL)) {
-                    throw new DomainError('action_param_invalid', "{$action}: target must be an absolute URL or empty to remove the redirect.", 422, ['field' => 'target']);
+                // the target is written into the vhost by the panel (`return 301 <target>…;`): an http(s) address made of URL characters
+                // only — no other scheme (FILTER_VALIDATE_URL alone accepts javascript:, file:, mailto:), no credentials, and none of
+                // the characters that end or open a statement in a web-server configuration (; { } $ quotes, backslash, backtick)
+                if ($target !== '' && (strlen($target) > 500 || ! filter_var($target, FILTER_VALIDATE_URL) || preg_match('~^https?://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:\d{1,5})?([/?#][A-Za-z0-9\-._\~:/?#\[\]@!&()*+,=%]*)?$~i', $target) !== 1)) {
+                    throw new DomainError('action_param_invalid', "{$action}: target must be an http(s) address (letters, digits and URL punctuation only) or empty to remove the redirect.", 422, ['field' => 'target']);
                 }
 
                 return ['target' => $target, 'type' => in_array((string) ($params['type'] ?? '301'), ['301', '302'], true) ? (string) ($params['type'] ?? '301') : '301'];
@@ -1111,7 +1114,10 @@ final class ServiceService
                     throw new DomainError('action_param_invalid', "{$action}: type must be pop3, imap, pop3ssl or imapssl.", 422, ['field' => 'type']);
                 }
 
-                return ['type' => $type, 'host' => strtolower($need('host', '/^[a-z0-9.-]{3,253}$/i', 'host is required')), 'user' => $need('user', '/^[^\r\n\s]{1,120}$/', 'user is required'), 'password' => (string) ($params['password'] ?? '') !== '' ? (string) $params['password'] : $password(), 'destination' => strtolower($need('destination', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'destination must be a mailbox')), 'delete' => filter_var($params['delete'] ?? false, FILTER_VALIDATE_BOOLEAN)];
+                $host = strtolower($need('host', '/^[a-z0-9.-]{3,253}$/i', 'host is required'));
+                app(EgressGuard::class)->checkHost($host); // the mail node connects there on the customer's word: a public server, not the management network
+
+                return ['type' => $type, 'host' => $host, 'user' => $need('user', '/^[^\r\n\s]{1,120}$/', 'user is required'), 'password' => (string) ($params['password'] ?? '') !== '' ? (string) $params['password'] : $password(), 'destination' => strtolower($need('destination', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'destination must be a mailbox')), 'delete' => filter_var($params['delete'] ?? false, FILTER_VALIDATE_BOOLEAN)];
             })(),
             'mailbox.restore' => ['remote_id' => $remote(), 'backup_id' => $need('backup_id', '/^\d{1,12}$/', 'backup_id is required')],
             // ── game tools ─────────────────────────────────────────────────────────────────────────

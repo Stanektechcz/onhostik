@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\WebhookDelivery;
 use Onhost\Domain\Notifications\Models\WebhookEndpoint;
 use Onhost\Domain\Notifications\WebhookDispatcher;
+use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Models\UptimeMonitor as Monitor;
 use Onhost\Domain\Services\Web\UptimeMonitor;
+use Onhost\Domain\Services\Web\WordPressService;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Http\EgressGuard;
 use Tests\FakeHostResolver;
@@ -97,4 +100,54 @@ it('lets a reverse proxy point at the customer\'s own app on the node, not at th
         'http://10.0.0.5:8888', 'http://192.168.1.10:3000', 'http://169.254.169.254/', 'http://pve.mgmt:8006'] as $refused) {
         expect(fn () => $guard->checkUpstream($refused))->toThrow(fn (DomainError $e) => expect($e->error)->toBe('destination_not_allowed', $refused));
     }
+});
+
+it('collects mail only from a public server and redirects a site only to an http(s) address', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $mail = featureMailService($org, 'posta-example.cz');
+    $web = featureWebService($org, 'ispconfig');
+    $this->actingAs($owner, 'sanctum');
+    Queue::fake(); // the parameters are judged before anything is queued; nothing here reaches a panel
+    FakeHostResolver::$hosts = ['imap.panel.example' => ['10.0.0.5'], 'imap.seznam.cz' => ['77.75.78.48']];
+    $act = fn (string $service, string $action, array $params) => $this->postJson("/v1/services/{$service}/actions", ['action' => $action, 'params' => $params], ['Idempotency-Key' => 'b34-'.md5($action.json_encode($params))]);
+
+    // the mail node connects wherever the customer says — four mail ports of the management network are still the management network
+    $fetch = fn (string $host) => ['type' => 'imapssl', 'host' => $host, 'user' => 'jana', 'password' => 'Correct-Horse-Battery-9', 'destination' => 'jana@posta-example.cz'];
+    foreach (['10.0.0.5', '127.0.0.1', 'imap.panel.example', 'mailstore.internal', 'mailhost'] as $host) {
+        $act($mail->id, 'fetchmail.create', $fetch($host))->assertStatus(422)->assertJsonPath('error', 'destination_not_allowed');
+    }
+    $act($mail->id, 'fetchmail.create', $fetch('imap.seznam.cz'))->assertAccepted();
+    expect(fn () => app(EgressGuard::class)->checkHost(''))->toThrow(DomainError::class)->and(fn () => app(EgressGuard::class)->checkHost('[::1]'))->toThrow(DomainError::class);
+    app(EgressGuard::class)->checkHost('93.184.216.34');
+
+    // a redirect target is written into the vhost by the panel: http(s), no credentials, URL characters only
+    foreach ([
+        'javascript://x%0aalert(1)', 'file:///etc/passwd', 'mailto:jana@shop.cz', 'ftp://files.shop.cz/', 'https://user:pass@new.shop.cz/', 'https://new.shop.cz:8443@evil.example/',
+        'https://new.shop.cz/;}location=/x{return', 'https://new.shop.cz/$document_root', 'https://new.shop.cz/"x"', "https://new.shop.cz/'x'", 'https://new.shop.cz/\\x', 'https://new.shop.cz/`id`',
+        'https://new.shop.cz/a b', "https://new.shop.cz/\nproxy_pass", '//new.shop.cz/', '/relative', 'https://'.str_repeat('a', 500).'.cz/',
+    ] as $target) {
+        $act($web->id, 'redirect.set', ['target' => $target])->assertStatus(422)->assertJsonPath('error', 'action_param_invalid')->assertJsonPath('field', 'target');
+    }
+    foreach (['https://new.shop.cz/', 'http://new.shop.cz:8080/cesta/index.php?a=1&b=2#kotva', 'https://xn--pklad-zsa96e.cz/akce/(2026)/', ''] as $target) {
+        $act($web->id, 'redirect.set', ['target' => $target, 'type' => '302'])->assertAccepted();
+        Operation::query()->where('service_id', $web->id)->delete(); // queued, never run here: the next action would wait for it
+    }
+});
+
+it('follows the redirects of a customer\'s site only to public destinations when it checks the site after an update', function () {
+    Http::fake([
+        'https://shop-cz-staging.web.onhost.cz/cs/' => Http::response('<html>Vítejte</html>', 200),
+        'https://shop-cz-staging.web.onhost.cz/' => Http::response('', 302, ['Location' => '/cs/']),
+        'https://zly-cz-staging.web.onhost.cz/' => Http::response('', 302, ['Location' => 'http://10.0.0.5:8888/system?action=GetSystemTotal']),
+        'https://kruh-cz-staging.web.onhost.cz/*' => Http::response('', 301, ['Location' => 'https://kruh-cz-staging.web.onhost.cz/dal']),
+        'https://rozbity-cz-staging.web.onhost.cz/' => Http::response('<p>There has been a critical error on this website.</p>', 200),
+    ]);
+    $wp = app(WordPressService::class);
+
+    expect($wp->healthCheck('https://shop-cz-staging.web.onhost.cz/'))->toBe(['ok' => true, 'status' => 200, 'error' => null]);
+    $inward = $wp->healthCheck('https://zly-cz-staging.web.onhost.cz/');
+    expect($inward['ok'])->toBeFalse()->and((string) $inward['error'])->toContain('cannot be used');
+    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '10.0.0.5'));
+    expect($wp->healthCheck('https://kruh-cz-staging.web.onhost.cz/'))->toMatchArray(['ok' => false, 'error' => 'the site keeps redirecting']);
+    expect($wp->healthCheck('https://rozbity-cz-staging.web.onhost.cz/'))->toMatchArray(['ok' => false, 'error' => 'the site shows a WordPress error page']);
 });
