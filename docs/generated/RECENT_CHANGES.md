@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 8fe0a10 | 2026-09-20 | A document in EUR states its VAT in CZK; a cart quantity is that many lines; the transfer lock says what it is |
+| b2eb728 | 2026-09-20 | Regenerate project state after the DNS block |
 | 018b245 | 2026-09-20 | A plan change never resizes the node; DNS is compared with its provider every night, can be repaired, and is bounded in size |
 | 6f348b5 | 2026-09-20 | Generated project state after the compensation, premium, panel-link, promo and read-audit blocks |
 | 1eb2dfc | 2026-09-20 | Staff reading a customer's data is an event; a role reads what it may change |
@@ -12,5 +14,3 @@
 | bc68c68 | 2026-09-20 | A failed operation takes back only what it made: compensations delete through the identity check |
 | f1047d6 | 2026-09-20 | A premium name is not sold, registered, renewed or transferred at the list price of its TLD |
 | 04f1d1a | 2026-09-20 | Generated project state after the domain and suspension blocks |
-| 39a1076 | 2026-09-20 | A suspended site is more than a stopped vhost: its cron jobs and FTP accounts are paused too, and remembered |
-| d55387c | 2026-09-20 | Domains are not lost to a calendar: renewals go on through the protective period; a listing without a status is not "active" |
