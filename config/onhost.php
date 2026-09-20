@@ -359,6 +359,9 @@ return [
         'shared_nsset_handle' => env('ONHOST_NSSET_HANDLE', 'NSSET-ONHOST'),
         'tech_contact_handle' => env('ONHOST_TECH_CONTACT_HANDLE', ''),
         'renew_lead_days' => (int) env('ONHOST_DOMAIN_RENEW_LEAD_DAYS', 14),
+        // days after the expiry during which an unpaid renewal is still attempted daily (the registry renews at the ordinary price;
+        // .cz keeps a domain 30 days, most gTLDs 30–45) — afterwards only a paid restore helps
+        'grace_retry_days' => (int) env('ONHOST_DOMAIN_GRACE_RETRY_DAYS', 20),
         'notice_days' => [60, 30, 14, 7, 3, 1],
         'search_max' => 20,
         'search_cache_seconds' => 60,

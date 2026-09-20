@@ -15,7 +15,9 @@ use Throwable;
 /**
  * Renewal orchestration (blueprint §46.3): notices at 60/30/14/7/3/1 days,
  * domain-priority holds `renew_lead_days` before expiry, daily retries while the
- * wallet is short, hard stop at expiry with an explicit `domain.expired` signal.
+ * wallet is short — and on through the protective period after the expiry
+ * (`onhost.domains.grace_retry_days`): the registry still renews at the ordinary price for weeks, and a renewal used to
+ * be abandoned the day before the expiry, so a customer who topped up the next morning lost the domain anyway.
  */
 final class DomainRenewalScheduler
 {
@@ -38,7 +40,10 @@ final class DomainRenewalScheduler
         $window = max((array) config('onhost.domains.notice_days', [60, 30, 14, 7, 3, 1]));
         $lead = (int) config('onhost.domains.renew_lead_days', 14);
         $count = 0;
-        $candidates = Domain::query()->where('state', DomainStateMachine::ACTIVE)->whereNotNull('expires_at')->where('expires_at', '<=', now()->addDays($window))
+        $grace = self::graceDays();
+        $candidates = Domain::query()->whereNotNull('expires_at')
+            ->where(fn ($q) => $q->where(fn ($q) => $q->where('state', DomainStateMachine::ACTIVE)->where('expires_at', '<=', now()->addDays($window)))
+                ->orWhere(fn ($q) => $q->whereIn('state', [DomainStateMachine::EXPIRED, DomainStateMachine::GRACE])->where('auto_renew', true)->where('expires_at', '>=', now()->subDays($grace)))) // expired, still renewable at the ordinary price
             ->whereDoesntHave('renewalJobs', fn ($q) => $q->whereIn('state', [DomainRenewalJob::SCHEDULED, DomainRenewalJob::HOLD_PLACED, DomainRenewalJob::SENT, DomainRenewalJob::PENDING_REGISTRY]))->get();
         foreach ($candidates as $domain) {
             $alreadyDone = DomainRenewalJob::query()->where('domain_id', $domain->id)->where('due_at', $domain->expires_at)->where('state', DomainRenewalJob::SUCCEEDED)->exists();
@@ -47,7 +52,7 @@ final class DomainRenewalScheduler
             }
             DomainRenewalJob::query()->create([
                 'domain_id' => $domain->id, 'organization_id' => $domain->organization_id, 'period_years' => $domain->renewal_period ?: 1,
-                'state' => DomainRenewalJob::SCHEDULED, 'due_at' => $domain->expires_at, 'scheduled_for' => $domain->expires_at->copy()->subDays($lead), 'notices_sent' => [],
+                'state' => DomainRenewalJob::SCHEDULED, 'due_at' => $domain->expires_at, 'scheduled_for' => $domain->expires_at->isPast() ? now() : $domain->expires_at->copy()->subDays($lead), 'notices_sent' => [],
             ]);
             $count++;
         }
@@ -88,6 +93,20 @@ final class DomainRenewalScheduler
         return $sent;
     }
 
+    /** Days after the expiry during which a renewal is still attempted (the registry renews at the ordinary price; afterwards it is a restore). */
+    public static function graceDays(): int
+    {
+        return max(0, (int) config('onhost.domains.grace_retry_days', 20));
+    }
+
+    /**
+     * Money arrived: the organization's renewals that waited for it are tried on the next pass, not tomorrow.
+     */
+    public function wake(string $organizationId): int
+    {
+        return DomainRenewalJob::query()->where('organization_id', $organizationId)->where('state', DomainRenewalJob::SCHEDULED)->where('attempts', '>', 0)->where('scheduled_for', '>', now())->update(['scheduled_for' => now()]);
+    }
+
     /** @return array{0:int,1:int,2:int} started, retried, failed */
     public function execute(CommandContext $context): array
     {
@@ -114,10 +133,11 @@ final class DomainRenewalScheduler
                 }
                 $job->forceFill(['state' => DomainRenewalJob::SCHEDULED, 'attempts' => $job->attempts + 1, 'last_error' => mb_substr($e->getMessage(), 0, 250)]);
                 $daysLeft = $domain->daysToExpiry() ?? 0;
-                if ($daysLeft >= 1) {
-                    $job->forceFill(['scheduled_for' => now()->addDay()])->save(); // retry daily until the day before expiry
+                $sinceExpiry = $domain->expires_at !== null && $domain->expires_at->isPast() ? (int) floor($domain->expires_at->diffInDays(now(), true)) : 0;
+                if ($daysLeft >= 1 || $sinceExpiry <= self::graceDays()) {
+                    $job->forceFill(['scheduled_for' => now()->addDay()])->save(); // retry daily — up to the expiry and on through the protective period
                     $retried++;
-                    $this->outbox->publish(GenericEvent::of('domain.renewal_payment_failed', 'domain', $domain->id, ['fqdn' => $domain->fqdn_ascii, 'error' => $e->error, 'days_left' => $daysLeft, 'job_id' => $job->id], $domain->organization_id));
+                    $this->outbox->publish(GenericEvent::of('domain.renewal_payment_failed', 'domain', $domain->id, ['fqdn' => $domain->fqdn_ascii, 'error' => $e->error, 'days_left' => $daysLeft, 'in_grace' => $daysLeft < 1, 'grace_days_left' => $daysLeft < 1 ? max(0, self::graceDays() - $sinceExpiry) : null, 'job_id' => $job->id], $domain->organization_id));
                 } else {
                     $job->forceFill(['state' => DomainRenewalJob::FAILED])->save();
                     $failed++;

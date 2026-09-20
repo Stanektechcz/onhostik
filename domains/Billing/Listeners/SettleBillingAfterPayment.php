@@ -7,6 +7,7 @@ namespace Onhost\Domain\Billing\Listeners;
 use Onhost\Domain\Billing\DunningService;
 use Onhost\Domain\Billing\RatingService;
 use Onhost\Domain\Billing\SubscriptionService;
+use Onhost\Domain\Domains\DomainRenewalScheduler;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Outbox\OutboxMessage;
 
@@ -16,7 +17,7 @@ use Onhost\Platform\Outbox\OutboxMessage;
  */
 final class SettleBillingAfterPayment
 {
-    public function __construct(private readonly DunningService $dunning, private readonly RatingService $rating, private readonly SubscriptionService $subscriptions) {}
+    public function __construct(private readonly DunningService $dunning, private readonly RatingService $rating, private readonly SubscriptionService $subscriptions, private readonly DomainRenewalScheduler $domainRenewals) {}
 
     public function handle(OutboxMessage $message): void
     {
@@ -32,5 +33,6 @@ final class SettleBillingAfterPayment
         }
         $this->rating->chargeDeferred($organizationId, $context);
         $this->subscriptions->retryPastDue($organizationId, $context);
+        $this->domainRenewals->wake($organizationId); // a domain renewal that waited for money is tried on the next pass, not tomorrow
     }
 }

@@ -7,11 +7,18 @@ namespace Onhost\Domain\Domains\Models;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Platform\Eloquent\Model;
 use Onhost\Platform\Redaction\Redactor;
 
-/** Registered domain (blueprint §46). Public id `dom_…`; `fqdn_ascii` is the canonical key. */
+/**
+ * Registered domain (blueprint §46). Public id `dom_…`; `fqdn_ascii` is the canonical key.
+ *
+ * @property ?Carbon $registered_at
+ * @property ?Carbon $expires_at
+ * @property ?Carbon $last_reconciled_at
+ */
 final class Domain extends Model
 {
     use SoftDeletes;

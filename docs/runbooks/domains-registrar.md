@@ -27,11 +27,26 @@ issues the VY statement. Failure paths:
 | SENT, no confirmation | WAPI async pending | wait; poll worker retries `domain-info`; escalate after 24 h |
 | FAILED 3205/3206 | domain not renewable (locked/expired at registry) | open ticket, manual renewal at WEDOS |
 
+**After the expiry the renewal goes on.** An unpaid renewal is retried every day up to the expiry **and through the
+protective period after it** (`ONHOST_DOMAIN_GRACE_RETRY_DAYS`, default 20 — the registry still renews at the ordinary
+price; afterwards only a paid restore helps), and on the next hourly pass after the customer tops up
+(`DomainRenewalScheduler::wake`). It used to be abandoned the day before the expiry: a customer who topped up the next
+morning lost the domain anyway. An expired domain with auto-renew on and no open job gets one at once. The customer's
+notice says how many days of the protective period are left. Check on staging how long each registry really renews at
+the ordinary price (`.cz` 30 days, most gTLDs 30–45) and set the number below the shortest.
+
 ## Reconciliation
 
 `onhost:registrar:reconcile` (daily 04:00) lists domains at WEDOS and compares with `domains`:
 `domain.reconcile.missing_remote` (we think we own it, registrar does not) and `unknown_remote` (registrar has a
 domain we do not) are internal notifications; both need a human decision — import, transfer, or close.
+
+A listing **without a status** (Subreg's has none) says nothing about the state: dates are taken from it, the state is
+not. It used to read as "active", so a domain in redemption or on its way out came back as `ACTIVE` every night. Domains
+such a listing cannot explain — not `ACTIVE` locally, or listed with a date in the past — are asked about one by one
+(`domain-info` / `Info_Domain`, at most 100 per run).
+
+Tests: `tests/Feature/Domains/DomainGraceAndReconcileTest.php`.
 
 ## Transfer out / AUTH-ID
 

@@ -518,6 +518,9 @@ final class DomainService
 
     // ── registry truth ───────────────────────────────────────────────────────
 
+    /** How many domains one reconciliation asks the registry about one by one (those a status-less listing cannot explain). */
+    private const RECONCILE_INFO_LIMIT = 100;
+
     /** @param array<string,mixed> $info normalised domain-info */
     public function applyRegistryInfo(Domain $domain, array $info): Domain
     {
@@ -536,7 +539,9 @@ final class DomainService
         if (array_key_exists('dnssec', $info)) {
             $patch['dnssec'] = (bool) $info['dnssec'];
         }
-        if (! in_array($domain->state, [DomainStateMachine::DELETED, DomainStateMachine::TRANSFERRED_OUT, DomainStateMachine::FAILED], true)) {
+        // a LISTING that carries no status (Subreg's does not) says nothing about the state: '' used to read as "active", so the nightly
+        // reconciliation revived a domain in redemption, or on its way out, as ACTIVE. Dates are taken from it, the state is not.
+        if (empty($info['status_unknown']) && ! in_array($domain->state, [DomainStateMachine::DELETED, DomainStateMachine::TRANSFERRED_OUT, DomainStateMachine::FAILED], true)) {
             $patch['state'] = DomainStateMachine::fromRegistryStatus((string) ($info['status'] ?? ''), $expires);
             if ($domain->state === DomainStateMachine::TRANSFER_IN_PENDING && $patch['state'] === DomainStateMachine::PENDING_REGISTRY) {
                 $patch['state'] = DomainStateMachine::TRANSFER_IN_PENDING;
@@ -564,6 +569,7 @@ final class DomainService
         }
         $checked = 0;
         $updated = 0;
+        $asked = 0;
         $missing = [];
         $locals = Domain::query()->whereNotIn('state', [DomainStateMachine::DELETED, DomainStateMachine::TRANSFERRED_OUT, DomainStateMachine::FAILED, DomainStateMachine::PENDING_REGISTRATION])->get();
         foreach ($locals as $domain) {
@@ -580,7 +586,19 @@ final class DomainService
                 $domain->forceFill(['registrar_provider' => $row['registrar_provider']])->save();
                 $this->outbox->publish(GenericEvent::of('domain.reconcile.registrar_changed', 'domain', $domain->id, ['fqdn' => $domain->fqdn_ascii, 'registrar' => $row['registrar_provider']], $domain->organization_id));
             }
-            $this->applyRegistryInfo($domain, ['status' => $row['status'] ?? '', 'expires_at' => $row['expires_at'] ?? null, 'registered_at' => $row['registered_at'] ?? null, 'raw' => $row]);
+            $statusUnknown = trim((string) ($row['status'] ?? '')) === '';
+            $rowExpired = ! empty($row['expires_at']) && new \DateTimeImmutable((string) $row['expires_at']) < new \DateTimeImmutable('now');
+            if ($statusUnknown && ($domain->state !== DomainStateMachine::ACTIVE || $rowExpired) && $asked < self::RECONCILE_INFO_LIMIT) {
+                // the listing cannot explain this one: the registry is asked about the domain itself (a handful per night, not the whole portfolio)
+                $asked++;
+                try {
+                    $this->applyRegistryInfo($domain, $this->registrar->forDomain($domain)->domainInfo($domain->fqdn_ascii));
+                } catch (ProviderException $e) {
+                    $this->applyRegistryInfo($domain, ['status_unknown' => true, 'expires_at' => $row['expires_at'] ?? null, 'registered_at' => $row['registered_at'] ?? null, 'raw' => $row]);
+                }
+            } else {
+                $this->applyRegistryInfo($domain, ['status' => $row['status'] ?? '', 'status_unknown' => $statusUnknown, 'expires_at' => $row['expires_at'] ?? null, 'registered_at' => $row['registered_at'] ?? null, 'raw' => $row]);
+            }
             if ($before !== [$domain->state, $domain->expires_at?->toDateString()]) {
                 $updated++;
                 $this->outbox->publish(GenericEvent::of('domain.reconciled', 'domain', $domain->id, ['fqdn' => $domain->fqdn_ascii, 'state' => $domain->state, 'expires_at' => $domain->expires_at?->toIso8601String()], $domain->organization_id));

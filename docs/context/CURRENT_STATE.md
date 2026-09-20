@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **Domains are not lost to a calendar:** a registrar listing without a status is not read as "active" (a domain in redemption
+  came back as ACTIVE); an unpaid renewal is retried daily through the protective period after the expiry and at once after
+  a top-up (it used to be abandoned the day before the expiry).
+
 - **AI for support:** a reply to a ticket is drafted for the agent from the conversation, the account facts and the health
   check of the ticket's service (`POST /v1/staff/tickets/{id}/draft`; a model gets no tools, masked data and no internal
   notes; rules without a model; nothing is sent). What a person types into the chat is masked (`SecretMask`) before a
@@ -144,7 +148,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 599 tests, 12 628 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 602 tests, 12 642 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
