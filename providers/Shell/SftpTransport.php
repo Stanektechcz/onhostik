@@ -123,10 +123,16 @@ final class SftpTransport implements FileTransport
     public function archive(array $paths, string $target): void
     {
         $tar = str_ends_with(strtolower($target), '.tar.gz') || str_ends_with(strtolower($target), '.tgz');
-        $sources = implode(' ', array_map(fn (string $p) => Q::arg($this->rel($p)), $paths));
-        $cmd = $tar ? 'tar czf '.Q::arg($this->abs($target)).' '.$sources : 'zip -qr '.Q::arg($this->abs($target)).' '.$sources;
+        $sources = implode(' ', array_map(fn (string $p) => Q::arg($this->rel($p) === '' ? '.' : $this->rel($p)), $paths)); // '.' is the whole site
+        // the archive is written into the tree it packs: it never packs itself
+        $cmd = $tar
+            ? 'tar czf '.Q::arg($this->abs($target)).' --exclude='.Q::arg('./'.$this->rel($target)).' '.$sources
+            : 'zip -qr '.Q::arg($this->abs($target)).' '.$sources.' -x '.Q::arg($this->rel($target));
         $run = $this->shell->run($cmd, ['cwd' => $this->root, 'timeout' => 900]);
-        if (! $run->ok()) {
+        // tar exits 1 when a file changed or vanished while it was being read — a live site does that all day (caches, logs,
+        // sessions). The archive is complete and usable; calling that a failure made the backup of every busy site fail.
+        $usable = $tar && $run->exitCode === 1 && ! $run->timedOut && $this->exists($target);
+        if (! $run->ok() && ! $usable) {
             throw new ProviderException($this->provider, ProviderErrorCode::VALIDATION, 'Packing failed: '.$run->output());
         }
     }
@@ -162,6 +168,9 @@ final class SftpTransport implements FileTransport
     private function rel(string $path): string
     {
         $relative = trim(str_replace('\\', '/', $path), '/');
+        if ($relative === '.') {
+            return ''; // the site root itself ("pack everything", "unpack here") — the guard below took it for a way out of the root
+        }
         if ($relative !== '' && (str_contains($relative, "\0") || preg_match('~(^|/)\.\.?(/|$)~', $relative))) {
             throw new ProviderException($this->provider, ProviderErrorCode::VALIDATION, 'Path must stay inside the site root');
         }

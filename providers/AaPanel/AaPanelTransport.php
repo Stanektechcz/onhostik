@@ -194,7 +194,24 @@ final class AaPanelTransport implements FileTransport
         $type = str_ends_with(strtolower($target), '.tar.gz') || str_ends_with(strtolower($target), '.tgz') ? 'tar.gz' : 'zip';
         // the panel joins `path` with every name in `sfile`: names are relative to the site root, the archive absolute
         // … and expects the list to end with a comma, like its own file manager sends it (verified live on 8.0.6)
-        $sources = implode(',', array_map(fn (string $p) => trim(substr($this->abs($p), strlen($this->root)), '/'), $paths)).',';
+        $names = [];
+        foreach ($paths as $p) {
+            $relative = trim(substr($this->abs($p), strlen($this->root)), '/');
+            if ($relative !== '') {
+                $names[] = $relative;
+
+                continue;
+            }
+            foreach ($this->list('')['entries'] as $entry) { // the whole site is what stands in its root — without the archive that is being written
+                if ($entry['name'] !== trim(str_replace('\\', '/', $target), '/')) {
+                    $names[] = $entry['name'];
+                }
+            }
+        }
+        if ($names === []) {
+            throw new ProviderException('aapanel', ProviderErrorCode::VALIDATION, 'There is nothing to pack');
+        }
+        $sources = implode(',', array_values(array_unique($names))).',';
         ($this->post)('/files?action=Zip', ['sfile' => $sources, 'dfile' => $this->abs($target), 'z_type' => $type, 'path' => $this->root], 'files.zip', true, []);
     }
 
@@ -218,6 +235,9 @@ final class AaPanelTransport implements FileTransport
     public function abs(string $path): string
     {
         $relative = trim(str_replace('\\', '/', $path), '/');
+        if ($relative === '.') {
+            $relative = ''; // the site root itself ("pack everything", "unpack here") — the guard below took it for a way out of the root
+        }
         if ($relative !== '' && (str_contains($relative, "\0") || preg_match('~(^|/)\.\.?(/|$)~', $relative))) {
             throw new ProviderException('aapanel', ProviderErrorCode::VALIDATION, 'Path must stay inside the site root');
         }

@@ -11,9 +11,12 @@ use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\DeployService;
 use Onhost\Domain\Services\Web\ImportService;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Errors\ProviderException;
+use Onhost\Providers\AaPanel\AaPanelTransport;
 use Onhost\Providers\Cloudflare\CloudflareCdnProvider;
 use Onhost\Providers\Shell\ScriptedShell;
 use Onhost\Providers\Shell\SecurityRules;
+use Onhost\Providers\Shell\SftpTransport;
 use Onhost\Providers\Shell\SshShell;
 
 /* The web toolkit's pure pieces: the terminal guard, the managed security block, repository parsing, ACME key material, import archive analysis, result presentation. */
@@ -142,4 +145,32 @@ it('presents only the customer-safe part of an operation result', function () {
 it('knows the backup frequencies and the edge settings vocabulary', function () {
     expect(array_keys(BackupScheduler::FREQUENCIES))->toBe(['15m', 'hourly', '6h', 'daily', 'weekly'])->and(BackupScheduler::FREQUENCIES['6h'])->toBe(360);
     expect(CloudflareCdnProvider::SETTINGS)->toContain('ssl', 'http3', 'security_level', 'always_use_https');
+});
+
+it('packs and unpacks the whole site: "." is the site root for both file transports, and the archive never packs itself', function () {
+    // SFTP (ISPConfig): the path guard took "." for a way out of the root, so "pack everything" and "unpack here" were refused
+    $sftp = new SftpTransport(new SshShell('127.0.0.1', 22, 'agent', 'not-a-key'), '/var/www/clients/client1/web7/web');
+    expect($sftp->abs('.'))->toBe('/var/www/clients/client1/web7/web')->and($sftp->abs(''))->toBe('/var/www/clients/client1/web7/web')->and($sftp->abs('wp-content/uploads'))->toBe('/var/www/clients/client1/web7/web/wp-content/uploads');
+    foreach (['..', '../x', 'a/../b', 'a/./b'] as $escape) {
+        expect(fn () => $sftp->abs($escape))->toThrow(ProviderException::class, null, $escape);
+    }
+
+    // aaPanel: the panel packs names inside `path`, so the whole site is what stands in its root — without the archive being written
+    $sent = [];
+    $post = function (string $path, array $params, string $action) use (&$sent) {
+        $sent[] = [$action, $params];
+        if ($action === 'files.list') {
+            return ['PATH' => '/www/wwwroot/firma.cz', 'DIR' => ['wp-content;4096;1757400000;755;www', 'wp-admin;4096;1757400000;755;www'], 'FILES' => ['index.php;418;1757400000;644;www', 'onhost-final-abc.tar.gz;10;1757400000;644;www']];
+        }
+
+        return ['status' => true];
+    };
+    $panel = new AaPanelTransport(Closure::fromCallable($post), new ScriptedShell, '/www/wwwroot/firma.cz');
+    expect($panel->abs('.'))->toBe('/www/wwwroot/firma.cz');
+    $panel->archive(['.'], 'onhost-final-abc.tar.gz');
+    $zip = collect($sent)->firstWhere(0, 'files.zip')[1];
+    expect($zip['sfile'])->toBe('wp-admin,wp-content,index.php,')->and($zip['dfile'])->toBe('/www/wwwroot/firma.cz/onhost-final-abc.tar.gz')->and($zip['path'])->toBe('/www/wwwroot/firma.cz')->and($zip['z_type'])->toBe('tar.gz');
+    $panel->extract('site-files.tar.gz', '.');
+    expect(collect($sent)->firstWhere(0, 'files.unzip')[1])->toMatchArray(['sfile' => '/www/wwwroot/firma.cz/site-files.tar.gz', 'dfile' => '/www/wwwroot/firma.cz']);
+    expect(fn () => $panel->abs('../other-site'))->toThrow(ProviderException::class);
 });
