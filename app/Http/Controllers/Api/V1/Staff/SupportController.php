@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\SupportController as CustomerSupportController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Support\Assistant\AssistantService;
 use Onhost\Domain\Support\Commands\WorkOfferStaffCommand;
 use Onhost\Domain\Support\Models\SupportMacro;
@@ -44,6 +45,20 @@ final class SupportController extends ApiController
         $queues = SupportQueue::query()->pluck('key', 'id');
 
         return $this->api->paginate($request, $query, fn (Ticket $t) => CustomerSupportController::ticket($t) + ['organization_id' => $t->organization_id, 'queue' => $queues[$t->queue_id] ?? null, 'assignee_id' => $t->assignee_id, 'required_skills' => $t->required_skills, 'sla' => ['next_response_due_at' => $t->next_response_due_at?->toIso8601String(), 'paused_minutes' => $t->paused_minutes, 'breaches' => $t->slaEvents()->where('met', false)->count()]]);
+    }
+
+    /**
+     * The assistant for support and NOC, over ONE customer's account: what the customer-360 view shows, in plain language,
+     * with service actions offered as buttons the console sends through the staff path. Every question is audited with
+     * the organization it was asked about (`assistant.chat`).
+     */
+    public function assistant(Request $request, AssistantService $assistant): JsonResponse
+    {
+        $this->api->authorize($request, 'staff.customer.read', CommandScope::global());
+        $data = $request->validate(['text' => ['required', 'string', 'max:4000'], 'organization_id' => ['required', 'string', 'max:40'], 'session_id' => ['nullable', 'string', 'max:80'], 'locale' => ['nullable', 'in:cs,en']]);
+        $organization = Organization::query()->find($data['organization_id']) ?? throw DomainError::notFound('organization');
+
+        return response()->json(['data' => $assistant->chatAsStaff($data['text'], $organization, $this->api->user($request), $data['session_id'] ?? null, $this->api->context($request, $organization), $data['locale'] ?? 'cs')]);
     }
 
     public function show(Request $request, AssistantService $assistant, string $ticket): JsonResponse

@@ -6,8 +6,10 @@ namespace App\Http\Controllers\Api\V1;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Support\Assistant\AssistantScope;
 use Onhost\Domain\Support\Assistant\AssistantService;
 use Onhost\Domain\Support\Commands\WorkOfferDecisionCommand;
 use Onhost\Domain\Support\Models\Ticket;
@@ -107,13 +109,16 @@ final class SupportController extends ApiController
         return response()->json(['data' => self::ticket($tickets->rate($model, (int) $data['score'], $data['comment'] ?? null, $this->api->context($request)))]);
     }
 
-    public function assistant(Request $request, AssistantService $assistant): JsonResponse
+    public function assistant(Request $request, AssistantService $assistant, Authorizer $authorizer): JsonResponse
     {
         $data = $request->validate(['text' => ['required', 'string', 'max:4000'], 'session_id' => ['nullable', 'string', 'max:80'], 'locale' => ['nullable', 'in:cs,en']]);
         $user = $request->user() instanceof User ? $request->user() : null;
         $organization = $user ? $this->api->organization($request, false) : null;
+        if ($organization !== null && $user !== null && ! AssistantScope::mayChat($organization, $user, $authorizer)) {
+            throw DomainError::forbidden('Missing permission support.chat.use');
+        }
         if ($organization !== null) {
-            $this->api->authorize($request, 'support.chat.use', CommandScope::organization($organization->id));
+            $this->api->assertTokenScope($request, 'support.chat.use');
         }
         $sessionId = $data['session_id'] ?? null;
         if ($sessionId !== null && $user !== null) {

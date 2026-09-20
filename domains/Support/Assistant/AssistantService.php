@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Schema;
 use Onhost\Domain\Billing\Models\DunningCase;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Domains\Models\Domain;
+use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Orders\Models\Order;
@@ -64,29 +65,33 @@ final class AssistantService
         private readonly OutboxPublisher $outbox,
         private readonly ServiceFeatures $features,
         private readonly ServiceSummary $summary,
+        private readonly Authorizer $authorizer,
     ) {}
 
     /**
      * @return array{run_id:string, topic:string, label:string, confident:bool, text:string, facts:list<array{k:string,v:string}>, actions:list<array<string,mixed>>, handoff:?array{ticket_id:string,number:string,reason:string}, ai:bool, disclosure:string}
      */
-    public function chat(string $text, ?Organization $organization, ?User $user, ?string $sessionId, CommandContext $context, string $locale = 'cs'): array
+    public function chat(string $text, ?Organization $organization, ?User $user, ?string $sessionId, CommandContext $context, string $locale = 'cs', ?AssistantScope $scope = null): array
     {
         $text = trim($text);
+        // what this person may see and be offered — the same answers the API would give them (a member without billing rights is
+        // told nothing about invoices, a guest sees the services shared with them and no others)
+        $scope ??= $organization !== null && $user !== null ? AssistantScope::for($organization, $user, $this->authorizer) : null;
         $sessionId ??= 'anon:'.($context->sessionId ?? $context->ip ?? 'x');
         $previous = AiRun::query()->where('session_id', $sessionId)->orderByDesc('created_at')->first();
         $transcript = (array) ($previous?->transcript ?? []);
         $transcript[] = ['role' => 'user', 'content' => mb_substr($text, 0, 4000), 'at' => now()->toIso8601String()];
         $triage = Triage::classify($text);
         $normalized = Triage::normalize($text);
-        $facts = $organization !== null ? $this->facts($organization, $locale) : [];
+        $facts = $organization !== null ? $this->facts($organization, $locale, $scope) : [];
         $articles = $this->articles($text, $locale);
         // the sources next to the account summary: topic details from the organization's records, the API reference for
         // integration questions, the price list for offers — each read only when the question is about it
-        $detail = $organization !== null ? $this->detail($organization, $triage['topic'], $locale) : [];
+        $detail = $organization !== null ? $this->detail($organization, $triage['topic'], $locale, $scope) : [];
         $reference = $triage['topic'] === 'api' || str_contains(' '.$normalized.' ', ' api ') ? $this->apiReference($text) : [];
         $catalog = in_array($triage['topic'], ['cenik', 'objednavka'], true) ? $this->catalogLines($locale) : [];
         // the service-management agent: plain-language requests become proposals the customer confirms with a button (never executed here)
-        $intents = $organization !== null && $user !== null ? ServiceIntent::detect($text, $organization, $this->features, $locale) : [];
+        $intents = $organization !== null && $user !== null ? ServiceIntent::detect($text, $organization, $this->features, $locale, $scope) : [];
         $llmProposals = [];
 
         $handoffReason = null;
@@ -113,6 +118,11 @@ final class AssistantService
         if ($handoffReason === null && $organization === null && ! $triage['confident']) {
             $handoffReason = null; // anonymous visitors get documentation answers, never a handoff without identity
         }
+        $mayHandOff = $scope === null || (! $scope->staff && $scope->ticketsWrite); // a handoff opens a ticket in the organization
+        $refusedHandoff = $handoffReason !== null && ! $mayHandOff ? $handoffReason : null;
+        if (! $mayHandOff) {
+            $handoffReason = null;
+        }
 
         $sessionTriage = $this->sessionTopic($transcript, $triage);
         $provider = $this->providers->provider();
@@ -123,7 +133,7 @@ final class AssistantService
         $toolsCalled = [];
         if ($handoffReason === null && $provider !== null) {
             try {
-                [$answer, $usage, $model, $toolsCalled, $llmProposals] = $this->llm($provider, $transcript, $organization, $facts, $articles, $detail, $reference, $catalog, $locale, $intents);
+                [$answer, $usage, $model, $toolsCalled, $llmProposals] = $this->llm($provider, $transcript, $organization, $facts, $articles, $detail, $reference, $catalog, $locale, $intents, $scope);
                 $usedLlm = $answer !== null;
             } catch (ProviderException $e) {
                 $answer = null; // provider trouble never blocks the customer: fall back to rules
@@ -136,8 +146,12 @@ final class AssistantService
                 : $this->rules($triage, $facts, $articles, $detail, $reference, $catalog, $locale);
         }
         $confident = $handoffReason === null && ($triage['confident'] || ($answer !== null && $facts !== []) || $intents !== []);
-        if ($handoffReason === null && ! $confident && $organization !== null && ! $triage['confident'] && $triage['hits'] === 0 && $intents === []) {
+        if ($handoffReason === null && $mayHandOff && ! $confident && $organization !== null && ! $triage['confident'] && $triage['hits'] === 0 && $intents === []) {
             $handoffReason = 'low_confidence';
+        }
+        if ($refusedHandoff !== null && $scope !== null && ! $scope->staff && in_array($refusedHandoff, ['user_request', 'security', 'legal'], true)) {
+            // somebody who cannot open tickets here (a guest of the organization) is told who can, instead of a ticket being opened in their name
+            $answer = $locale === 'en' ? 'I cannot open a support ticket for this organization on your behalf. Ask the owner of the service to contact support, or write to us from your own account.' : 'Za tuto organizaci nemohu vaším jménem založit tiket podpory. Požádejte majitele služby, aby podporu kontaktoval, nebo nám napište ze svého vlastního účtu.';
         }
 
         $run = AiRun::query()->create([
@@ -154,7 +168,7 @@ final class AssistantService
                 ? ($locale === 'en' ? "I have passed this to a human colleague as ticket {$handoff['number']} together with a summary of our conversation. Support replies within 30 minutes, high priority within 15." : "Předal jsem to kolegovi z podpory jako tiket {$handoff['number']} i se shrnutím naší konverzace. Podpora odpovídá do 30 minut, u vysoké priority do 15.")
                 : ($locale === 'en' ? 'Sign in and I will hand this over to a human colleague with the full context.' : 'Přihlaste se a předám to kolegovi z podpory i s celým kontextem.');
         } else {
-            $actions = self::mergeProposals(array_merge($intents, $llmProposals), $this->actions($triage['topic'], $organization, $facts, $articles, $locale));
+            $actions = self::mergeProposals(array_merge($intents, $llmProposals), $this->actions($triage['topic'], $organization, $facts, $articles, $locale, $scope));
         }
         $transcript[] = ['role' => 'assistant', 'content' => $answer, 'at' => now()->toIso8601String(), 'handoff' => $handoff['number'] ?? null];
         $run->forceFill(['transcript' => $transcript, 'summary' => $this->summary($sessionTriage, $facts, $transcript, $locale), 'ticket_id' => $handoff['ticket_id'] ?? null])->save();
@@ -166,25 +180,42 @@ final class AssistantService
         ];
     }
 
+    /**
+     * The same assistant for a member of staff working on a customer's account (support, NOC): it reads what the
+     * customer-360 view shows them, proposes service actions their staff role may run (the console confirms and sends them
+     * through the staff API), and never hands off — the person asking IS the human. Conversations are kept per staff member
+     * and customer, apart from the customer's own.
+     *
+     * @return array<string,mixed> the contract of `chat()`
+     */
+    public function chatAsStaff(string $text, Organization $organization, User $staff, ?string $sessionId, CommandContext $context, string $locale = 'cs'): array
+    {
+        $scope = AssistantScope::staff($organization, $staff, $this->authorizer);
+        $answer = $this->chat($text, $organization, $staff, "staff:{$staff->id}:{$organization->id}:".($sessionId ?? 'default'), $context, $locale, $scope);
+
+        return $answer + ['organization' => ['id' => $organization->id, 'name' => $organization->name], 'staff' => true];
+    }
+
     /** Facts are read from the organization's own records only — never from the question text (blueprint §69.2). @return list<array{k:string,v:string}> */
-    public function facts(Organization $organization, string $locale = 'cs'): array
+    public function facts(Organization $organization, string $locale = 'cs', ?AssistantScope $scope = null): array
     {
         $cs = $locale !== 'en';
         $facts = [];
-        $open = Invoice::query()->where('organization_id', $organization->id)->whereIn('state', [Invoice::ISSUED, Invoice::OVERDUE])->where('type', 'invoice')->get();
+        $sees = fn (string $what): bool => $scope === null || $scope->{$what}; // no scope: a trusted caller inside the platform (a ticket summary for staff)
+        $open = $sees('billing') ? Invoice::query()->where('organization_id', $organization->id)->whereIn('state', [Invoice::ISSUED, Invoice::OVERDUE])->where('type', 'invoice')->get() : collect();
         if ($open->isNotEmpty()) {
             $sum = Money::minor((int) $open->sum(fn (Invoice $i) => $i->total_minor - $i->paid_minor), $organization->currency);
             $facts[] = ['k' => $cs ? 'Neuhrazené doklady' : 'Unpaid documents', 'v' => $open->count().' · '.$sum->format($locale).($open->where('state', Invoice::OVERDUE)->count() ? ($cs ? ' · po splatnosti' : ' · overdue') : '')];
         }
-        $dunning = DunningCase::query()->where('organization_id', $organization->id)->whereNotIn('state', [DunningCase::RESOLVED, DunningCase::TERMINATED])->count();
+        $dunning = $sees('billing') ? DunningCase::query()->where('organization_id', $organization->id)->whereNotIn('state', [DunningCase::RESOLVED, DunningCase::TERMINATED])->count() : 0;
         if ($dunning > 0) {
             $facts[] = ['k' => $cs ? 'Upomínky' : 'Dunning', 'v' => (string) $dunning];
         }
-        $orders = Order::query()->where('organization_id', $organization->id)->orderByDesc('placed_at')->limit(3)->get();
+        $orders = $sees('orders') ? Order::query()->where('organization_id', $organization->id)->orderByDesc('placed_at')->limit(3)->get() : collect();
         foreach ($orders as $order) {
             $facts[] = ['k' => ($cs ? 'Objednávka ' : 'Order ').$order->number, 'v' => OrderStateMachine::machine()->label($order->state)];
         }
-        $services = Service::query()->where('organization_id', $organization->id)->get();
+        $services = ($scope?->services() ?? Service::query()->where('organization_id', $organization->id))->get();
         if ($services->isNotEmpty()) {
             $byState = $services->groupBy('state')->map->count();
             $facts[] = ['k' => $cs ? 'Služby' : 'Services', 'v' => $byState->map(fn ($n, $s) => ServiceStateMachine::machine()->label($s)." {$n}")->implode(', ')];
@@ -196,7 +227,7 @@ final class AssistantService
                 }
             }
         }
-        $expiring = Domain::query()->where('organization_id', $organization->id)->whereNotNull('expires_at')->where('expires_at', '<=', now()->addDays(30))->orderBy('expires_at')->limit(3)->get();
+        $expiring = $sees('domains') ? Domain::query()->where('organization_id', $organization->id)->whereNotNull('expires_at')->where('expires_at', '<=', now()->addDays(30))->orderBy('expires_at')->limit(3)->get() : collect();
         foreach ($expiring as $domain) {
             $facts[] = ['k' => $domain->fqdn_ascii, 'v' => ($cs ? 'expiruje ' : 'expires ').$domain->expires_at->toDateString().($domain->auto_renew ? ($cs ? ' · auto-obnova' : ' · auto-renew') : ($cs ? ' · bez auto-obnovy' : ' · no auto-renew'))];
         }
@@ -216,13 +247,16 @@ final class AssistantService
      *
      * @return list<array{k:string,v:string}>
      */
-    public function detail(Organization $organization, string $topic, string $locale = 'cs'): array
+    public function detail(Organization $organization, string $topic, string $locale = 'cs', ?AssistantScope $scope = null): array
     {
         $cs = $locale !== 'en';
         $out = [];
-        if (in_array($topic, ['fakturace', 'cenik', 'objednavka'], true)) {
+        $sees = fn (string $what): bool => $scope === null || $scope->{$what};
+        if (in_array($topic, ['fakturace', 'cenik', 'objednavka'], true) && $sees('wallet')) {
             $credit = app(WalletService::class)->spendable($organization, $organization->currency ?? 'CZK');
             $out[] = ['k' => $cs ? 'Kredit' : 'Credit', 'v' => $credit->format($locale)];
+        }
+        if (in_array($topic, ['fakturace', 'cenik', 'objednavka'], true) && $sees('billing')) {
             $open = Invoice::query()->where('organization_id', $organization->id)->whereIn('state', [Invoice::ISSUED, Invoice::OVERDUE])->whereIn('type', ['invoice', 'proforma'])->orderBy('due_at')->limit(5)->get();
             foreach ($open as $invoice) {
                 $kind = $invoice->type === 'proforma' ? ($cs ? 'Zálohová faktura ' : 'Proforma ') : ($cs ? 'Faktura ' : 'Invoice ');
@@ -237,18 +271,18 @@ final class AssistantService
             }
         }
         if (in_array($topic, ['objednavka', 'dostupnost', 'vykon', 'hry', 'zalohy', 'migrace', 'mail', 'pristup', 'latence'], true)) {
-            $services = Service::query()->where('organization_id', $organization->id)->whereNotIn('state', [ServiceStateMachine::TERMINATED])->orderByDesc('created_at')->limit(8)->get();
+            $services = ($scope?->services() ?? Service::query()->where('organization_id', $organization->id))->whereNotIn('state', [ServiceStateMachine::TERMINATED])->orderByDesc('created_at')->limit(8)->get();
             foreach ($services as $service) {
                 $out[] = ['k' => (string) ($service->label ?: ($service->hostname ?: $service->name)), 'v' => ServiceStateMachine::machine()->label($service->state).' · '.$service->product_key.($service->hostname ? ' · '.$service->hostname : '')];
             }
         }
-        if (in_array($topic, ['dns', 'mail', 'objednavka'], true)) {
+        if (in_array($topic, ['dns', 'mail', 'objednavka'], true) && $sees('domains')) {
             foreach (Domain::query()->where('organization_id', $organization->id)->orderBy('fqdn_ascii')->limit(8)->get() as $domain) {
                 $out[] = ['k' => $domain->fqdn_ascii, 'v' => ($domain->expires_at ? ($cs ? 'expiruje ' : 'expires ').$domain->expires_at->toDateString() : ($cs ? 'bez data expirace' : 'no expiry date'))
                     .' · '.($domain->usesOnhostDns() ? ($cs ? 'DNS u ONhost' : 'DNS at ONhost') : ($cs ? 'DNS jinde' : 'external DNS')).($domain->auto_renew ? ($cs ? ' · auto-obnova' : ' · auto-renew') : '')];
             }
         }
-        $tickets = Ticket::query()->where('organization_id', $organization->id)->whereNotIn('state', [TicketStateMachine::RESOLVED, TicketStateMachine::CLOSED])->orderByDesc('updated_at')->limit(3)->get();
+        $tickets = $sees('tickets') ? Ticket::query()->where('organization_id', $organization->id)->whereNotIn('state', [TicketStateMachine::RESOLVED, TicketStateMachine::CLOSED])->orderByDesc('updated_at')->limit(3)->get() : collect();
         foreach ($tickets as $ticket) {
             $out[] = ['k' => ($cs ? 'Tiket ' : 'Ticket ').$ticket->number, 'v' => $ticket->subject.' · '.$ticket->state];
         }
@@ -426,22 +460,23 @@ final class AssistantService
     }
 
     /** SAFE_WRITE proposals: executed only by the user through the regular API after confirmation (blueprint §69.3). */
-    private function actions(string $topic, ?Organization $organization, array $facts, array $articles, string $locale): array
+    private function actions(string $topic, ?Organization $organization, array $facts, array $articles, string $locale, ?AssistantScope $scope = null): array
     {
         $cs = $locale !== 'en';
         $actions = [];
+        $sees = fn (string $what): bool => $scope === null || $scope->{$what};
         foreach ($articles as $a) {
             $actions[] = ['kind' => 'link', 'label' => $a['title'], 'href' => '/napoveda/'.$a['slug']];
         }
-        if ($organization !== null && $topic === 'fakturace') {
+        if ($organization !== null && $topic === 'fakturace' && $sees('billing') && $scope?->staff !== true) {
             $invoice = Invoice::query()->where('organization_id', $organization->id)->whereIn('state', [Invoice::ISSUED, Invoice::OVERDUE])->where('type', 'invoice')->orderBy('due_at')->first();
             if ($invoice !== null) {
                 $actions[] = ['kind' => 'pay', 'label' => ($cs ? 'Zaplatit ' : 'Pay ').$invoice->number, 'invoice_id' => $invoice->id, 'confirm' => true, 'class' => 'SAFE_WRITE'];
             }
         }
         if ($organization !== null && in_array($topic, ['dostupnost', 'hry', 'vykon'], true)) {
-            $service = Service::query()->where('organization_id', $organization->id)->whereIn('family', ['cloud', 'game'])->where('state', 'ACTIVE')->orderByDesc('activated_at')->first();
-            if ($service !== null) {
+            $service = ($scope?->services() ?? Service::query()->where('organization_id', $organization->id))->whereIn('family', ['cloud', 'game'])->where('state', 'ACTIVE')->orderByDesc('activated_at')->first();
+            if ($service !== null && ($scope === null || $scope->mayRun($service, 'power'))) {
                 $actions[] = ['kind' => 'restart', 'label' => ($cs ? 'Restartovat ' : 'Restart ').$service->name, 'service_id' => $service->id, 'power_action' => 'reboot', 'confirm' => true, 'class' => 'SAFE_WRITE'];
             }
         }
@@ -452,16 +487,18 @@ final class AssistantService
                 $actions[] = ['kind' => 'link', 'label' => $cs ? 'API klíče v panelu' : 'API keys in the panel', 'href' => '/panel#/api'];
             }
         }
-        if ($organization !== null && $topic === 'fakturace') {
+        if ($organization !== null && $topic === 'fakturace' && $sees('billing')) {
             $actions[] = ['kind' => 'link', 'label' => $cs ? 'Otevřít Fakturaci' : 'Open Billing', 'href' => '/panel#/fakturace'];
         }
-        if ($organization !== null && $topic === 'dns') {
+        if ($organization !== null && $topic === 'dns' && $sees('domains')) {
             $actions[] = ['kind' => 'link', 'label' => $cs ? 'Domény a DNS' : 'Domains and DNS', 'href' => '/panel#/sluzba/domain'];
         }
         if ($organization !== null && in_array($topic, ['cenik', 'objednavka'], true)) {
             $actions[] = ['kind' => 'link', 'label' => $cs ? 'Přehled a objednávka' : 'Overview and ordering', 'href' => '/panel#/prehled'];
         }
-        $actions[] = ['kind' => 'ticket', 'label' => $cs ? 'Spojit s podporou' : 'Contact support', 'confirm' => true, 'class' => 'SAFE_WRITE'];
+        if ($scope === null || (! $scope->staff && $scope->ticketsWrite)) {
+            $actions[] = ['kind' => 'ticket', 'label' => $cs ? 'Spojit s podporou' : 'Contact support', 'confirm' => true, 'class' => 'SAFE_WRITE'];
+        }
         $actions[] = ['kind' => 'link', 'label' => $cs ? 'Stav služeb' : 'Status page', 'href' => '/stav'];
 
         return $actions;
@@ -552,9 +589,9 @@ final class AssistantService
     }
 
     /** @return list<array<string,mixed>> services of the organization as the agent sees them (read-only) */
-    private function serviceCatalogue(Organization $organization): array
+    private function serviceCatalogue(AssistantScope $scope): array
     {
-        return Service::query()->where('organization_id', $organization->id)->whereNotIn('state', [ServiceStateMachine::TERMINATED])->get()->map(function (Service $s) {
+        return $scope->services()->whereNotIn('state', [ServiceStateMachine::TERMINATED])->limit(60)->get()->map(function (Service $s) use ($scope) {
             $enabled = [];
             try {
                 $enabled = array_keys(array_filter($this->features->features($s), fn ($f) => ! empty($f['enabled'])));
@@ -562,11 +599,11 @@ final class AssistantService
                 // a node may be unreachable; the catalogue still lists the service
             }
 
-            return ['service_id' => $s->id, 'name' => $s->hostname ?: ($s->label ?: $s->name), 'family' => $s->family, 'state' => $s->state, 'product' => $s->product_key, 'features' => $enabled, 'actions' => $s->isActive() ? $this->features->actions($s) : []];
+            return ['service_id' => $s->id, 'name' => $s->hostname ?: ($s->label ?: $s->name), 'family' => $s->family, 'state' => $s->state, 'product' => $s->product_key, 'features' => $enabled, 'actions' => $s->isActive() ? array_values(array_filter($this->features->actions($s), fn (string $action) => $scope->mayRun($s, $action))) : []]; // only what this person may run
         })->all();
     }
 
-    private function llm(AiProvider $provider, array $transcript, ?Organization $organization, array $facts, array $articles, array $detail, array $reference, array $catalog, string $locale, array $intents = []): array
+    private function llm(AiProvider $provider, array $transcript, ?Organization $organization, array $facts, array $articles, array $detail, array $reference, array $catalog, string $locale, array $intents = [], ?AssistantScope $scope = null): array
     {
         $proposed = [];
         $system = ($locale === 'en'
@@ -588,7 +625,7 @@ final class AssistantService
             ['name' => 'get_price_list', 'description' => 'The public ONhost price list: products, plans and monthly/yearly prices excl. VAT, popular domain endings.', 'parameters' => ['type' => 'object', 'properties' => new \stdClass, 'required' => []]],
             ['name' => 'search_api_reference', 'description' => 'Search the public ONhost API (OpenAPI 3.1) for operations matching a query; returns method, path and summary.', 'parameters' => ['type' => 'object', 'properties' => ['query' => ['type' => 'string']], 'required' => ['query']]],
         ];
-        if ($organization !== null) {
+        if ($scope !== null && $scope->seesAnyService()) {
             $tools[] = ['name' => 'list_services', 'description' => 'The signed-in organization\'s services with their state, enabled features and the actions each one accepts (read-only).', 'parameters' => ['type' => 'object', 'properties' => new \stdClass, 'required' => []]];
             $tools[] = ['name' => 'get_service_status', 'description' => 'Recent operations, uptime monitoring and quotas of one service (read-only).', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string']], 'required' => ['service_id']]];
             $tools[] = ['name' => 'propose_service_action', 'description' => 'Propose one action on a service; the customer confirms it with a button. action is one of the service\'s actions (e.g. backup, power with params.power_action reboot|shutdown|start, deploy.run, wp.update, wp.cache with params.enabled, staging.refresh, staging.push, cdn.purge, ssl.issue, https.force, php.set with params.version).', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'action' => ['type' => 'string'], 'params' => ['type' => 'object'], 'label' => ['type' => 'string', 'description' => 'short button label in the customer\'s language']], 'required' => ['service_id', 'action']]];
@@ -607,14 +644,14 @@ final class AssistantService
             $messages[] = ['role' => 'assistant', 'content' => $result['content'], 'tool_calls' => $result['tool_calls']];
             foreach ($result['tool_calls'] as $call) {
                 $output = match ($call['name']) {
-                    'get_account_facts' => $organization !== null ? $this->facts($organization, $locale) : [],
+                    'get_account_facts' => $organization !== null ? $this->facts($organization, $locale, $scope) : [],
                     'search_knowledge_base' => $this->articles((string) ($call['arguments']['query'] ?? ''), $locale),
-                    'get_topic_details' => $organization !== null ? $this->detail($organization, (string) ($call['arguments']['topic'] ?? 'objednavka'), $locale) : [],
+                    'get_topic_details' => $organization !== null ? $this->detail($organization, (string) ($call['arguments']['topic'] ?? 'objednavka'), $locale, $scope) : [],
                     'get_price_list' => $this->catalogLines($locale),
                     'search_api_reference' => $this->apiReference((string) ($call['arguments']['query'] ?? '')),
-                    'list_services' => $organization !== null ? $this->serviceCatalogue($organization) : [],
-                    'get_service_status' => $organization !== null ? $this->serviceStatus($organization, (string) ($call['arguments']['service_id'] ?? '')) : [],
-                    'propose_service_action' => $organization !== null ? $this->propose($organization, (array) $call['arguments'], $locale, $proposed) : ['ok' => false, 'error' => 'sign in first'],
+                    'list_services' => $scope !== null ? $this->serviceCatalogue($scope) : [],
+                    'get_service_status' => $scope !== null ? $this->serviceStatus($scope, (string) ($call['arguments']['service_id'] ?? '')) : [],
+                    'propose_service_action' => $scope !== null ? $this->propose($scope, (array) $call['arguments'], $locale, $proposed) : ['ok' => false, 'error' => 'sign in first'],
                     default => ['error' => 'unknown tool'],
                 };
                 $called[] = ['tool' => $call['name'], 'arguments' => $call['arguments']];
@@ -626,9 +663,9 @@ final class AssistantService
     }
 
     /** @return array<string,mixed> operations, monitoring and quotas of one service (read-only, for the agent) */
-    private function serviceStatus(Organization $organization, string $serviceId): array
+    private function serviceStatus(AssistantScope $scope, string $serviceId): array
     {
-        $service = Service::query()->where('organization_id', $organization->id)->find($serviceId);
+        $service = $scope->service($serviceId);
         if ($service === null) {
             return ['error' => 'unknown service'];
         }
@@ -648,15 +685,18 @@ final class AssistantService
     }
 
     /** The LLM's proposal, validated against what the service really offers; becomes a confirm button. @return array<string,mixed> */
-    private function propose(Organization $organization, array $arguments, string $locale, array &$proposed): array
+    private function propose(AssistantScope $scope, array $arguments, string $locale, array &$proposed): array
     {
-        $service = Service::query()->where('organization_id', $organization->id)->find((string) ($arguments['service_id'] ?? ''));
+        $service = $scope->service((string) ($arguments['service_id'] ?? ''));
         $action = (string) ($arguments['action'] ?? '');
         if ($service === null || ! $service->isActive()) {
             return ['ok' => false, 'error' => 'unknown or inactive service'];
         }
-        if (in_array($action, ['terminate', 'restore', 'rollback_snapshot', 'suspend', 'resume', 'resize'], true) || ! in_array($action, $this->features->actions($service), true)) {
+        if (in_array($action, ['terminate', 'purge', 'restore', 'archive.restore', 'rollback_snapshot', 'suspend', 'resume', 'resize'], true) || ! in_array($action, $this->features->actions($service), true)) {
             return ['ok' => false, 'error' => 'action not available for this service', 'available' => $this->features->actions($service)];
+        }
+        if (! $scope->mayRun($service, $action)) { // a button that ends in "forbidden" is not offered
+            return ['ok' => false, 'error' => 'the signed-in person may view this service but not change it'];
         }
         $params = is_array($arguments['params'] ?? null) ? $arguments['params'] : [];
         if ($action === 'staging.push') {
@@ -664,7 +704,7 @@ final class AssistantService
         }
         $name = (string) ($service->hostname ?: ($service->label ?: $service->name));
         $label = trim((string) ($arguments['label'] ?? '')) ?: ($locale === 'en' ? ucfirst(str_replace('.', ' ', $action)).' '.$name : $action.' · '.$name);
-        $proposed[] = ['kind' => 'service_action', 'label' => mb_substr($label, 0, 80), 'service_id' => $service->id, 'action' => $action, 'params' => $params, 'confirm' => true, 'class' => 'SAFE_WRITE', 'service' => $name];
+        $proposed[] = ['kind' => 'service_action', 'label' => mb_substr($label, 0, 80), 'service_id' => $service->id, 'action' => $action, 'params' => $params, 'confirm' => true, 'class' => $scope->staff ? 'STAFF_WRITE' : 'SAFE_WRITE', 'service' => $name];
 
         return ['ok' => true, 'proposed' => $label, 'note' => 'shown to the customer as a button to confirm'];
     }

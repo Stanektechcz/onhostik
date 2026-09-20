@@ -42,13 +42,13 @@ final class ServiceIntent
     /**
      * @return list<array{kind:string,label:string,service_id:string,action:string,params:array<string,mixed>,confirm:bool,class:string,service:string}>
      */
-    public static function detect(string $text, ?Organization $organization, ServiceFeatures $features, string $locale = 'cs'): array
+    public static function detect(string $text, ?Organization $organization, ServiceFeatures $features, string $locale = 'cs', ?AssistantScope $scope = null): array
     {
         if ($organization === null || trim($text) === '') {
             return [];
         }
         $normalized = ' '.Triage::normalize($text).' ';
-        $services = Service::query()->where('organization_id', $organization->id)->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->get();
+        $services = ($scope?->services() ?? Service::query()->where('organization_id', $organization->id))->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->get();
         if ($services->isEmpty()) {
             return [];
         }
@@ -74,6 +74,9 @@ final class ServiceIntent
                 if (empty($f[$feature]['enabled']) || ! in_array($action, $features->actions($service), true)) {
                     continue;
                 }
+                if ($scope !== null && ! $scope->mayRun($service, $action)) {
+                    continue; // may look, may not touch: no button that would end in "forbidden"
+                }
                 if ($action === 'php.set') {
                     try {
                         $versions = (array) data_get($features->resources($service, 'php'), 'versions', []);
@@ -85,7 +88,7 @@ final class ServiceIntent
                     }
                 }
                 $name = (string) ($service->hostname ?: ($service->label ?: $service->name));
-                $out[] = ['kind' => 'service_action', 'label' => str_replace('$1', (string) ($m[1] ?? ''), sprintf($locale === 'en' ? $labels[1] : $labels[0], $name)), 'service_id' => $service->id, 'action' => $action, 'params' => $params, 'confirm' => true, 'class' => 'SAFE_WRITE', 'service' => $name];
+                $out[] = ['kind' => 'service_action', 'label' => str_replace('$1', (string) ($m[1] ?? ''), sprintf($locale === 'en' ? $labels[1] : $labels[0], $name)), 'service_id' => $service->id, 'action' => $action, 'params' => $params, 'confirm' => true, 'class' => $scope?->staff === true ? 'STAFF_WRITE' : 'SAFE_WRITE', 'service' => $name];
             }
             if (count($out) >= 4) {
                 break;

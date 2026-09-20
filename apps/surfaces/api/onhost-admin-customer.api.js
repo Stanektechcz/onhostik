@@ -6,6 +6,8 @@
  *   · Připsat kredit     POST /v1/staff/customers/{id}/wallet/credit   (a reason is required; HIGH, step-up dialog)
  *   · Potvrdit platbu    POST /v1/staff/payments/bank/lines            (an incoming transfer by the proforma's variable symbol)
  *   · Nová objednávka    POST /v1/staff/customers/{id}/orders[/quote]  (the panel's quote and checkout, on the customer's behalf)
+ *   · AI asistent        POST /v1/staff/assistant/chat                  (the assistant over THIS customer's account: answers from the 360 view,
+ *                        proposes service actions; a proposal runs only after the operator confirms it, through the ordinary service API)
  * Everything goes through the audited API; the drawer re-reads the account after every change. */
 (function () {
   if (window.OnhostAdminCustomer) return; // the prototype runtime executes helmet scripts twice
@@ -98,8 +100,9 @@
     if (!org) body += '<p class="ohac-muted">' + (state.loading ? 'Načítám účet…' : 'Účet není k dispozici.') + '</p>';
     else {
       body += '<div class="ohac-kpis"><div class="ohac-k"><span>K dispozici</span><b>' + kc(amt(org.spendable), cur) + '</b></div><div class="ohac-k"><span>Blokováno objednávkami</span><b>' + kc(amt(w.reserved), cur) + '</b></div><div class="ohac-k"><span>Připsáno (zaúčtováno)</span><b>' + kc(amt(w.posted), cur) + '</b></div><div class="ohac-k"><span>Bonusový kredit</span><b>' + kc(amt(w.promo), cur) + '</b></div></div>' +
-        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">' + (org.can && org.can.move_money === false ? '' : '<button class="ohac-btn' + (state.panel === 'credit' ? ' p' : '') + '" data-a="panel" data-v="credit">+ Připsat kredit</button>') + '<button class="ohac-btn' + (state.panel === 'order' ? ' p' : '') + '" data-a="panel" data-v="order">+ Nová objednávka za zákazníka</button><button class="ohac-btn" data-a="reload">Obnovit</button></div>';
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">' + (org.can && org.can.move_money === false ? '' : '<button class="ohac-btn' + (state.panel === 'credit' ? ' p' : '') + '" data-a="panel" data-v="credit">+ Připsat kredit</button>') + '<button class="ohac-btn' + (state.panel === 'order' ? ' p' : '') + '" data-a="panel" data-v="order">+ Nová objednávka za zákazníka</button><button class="ohac-btn' + (state.panel === 'ai' ? ' p' : '') + '" data-a="panel" data-v="ai">AI asistent</button><button class="ohac-btn" data-a="reload">Obnovit</button></div>';
       if (state.panel === 'credit') body += '<div class="ohac-sec"><div class="ohac-st"><h3>Připsat kredit</h3><span class="ohac-muted">vyžaduje čerstvé ověření (2FA)</span></div>' + creditForm() + '</div>';
+      if (state.panel === 'ai') body += '<div class="ohac-sec"><div class="ohac-st"><h3>AI asistent nad účtem zákazníka</h3><span class="ohac-muted">čte jen tento účet · akce se provede až po vašem potvrzení</span></div>' + aiPanel() + '</div>';
       if (state.panel === 'order') body += '<div class="ohac-sec"><div class="ohac-st"><h3>Nová objednávka za zákazníka</h3><span class="ohac-muted">stejná cena a proces jako v panelu zákazníka</span></div>' + orderForm() + '</div>';
       body += '<div class="ohac-sec"><div class="ohac-st"><h3>Objednávky</h3><span class="ohac-muted">' + (org.orders || []).length + '</span></div>' + orderRows(org) + '</div>' +
         '<div class="ohac-sec"><div class="ohac-st"><h3>Služby</h3><span class="ohac-muted">' + (org.services || []).length + '</span></div>' + ((org.services || []).length ? org.services.map(function (s) { return '<div class="ohac-row"><span><b>' + esc(s.label || s.name || s.product_key) + '</b><div class="ohac-muted">' + esc(s.product_key || '') + '</div></span><span class="ohac-muted">' + esc(s.plan_key || '') + '</span><span><span class="ohac-pill ' + (/ACTIVE/.test(s.state) ? 'ok' : (/FAIL|SUSP/.test(s.state) ? 'hot' : 'warn')) + '">' + esc(String(s.state || '').toLowerCase()) + '</span></span><span></span><span></span></div>'; }).join('') : '<div class="ohac-row"><span class="ohac-muted">Žádné služby.</span></div>') + '</div>' +
@@ -122,6 +125,41 @@
     }
     return [{ product_key: p.key, plan_key: f.o_plan, qty: 1, period: f.o_period === 'year' ? 'year' : 'month', config: config }];
   }
+  /* The assistant over this customer's account. Whatever the model wrote is TEXT: it is escaped like everything else here —
+   * a customer can put anything into a service label or a ticket, and the model reads those. */
+  function aiPanel() {
+    var ai = state.ai = state.ai || { msgs: [], actions: [], busy: false };
+    var html = '<div class="ohac-form" style="display:block">';
+    html += ai.msgs.length ? ai.msgs.map(function (m) { return '<div style="margin:0 0 10px"><span class="ohac-muted">' + (m.who === 'me' ? 'Vy' : 'Asistent') + '</span><div>' + esc(m.text).replace(/\n/g, '<br>') + '</div></div>'; }).join('') : '<p class="ohac-muted">Zeptejte se na stav služeb, platby, domény nebo řekněte, co má se službou udělat („zálohuj shop.cz“, „restartuj VPS“).</p>';
+    if (ai.actions.length) html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px">' + ai.actions.map(function (a, i) { return '<button class="ohac-btn p" data-a="ai-run" data-v="' + i + '"' + (state.busy ? ' disabled' : '') + '>' + esc(a.label) + '</button>'; }).join('') + '</div>';
+    html += '<label style="display:block">Dotaz<input type="text" data-f="ai_text" value="' + esc(state.form.ai_text || '') + '" placeholder="např. proč zákazníkovi neběží web?" style="width:100%"></label>' +
+      '<div style="margin-top:10px"><button class="ohac-btn p" data-a="ai-ask"' + (ai.busy ? ' disabled' : '') + '>' + (ai.busy ? 'Přemýšlím…' : 'Zeptat se') + '</button></div></div>';
+    return html;
+  }
+  function aiAsk() {
+    var ai = state.ai = state.ai || { msgs: [], actions: [], busy: false }, text = String(state.form.ai_text || '').trim();
+    if (!text || ai.busy) return;
+    ai.session = ai.session || ('admin-' + Date.now().toString(36));
+    ai.msgs.push({ who: 'me', text: text }); ai.busy = true; ai.actions = []; state.form.ai_text = ''; render();
+    A().post('/staff/assistant/chat', { text: text, organization_id: state.id, session_id: ai.session, locale: 'cs' }).then(function (r) {
+      var d = r.data || r;
+      ai.busy = false;
+      ai.msgs.push({ who: 'bot', text: String(d.text || '') + ((d.facts || []).length ? '\n\n' + d.facts.map(function (x) { return x.k + ': ' + x.v; }).join('\n') : '') });
+      ai.actions = (d.actions || []).filter(function (a) { return a.kind === 'service_action' && a.service_id && a.action; });
+      render();
+    }).catch(function (e) { ai.busy = false; ai.msgs.push({ who: 'bot', text: 'Asistent neodpověděl: ' + ((e && e.message) || 'chyba') }); render(); });
+  }
+  function aiRun(index) {
+    var ai = state.ai, a = ai && ai.actions[Number(index)];
+    if (!a || state.busy) return;
+    if (!window.confirm('Provést na účtu zákazníka: ' + a.label + '?')) return;
+    state.busy = true; render();
+    A().post('/services/' + encodeURIComponent(a.service_id) + '/actions', { action: a.action, params: a.params || {}, reason: 'AI asistent · potvrzeno obsluhou' }, Object.assign({}, A().key(), { 'X-Organization': state.id })).then(function () {
+      state.busy = false; ai.actions = ai.actions.filter(function (x) { return x !== a; });
+      ai.msgs.push({ who: 'bot', text: 'Spuštěno: ' + a.label + '. Průběh uvidíte mezi operacemi služby.' }); render();
+    }).catch(function (e) { state.busy = false; ai.msgs.push({ who: 'bot', text: 'Nepodařilo se spustit: ' + ((e && e.message) || 'chyba') }); render(); });
+  }
+
   function fail(e) { state.busy = false; state.msg = ['err', (e && e.message) || 'Akce se nezdařila.']; render(); }
 
   function onClick(e) {
@@ -132,6 +170,8 @@
     var a = t.getAttribute('data-a'), v = t.getAttribute('data-v');
     if (a === 'close') return close();
     if (a === 'reload') { state.msg = null; return load(); }
+    if (a === 'ai-ask') return aiAsk();
+    if (a === 'ai-run') return aiRun(v);
     if (a === 'panel') { state.panel = v || null; state.quote = null; state.msg = null; render(); if (v === 'order') loadCatalog().then(render).catch(fail); return; }
     if (a === 'credit') {
       var f = state.form;
