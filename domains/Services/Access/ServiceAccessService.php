@@ -47,6 +47,9 @@ final class ServiceAccessService
 
     public const MAX_PER_SERVICE = 25;
 
+    /** Invitations one organization may send through sharing in 24 hours: each of them is a mail to an address the customer typed. */
+    public const MAX_INVITATIONS_PER_DAY = 30;
+
     public function __construct(
         private readonly OrganizationService $organizations,
         private readonly Authorizer $authorizer,
@@ -95,11 +98,16 @@ final class ServiceAccessService
                 $this->notifications->queueMail('service-shared', $email, $vars + ['url' => rtrim((string) config('onhost.portal_url'), '/').'/panel/sluzby'], 'service_access_grant', $grant->id, $organization->id, $user->locale ?? ($organization->locale ?? 'cs'));
             } else {
                 // not in the organization yet: they join as a guest through the ordinary invitation — the link proves the mailbox
-                if ($grant->exists && $grant->invitation_id !== null) {
-                    $this->cancelInvitation($organization, (string) $grant->invitation_id, $context);
+                // The link that was already sent still works: what the person may do is updated and no second mail goes out. Sharing
+                // again and again with one address was a way to fill somebody's mailbox from our domain — and no ceiling counted it.
+                $standing = $grant->exists && $grant->invitation_id !== null ? OrganizationInvitation::query()->where('organization_id', $organization->id)->find((string) $grant->invitation_id) : null;
+                if ($standing !== null && $standing->isUsable()) {
+                    $grant->forceFill(['state' => ServiceAccessGrant::PENDING])->save();
+                } else {
+                    $this->assertInvitationBudget($organization);
+                    $invited = $this->organizations->invite($organization, $email, 'guest', $context, null, 'service-shared', $vars);
+                    $grant->forceFill(['state' => ServiceAccessGrant::PENDING, 'invitation_id' => $invited['invitation']->id])->save();
                 }
-                $invited = $this->organizations->invite($organization, $email, 'guest', $context, null, 'service-shared', $vars);
-                $grant->forceFill(['state' => ServiceAccessGrant::PENDING, 'invitation_id' => $invited['invitation']->id])->save();
             }
             $this->audit->record($context->withScope($organization->id), 'service.access.grant', 'succeeded', ['email' => $email, 'capabilities' => $capabilities, 'access_until' => $until?->toIso8601String(), 'state' => $grant->state], 'service', $service->id);
             $this->outbox->publish(GenericEvent::of('service.access.granted', 'service', $service->id, ['grant_id' => $grant->id, 'email' => $email, 'capabilities' => $capabilities, 'state' => $grant->state, 'expires_at' => $until?->toIso8601String(), 'service' => $this->serviceName($service)], $organization->id));
@@ -309,6 +317,15 @@ final class ServiceAccessService
         }
 
         return array_values(array_unique($permissions));
+    }
+
+    /** Every guest invitation is a mail to an address the customer typed: an organization sends only so many of them a day. */
+    private function assertInvitationBudget(Organization $organization): void
+    {
+        $sent = OrganizationInvitation::query()->where('organization_id', $organization->id)->where('role_key', 'guest')->where('created_at', '>', now()->subDay())->count();
+        if ($sent >= self::MAX_INVITATIONS_PER_DAY) {
+            throw new DomainError('share_invitations_limit', 'Too many invitations were sent from this organization today; try again tomorrow or contact support.', 429);
+        }
     }
 
     private function openGrant(Service $service, string $email): ?ServiceAccessGrant

@@ -6,7 +6,7 @@
 | --- | --- |
 | Branch | development |
 | Base revision | b382cf090070 |
-| Working changes outside generated context | 0 |
+| Working changes outside generated context | 5 |
 | PHP requirement | ^8.3 |
 | Laravel requirement | ^13.17 |
 | Node requirement | 20+ |

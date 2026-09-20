@@ -12,6 +12,7 @@ use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -164,4 +165,34 @@ it('closes what was shared with somebody who leaves the organization', function 
     app(OrganizationService::class)->removeMember($org, $colleague, $this->contextFor($owner, $org, 'totp'));
     app(OutboxPublisher::class)->relayPending();
     expect($grant->fresh()->state)->toBe('revoked')->and(PolicyBinding::query()->where('principal_id', $colleague->id)->count())->toBe(0);
+});
+
+it('keeps the role of somebody who became a member before they accepted the share, and sends no more than a day\'s worth of invitations', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $shop = featureWebService($org, 'aapanel');
+    $person = $this->customer(['email' => 'pozdeji-clen@example.cz']);
+    $access = app(ServiceAccessService::class);
+
+    $access->share($org, $shop, 'pozdeji-clen@example.cz', ['view'], $this->contextFor($owner, $org, 'totp'));
+    $mail = MailOutbox::query()->where('template_key', 'service-shared')->where('to', 'pozdeji-clen@example.cz')->firstOrFail();
+    preg_match('/pozvanka=([^&"]+)/', (string) json_encode($mail->vars, JSON_UNESCAPED_SLASHES), $m);
+    // sharing again before the invitation is accepted changes what the person will be able to do — and sends no second mail
+    $again = $access->share($org, $shop, 'pozdeji-clen@example.cz', ['manage'], $this->contextFor($owner, $org, 'totp'));
+    expect($again->capabilities)->toBe(['view', 'manage'])->and(MailOutbox::query()->where('template_key', 'service-shared')->where('to', 'pozdeji-clen@example.cz')->count())->toBe(1)->and(ServiceAccessGrant::query()->where('service_id', $shop->id)->count())->toBe(1);
+    // in the meantime the person is made a developer of the organization the ordinary way
+    app(OrganizationService::class)->attachMember($org, $person, 'developer', CommandContext::system('test'), true);
+
+    // the older "guest" link activates the share and leaves the role alone — it used to replace it
+    $this->actingAs($person, 'sanctum')->postJson('/v1/organizations/invitations/accept', ['token' => rawurldecode($m[1])])->assertOk()->assertJsonPath('data.role', 'developer')->assertJsonPath('data.shared_services', 1);
+    expect(OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $person->id)->value('role_key'))->toBe('developer');
+
+    // sharing sends mail to addresses the customer typed: there is a ceiling per organization and day
+    foreach (range(2, ServiceAccessService::MAX_INVITATIONS_PER_DAY) as $i) {
+        OrganizationInvitation::query()->create(['organization_id' => $org->id, 'email' => "x{$i}@example.cz", 'role_key' => 'guest', 'token_hash' => hash('sha256', "share-budget-{$i}"), 'expires_at' => now()->addDays(7)]);
+    }
+    expect(fn () => $access->share($org, $shop, 'jeste-jeden@example.cz', ['view'], $this->contextFor($owner, $org, 'totp')))->toThrow(fn (DomainError $e) => expect($e->error)->toBe('share_invitations_limit')->and($e->status)->toBe(429));
+    // a colleague who already is a member gets no invitation, so the ceiling does not stand in the way
+    $colleague = $this->customer(['email' => 'uz-clen@example.cz']);
+    app(OrganizationService::class)->attachMember($org, $colleague, 'viewer', CommandContext::system('test'), true);
+    expect($access->share($org, $shop, 'uz-clen@example.cz', ['manage'], $this->contextFor($owner, $org, 'totp'))->state)->toBe('active');
 });

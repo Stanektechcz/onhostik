@@ -201,6 +201,12 @@ final class OrganizationService
 
         return DB::transaction(function () use ($invitation, $organization, $user, $context) {
             $invitation->forceFill(['accepted_at' => now()])->save();
+            // A guest invitation comes with a shared service. Somebody who became a real member in the meantime keeps the role they
+            // have: attaching `guest` here replaced it — accepting the older link would have cost a developer their access.
+            $current = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->current()->first();
+            if ($current !== null && $invitation->role_key === 'guest') {
+                return $current;
+            }
 
             return $this->attachMember($organization, $user, $invitation->role_key, $context, joinedNow: true, accessUntil: $invitation->access_expires_at);
         });

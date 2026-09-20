@@ -25,6 +25,12 @@ The customer's freelancer, agency or colleague looks after **one** service. Pane
 * Somebody who is not in the organization is invited as **`guest`** — a member who sees nothing of the organization by
   that membership: no invoices, no team, no other service. The mail (`service-shared`) carries the ordinary accept link;
   accepting activates every share waiting for that address. A colleague who already is a member gets the access at once.
+* Accepting a guest invitation never takes a role away: somebody who became a real member in the meantime keeps their
+  role and the share is activated. Sharing sends mail to addresses the customer typed, so an organization sends at most
+  30 guest invitations in 24 hours (`share_invitations_limit`, 429; counted on the invitations themselves); a colleague
+  who already is a member needs none. Sharing again with an address whose invitation is still waiting changes what the
+  person will be able to do and sends **no second mail** — the link already sent keeps working. To send the mail again,
+  end the share and share anew (that one counts against the ceiling).
 * The permission lives in **resource-scoped policy bindings**, one per capability, with the same `expires_at` as the
   share: the access stops at that second by itself; `onhost:access:expire` (every five minutes) closes the record.
 * Ending a share (revoked, expired, or the person left the organization) takes back what they put on the panel under
