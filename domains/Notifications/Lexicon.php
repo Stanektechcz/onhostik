@@ -119,6 +119,8 @@ final class Lexicon
         // sandbox
         'Účet je v režimu sandbox' => 'Account is in sandbox mode', 'Režim sandbox ukončen' => 'Sandbox mode ended', 'Služby se zřizují v laboratorním prostředí; kredit ' => 'Services are provisioned in the lab environment; the credit ', ' je určen k testování.' => ' is meant for testing.', 'Nové objednávky jdou do produkce.' => 'New orders go to production.',
         // composed titles and bodies found by the coverage test (audit §5r-7)
+        'Část objednávky ' => 'Part of order ', ' se nepodařilo zřídit' => ' could not be delivered', ' jsme vrátili na váš kredit' => ' went back to your credit', ' jsme odečetli z faktury' => ' was taken off the invoice',
+        ' byla zrušena' => ' was cancelled', 'nebyla zaplacena a už není platná; můžete zadat novou.' => 'was not paid and is no longer valid; you can place a new one.',
         'Objednávku ' => 'Order ', 'Objednávka ' => 'Order ', ' ještě kontrolujeme' => ' is still being checked', ' byla schválena' => ' was approved', ' jsme nemohli přijmout' => ' could not be accepted',
         ' · zřizujeme služby' => ' · provisioning the services', ' · všechny služby jsou aktivní' => ' · all services are active',
         'CDN je aktivní' => 'CDN is active', 'CDN zapnuto' => 'CDN enabled', 'CDN vypnuto' => 'CDN disabled', ' · nastavte nameservery u registrátora' => ' · set the nameservers at your registrar', ' změněn na ' => ' changed to ',

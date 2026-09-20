@@ -6,6 +6,7 @@ namespace Onhost\Domain\Invoicing\Commands;
 
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Orders\OrderSettlement;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentStateMachineStates as PaymentState;
@@ -19,7 +20,7 @@ use Onhost\Platform\Money\Money;
 
 final class InvoicingCommandHandler implements CommandHandler
 {
-    public function __construct(private readonly InvoiceService $invoices, private readonly WalletService $wallets, private readonly PaymentService $payments) {}
+    public function __construct(private readonly InvoiceService $invoices, private readonly WalletService $wallets, private readonly PaymentService $payments, private readonly OrderSettlement $orders) {}
 
     public function handle(Command $command, CommandContext $context): mixed
     {
@@ -80,7 +81,12 @@ final class InvoicingCommandHandler implements CommandHandler
             throw new DomainError('invoice_not_payable', "Invoice {$invoice->number} is {$invoice->state}.", 409);
         }
         $open = $invoice->total()->subtract(Money::minor((int) $invoice->paid_minor, $invoice->currency));
-        $this->wallets->charge($invoice->organization_id, $open, $invoice->meta['revenue_family'] ?? 'services', "invoice:{$invoice->id}:wallet", $context, 'invoice', $invoice->id, Money::minor((int) round($invoice->tax_minor * ($open->minor / max(1, $invoice->total_minor))), $invoice->currency), enforceBudget: false);
+        if ($invoice->bookedAtIssue()) { // the revenue and the VAT were booked when it was issued: the payment settles the receivable
+            $this->orders->releaseReservation($invoice, $context); // the order's reservation of the credit line waited for exactly this payment
+            $this->wallets->settleReceivable($invoice->organization_id, $open, "invoice:{$invoice->id}:wallet", $context, 'invoice', $invoice->id, "Úhrada faktury {$invoice->number} z kreditu");
+        } else {
+            $this->wallets->charge($invoice->organization_id, $open, $invoice->meta['revenue_family'] ?? 'services', "invoice:{$invoice->id}:wallet", $context, 'invoice', $invoice->id, Money::minor((int) round($invoice->tax_minor * ($open->minor / max(1, $invoice->total_minor))), $invoice->currency), enforceBudget: false);
+        }
         $paid = $this->invoices->markPaid($invoice, $open, 'wallet', $context, postLedger: false);
 
         return ['invoice_id' => $paid->id, 'number' => $paid->number, 'state' => $paid->state, 'paid' => $open];

@@ -39,6 +39,7 @@ use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Notifications\NotificationService;
 use Onhost\Domain\Notifications\WebhookDispatcher;
 use Onhost\Domain\Orders\CommerceHousekeeping;
+use Onhost\Domain\Orders\OrderSettlement;
 use Onhost\Domain\Organizations\AccessExpiry;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
@@ -444,6 +445,7 @@ Schedule::command('onhost:registrar:scrape-prices')->weeklyOn(1, '04:10')->witho
 Schedule::command('onhost:registrar:reconcile')->dailyAt(sprintf('%02d:00', (int) config('onhost.provisioning.reconcile.domains_daily_hour', 4)))->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:bank:sync')->everyFiveMinutes()->withoutOverlapping()->onOneServer()->when(fn () => (string) config('onhost.payments.bank.fio_token', '') !== '');
 Schedule::command('onhost:billing:expire-holds')->everyTenMinutes()->onOneServer();
+Schedule::command('onhost:orders:settle')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:meter')->hourlyAt(2)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:rate')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:renewals')->hourlyAt(20)->withoutOverlapping()->onOneServer();
@@ -629,10 +631,14 @@ Artisan::command('onhost:commerce:prune {--quote-hours=24} {--cart-days=7}', fun
 
         return;
     }
-    $result = $housekeeping->prune((int) $this->option('quote-hours'), (int) $this->option('cart-days'));
+    $result = $housekeeping->prune((int) $this->option('quote-hours'), (int) $this->option('cart-days')) + ['unpaid_orders' => $housekeeping->expireUnpaid()];
     $ledger->record('commerce.prune', $result);
-    $this->table(['quotes', 'carts'], [$result]);
-})->purpose('Drop expired quotes no order references and stale open carts (browsing leaves both behind)');
+    $this->table(['quotes', 'carts', 'unpaid_orders'], [$result]);
+})->purpose('Drop expired quotes no order references and stale open carts; cancel orders nobody paid in time');
+
+Artisan::command('onhost:orders:settle {--limit=200}', function (OrderSettlement $settlement) {
+    $this->info('settled orders: '.$settlement->sweep((int) $this->option('limit')));
+})->purpose('Charge what an order delivered and give back what it did not (orders whose settlement was interrupted)');
 
 Artisan::command('onhost:backups:run {--limit=100}', function (BackupScheduler $scheduler, AutomationLedger $ledger) {
     if ($ledger->off('backups.run')) {

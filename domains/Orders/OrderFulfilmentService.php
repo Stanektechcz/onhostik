@@ -15,7 +15,7 @@ use Onhost\Platform\Commands\CommandContext;
  */
 final class OrderFulfilmentService
 {
-    public function __construct(private readonly CheckoutService $checkout) {}
+    public function __construct(private readonly CheckoutService $checkout, private readonly OrderSettlement $settlement) {}
 
     public function recheck(?string $orderId, CommandContext $context): void
     {
@@ -35,6 +35,7 @@ final class OrderFulfilmentService
         if ($order->state !== $target && in_array($target, OrderStateMachine::machine()->nextStates($order->state), true)) {
             $this->checkout->transition($order, $target, $context->withScope($order->organization_id), 'fulfilment');
         }
+        $this->settlement->settle($order->id, $context); // every line is final: delivered lines are charged, the rest goes back to the customer
     }
 
     public function itemFor(?string $itemId): ?OrderItem

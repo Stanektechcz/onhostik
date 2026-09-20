@@ -208,9 +208,10 @@ final class WalletService
      * Capture a hold: DR liability:wallet:{org}  CR revenue:{family} (+ CR liability:vat for the tax part).
      * The captured amount may be lower than the hold (proration); the remainder is released.
      */
-    public function capture(WalletHold $hold, string $revenueFamily, CommandContext $context, ?Money $amount = null, ?Money $taxPart = null, ?string $description = null): WalletHold
+    /** @param array<string,int>|null $revenueSplit net amounts by revenue family when one capture covers lines of several families (their sum is the net) */
+    public function capture(WalletHold $hold, string $revenueFamily, CommandContext $context, ?Money $amount = null, ?Money $taxPart = null, ?string $description = null, ?array $revenueSplit = null): WalletHold
     {
-        return DB::transaction(function () use ($hold, $revenueFamily, $context, $amount, $taxPart, $description) {
+        return DB::transaction(function () use ($hold, $revenueFamily, $context, $amount, $taxPart, $description, $revenueSplit) {
             $hold = WalletHold::query()->lockForUpdate()->findOrFail($hold->id);
             if ($hold->state === 'captured') {
                 return $hold;
@@ -226,8 +227,8 @@ final class WalletService
             $tax = $taxPart ?? Money::zero($captured->currency);
             $net = $captured->subtract($tax);
             $postings = [['account' => LedgerService::walletAccount($hold->organization_id, $hold->currency), 'debit' => $captured->minor]];
-            if ($net->isPositive()) {
-                $postings[] = ['account' => LedgerService::revenueAccount($revenueFamily, $hold->currency), 'credit' => $net->minor];
+            foreach ($this->revenuePostings($revenueFamily, $net, $revenueSplit) as $posting) {
+                $postings[] = $posting;
             }
             if ($tax->isPositive()) {
                 $postings[] = ['account' => LedgerService::vatAccount($hold->currency), 'credit' => $tax->minor];
@@ -248,6 +249,27 @@ final class WalletService
         }, 3);
     }
 
+    /**
+     * @param  array<string,int>|null  $split
+     * @return list<array{account:string, credit:int}>
+     */
+    private function revenuePostings(string $family, Money $net, ?array $split): array
+    {
+        if (! $net->isPositive()) {
+            return [];
+        }
+        $split = array_filter($split ?? [], fn ($minor) => (int) $minor > 0);
+        if ($split === [] || (int) array_sum($split) !== $net->minor) { // a split that does not add up to the net is not trusted: one family, the whole net
+            return [['account' => LedgerService::revenueAccount($family, $net->currency), 'credit' => $net->minor]];
+        }
+        $postings = [];
+        foreach ($split as $name => $minor) {
+            $postings[] = ['account' => LedgerService::revenueAccount((string) $name, $net->currency), 'credit' => (int) $minor];
+        }
+
+        return $postings;
+    }
+
     public function release(WalletHold $hold, string $reason, CommandContext $context): WalletHold
     {
         return DB::transaction(function () use ($hold, $reason, $context) {
@@ -265,10 +287,10 @@ final class WalletService
     }
 
     /** Direct charge without a prior hold (metered usage). */
-    public function charge(Organization|string $organization, Money $amount, string $revenueFamily, string $idempotencyKey, CommandContext $context, ?string $referenceType = null, ?string $referenceId = null, ?Money $taxPart = null, bool $allowNegative = false, bool $enforceBudget = true): void
+    public function charge(Organization|string $organization, Money $amount, string $revenueFamily, string $idempotencyKey, CommandContext $context, ?string $referenceType = null, ?string $referenceId = null, ?Money $taxPart = null, bool $allowNegative = false, bool $enforceBudget = true, ?array $revenueSplit = null): void
     {
         $organizationId = $organization instanceof Organization ? $organization->id : $organization;
-        DB::transaction(function () use ($organizationId, $amount, $revenueFamily, $idempotencyKey, $context, $referenceType, $referenceId, $taxPart, $allowNegative, $enforceBudget) {
+        DB::transaction(function () use ($organizationId, $amount, $revenueFamily, $idempotencyKey, $context, $referenceType, $referenceId, $taxPart, $allowNegative, $enforceBudget, $revenueSplit) {
             $wallet = $this->lockWallet($organizationId, $amount->currency);
             if (LedgerTransaction::query()->where('idempotency_key', 'ledger:'.$idempotencyKey)->exists()) {
                 return; // the same charge again: it was taken once, and it is counted against the budget once
@@ -283,13 +305,43 @@ final class WalletService
             $tax = $taxPart ?? Money::zero($amount->currency);
             $postings = [['account' => LedgerService::walletAccount($organizationId, $amount->currency), 'debit' => $amount->minor]];
             $net = $amount->subtract($tax);
-            if ($net->isPositive()) {
-                $postings[] = ['account' => LedgerService::revenueAccount($revenueFamily, $amount->currency), 'credit' => $net->minor];
+            foreach ($this->revenuePostings($revenueFamily, $net, $revenueSplit) as $posting) {
+                $postings[] = $posting;
             }
             if ($tax->isPositive()) {
                 $postings[] = ['account' => LedgerService::vatAccount($amount->currency), 'credit' => $tax->minor];
             }
             $this->ledger->post('usage_charge', $amount->currency, $postings, 'ledger:'.$idempotencyKey, $organizationId, $referenceType, $referenceId, "Usage charge {$revenueFamily}", $this->actor($context));
+            $this->refreshCaches($wallet);
+            $this->registerSpend($organizationId, $amount);
+        }, 3);
+    }
+
+    /**
+     * Pays an invoice that was booked when it was ISSUED (postpaid: DR receivable / CR revenue / CR VAT). The payment moves
+     * money, it does not earn it a second time: DR liability:wallet / CR asset:receivable. Going through `charge()` instead
+     * booked the revenue and the VAT twice and left the receivable open for ever — every entry balanced, so the ledger
+     * check saw nothing.
+     */
+    public function settleReceivable(Organization|string $organization, Money $amount, string $idempotencyKey, CommandContext $context, string $referenceType, string $referenceId, ?string $description = null): void
+    {
+        if (! $amount->isPositive()) {
+            throw new DomainError('invalid_amount', 'The settled amount must be positive.');
+        }
+        $organizationId = $organization instanceof Organization ? $organization->id : $organization;
+        DB::transaction(function () use ($organizationId, $amount, $idempotencyKey, $context, $referenceType, $referenceId, $description) {
+            $wallet = $this->lockWallet($organizationId, $amount->currency);
+            if (LedgerTransaction::query()->where('idempotency_key', 'ledger:'.$idempotencyKey)->exists()) {
+                return;
+            }
+            $spendable = $wallet->available()->add($this->approvedCreditLine($organizationId, $wallet->currency));
+            if ($spendable->lessThan($amount)) {
+                throw new DomainError('insufficient_funds', 'Insufficient wallet balance.', 402, ['required' => $amount, 'available' => $spendable]);
+            }
+            $this->ledger->post('invoice_settlement', $amount->currency, [
+                ['account' => LedgerService::walletAccount($organizationId, $amount->currency), 'debit' => $amount->minor],
+                ['account' => LedgerService::receivableAccount($organizationId, $amount->currency), 'credit' => $amount->minor],
+            ], 'ledger:'.$idempotencyKey, $organizationId, $referenceType, $referenceId, $description ?? 'Invoice paid from credit', $this->actor($context));
             $this->refreshCaches($wallet);
             $this->registerSpend($organizationId, $amount);
         }, 3);

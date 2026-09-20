@@ -6,6 +6,7 @@ namespace Onhost\Domain\Invoicing\Listeners;
 
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Orders\OrderSettlement;
 use Onhost\Domain\Payments\Events\PaymentSucceeded;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Money\Money;
@@ -17,7 +18,7 @@ use Onhost\Platform\Money\Money;
  */
 final class SettleInvoicePayment
 {
-    public function __construct(private readonly InvoiceService $invoices, private readonly WalletService $wallets) {}
+    public function __construct(private readonly InvoiceService $invoices, private readonly WalletService $wallets, private readonly OrderSettlement $orders) {}
 
     public function handle(PaymentSucceeded $event): void
     {
@@ -34,8 +35,13 @@ final class SettleInvoicePayment
             return;
         }
         $context = $event->context->withScope($invoice->organization_id);
-        $tax = Money::minor((int) round($invoice->tax_minor * ($open->minor / max(1, $invoice->total_minor))), $invoice->currency);
-        $this->wallets->charge($invoice->organization_id, $open, $invoice->meta['revenue_family'] ?? 'services', "invoice:{$invoice->id}:payment:{$intent->id}", $context, 'invoice', $invoice->id, $tax, enforceBudget: false);
+        if ($invoice->bookedAtIssue()) { // the revenue and the VAT were booked when it was issued: the payment settles the receivable
+            $this->orders->releaseReservation($invoice, $context);
+            $this->wallets->settleReceivable($invoice->organization_id, $open, "invoice:{$invoice->id}:payment:{$intent->id}", $context, 'invoice', $invoice->id, "Úhrada faktury {$invoice->number}");
+        } else {
+            $tax = Money::minor((int) round($invoice->tax_minor * ($open->minor / max(1, $invoice->total_minor))), $invoice->currency);
+            $this->wallets->charge($invoice->organization_id, $open, $invoice->meta['revenue_family'] ?? 'services', "invoice:{$invoice->id}:payment:{$intent->id}", $context, 'invoice', $invoice->id, $tax, enforceBudget: false);
+        }
         $this->invoices->markPaid($invoice, $open, $intent->method ?? $intent->provider, $context, postLedger: false, paymentReference: $intent->id);
     }
 }

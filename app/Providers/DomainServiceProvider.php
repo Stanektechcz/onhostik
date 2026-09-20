@@ -47,6 +47,7 @@ use Onhost\Domain\Orders\Commands\PlaceOrderCommand;
 use Onhost\Domain\Orders\Commands\ReviewOrderCommand;
 use Onhost\Domain\Orders\Commands\StaffCustomerCommand;
 use Onhost\Domain\Orders\Listeners\FulfillPaidOrder;
+use Onhost\Domain\Orders\Listeners\ReleaseOrderReservation;
 use Onhost\Domain\Orders\Listeners\SettleOrderPayment;
 use Onhost\Domain\Organizations\Commands\CreateOrganizationCommand;
 use Onhost\Domain\Organizations\Commands\OrganizationCommand;
@@ -134,6 +135,7 @@ final class DomainServiceProvider extends ServiceProvider
         Event::listen(PaymentSucceeded::class, SettleInvoicePayment::class);
         Event::listen('onhost.order.paid', FulfillPaidOrder::class);
         Event::listen('onhost.invoice.paid', SettleBillingAfterPayment::class);
+        Event::listen('onhost.invoice.paid', ReleaseOrderReservation::class); // a postpaid order holds its share of the credit line until its invoice is paid
         Event::listen('onhost.invoice.paid', AccruePartnerCommission::class);
         Event::listen('onhost.invoice.issued', AccruePartnerCommission::class);
         Event::listen('onhost.wallet.topup.completed', SettleBillingAfterPayment::class);

@@ -10,8 +10,12 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Domain\Domains\Models\Domain;
+use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Notifications\Models\MailOutbox;
+use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Orders\CheckoutService;
 use Onhost\Domain\Orders\Models\OrderItem;
+use Onhost\Domain\Orders\OrderSettlement;
 use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Provisioning\Models\Node;
@@ -20,6 +24,8 @@ use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\Website;
+use Onhost\Domain\WalletLedger\LedgerService;
+use Onhost\Domain\WalletLedger\Models\WalletHold;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxMessage;
@@ -117,7 +123,76 @@ it('marks the order PARTIALLY_ACTIVE when one item cannot be provisioned and kee
 
     $order->refresh();
     expect($order->state)->toBe(OrderStateMachine::PARTIALLY_ACTIVE);
-    expect(OrderItem::query()->where('order_id', $order->id)->pluck('state', 'product_key')->all())->toBe(['mail' => 'failed', 'domain' => 'active']);
     expect(Domain::query()->where('fqdn_ascii', 'example.cz')->value('state'))->toBe(DomainStateMachine::ACTIVE);
     expect(OutboxMessage::query()->where('name', 'order.fulfilment_failed')->exists())->toBeTrue();
+
+    // The money (blueprint §5.2). The order reserved its total; the reservation used to run out after a day and hand everything
+    // back while the domain stayed registered. Now the delivered line is charged, the other one goes back with a credit note.
+    $items = OrderItem::query()->where('order_id', $order->id)->get()->keyBy('product_key');
+    expect($items->map->state->all())->toBe(['mail' => 'refunded', 'domain' => 'active']);
+    $domainLine = $items['domain'];
+    $mailLine = $items['mail'];
+    $ledger = app(LedgerService::class);
+    $balances = app(WalletService::class)->balances($org, 'CZK');
+    expect($balances['reserved']->minor)->toBe(0)
+        ->and($balances['posted']->minor)->toBe(500000 - $domainLine->total_minor)                      // only what was delivered left the credit
+        ->and($ledger->balance(LedgerService::revenueAccount('domain', 'CZK'), 'CZK')->minor)->toBe($domainLine->total_minor - $domainLine->tax_minor)
+        ->and($ledger->balance(LedgerService::revenueAccount('mail', 'CZK'), 'CZK')->minor)->toBe(0)
+        ->and($ledger->balance(LedgerService::vatAccount('CZK'), 'CZK')->minor)->toBe($domainLine->tax_minor)
+        ->and($ledger->verifyInvariant()['balanced'])->toBeTrue();
+    $settlement = $order->meta['settlement'];
+    expect($settlement['captured_minor'])->toBe($domainLine->total_minor)->and($settlement['returned_minor'])->toBe($mailLine->total_minor);
+    $credit = Invoice::query()->findOrFail($settlement['credit_note_id']);
+    expect($credit->type)->toBe('credit_note')->and($credit->total_minor)->toBe(-$mailLine->total_minor)->and($credit->lines()->count())->toBe(1);
+    // the customer is told — by us, with the amount — instead of finding out from a missing service
+    app(OutboxPublisher::class)->relayPending();
+    $told = Notification::query()->where('organization_id', $org->id)->where('title', 'like', 'Část objednávky%')->first();
+    expect($told)->not->toBeNull()->and((string) $told->body)->toContain('vrátili na váš kredit');
+    expect(MailOutbox::query()->where('template_key', 'order-refunded')->where('to', $owner->email)->exists())->toBeTrue();
+
+    // settling twice changes nothing; a line that was given back is not delivered by retrying its operation
+    expect(app(OrderSettlement::class)->settle($order->id, $ctx))->toBe($settlement)->and(app(OrderSettlement::class)->sweep())->toBe(0);
+    expect(Invoice::query()->where('order_id', $order->id)->where('type', 'credit_note')->count())->toBe(1);
+});
+
+it('gives the whole payment back when nothing of the order could be delivered', function () {
+    [$owner, $org] = $this->customerWithOrganization([], ['street' => 'Dlouhá 1', 'city' => 'Praha', 'postal_code' => '11000']);
+    $ctx = $this->contextFor($owner, $org);
+    app(WalletService::class)->topup($org, Money::decimal('5000', 'CZK'), 'card', 'seed-none', $ctx, bankProvider: 'comgate');
+    $quote = app(QuoteService::class)->quote([['product_key' => 'mail', 'plan_key' => 'mail-business']], 'CZK', ['country' => 'CZ'], 1, null, $org); // no domain in the configuration: cannot be provisioned
+    $order = app(CheckoutService::class)->placeOrder($quote, $org, $owner, fulfilmentConsents(), ['mode' => 'wallet'], 'ful-none', $ctx)['order'];
+    expect(app(WalletService::class)->balances($org, 'CZK')['reserved']->minor)->toBe($order->total_minor);
+    expect(WalletHold::query()->findOrFail($order->wallet_hold_id)->expires_at)->toBeNull(); // the reservation lasts as long as the order does
+    app(OutboxPublisher::class)->relayPending();
+    driveOperations();
+
+    $order->refresh();
+    $balances = app(WalletService::class)->balances($org, 'CZK');
+    expect($order->state)->toBe(OrderStateMachine::FAILED)->and($balances['reserved']->minor)->toBe(0)->and($balances['posted']->minor)->toBe(500000)->and($balances['available']->minor)->toBe(500000);
+    expect($order->meta['settlement']['captured_minor'])->toBe(0)->and($order->meta['settlement']['returned_minor'])->toBe($order->total_minor);
+    expect(Invoice::query()->where('order_id', $order->id)->where('type', 'statement')->value('state'))->toBe(Invoice::CREDITED);
+    app(OutboxPublisher::class)->relayPending();
+    expect(Notification::query()->where('organization_id', $org->id)->where('title', 'like', 'Objednávku % se nepodařilo zřídit')->exists())->toBeTrue();
+});
+
+it('charges a delivered order: the reservation becomes revenue and cannot be spent again', function () {
+    $state = ['registered' => false, 'nsset' => true, 'expiration' => '2027-09-06'];
+    registryFake($state);
+    pdnsZoneFake('zaplaceno.cz');
+    [$owner, $org] = $this->customerWithOrganization([], ['street' => 'Dlouhá 1', 'city' => 'Praha', 'postal_code' => '11000']);
+    $ctx = $this->contextFor($owner, $org);
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'card', 'seed-paid', $ctx, bankProvider: 'comgate');
+    $quote = app(QuoteService::class)->quote([['product_key' => 'domain', 'config' => ['fqdn' => 'zaplaceno.cz']]], 'CZK', ['country' => 'CZ'], 1, null, $org);
+    $order = app(CheckoutService::class)->placeOrder($quote, $org, $owner, fulfilmentConsents(), ['mode' => 'wallet'], 'ful-paid', $ctx)['order'];
+    app(OutboxPublisher::class)->relayPending();
+    driveOperations();
+
+    $order->refresh();
+    expect($order->state)->toBe(OrderStateMachine::ACTIVE)->and(WalletHold::query()->findOrFail($order->wallet_hold_id)->state)->toBe('captured');
+    // two days later the hold sweep finds nothing to hand back, and the credit is what it should be
+    $this->travel(2)->days();
+    expect(app(WalletService::class)->expireHolds())->toBe(0);
+    $balances = app(WalletService::class)->balances($org, 'CZK');
+    expect($balances['posted']->minor)->toBe(100000 - $order->total_minor)->and($balances['available']->minor)->toBe(100000 - $order->total_minor)->and($balances['reserved']->minor)->toBe(0);
+    expect(app(LedgerService::class)->balance(LedgerService::revenueAccount('domain', 'CZK'), 'CZK')->minor)->toBe($order->total_minor - $order->tax_minor);
 });

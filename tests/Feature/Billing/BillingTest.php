@@ -171,3 +171,24 @@ it('reports MRR, collections and churn from the ledger-backed records', function
     $this->postJson("/v1/subscriptions/{$sub->id}/cancel", ['cancel' => true])->assertOk()->assertJsonPath('data.cancel_at_period_end', true)->assertJsonPath('data.auto_renew', false);
     $this->getJson('/v1/usage')->assertOk()->assertJsonPath('data.currency', 'CZK');
 });
+
+it('does not close an unpaid invoice\'s dunning case because some service of the organization renewed', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    $ctx = $this->contextFor($user, $org);
+    [$service] = webService($org);
+    $dunning = app(DunningService::class);
+    $invoice = fn (string $number) => Invoice::query()->create(['legal_entity' => 'onhost-cz', 'series' => 'FV', 'type' => 'invoice', 'number' => $number, 'organization_id' => $org->id, 'currency' => 'CZK', 'state' => Invoice::OVERDUE, 'subtotal_minor' => 4500000, 'discount_minor' => 0, 'tax_minor' => 945000, 'total_minor' => 5445000, 'paid_minor' => 0, 'issued_at' => now()->subDays(40), 'due_at' => now()->subDays(26), 'seller' => [], 'buyer' => [], 'tax_summary' => [], 'meta' => []]);
+    $work = $invoice('FV-2026-0200');     // a work-offer invoice: no service behind it
+    $ofService = $invoice('FV-2026-0201'); // an invoice of this very service
+    $workCase = $dunning->open($org->id, $work->id, null, $work->due_at);
+    $invoiceCase = $dunning->open($org->id, $ofService->id, $service->id, $ofService->due_at);
+    $renewalCase = $dunning->open($org->id, null, $service->id, now()->subDay()); // a renewal that could not be charged
+
+    // the renewal goes through: exactly the case it caused is closed
+    expect($dunning->resolve($org->id, null, $service->id, $ctx))->toBe(1);
+    expect($renewalCase->fresh()->state)->toBe(DunningCase::RESOLVED)
+        ->and($workCase->fresh()->state)->not->toBe(DunningCase::RESOLVED)
+        ->and($invoiceCase->fresh()->state)->not->toBe(DunningCase::RESOLVED);
+    // an invoice's case is closed by that invoice being paid
+    expect($dunning->resolve($org->id, $work->id, null, $ctx))->toBe(1)->and($workCase->fresh()->state)->toBe(DunningCase::RESOLVED)->and($invoiceCase->fresh()->state)->not->toBe(DunningCase::RESOLVED);
+});

@@ -23,7 +23,7 @@ final class NotificationService
 {
     /** template key → notification kind (preference bucket) */
     public const TEMPLATE_KINDS = [
-        'welcome' => 'account', 'invitation' => 'account', 'order-received' => 'order', 'service-activated' => 'service', 'service-suspended' => 'service',
+        'welcome' => 'account', 'invitation' => 'account', 'order-received' => 'order', 'order-refunded' => 'order', 'service-activated' => 'service', 'service-suspended' => 'service',
         'ticket-ack' => 'ticket', 'ticket-reply' => 'ticket', 'invoice' => 'invoice.issued', 'invoice-overdue' => 'invoice.issued', 'dunning-notice' => 'dunning', 'dunning-suspended' => 'dunning', 'dunning-termination' => 'dunning', 'renewal-failed' => 'dunning',
         'service-plan-changed' => 'service', 'service-period-changed' => 'service', 'service-usage-high' => 'service', 'service-migrated' => 'service', 'service-migration-scheduled' => 'service', 'chargeback-approved' => 'service', 'chargeback-rejected' => 'service', 'chargeback-refunded' => 'wallet', 'loyalty-level-up' => 'account', 'marketplace-assigned' => 'order', 'marketplace-delivered' => 'order', 'referral-rewarded' => 'account', 'loyalty-streak' => 'account', 'loyalty-campaign' => 'account', 'renewal-underfunded' => 'wallet', 'digest-weekly' => 'digest', 'digest-staff' => 'digest', 'registrar-credit-low' => 'domain.expiry', 'domain-external-expiry' => 'domain.expiry',
         'domain-registered' => 'domain', 'domain-renewal' => 'domain.expiry', 'domain-renewed' => 'domain', 'domain-renewal-failed' => 'domain.expiry', 'domain-expired' => 'domain.expiry', 'domain-auth-info' => 'security.mfa',

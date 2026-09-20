@@ -51,6 +51,12 @@ final class Invoice extends Model
         return Money::minor($this->tax_minor, $this->currency);
     }
 
+    /** Postpaid invoices post DR receivable / CR revenue / CR VAT when they are issued; paying one settles the receivable. */
+    public function bookedAtIssue(): bool
+    {
+        return $this->type === 'invoice' && (bool) ($this->meta['postpaid'] ?? false);
+    }
+
     public function outstanding(): Money
     {
         return Money::minor(max(0, $this->total_minor - $this->paid_minor), $this->currency);

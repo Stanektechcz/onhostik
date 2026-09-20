@@ -30,6 +30,7 @@ final class NotificationRouter
         $locale = $org?->locale ?? 'cs';
         $email = $org?->billing_email ?: ($org?->owner?->email ?? null);
         $portal = rtrim((string) config('onhost.portal_url'), '/');
+        $number = (string) ($p['number'] ?? '');
         $money = fn ($v) => is_array($v) && isset($v['minor'], $v['currency']) ? Money::minor((int) $v['minor'], (string) $v['currency'])->format($locale) : (string) ($v ?? '');
         $orderNumber = $m->name === 'payment.succeeded' && ($p['reference'][0] ?? '') === 'order' ? (string) (Order::query()->find((string) ($p['reference'][1] ?? ''))?->number ?? '') : '';
 
@@ -41,6 +42,12 @@ final class NotificationRouter
             'order.placed' => $this->both($m, 'order', "Nová objednávka {$p['number']}", ($org?->name ?? '').' · '.$money($p['total'] ?? null).' · '.($p['mode'] ?? ''), 'Objednávka přijata', "{$p['number']} · ".$money($p['total'] ?? null), '/sprava/objednavky', '/panel/objednavky', 'info', $email, 'order-received', ['cislo' => $p['number'], 'castka' => $money($p['total'] ?? null), 'jmeno' => $org?->name, 'url' => "{$portal}/panel/objednavky"]),
             'order.paid' => $this->customer($m, 'order', 'Objednávka zaplacena', "{$p['number']} · zřizujeme služby", '/panel/objednavky'),
             'order.active' => $this->customer($m, 'order', 'Objednávka je hotová', "{$p['number']} · všechny služby jsou aktivní", '/panel/sluzby'),
+            // what could not be delivered went back to the customer (OrderSettlement): they hear it from us, with the amount and the place
+            'order.refunded' => $this->both($m, 'order', "Objednávka {$number}: vráceno ".$money($p['amount'] ?? null), implode(', ', (array) ($p['items'] ?? [])).' · '.(($p['to'] ?? 'credit') === 'invoice' ? 'dobropis k faktuře' : 'zpět na kredit'),
+                ! empty($p['nothing_delivered']) ? "Objednávku {$number} se nepodařilo zřídit" : "Část objednávky {$number} se nepodařilo zřídit", $money($p['amount'] ?? null).(($p['to'] ?? 'credit') === 'invoice' ? ' jsme odečetli z faktury' : ' jsme vrátili na váš kredit').' · '.implode(', ', (array) ($p['items'] ?? [])),
+                '/sprava/objednavky', '/panel/objednavky', 'warn', $email, 'order-refunded', ['cislo' => $number, 'castka' => $money($p['amount'] ?? null), 'polozky' => '- '.implode("\n- ", (array) ($p['items'] ?? [])), 'kam' => ($p['to'] ?? 'credit') === 'invoice' ? 'odečtením z faktury' : 'na váš kredit', 'doklad' => (string) ($p['credit_note'] ?? ''), 'url' => $portal.'/panel/objednavky']),
+            'order.cancelled' => ($p['from'] ?? '') === 'PENDING_PAYMENT' ? $this->customer($m, 'order', "Objednávka {$number} byla zrušena", 'Objednávka nebyla zaplacena a už není platná; můžete zadat novou.', '/panel/objednavky', 'warn') : null,
+            'order.settlement_failed' => $this->internal($m, 'order', "Objednávka {$number}: zřízeno, ale nezaplaceno", $money($p['amount'] ?? null).' · '.($p['reason'] ?? ''), '/sprava/objednavky', 'hot'),
             'order.partially_active', 'order.failed', 'order.fulfilment_failed' => $this->internal($m, 'order', "Objednávka {$p['number']}: problém při zřizování", (string) ($p['reason'] ?? ($p['note'] ?? '')), '/sprava/objednavky', 'hot'),
             // ── web toolkit: monitoring, deploy, staging, import, certificates, CDN ──
             'monitoring.down' => $this->customer($m, 'service', 'Web neodpovídá', ($p['url'] ?? '').' · '.($p['error'] ?? ''), '/panel/sluzby', 'hot', ! empty($p['notify']) ? $email : null, 'site-down', ['web' => $p['url'] ?? '', 'chyba' => $p['error'] ?? '', 'url' => $portal.'/panel/sluzby']),

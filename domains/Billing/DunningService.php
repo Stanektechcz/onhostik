@@ -109,7 +109,11 @@ final class DunningService
         if ($invoiceId !== null) {
             $query->where('invoice_id', $invoiceId);
         } elseif ($serviceId !== null) {
-            $query->where(fn ($q) => $q->where('service_id', $serviceId)->orWhereNull('service_id'));
+            // A renewal or a usage charge that went through settles what THIS service owed without a document. It used to close
+            // every case of the organization that had no service as well (`orWhereNull`) — a 149 Kč renewal marked an unpaid
+            // 45 000 Kč work invoice as paid and lifted the organization's billing limit. A case that hangs on an invoice is
+            // closed by that invoice being paid, nothing else.
+            $query->where('service_id', $serviceId)->whereNull('invoice_id');
         }
         $count = 0;
         foreach ($query->get() as $case) {

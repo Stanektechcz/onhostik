@@ -288,6 +288,8 @@ return [
     'orders' => [
         // an unpaid order with the same cart fingerprint placed within this window is returned instead of duplicated
         'duplicate_window_minutes' => (int) env('ONHOST_ORDER_DUPLICATE_WINDOW_MINUTES', 15),
+        // an order nobody paid is cancelled after this many days (proforma voided, transfer no longer matched)
+        'unpaid_expire_days' => (int) env('ONHOST_ORDER_UNPAID_EXPIRE_DAYS', 14),
         // intake pre-check (audit §5f-8): signals add up to a score; at hold_score the paid order waits for a staff decision before provisioning
         'risk' => [
             'enabled' => (bool) env('ONHOST_ORDER_RISK', true),

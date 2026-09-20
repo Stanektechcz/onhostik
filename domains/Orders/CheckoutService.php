@@ -160,7 +160,8 @@ final class CheckoutService
             if ($total->isZero()) { // nothing to pay (a plan downgrade): paid at once, whatever method was chosen
                 $this->markPaid($order, $context, 'wallet');
             } elseif ($mode === 'wallet' || $mode === 'postpaid') {
-                $hold = $this->wallets->hold($organization, $total, 'order', "order:{$order->id}", $context, 'order', $order->id, $this->hasDomain($order) ? 'domain' : 'normal');
+                // no expiry: the reservation lasts until the order is settled (OrderSettlement) — a registry can take days, a risk review too
+                $hold = $this->wallets->hold($organization, $total, 'order', "order:{$order->id}", $context, 'order', $order->id, $this->hasDomain($order) ? 'domain' : 'normal', null);
                 $order->forceFill(['wallet_hold_id' => $hold->id])->save();
                 $this->markPaid($order, $context, 'wallet');
             } elseif ($mode === 'gateway') {
@@ -199,7 +200,7 @@ final class CheckoutService
             OrderStateMachine::machine()->assertTransition($order->state, OrderStateMachine::PAID);
             if ($order->wallet_hold_id === null && $paymentIntentId !== null) {
                 // Gateway/bank payments were credited to the wallet by PaymentService; reserve them now.
-                $hold = $this->wallets->hold($order->organization_id, $order->total(), 'order', "order:{$order->id}", $context, 'order', $order->id, $this->hasDomain($order) ? 'domain' : 'normal', enforceBudget: false); // this money was paid for this order; the budget was asked at placement
+                $hold = $this->wallets->hold($order->organization_id, $order->total(), 'order', "order:{$order->id}", $context, 'order', $order->id, $this->hasDomain($order) ? 'domain' : 'normal', null, enforceBudget: false); // this money was paid for this order; the budget was asked at placement
                 $order->forceFill(['wallet_hold_id' => $hold->id]);
             }
             $order->forceFill(['state' => OrderStateMachine::PAID, 'paid_at' => now(), 'payment_intent_id' => $paymentIntentId ?? $order->payment_intent_id])->save();

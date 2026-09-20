@@ -6,6 +6,7 @@ namespace Onhost\Domain\Provisioning;
 
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Provisioning\Jobs\RunOperation;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
@@ -99,6 +100,10 @@ final class OperationService
         }
         if ($this->freeze->isFrozen()) {
             throw new DomainError('provisioning_frozen', 'Provisioning is frozen by an incident switch.', 423);
+        }
+        // the money of a line that could not be delivered went back to the customer (OrderSettlement): delivering it now would be a gift
+        if ($operation->order_item_id !== null && OrderItem::query()->whereKey($operation->order_item_id)->where('state', 'refunded')->exists()) {
+            throw new DomainError('order_item_refunded', 'This order line was refunded to the customer when it failed; it needs a new order, not a retry.', 409);
         }
         // A failed operation was compensated (the workflow removed what it had created), so the retry starts the workflow
         // over: step outputs such as remote ids are forgotten, scheduling and idempotent creates are repeated safely.
