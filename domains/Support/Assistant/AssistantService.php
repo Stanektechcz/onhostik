@@ -237,7 +237,7 @@ final class AssistantService
         $sees = fn (string $what): bool => $scope === null || $scope->{$what}; // no scope: a trusted caller inside the platform (a ticket summary for staff)
         $open = $sees('billing') ? Invoice::query()->where('organization_id', $organization->id)->whereIn('state', [Invoice::ISSUED, Invoice::OVERDUE])->where('type', 'invoice')->get() : collect();
         if ($open->isNotEmpty()) {
-            $sum = Money::minor((int) $open->sum(fn (Invoice $i) => $i->total_minor - $i->paid_minor), $organization->currency);
+            $sum = Money::minor((int) $open->sum(fn (Invoice $i) => $i->outstanding()->minor), $organization->currency);
             $facts[] = ['k' => $cs ? 'Neuhrazené doklady' : 'Unpaid documents', 'v' => $open->count().' · '.$sum->format($locale).($open->where('state', Invoice::OVERDUE)->count() ? ($cs ? ' · po splatnosti' : ' · overdue') : '')];
         }
         $dunning = $sees('billing') ? DunningCase::query()->where('organization_id', $organization->id)->whereNotIn('state', [DunningCase::RESOLVED, DunningCase::TERMINATED])->count() : 0;
@@ -293,7 +293,7 @@ final class AssistantService
             $open = Invoice::query()->where('organization_id', $organization->id)->whereIn('state', [Invoice::ISSUED, Invoice::OVERDUE])->whereIn('type', ['invoice', 'proforma'])->orderBy('due_at')->limit(5)->get();
             foreach ($open as $invoice) {
                 $kind = $invoice->type === 'proforma' ? ($cs ? 'Zálohová faktura ' : 'Proforma ') : ($cs ? 'Faktura ' : 'Invoice ');
-                $out[] = ['k' => $kind.$invoice->number, 'v' => Money::minor((int) ($invoice->total_minor - $invoice->paid_minor), (string) $invoice->currency)->format($locale)
+                $out[] = ['k' => $kind.$invoice->number, 'v' => $invoice->outstanding()->format($locale)
                     .($invoice->due_at ? ($cs ? ' · splatnost ' : ' · due ').$invoice->due_at->format('j. n. Y') : '').($invoice->payment_reference ? ' · VS '.$invoice->payment_reference : '')];
             }
             $pending = PaymentIntent::query()->where('organization_id', $organization->id)->where('provider', 'bank')->whereIn('state', [PaymentState::CREATED, PaymentState::PENDING_CUSTOMER])->orderByDesc('created_at')->limit(5)->get();

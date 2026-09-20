@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Presenters\Presenters;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Onhost\Domain\Orders\CheckoutService;
+use Onhost\Domain\Orders\Commands\CancelOrderCommand;
 use Onhost\Domain\Orders\Commands\PlaceOrderCommand;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
@@ -47,20 +47,33 @@ final class OrderController extends ApiController
         return $this->dispatch(new PlaceOrderCommand($organization->id, $this->idempotencyKey($request, 'order.place'), $data), $this->api->context($request, $organization), 201);
     }
 
-    /** Customer cancellation of an unpaid order; staff transitions are audited with a reason. */
-    public function transition(Request $request, CheckoutService $checkout, string $order): JsonResponse
+    /**
+     * The customer cancels an order nobody paid yet — the only state a person sets on an order. `to` (or `state`, as the
+     * panel store sends it) must be `cancelled`: "paid" comes from a payment and "active" from delivered lines, never from
+     * a request. The route used to move an order to ANY state for whoever held `staff.order.manage`, outside the command bus.
+     */
+    public function transition(Request $request, string $order): JsonResponse
     {
         $model = $this->resolve($request, $order);
-        $data = $request->validate(['to' => ['required', 'string'], 'reason' => ['nullable', 'string', 'max:250']]);
-        $to = strtoupper($data['to']);
-        $staff = $this->api->can($request, 'staff.order.manage', CommandScope::global());
-        if (! $staff && ! ($to === OrderStateMachine::CANCELLED && in_array($model->state, [OrderStateMachine::NEW, OrderStateMachine::PENDING_PAYMENT], true))) {
-            throw DomainError::forbidden('Customers can only cancel orders that are not paid yet.');
-        }
-        $context = $this->api->context($request, Organization::query()->find($model->organization_id), $data['reason'] ?? null);
-        $updated = $checkout->transition($model, $to, $context, $data['reason'] ?? null);
+        $data = self::cancellation($request);
+        $organization = Organization::query()->findOrFail($model->organization_id);
+        $command = new CancelOrderCommand($organization->id, $this->idempotencyKey($request, "order.cancel:{$model->id}"), ['order_id' => $model->id, 'reason' => $data['reason'] ?? null]);
+        $this->api->assertTokenScope($request, $command->permission()); // bearer tokens are limited to their documented scopes
+        $this->bus->dispatch($command, $this->api->context($request, $organization, $data['reason'] ?? null));
 
-        return response()->json(['data' => Presenters::order($updated)]);
+        return response()->json(['data' => Presenters::order($model->refresh())]);
+    }
+
+    /** @return array{to:string, reason?:?string} */
+    public static function cancellation(Request $request): array
+    {
+        $data = $request->validate(['to' => ['required_without:state', 'nullable', 'string', 'max:20'], 'state' => ['required_without:to', 'nullable', 'string', 'max:20'], 'reason' => ['nullable', 'string', 'max:250']]);
+        $to = strtoupper((string) ($data['to'] ?? $data['state']));
+        if ($to !== OrderStateMachine::CANCELLED) {
+            throw new DomainError('order_transition_not_offered', 'The state of an order follows its payment and its services; the only thing a person does to it is cancel it.', 422, ['field' => 'to', 'offered' => ['cancelled']]);
+        }
+
+        return ['to' => $to, 'reason' => $data['reason'] ?? null];
     }
 
     private function resolve(Request $request, string $id): Order

@@ -4,6 +4,7 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 1b3d2d7 | 2026-09-20 | The accounting day, top-up ceilings that hold, a conversation that belongs to one person |
 | 59e88ea | 2026-09-20 | Control points as numbers; panels are asked what they really answer; the assistant checks a service |
 | 0a83c97 | 2026-09-20 | Audit: what waiting on ISPConfig really watches, why it cannot be seconds, and what to watch instead |
 | 4ef56bb | 2026-09-20 | An operation forgets the secrets it carried; a generated password is read once, by whoever manages the service |
@@ -13,4 +14,3 @@
 | c0b5553 | 2026-09-20 | A guest invitation never takes a role away; sharing again sends no second mail |
 | e01da49 | 2026-09-20 | A lost answer to domain-create is neither a second registration nor a database error |
 | 3365208 | 2026-09-20 | The assistant reads one listing of a visible service; a guest is not shown the company behind the service |
-| bfec8ae | 2026-09-20 | The assistant sees what the signed-in person sees, and works for support over one customer's account |

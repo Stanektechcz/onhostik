@@ -367,6 +367,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::get('orders', [CustomerController::class, 'orders']);
         Route::get('orders/risk-review', [CustomerController::class, 'riskReview']);
         Route::post('orders/{order}/review', [CustomerController::class, 'reviewOrder']);
+        Route::post('orders/{order}/transition', [CustomerController::class, 'cancelOrder']); // the only transition a person asks for is a cancellation
         Route::post('customers/{organization}/sandbox', [CustomerController::class, 'sandbox']); // sandbox tenant (audit §5j-9)
         Route::post('customers/{organization}/wallet/credit', [CustomerController::class, 'creditWallet']); // manual credit (audit §5y)
         Route::post('customers/{organization}/orders/quote', [CustomerController::class, 'quoteOrder']);

@@ -71,7 +71,7 @@ final class InvoiceController extends ApiController
     public function creditNote(Request $request, string $invoice): JsonResponse
     {
         $model = $this->resolve($request, $invoice, 'billing.invoice.manage');
-        $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:250'], 'line_ids' => ['nullable', 'array'], 'incident_ref' => ['nullable', 'string', 'max:40']]);
+        $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:250'], 'line_ids' => ['nullable', 'array', 'max:100'], 'line_ids.*' => ['string', 'max:40'], 'amounts' => ['nullable', 'array', 'max:100'], 'amounts.*' => ['integer', 'min:1'], 'return_to_credit' => ['nullable', 'boolean'], 'incident_ref' => ['nullable', 'string', 'max:40']]);
 
         return $this->dispatch(new InvoiceCommand($model->organization_id, $this->idempotencyKey($request, 'invoice.credit'), ['op' => 'credit_note', 'invoice_id' => $model->id] + $data), $this->api->context($request, Organization::query()->find($model->organization_id), $data['reason']), 201);
     }

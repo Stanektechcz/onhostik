@@ -36,8 +36,8 @@ final class InvoicingCommandHandler implements CommandHandler
             'pay_from_wallet' => $this->payFromWallet($invoice, $command, $context),
             'pay_by_bank' => $this->payByIntent($invoice, $command, $context, 'bank'),
             'pay_by_card' => $this->payByIntent($invoice, $command, $context, 'gateway'),
-            'credit_note' => ['invoice' => $this->invoices->creditNote($invoice, (string) $command->get('reason', ''), $context, $command->get('line_ids'), $command->get('incident_ref'))],
-            'mark_paid' => ['invoice' => $this->invoices->markPaid($invoice, $invoice->total()->subtract(Money::minor((int) $invoice->paid_minor, $invoice->currency)), (string) $command->get('method', 'bank'), $context, true, $command->get('reference'))],
+            'credit_note' => $this->creditNote($invoice, $command, $context),
+            'mark_paid' => ['invoice' => $this->invoices->markPaid($invoice, $invoice->outstanding(), (string) $command->get('method', 'bank'), $context, true, $command->get('reference'))], // what is owed after the credit notes, not the printed total
             default => throw new DomainError('invoice_op_unknown', "Unknown invoice operation {$command->op()}.", 422),
         };
     }
@@ -75,12 +75,43 @@ final class InvoicingCommandHandler implements CommandHandler
         ];
     }
 
+    /**
+     * A credit note written by finance: the whole document, some lines, or a part of a line (`amounts`: line id → gross).
+     * `return_to_credit` also gives the money back to the customer's credit — only what was really paid, and only once;
+     * without it the note is a document (finance move the money themselves, as before).
+     *
+     * @return array<string,mixed>
+     */
+    private function creditNote(Invoice $invoice, InvoiceCommand $command, CommandContext $context): array
+    {
+        $reason = (string) $command->get('reason', '');
+        $amounts = $command->get('amounts');
+        $amounts = is_array($amounts) && $amounts !== [] ? array_map(fn ($minor) => (int) $minor, $amounts) : null;
+        if ((bool) $command->get('return_to_credit', false)) {
+            if ($command->get('line_ids') !== null && $amounts === null) { // whole lines, named: the same thing as their full remainder
+                $done = $this->invoices->creditedByLine($invoice);
+                $amounts = [];
+                foreach ($invoice->lines()->whereIn('id', (array) $command->get('line_ids'))->get() as $line) {
+                    $amounts[(string) $line->id] = (int) $line->total_minor - ($done[$line->id]['total'] ?? 0);
+                }
+            }
+            $given = $this->invoices->giveBack($invoice, $amounts, $reason, $context);
+
+            return ['invoice' => $given['credit_note'], 'returned_to_credit' => Money::minor($given['to_credit_minor'], $invoice->currency), 'off_document' => Money::minor($given['off_document_minor'], $invoice->currency)];
+        }
+
+        return ['invoice' => $this->invoices->creditNote($invoice, $reason, $context, $command->get('line_ids'), $command->get('incident_ref'), $amounts), 'returned_to_credit' => Money::zero($invoice->currency)];
+    }
+
     private function payFromWallet(Invoice $invoice, InvoiceCommand $command, CommandContext $context): array
     {
         if (! in_array($invoice->state, [Invoice::ISSUED, Invoice::OVERDUE], true)) {
             throw new DomainError('invoice_not_payable', "Invoice {$invoice->number} is {$invoice->state}.", 409);
         }
-        $open = $invoice->total()->subtract(Money::minor((int) $invoice->paid_minor, $invoice->currency));
+        $open = $invoice->outstanding(); // a document with a credit note is paid for what it has left, not for its printed total
+        if (! $open->isPositive()) {
+            throw new DomainError('invoice_not_payable', "Invoice {$invoice->number} has nothing left to pay.", 409);
+        }
         if ($invoice->bookedAtIssue()) { // the revenue and the VAT were booked when it was issued: the payment settles the receivable
             $this->orders->releaseReservation($invoice, $context); // the order's reservation of the credit line waited for exactly this payment
             $this->wallets->settleReceivable($invoice->organization_id, $open, "invoice:{$invoice->id}:wallet", $context, 'invoice', $invoice->id, "Úhrada faktury {$invoice->number} z kreditu");

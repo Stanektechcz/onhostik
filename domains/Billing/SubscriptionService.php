@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Catalog\Models\Price;
 use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -139,7 +140,7 @@ final class SubscriptionService
         $invoiceLine = [
             'sku' => $service->product_key.'-renewal', 'description' => "Prodloužení služby {$service->name}".($service->hostname ? " ({$service->hostname})" : ''), 'qty' => 1, 'unit' => 'ks',
             'unit_net' => $net->minor, 'discount' => 0, 'net' => $net->minor, 'tax_rate' => (string) $line['rate'], 'tax_category' => (string) $line['category'], 'tax' => $line['tax']->minor, 'total' => $line['total']->minor,
-            'period_from' => $newStart->toDateString(), 'period_to' => $newEnd->toDateString(), 'service_id' => $service->id,
+            'period_from' => AccountingClock::date($newStart), 'period_to' => AccountingClock::date($newEnd->copy()->subDay()), 'service_id' => $service->id, // accounting days; the last day of the period, as on an order's line
         ];
         if ($organization->billing_mode === 'postpaid' && $this->wallets->approvedCreditLine($organization->id, $subscription->currency)->isPositive()) {
             $draft = $this->invoices->draft($organization, 'invoice', $subscription->currency, [$invoiceLine], $context, null, ['payment_method' => 'invoice', 'postpaid' => true, 'subscription_id' => $subscription->id, 'renewal_period' => $periodKey]);

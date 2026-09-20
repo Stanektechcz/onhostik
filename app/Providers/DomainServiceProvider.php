@@ -45,9 +45,11 @@ use Onhost\Domain\Marketplace\Commands\MarketplaceCommandHandler;
 use Onhost\Domain\Marketplace\Commands\MarketplaceStaffCommand;
 use Onhost\Domain\Notifications\NotificationRouter;
 use Onhost\Domain\Notifications\WebhookDispatcher;
+use Onhost\Domain\Orders\Commands\CancelOrderCommand;
 use Onhost\Domain\Orders\Commands\OrdersCommandHandler;
 use Onhost\Domain\Orders\Commands\PlaceOrderCommand;
 use Onhost\Domain\Orders\Commands\ReviewOrderCommand;
+use Onhost\Domain\Orders\Commands\StaffCancelOrderCommand;
 use Onhost\Domain\Orders\Commands\StaffCustomerCommand;
 use Onhost\Domain\Orders\Listeners\FulfillPaidOrder;
 use Onhost\Domain\Orders\Listeners\ReleaseOrderReservation;
@@ -100,6 +102,8 @@ final class DomainServiceProvider extends ServiceProvider
     /** Command → handler map for the audited command bus (one handler per domain, dispatch by command class / `op`). */
     public const HANDLERS = [
         PlaceOrderCommand::class => OrdersCommandHandler::class,
+        CancelOrderCommand::class => OrdersCommandHandler::class,
+        StaffCancelOrderCommand::class => OrdersCommandHandler::class,
         ReviewOrderCommand::class => OrdersCommandHandler::class,
         StaffCustomerCommand::class => OrdersCommandHandler::class,
         ChargebackCommand::class => ChargebackCommandHandler::class,

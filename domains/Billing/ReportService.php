@@ -42,7 +42,7 @@ final class ReportService
             $open = Invoice::query()->where('currency', $currency)->whereIn('state', [Invoice::ISSUED, Invoice::OVERDUE])->where('type', 'invoice')->get();
             $buckets = ['current' => 0, '1_30' => 0, '31_60' => 0, '61_plus' => 0];
             foreach ($open as $invoice) {
-                $outstanding = (int) $invoice->total_minor - (int) $invoice->paid_minor;
+                $outstanding = $invoice->outstanding()->minor; // after the credit notes
                 $overdue = $invoice->due_at ? (int) $invoice->due_at->diffInDays(now(), false) : 0;
                 $key = $overdue <= 0 ? 'current' : ($overdue <= 30 ? '1_30' : ($overdue <= 60 ? '31_60' : '61_plus'));
                 $buckets[$key] += $outstanding;

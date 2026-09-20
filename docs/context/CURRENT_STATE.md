@@ -91,6 +91,15 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **Corrections that hold (2026-09-20, night):** the state of an order is not written by hand — the transition endpoint
+  took any state from `staff.order.manage` outside the command bus (a support agent declared their own order paid and got
+  the services for nothing); a person now only cancels, through the bus. A cancelled paid order credits its documents and
+  gives the reservation back. A credit note knows the line it corrects (`000750`): nothing is credited twice, a partly
+  credited document is paid for what it has left, a booked document gives its VAT back too. Money that comes back is a
+  `returnToCredit` against revenue and VAT — not a top-up from a bank called "chargeback", not purchased credit that turns
+  bonus credit into cash. The return of an unused period is computed from the paid document lines, not from one period's
+  list price without VAT. Doctor area `money`. Runbooks: `billing-dunning.md`, `security-boundaries.md` §13.
+
 - **Money and privacy fixes of 2026-09-20 (evening):** a date on a document is the day at the seller's seat
   (`AccountingClock`) — the tax date and the number series came from UTC, so 1 January 00:30 in Prague was invoiced into
   last year; automatic top-ups keep the daily cap and the monthly limit the customer set (neither ever applied); a

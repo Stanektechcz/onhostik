@@ -121,7 +121,7 @@ final class Lexicon
         // composed titles and bodies found by the coverage test (audit §5r-7)
         'Služba sdílena: ' => 'Service shared: ', 'Sdílení služby ukončeno: ' => 'Service sharing ended: ', 'Sdílení služby vypršelo: ' => 'Service sharing expired: ', ' · čeká na přijetí pozvánky' => ' · waiting for the invitation to be accepted', ' · přístup je aktivní' => ' · access is active', ' · do ' => ' · until ',
         'Část objednávky ' => 'Part of order ', ' se nepodařilo zřídit' => ' could not be delivered', ' jsme vrátili na váš kredit' => ' went back to your credit', ' jsme odečetli z faktury' => ' was taken off the invoice',
-        ' byla zrušena' => ' was cancelled', 'nebyla zaplacena a už není platná; můžete zadat novou.' => 'was not paid and is no longer valid; you can place a new one.',
+        ' byla zrušena' => ' was cancelled', ' · opravný doklad ' => ' · credit note ', 'nebyla zaplacena a už není platná; můžete zadat novou.' => 'was not paid and is no longer valid; you can place a new one.',
         'Objednávku ' => 'Order ', 'Objednávka ' => 'Order ', ' ještě kontrolujeme' => ' is still being checked', ' byla schválena' => ' was approved', ' jsme nemohli přijmout' => ' could not be accepted',
         ' · zřizujeme služby' => ' · provisioning the services', ' · všechny služby jsou aktivní' => ' · all services are active',
         'CDN je aktivní' => 'CDN is active', 'CDN zapnuto' => 'CDN enabled', 'CDN vypnuto' => 'CDN disabled', ' · nastavte nameservery u registrátora' => ' · set the nameservers at your registrar', ' změněn na ' => ' changed to ',

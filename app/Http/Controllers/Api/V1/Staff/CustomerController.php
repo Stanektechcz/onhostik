@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Staff;
 
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Presenters\Presenters;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,6 +14,7 @@ use Onhost\Domain\Domains\Models\RegistrarConnection;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Loyalty\Models\Referral;
 use Onhost\Domain\Orders\Commands\ReviewOrderCommand;
+use Onhost\Domain\Orders\Commands\StaffCancelOrderCommand;
 use Onhost\Domain\Orders\Commands\StaffCustomerCommand;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\QuoteService;
@@ -200,6 +202,21 @@ final class CustomerController extends ApiController
         ]);
 
         return $this->dispatch(new StaffCustomerCommand($this->idempotencyKey($request, "order.assisted:{$organization}:".now()->format('YmdHis')), ['op' => 'order.assisted', 'organization_id' => $organization] + $data), $this->api->context($request, null, $data['note']), 201);
+    }
+
+    /**
+     * Staff cancel an order: an unpaid one, or a paid one nothing of which runs (held by the review, failed). The console's
+     * order buttons post here (`onhost-store.api.js`); the route did not exist, so every state button of the console failed.
+     */
+    public function cancelOrder(Request $request, string $order): JsonResponse
+    {
+        $data = OrderController::cancellation($request);
+        $command = new StaffCancelOrderCommand($this->idempotencyKey($request, "order.cancel.staff:{$order}"), ['order_id' => $order, 'reason' => $data['reason'] ?? null]);
+        $this->api->assertTokenScope($request, $command->permission());
+        $result = (array) $this->bus->dispatch($command, $this->api->context($request, null, $data['reason'] ?? null));
+        $model = Order::query()->findOrFail((string) $result['order_id']);
+
+        return response()->json(['data' => Presenters::order($model) + ['organization_id' => $model->organization_id]]);
     }
 
     public function reviewOrder(Request $request, string $order): JsonResponse

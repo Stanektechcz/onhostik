@@ -13,12 +13,16 @@
   var staff = A.staff();
   var me = A.user();
 
+  /* The state of an order follows its payment and its services: "zaplaceno" comes from a payment (the bank matching, the
+   * gateway, the credit), "aktivní" from delivered services. The one thing a person does to an order is cancel it — the
+   * customer while it is unpaid, staff also once it is paid and nothing of it runs. So the only button the API offers is
+   * the cancellation; the prototype's other arrows would be refused (422 order_transition_not_offered). */
   var ORDER_FLOW = {
-    nova: { label: 'Nová', next: ['zaplaceno', 'zruseno'], tone: '#8a6d00', internal: true },
-    zaplaceno: { label: 'Zaplaceno', next: ['provisioning', 'zruseno'], tone: '#0f5f3a' },
-    provisioning: { label: 'Provisioning', next: ['aktivni'], tone: '#1a4c8f' },
-    aktivni: { label: 'Aktivní', next: ['pozastaveno', 'zruseno'], tone: '#0f5f3a' },
-    pozastaveno: { label: 'Pozastaveno', next: ['aktivni', 'zruseno'], tone: '#8f1c0a' },
+    nova: { label: 'Nová', next: ['zruseno'], tone: '#8a6d00', internal: true },
+    zaplaceno: { label: 'Zaplaceno', next: staff ? ['zruseno'] : [], tone: '#0f5f3a' },
+    provisioning: { label: 'Provisioning', next: [], tone: '#1a4c8f' },
+    aktivni: { label: 'Aktivní', next: [], tone: '#0f5f3a' },
+    pozastaveno: { label: 'Pozastaveno', next: [], tone: '#8f1c0a' },
     zruseno: { label: 'Zrušeno', next: [], tone: '#6b6663' }
   };
   var TICKET_FLOW = {
@@ -151,7 +155,14 @@
       var f = ORDER_FLOW[o.state];
       if (!f || f.next.indexOf(to) < 0) return null;
       var path = staff ? '/staff/orders/' + o.apiId + '/transition' : '/orders/' + o.apiId + '/transition';
-      A.post(path, { state: ORDER_API[to] || to, reason: who || 'panel' }, A.key()).then(refresh).catch(function (e) { log('system', 'Změna stavu ' + id + ' selhala: ' + e.message); emit(); });
+      var reason = who || 'panel';
+      if (staff) { // a cancellation by staff says why: the reason goes to the audit and, for a paid order, onto the credit note
+        reason = window.prompt('Důvod zrušení objednávky ' + id + ' (zapíše se do auditu a na opravný doklad):', '');
+        if (!reason || !String(reason).trim()) return null;
+      }
+      var before = o.state;
+      A.post(path, { state: ORDER_API[to] || to, reason: String(reason).trim() }, A.key()).then(refresh)
+        .catch(function (e) { o.state = before; o.hist.pop(); log('system', 'Změna stavu ' + id + ' selhala: ' + e.message); emit(); refresh(); });
       o.state = to; o.hist.push([to, Date.now()]);
       log(who || 'admin', id + ' → ' + ORDER_FLOW[to].label);
       emit();

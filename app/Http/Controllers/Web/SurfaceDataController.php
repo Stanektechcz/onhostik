@@ -753,7 +753,7 @@ final class SurfaceDataController extends Controller
                     'qty' => $trim($l->qty).' '.$l->unit, 'unit' => $dec((int) $l->unit_net_minor), 'total' => $dec((int) $l->net_minor),
                 ])->values()->all(),
                 'subtotal' => $dec((int) $document->subtotal_minor), 'discount' => $dec((int) $document->discount_minor), 'tax' => $dec((int) $document->tax_minor), 'total' => $dec((int) $document->total_minor),
-                'paid_amount' => $dec((int) $document->paid_minor), 'outstanding' => $dec(max(0, (int) $document->total_minor - (int) $document->paid_minor)),
+                'paid_amount' => $dec((int) $document->paid_minor), 'outstanding' => $dec($document->outstanding()->minor), 'credited' => $dec((int) $document->credited_minor),
                 'tax_rates' => collect($document->tax_summary ?? [])->pluck('rate')->filter(fn ($r) => $r !== null)->map($trim)->unique()->values()->all(),
                 'payment_reference' => $document->payment_reference, 'payment_method' => $document->payment_method,
                 'buyer' => ['name' => $buyer['name'] ?? null, 'ico' => $buyer['ico'] ?? null, 'vat_id' => $buyer['vat_id'] ?? ($buyer['dic'] ?? null), 'email' => $buyer['email'] ?? null],

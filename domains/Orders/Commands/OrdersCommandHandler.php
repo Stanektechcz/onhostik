@@ -35,6 +35,15 @@ final class OrdersCommandHandler implements CommandHandler
 
             return ['order_id' => $reviewed->id, 'number' => $reviewed->number, 'state' => $reviewed->state, 'review' => $reviewed->meta['review'] ?? null];
         }
+        if ($command instanceof CancelOrderCommand || $command instanceof StaffCancelOrderCommand) {
+            $order = Order::query()->find((string) $command->get('order_id'));
+            if ($order === null || ($command instanceof CancelOrderCommand && $order->organization_id !== $command->organizationId)) {
+                throw DomainError::notFound('order');
+            }
+            $cancelled = $this->checkout->cancel($order, $context->withScope($order->organization_id), $command->get('reason'), $command instanceof StaffCancelOrderCommand);
+
+            return ['order_id' => $cancelled->id, 'number' => $cancelled->number, 'state' => $cancelled->state];
+        }
         if (! $command instanceof PlaceOrderCommand) {
             throw new \LogicException('Unsupported command '.get_class($command));
         }

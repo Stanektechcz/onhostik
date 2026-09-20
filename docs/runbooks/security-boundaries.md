@@ -155,7 +155,32 @@ Tests: `tests/Feature/Provisioning/OperationSecretsTest.php`.
 
 Tests: `tests/Feature/Support/AssistantReadToolsTest.php`.
 
-## What to look at on staging after deploying this* migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;
+## 13. The state of an order is not written by hand
+
+* `POST /v1/orders/{id}/transition` took **any** target state from whoever held `staff.order.manage`, outside the command
+  bus (no idempotency, no audit of the command, no step-up). A support agent who is also somebody's customer — an
+  organization of their own is enough — declared their unpaid order `PAID`: the transition published `order.paid`, the
+  fulfilment provisioned the services, and no money, no reservation and no tax document ever existed. Proven by a test
+  against the old code (`state=PROVISIONING services=1 hold=NULL docs=proforma`).
+* Now the only thing a person does to the state of an order is **cancel** it, through the command bus:
+  `order.cancel` (customer, `catalog.order.create`, only `NEW`/`PENDING_PAYMENT`) and `order.cancel.staff`
+  (`staff.order.manage`, also `PAID` and `FAILED`, a reason is required once the order was paid). Anything else answers
+  `422 order_transition_not_offered`. "Paid" comes from a payment (gateway, bank matching — `bank.line.record` for a
+  transfer with a wrong symbol —, credit), "active" from delivered lines. An order with running services is not cancelled
+  here (`409 order_not_cancellable`): its services are.
+* Cancelling asked for `organization.read`: a read-only member, an auditor or a support contact cancelled the unpaid
+  orders of the organization (and voided their proformas). It asks for the permission that places orders.
+* The console's order buttons posted to `/v1/staff/orders/{id}/transition`, a route that did not exist — every one of
+  them failed silently behind an optimistic state. The route exists now (cancellation only), the store seam offers only
+  what the API offers and asks staff for the reason, and a refused change is rolled back on the screen.
+* `onhost:doctor` — area `money`: *every order being delivered was paid and documented* (finds orders the old door
+  produced) and *no document is credited for more than it was issued for*.
+
+Tests: `tests/Feature/Orders/OrderTransitionGateTest.php`.
+
+## What to look at on staging after deploying this
+
+* migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;
 * orders that were delivered and never charged (the query is in `billing-dunning.md`);
 * `provider_calls` of the last 90 days still hold what was logged before the new masks (Subreg password and session ids, private keys) — rotate the Subreg API password after deploying and let retention age the rows out, or delete `provider_calls` of `subreg` older than the deploy;
 * audit trail: `service.action.resize` by an actor who is neither staff nor the system;

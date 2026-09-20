@@ -5,16 +5,20 @@ declare(strict_types=1);
 namespace Onhost\Domain\Invoicing;
 
 use Illuminate\Contracts\Filesystem\Factory as FilesystemFactory;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\BillingPeriod;
+use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\InvoiceLine;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
 use Onhost\Domain\Orders\Models\Order;
+use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\GreenService;
 use Onhost\Domain\Tax\TaxEngine;
 use Onhost\Domain\WalletLedger\LedgerService;
+use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -39,6 +43,7 @@ final class InvoiceService
         private readonly OutboxPublisher $outbox,
         private readonly FilesystemFactory $storage,
         private readonly TaxEngine $tax,
+        private readonly WalletService $wallets,
     ) {}
 
     /**
@@ -59,7 +64,7 @@ final class InvoiceService
             'sku' => $item->sku, 'description' => $item->name, 'qty' => $item->qty, 'unit' => 'ks',
             'unit_net' => $item->unit_net_minor, 'discount' => $item->discount_minor, 'net' => $item->unit_net_minor * $item->qty - $item->discount_minor,
             'tax_rate' => $item->tax_rate, 'tax_category' => $item->config['tax_category'] ?? 'S', 'tax' => $item->tax_minor, 'total' => $item->total_minor,
-            'period_from' => AccountingClock::date(), 'period_to' => $this->periodEnd($item->period, (int) ($item->config['periods_billed'] ?? 1) * ($item->product_key === 'domain' ? (int) ($item->config['period_years'] ?? 1) : 1)),
+            'period_from' => AccountingClock::date(), 'period_to' => $this->upgradePeriodEnd($item) ?? $this->periodEnd($item->period, (int) ($item->config['periods_billed'] ?? 1) * ($item->product_key === 'domain' ? (int) ($item->config['period_years'] ?? 1) : 1)),
             'service_id' => $item->service_id, 'order_item_id' => $item->id,
         ])->all();
         $draft = $this->draft($organization, $type, $order->currency, $lines, $context, $order->id, ['payment_method' => $paymentMethod, 'postpaid' => $postpaid, 'order_number' => $order->number]);
@@ -160,6 +165,7 @@ final class InvoiceService
                 'qty' => (string) ($line['qty'] ?? 1), 'unit' => $line['unit'] ?? 'ks', 'unit_net_minor' => (int) $line['unit_net'], 'discount_minor' => (int) ($line['discount'] ?? 0),
                 'net_minor' => (int) $line['net'], 'tax_rate' => (string) $line['tax_rate'], 'tax_category' => $line['tax_category'] ?? 'S', 'tax_minor' => (int) $line['tax'], 'total_minor' => (int) $line['total'],
                 'period_from' => $line['period_from'] ?? null, 'period_to' => $line['period_to'] ?? null, 'service_id' => $line['service_id'] ?? null, 'order_item_id' => $line['order_item_id'] ?? null,
+                'corrects_line_id' => $line['corrects_line_id'] ?? null,
             ]);
         }
 
@@ -210,7 +216,7 @@ final class InvoiceService
                 return $invoice;
             }
             $paid = $invoice->paid_minor + $amount->minor;
-            $state = $paid >= $invoice->total_minor ? Invoice::PAID : $invoice->state;
+            $state = $paid >= $invoice->total_minor - (int) $invoice->credited_minor ? Invoice::PAID : $invoice->state; // what credit notes took off is not owed
             $invoice->forceFill(['paid_minor' => $paid, 'state' => $state, 'paid_at' => $state === Invoice::PAID ? now() : null, 'payment_method' => $method])->save();
             if ($postLedger && $invoice->type === 'invoice' && ($invoice->meta['postpaid'] ?? false)) {
                 $this->ledger->post('invoice_settlement', $invoice->currency, [
@@ -262,37 +268,190 @@ final class InvoiceService
         return $count;
     }
 
-    /** Credit note (opravný daňový doklad) for the whole invoice or a subset of lines; original becomes CREDITED. */
-    public function creditNote(Invoice $original, string $reason, CommandContext $context, ?array $lineIds = null, ?string $incidentRef = null): Invoice
+    /**
+     * Credit note (opravný daňový doklad) — for the whole document, for some of its lines, or for a part of a line
+     * (`$amounts`: line id → the gross to give back, optionally with the period it stands for).
+     *
+     * What a line has left is what it was issued for minus every credit note already written against it
+     * (`invoice_lines.corrects_line_id`). Before, nothing counted: the same document or the same lines could be credited
+     * again and again — each time taking the customer's debt down once more — a credit note could itself be credited, and
+     * a document with a partial credit note was still asked to be paid in full.
+     *
+     * A document booked when it was issued (postpaid) gives its revenue AND its VAT back; what the customer had already
+     * paid beyond what is still owed returns to their credit.
+     *
+     * @param  list<string>|null  $lineIds  null: every line that has something left (or the lines named in `$amounts`)
+     * @param  array<string, int|array{gross:int, period_from?:?string, period_to?:?string}>|null  $amounts  gross minor units per line id
+     */
+    public function creditNote(Invoice $original, string $reason, CommandContext $context, ?array $lineIds = null, ?string $incidentRef = null, ?array $amounts = null): Invoice
     {
-        if (! $original->isIssued() || $original->type === 'proforma') {
-            throw new DomainError('invoice_not_creditable', 'Only issued tax documents can be credited.', 409);
+        if (! $original->isCreditable()) {
+            throw new DomainError('invoice_not_creditable', 'Only an issued tax document can be credited; a proforma is voided and a credit note is never credited itself.', 409, ['type' => $original->type, 'state' => $original->state]);
         }
 
-        return DB::transaction(function () use ($original, $reason, $context, $lineIds, $incidentRef) {
+        return DB::transaction(function () use ($original, $reason, $context, $lineIds, $incidentRef, $amounts) {
+            $original = Invoice::query()->lockForUpdate()->findOrFail($original->id); // two corrections of one document wait for each other
             $organization = Organization::query()->findOrFail($original->organization_id);
-            $lines = $original->lines()->get()->filter(fn ($l) => $lineIds === null || in_array($l->id, $lineIds, true))->map(fn ($l) => [
-                'sku' => $l->sku, 'description' => 'Dobropis: '.$l->description, 'qty' => $l->qty, 'unit' => $l->unit,
-                'unit_net' => -$l->unit_net_minor, 'discount' => -$l->discount_minor, 'net' => -$l->net_minor, 'tax_rate' => $l->tax_rate, 'tax_category' => $l->tax_category,
-                'tax' => -$l->tax_minor, 'total' => -$l->total_minor, 'period_from' => $l->period_from?->toDateString(), 'period_to' => $l->period_to?->toDateString(),
-                'service_id' => $l->service_id, 'order_item_id' => $l->order_item_id,
-            ])->values()->all();
+            $named = $lineIds ?? ($amounts !== null ? array_map('strval', array_keys($amounts)) : null);
+            $before = $this->creditedByLine($original);
+            $lines = [];
+            foreach ($original->lines()->get() as $l) {
+                if ($named !== null && ! in_array($l->id, $named, true)) {
+                    continue;
+                }
+                $done = $before[$l->id] ?? ['net' => 0, 'tax' => 0, 'total' => 0];
+                $left = (int) $l->total_minor - $done['total'];
+                $ask = $amounts[$l->id] ?? null;
+                $want = $ask === null ? $left : (int) (is_array($ask) ? $ask['gross'] : $ask);
+                if ($left === 0 || ($left > 0) !== ((int) $l->total_minor > 0)) {
+                    if ($named === null) {
+                        continue; // the whole document: a line already credited is simply not credited again
+                    }
+                    throw new DomainError('invoice_line_already_credited', 'This line was already credited in full.', 409, ['line_id' => $l->id]);
+                }
+                if ($ask !== null && ((int) $l->total_minor <= 0 || $want <= 0 || $want > $left)) {
+                    throw new DomainError('invoice_credit_exceeds_line', 'A line cannot be credited for more than it has left.', 409, ['line_id' => $l->id, 'left' => Money::minor(max(0, $left), $original->currency), 'asked' => Money::minor(max(0, $want), $original->currency)]);
+                }
+                if ($want === (int) $l->total_minor) { // the whole line, untouched so far: its exact mirror
+                    $net = (int) $l->net_minor;
+                    $tax = (int) $l->tax_minor;
+                    $row = ['qty' => $l->qty, 'unit_net' => -$l->unit_net_minor, 'discount' => -$l->discount_minor];
+                } else { // a part, or the rest after a part: the VAT in the line's own proportion, the last part takes the remainder to the haler
+                    $tax = $want === $left ? (int) $l->tax_minor - $done['tax'] : (int) round($want * (int) $l->tax_minor / (int) $l->total_minor);
+                    $net = $want - $tax;
+                    $row = ['qty' => 1, 'unit_net' => -$net, 'discount' => 0];
+                }
+                $lines[] = $row + [
+                    'sku' => $l->sku, 'description' => 'Dobropis: '.$l->description, 'unit' => $l->unit, 'net' => -$net, 'tax_rate' => $l->tax_rate, 'tax_category' => $l->tax_category, 'tax' => -$tax, 'total' => -$want,
+                    'period_from' => (is_array($ask) ? ($ask['period_from'] ?? null) : null) ?? $l->period_from?->toDateString(), 'period_to' => (is_array($ask) ? ($ask['period_to'] ?? null) : null) ?? $l->period_to?->toDateString(),
+                    'service_id' => $l->service_id, 'order_item_id' => $l->order_item_id, 'corrects_line_id' => $l->id,
+                ];
+            }
+            if ($lines === []) {
+                throw new DomainError('invoice_nothing_to_credit', 'Nothing is left to credit on this document.', 409, ['number' => $original->number]);
+            }
             $draft = $this->draft($organization, 'credit_note', $original->currency, $lines, $context, $original->order_id, ['reason' => $reason, 'incident' => $incidentRef, 'original_number' => $original->number, 'postpaid' => $original->meta['postpaid'] ?? false], $original->id);
             $credit = $this->issue($draft, $context, dueDays: 0);
-            if ($lineIds === null) {
-                $original->forceFill(['state' => Invoice::CREDITED])->save();
+            $credited = (int) $original->credited_minor - (int) $credit->total_minor;
+            $patch = ['credited_minor' => $credited];
+            if ($credited >= (int) $original->total_minor) {
+                $patch['state'] = Invoice::CREDITED;
+            } elseif (in_array($original->state, [Invoice::ISSUED, Invoice::OVERDUE], true) && (int) $original->paid_minor >= (int) $original->total_minor - $credited) {
+                $patch += ['state' => Invoice::PAID, 'paid_at' => now()]; // what was paid already covers what is still owed
             }
-            if (($original->meta['postpaid'] ?? false) && $original->type === 'invoice') {
-                $amount = abs($credit->total_minor);
-                $this->ledger->post('credit_note', $original->currency, [
-                    ['account' => LedgerService::revenueAccount('credit_note', $original->currency), 'debit' => $amount],
-                    ['account' => LedgerService::receivableAccount($original->organization_id, $original->currency), 'credit' => $amount],
-                ], "credit-note:{$credit->id}", $original->organization_id, 'invoice', $credit->id, "Credit note {$credit->number} for {$original->number}");
+            $original->forceFill($patch)->save();
+            if ($original->bookedAtIssue()) {
+                $this->unbook($original, $credit, $context);
             }
-            $this->audit->record($context->withScope($original->organization_id), 'invoice.credit_note', 'succeeded', ['original' => $original->number, 'credit_note' => $credit->number, 'reason' => $reason], 'invoice', $credit->id);
+            $this->audit->record($context->withScope($original->organization_id), 'invoice.credit_note', 'succeeded', ['original' => $original->number, 'credit_note' => $credit->number, 'reason' => $reason, 'amount' => Money::minor(-(int) $credit->total_minor, $original->currency), 'whole' => ($patch['state'] ?? null) === Invoice::CREDITED], 'invoice', $credit->id);
 
             return $credit;
         }, 3);
+    }
+
+    /**
+     * Gives a part of what a document was paid for back to the customer: the credit note for exactly those amounts, and
+     * the money. A document booked at issue returns what was overpaid through its receivable (`unbook`); a document paid from
+     * the credit at once (a statement, a wallet-paid invoice) returns it against the revenue and the VAT it had earned. Only
+     * what was really paid comes back — a credit note on an unpaid document makes the debt smaller, it does not pay anybody.
+     *
+     * @param  array<string, int|array{gross:int, period_from?:?string, period_to?:?string}>|null  $amounts  null: everything the document has left
+     * @return array{credit_note:Invoice, to_credit_minor:int, off_document_minor:int}
+     */
+    public function giveBack(Invoice $document, ?array $amounts, string $reason, CommandContext $context): array
+    {
+        return DB::transaction(function () use ($document, $amounts, $reason, $context) {
+            $document = Invoice::query()->lockForUpdate()->findOrFail($document->id);
+            $returnedBefore = (int) ($document->meta['overpaid_returned_minor'] ?? 0);
+            $credit = $this->creditNote($document, $reason, $context, null, null, $amounts);
+            $document = $document->refresh();
+            $gross = abs((int) $credit->total_minor);
+            if ($document->bookedAtIssue()) {
+                $toCredit = (int) ($document->meta['overpaid_returned_minor'] ?? 0) - $returnedBefore;
+
+                return ['credit_note' => $credit, 'to_credit_minor' => $toCredit, 'off_document_minor' => $gross - $toCredit];
+            }
+            $over = min($gross, (int) $document->paid_minor - max(0, (int) $document->total_minor - (int) $document->credited_minor) - $returnedBefore);
+            if ($over > 0) {
+                $tax = (int) round(abs((int) $credit->tax_minor) * $over / $gross);
+                $this->wallets->returnToCredit($document->organization_id, Money::minor($over, $document->currency), WalletService::revenueReturn(Money::minor($over, $document->currency), Money::minor($tax, $document->currency)),
+                    "give-back:{$credit->id}", $context->withScope($document->organization_id), 'invoice', $credit->id, "Vráceno na kredit: dobropis {$credit->number} k dokladu {$document->number}");
+                $document->forceFill(['meta' => array_merge((array) $document->meta, ['overpaid_returned_minor' => $returnedBefore + $over])])->save();
+            }
+
+            return ['credit_note' => $credit, 'to_credit_minor' => max(0, $over), 'off_document_minor' => $gross - max(0, $over)];
+        }, 3);
+    }
+
+    /**
+     * The credit note of what a document — or the named lines of it — has left; null when nothing is (an order cancelled
+     * after the settlement had already given its undelivered lines back).
+     *
+     * @param  list<string>|null  $lineIds
+     */
+    public function creditRemaining(Invoice $original, string $reason, CommandContext $context, ?array $lineIds = null): ?Invoice
+    {
+        $original = $original->refresh();
+        if (! $original->isCreditable()) {
+            return null;
+        }
+        $done = $this->creditedByLine($original);
+        $open = $original->lines()->get()->filter(fn (InvoiceLine $l) => ($lineIds === null || in_array($l->id, $lineIds, true)) && (int) $l->total_minor !== 0 && (int) $l->total_minor - ($done[$l->id]['total'] ?? 0) !== 0)->pluck('id')->all();
+        if ($open === []) {
+            return null;
+        }
+
+        return $this->creditNote($original, $reason, $context, $open);
+    }
+
+    /**
+     * What credit notes already took off each line of a document, as positive sums.
+     *
+     * @return array<string, array{net:int, tax:int, total:int}>
+     */
+    public function creditedByLine(Invoice $original): array
+    {
+        $out = [];
+        $rows = InvoiceLine::query()->whereNotNull('corrects_line_id')
+            ->whereIn('invoice_id', Invoice::query()->where('corrects_invoice_id', $original->id)->where('type', 'credit_note')->where('state', '!=', Invoice::DRAFT)->select('id'))->get();
+        foreach ($rows as $row) {
+            $key = (string) $row->getAttribute('corrects_line_id');
+            $out[$key] ??= ['net' => 0, 'tax' => 0, 'total' => 0];
+            $out[$key]['net'] -= (int) $row->net_minor;
+            $out[$key]['tax'] -= (int) $row->tax_minor;
+            $out[$key]['total'] -= (int) $row->total_minor;
+        }
+
+        return $out;
+    }
+
+    /**
+     * A document booked at issue (DR receivable / CR revenue / CR VAT) is unbooked by its credit note the same way round:
+     * the net leaves the revenue and the VAT leaves the VAT account. The whole gross used to be debited to revenue, so every
+     * credit note left the VAT liability too high by its tax. What the customer paid beyond what is still owed returns to
+     * their credit (DR receivable / CR wallet) — once.
+     */
+    private function unbook(Invoice $original, Invoice $credit, CommandContext $context): void
+    {
+        $gross = abs((int) $credit->total_minor);
+        $tax = abs((int) $credit->tax_minor);
+        $postings = [];
+        if ($gross - $tax > 0) {
+            $postings[] = ['account' => LedgerService::revenueAccount('credit_note', $original->currency), 'debit' => $gross - $tax];
+        }
+        if ($tax > 0) {
+            $postings[] = ['account' => LedgerService::vatAccount($original->currency), 'debit' => $tax];
+        }
+        $postings[] = ['account' => LedgerService::receivableAccount($original->organization_id, $original->currency), 'credit' => $gross];
+        $this->ledger->post('credit_note', $original->currency, $postings, "credit-note:{$credit->id}", $original->organization_id, 'invoice', $credit->id, "Credit note {$credit->number} for {$original->number}");
+
+        $returned = (int) ($original->meta['overpaid_returned_minor'] ?? 0);
+        $over = (int) $original->paid_minor - max(0, (int) $original->total_minor - (int) $original->credited_minor) - $returned;
+        if ($over > 0) {
+            $this->wallets->returnToCredit($original->organization_id, Money::minor($over, $original->currency), [['account' => LedgerService::receivableAccount($original->organization_id, $original->currency), 'debit' => $over]],
+                "credit-note-return:{$credit->id}", $context->withScope($original->organization_id), 'invoice', $credit->id, "Vráceno na kredit: dobropis {$credit->number} k faktuře {$original->number}");
+            $original->forceFill(['meta' => array_merge((array) $original->meta, ['overpaid_returned_minor' => $returned + $over])])->save();
+        }
     }
 
     public function renderPdf(Invoice $invoice): Invoice
@@ -371,6 +530,21 @@ final class InvoiceService
         }
 
         return array_values($groups);
+    }
+
+    /**
+     * A plan change inside a running period pays the difference until that period ends — not for a whole new period from
+     * today. The line says so; the return of an unused period is computed from it (ChargebackService).
+     */
+    private function upgradePeriodEnd(OrderItem $item): ?string
+    {
+        $serviceId = (string) ($item->config['upgrade_of'] ?? '');
+        if ($serviceId === '' || (bool) data_get($item->config, 'plan_change.period_change', false)) {
+            return null;
+        }
+        $end = Subscription::query()->where('service_id', $serviceId)->whereNotIn('state', [Subscription::CANCELLED])->orderByDesc('created_at')->value('current_period_end');
+
+        return $end === null ? null : AccountingClock::date(Carbon::parse($end)->subDay());
     }
 
     private function periodEnd(string $period, int $units): string

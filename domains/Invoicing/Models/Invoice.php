@@ -40,7 +40,7 @@ final class Invoice extends Model
     {
         return [
             'buyer' => 'array', 'seller' => 'array', 'tax_summary' => 'array', 'structured' => 'array', 'meta' => 'array',
-            'subtotal_minor' => 'integer', 'discount_minor' => 'integer', 'tax_minor' => 'integer', 'total_minor' => 'integer', 'paid_minor' => 'integer',
+            'subtotal_minor' => 'integer', 'discount_minor' => 'integer', 'tax_minor' => 'integer', 'total_minor' => 'integer', 'paid_minor' => 'integer', 'credited_minor' => 'integer',
             'issued_at' => 'datetime', 'supply_date' => 'date', 'due_at' => 'datetime', 'paid_at' => 'datetime', 'cancelled_at' => 'datetime',
         ];
     }
@@ -67,9 +67,22 @@ final class Invoice extends Model
         return $this->type === 'invoice' && (bool) ($this->meta['postpaid'] ?? false);
     }
 
+    /** What is left to pay: what the document was issued for, minus what credit notes took off it, minus what was paid. */
     public function outstanding(): Money
     {
-        return Money::minor(max(0, $this->total_minor - $this->paid_minor), $this->currency);
+        return Money::minor(max(0, $this->total_minor - (int) $this->credited_minor - $this->paid_minor), $this->currency);
+    }
+
+    /** What the customer owes for this document after its credit notes. */
+    public function owed(): Money
+    {
+        return Money::minor(max(0, $this->total_minor - (int) $this->credited_minor), $this->currency);
+    }
+
+    /** Only a tax document that stands can be corrected: never a proforma (it is voided), never a credit note, never a void one. */
+    public function isCreditable(): bool
+    {
+        return ! in_array($this->type, ['proforma', 'credit_note'], true) && ! in_array($this->state, [self::DRAFT, self::CANCELLED], true);
     }
 
     public function isIssued(): bool

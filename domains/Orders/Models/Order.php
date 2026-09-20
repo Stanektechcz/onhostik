@@ -23,6 +23,7 @@ final class Order extends Model
         ];
     }
 
+    /** @return HasMany<OrderItem, $this> */
     public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class, 'order_id');

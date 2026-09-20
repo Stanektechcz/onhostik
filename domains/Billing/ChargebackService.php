@@ -4,13 +4,20 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Billing;
 
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\Models\ChargebackRequest;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Invoicing\AccountingClock;
+use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Invoicing\Models\InvoiceLine;
+use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
-use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -24,7 +31,15 @@ use Onhost\Platform\Settings\SettingsStore;
  * an approval the customer cancels the service from the panel and a configurable share (staff set it in the console,
  * default 70 %) of the unused, already paid period comes back as wallet credit — never as money. The refund is
  * computed when the cancellation starts (so a later renewal cannot change it) and booked when the service is
- * terminated, through the ordinary wallet top-up path (ledger, receipt-free, audited).
+ * terminated.
+ *
+ * What is returned is computed from the DOCUMENTS the customer paid — the lines of the service whose period has not run
+ * out — never from the price list. It used to be `subscription.amount_minor × the unused share`: the list price of ONE
+ * period without VAT. Somebody who had paid twelve months in advance got a share of one month back; everybody lost the
+ * VAT they had paid; and somebody who had bought with an 80 % code got back more than they had ever paid. The return is
+ * a credit note for exactly those lines and amounts, and the money goes back against the revenue and the VAT it had
+ * earned — it used to be booked as money arriving at a bank called "chargeback", as purchased credit that could then be
+ * paid out in cash even when the service had been bought with bonus credit.
  */
 final class ChargebackService
 {
@@ -32,7 +47,7 @@ final class ChargebackService
 
     public function __construct(
         private readonly SettingsStore $settings,
-        private readonly WalletService $wallets,
+        private readonly InvoiceService $invoices,
         private readonly ServiceService $services,
         private readonly AuditRecorder $audit,
         private readonly OutboxPublisher $outbox,
@@ -57,23 +72,53 @@ final class ChargebackService
     }
 
     /**
-     * What a cancellation now would return: the unused rest of the current paid period times the share.
+     * What a cancellation now would return: for every document line of the service whose period has not run out, the
+     * unused days of what the line has left (after earlier credit notes), times the share. Amounts are gross — what the
+     * customer paid. Today counts as used.
      *
-     * @return array{currency:string, period_end:?string, unused_minor:int, percent:int, refund_minor:int, subscription_id:?string}
+     * @return array{currency:string, period_end:?string, unused_minor:int, percent:int, refund_minor:int, subscription_id:?string, lines:list<array{line_id:string, invoice_id:string, number:?string, paid:bool, period_from:string, period_to:string, days:int, days_left:int, left_minor:int, unused_minor:int, refund_minor:int}>}
      */
     public function estimate(Service $service, ?int $percent = null): array
     {
         $percent ??= $this->percent();
         $subscription = Subscription::query()->where('service_id', $service->id)->whereNotIn('state', [Subscription::CANCELLED])->orderByDesc('created_at')->first();
-        if ($subscription === null || $subscription->current_period_end === null || $subscription->current_period_start === null) {
-            return ['currency' => (string) ($subscription?->currency ?? 'CZK'), 'period_end' => null, 'unused_minor' => 0, 'percent' => $percent, 'refund_minor' => 0, 'subscription_id' => $subscription?->id];
+        $today = CarbonImmutable::parse(AccountingClock::date());
+        $items = OrderItem::query()->where('service_id', $service->id)->get();
+        $itemIds = $items->pluck('id')->all();
+        // a change of the billing period was priced MINUS the unused rest of the period before it (PlanChangeService): every line
+        // written before that order is settled, its remaining days must not come back a second time
+        $periodChanges = $items->filter(fn (OrderItem $i) => (bool) data_get($i->config, 'plan_change.period_change', false))->pluck('id')->all();
+        $settledBefore = $periodChanges === [] ? null : InvoiceLine::query()->whereIn('order_item_id', $periodChanges)->whereNull('corrects_line_id')->max('created_at');
+        $documents = Invoice::query()->where('organization_id', $service->organization_id)->whereIn('type', ['statement', 'invoice'])->whereIn('state', [Invoice::ISSUED, Invoice::OVERDUE, Invoice::PAID])->get()->keyBy('id');
+        $rows = [];
+        $currency = (string) ($subscription->currency ?? 'CZK');
+        if ($documents->isNotEmpty()) {
+            $lines = InvoiceLine::query()->whereIn('invoice_id', $documents->keys()->all())->whereNull('corrects_line_id')->whereNotNull('period_to')->where('period_to', '>=', $today->toDateString())->where('total_minor', '>', 0)
+                ->where(fn ($q) => $q->where('service_id', $service->id)->when($itemIds !== [], fn ($q) => $q->orWhereIn('order_item_id', $itemIds)))->orderBy('period_from')->get();
+            foreach ($lines as $line) {
+                if ($settledBefore !== null && $line->created_at !== null && $line->created_at->lt(Carbon::parse($settledBefore))) {
+                    continue;
+                }
+                /** @var Invoice $document */
+                $document = $documents->get($line->invoice_id);
+                $credited = $this->invoices->creditedByLine($document)[$line->id]['total'] ?? 0;
+                $left = (int) $line->total_minor - $credited;
+                $from = CarbonImmutable::parse(($line->period_from ?? $document->supply_date ?? $today)->toDateString());
+                $to = CarbonImmutable::parse($line->period_to->toDateString());
+                $days = max(1, (int) round($from->diffInDays($to, true)) + 1);
+                $daysLeft = $from->greaterThan($today) ? $days : max(0, min($days, (int) round($today->diffInDays($to, true))));
+                $unused = min($left, (int) round((int) $line->total_minor * $daysLeft / $days));
+                if ($unused <= 0) {
+                    continue;
+                }
+                $currency = (string) $document->currency;
+                $rows[] = ['line_id' => (string) $line->id, 'invoice_id' => (string) $document->id, 'number' => $document->number, 'paid' => $document->state === Invoice::PAID, 'period_from' => $from->toDateString(), 'period_to' => $to->toDateString(),
+                    'days' => $days, 'days_left' => $daysLeft, 'left_minor' => $left, 'unused_minor' => $unused, 'refund_minor' => (int) round($unused * $percent / 100)];
+            }
         }
-        $total = max(1, $subscription->current_period_start->diffInSeconds($subscription->current_period_end, true));
-        $left = max(0, (int) now()->diffInSeconds($subscription->current_period_end, false));
-        $unused = (int) round((int) $subscription->amount_minor * min(1.0, $left / $total));
-        $refund = (int) round($unused * $percent / 100);
 
-        return ['currency' => (string) $subscription->currency, 'period_end' => $subscription->current_period_end->toIso8601String(), 'unused_minor' => $unused, 'percent' => $percent, 'refund_minor' => $refund, 'subscription_id' => $subscription->id];
+        return ['currency' => $currency, 'period_end' => $subscription?->current_period_end?->toIso8601String(), 'unused_minor' => (int) array_sum(array_column($rows, 'unused_minor')), 'percent' => $percent,
+            'refund_minor' => (int) array_sum(array_column($rows, 'refund_minor')), 'subscription_id' => $subscription?->id, 'lines' => $rows];
     }
 
     public function open(Service $service): ?ChargebackRequest
@@ -95,8 +140,8 @@ final class ChargebackService
             throw new DomainError('chargeback_already_open', 'A chargeback request for this service is already waiting for a decision.', 409);
         }
         $estimate = $this->estimate($service);
-        if ($estimate['subscription_id'] === null) {
-            throw new DomainError('chargeback_no_subscription', 'The service has no paid period to return; nothing to refund.', 422);
+        if ($estimate['subscription_id'] === null || $estimate['lines'] === []) {
+            throw new DomainError('chargeback_no_subscription', 'The service has no paid period to return; nothing to refund. It can be cancelled the ordinary way.', 422);
         }
         $reason = trim($reason);
         if (mb_strlen($reason) < 5) {
@@ -126,7 +171,7 @@ final class ChargebackService
         $estimate = $service !== null ? $this->estimate($service) : null;
         $request->forceFill([
             'state' => $decision === 'approve' ? ChargebackRequest::APPROVED : ChargebackRequest::REJECTED, 'decision_reason' => $reason !== null ? mb_substr($reason, 0, 2000) : null, 'decided_by' => $context->actorId, 'decided_at' => now(),
-            'percent' => $this->percent(), 'unused_minor' => $estimate['unused_minor'] ?? $request->unused_minor, 'refund_minor' => $estimate !== null ? (int) round($estimate['unused_minor'] * $this->percent() / 100) : $request->refund_minor,
+            'percent' => $this->percent(), 'unused_minor' => $estimate['unused_minor'] ?? $request->unused_minor, 'refund_minor' => $estimate['refund_minor'] ?? $request->refund_minor,
         ])->save();
         $this->audit->record($context->withScope($request->organization_id), 'chargeback.decide', 'succeeded', ['chargeback' => $request->id, 'decision' => $decision, 'reason' => $reason, 'percent' => $request->percent], 'service', $request->service_id);
         $this->outbox->publish(GenericEvent::of($decision === 'approve' ? 'chargeback.approved' : 'chargeback.rejected', 'chargeback', $request->id, ['service_id' => $request->service_id, 'label' => $service?->label ?: ($service?->name ?? ''), 'reason' => $reason, 'percent' => $request->percent, 'refund' => Money::minor($request->refund_minor, $request->currency)], $request->organization_id));
@@ -148,7 +193,7 @@ final class ChargebackService
             throw DomainError::notFound('service');
         }
         $estimate = $this->estimate($service, $request->percent);
-        $request->forceFill(['unused_minor' => $estimate['unused_minor'], 'refund_minor' => $estimate['refund_minor'], 'currency' => $estimate['currency'], 'cancelled_at' => now()])->save();
+        $request->forceFill(['unused_minor' => $estimate['unused_minor'], 'refund_minor' => $estimate['refund_minor'], 'currency' => $estimate['currency'], 'cancelled_at' => now(), 'basis' => $estimate['lines']])->save(); // the lines and amounts are fixed now: a renewal or a day more cannot change them
         if ($service->state === ServiceStateMachine::TERMINATED) {
             return $this->settle($request, $context);
         }
@@ -167,17 +212,52 @@ final class ChargebackService
         return $request === null ? null : $this->settle($request, $context);
     }
 
+    /**
+     * The credit notes and the money, once. The request row is locked and its state read again inside the transaction: an
+     * event delivered twice must not give the same share back twice (a second credit note of the same amount would still
+     * fit into what the line has left).
+     */
     private function settle(ChargebackRequest $request, CommandContext $context): ChargebackRequest
     {
-        if ($request->refund_minor > 0) {
-            $this->wallets->topup($request->organization_id, Money::minor($request->refund_minor, $request->currency), 'chargeback', "chargeback:{$request->id}", $context->withScope($request->organization_id), null, "Vrácení kreditu za zrušení služby ({$request->percent} % nevyužitého období)", false, null, 'chargeback');
-        }
-        $request->forceFill(['state' => ChargebackRequest::REFUNDED, 'refunded_at' => now()])->save();
-        $service = Service::query()->withTrashed()->find($request->service_id);
-        $this->audit->record($context->withScope($request->organization_id), 'chargeback.refund', 'succeeded', ['chargeback' => $request->id, 'refund_minor' => $request->refund_minor, 'currency' => $request->currency], 'service', $request->service_id);
-        $this->outbox->publish(GenericEvent::of('chargeback.refunded', 'chargeback', $request->id, ['service_id' => $request->service_id, 'label' => $service?->label ?: ($service?->name ?? ''), 'refund' => Money::minor($request->refund_minor, $request->currency), 'percent' => $request->percent], $request->organization_id));
+        return DB::transaction(function () use ($request, $context) {
+            $request = ChargebackRequest::query()->lockForUpdate()->findOrFail($request->id);
+            if ($request->state === ChargebackRequest::REFUNDED) {
+                return $request;
+            }
+            $scoped = $context->withScope($request->organization_id);
+            $basis = array_values(array_filter((array) (data_get($request->basis, 'lines') ?? $request->basis), 'is_array'));
+            $byDocument = [];
+            foreach ($basis as $row) {
+                if ((int) ($row['refund_minor'] ?? 0) > 0) {
+                    $byDocument[(string) $row['invoice_id']][(string) $row['line_id']] = ['gross' => (int) $row['refund_minor'], 'period_from' => max((string) $row['period_from'], AccountingClock::date($request->cancelled_at)), 'period_to' => (string) $row['period_to']];
+                }
+            }
+            $toCredit = 0;
+            $offDocuments = 0;
+            $notes = [];
+            foreach ($byDocument as $invoiceId => $amounts) {
+                $document = Invoice::query()->find($invoiceId);
+                if ($document === null) {
+                    continue;
+                }
+                try {
+                    $given = $this->invoices->giveBack($document, $amounts, "Zrušení služby — vráceno {$request->percent} % nevyužitého období", $scoped);
+                } catch (DomainError $e) { // somebody credited the line in the meantime: what is gone is not given back twice, the rest of the request still settles
+                    $this->audit->record($scoped, 'chargeback.refund', 'failed', ['chargeback' => $request->id, 'invoice' => $document->number, 'reason' => $e->error], 'service', $request->service_id);
 
-        return $request;
+                    continue;
+                }
+                $toCredit += $given['to_credit_minor'];
+                $offDocuments += $given['off_document_minor'];
+                $notes[] = (string) $given['credit_note']->number;
+            }
+            $request->forceFill(['state' => ChargebackRequest::REFUNDED, 'refunded_at' => now(), 'refund_minor' => $toCredit + $offDocuments, 'basis' => ['lines' => $basis, 'credit_notes' => $notes, 'to_credit_minor' => $toCredit, 'off_document_minor' => $offDocuments]])->save();
+            $service = Service::query()->withTrashed()->find($request->service_id);
+            $this->audit->record($scoped, 'chargeback.refund', 'succeeded', ['chargeback' => $request->id, 'refund_minor' => $request->refund_minor, 'to_credit_minor' => $toCredit, 'off_document_minor' => $offDocuments, 'credit_notes' => $notes, 'currency' => $request->currency], 'service', $request->service_id);
+            $this->outbox->publish(GenericEvent::of('chargeback.refunded', 'chargeback', $request->id, ['service_id' => $request->service_id, 'label' => $service?->label ?: ($service?->name ?? ''), 'refund' => Money::minor($request->refund_minor, $request->currency), 'percent' => $request->percent, 'credit_notes' => $notes, 'to_credit' => Money::minor($toCredit, $request->currency), 'off_documents' => Money::minor($offDocuments, $request->currency)], $request->organization_id));
+
+            return $request;
+        }, 3);
     }
 
     /** @return array<string,mixed> */
@@ -187,6 +267,7 @@ final class ChargebackService
             'id' => $request->id, 'service_id' => $request->service_id, 'organization_id' => $request->organization_id, 'state' => $request->state, 'reason' => $request->reason, 'decision_reason' => $request->decision_reason,
             'percent' => $request->percent, 'currency' => $request->currency, 'unused' => Money::minor((int) $request->unused_minor, $request->currency), 'refund' => Money::minor((int) $request->refund_minor, $request->currency),
             'requested_at' => $request->created_at?->toIso8601String(), 'decided_at' => $request->decided_at?->toIso8601String(), 'cancelled_at' => $request->cancelled_at?->toIso8601String(), 'refunded_at' => $request->refunded_at?->toIso8601String(), 'operation_id' => $request->operation_id,
+            'credit_notes' => array_values((array) data_get($request->basis, 'credit_notes', [])), 'to_credit' => Money::minor((int) data_get($request->basis, 'to_credit_minor', 0), $request->currency), 'off_documents' => Money::minor((int) data_get($request->basis, 'off_document_minor', 0), $request->currency),
         ];
     }
 }

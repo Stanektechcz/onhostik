@@ -25,6 +25,7 @@ use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Ids\PublicId;
+use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
 /**
@@ -251,6 +252,36 @@ final class CheckoutService
         return $order->fresh();
     }
 
+    /** States a person may cancel an order from: the customer while nothing is paid, staff also once it is paid but nothing runs. */
+    public const CUSTOMER_CANCELLABLE = [OrderStateMachine::NEW, OrderStateMachine::PENDING_PAYMENT];
+
+    public const STAFF_CANCELLABLE = [OrderStateMachine::NEW, OrderStateMachine::PENDING_PAYMENT, OrderStateMachine::PAID, OrderStateMachine::FAILED];
+
+    /**
+     * The one thing a person does to the state of an order: cancel it. Every other state follows the money and the lines —
+     * "paid" comes from a payment, "active" from delivered lines. The endpoint used to take ANY target state from whoever
+     * held `staff.order.manage`, outside the command bus: a support agent with an organization of their own declared their
+     * unpaid order paid, the `order.paid` event provisioned it, and no money, no reservation and no tax document ever existed.
+     *
+     * An order with running services is not cancelled here — its services are (each with its final backup and, where
+     * support approved it, the return of the unused period).
+     */
+    public function cancel(Order $order, CommandContext $context, ?string $reason, bool $staff): Order
+    {
+        $allowed = $staff ? self::STAFF_CANCELLABLE : self::CUSTOMER_CANCELLABLE;
+        if (! in_array($order->state, $allowed, true)) {
+            if (! $staff) {
+                throw DomainError::forbidden('Customers can only cancel orders that are not paid yet.');
+            }
+            throw new DomainError('order_not_cancellable', $order->state === OrderStateMachine::CANCELLED ? 'The order is already cancelled.' : "An order that is {$order->state} has services being delivered or running; cancel the services instead.", 409, ['state' => $order->state]);
+        }
+        if ($staff && $order->paid_at !== null && trim((string) $reason) === '') {
+            throw new DomainError('reason_required', 'Uveďte důvod zrušení zaplacené objednávky (zapíše se do auditu a na opravný doklad).', 422, ['field' => 'reason']);
+        }
+
+        return $this->transition($order, OrderStateMachine::CANCELLED, $context, $reason);
+    }
+
     public function transition(Order $order, string $to, CommandContext $context, ?string $note = null): Order
     {
         return DB::transaction(function () use ($order, $to, $context, $note) {
@@ -287,14 +318,46 @@ final class CheckoutService
                 }
             }
             $order->forceFill($patch)->save();
-            $this->audit->record($context->withScope($order->organization_id), 'order.transition', 'succeeded', ['from' => $from, 'to' => $to, 'note' => $note], 'order', $order->id);
-            $this->outbox->publish(GenericEvent::of('order.'.strtolower($to), 'order', $order->id, ['number' => $order->number, 'from' => $from, 'note' => $note], $order->organization_id));
+            $returned = $to === OrderStateMachine::CANCELLED && $order->paid_at !== null ? $this->giveBackCancelled($order, $context, $note) : [];
+            $this->audit->record($context->withScope($order->organization_id), 'order.transition', 'succeeded', ['from' => $from, 'to' => $to, 'note' => $note] + ($returned !== [] ? ['returned' => $returned['returned'], 'credit_notes' => $returned['credit_notes']] : []), 'order', $order->id);
+            $this->outbox->publish(GenericEvent::of('order.'.strtolower($to), 'order', $order->id, ['number' => $order->number, 'from' => $from, 'note' => $note] + $returned, $order->organization_id));
 
             return $order;
         }, 3);
     }
 
-    /** Documents the customer must accept for this quote (§23.7, §46.3). @return list<string> */
+    /**
+     * A PAID order that is cancelled (a rejected review, staff on the customer's request) was documented the moment it was
+     * paid: a statement for credit, a tax invoice with a receivable for postpaid. Releasing the reservation gave the money
+     * back, but the document stood — a postpaid customer kept owing (and was dunned) for an order that was never delivered,
+     * a prepaid one kept a statement for services they never got. Every tax document of the order is credited for what it
+     * has left (nothing, when the settlement already gave the undelivered lines back), and the lines say so.
+     *
+     * @return array{}|array{returned:Money, to:string, credit_notes:list<string>, items:list<string>}
+     */
+    private function giveBackCancelled(Order $order, CommandContext $context, ?string $note): array
+    {
+        $reason = "Objednávka {$order->number} zrušena".($note !== null && trim($note) !== '' ? ' · '.trim($note) : '');
+        $notes = [];
+        $minor = 0;
+        // only lines that were never delivered: a line whose service runs (or is being set up) is not given back by cancelling the order
+        $open = OrderItem::query()->where('order_id', $order->id)->whereIn('state', ['pending', 'failed', 'refunded'])->get();
+        foreach (Invoice::query()->where('order_id', $order->id)->whereIn('type', ['statement', 'invoice'])->orderBy('created_at')->get() as $document) {
+            $lineIds = $document->lines()->whereIn('order_item_id', $open->pluck('id')->all())->pluck('id')->all();
+            $credit = $lineIds === [] ? null : $this->invoices->creditRemaining($document, $reason, $context->withScope($order->organization_id), $lineIds);
+            if ($credit !== null) {
+                $notes[] = (string) $credit->number;
+                $minor += abs((int) $credit->total_minor);
+            }
+        }
+        OrderItem::query()->whereIn('id', $open->pluck('id')->all())->update(['state' => 'refunded']);
+        if ($notes === []) {
+            return [];
+        }
+
+        return ['returned' => Money::minor($minor, $order->currency), 'to' => $order->payment_mode === 'postpaid' ? 'invoice' : 'credit', 'credit_notes' => $notes, 'items' => $open->map(fn (OrderItem $i) => (string) $i->name)->values()->all()];
+    }
+
     /** Content identity of an order attempt: organization, payment mode, lines (sku, qty, period, config) and totals. */
     public static function fingerprint(Quote $quote, Organization $organization, string $mode): string
     {
@@ -304,6 +367,7 @@ final class CheckoutService
         return hash('sha256', json_encode([$organization->id, $mode, $quote->currency, $lines, (int) $quote->total_minor, (int) ($quote->versions['commit_months'] ?? 1)]));
     }
 
+    /** Documents the customer must accept for this quote (§23.7, §46.3). @return list<string> */
     public function requiredDocuments(Quote $quote, Organization $organization): array
     {
         $docs = ['terms', 'privacy'];

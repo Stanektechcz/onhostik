@@ -36,6 +36,7 @@ it('clusters the reasons and opens one internal incident per hot node or product
             'organization_id' => $org->id, 'service_id' => $service->id, 'plan_version_id' => $plan['version']->id, 'price_id' => $plan['price']->id, 'currency' => 'CZK', 'period' => 'month', 'amount_minor' => 30000,
             'state' => Subscription::ACTIVE, 'current_period_start' => now()->subDays(20), 'current_period_end' => now()->addDays(10), 'next_renewal_at' => now()->addDays(10), 'auto_renew' => true, 'renewal_priority' => 'normal',
         ]);
+        chargebackPaidStatement($org, $service, 36300, 6300, -19, 10); // a request returns a share of what was paid, so the period is paid
         $chargebacks->request($service, $owner, $reason, $ctx);
     }
     expect(ChargebackAnalyst::theme('Cena je moc vysoká'))->toBe('price')->and(ChargebackAnalyst::theme('Nikdo z podpory neodpovídá'))->toBe('support')->and(ChargebackAnalyst::theme(''))->toBe('other');

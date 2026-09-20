@@ -140,3 +140,60 @@ organization that had no service — an unpaid work invoice was marked paid by a
   credit is short, as before.
 
 Tests: `tests/Feature/Finance/InvoiceTest.php`, `tests/Feature/Finance/AutoTopupLimitsTest.php`.
+
+## Corrections that hold: credit notes, returns, cancelled orders (2026-09-20, night)
+
+**A credit note knows which line it corrects** (`invoice_lines.corrects_line_id`, `invoices.credited_minor`, migration
+`000750`). What a line has left is what it was issued for minus every credit note written against it.
+
+* Before, nothing counted: the same document — or the same lines — could be credited again and again (each time taking a
+  postpaid customer's debt down once more), a credit note could itself be credited, and a document with a partial credit
+  note was still asked to be paid in full (`pay from credit` charged the printed total). Now: `invoice_line_already_credited`,
+  `invoice_credit_exceeds_line`, `invoice_nothing_to_credit`, `invoice_not_creditable` (409); `Invoice::outstanding()` is
+  total − credited − paid, and everything that says "what is owed" uses it (payment, bank intent, reports, the panel, the
+  assistant). A document whose payment already covers what is left after a credit note turns `PAID`.
+* A part of a line can be credited (`amounts`: line id → gross). The VAT is split in the line's own proportion; the last
+  part takes the remainder, so the parts add up to the line to the haler.
+* A document booked at issue (postpaid) gives back its revenue **and its VAT**: DR `revenue:credit_note` (net), DR
+  `liability:vat` (tax), CR receivable. The whole gross used to be debited to revenue, so every credit note left the VAT
+  account too high by its tax. What the customer had paid beyond what is still owed returns to their credit (DR receivable
+  / CR wallet) — once (`meta.overpaid_returned_minor`).
+* Staff API: `POST /v1/invoices/{id}/credit-note` takes `line_ids`, `amounts` and `return_to_credit`. Without the flag
+  the note is a document (as before — finance move the money themselves); with it, what was really paid for those
+  amounts returns to the customer's credit, once.
+
+**Money that comes back is not a top-up** (`WalletService::returnToCredit`). The return of a cancelled service's unused
+period and a refunded marketplace order were booked as `DR asset:bank:chargeback|marketplace / CR wallet` — money arriving
+at a bank that does not exist — and as *purchased* credit: a service bought with bonus credit and then given back became
+cash that could be paid out. A return is now taken from what the correction takes back (revenue + VAT, or the receivable),
+the wallet row is `source=return`, `bucket=returned`, `refundable=false`, and `refundableBalance()` — purchased top-ups
+minus refunds — does not grow. The event stays `wallet.topup.completed` (`purpose: return`), so a past-due renewal waiting
+for money is retried.
+
+**The return of an unused period is computed from what was paid** (`ChargebackService::estimate`). It was
+`subscription.amount_minor × unused share`: the list price of ONE period without VAT. Twelve months paid in advance
+returned a share of one month; everybody lost the VAT; an order bought with an 80 % code returned more than was paid.
+Now: every document line of the service whose period has not run out (by `service_id`, or by the order item that created
+or upgraded the service), the unused days of what the line has left, times the share. Today counts as used. The lines and
+amounts are fixed when the cancellation starts (`chargeback_requests.basis`), and the settlement writes a credit note for
+exactly those parts (the period on it is the unused one). An **unpaid** postpaid invoice gets smaller instead — no credit
+is paid out for money that never came (`to_credit` / `off_documents` in the API). A service nobody paid for (created by
+staff without an order) has nothing to return: `chargeback_no_subscription`. The settlement locks the request row and
+reads its state again — an event delivered twice gives nothing back twice.
+
+**A paid order that is cancelled gives everything back.** `PAID → CANCELLED` (a rejected review, staff on the customer's
+request) released the reservation but left the document standing: a postpaid customer kept owing — and was dunned — for an
+order never delivered, a prepaid one kept a statement for services they never got. Every tax document of the order is now
+credited for the lines that were never delivered, the lines turn `refunded`, and the customer is told where the money is
+and which document corrects the first one (`order.cancelled` with `returned`, mail `order-cancelled`). The staff reason
+goes to the audit and into the credit note's `meta.reason`; it is never shown to the customer.
+
+Document periods: an upgrade inside a running period ends where that period ends (it said "a whole period from today");
+a renewal line's period is accounting days and ends on the last day of the period.
+
+Tests: `tests/Feature/Finance/CreditNoteTest.php`, `tests/Feature/Billing/ChargebackTest.php`,
+`tests/Feature/Orders/OrderTransitionGateTest.php`.
+
+Look at on staging: cancel a held order from the console (the reason prompt, the credit note among the customer's
+documents, the credit back); a chargeback of a service paid a year in advance (the estimate in the panel names the
+document); `onhost:doctor` area `money`.

@@ -10,6 +10,9 @@ use Onhost\Domain\Identity\Authorization\ApprovalService;
 use Onhost\Domain\Identity\Authorization\Models\Approval;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Invoicing\AccountingClock;
+use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Models\IpPool;
@@ -425,6 +428,21 @@ function featureGameService(Organization $org, array $entitlements = [], int $re
     ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $instance->id, 'ownership' => ['managed_by' => 'onhost'], 'idempotency_key' => "feature-test:{$service->id}", 'adapter_version' => '1.0.0', 'remote_type' => 'server', 'remote_id' => (string) $remoteId, 'remote_node' => '2', 'meta' => ['uuid' => $identifier.'-uuid', 'identifier' => $identifier, 'user_id' => 9, 'allocation_id' => 11]]);
 
     return $service;
+}
+
+/** A statement the customer paid from the credit for one period of a service: `$from`/`$to` are days from the accounting day. */
+function chargebackPaidStatement(Organization $org, Service $service, int $gross, int $tax, int $from, int $to, string $type = 'statement', bool $paid = true): Invoice
+{
+    $invoices = app(InvoiceService::class);
+    $ctx = CommandContext::system('test')->withScope($org->id);
+    $day = AccountingClock::now()->startOfDay();
+    $draft = $invoices->draft($org, $type, 'CZK', [[
+        'sku' => $service->product_key.'-renewal', 'description' => "Prodloužení služby {$service->name}", 'qty' => 1, 'unit' => 'ks', 'unit_net' => $gross - $tax, 'discount' => 0, 'net' => $gross - $tax,
+        'tax_rate' => '21', 'tax_category' => 'S', 'tax' => $tax, 'total' => $gross, 'period_from' => $day->addDays($from)->toDateString(), 'period_to' => $day->addDays($to)->toDateString(), 'service_id' => $service->id,
+    ]], $ctx, null, $type === 'invoice' ? ['postpaid' => true, 'payment_method' => 'invoice'] : ['payment_method' => 'wallet']);
+    $document = $invoices->issue($draft, $ctx, dueDays: $type === 'invoice' ? 14 : 0);
+
+    return $paid ? $invoices->markPaid($document, $document->total(), 'wallet', $ctx, postLedger: false) : $document;
 }
 
 /** A WAPI double for one customer account: domains, hosted zones with rows, credit; records every login used. */

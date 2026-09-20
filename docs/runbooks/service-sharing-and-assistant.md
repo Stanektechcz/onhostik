@@ -85,6 +85,7 @@ Both are read-only, scoped to the organization of the conversation, and not offe
 in the panel. A conversation belongs to one person (`security-boundaries.md` §12).
 
 ### "Is my service all right?" (`ServiceHealthCheck`)
+
 One pass over what the platform already knows — no panel is asked: state, whether the service can be managed right
 now, the last backup (the archive of a cancellation does not count), the HTTPS certificate and its expiry, the uptime
 monitor, operations that failed in the last day, how close the service is to its limits. A verdict (`ok|warn|bad`) and

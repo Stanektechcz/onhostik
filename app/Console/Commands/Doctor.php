@@ -18,8 +18,11 @@ use Onhost\Domain\Identity\Authorization\ApprovalService;
 use Onhost\Domain\Identity\Authorization\Models\Approval;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
 use Onhost\Domain\Notifications\MailHealth;
+use Onhost\Domain\Orders\Models\Order;
+use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\Node;
@@ -166,6 +169,14 @@ final class Doctor extends Command
         $covered = Backup::query()->whereIn('service_id', $services->all())->where('state', 'completed')->where('finished_at', '>=', now()->subDays($days))->distinct()->pluck('service_id');
         $bare = $services->diff($covered)->values();
         $this->add('lifecycle', "every web service has a backup from the last {$days} days", $bare->isEmpty(), $bare->isEmpty() ? $services->count().' service(s) covered' : $bare->count().' without one: '.$bare->take(5)->implode(', ').($bare->count() > 5 ? ' …' : '').' — docs/runbooks/backups.md', false);
+
+        // money: an order that is being delivered was paid and documented (a state written by hand used to skip both), and no
+        // document was credited for more than it was issued for
+        $unpaid = Order::query()->whereIn('state', [OrderStateMachine::PAID, OrderStateMachine::PROVISIONING, OrderStateMachine::PARTIALLY_ACTIVE, OrderStateMachine::ACTIVE])->where('total_minor', '>', 0)
+            ->where(fn ($q) => $q->whereNull('paid_at')->orWhereNotIn('id', Invoice::query()->whereIn('type', ['statement', 'invoice'])->whereNotNull('order_id')->select('order_id')))->limit(50)->pluck('number');
+        $this->add('money', 'every order being delivered was paid and documented', $unpaid->isEmpty(), $unpaid->isEmpty() ? 'none without a payment or a tax document' : $unpaid->count().' order(s): '.$unpaid->take(5)->implode(', ').($unpaid->count() > 5 ? ' …' : '').' — finance review (docs/runbooks/billing-dunning.md)');
+        $over = Invoice::query()->where('credited_minor', '>', 0)->whereColumn('credited_minor', '>', 'total_minor')->limit(50)->pluck('number');
+        $this->add('money', 'no document is credited for more than it was issued for', $over->isEmpty(), $over->isEmpty() ? 'credit notes fit their documents' : $over->take(5)->implode(', ').' — finance review', false);
 
         $slow = app(OperationLatency::class)->slow();
         $target = OperationLatency::targetSeconds();

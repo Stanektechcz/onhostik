@@ -139,6 +139,63 @@ final class WalletService
     }
 
     /**
+     * Money that comes back to the customer's credit because something they paid for was corrected: the unused rest of a
+     * cancelled service, a marketplace order given back, an invoice credited after it was paid.
+     *
+     * It is not a top-up. No money arrived at a bank, so the other side of the entry is what the correction takes back —
+     * the revenue and its VAT, or the receivable — not an `asset:bank:<reason>` account nobody can ever reconcile with a
+     * statement. And it does not raise what may be paid out in money: `refundableBalance()` counts purchased top-ups only,
+     * so a service bought with bonus credit and then given back does not turn the bonus into cash.
+     *
+     * @param  list<array{account:string, debit:int}>  $debits  where the returned amount is taken from; must add up to it
+     */
+    public function returnToCredit(Organization|string $organization, Money $amount, array $debits, string $idempotencyKey, CommandContext $context, ?string $referenceType = null, ?string $referenceId = null, ?string $note = null): WalletTopup
+    {
+        if (! $amount->isPositive()) {
+            throw new DomainError('invalid_amount', 'The returned amount must be positive.');
+        }
+        if ((int) array_sum(array_map(fn (array $d) => (int) $d['debit'], $debits)) !== $amount->minor) {
+            throw new DomainError('ledger_unbalanced', 'What is returned to the credit must be taken from somewhere, to the haler.', 500);
+        }
+        $organizationId = $organization instanceof Organization ? $organization->id : $organization;
+
+        return DB::transaction(function () use ($organizationId, $amount, $debits, $idempotencyKey, $context, $referenceType, $referenceId, $note) {
+            $existing = WalletTopup::query()->where('idempotency_key', $idempotencyKey)->first();
+            if ($existing !== null) {
+                return $existing;
+            }
+            $wallet = $this->lockWallet($organizationId, $amount->currency);
+            $postings = array_values(array_filter($debits, fn (array $d) => (int) $d['debit'] > 0));
+            $postings[] = ['account' => LedgerService::walletAccount($organizationId, $amount->currency), 'credit' => $amount->minor];
+            $transaction = $this->ledger->post('credit_return', $amount->currency, $postings, 'ledger:'.$idempotencyKey, $organizationId, $referenceType, $referenceId, $note ?? 'Vráceno na kredit', $this->actor($context));
+            $topup = WalletTopup::query()->create([
+                'wallet_id' => $wallet->id, 'organization_id' => $organizationId, 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value,
+                'source' => 'return', 'bucket' => 'returned', 'refundable' => false, 'state' => 'completed', 'transaction_id' => $transaction->id,
+                'note' => $note, 'idempotency_key' => $idempotencyKey, 'created_by' => $this->actor($context),
+            ]);
+            $this->refreshCaches($wallet);
+            $this->outbox->publish(GenericEvent::of('wallet.topup.completed', 'wallet', $wallet->id, [
+                'topup_id' => $topup->id, 'amount' => $amount, 'source' => 'return', 'purpose' => 'return', 'balance' => $wallet->refresh()->available(), // money is there again: what waits for it (a past-due renewal) is retried
+            ], $organizationId));
+
+            return $topup;
+        }, 3);
+    }
+
+    /**
+     * The debit side of a return that takes revenue back: the net from the corrections account, the VAT from the VAT account.
+     *
+     * @return list<array{account:string, debit:int}>
+     */
+    public static function revenueReturn(Money $gross, Money $tax): array
+    {
+        return array_values(array_filter([
+            ['account' => LedgerService::revenueAccount('credit_note', $gross->currency), 'debit' => $gross->minor - $tax->minor],
+            ['account' => LedgerService::vatAccount($gross->currency), 'debit' => $tax->minor],
+        ], fn (array $d) => $d['debit'] > 0));
+    }
+
+    /**
      * Reserve money before provisioning. Fails with `insufficient_funds` when
      * available (+credit line) < amount. Domain renewals use priority `domain`
      * and may consume the organization's domain renewal reserve.

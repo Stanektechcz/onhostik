@@ -763,9 +763,13 @@ final class MarketplaceService
             $invoice = $order->invoice_id ? Invoice::query()->find($order->invoice_id) : null;
             $gross = $invoice !== null ? $invoice->total() : Money::minor((int) $order->price_minor, $order->currency);
             $ctx = $context->withScope($order->organization_id);
-            $this->wallets->topup($order->organization_id, $gross, 'marketplace', "marketplace:refund:{$order->id}", $ctx, null, $reason, false, null, 'refund');
-            if ($invoice !== null && $invoice->state === Invoice::PAID) {
-                $this->invoices->creditNote($invoice, $reason, $ctx);
+            // the credit note and the money together, against the revenue and the VAT the order had earned — it used to be booked as a
+            // top-up from a bank called "marketplace": purchased credit that could be paid out in cash whatever the order was paid with
+            if ($invoice !== null && $invoice->isCreditable() && (int) $invoice->credited_minor < (int) $invoice->total_minor) {
+                $given = $this->invoices->giveBack($invoice, null, $reason, $ctx);
+                $gross = Money::minor($given['to_credit_minor'] + $given['off_document_minor'], $order->currency);
+            } elseif ($invoice === null) {
+                $this->wallets->returnToCredit($order->organization_id, $gross, WalletService::revenueReturn($gross, Money::zero($gross->currency)), "marketplace:refund:{$order->id}", $ctx, 'marketplace_order', $order->id, $reason);
             }
             $order->forceFill(['state' => MarketplaceOrder::CANCELLED, 'dispute_reason' => $order->dispute_reason ?? $reason])->save();
             if ($order->subscription_id !== null) {

@@ -55,7 +55,13 @@ final class NotificationRouter
             'order.refunded' => $this->both($m, 'order', "Objednávka {$number}: vráceno ".$money($p['amount'] ?? null), implode(', ', (array) ($p['items'] ?? [])).' · '.(($p['to'] ?? 'credit') === 'invoice' ? 'dobropis k faktuře' : 'zpět na kredit'),
                 ! empty($p['nothing_delivered']) ? "Objednávku {$number} se nepodařilo zřídit" : "Část objednávky {$number} se nepodařilo zřídit", $money($p['amount'] ?? null).(($p['to'] ?? 'credit') === 'invoice' ? ' jsme odečetli z faktury' : ' jsme vrátili na váš kredit').' · '.implode(', ', (array) ($p['items'] ?? [])),
                 '/sprava/objednavky', '/panel/objednavky', 'warn', $email, 'order-refunded', ['cislo' => $number, 'castka' => $money($p['amount'] ?? null), 'polozky' => '- '.implode("\n- ", (array) ($p['items'] ?? [])), 'kam' => ($p['to'] ?? 'credit') === 'invoice' ? 'odečtením z faktury' : 'na váš kredit', 'doklad' => (string) ($p['credit_note'] ?? ''), 'url' => $portal.'/panel/objednavky']),
-            'order.cancelled' => ($p['from'] ?? '') === 'PENDING_PAYMENT' ? $this->customer($m, 'order', "Objednávka {$number} byla zrušena", 'Objednávka nebyla zaplacena a už není platná; můžete zadat novou.', '/panel/objednavky', 'warn') : null,
+            // a paid order that was cancelled: the customer hears where the money is and which document corrects the first one
+            'order.cancelled' => match (true) {
+                isset($p['returned']) => $this->customer($m, 'order', "Objednávka {$number} byla zrušena", $money($p['returned']).(($p['to'] ?? 'credit') === 'invoice' ? ' jsme odečetli z faktury' : ' jsme vrátili na váš kredit').' · opravný doklad '.implode(', ', (array) ($p['credit_notes'] ?? [])),
+                    '/panel/objednavky', 'warn', $email, 'order-cancelled', ['cislo' => $number, 'castka' => $money($p['returned']), 'kam' => ($p['to'] ?? 'credit') === 'invoice' ? 'odečtením z faktury' : 'na váš kredit', 'doklad' => implode(', ', (array) ($p['credit_notes'] ?? [])), 'url' => $portal.'/panel/objednavky']), // the staff note stays inside: it is for the audit, not for the customer
+                ($p['from'] ?? '') === 'PENDING_PAYMENT' => $this->customer($m, 'order', "Objednávka {$number} byla zrušena", 'Objednávka nebyla zaplacena a už není platná; můžete zadat novou.', '/panel/objednavky', 'warn'),
+                default => null,
+            },
             'order.settlement_failed' => $this->internal($m, 'order', "Objednávka {$number}: zřízeno, ale nezaplaceno", $money($p['amount'] ?? null).' · '.($p['reason'] ?? ''), '/sprava/objednavky', 'hot'),
             'order.partially_active', 'order.failed', 'order.fulfilment_failed' => $this->internal($m, 'order', "Objednávka {$p['number']}: problém při zřizování", (string) ($p['reason'] ?? ($p['note'] ?? '')), '/sprava/objednavky', 'hot'),
             // ── web toolkit: monitoring, deploy, staging, import, certificates, CDN ──
