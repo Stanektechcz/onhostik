@@ -24,6 +24,7 @@ final class Ticket extends Model
         ];
     }
 
+    /** @return HasMany<TicketMessage, $this> */
     public function messages(): HasMany
     {
         return $this->hasMany(TicketMessage::class, 'ticket_id')->orderBy('created_at');

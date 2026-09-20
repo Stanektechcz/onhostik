@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Support\Assistant\AssistantService;
+use Onhost\Domain\Support\Assistant\TicketReplyDrafter;
 use Onhost\Domain\Support\Commands\WorkOfferStaffCommand;
 use Onhost\Domain\Support\Models\SupportMacro;
 use Onhost\Domain\Support\Models\SupportQueue;
@@ -68,6 +69,18 @@ final class SupportController extends ApiController
         $messages = $model->messages()->get()->map(fn (TicketMessage $m) => ['id' => $m->id, 'from' => $m->uiFrom(), 'author_type' => $m->author_type, 'author_name' => $m->author_name, 'visibility' => $m->visibility, 'text' => $m->body, 'attachments' => $m->attachments ?? [], 'at' => $m->created_at?->toIso8601String()])->all();
 
         return response()->json(['data' => CustomerSupportController::ticket($model) + ['organization_id' => $model->organization_id, 'assignee_id' => $model->assignee_id, 'queue_id' => $model->queue_id, 'required_skills' => $model->required_skills, 'messages' => $messages, 'sla_events' => $model->slaEvents()->get()->map(fn ($e) => ['kind' => $e->kind, 'due_at' => $e->due_at?->toIso8601String(), 'met' => $e->met, 'delta_minutes' => $e->delta_minutes])->all(), 'ai' => $assistant->transcriptForTicket($model), 'meta' => $model->meta]]);
+    }
+
+    /**
+     * A reply drafted for the agent from what the platform knows — the conversation, the account facts, the health check
+     * of the ticket's service. Nothing is sent: the agent reads, edits and posts it through the ordinary reply route.
+     */
+    public function draft(Request $request, TicketReplyDrafter $drafter, string $ticket): JsonResponse
+    {
+        $this->api->authorize($request, 'support.ticket.manage', CommandScope::global());
+        $data = $request->validate(['hint' => ['nullable', 'string', 'max:500'], 'locale' => ['nullable', 'in:cs,en']]);
+
+        return response()->json(['data' => $drafter->draft($this->find($ticket), $this->api->user($request), $this->api->context($request), $data['locale'] ?? 'cs', $data['hint'] ?? null)]);
     }
 
     public function reply(Request $request, TicketService $tickets, string $ticket): JsonResponse

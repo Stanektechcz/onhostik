@@ -91,6 +91,12 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **AI for support:** a reply to a ticket is drafted for the agent from the conversation, the account facts and the health
+  check of the ticket's service (`POST /v1/staff/tickets/{id}/draft`; a model gets no tools, masked data and no internal
+  notes; rules without a model; nothing is sent). What a person types into the chat is masked (`SecretMask`) before a
+  model or a transcript sees it. **Dunning acts on the service:** a suspension that did not happen is asked for again
+  daily, a case closes only once the service is down.
+
 - **A name on a shared node belongs to one service:** the 30-bit name prefix of a service is a unique column (`000760`);
   a colliding id is replaced before anything exists, cancelled services keep theirs, the doctor names old collisions.
 
@@ -138,7 +144,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 580 tests, 12 401 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 599 tests, 12 628 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

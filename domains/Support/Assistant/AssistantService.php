@@ -86,6 +86,7 @@ final class AssistantService
         private readonly ServiceSummary $summary,
         private readonly Authorizer $authorizer,
         private readonly ServiceHealthCheck $health,
+        private readonly SecretMask $mask,
     ) {}
 
     /**
@@ -93,7 +94,9 @@ final class AssistantService
      */
     public function chat(string $text, ?Organization $organization, ?User $user, ?string $sessionId, CommandContext $context, string $locale = 'cs', ?AssistantScope $scope = null): array
     {
-        $text = trim($text);
+        // people paste passwords and card numbers into a chat; the assistant needs none of them (it takes no passwords, it proposes
+        // actions), and the text goes to a model, into the transcript and into a handoff ticket — so it is masked before anything sees it
+        $text = $this->mask->text(trim($text));
         // what this person may see and be offered — the same answers the API would give them (a member without billing rights is
         // told nothing about invoices, a guest sees the services shared with them and no others)
         $scope ??= $organization !== null && $user !== null ? AssistantScope::for($organization, $user, $this->authorizer) : null;

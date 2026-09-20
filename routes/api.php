@@ -510,6 +510,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::post('tickets/sla-tick', [StaffSupportController::class, 'sla']);
         Route::get('tickets/{ticket}', [StaffSupportController::class, 'show']);
         Route::post('tickets/{ticket}/messages', [StaffSupportController::class, 'reply']);
+        Route::post('tickets/{ticket}/draft', [StaffSupportController::class, 'draft']); // a reply drafted for the agent (account facts + the service's health check); nothing is sent
         Route::post('tickets/{ticket}/transition', [StaffSupportController::class, 'transition']);
         Route::post('tickets/{ticket}/assign', [StaffSupportController::class, 'assign']);
         Route::post('tickets/{ticket}/escalate', [StaffSupportController::class, 'escalate']);

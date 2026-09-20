@@ -82,6 +82,15 @@
     if (!t) return [];
     var go = function (to, label) { return function () { if (window.confirm(label + '?')) { s.setTicketState(t.id, to, 'podpora'); cmp.setState({ view: 'queue' }); } }; };
     var out = [];
+    // a reply drafted from the account facts and the health check of the ticket's service; it lands in the reply box, nothing is sent
+    out.push([tr(cmp, 'Navrhnout odpověď', 'Draft a reply'), false, function () {
+      if (!t.apiId) return;
+      window.OnhostApi.post('/staff/tickets/' + t.apiId + '/draft', { locale: (cmp.state && cmp.state.lang) === 'en' ? 'en' : 'cs' }).then(function (r) {
+        var d = r.data || r;
+        cmp.setState({ replyDraft: d.draft || '' });
+        if (cmp.flash) cmp.flash(tr(cmp, 'Návrh odpovědi je v poli odpovědi', 'The draft is in the reply box'), (d.source === 'llm' ? tr(cmp, 'napsal model', 'written by the model') : tr(cmp, 'sestaveno pravidly', 'written by rules')) + ((d.warnings || []).length ? ' · ' + d.warnings.join(' ') : '') + ' · ' + tr(cmp, 'přečtěte a upravte před odesláním', 'read and edit before sending'));
+      }).catch(function (e) { if (cmp.flash) cmp.flash(tr(cmp, 'Návrh se nepodařil', 'The draft failed'), e.message || ''); });
+    }]);
     if (t.state !== 'ceka') out.push([tr(cmp, 'Čeká na zákazníka', 'Waiting for the customer'), false, go('ceka', tr(cmp, 'Označit tiket jako čekající na zákazníka', 'Mark the ticket as waiting for the customer'))]);
     if (t.state === 'ceka') out.push([tr(cmp, 'Znovu otevřít', 'Reopen'), false, go('otevreny', tr(cmp, 'Vrátit tiket do fronty', 'Return the ticket to the queue'))]);
     out.push([tr(cmp, 'Uzavřít', 'Close'), true, go('vyreseny', tr(cmp, 'Uzavřít tiket jako vyřešený', 'Close the ticket as resolved'))]);

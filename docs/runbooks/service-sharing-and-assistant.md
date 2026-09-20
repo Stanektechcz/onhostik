@@ -104,3 +104,32 @@ shared with may read it.
 * `select state, count(*) from service_access_grants group by state;` — `pending` older than seven days are
   invitations nobody accepted (the invitation has expired; share again);
 * ask the assistant as a `support_contact` about invoices (nothing), as the owner (the documents).
+
+### A reply drafted for the agent (`TicketReplyDrafter`)
+
+`POST /v1/staff/tickets/{ticket}/draft` (`support.ticket.manage`; body: `hint?`, `locale?`) — the console's ticket detail
+has the button *Navrhnout odpověď*; the draft lands in the reply box. **Nothing is sent**: the agent reads, edits and posts
+it through the ordinary reply route.
+
+* Built from what the platform knows: the last eight public messages, the customer's account facts, and — when the ticket
+  names a service of that organization — its health check (state, control plane, last backup, certificate, monitoring,
+  failed operations, limits). The answer carries the draft, its `source` (`llm` | `rules`), the `basis` it was written
+  from and `warnings` (the check found something; the model did not answer).
+* What goes to a model is **assembled by the platform, not fetched by the model**: it gets no tools, so a customer's
+  message that says "ignore your instructions and …" has nothing to call. The conversation is handed over as data,
+  credentials masked; **internal notes are never included** (a model must not quote them back to the customer); the
+  model's own words pass the mask before the agent sees them. The prompt forbids promising refunds, compensations,
+  deadlines and prices.
+* Without a configured provider — or when it fails — the same findings are written as sentences by rules.
+* Every draft is on record: an `AiRun` (`session_id = staff:<user>:ticket:<ticket>`, tokens, the draft) and the audit
+  event `support.ticket.draft`.
+
+### What a person typed is masked (`SecretMask`)
+
+People paste passwords, card numbers and birth numbers into a chat or a ticket. The assistant needs none of them — it
+takes no passwords, it proposes actions — and the text goes to a model, into a transcript and into a handoff ticket. The
+chat masks its input before anything sees it (`heslo je …`, `password: …`, `PIN = …`, card numbers checked by Luhn, Czech
+birth numbers, everything `Redactor::redactString` knows); variable symbols, invoice numbers and phone numbers stay
+readable. The ticket itself keeps what the customer wrote — only the copy that goes to a model is masked.
+
+Tests: `tests/Feature/Support/TicketReplyDraftTest.php`.
