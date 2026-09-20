@@ -11,6 +11,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Identity\StepUp\StepUpService;
+use Onhost\Domain\Notifications\Models\MailOutbox;
+use Onhost\Domain\Notifications\Models\Notification;
+use Onhost\Domain\Notifications\Models\NotificationTemplate;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\OrganizationService;
@@ -23,6 +26,7 @@ use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
+use Onhost\Platform\Outbox\OutboxPublisher;
 
 function panelVps(Organization $org, string $state = ServiceStateMachine::ACTIVE): Service
 {
@@ -171,6 +175,25 @@ it('changes the password from the panel: wrong current password refused, other s
         ->and(DB::table('sessions')->where('user_id', $user->id)->count())->toBe(0)
         ->and(app(StepUpService::class)->activeGrant($fresh, null))->toBeNull();
     $this->getJson('/v1/me')->assertOk(); // the session that changed the password is still signed in
+});
+
+it('tells the truth about API tokens after a password change: they stay valid, and the mail says so', function () {
+    [$user] = $this->customerWithOrganization(['password' => 'Stare-Heslo-2026a']);
+    $user->createToken('CI deploy', ['services:read']);
+    $user->createToken('starý, zrušený', ['services:read'])->accessToken->forceFill(['revoked_at' => now()])->save();
+    $this->actingAs($user, 'sanctum');
+
+    $this->postJson('/v1/me/password', ['current_password' => 'Stare-Heslo-2026a', 'password' => 'Nove-Heslo-2026b'])->assertOk();
+    app(OutboxPublisher::class)->relayPending();
+
+    // a CHANGE keeps the tokens (a reset revokes them) — and the mail used to say "all other sessions and API tokens were signed out":
+    // somebody who changed the password because something leaked believed the tokens were dead
+    expect($user->tokens()->whereNull('revoked_at')->count())->toBe(1);
+    $mail = MailOutbox::query()->where('to', $user->email)->where('template_key', 'like', 'security-password%')->sole();
+    expect($mail->template_key)->toBe('security-password-kept')->and($mail->vars['pocet'])->toBe('1');
+    $template = NotificationTemplate::query()->where('key', 'security-password-kept')->where('locale', 'cs')->firstOrFail();
+    expect($template->body)->toContain('API tokeny zůstávají platné')->not->toContain('API tokeny byly odhlášeny');
+    expect(Notification::query()->where('user_id', $user->id)->where('title', 'Heslo bylo změněno')->value('body'))->toContain('API tokeny zůstávají platné: 1');
 });
 
 it('issues scoped API tokens after step-up and enforces the scopes on bearer requests', function () {

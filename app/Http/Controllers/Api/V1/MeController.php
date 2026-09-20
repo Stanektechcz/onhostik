@@ -52,7 +52,7 @@ final class MeController extends ApiController
             $others->delete();
         }
         $audit->record($this->api->context($request), 'me.password.change', 'succeeded', [], 'user', $user->id);
-        $outbox->publish(GenericEvent::of('security.password_changed', 'user', $user->id, ['email' => $user->email, 'ip' => $request->ip()]));
+        $outbox->publish(GenericEvent::of('security.password_changed', 'user', $user->id, ['email' => $user->email, 'ip' => $request->ip(), 'api_access' => 'kept', 'api_access_count' => $user->tokens()->whereNull('revoked_at')->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->count()]));
 
         return response()->json(['data' => ['changed' => true]]);
     }

@@ -197,7 +197,7 @@ final class AuthController extends ApiController
         $stepUp->revokeAll($user);
         $user->tokens()->whereNull('revoked_at')->update(['revoked_at' => now()]);
         $audit->record(new CommandContext('user', $user->id, ip: $request->ip()), 'auth.password_reset.confirm', 'succeeded', [], 'user', $user->id);
-        $outbox->publish(GenericEvent::of('security.password_changed', 'user', $user->id, ['email' => $user->email, 'ip' => $request->ip()]));
+        $outbox->publish(GenericEvent::of('security.password_changed', 'user', $user->id, ['email' => $user->email, 'ip' => $request->ip(), 'api_access' => 'revoked']));
         // The single-use link plus the new password signs the browser in — for an account whose only factor is the password.
         // With an authenticator enrolled (and for staff, who must have one) the link proves the mailbox and nothing more:
         // signing in here would make a read of somebody's mail enough to take over an account the second factor protects.

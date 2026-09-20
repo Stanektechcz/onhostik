@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **The password mail tells the truth:** after a password CHANGE the API tokens stay valid — the mail said they were signed out; it
+  now says how many stay valid and where to revoke them (a reset still revokes them).
+
 - **The model has a budget:** `AssistantBudget` — per person per hour, per organization per day, a daily ceiling of tokens; past it
   the assistant answers from the help centre (nothing is refused). The staff assistant's conversation id did not fit its column
   (500 on PostgreSQL) — fixed; git deploy says its limits (422) instead of failing at the database.
@@ -199,7 +202,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 643 tests, 13 282 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 644 tests, 13 289 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
