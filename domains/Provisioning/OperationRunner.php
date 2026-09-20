@@ -179,6 +179,7 @@ final class OperationRunner
     private function succeed(Operation $operation): string
     {
         $operation->forceFill(['state' => Operation::SUCCEEDED, 'finished_at' => now(), 'external_handle' => null, 'result' => $operation->context, 'error' => null])->save();
+        OperationSecrets::onFinished($operation); // it has acted: the passwords it was given are no longer its business
         $this->outbox->publish(GenericEvent::of('operation.succeeded', 'operation', $operation->id, ['kind' => $operation->kind, 'service_id' => $operation->service_id, 'order_item_id' => $operation->order_item_id, 'domain_id' => $operation->domain_id, 'result' => $this->redactor->redact($operation->context)], $operation->organization_id));
 
         return Operation::SUCCEEDED;

@@ -252,6 +252,9 @@ return [
 
     'provisioning' => [
         'freeze_cache_key' => 'onhost:provisioning:freeze',
+        // what an operation forgets (OperationSecrets): a generated password is shown this long, a failed run keeps what it was given this long for a retry
+        'secret_reveal_minutes' => (int) env('ONHOST_OPERATION_SECRET_REVEAL_MINUTES', 30),
+        'secret_failed_days' => (int) env('ONHOST_OPERATION_SECRET_FAILED_DAYS', 7),
         'rebalance' => ['high' => (float) env('ONHOST_REBALANCE_HIGH', 0.85), 'low' => (float) env('ONHOST_REBALANCE_LOW', 0.6), 'target' => (float) env('ONHOST_REBALANCE_TARGET', 0.75)], // node load (RAM sold / RAM capacity) that triggers, receives, and ends a rebalancing move
         'samples' => ['retention_days' => (int) env('ONHOST_NODE_SAMPLES_RETENTION_DAYS', 30)], // hourly node samples behind the trend (audit §5k-7)
         'capacity_forecast' => ['warn_days' => (int) env('ONHOST_CAPACITY_WARN_DAYS', 30), 'node_monthly_minor' => []], // node_monthly_minor: {role: price of one node per month in the budget currency} for the budget forecast (audit §5r-5) // a pool with fewer days left reaches operations (audit §5m-7)

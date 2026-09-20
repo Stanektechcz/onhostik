@@ -61,6 +61,7 @@ use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\NodePrerequisites;
 use Onhost\Domain\Provisioning\NodeSampler;
 use Onhost\Domain\Provisioning\OperationsBoard;
+use Onhost\Domain\Provisioning\OperationSecrets;
 use Onhost\Domain\Provisioning\OperationService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\QueueScaler;
@@ -107,6 +108,17 @@ use Onhost\Providers\Contracts\DnsProvider;
 Artisan::command('onhost:outbox:relay {--limit=500}', function (OutboxPublisher $outbox) {
     $this->info('delivered: '.$outbox->relayPending((int) $this->option('limit')));
 })->purpose('Deliver pending outbox events (webhooks, notifications, fulfilment)');
+
+/*
+ * What an operation must forget (OperationSecrets). A finished operation drops the passwords it carried at once; this
+ * pass takes what is left: the generated password whose half hour of being shown is over, the input of a failed run
+ * past its retry days — and every row written before this rule, in batches until none is left. Nothing is sent
+ * anywhere; it cannot be switched off, because a switch that keeps passwords is not a feature.
+ */
+Artisan::command('onhost:operations:forget-secrets {--limit=500}', function () {
+    $stats = OperationSecrets::sweep((int) $this->option('limit'));
+    $this->table(['scrubbed'], [$stats]);
+})->purpose('Remove passwords and keys from finished operations');
 
 Artisan::command('onhost:provisioning:tick {--limit=200}', function (OperationService $operations, AutomationLedger $ledger) {
     $recovered = $operations->recoverStuck();
@@ -434,6 +446,7 @@ Schedule::command('onhost:game:templates:verify')->dailyAt('05:10')->onOneServer
 Schedule::command('onhost:files:scan')->everyTenMinutes()->withoutOverlapping()->onOneServer(); // retry of the virus scan (audit §5r-4)
 Schedule::command('onhost:support:sla')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:provisioning:tick')->everyMinute()->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:operations:forget-secrets')->everyTenMinutes()->withoutOverlapping()->onOneServer(); // finished operations stop holding the passwords they carried
 Schedule::job(new QueueHeartbeat)->everyMinute()->onOneServer(); // the worker's proof of life (audit §5g-6)
 Schedule::command('onhost:queue:scale --apply')->everyFiveMinutes()->onOneServer()->when(fn () => (bool) config('onhost.provisioning.autoscale.enabled', false)); // helper workers on the backlog gauge (audit §5i-3)
 Schedule::command('onhost:integrations:health')->everyMinute()->withoutOverlapping()->onOneServer();

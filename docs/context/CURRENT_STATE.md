@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **Operations forget their secrets** (`security-boundaries.md` §11): passwords and keys an action carried leave the row
+  when it is done; a generated WordPress administrator password is shown for half an hour to whoever manages the
+  service — it used to be readable by every viewer of the service, for good. A sweep cleans the rows of the past.
+
 - **Four eyes work** (`docs/runbooks/approvals.md`): a critical staff action (legal hold, roles, mass credit, tax rules,
   secrets) opens a request when one person tries it alone; somebody else who could do it themselves approves it behind
   their own step-up; the approval is spent once by exactly that command. A command can no longer talk a critical
@@ -107,7 +111,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 568 tests, 12 214 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 571 tests, 12 250 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

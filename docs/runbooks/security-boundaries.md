@@ -123,6 +123,23 @@ Details: `docs/runbooks/service-sharing-and-assistant.md`.
 
 Tests: `tests/Feature/Services/WebBackupArchiveTest.php`, `tests/Contract/IspConfigToolsContractTest.php`.
 
+## 11. An operation forgets the secrets it carried
+
+* An operation needs the password of the database, the FTP account, the mailbox, the customer's mailbox at another provider
+  (fetchmail), the private key of an uploaded certificate — **until it has acted**. The row kept them for good, in plain
+  JSON: in the database, in every backup of it, in the staff console. The WordPress administrator password the platform
+  generated was in the answer to **anybody who may list the operations of the service** — a read-only viewer, a guest.
+* `OperationSecrets`: succeeded or cancelled → the request forgets at once; what the run generated for the customer to
+  read once (`admin_password`) is shown for `ONHOST_OPERATION_SECRET_REVEAL_MINUTES` (30) and only to somebody with
+  `service.manage`; a failed run keeps its input for `ONHOST_OPERATION_SECRET_FAILED_DAYS` (7) so a retry still works.
+  Queued and running operations are not touched — a change asked for while a panel is away is still carried out.
+* `onhost:operations:forget-secrets` (every ten minutes, no switch) takes what is left — **including every row written
+  before this rule**; `operations.secrets_scrubbed_at` says a row is clean. Staff see the context of a run without its
+  secrets. `key` is a secret when it is key material, not when it is the name of a game variable; the value of a variable
+  whose name says password/token/secret is forgotten too.
+
+Tests: `tests/Feature/Provisioning/OperationSecretsTest.php`.
+
 ## What to look at on staging after deploying this
 * migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;
 * orders that were delivered and never charged (the query is in `billing-dunning.md`);

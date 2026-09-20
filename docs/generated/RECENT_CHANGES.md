@@ -4,6 +4,7 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 236f564 | 2026-09-20 | Four eyes work: a critical staff action opens a request, somebody else decides it; consoles get named roles |
 | 38e1771 | 2026-09-20 | A backup is fresh and whole, or it fails; core actions belong to the families that have them |
 | 243babe | 2026-09-20 | The whole site can be packed and unpacked: "." is the site root for both file transports |
 | c0b5553 | 2026-09-20 | A guest invitation never takes a role away; sharing again sends no second mail |
@@ -13,4 +14,3 @@
 | acccc04 | 2026-09-20 | One service shared with another person; the authorizer forgets between units of work; a project member's run finishes |
 | b382cf0 | 2026-09-20 | Audit: the shared NSSET finding needs the registry's answer, not a schema change |
 | d314ee9 | 2026-09-20 | Docs: what an order does with the money, secrets that are not kept, account rules, and what the review left open |
-| fe8efe5 | 2026-09-20 | Periods end on the anchor day, a domain renews once, a quantity that cannot be delivered is refused |

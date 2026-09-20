@@ -178,7 +178,7 @@ není ověřeno proti skutečným panelům.
 | 10 | NSSET | Sdílený NSSET je v tabulce klíčovaný jen handle (unikátní), takže u druhého registrátora se založení přeskočí. U `.cz` to nejspíš nevadí — NSSET je objekt registru a doména u jiného registrátora na něj smí odkazovat; u registrů, kde to neplatí, by registrace selhala po zaplacení | ✔ kód, – registr | Ověřit na stagingu registrací `.cz` přes druhého registrátora; teprve podle výsledku měnit klíč |
 | 11 | Pozastavení | Zastaví jen vhost / VM; FTP, cron, databáze, Node projekty běží dál. `resume` spustí i VM, kterou si zákazník sám vypnul | – | Pozastavit i přístupy a plánovače; pamatovat si stav před pozastavením |
 | 12 | Jména na uzlu | 6znakový prefix služby je i jméno unixového agenta; kolize (řádově procenta při desítkách tisíc služeb) dá zákazníkovi práva k cizímu webu | – | Delší prefix + kontrola existence při zakládání |
-| 13 | Tajemství | `operations.desired/context/result` drží vygenerovaná hesla (WordPress admin) napořád | ✔ | Jednorázová tajemství do krátkodobé šifrované schránky; po dokončení operace je z řádku odstranit |
+| 13 | Tajemství | **Opraveno 2026-09-20** (`security-boundaries.md` §11): operace po dokončení zapomene hesla a klíče, která nesla (databáze, FTP, schránky, fetchmail, klíč certifikátu); vygenerované heslo správce WordPressu se ukáže 30 minut a jen tomu, kdo službu spravuje — dřív ho četl každý, kdo směl vypsat operace, i čtenář a host; neúspěšný běh si vstup drží 7 dní kvůli opakování; průběžný úklid vyčistí i všechny starší řádky. Po nasazení: migrace `000740`, první běh `onhost:operations:forget-secrets` projde historii po dávkách | ✔ | Po nasazení zkontrolovat, že `operations` bez `secrets_scrubbed_at` ubývají |
 
 ### První měsíc (P1)
 

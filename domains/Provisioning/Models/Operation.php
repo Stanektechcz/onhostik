@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace Onhost\Domain\Provisioning\Models;
 
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 use Onhost\Platform\Eloquent\Model;
 use Onhost\Platform\StateMachine\StateMachine;
 
 /**
  * Durable, idempotent, resumable unit of provisioning work (blueprint §5.2):
  * operation id, actor, idempotency key, correlation, desired state, attempts.
+ *
+ * @property ?Carbon $finished_at
+ * @property ?Carbon $secrets_scrubbed_at when the row forgot the secrets it carried (OperationSecrets); null = it may still hold some
  */
 final class Operation extends Model
 {
@@ -37,7 +41,7 @@ final class Operation extends Model
         return [
             'desired' => 'array', 'context' => 'array', 'result' => 'array', 'error' => 'array', 'external_handle' => 'array',
             'step' => 'integer', 'steps_total' => 'integer', 'attempts' => 'integer',
-            'queued_at' => 'datetime', 'started_at' => 'datetime', 'finished_at' => 'datetime', 'next_run_at' => 'datetime', 'retry_until' => 'datetime',
+            'queued_at' => 'datetime', 'started_at' => 'datetime', 'finished_at' => 'datetime', 'next_run_at' => 'datetime', 'retry_until' => 'datetime', 'secrets_scrubbed_at' => 'datetime',
         ];
     }
 

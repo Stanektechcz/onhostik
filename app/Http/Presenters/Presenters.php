@@ -19,6 +19,7 @@ use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\ResourceDrift;
+use Onhost\Domain\Provisioning\OperationSecrets;
 use Onhost\Domain\Provisioning\ServiceMigrationService;
 use Onhost\Domain\Services\ControlPlaneStatus;
 use Onhost\Domain\Services\Models\Service;
@@ -90,7 +91,8 @@ final class Presenters
         ];
     }
 
-    public static function operation(Operation $operation, bool $staff = false): array
+    /** @param bool $reveal whether the reader manages the service: only then is a secret the run generated shown, and only while its window lasts (OperationSecrets) */
+    public static function operation(Operation $operation, bool $staff = false, bool $reveal = false): array
     {
         $out = [
             'id' => $operation->id, 'kind' => $operation->kind, 'state' => $operation->state, 'step' => $operation->step, 'steps_total' => $operation->steps_total, 'step_label' => $operation->step_label,
@@ -98,10 +100,11 @@ final class Presenters
             'queued_at' => $operation->queued_at?->toIso8601String(), 'started_at' => $operation->started_at?->toIso8601String(), 'finished_at' => $operation->finished_at?->toIso8601String(), 'next_run_at' => $operation->next_run_at?->toIso8601String(),
             'error' => $operation->error ? ['message' => $staff ? ($operation->error['message'] ?? null) : self::customerError((string) ($operation->error['message'] ?? '')), 'retryable' => $operation->error['retryable'] ?? null] : null,
             'action' => is_array($operation->desired) ? ($operation->desired['action'] ?? null) : null,
-            'result' => self::customerResult($operation),
+            'result' => self::customerResult($operation, $reveal && ! $staff),
         ];
         if ($staff) {
-            $out += ['workflow' => $operation->workflow, 'organization_id' => $operation->organization_id, 'provider_instance_id' => $operation->provider_instance_id, 'queue' => $operation->queue, 'correlation_id' => $operation->correlation_id, 'trace_url' => Tracer::urlFor($operation->correlation_id), 'actor' => [$operation->actor_type, $operation->actor_id], 'context' => $operation->context, 'error_detail' => $operation->error];
+            $out += ['workflow' => $operation->workflow, 'organization_id' => $operation->organization_id, 'provider_instance_id' => $operation->provider_instance_id, 'queue' => $operation->queue, 'correlation_id' => $operation->correlation_id, 'trace_url' => Tracer::urlFor($operation->correlation_id), 'actor' => [$operation->actor_type, $operation->actor_id], 'context' => OperationSecrets::forget((array) $operation->context), // staff work on the run, not on the customer's passwords
+                'error_detail' => $operation->error];
         }
 
         return $out;
@@ -113,12 +116,25 @@ final class Presenters
      *
      * @return array<string,mixed>|null
      */
-    public static function customerResult(Operation $operation): ?array
+    public static function customerResult(Operation $operation, bool $reveal = false): ?array
     {
         $context = is_array($operation->result) ? $operation->result : (is_array($operation->context) ? $operation->context : []);
         $last = is_array($context['last_result'] ?? null) ? $context['last_result'] : [];
         $keys = ['exit_code', 'output', 'duration_ms', 'timed_out', 'download_token', 'download_name', 'size_bytes', 'log', 'release', 'sha', 'staging_domain', 'staging_service_id', 'installed', 'enabled', 'purged', 'plugin', 'op', 'deployment_id', 'import_id', 'certificate_id', 'expires_at', 'nameservers', 'state', 'lines', 'deleted', 'created', 'imported', 'restored', 'backup_id', 'production_version', 'staging_version', 'admin_url', 'admin_user', 'admin_password'];
         $out = array_intersect_key(array_merge($last, $context), array_flip($keys));
+        // what the run generated is read once: by somebody who manages the service, while the window lasts. Everybody who may
+        // list operations — a read-only viewer included — used to read the administrator password of the site here, for good.
+        $until = OperationSecrets::revealUntil($operation);
+        foreach (OperationSecrets::REVEALED as $secret) {
+            if (! array_key_exists($secret, $out)) {
+                continue;
+            }
+            if (! $reveal || $until === null || $out[$secret] === OperationSecrets::GONE) {
+                unset($out[$secret]);
+            } else {
+                $out['reveal_until'] = $until->toIso8601String();
+            }
+        }
 
         return $out === [] ? null : $out;
     }

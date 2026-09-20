@@ -67,7 +67,8 @@ final class ServiceController extends ApiController
     public function show(Request $request, string $service): JsonResponse
     {
         $model = $this->resolve($request, $service);
-        $operations = Operation::query()->where('service_id', $model->id)->orderByDesc('queued_at')->limit(10)->get()->map(fn (Operation $o) => Presenters::operation($o))->all();
+        $manages = $this->api->can($request, 'service.manage', CommandScope::resource($model->id, $model->organization_id, $model->project_id)); // a secret a run generated is shown to whoever manages the service, never to a reader
+        $operations = Operation::query()->where('service_id', $model->id)->orderByDesc('queued_at')->limit(10)->get()->map(fn (Operation $o) => Presenters::operation($o, false, $manages))->all();
         $bindings = $model->bindings()->get()->map(fn ($b) => ['type' => $b->remote_type, 'node' => $b->remote_node, 'adapter_version' => $b->adapter_version, 'last_reconciled_at' => $b->last_reconciled_at?->toIso8601String()])->all();
 
         return response()->json(['data' => Presenters::service($model) + ['operations' => $operations, 'bindings' => $bindings, 'actual' => $model->actual_spec, 'summary' => app(ServiceSummary::class)->for($model)]]);
@@ -138,7 +139,9 @@ final class ServiceController extends ApiController
     {
         $model = $this->resolve($request, $service);
 
-        return $this->api->paginate($request, Operation::query()->where('service_id', $model->id), fn (Operation $o) => Presenters::operation($o), 'queued_at');
+        $manages = $this->api->can($request, 'service.manage', CommandScope::resource($model->id, $model->organization_id, $model->project_id));
+
+        return $this->api->paginate($request, Operation::query()->where('service_id', $model->id), fn (Operation $o) => Presenters::operation($o, false, $manages), 'queued_at');
     }
 
     public function backups(Request $request, string $service): JsonResponse

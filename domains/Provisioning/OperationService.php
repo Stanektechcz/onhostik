@@ -125,6 +125,7 @@ final class OperationService
                 throw new DomainError('operation_running', 'A running step cannot be cancelled; wait for it to finish.', 409);
             }
             $operation->forceFill(['state' => Operation::CANCELLED, 'finished_at' => now(), 'error' => ['message' => "cancelled: {$reason}", 'by' => $actor->actorId]])->save();
+            OperationSecrets::onFinished($operation); // it will never act: it needs nothing of what it was given
             $this->audit->record($actor->withScope($operation->organization_id), 'operation.cancel', 'succeeded', ['reason' => $reason], 'operation', $operation->id);
             $this->outbox->publish(GenericEvent::of('operation.cancelled', 'operation', $operation->id, ['reason' => $reason, 'kind' => $operation->kind, 'service_id' => $operation->service_id], $operation->organization_id));
 
