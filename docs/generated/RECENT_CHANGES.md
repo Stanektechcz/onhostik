@@ -4,6 +4,9 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 39a1076 | 2026-09-20 | A suspended site is more than a stopped vhost: its cron jobs and FTP accounts are paused too, and remembered |
+| d55387c | 2026-09-20 | Domains are not lost to a calendar: renewals go on through the protective period; a listing without a status is not "active" |
+| 0e064c9 | 2026-09-20 | Generated project state after the corrections, dunning and support-draft blocks |
 | c1f9053 | 2026-09-20 | AI for support: a reply drafted for the agent; what a person types is masked before a model sees it |
 | ce37fc4 | 2026-09-20 | Dunning acts on the service, not on the case |
 | 420efd1 | 2026-09-20 | A name on a shared node belongs to one service: the name prefix is unique |
@@ -11,6 +14,3 @@
 | 1b3d2d7 | 2026-09-20 | The accounting day, top-up ceilings that hold, a conversation that belongs to one person |
 | 59e88ea | 2026-09-20 | Control points as numbers; panels are asked what they really answer; the assistant checks a service |
 | 0a83c97 | 2026-09-20 | Audit: what waiting on ISPConfig really watches, why it cannot be seconds, and what to watch instead |
-| 4ef56bb | 2026-09-20 | An operation forgets the secrets it carried; a generated password is read once, by whoever manages the service |
-| 236f564 | 2026-09-20 | Four eyes work: a critical staff action opens a request, somebody else decides it; consoles get named roles |
-| 38e1771 | 2026-09-20 | A backup is fresh and whole, or it fails; core actions belong to the families that have them |
