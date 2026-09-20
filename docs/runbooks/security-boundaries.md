@@ -97,6 +97,14 @@ databases, sub-domains) for anything but a web binding, and termination revokes 
 cancelling a **mail** service used to delete the FTP and shell accounts of the stranger whose web domain had the same
 number. Test: `tests/Contract/IspConfigContractTest.php`.
 
+## 9. Whoever acts on a service is asked the same question
+
+A shared service (`service_access_grants` → resource-scoped bindings), a project role and an organization role all end
+in `Authorizer::can(person, permission, CommandScope::resource(service, organization, project))`. The authorizer is one
+per process and is emptied after every request and before every queued job, so a permission taken away is not answered
+from memory. The assistant reads and proposes through `AssistantScope`, built from the same authorizer.
+Details: `docs/runbooks/service-sharing-and-assistant.md`.
+
 ## What to look at on staging after deploying this
 
 * migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;

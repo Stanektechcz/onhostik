@@ -50,6 +50,12 @@ final class Presenters
 
     public static function organization(Organization $organization, ?string $role = null): array
     {
+        if ($role === 'guest') {
+            // somebody a single service was shared with: the name of whose service it is, and nothing of the company behind it —
+            // no billing identity, no billing e-mail, no settings, no referral code
+            return ['id' => $organization->id, 'slug' => $organization->slug, 'name' => $organization->name, 'locale' => $organization->locale, 'currency' => $organization->currency, 'role' => $role, 'guest' => true];
+        }
+
         return [
             'id' => $organization->id, 'slug' => $organization->slug, 'name' => $organization->name, 'type' => $organization->type, 'country' => $organization->country, 'currency' => $organization->currency, 'locale' => $organization->locale,
             'billing' => ['email' => $organization->billing_email, 'mode' => $organization->billing_mode, 'ico' => $organization->ico, 'dic' => $organization->dic, 'vat_id' => $organization->vat_id, 'vat_status' => $organization->vat_status, 'street' => $organization->street, 'city' => $organization->city, 'postal_code' => $organization->postal_code],

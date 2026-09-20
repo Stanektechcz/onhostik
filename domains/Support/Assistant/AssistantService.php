@@ -19,6 +19,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentStateMachineStates as PaymentState;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceFeatures;
@@ -33,6 +34,7 @@ use Onhost\Domain\Support\Triage;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Money\Money;
@@ -53,6 +55,19 @@ final class AssistantService
     public const HANDOFF_WORDS = ['clovek', 'cloveka', 'operator', 'operatora', 'podpora', 'podporu', 'human', 'agent', 'someone', 'nekdo zivy'];
 
     public const LEGAL_WORDS = ['reverse charge', 'danov', 'dan z', 'dph', 'legal', 'pravni', 'smlouv', 'gdpr', 'reklamac', 'odstoup'];
+
+    /**
+     * What the agent may read about ONE service, by family: listings that describe the service and carry neither secrets
+     * nor file contents. Whatever comes back still passes the redactor, and the plan's own feature gates apply.
+     */
+    private const READABLE = [
+        'web' => ['databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'wordpress', 'cdn', 'backups'],
+        'managed' => ['databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'wordpress', 'cdn', 'backups'],
+        'mail' => ['mailboxes', 'aliases', 'dkim', 'mail_forwards', 'mail_lists', 'mail_usage', 'backups'],
+        'game' => ['status', 'schedules', 'allocations', 'backups'],
+        'cloud' => ['snapshots', 'firewall', 'backups'],
+        'data' => ['snapshots', 'backups'],
+    ];
 
     /** Extra system guidance when the LLM acts as the service-management agent (proposals become confirm buttons). */
     private const AGENT_PROMPT = "\n\nYou can also help manage the customer's services. Use list_services to see them and get_service_status for details. When the customer asks for a change (restart, backup, deploy, WordPress update, Redis cache, staging refresh/push, CDN purge, certificate, PHP version), call propose_service_action once per action — the platform shows it as a button the customer must confirm; never claim an action ran. Only propose actions the tool reports as available. Explain briefly what the action does and any risk (e.g. staging push replaces production).";
@@ -628,6 +643,7 @@ final class AssistantService
         if ($scope !== null && $scope->seesAnyService()) {
             $tools[] = ['name' => 'list_services', 'description' => 'The signed-in organization\'s services with their state, enabled features and the actions each one accepts (read-only).', 'parameters' => ['type' => 'object', 'properties' => new \stdClass, 'required' => []]];
             $tools[] = ['name' => 'get_service_status', 'description' => 'Recent operations, uptime monitoring and quotas of one service (read-only).', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string']], 'required' => ['service_id']]];
+            $tools[] = ['name' => 'get_service_resource', 'description' => 'One read-only listing of a service: web — databases, cron, subdomains, certificate, redirect, php_settings, quotas, monitoring, staging, deploy, wordpress, cdn; mail — mailboxes, aliases, dkim, mail_forwards, mail_lists, mail_usage; game — status, schedules, allocations; cloud — snapshots, firewall; every family — backups (the last backups with their state, date and size). Passwords are never included.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'kind' => ['type' => 'string']], 'required' => ['service_id', 'kind']]];
             $tools[] = ['name' => 'propose_service_action', 'description' => 'Propose one action on a service; the customer confirms it with a button. action is one of the service\'s actions (e.g. backup, power with params.power_action reboot|shutdown|start, deploy.run, wp.update, wp.cache with params.enabled, staging.refresh, staging.push, cdn.purge, ssl.issue, https.force, php.set with params.version).', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'action' => ['type' => 'string'], 'params' => ['type' => 'object'], 'label' => ['type' => 'string', 'description' => 'short button label in the customer\'s language']], 'required' => ['service_id', 'action']]];
         }
         $usage = ['input_tokens' => 0, 'output_tokens' => 0];
@@ -651,6 +667,7 @@ final class AssistantService
                     'search_api_reference' => $this->apiReference((string) ($call['arguments']['query'] ?? '')),
                     'list_services' => $scope !== null ? $this->serviceCatalogue($scope) : [],
                     'get_service_status' => $scope !== null ? $this->serviceStatus($scope, (string) ($call['arguments']['service_id'] ?? '')) : [],
+                    'get_service_resource' => $scope !== null ? $this->serviceResource($scope, (string) ($call['arguments']['service_id'] ?? ''), (string) ($call['arguments']['kind'] ?? '')) : [],
                     'propose_service_action' => $scope !== null ? $this->propose($scope, (array) $call['arguments'], $locale, $proposed) : ['ok' => false, 'error' => 'sign in first'],
                     default => ['error' => 'unknown tool'],
                 };
@@ -682,6 +699,44 @@ final class AssistantService
         }
 
         return $out;
+    }
+
+    /**
+     * One listing of one service the person may see. Read-only, from the allow-list of its family, redacted, and cut to a
+     * size a model can take — a list of four hundred cron jobs is answered with the first of them and the count.
+     *
+     * @return array<string,mixed>
+     */
+    private function serviceResource(AssistantScope $scope, string $serviceId, string $kind): array
+    {
+        $service = $scope->service($serviceId);
+        if ($service === null) {
+            return ['error' => 'unknown service'];
+        }
+        $allowed = self::READABLE[$service->family] ?? [];
+        if (! in_array($kind, $allowed, true)) {
+            return ['error' => 'not readable here', 'available' => $allowed];
+        }
+        try {
+            $data = $kind === 'backups'
+                ? Backup::query()->where('service_id', $service->id)->orderByDesc('started_at')->limit(8)->get()->map(fn ($b) => ['id' => $b->id, 'kind' => $b->kind, 'state' => $b->state, 'started_at' => $b->started_at?->toIso8601String(), 'finished_at' => $b->finished_at?->toIso8601String(), 'size_bytes' => $b->size_bytes, 'protected' => (bool) $b->protected])->all()
+                : $this->features->resources($service, $kind);
+        } catch (DomainError $e) {
+            return ['error' => $e->error]; // not part of the plan, or the node does not answer right now
+        } catch (\Throwable) {
+            return ['error' => 'the service does not answer right now'];
+        }
+        $data = $this->redactor->redact($data);
+        $total = is_array($data) && array_is_list($data) ? count($data) : null;
+        if ($total !== null && $total > 25) {
+            $data = array_slice($data, 0, 25);
+        }
+        $json = (string) json_encode($data, JSON_UNESCAPED_UNICODE);
+        if (strlen($json) > 6000) {
+            return ['service_id' => $service->id, 'kind' => $kind, 'total' => $total, 'truncated' => true, 'data' => mb_substr($json, 0, 6000)];
+        }
+
+        return ['service_id' => $service->id, 'kind' => $kind, 'total' => $total, 'data' => $data];
     }
 
     /** The LLM's proposal, validated against what the service really offers; becomes a confirm button. @return array<string,mixed> */

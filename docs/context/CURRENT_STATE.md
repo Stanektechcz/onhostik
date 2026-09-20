@@ -85,9 +85,15 @@
   `docs/runbooks/billing-dunning.md`. What the review found and did NOT fix is listed in
   `docs/runbooks/production-readiness-audit.md` §"Review 2026-09-20".
 
+- One service can be **shared** with another person with named capabilities and an end date (guest membership,
+  resource-scoped bindings, revocation takes panel-side access with it); the **AI assistant** answers and proposes
+  with the signed-in person's permissions and works for support over one customer's account
+  (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
+  scheduler.
+
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 541 tests, 11 800 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 550 tests, 11 983 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

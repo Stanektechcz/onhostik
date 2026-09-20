@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Queue;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Services\Access\ServiceAccessService;
+use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Support\Assistant\AiProviderRegistry;
 use Onhost\Domain\Support\Assistant\AssistantService;
 use Onhost\Domain\Support\Models\AiRun;
@@ -15,6 +16,7 @@ use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Providers\Contracts\AiProvider;
+use Onhost\Providers\Contracts\Naming;
 
 /*
  * The assistant answers with what the SIGNED-IN PERSON may see, and offers what they may do. It used to read with the
@@ -158,4 +160,55 @@ it('works for support over one customer\'s account: the 360 view in plain langua
     // a customer cannot reach the staff assistant, and staff without the customer view cannot either
     $this->actingAs($owner, 'sanctum')->postJson('/v1/staff/assistant/chat', ['text' => 'x', 'organization_id' => $other->id])->assertForbidden();
     $this->actingAs($this->staff('marketing_content'), 'sanctum')->postJson('/v1/staff/assistant/chat', ['text' => 'x', 'organization_id' => $org->id])->assertForbidden();
+});
+
+it('lets the agent read one listing of a visible service from the allow-list of its family, without secrets or file contents', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $shop = featureWebService($org, 'aapanel');
+    [, $other] = $this->customerWithOrganization(['email' => 'soused@example.cz']);
+    $foreign = featureMailService($other, 'soused-posta.cz');
+    Backup::query()->create(['service_id' => $shop->id, 'organization_id' => $org->id, 'kind' => 'manual', 'state' => 'completed', 'remote_id' => 'bk-1', 'size_bytes' => 2048, 'started_at' => now()->subHour(), 'finished_at' => now()->subHour()]);
+    $db = Naming::prefix($shop->id).'_eshop'; // the panel lists every database of the node; the adapter keeps the ones that carry this service's prefix
+    Http::fake(fn () => Http::response(['status' => true, 'data' => [['id' => 5, 'name' => $db, 'username' => $db, 'password' => 'Velmi-Tajne-Heslo-2026', 'ps' => 'eshop'], ['id' => 6, 'name' => 'ohzzzzzz_cizi', 'username' => 'ohzzzzzz_cizi', 'password' => 'Velmi-Silne-Heslo-2026']]]));
+
+    $asks = new class([['service_id' => $shop->id, 'kind' => 'backups'], ['service_id' => $shop->id, 'kind' => 'databases'], ['service_id' => $shop->id, 'kind' => 'files'], ['service_id' => $shop->id, 'kind' => 'ftp'], ['service_id' => $shop->id, 'kind' => 'shell_users'], ['service_id' => $foreign->id, 'kind' => 'backups']]) implements AiProvider
+    {
+        public int $round = 0;
+
+        public function __construct(private readonly array $asks) {}
+
+        public static function providerKey(): string
+        {
+            return 'fake';
+        }
+
+        public function chat(array $messages, array $tools = [], array $options = []): array
+        {
+            if (++$this->round === 1) {
+                return ['content' => null, 'tool_calls' => array_map(fn ($a, $i) => ['id' => "r{$i}", 'name' => 'get_service_resource', 'arguments' => $a], $this->asks, array_keys($this->asks)), 'usage' => ['input_tokens' => 1, 'output_tokens' => 1], 'model' => 'fake-1', 'finish_reason' => 'tool_calls'];
+            }
+
+            return ['content' => implode("\n", array_map(fn ($m) => (string) $m['content'], array_values(array_filter($messages, fn ($m) => ($m['role'] ?? '') === 'tool')))), 'tool_calls' => [], 'usage' => ['input_tokens' => 1, 'output_tokens' => 1], 'model' => 'fake-1', 'finish_reason' => 'stop'];
+        }
+
+        public function embeddings(array $inputs, array $options = []): array
+        {
+            return [];
+        }
+
+        public function moderate(string $input): array
+        {
+            return ['flagged' => false, 'categories' => []];
+        }
+    };
+    app(AiProviderRegistry::class)->override($asks);
+    $lines = explode("\n", app(AssistantService::class)->chat('Jaké mám zálohy a databáze?', $org, $owner, 'res-1', $this->contextFor($owner, $org))['text']);
+    [$backups, $databases, $files, $ftp, $shell, $stranger] = array_map(fn ($l) => json_decode($l, true), $lines);
+
+    expect($backups['data'][0])->toMatchArray(['kind' => 'manual', 'state' => 'completed', 'size_bytes' => 2048]);
+    expect(json_encode($databases))->toContain($db)->not->toContain('Velmi-Tajne-Heslo-2026')->not->toContain('ohzzzzzz_cizi'); // a listing of THIS service, never the password in it
+    foreach ([$files, $ftp, $shell] as $refused) { // file contents and accounts that let somebody in are not the agent's to read
+        expect($refused['error'])->toBe('not readable here');
+    }
+    expect($stranger)->toBe(['error' => 'unknown service']);
 });

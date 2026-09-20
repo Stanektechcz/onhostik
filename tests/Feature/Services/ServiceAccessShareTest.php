@@ -68,7 +68,9 @@ it('shares one service with somebody outside the organization: they accept, see 
     expect(array_column($listed, 'id'))->toBe([$shop->id]);
     $this->getJson("/v1/services/{$shop->id}", $h)->assertOk();
     expect($this->getJson('/v1/me/shared-services')->assertOk()->json('data.0'))->toMatchArray(['service_id' => $shop->id, 'capabilities' => ['view', 'manage', 'backups']]);
-    // … and nothing else of the organization
+    // … and nothing else of the organization: not even who the company behind the service is
+    $me = $this->getJson('/v1/me', $h)->assertOk()->json('data.organizations.0');
+    expect($me)->toMatchArray(['id' => $org->id, 'role' => 'guest', 'guest' => true])->and(array_key_exists('billing', $me))->toBeFalse()->and(array_key_exists('referral_code', $me))->toBeFalse();
     $this->getJson("/v1/services/{$other->id}", $h)->assertForbidden();
     $this->getJson('/v1/invoices', $h)->assertForbidden();
     $this->getJson('/v1/wallet', $h)->assertForbidden();
