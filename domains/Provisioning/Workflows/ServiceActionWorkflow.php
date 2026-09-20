@@ -651,7 +651,10 @@ final class ServiceActionWorkflow implements Workflow
                     }
                 };
                 try {
-                    if ($adapter instanceof WebHostingProvider) {
+                    // The ISPConfig adapter is a WebHostingProvider for EVERY service it runs, a mail domain included — and a mail
+                    // domain's id looked up among web sites is somebody else's site: cancelling a mail service listed and deleted
+                    // the FTP and shell accounts of the stranger whose web domain happened to carry the same number.
+                    if ($adapter instanceof WebHostingProvider && in_array($ref->remoteType, ['site', 'web_domain'], true)) {
                         foreach ($adapter->listFtpAccounts($ref) as $account) {
                             $attempt('ftp', (string) $account['remote_id'], (string) ($account['user'] ?? $account['remote_id']), fn () => $adapter->deleteFtpAccount($ref, (string) $account['remote_id']));
                         }

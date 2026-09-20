@@ -110,3 +110,14 @@ it('never touches a web site when a mail service is read, suspended or terminate
     expect(fn () => $adapter->terminate(new ResourceRef('database', '41', '1')))->toThrow(ProviderException::class);
     Http::assertNotSent(fn ($r) => str_contains($r->url(), 'sites_web_domain_delete'));
 });
+
+it('refuses web-site calls for a mail domain: its number among web sites is somebody else\'s site', function () {
+    Http::preventStrayRequests();
+    Http::fake(); // nothing may reach the panel
+    $adapter = ispAdapter();
+    $mail = new ResourceRef('mail_domain', '42', '1', ['domain' => 'posta.cz'], 'srv_mail');
+    foreach ([fn () => $adapter->listFtpAccounts($mail), fn () => $adapter->deleteFtpAccount($mail, '9'), fn () => $adapter->listShellUsers($mail), fn () => $adapter->deleteShellUser($mail, '9'), fn () => $adapter->listCron($mail), fn () => $adapter->deleteDatabase($mail, '9'), fn () => $adapter->listSubdomains($mail)] as $call) {
+        expect($call)->toThrow(fn (ProviderException $e) => expect($e->errorCode)->toBe(ProviderErrorCode::VALIDATION));
+    }
+    Http::assertNothingSent();
+});

@@ -2911,30 +2911,6 @@ parameters:
 			path: domains/Provisioning/ProviderInstanceService.php
 
 		-
-			message: '#^Access to constant PENDING on an unknown class Onhost\\Domain\\Provisioning\\Operation\.$#'
-			identifier: class.notFound
-			count: 1
-			path: domains/Provisioning/Reconciler.php
-
-		-
-			message: '#^Access to constant RUNNING on an unknown class Onhost\\Domain\\Provisioning\\Operation\.$#'
-			identifier: class.notFound
-			count: 1
-			path: domains/Provisioning/Reconciler.php
-
-		-
-			message: '#^Access to constant WAITING on an unknown class Onhost\\Domain\\Provisioning\\Operation\.$#'
-			identifier: class.notFound
-			count: 1
-			path: domains/Provisioning/Reconciler.php
-
-		-
-			message: '#^Call to static method query\(\) on an unknown class Onhost\\Domain\\Provisioning\\Operation\.$#'
-			identifier: class.notFound
-			count: 1
-			path: domains/Provisioning/Reconciler.php
-
-		-
 			message: '#^Parameter \#4 \$attributes of class Onhost\\Providers\\Contracts\\ResourceSpec constructor expects array\<string, mixed\>, array\<int\|string, string\|null\> given\.$#'
 			identifier: argument.type
 			count: 1

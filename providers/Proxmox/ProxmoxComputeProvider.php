@@ -117,8 +117,15 @@ final class ProxmoxComputeProvider implements ComputeProvider
 
     public function provision(ResourceSpec $spec): ProviderResult
     {
-        $existing = $this->findByIdempotencyTag($spec->idempotencyKey);
+        // An earlier attempt may have created the guest already: the clone was accepted and the answer got lost, or the worker
+        // died before the binding was written. Tags cannot be given to a clone, so a guest in the middle of being cloned is
+        // recognised by the description the clone DID get; without that a retried step cloned a second server (H38).
+        $existing = $this->findByIdempotencyTag($spec->idempotencyKey) ?? $this->findByCloneMarker($spec);
         if ($existing !== null) {
+            if (($existing['lock'] ?? '') !== '') { // still being cloned: come back later, do not start another one
+                throw new ProviderException('proxmox', ProviderErrorCode::TRANSIENT, "Guest {$existing['vmid']} of this service is still locked ({$existing['lock']}) by an earlier attempt");
+            }
+
             return ProviderResult::completed(new ResourceRef('qemu', (string) $existing['vmid'], $existing['node'], ['name' => $existing['name']], $spec->serviceId), $existing, alreadyExisted: true);
         }
         $node = $spec->node ?? (string) $this->instance->option('default_node');
@@ -136,7 +143,7 @@ final class ProxmoxComputeProvider implements ComputeProvider
             'target' => $node,
             'storage' => $spec->get('storage') ?? $this->instance->option('storage'),
             'pool' => $this->instance->option('pool'),
-            'description' => "ONhost service {$spec->serviceId}",
+            'description' => self::cloneMarker($spec),
         ], fn ($v) => $v !== null && $v !== '');
         $templateNode = (string) ($templates[$image.'_node'] ?? $this->instance->option('template_node', $node));
         $upid = $this->api->post("/nodes/{$templateNode}/qemu/{$templateVmid}/clone", $params, 'qemu.clone', true);
@@ -183,7 +190,7 @@ final class ProxmoxComputeProvider implements ComputeProvider
 
     public function resize(ResourceRef $vm, ResourceSpec $spec): ProviderResult
     {
-        $this->applyConfig($vm, array_filter(['cores' => $spec->get('vcpu'), 'memory' => $spec->get('ram_mb'), 'cpulimit' => $spec->get('cpu_limit')], fn ($v) => $v !== null));
+        $this->applyConfig($vm, array_filter(['cores' => $spec->get('vcpu'), 'memory' => $spec->get('ram_mb'), 'cpulimit' => $spec->get('cpu_limit'), 'tags' => $this->tagsToWrite($vm, $spec)], fn ($v) => $v !== null));
         $diskGb = $spec->get('nvme_gb');
         if ($diskGb !== null) {
             $current = $this->getActualState($vm);
@@ -258,7 +265,8 @@ final class ProxmoxComputeProvider implements ComputeProvider
                 $drifts[] = ActionPlan::drift($want, (int) $expected, (int) $actual->get($have), 'ONHOST_MANAGED', $class);
             }
         }
-        $expectedTags = $this->tags($spec);
+        // the tags that say whose guest this is; the idempotency tag belongs to the operation that created it, not to the service
+        $expectedTags = ['onhost', self::serviceTag($spec->serviceId)];
         $actualTags = array_filter(explode(';', (string) $actual->get('tags', '')));
         if (array_diff($expectedTags, $actualTags) !== []) {
             $drifts[] = ActionPlan::drift('tags', $expectedTags, $actualTags, 'ONHOST_MANAGED', 'AUTO_REPAIRABLE');
@@ -492,6 +500,55 @@ final class ProxmoxComputeProvider implements ComputeProvider
         }
 
         return null;
+    }
+
+    /** What a clone is told about itself — the only thing of ours a guest carries while it is still being cloned. */
+    public static function cloneMarker(ResourceSpec $spec): string
+    {
+        return "ONhost service {$spec->serviceId} [".self::idempotencyTag($spec->idempotencyKey).']';
+    }
+
+    /** @return array{vmid:int, node:string, name:string, lock:string}|null */
+    private function findByCloneMarker(ResourceSpec $spec): ?array
+    {
+        $name = $this->safeName((string) $spec->get('hostname', $spec->serviceId));
+        $needle = "ONhost service {$spec->serviceId}";
+        foreach ($this->listGuests() as $guest) {
+            if ($guest['template'] === 1 || $guest['name'] !== $name) {
+                continue;
+            }
+            try {
+                $config = (array) $this->api->get("/nodes/{$guest['node']}/qemu/{$guest['vmid']}/config", [], 'qemu.config.get');
+            } catch (ProviderException $e) {
+                if ($e->errorCode === ProviderErrorCode::NOT_FOUND) {
+                    continue;
+                }
+                throw $e;
+            }
+            $description = rawurldecode((string) ($config['description'] ?? ''));
+            if (str_starts_with($description, $needle) && (strlen($description) === strlen($needle) || $description[strlen($needle)] === ' ')) {
+                return ['vmid' => $guest['vmid'], 'node' => $guest['node'], 'name' => $guest['name'], 'lock' => (string) ($config['lock'] ?? '')];
+            }
+        }
+
+        return null;
+    }
+
+    /** Tags are added to what the guest has, never taken away: `onhost`, the service, and the idempotency tag of the first writer. */
+    private function tagsToWrite(ResourceRef $vm, ResourceSpec $spec): ?string
+    {
+        try {
+            $current = array_values(array_filter(explode(';', (string) (((array) $this->api->get("/nodes/{$vm->node}/qemu/{$vm->remoteId}/config", [], 'qemu.config.get'))['tags'] ?? ''))));
+        } catch (ProviderException) {
+            return null; // the size is what this call is about; the reconciler reports missing tags
+        }
+        $wanted = ['onhost', self::serviceTag($spec->serviceId)];
+        if (array_filter($current, fn (string $tag) => str_starts_with($tag, 'idem-')) === []) {
+            $wanted[] = self::idempotencyTag($spec->idempotencyKey);
+        }
+        $merged = array_values(array_unique(array_merge($current, $wanted)));
+
+        return $merged === $current ? null : implode(';', $merged);
     }
 
     /** @return list<string> */

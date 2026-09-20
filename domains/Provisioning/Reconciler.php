@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Provisioning;
 
+use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\ResourceDrift;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;

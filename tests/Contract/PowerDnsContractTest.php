@@ -61,3 +61,19 @@ it('reports DNSSEC status with DS records', function () {
     $status = pdnsAdapter()->dnssecStatus('example.cz');
     expect($status['enabled'])->toBeTrue()->and($status['ds'])->toHaveCount(2)->and($status['keys'][0]['type'])->toBe('csk');
 });
+
+it('publishes a long TXT value as character-strings of at most 255 bytes and reads it back whole', function () {
+    $dkim = 'v=DKIM1; k=rsa; p='.str_repeat('MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA', 9).'IDAQAB'; // a 2048-bit key: ~410 characters
+    $wire = PowerDnsProvider::txtToWire($dkim);
+    preg_match_all('/"((?:[^"\\\\]|\\\\.)*)"/', $wire, $parts);
+    expect(count($parts[1]))->toBe(2)->and(strlen($parts[1][0]))->toBe(255)->and(strlen($parts[1][1]))->toBe(strlen($dkim) - 255)
+        ->and(PowerDnsProvider::txtFromWire($wire))->toBe($dkim);
+    // quotes, backslashes and multi-byte characters survive the round trip and never straddle a cut
+    $odd = str_repeat('ž', 130).' "quoted" and a \\ backslash';
+    $oddWire = PowerDnsProvider::txtToWire($odd);
+    expect(PowerDnsProvider::txtFromWire($oddWire))->toBe($odd);
+    foreach (explode('" "', trim($oddWire, '"')) as $chunk) {
+        expect(mb_check_encoding($chunk, 'UTF-8'))->toBeTrue();
+    }
+    expect(PowerDnsProvider::txtToWire('v=spf1 -all'))->toBe('"v=spf1 -all"')->and(PowerDnsProvider::txtToWire(''))->toBe('""');
+});

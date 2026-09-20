@@ -347,10 +347,40 @@ final class PowerDnsProvider implements DnsProvider
             return $record['prio'].' '.$content;
         }
         if ($type === 'TXT' && ! str_starts_with($content, '"')) {
-            return '"'.str_replace('"', '\"', $content).'"';
+            return self::txtToWire($content);
         }
 
         return $content;
+    }
+
+    /**
+     * A TXT value on the wire is a sequence of character-strings of at most 255 bytes each (RFC 1035 §3.3.14). One quoted
+     * string of any length was refused by the server, so a 2048-bit DKIM key — the most common long record there is —
+     * could not be published at all. The value is cut on byte boundaries that keep UTF-8 characters whole, then escaped.
+     */
+    public static function txtToWire(string $content): string
+    {
+        $chunks = [];
+        for ($rest = $content; $rest !== '';) {
+            $chunk = mb_strcut($rest, 0, 255, 'UTF-8');
+            if ($chunk === '') { // not valid UTF-8: cut bytes
+                $chunk = substr($rest, 0, 255);
+            }
+            $chunks[] = '"'.str_replace(['\\', '"'], ['\\\\', '\\"'], $chunk).'"';
+            $rest = (string) substr($rest, strlen($chunk));
+        }
+
+        return $chunks === [] ? '""' : implode(' ', $chunks);
+    }
+
+    /** The reverse: `"part one" "part two"` is one value. */
+    public static function txtFromWire(string $content): string
+    {
+        if (preg_match_all('/"((?:[^"\\\\]|\\\\.)*)"/s', $content, $m) < 1) {
+            return $content;
+        }
+
+        return implode('', array_map(fn (string $part) => (string) preg_replace('/\\\\(.)/s', '$1', $part), $m[1]));
     }
 
     private function normalize(array $record): array
@@ -358,7 +388,7 @@ final class PowerDnsProvider implements DnsProvider
         $type = strtoupper((string) $record['type']);
         $content = trim((string) $record['content']);
         if ($type === 'TXT' && str_starts_with($content, '"') && str_ends_with($content, '"')) {
-            $content = stripslashes(substr($content, 1, -1));
+            $content = self::txtFromWire($content);
         }
         if (in_array($type, ['CNAME', 'MX', 'NS', 'SRV', 'PTR'], true) && ! str_ends_with($content, '.') && str_contains($content, '.')) {
             $content .= '.';

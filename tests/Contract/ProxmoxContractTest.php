@@ -2,11 +2,13 @@
 
 declare(strict_types=1);
 
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
+use Onhost\Providers\Contracts\ActualState;
 use Onhost\Providers\Contracts\AsyncStatus;
 use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\ResourceSpec;
@@ -98,6 +100,66 @@ it('reads actual state, detects drift and never treats a customer power change a
     $plan = $adapter->reconcile(new ResourceSpec('srv_01j0test', 'vm', 'k', ['vcpu' => 4, 'ram_mb' => 4096, 'nvme_gb' => 80, 'power_state' => 'running']), $actual);
     $fields = array_column($plan->drifts, 'classification', 'field');
     expect($fields['vcpu'])->toBe('AUTO_REPAIRABLE')->and($fields['power_state'])->toBe('EXPECTED')->and(isset($fields['ram_mb']))->toBeFalse();
+    // the idempotency tag belongs to the operation that created the guest: another key (the reconciler's own) is no drift
+    expect(isset($fields['tags']))->toBeFalse();
+    $untagged = $adapter->reconcile(new ResourceSpec('srv_01j0test', 'vm', 'k', ['vcpu' => 2, 'ram_mb' => 4096, 'nvme_gb' => 80]), new ActualState(true, ['vcpu' => 2, 'ram_mb' => 4096, 'disk_gb' => 80, 'tags' => ''], 'running', now()->toISOString()));
+    expect(array_column($untagged->drifts, 'classification', 'field'))->toBe(['tags' => 'AUTO_REPAIRABLE']);
+});
+
+it('does not clone a second server when the answer to the first clone was lost (H38)', function () {
+    // what Proxmox looks like after a clone whose HTTP answer never arrived: the guest exists, carries the description the
+    // clone was given, has no tags yet (a clone cannot be given any) and is locked while the disks are copied
+    $spec = new ResourceSpec('srv_01j0test', 'vm', 'ord-1:provision.vps:v1', ['image' => 'debian-13', 'hostname' => 'app-prod', 'vcpu' => 4, 'ram_mb' => 8192], 'prg1-n2', 'cz1');
+    $lock = 'clone';
+    Http::fake(function (Request $request) use (&$lock, $spec) {
+        $path = (string) parse_url($request->url(), PHP_URL_PATH);
+
+        return match (true) {
+            str_ends_with($path, '/cluster/resources') => Http::response(['data' => [
+                ['type' => 'qemu', 'vmid' => 9001, 'node' => 'prg1-n2', 'name' => 'app-prod', 'tags' => '', 'template' => 1],                       // a template that happens to share the name
+                ['type' => 'qemu', 'vmid' => 1041, 'node' => 'prg1-n2', 'name' => 'app-prod', 'tags' => '', 'status' => 'running'],                 // another customer's guest with the same host name
+                ['type' => 'qemu', 'vmid' => 1042, 'node' => 'prg1-n3', 'name' => 'app-prod', 'tags' => '', 'status' => 'stopped'],
+            ]]),
+            str_ends_with($path, '/nodes/prg1-n2/qemu/1041/config') => Http::response(['data' => ['name' => 'app-prod', 'description' => 'ONhost service srv_01j0testother [idem-ffffffffffff]']]),
+            str_ends_with($path, '/nodes/prg1-n3/qemu/1042/config') => Http::response(['data' => array_filter(['name' => 'app-prod', 'description' => rawurlencode(ProxmoxComputeProvider::cloneMarker($spec)), 'lock' => $lock])]),
+            default => Http::response(['data' => null, 'message' => 'unexpected '.$path], 500),
+        };
+    });
+    $adapter = pveAdapter();
+
+    // while the first clone is still copying: come back later (retryable), never a second clone
+    expect(fn () => $adapter->provision($spec))->toThrow(fn (ProviderException $e) => expect($e->errorCode)->toBe(ProviderErrorCode::TRANSIENT));
+    $lock = '';
+    $result = $adapter->provision($spec);
+    expect($result->completed)->toBeTrue()->and($result->alreadyExisted)->toBeTrue()->and($result->ref->remoteId)->toBe('1042')->and($result->ref->node)->toBe('prg1-n3');
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), '/clone') || str_contains($request->url(), '/nextid'));
+});
+
+it('gives a new guest its tags with the first resize and leaves tags it already has alone', function () {
+    $config = ['cores' => 1, 'sockets' => 1, 'memory' => 1024, 'scsi0' => 'local-zfs:vm-1042-disk-0,size=20G', 'name' => 'app-prod', 'tags' => 'customer-note'];
+    $written = [];
+    Http::fake(function (Request $request) use (&$config, &$written) {
+        if (str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/qemu/1042/config')) {
+            if ($request->method() === 'GET') {
+                return Http::response(['data' => $config]);
+            }
+            $written[] = $request->data();
+            $config = array_merge($config, $request->data());
+
+            return Http::response(['data' => null]);
+        }
+
+        return Http::response(['data' => ['status' => 'running', 'uptime' => 5]]);
+    });
+    $adapter = pveAdapter();
+    $ref = new ResourceRef('qemu', '1042', 'prg1-n2', [], 'srv_01j0test');
+    $spec = new ResourceSpec('srv_01j0test', 'vm', 'ord-1:provision.vps:v1', ['vcpu' => 4, 'ram_mb' => 8192, 'nvme_gb' => 20]);
+    $adapter->resize($ref, $spec);
+    $tag = ProxmoxComputeProvider::idempotencyTag('ord-1:provision.vps:v1');
+    expect($written[0]['tags'])->toBe("customer-note;onhost;srv-01j0test;{$tag}")->and((int) $written[0]['cores'])->toBe(4);
+    // a later resize by another operation changes the size, not the tags
+    $adapter->resize($ref, new ResourceSpec('srv_01j0test', 'vm', 'repair:srv_01j0test:2026092012', ['vcpu' => 2, 'ram_mb' => 8192, 'nvme_gb' => 20]));
+    expect(isset($written[1]['tags']))->toBeFalse()->and((int) $written[1]['cores'])->toBe(2);
 });
 
 it('issues a console token that hides the VNC ticket from the browser', function () {

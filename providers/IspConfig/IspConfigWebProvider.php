@@ -357,6 +357,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function createCron(ResourceRef $site, array $job): ProviderResult
     {
+        $this->assertWebDomain($site); // a mail domain's id among web sites is a stranger's site
         [$minute, $hour, $dom, $month, $dow] = array_pad(explode(' ', trim($job['schedule'])), 5, '*');
         $id = (int) $this->api->call('sites_cron_add', ['client_id' => (int) ($site->meta['client_id'] ?? 0), 'params' => [
             'server_id' => (int) $site->node, 'parent_domain_id' => (int) $site->remoteId, 'type' => 'chrooted', 'command' => $job['command'], 'run_min' => $minute, 'run_hour' => $hour, 'run_mday' => $dom, 'run_month' => $month, 'run_wday' => $dow, 'active' => 'y', 'log' => 'y',
@@ -546,6 +547,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function listDatabases(ResourceRef $site): array
     {
+        $this->assertWebDomain($site); // a mail domain's id among web sites is a stranger's site
         $out = [];
         foreach ((array) $this->api->call('sites_database_get', ['primary_id' => ['parent_domain_id' => (int) $site->remoteId]]) as $row) {
             if (! is_array($row) || empty($row['database_id'])) {
@@ -564,6 +566,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function deleteDatabase(ResourceRef $site, string $remoteId): ProviderResult
     {
+        $this->assertWebDomain($site); // a mail domain's id among web sites is a stranger's site
         if (collect($this->listDatabases($site))->firstWhere('remote_id', $remoteId) === null) {
             return ProviderResult::completed(null, ['deleted' => false], alreadyExisted: true);
         }
@@ -586,6 +589,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function listCron(ResourceRef $site): array
     {
+        $this->assertWebDomain($site); // a mail domain's id among web sites is a stranger's site
         $out = [];
         foreach ((array) $this->api->call('sites_cron_get', ['primary_id' => ['parent_domain_id' => (int) $site->remoteId]]) as $row) {
             if (! is_array($row) || empty($row['id'])) {
@@ -599,6 +603,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function deleteCron(ResourceRef $site, string $remoteId): ProviderResult
     {
+        $this->assertWebDomain($site); // a mail domain's id among web sites is a stranger's site
         if (collect($this->listCron($site))->firstWhere('remote_id', $remoteId) === null) {
             return ProviderResult::completed(null, ['deleted' => false], alreadyExisted: true);
         }
@@ -609,6 +614,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function createFtpAccount(ResourceRef $site, array $account): ProviderResult
     {
+        $this->assertWebDomain($site); // a mail domain's id among web sites is a stranger's site
         $existing = collect($this->listFtpAccounts($site))->firstWhere('user', $account['user']);
         if ($existing !== null) {
             return ProviderResult::completed(new ResourceRef('ftp', $existing['remote_id'], $site->node, ['user' => $account['user']], $site->serviceId), alreadyExisted: true);
@@ -625,6 +631,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function listFtpAccounts(ResourceRef $site): array
     {
+        $this->assertWebDomain($site); // a mail domain's id among web sites is a stranger's site
         $out = [];
         foreach ((array) $this->api->call('sites_ftp_user_get', ['primary_id' => ['parent_domain_id' => (int) $site->remoteId]]) as $row) {
             if (! is_array($row) || empty($row['ftp_user_id'])) {
@@ -638,6 +645,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function deleteFtpAccount(ResourceRef $site, string $remoteId): ProviderResult
     {
+        $this->assertWebDomain($site); // a mail domain's id among web sites is a stranger's site
         if (collect($this->listFtpAccounts($site))->firstWhere('remote_id', $remoteId) === null) {
             return ProviderResult::completed(null, ['deleted' => false], alreadyExisted: true);
         }
@@ -678,6 +686,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function listSubdomains(ResourceRef $site): array
     {
+        $this->assertWebDomain($site); // a mail domain's id among web sites is a stranger's site
         $out = [];
         foreach (['sub' => 'sites_web_subdomain_get', 'alias' => 'sites_web_aliasdomain_get'] as $kind => $function) {
             foreach ((array) $this->api->call($function, ['primary_id' => ['parent_domain_id' => (int) $site->remoteId]]) as $row) {
@@ -1050,6 +1059,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function listShellUsers(ResourceRef $site): array
     {
+        $this->assertWebDomain($site); // a mail domain's id among web sites is a stranger's site
         $out = [];
         foreach ((array) $this->api->call('sites_shell_user_get', ['primary_id' => ['parent_domain_id' => (int) $site->remoteId]]) as $row) {
             if (! is_array($row) || empty($row['shell_user_id'])) {
@@ -1063,6 +1073,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function createShellUser(ResourceRef $site, array $spec): ProviderResult
     {
+        $this->assertWebDomain($site); // a mail domain's id among web sites is a stranger's site
         $existing = collect($this->listShellUsers($site))->firstWhere('user', $spec['user']);
         if ($existing !== null) {
             return ProviderResult::completed(new ResourceRef('shell_user', $existing['remote_id'], $site->node, ['user' => $spec['user']], $site->serviceId), alreadyExisted: true);
@@ -1086,6 +1097,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
 
     public function deleteShellUser(ResourceRef $site, string $remoteId): ProviderResult
     {
+        $this->assertWebDomain($site); // a mail domain's id among web sites is a stranger's site
         if (collect($this->listShellUsers($site))->firstWhere('remote_id', $remoteId) === null) {
             return ProviderResult::completed(null, ['deleted' => false], alreadyExisted: true);
         }

@@ -4,6 +4,9 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 53bb2bd | 2026-09-20 | Security review, second batch: promo uses, vhost directives, proxy upstreams, payment callbacks |
+| 925f126 | 2026-09-20 | Security review, first batch: checkout replay, VAT claim, settlement, SSRF, token scope, role grants |
+| 55a9c94 | 2026-09-20 | Step-up reads the setting that exists; an enrolled authenticator is the second factor |
 | d299073 | 2026-09-20 | An order delivers what was priced; stored hooks and Discord pass the action filter |
 | 9edcf04 | 2026-09-19 | The customer API keeps only what a customer may choose for a core action (H21) |
 | e9f5906 | 2026-09-19 | The platform notices when its own mail stops leaving (H24) |
@@ -11,6 +14,3 @@
 | ee61fe8 | 2026-09-19 | One definition of planned maintenance for the SLA (H15) |
 | 8f53615 | 2026-09-19 | Placement holds what it took; a server no node can take is refused in the cart (H04) |
 | aed18b5 | 2026-09-19 | Plan versions from the administration (H01): a plan is never edited |
-| b125c01 | 2026-09-19 | Paid work on a ticket needs an approved price (H29); support replies reach the customer |
-| 0027dfe | 2026-09-19 | Availability alarm for VPS and game servers; P0 proofs for H14, H16, H01 |
-| 88d161c | 2026-09-19 | Pin what happens when a registry refuses a domain renewal (H23) |
