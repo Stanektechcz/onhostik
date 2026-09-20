@@ -170,6 +170,7 @@ it('reconciles with the registrar listing, samples credit runway and consumes th
         'registered' => true, 'nsset' => true, 'expiration' => now()->addDays(400)->toDateString(), 'credit' => '25000.00',
         'listing' => [['name' => 'renew.cz', 'status' => 'active', 'expiration' => now()->addDays(400)->toDateString()], ['name' => 'ghost.cz', 'status' => 'active', 'expiration' => '2027-01-01']],
         'queue' => [['id' => 'n-1', 'type' => 'domain_transfer_out', 'name' => 'renew.cz']],
+        'unknown' => ['gone.cz'], // asked about it, the registrar does not have it
     ];
     registryFake($state);
     [$user, $org] = $this->customerWithOrganization();

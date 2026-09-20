@@ -8,6 +8,7 @@ use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Tax\Models\ExchangeRate;
 use Throwable;
 
@@ -79,7 +80,8 @@ final class CnbRates
                 continue;
             }
             try {
-                ExchangeRate::query()->create(['source' => self::SOURCE, 'currency' => $currency, 'valid_on' => $list['valid_on'], 'amount' => $rate['amount'], 'rate_micro' => $rate['rate_micro'], 'fetched_at' => now()]);
+                // in a savepoint: a document may be in the middle of being issued, and on PostgreSQL a refused statement aborts the whole transaction
+                DB::transaction(fn () => ExchangeRate::query()->create(['source' => self::SOURCE, 'currency' => $currency, 'valid_on' => $list['valid_on'], 'amount' => $rate['amount'], 'rate_micro' => $rate['rate_micro'], 'fetched_at' => now()]));
                 $stored++;
             } catch (UniqueConstraintViolationException) {
                 // another worker stored the same list a moment ago

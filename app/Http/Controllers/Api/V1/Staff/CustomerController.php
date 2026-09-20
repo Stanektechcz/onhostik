@@ -177,7 +177,7 @@ final class CustomerController extends ApiController
     {
         $data = $request->validate(['amount' => ['required', 'numeric', 'min:0.01', 'max:10000000'], 'currency' => ['nullable', 'in:CZK,EUR'], 'kind' => ['nullable', 'in:manual,promo'], 'note' => ['required', 'string', 'min:3', 'max:250']]);
 
-        return $this->dispatch(new StaffCustomerCommand($this->idempotencyKey($request, "wallet.credit:{$organization}:".now()->format('YmdHis')), ['op' => 'wallet.credit', 'organization_id' => $organization] + $data), $this->api->context($request, null, $data['note']), 201);
+        return $this->dispatch(new StaffCustomerCommand($this->onceKey($request, "wallet.credit:{$organization}"), ['op' => 'wallet.credit', 'organization_id' => $organization] + $data), $this->api->context($request, null, $data['note']), 201);
     }
 
     /** Price preview of an assisted order (audit §5y): the quote the order would use, nothing is placed. */

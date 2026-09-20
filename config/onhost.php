@@ -376,6 +376,8 @@ return [
         'renew_lead_days' => (int) env('ONHOST_DOMAIN_RENEW_LEAD_DAYS', 14),
         // days after the expiry during which an unpaid renewal is still attempted daily (the registry renews at the ordinary price;
         // .cz keeps a domain 30 days, most gTLDs 30–45) — afterwards only a paid restore helps
+        // a domain no registrar lists, and that the registrar says it does not have, is closed after it stayed away this long (DomainService::missingAtRegistrar)
+        'missing_confirm_hours' => (int) env('ONHOST_DOMAIN_MISSING_CONFIRM_HOURS', 36),
         'grace_retry_days' => (int) env('ONHOST_DOMAIN_GRACE_RETRY_DAYS', 20),
         'notice_days' => [60, 30, 14, 7, 3, 1],
         'search_max' => 20,

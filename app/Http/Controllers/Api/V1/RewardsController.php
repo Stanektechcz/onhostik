@@ -153,6 +153,6 @@ final class RewardsController extends ApiController
     {
         $data = $request->validate(['organization_id' => ['required', 'string', 'max:40'], 'points' => ['required', 'integer', 'min:1', 'max:10000'], 'note' => ['nullable', 'string', 'max:200'], 'reason' => ['nullable', 'string', 'max:250']]);
 
-        return $this->dispatch(new LoyaltyCommand($this->idempotencyKey($request, 'loyalty.award:'.$data['organization_id'].':'.now()->format('YmdHis')), ['op' => 'award'] + $data), $this->api->context($request, null, $data['reason'] ?? null), 201);
+        return $this->dispatch(new LoyaltyCommand($this->onceKey($request, 'loyalty.award:'.$data['organization_id']), ['op' => 'award'] + $data), $this->api->context($request, null, $data['reason'] ?? null), 201);
     }
 }

@@ -15,6 +15,7 @@ use Onhost\Platform\Redaction\Redactor;
 /**
  * Registered domain (blueprint §46). Public id `dom_…`; `fqdn_ascii` is the canonical key.
  *
+ * @property array<string,mixed>|null $meta
  * @property ?Carbon $registered_at
  * @property ?Carbon $expires_at
  * @property ?Carbon $last_reconciled_at

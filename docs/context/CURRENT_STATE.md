@@ -91,6 +91,14 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **The production database's only test is CI:** `pest-postgres` was red for 92 runs (a staff credit would have answered 500 on
+  PostgreSQL: an 81-character key in a 60-character ledger column; a retried credit was given twice). Fixed, guarded by
+  `DeclaredColumnWidthTest`, and the release runbook now says: look at the workflow after every push.
+
+- **A domain has an end:** one that left the registrar's account (asked a second way, away for 36 h) is closed —
+  `TRANSFERRED_OUT` / `DELETED`, renewals stopped, told once, reopened if a registrar lists it again; it used to stay ACTIVE for
+  ever with a nightly notice.
+
 - **A quantity is that many lines:** `qty: 3` becomes `l1`, `l1#2`, `l1#3` — own price, discount share, service, subscription and
   document line each; add-on lines are copied with their parent. The storefront cart offered a quantity the server refused.
 
@@ -185,7 +193,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 636 tests, 12 966 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 640 tests, 13 257 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

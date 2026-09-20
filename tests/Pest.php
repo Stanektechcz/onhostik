@@ -6,6 +6,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Domains\Models\Domain;
+use Onhost\Domain\Domains\Models\RegistrarContact;
 use Onhost\Domain\Identity\Authorization\ApprovalService;
 use Onhost\Domain\Identity\Authorization\Models\Approval;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
@@ -47,7 +49,8 @@ expect()->extend('toBeMoney', function (int $minor, string $currency) {
 /**
  * In-memory WEDOS registry double driven through the real WAPI JSON envelope.
  * $state keys: registered (false|'pending'|true), nsset (bool), expiration (Y-m-d), created, async (bool),
- * listing (domains-list rows), credit, queue (poll events). Commands sent are appended to $state['commands'].
+ * listing (domains-list rows), credit, queue (poll events), unknown (names `domain-info` answers "not found" for).
+ * Commands sent are appended to $state['commands'].
  */
 function registryFake(array &$state): void
 {
@@ -73,7 +76,7 @@ function registryFake(array &$state): void
                 return ($state['async'] ?? false) ? ['code' => 1001, 'result' => 'Accepted'] : [];
             })(),
             'domain-info' => (function () use (&$state, $data) {
-                if ($state['registered'] === false) {
+                if ($state['registered'] === false || in_array($data['name'] ?? '', (array) ($state['unknown'] ?? []), true)) { // `unknown`: names this registrar does not have
                     return ['code' => 3222, 'result' => 'Domain not found'];
                 }
                 if ($state['registered'] === 'pending') {
@@ -104,6 +107,15 @@ function registryFake(array &$state): void
 
         return Http::response(['response' => array_merge(['code' => 1000, 'result' => 'OK', 'timestamp' => time(), 'clTRID' => $payload['clTRID'], 'svTRID' => 'sv-'.uniqid(), 'command' => $command, 'data' => []], $overrides)]);
     }]);
+}
+
+/** A domain of an organization at the WEDOS registrar, in a given state (domain lifecycle tests). */
+function graceDomain(Organization $org, string $fqdn, string $state, DateTimeInterface $expires): Domain
+{
+    $contact = RegistrarContact::query()->firstOrCreate(['organization_id' => $org->id, 'remote_id' => 'ONH-X'], ['kind' => 'registrant', 'name' => 'Jana Nováková', 'email' => 'jana@example.cz', 'country' => 'CZ', 'state' => 'synced']);
+
+    return Domain::query()->create(['organization_id' => $org->id, 'fqdn_ascii' => $fqdn, 'fqdn_unicode' => $fqdn, 'tld' => 'cz', 'state' => $state, 'registered_at' => now()->subYear(), 'expires_at' => $expires,
+        'auto_renew' => true, 'renewal_period' => 1, 'dns_provider' => 'external', 'registrar_provider' => 'wedos', 'registrant_contact_id' => $contact->id, 'admin_contact_id' => $contact->id]);
 }
 
 /** PowerDNS double for one zone: first existence check 404, afterwards the zone exists with an empty RRset. */

@@ -4,6 +4,12 @@
 
 * `php artisan test` green; contract tests for every adapter you touched; `vendor/bin/phpstan analyse` and
   `composer audit` clean (both run in CI).
+* **The `tests` workflow is green on the commit you release — including `pest-postgres`.** The local suite runs on SQLite,
+  and SQLite forgives what the production database refuses: a VARCHAR that is too long, a statement after a failed one in
+  the same transaction. The workflow was red for 92 runs in a row (2026-09-15 → 2026-09-20) and nobody looked: a manual
+  credit by staff put its 81-character idempotency key into a 60-character ledger column and would have answered 500 in
+  production. `gh run list --branch development --workflow tests --limit 3` after every push;
+  `tests/Feature/Platform/DeclaredColumnWidthTest.php` measures stored values against the widths the migrations declare.
 * A fresh, verified platform backup exists (`onhost:platform:backup && onhost:platform:backup:verify`) — a release
   with migrations never starts without one.
 * Error-budget policy for `portal`/`payments` is not `freeze` (`GET /v1/staff/reports/slo`). A freeze blocks

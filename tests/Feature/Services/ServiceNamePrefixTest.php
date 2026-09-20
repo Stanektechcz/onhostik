@@ -45,7 +45,8 @@ it('gives a service another id when its name prefix is taken — by a running se
     expect($third->name_prefix)->not->toBe('ohabc123');
 
     // what the code would miss, the database refuses
-    expect(fn () => DB::table('services')->where('id', $third->id)->update(['name_prefix' => 'ohabc123']))->toThrow(UniqueConstraintViolationException::class);
+    // (inside a savepoint: on PostgreSQL a refused statement aborts the transaction the test runs in)
+    expect(fn () => DB::transaction(fn () => DB::table('services')->where('id', $third->id)->update(['name_prefix' => 'ohabc123'])))->toThrow(UniqueConstraintViolationException::class);
 
     // ordinary services simply get the prefix of their id
     $plain = namePrefixService($org->id);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Domains;
 
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Catalog\CatalogService;
@@ -571,7 +572,7 @@ final class DomainService
     /**
      * Daily registrar reconciliation (blueprint §46.6): registrar listing vs local, expiry sweep.
      *
-     * @return array{checked:int, updated:int, missing_remote:list<string>, unknown_remote:list<string>, expired:int}
+     * @return array{checked:int, updated:int, closed:int, missing_remote:list<string>, unknown_remote:list<string>, expired:int}
      */
     public function reconcile(CommandContext $context): array
     {
@@ -586,16 +587,21 @@ final class DomainService
         $checked = 0;
         $updated = 0;
         $asked = 0;
+        $closed = 0;
         $missing = [];
+        $this->reopenListed($remote);
         $locals = Domain::query()->whereNotIn('state', [DomainStateMachine::DELETED, DomainStateMachine::TRANSFERRED_OUT, DomainStateMachine::FAILED, DomainStateMachine::PENDING_REGISTRATION])->get();
         foreach ($locals as $domain) {
             $checked++;
             $row = $remote[$domain->fqdn_ascii] ?? null;
             if ($row === null) {
                 $missing[] = $domain->fqdn_ascii;
-                $this->outbox->publish(GenericEvent::of('domain.reconcile.missing_remote', 'domain', $domain->id, ['fqdn' => $domain->fqdn_ascii, 'state' => $domain->state], $domain->organization_id));
+                $closed += $this->missingAtRegistrar($domain, $context) ? 1 : 0;
 
                 continue;
+            }
+            if (isset($domain->meta['missing_since'])) { // it is in the listing again
+                $domain->forceFill(['meta' => array_diff_key((array) $domain->meta, ['missing_since' => 1])])->save();
             }
             $before = [$domain->state, $domain->expires_at?->toDateString()];
             if ($domain->registrar_provider !== $row['registrar_provider']) { // registry truth: the domain lives at another of our registrars (transfer between accounts)
@@ -630,9 +636,77 @@ final class DomainService
             $domain->forceFill(['state' => DomainStateMachine::EXPIRED])->save();
             $this->outbox->publish(GenericEvent::of('domain.expired', 'domain', $domain->id, ['fqdn' => $domain->fqdn_ascii, 'expires_at' => $domain->expires_at?->toIso8601String()], $domain->organization_id));
         }
-        $this->audit->record($context, 'domain.reconcile', 'succeeded', ['checked' => $checked, 'updated' => $updated, 'missing_remote' => count($missing), 'unknown_remote' => count($unknown), 'expired' => $expired->count(), 'registrars' => $registrars], 'registrar', implode(',', $registrars) ?: 'none');
+        $this->audit->record($context, 'domain.reconcile', 'succeeded', ['checked' => $checked, 'updated' => $updated, 'closed' => $closed, 'missing_remote' => count($missing), 'unknown_remote' => count($unknown), 'expired' => $expired->count(), 'registrars' => $registrars], 'registrar', implode(',', $registrars) ?: 'none');
 
-        return ['checked' => $checked, 'updated' => $updated, 'missing_remote' => $missing, 'unknown_remote' => $unknown, 'expired' => $expired->count()];
+        return ['checked' => $checked, 'updated' => $updated, 'closed' => $closed, 'missing_remote' => $missing, 'unknown_remote' => $unknown, 'expired' => $expired->count()];
+    }
+
+    /**
+     * A domain no registrar of ours lists. It used to be reported — every night, for ever — and nothing else: the domain stayed
+     * ACTIVE (or EXPIRED), renewals kept being scheduled and paid attempts made for a name that was no longer ours, and nothing
+     * ever set DELETED; TRANSFERRED_OUT only when a registrar's poll queue happened to say so.
+     *
+     * A listing may be incomplete (paging, an outage that answers with nothing), so the registrar is asked about the domain
+     * itself; and one odd answer closes nothing — the domain has to stay away for `missing_confirm_hours`. Then it is over: one
+     * that had not expired went to another registrar, one past its expiry was deleted by the registry. Renewals stop, the
+     * customer and operations are told once. Should the registrar list it again, `reopenListed()` takes it back.
+     */
+    private function missingAtRegistrar(Domain $domain, CommandContext $context): bool
+    {
+        try {
+            $this->applyRegistryInfo($domain, $this->registrar->forDomain($domain)->domainInfo($domain->fqdn_ascii));
+            if (isset($domain->meta['missing_since'])) {
+                $domain->forceFill(['meta' => array_diff_key((array) $domain->meta, ['missing_since' => 1])])->save();
+            }
+
+            return false; // the registrar has it after all: the listing was short
+        } catch (ProviderException $e) {
+            if ($e->errorCode !== ProviderErrorCode::NOT_FOUND) {
+                return false; // it cannot be asked tonight; nothing is concluded from silence
+            }
+        }
+        $meta = (array) $domain->meta;
+        if (empty($meta['missing_since'])) {
+            $domain->forceFill(['meta' => $meta + ['missing_since' => now()->toIso8601String()]])->save();
+            $this->outbox->publish(GenericEvent::of('domain.reconcile.missing_remote', 'domain', $domain->id, ['fqdn' => $domain->fqdn_ascii, 'state' => $domain->state], $domain->organization_id)); // said once, the first night
+
+            return false;
+        }
+        if (Carbon::parse((string) $meta['missing_since'])->gt(now()->subHours(max(1, (int) config('onhost.domains.missing_confirm_hours', 36))))) {
+            return false;
+        }
+        $state = $domain->expires_at !== null && $domain->expires_at->isPast() ? DomainStateMachine::DELETED : DomainStateMachine::TRANSFERRED_OUT;
+        $was = $domain->state;
+        $domain->forceFill(['state' => $state, 'auto_renew' => false, 'meta' => array_diff_key($meta, ['missing_since' => 1]) + ['closed' => ['reason' => 'missing_at_registrar', 'at' => now()->toIso8601String(), 'was' => $was, 'missing_since' => $meta['missing_since'], 'auto_renew' => (bool) $domain->auto_renew]]])->save();
+        DomainRenewalJob::query()->where('domain_id', $domain->id)->whereIn('state', [DomainRenewalJob::SCHEDULED])->update(['state' => DomainRenewalJob::SKIPPED, 'last_error' => 'the domain left the registrar account']);
+        $zone = $domain->dns_zone_id !== null ? DnsZone::query()->find($domain->dns_zone_id) : null;
+        $this->audit->record($context->withScope($domain->organization_id), 'domain.close', 'succeeded', ['fqdn' => $domain->fqdn_ascii, 'state' => $state, 'was' => $was, 'missing_since' => $meta['missing_since']], 'domain', $domain->id);
+        $this->outbox->publish(GenericEvent::of('domain.closed', 'domain', $domain->id, ['fqdn' => $domain->fqdn_ascii, 'state' => $state, 'was' => $was, 'reason' => 'missing_at_registrar', 'missing_since' => $meta['missing_since'], 'zone' => $zone?->name], $domain->organization_id));
+
+        return true;
+    }
+
+    /**
+     * A domain that was closed because no registrar listed it, and is listed again: a fault on the registrar's side that lasted
+     * two nights, or a name the customer moved back. It is ours again — state from the listing, renewals as they were.
+     *
+     * @param  array<string, array<string,mixed>>  $remote
+     */
+    private function reopenListed(array $remote): void
+    {
+        if ($remote === []) {
+            return;
+        }
+        $closed = Domain::query()->whereIn('state', [DomainStateMachine::DELETED, DomainStateMachine::TRANSFERRED_OUT])->whereNotNull('meta->closed')->get();
+        foreach ($closed as $domain) {
+            $row = $remote[$domain->fqdn_ascii] ?? null;
+            if ($row === null || ($domain->meta['closed']['reason'] ?? '') !== 'missing_at_registrar') {
+                continue;
+            }
+            $was = (array) $domain->meta['closed'];
+            $domain->forceFill(['state' => DomainStateMachine::ACTIVE, 'auto_renew' => (bool) ($was['auto_renew'] ?? true), 'registrar_provider' => (string) $row['registrar_provider'], 'meta' => array_diff_key((array) $domain->meta, ['closed' => 1])])->save();
+            $this->outbox->publish(GenericEvent::of('domain.reopened', 'domain', $domain->id, ['fqdn' => $domain->fqdn_ascii, 'closed_at' => $was['at'] ?? null, 'registrar' => $row['registrar_provider']], $domain->organization_id));
+        }
     }
 
     /** Resolve an operation left PENDING_REGISTRY/UNKNOWN after a timeout by asking the registry (S34). */

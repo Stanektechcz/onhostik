@@ -87,6 +87,11 @@ final class Lexicon
         'Obnovy domén v účtu ' => 'Domain renewals in account ', ' by nemusely projít; dobijte kredit u registrátora.' => ' may not go through; top up credit at the registrar.',
         ' zrcadlených domén bylo z panelu odebráno; u registrátora se nic nezměnilo.' => ' mirrored domains were removed from the panel; nothing changed at the registrar.',
         'Je registrována u ' => 'It is registered with ', 'registrátora' => 'registrar', ' (účet ' => ' (account ', '). Prodlužte ji tam, nebo ji převeďte k nám.' => '). Renew it there or transfer it to us.',
+        ' byla u registru smazána' => ' was deleted at the registry', ' už není u našeho registrátora' => ' is no longer at our registrar', ' byla po expiraci smazána' => ' was deleted after it expired', ' už není v naší správě' => ' is no longer managed by us',
+        'Prodlužování je zastaveno.' => 'Renewals are stopped.', ' u nás zůstává publikovaná — smažte ji, až ji zákazník nebude potřebovat.' => ' stays published with us — delete it once the customer no longer needs it.',
+        'Registr ji po uplynutí ochranné lhůty smazal. Prodlužování jsme zastavili; jméno lze zaregistrovat znovu, jakmile je volné.' => 'The registry deleted it after the protective period. We stopped the renewals; the name can be registered again once it is free.',
+        'Byla převedena k jinému registrátorovi. Prodlužování u nás jsme zastavili. Pokud jste o převod nežádali, kontaktujte ihned podporu.' => 'It was transferred to another registrar. We stopped the renewals with us. If you did not request the transfer, contact support immediately.',
+        'Doména je zpět u registrátora: ' => 'The domain is back at the registrar: ', 'Byla uzavřená jako chybějící a registrátor ji znovu vypisuje; je opět aktivní, prodlužování jako dřív.' => 'It was closed as missing and the registrar lists it again; it is active again, renewals as before.',
         'Byla převedena nebo smazána u registrátora; v panelu zůstává označená.' => 'It was transferred or deleted at the registrar; it stays flagged in the panel.',
         'V ochranné lhůtě ji lze ještě obnovit.' => 'It can still be restored within the grace period.', 'Pokud jste o převod nežádali, kontaktujte ihned podporu.' => 'If you did not request the transfer, contact support immediately.', ' záznamů' => ' records',
         // security

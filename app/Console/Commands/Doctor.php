@@ -12,6 +12,8 @@ use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\TldPolicy;
 use Onhost\Domain\Dns\Models\DnsZone;
+use Onhost\Domain\Domains\DomainStateMachine;
+use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Domains\Models\RegistrarTldCost;
 use Onhost\Domain\Domains\RegistrarClient;
 use Onhost\Domain\Domains\RegistrarPricing;
@@ -192,6 +194,12 @@ final class Doctor extends Command
         // what a service owns on a shared node is recognised by its name prefix; two services with one prefix own each other's databases
         $shared = Service::query()->withTrashed()->whereNull('name_prefix')->limit(50)->pluck('id');
         $this->add('security', 'every service has a node name prefix of its own', $shared->isEmpty(), $shared->isEmpty() ? 'prefixes are unique' : $shared->count().' service(s) share a prefix with an older one: '.$shared->take(5)->implode(', ').' — move their databases and FTP accounts before anything else (docs/runbooks/security-boundaries.md §14)');
+
+        // a domain no registrar lists, and the registrar says it does not have: closed after it stayed away (DomainService::missingAtRegistrar)
+        $away = Domain::query()->whereNotNull('meta->missing_since')->limit(50)->pluck('fqdn_ascii');
+        $this->add('lifecycle', 'no domain is missing at its registrar', $away->isEmpty(), $away->isEmpty() ? 'every domain is in its registrar\'s account' : $away->count().' domain(s) not listed and not known to the registrar: '.$away->take(5)->implode(', ').' — closed (renewals stopped) once they stayed away for '.(int) config('onhost.domains.missing_confirm_hours', 36).' h; if that is wrong, look at the registrar account now', false);
+        $orphaned = DnsZone::query()->whereIn('domain_id', Domain::query()->whereIn('state', [DomainStateMachine::DELETED, DomainStateMachine::TRANSFERRED_OUT])->select('id'))->limit(50)->pluck('name');
+        $this->add('dns', 'no DNS zone outlives its domain unnoticed', $orphaned->isEmpty(), $orphaned->isEmpty() ? 'no zone belongs to a domain that was deleted or transferred away' : $orphaned->count().' zone(s) of domains that are gone: '.$orphaned->take(5)->implode(', ').' — the customer may still use our DNS for a domain held elsewhere; delete the zone when they do not', false);
 
         $drifted = DnsZone::query()->whereNotNull('drift')->limit(50)->pluck('name');
         $this->add('dns', 'every DNS zone equals what its provider serves', $drifted->isEmpty(), $drifted->isEmpty() ? 'no differences at the last comparison (onhost:dns:drift, nightly)' : $drifted->count().' zone(s) differ: '.$drifted->take(5)->implode(', ').' — compare in the console and publish or import', false);

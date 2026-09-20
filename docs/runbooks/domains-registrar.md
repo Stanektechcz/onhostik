@@ -78,6 +78,32 @@ about it (`domain.renewal_failed`), and finance renew it by hand at the registry
 Selling premium names is a business decision (the registry's price + a margin, quoted individually); until then they
 are not sold. Tests: `tests/Feature/Domains/PremiumDomainTest.php`.
 
+## A domain has an end (2026-09-20)
+
+A domain that left the registrar's account — transferred to another registrar, or deleted by the registry after it expired —
+stayed `ACTIVE` (or `EXPIRED`) for ever: renewals kept being scheduled for it, the customer kept seeing a domain they no
+longer have, and operations got the same "missing at the registrar" notice every night. Nothing ever set `DELETED`;
+`TRANSFERRED_OUT` only when a registrar's poll queue happened to say so (Subreg has none).
+
+* The nightly reconciliation asks the registrar **about the domain itself** when no listing has it (a listing may be short:
+  paging, an outage that answers with nothing). The registrar has it → the listing was wrong, the registry's data is taken.
+  The registrar cannot be asked → nothing is concluded from silence.
+* "Not found" the first night only marks the domain (`meta.missing_since`) and tells operations **once**
+  (`domain.reconcile.missing_remote`); `onhost:doctor` (area `lifecycle`) lists the domains that are away.
+* Away for `ONHOST_DOMAIN_MISSING_CONFIRM_HOURS` (36) → the domain is **closed**: `TRANSFERRED_OUT` when it had not expired,
+  `DELETED` when it had. Automatic renewal is turned off, scheduled renewal jobs are skipped (nothing is renewed — and paid
+  for — that is not ours to renew), the customer and operations are told once (`domain.closed`), the audit has
+  `domain.close`. What it was is kept in `meta.closed`.
+* **It comes back** when a registrar lists it again (`domain.reopened`): a fault on the registrar's side that outlasted the
+  confirmation time, or a name the customer moved back. State `ACTIVE`, automatic renewal as it was.
+* The DNS zone of a closed domain **stays**: the customer may keep using our DNS for a domain held elsewhere. The doctor
+  (area `dns`) lists zones whose domain is gone, the closing notice names the zone — deleting it is a person's decision.
+* Deleting a domain at the registry **on request** (before it expires) is not offered: turning automatic renewal off lets it
+  lapse, which is what registrars' own panels do. A registry delete is irreversible and the registrars' calls for it are
+  unverified — it goes through support.
+
+Test: `tests/Feature/Domains/DomainEndOfLifeTest.php`.
+
 ## DNS: compared every night, bounded in size
 
 * `onhost:dns:drift` (daily 03:40; `ONHOST_DNS_DRIFT_BATCH` zones a night, oldest comparison first) compares what each

@@ -12,8 +12,6 @@ use Onhost\Domain\Domains\DomainService;
 use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Domains\Models\DomainRenewalJob;
-use Onhost\Domain\Domains\Models\RegistrarContact;
-use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Money\Money;
@@ -35,14 +33,6 @@ beforeEach(function () {
     ProviderInstance::query()->firstOrCreate(['key' => 'wedos-main'], ['provider' => 'wedos', 'name' => 'WEDOS WAPI', 'base_url' => 'https://api.wedos.com', 'secret_ref' => 'env://WEDOS_MAIN', 'state' => 'active', 'capabilities' => ['registrar' => true], 'options' => []]);
     Http::preventStrayRequests();
 });
-
-function graceDomain(Organization $org, string $fqdn, string $state, DateTimeInterface $expires): Domain
-{
-    $contact = RegistrarContact::query()->firstOrCreate(['organization_id' => $org->id, 'remote_id' => 'ONH-X'], ['kind' => 'registrant', 'name' => 'Jana Nováková', 'email' => 'jana@example.cz', 'country' => 'CZ', 'state' => 'synced']);
-
-    return Domain::query()->create(['organization_id' => $org->id, 'fqdn_ascii' => $fqdn, 'fqdn_unicode' => $fqdn, 'tld' => 'cz', 'state' => $state, 'registered_at' => now()->subYear(), 'expires_at' => $expires,
-        'auto_renew' => true, 'renewal_period' => 1, 'dns_provider' => 'external', 'registrar_provider' => 'wedos', 'registrant_contact_id' => $contact->id, 'admin_contact_id' => $contact->id]);
-}
 
 it('does not read a listing without a status as "active": a domain in redemption stays in redemption', function () {
     [$user, $org] = $this->customerWithOrganization();
