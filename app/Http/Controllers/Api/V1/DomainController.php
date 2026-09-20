@@ -14,6 +14,7 @@ use Onhost\Domain\Domains\Models\RegistrarOperation;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Redaction\Redactor;
 use Onhost\Platform\Support\Hostname;
 
 /** Domain platform endpoints (blueprint §46): every mutating call is a DomainCommand through the bus. */
@@ -40,7 +41,7 @@ final class DomainController extends ApiController
         $operations = RegistrarOperation::query()->where('domain_id', $model->id)->orderByDesc('sent_at')->limit(20)->get()->map(fn (RegistrarOperation $o) => ['id' => $o->id, 'command' => $o->command, 'state' => $o->state, 'normalized_error' => $o->normalized_error, 'sent_at' => $o->sent_at?->toIso8601String(), 'completed_at' => $o->completed_at?->toIso8601String(), 'test_mode' => (bool) $o->test_mode])->all();
         $registrant = $model->registrant_contact_id ? RegistrarContact::query()->find($model->registrant_contact_id) : null;
 
-        return response()->json(['data' => Presenters::domain($model) + ['registrant' => $registrant ? $this->contact($registrant) : null, 'registrar_operations' => $operations, 'registry_status' => $model->registry_status]]);
+        return response()->json(['data' => Presenters::domain($model) + ['registrant' => $registrant ? $this->contact($registrant) : null, 'registrar_operations' => $operations, 'registry_status' => is_array($model->registry_status) ? (new Redactor)->redact($model->registry_status) : null]]);
     }
 
     public function renew(Request $request, string $domain): JsonResponse

@@ -7,6 +7,7 @@ namespace Onhost\Platform\Commands;
 use Illuminate\Database\Eloquent\Model as EloquentModel;
 use Illuminate\Support\Facades\DB;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Redaction\Redactor;
 
 /**
  * Exactly-once business semantics on top of at-least-once delivery. The key is
@@ -50,6 +51,11 @@ final class IdempotencyStore
         $stored = $result instanceof EloquentModel
             ? ['model' => $result::class, 'id' => $result->getKey()]
             : ['value' => is_scalar($result) || is_array($result) || $result === null ? $result : (string) json_encode($result)];
+        // A result may hand out a secret exactly once (a domain's transfer code shown inline, a new API token, a generated
+        // password). The replay store kept it in clear text for a day; a replay now answers with the same result, the secret masked.
+        if (is_array($stored['value'] ?? null)) {
+            $stored['value'] = (new Redactor)->redact(json_decode((string) json_encode($stored['value']), true) ?? []);
+        }
 
         DB::table('idempotency_keys')->updateOrInsert(
             ['key' => $key, 'scope' => $this->scope($context)],

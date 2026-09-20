@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Platform\Eloquent\Model;
+use Onhost\Platform\Redaction\Redactor;
 
 /** Registered domain (blueprint §46). Public id `dom_…`; `fqdn_ascii` is the canonical key. */
 final class Domain extends Model
@@ -23,6 +24,20 @@ final class Domain extends Model
         'registrar_provider' => 'wedos', 'dns_provider' => 'powerdns', 'state' => DomainStateMachine::PENDING_REGISTRATION,
         'auto_renew' => true, 'renewal_period' => 1, 'auto_renew_priority' => 'domain', 'dnssec' => false, 'transfer_lock' => true, 'privacy_mode' => 'registry_default', 'critical' => false,
     ];
+
+    /**
+     * What a registrar says about a domain is kept as it came — and Subreg's `Info_Domain` carries the transfer code
+     * (`authid`). The column is returned by `GET /v1/domains/{id}` to anybody who may READ the domain, so the code that the
+     * step-up, the transfer lock and the critical-domain rule protect was one request away. It is never stored.
+     */
+    protected static function booted(): void
+    {
+        self::saving(function (Domain $domain): void {
+            if ($domain->isDirty('registry_status') && is_array($domain->registry_status)) {
+                $domain->registry_status = (new Redactor)->redact($domain->registry_status);
+            }
+        });
+    }
 
     protected function casts(): array
     {

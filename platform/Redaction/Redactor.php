@@ -19,7 +19,7 @@ final class Redactor
         'request_token', 'session_id', 'auth_info', 'authinfo', 'private_key', 'privatekey',
         'cookie', 'set-cookie', 'client_secret', 'access_token', 'refresh_token', 'id_token',
         'ticket', 'csrfpreventiontoken', 'vncticket', 'dkim_private', 'signature', 'cvv',
-        'ssh_private', 'root_password', 'db_password', 'mysql_password', 'totp', 'recovery_codes',
+        'ssh_private', 'root_password', 'db_password', 'mysql_password', 'totp', 'recovery_codes', 'ssl_key', 'privkey', 'ssid',
     ];
 
     /** @var list<string> keys that look secret-ish but are safe to keep */
@@ -79,6 +79,13 @@ final class Redactor
             '/\b(ptl[ac]_)[A-Za-z0-9]{10,}/' => '$1'.self::MASK,
             '/\b(onh_(?:live|test)_)[A-Za-z0-9]{6,}/' => '$1'.self::MASK,
             '/\b(sk_(?:live|test)_)[A-Za-z0-9]{6,}/' => '$1'.self::MASK,
+            // SOAP/XML bodies (Subreg): <password>…</password>, <ssid>…</ssid>, <authid>…</authid> carry no ":" or "=" for the rule above
+            '/(<((?:[\w.-]+:)?(?:password|passwd|pass|pw|ssid|authid|auth_id|authinfo|auth_info|secret|token|api_key))\b[^>]*>)[^<]*(<\/\2>)/i' => '$1'.self::MASK.'$3',
+            // key material, whatever the field is called (aaPanel sends a certificate's private key as `key`)
+            '/-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY)-----.*?-----END \1-----/s' => '-----BEGIN $1----- '.self::MASK.' -----END $1-----',
+            // a password passed to a program on the node: `wp config set DB_PASSWORD 'x'`, `--dbpass='x'`, `mysqldump -p'x'`
+            '/((?<![\w-])(?:DB_PASSWORD|--dbpass|--admin_password|--user_pass|--password|--pass)(?:=|\s+))(\'[^\']*\'|"[^"]*"|\S+)/' => '$1'.self::MASK,
+            '/(\s-p)(\'[^\']+\'|"[^"]+")/' => '$1'.self::MASK,
         ];
 
         return (string) preg_replace(array_keys($patterns), array_values($patterns), $value);
