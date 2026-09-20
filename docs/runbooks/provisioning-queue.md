@@ -18,8 +18,20 @@ FAILED | COMPENSATING | CANCELLED | DEAD. `GET …/jobs/{id}` adds attempts and 
   (delete the half-created VM, release addresses, release the wallet hold). Cancelling a WAITING operation
   whose remote task already succeeded creates drift; run reconcile afterwards.
 
-## Drift
+## How long things take (`OperationLatency`)
 
+"An action is done in seconds" is a number, not a promise: the operations board (`GET /v1/staff/provisioning/board`,
+`latency`) and `onhost:doctor` (`speed`) show p50 / p95 / max **from accepted to finished** by panel and action for
+the last 24 hours, with the wait in the queue apart (`wait_p95_s`) — the two have different cures: more workers, or a
+slow panel. Judged against `ONHOST_LATENCY_TARGET_SECONDS` (30) is only what a person waits for (restart, PHP switch,
+a new database…); backups, restores, installs, imports and the creation of a service are reported without a verdict.
+The table keeps whole seconds. Three runs of a kind are needed before the doctor calls it slow.
+
+What to expect: aaPanel and Pterodactyl answer within the call; Proxmox tasks take what the hypervisor takes;
+**ISPConfig applies every change by its server cron, once a minute** — its p95 cannot be under a minute until the
+node runs `server.sh` more often (a systemd timer every 10–15 s is the usual cure). See audit §7, item 2.
+
+## Drift
 `onhost:provisioning:reconcile` (daily) compares desired vs actual for every bound resource:
 
 * `ONHOST_MANAGED` fields (size, power state we own) → auto-repair when `provisioning.auto_repair` allows,

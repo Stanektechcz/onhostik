@@ -23,6 +23,7 @@ use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceFeatures;
+use Onhost\Domain\Services\ServiceHealthCheck;
 use Onhost\Domain\Services\ServiceSummary;
 use Onhost\Domain\Support\Models\AiRun;
 use Onhost\Domain\Support\Models\Handoff;
@@ -81,6 +82,7 @@ final class AssistantService
         private readonly ServiceFeatures $features,
         private readonly ServiceSummary $summary,
         private readonly Authorizer $authorizer,
+        private readonly ServiceHealthCheck $health,
     ) {}
 
     /**
@@ -154,6 +156,9 @@ final class AssistantService
                 $answer = null; // provider trouble never blocks the customer: fall back to rules
                 $toolsCalled[] = ['tool' => 'llm', 'error' => $e->errorCode->value];
             }
+        }
+        if ($handoffReason === null && $answer === null && $intents === []) {
+            $answer = $this->healthAnswer($text, $scope, $locale); // "is my site all right?" has an answer in the platform's own records
         }
         if ($handoffReason === null && $answer === null) {
             $answer = $intents !== []
@@ -643,6 +648,7 @@ final class AssistantService
         if ($scope !== null && $scope->seesAnyService()) {
             $tools[] = ['name' => 'list_services', 'description' => 'The signed-in organization\'s services with their state, enabled features and the actions each one accepts (read-only).', 'parameters' => ['type' => 'object', 'properties' => new \stdClass, 'required' => []]];
             $tools[] = ['name' => 'get_service_status', 'description' => 'Recent operations, uptime monitoring and quotas of one service (read-only).', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string']], 'required' => ['service_id']]];
+            $tools[] = ['name' => 'check_service', 'description' => 'Health check of one service from the platform\'s own records (no panel call): state, whether it can be managed right now, the last backup, the HTTPS certificate, uptime monitoring, operations that failed in the last day, how close it is to its limits. Returns a verdict (ok|warn|bad) and findings with a sentence each. Use it for "is my site all right", "why is it slow/down", before proposing an action.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string']], 'required' => ['service_id']]];
             $tools[] = ['name' => 'get_service_resource', 'description' => 'One read-only listing of a service: web — databases, cron, subdomains, certificate, redirect, php_settings, quotas, monitoring, staging, deploy, wordpress, cdn; mail — mailboxes, aliases, dkim, mail_forwards, mail_lists, mail_usage; game — status, schedules, allocations; cloud — snapshots, firewall; every family — backups (the last backups with their state, date and size). Passwords are never included.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'kind' => ['type' => 'string']], 'required' => ['service_id', 'kind']]];
             $tools[] = ['name' => 'propose_service_action', 'description' => 'Propose one action on a service; the customer confirms it with a button. action is one of the service\'s actions (e.g. backup, power with params.power_action reboot|shutdown|start, deploy.run, wp.update, wp.cache with params.enabled, staging.refresh, staging.push, cdn.purge, ssl.issue, https.force, php.set with params.version).', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'action' => ['type' => 'string'], 'params' => ['type' => 'object'], 'label' => ['type' => 'string', 'description' => 'short button label in the customer\'s language']], 'required' => ['service_id', 'action']]];
         }
@@ -667,6 +673,7 @@ final class AssistantService
                     'search_api_reference' => $this->apiReference((string) ($call['arguments']['query'] ?? '')),
                     'list_services' => $scope !== null ? $this->serviceCatalogue($scope) : [],
                     'get_service_status' => $scope !== null ? $this->serviceStatus($scope, (string) ($call['arguments']['service_id'] ?? '')) : [],
+                    'check_service' => $scope !== null ? $this->checkService($scope, (string) ($call['arguments']['service_id'] ?? '')) : [],
                     'get_service_resource' => $scope !== null ? $this->serviceResource($scope, (string) ($call['arguments']['service_id'] ?? ''), (string) ($call['arguments']['kind'] ?? '')) : [],
                     'propose_service_action' => $scope !== null ? $this->propose($scope, (array) $call['arguments'], $locale, $proposed) : ['ok' => false, 'error' => 'sign in first'],
                     default => ['error' => 'unknown tool'],
@@ -677,6 +684,47 @@ final class AssistantService
         }
 
         return [null, $usage, $model, $called, $proposed];
+    }
+
+    /** @return array<string,mixed> the health check of one service the person may see */
+    private function checkService(AssistantScope $scope, string $serviceId): array
+    {
+        $service = $scope->service($serviceId);
+
+        return $service === null ? ['error' => 'unknown service'] : $this->health->run($service);
+    }
+
+    /**
+     * "Zkontroluj mi web", "is my server all right": answered from the platform's records, with a model or without one.
+     * The service is the one the text names; with none named, the only one the person sees — never a guess among several.
+     */
+    private function healthAnswer(string $text, ?AssistantScope $scope, string $locale): ?string
+    {
+        $normalized = ' '.Triage::normalize($text).' ';
+        // Czech inflects: kontrola, kontrolu, zkontroluj, zkontrolovat… — and "check my invoice" is a question about money, not about a service
+        $asks = preg_match('/\b(z?kontrol\w*|diagnosti\w*|je (vse|vsechno|to) v poradku|v poradku \?|proc (je|mi) (to |web |server )?(pomal\w*|nejde|nefunguje)|health ?check|check (my|the|on)|is (it|everything|my \w+) (ok|okay|all right|alright|fine|up))/u', $normalized) === 1;
+        if ($scope === null || ! $asks || preg_match('/\b(faktur\w*|platb\w*|doklad\w*|invoice\w*|payment\w*|objednavk\w*)/u', $normalized) === 1) {
+            return null;
+        }
+        $services = $scope->services()->whereNotIn('state', [ServiceStateMachine::TERMINATED])->limit(50)->get();
+        $named = $services->filter(function (Service $s) use ($normalized): bool {
+            foreach (array_filter([$s->hostname, $s->label, $s->name]) as $n) {
+                $n = Triage::normalize((string) $n);
+                if (strlen($n) >= 4 && str_contains($normalized, $n)) {
+                    return true;
+                }
+            }
+
+            return false;
+        });
+        $chosen = $named->count() >= 1 ? $named->take(3) : ($services->count() === 1 ? $services : collect());
+        if ($chosen->isEmpty()) {
+            return $services->isEmpty() ? null : ($locale === 'en'
+                ? 'Which service should I check? '.$services->take(8)->map(fn (Service $s) => (string) ($s->hostname ?: ($s->label ?: $s->name)))->implode(', ').'.'
+                : 'Kterou službu mám zkontrolovat? '.$services->take(8)->map(fn (Service $s) => (string) ($s->hostname ?: ($s->label ?: $s->name)))->implode(', ').'.');
+        }
+
+        return $chosen->map(fn (Service $s) => ServiceHealthCheck::text($this->health->run($s), $locale))->implode("\n\n");
     }
 
     /** @return array<string,mixed> operations, monitoring and quotas of one service (read-only, for the agent) */

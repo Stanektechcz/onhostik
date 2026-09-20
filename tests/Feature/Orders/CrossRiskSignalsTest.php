@@ -6,6 +6,7 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Loyalty\Models\Referral;
 use Onhost\Domain\Loyalty\ReferralService;
@@ -59,6 +60,7 @@ it('lets a rejected order weigh on the referrals a referrer brings and a refused
     [$referredOwner, $referred] = $this->customerWithOrganization(['email' => 'eva@firma.cz'], ['name' => 'Eva s.r.o.']);
     $referrals->attach($referred, $code, '203.0.113.9', CommandContext::system('test'));
     $staff = $this->staff('platform_owner');
+    app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1'); // deciding a held referral pays or withholds a reward: a fresh proof of identity
     $this->actingAs($staff, 'sanctum');
     $this->withHeader('Idempotency-Key', 'cross-rv-1')->postJson("/v1/staff/orders/{$held->id}/review", ['decision' => 'reject', 'reason' => 'stolen card pattern'])->assertOk();
     $this->flushHeaders();

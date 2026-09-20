@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Loyalty\LoyaltyService;
 use Onhost\Domain\Loyalty\Models\LoyaltyBadge;
 use Onhost\Domain\Notifications\Models\Notification;
@@ -41,6 +42,10 @@ it('awards points from events once, levels up with a promo credit and a badge, a
     // staff shape the levels; crossing one earns the badge and the promo credit exactly once
     $staff = $this->staff('platform_owner');
     $this->actingAs($staff, 'sanctum');
+    // a level carries promo credit and an award can carry a customer over one: both take a fresh proof of identity
+    $this->withHeader('Idempotency-Key', 'aw-0')->postJson('/v1/staff/loyalty/award', ['organization_id' => $org->id, 'points' => 50, 'note' => 'bez ověření'])->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    $this->flushHeaders();
+    app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1');
     $this->withHeader('Idempotency-Key', 'lv-1')->putJson('/v1/staff/loyalty/levels', ['levels' => [['key' => 'bronze', 'name' => 'Bronze', 'min' => 0], ['key' => 'silver', 'name' => 'Silver', 'min' => 200, 'reward_minor' => 10000], ['key' => 'gold', 'name' => 'Gold', 'min' => 1000, 'reward_minor' => 30000]]])->assertOk()->assertJsonPath('levels.1.min', 200);
     $this->flushHeaders();
     $this->putJson('/v1/staff/loyalty/levels', ['levels' => [['key' => 'x', 'min' => 10]]])->assertStatus(422);

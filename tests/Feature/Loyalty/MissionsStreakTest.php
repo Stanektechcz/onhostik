@@ -7,6 +7,7 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Loyalty\LoyaltyService;
 use Onhost\Domain\Loyalty\MissionService;
@@ -96,7 +97,11 @@ it('counts the on-time streak, fires the target once, and finance grants a disco
     // finance grants 5 %: the quote takes it off every line; 0 removes it
     $quoteFor = fn (Organization $o) => app(QuoteService::class)->quote([['product_key' => 'web-hosting', 'plan_key' => 'start']], 'CZK', ['country' => 'CZ', 'customer_class' => 'b2c', 'vat_status' => 'none'], 1, null, $o);
     $list = $quoteFor($org);
-    $this->actingAs($this->staff('platform_owner'), 'sanctum');
+    $finance = $this->staff('platform_owner');
+    $this->actingAs($finance, 'sanctum');
+    // a discount is money: it takes a fresh proof of identity
+    $this->withHeader('Idempotency-Key', 'st-x')->postJson("/v1/staff/loyalty/streak/{$org->id}", ['percent' => 5])->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
     $this->withHeader('Idempotency-Key', 'st-0')->postJson("/v1/staff/loyalty/streak/{$org->id}", ['percent' => 50])->assertStatus(422);
     $granted = $this->withHeader('Idempotency-Key', 'st-1')->postJson("/v1/staff/loyalty/streak/{$org->id}", ['percent' => 5, 'note' => 'věrný zákazník'])->assertOk()->json();
     expect($granted['discount']['pct'])->toEqual(5)->and($granted['streak']['months'])->toBe(12);

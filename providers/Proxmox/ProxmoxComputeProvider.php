@@ -19,6 +19,7 @@ use Onhost\Providers\Contracts\ProviderHealth;
 use Onhost\Providers\Contracts\ProviderResult;
 use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\ResourceSpec;
+use Onhost\Providers\Contracts\SelfProbing;
 use Onhost\Providers\Contracts\Usage;
 
 /**
@@ -27,7 +28,7 @@ use Onhost\Providers\Contracts\Usage;
  * Idempotency: VMs are tagged `onhost;<service id>;idem-<hash>` and looked up
  * through /cluster/resources before any clone.
  */
-final class ProxmoxComputeProvider implements ComputeProvider
+final class ProxmoxComputeProvider implements ComputeProvider, SelfProbing
 {
     private readonly ProxmoxConnector $api;
 
@@ -403,6 +404,33 @@ final class ProxmoxComputeProvider implements ComputeProvider
             return true;
         } catch (ProviderException) {
             return false;
+        }
+    }
+
+    /** What this cluster really answers (SelfProbing): a backup storage is configured and its content can be listed — every backup and final snapshot is found there. */
+    public function probes(?ResourceRef $anyResource = null): array
+    {
+        $storage = (string) $this->instance->option('backup_storage', '');
+        if ($storage === '') {
+            return ['backup_storage' => 'missing: the instance option backup_storage is not set; backups and final snapshots have nowhere to go'];
+        }
+        $node = (string) ($anyResource?->node ?: $this->instance->option('default_node', ''));
+        if ($node === '') {
+            return ['backup_storage' => 'skipped: no node known to ask'];
+        }
+
+        return ['backup_storage' => $this->probe(fn () => $this->api->get("/nodes/{$node}/storage/{$storage}/content", ['content' => 'backup'], 'backup.list'))];
+    }
+
+    /** One read-only probe: `ok`, or what the panel said. */
+    private function probe(callable $ask): string
+    {
+        try {
+            $ask();
+
+            return 'ok';
+        } catch (ProviderException $e) {
+            return (in_array($e->errorCode, [ProviderErrorCode::AUTH, ProviderErrorCode::VALIDATION], true) ? 'refused: ' : 'missing: ').mb_substr($e->getMessage(), 0, 160);
         }
     }
 

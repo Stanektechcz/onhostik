@@ -30,7 +30,7 @@ final class ServiceSummary
         $subscription = $this->subscription($service);
         $node = $service->node_id ? Node::query()->find($service->node_id) : null;
         $project = $service->project_id ? Project::query()->find($service->project_id) : null;
-        $backup = Backup::query()->where('service_id', $service->id)->where('state', 'available')->orderByDesc('finished_at')->first();
+        $backup = Backup::query()->where('service_id', $service->id)->where('state', 'completed')->orderByDesc('finished_at')->first(); // a finished backup is `completed`; this read `available`, a state no backup ever has, so the overview never saw one
         $monitor = UptimeMonitor::query()->where('service_id', $service->id)->first();
         $active = Operation::query()->where('service_id', $service->id)->whereIn('state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING])->count();
         $lastFailed = Operation::query()->where('service_id', $service->id)->where('state', Operation::FAILED)->orderByDesc('finished_at')->first();
@@ -44,7 +44,7 @@ final class ServiceSummary
             'certificate' => $access['certificate'] ?? null,
             'access_domain' => $access['domain'] ?? null,
             'backup' => $backup ? ['last_at' => $backup->finished_at?->toIso8601String(), 'kind' => $backup->kind, 'size_bytes' => $backup->size_bytes, 'offsite' => (bool) $backup->offsite, 'verified' => $backup->verified_at !== null] : null,
-            'backups_count' => Backup::query()->where('service_id', $service->id)->where('state', 'available')->count(),
+            'backups_count' => Backup::query()->where('service_id', $service->id)->where('state', 'completed')->count(),
             'monitor' => $monitor ? ['state' => $monitor->state, 'enabled' => (bool) $monitor->enabled, 'last_checked_at' => $monitor->last_checked_at?->toIso8601String(), 'last_status' => $monitor->last_status, 'last_ms' => $monitor->last_ms, 'url' => $monitor->url] : null,
             'operations' => ['active' => $active, 'last_failed' => $lastFailed ? ['kind' => $lastFailed->kind, 'finished_at' => $lastFailed->finished_at?->toIso8601String()] : null],
             // the usage watch's last measurement (level, per-metric share) and the customer's automation policy

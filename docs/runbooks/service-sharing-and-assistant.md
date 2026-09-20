@@ -74,8 +74,21 @@ proposal goes through it:
 
 Tests: `tests/Feature/Support/AssistantScopeTest.php`, `tests/Feature/Support/SupportTest.php`.
 
-## 3. Check on staging
+### "Is my service all right?" (`ServiceHealthCheck`)
 
+One pass over what the platform already knows — no panel is asked: state, whether the service can be managed right
+now, the last backup (the archive of a cancellation does not count), the HTTPS certificate and its expiry, the uptime
+monitor, operations that failed in the last day, how close the service is to its limits. A verdict (`ok|warn|bad`) and
+a sentence per finding in both languages, the worst first. Nothing about money is in it, so a guest a service was
+shared with may read it.
+
+* API: `GET /v1/services/{id}/health` (`service.read`).
+* Assistant tool `check_service` — and a rule-based answer without a model: „zkontroluj mi shop.cz", „je všechno
+  v pořádku?", "is my site ok?". The service is the one the text names; with none named, the only one the person
+  sees; with several it asks which. A question about an invoice or a payment is not taken for a service check.
+* Support gets the same through the staff assistant over the customer's account.
+
+## 3. Check on staging
 * share a service with an address outside the organization, accept in a private window, confirm the guest sees one
   service and `403` everywhere else; revoke and confirm the panel accounts they created are gone;
 * `select state, count(*) from service_access_grants group by state;` — `pending` older than seven days are

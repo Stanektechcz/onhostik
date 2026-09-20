@@ -23,6 +23,7 @@ use Onhost\Providers\Contracts\ProviderHealth;
 use Onhost\Providers\Contracts\ProviderResult;
 use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\ResourceSpec;
+use Onhost\Providers\Contracts\SelfProbing;
 use Onhost\Providers\Contracts\Usage;
 
 /**
@@ -32,7 +33,7 @@ use Onhost\Providers\Contracts\Usage;
  * `{object, attributes}`; errors in `errors[]`. Creation is two-phase: 201 then
  * `container.installed = 1` (blueprint §14, docs-provider-apis §4).
  */
-final class PterodactylGameProvider implements GameProvider, GameToolsProvider
+final class PterodactylGameProvider implements GameProvider, GameToolsProvider, SelfProbing
 {
     public function __construct(
         private readonly ProviderInstance $instance,
@@ -74,6 +75,40 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider
             return new ProviderHealth(count($nodes) > 0 && $maintenance < count($nodes), null, $ms, ['nodes' => count($nodes), 'maintenance' => $maintenance]);
         } catch (ProviderException $e) {
             return ProviderHealth::down($e->getMessage(), (int) ((hrtime(true) - $started) / 1_000_000));
+        }
+    }
+
+    /**
+     * What this panel really answers (SelfProbing). A restore is followed by the `status` of the server in the application
+     * API (`restoring_backup` until Wings is done): the probe says whether that field is there, and whether the client API
+     * lists backups at all.
+     */
+    public function probes(?ResourceRef $anyResource = null): array
+    {
+        $server = $anyResource !== null && $anyResource->remoteType === 'server' ? $anyResource : null;
+        if ($server === null) {
+            return ['server_status_field' => 'skipped: no server on this instance yet', 'backup_api' => 'skipped: no server on this instance yet'];
+        }
+        $attributes = null;
+        $status = $this->probe(function () use ($server, &$attributes): void {
+            $attributes = $this->request('GET', "/api/application/servers/{$server->remoteId}", 'app', 'servers.get')['attributes'] ?? null;
+        });
+
+        return [
+            'server_status_field' => $status !== 'ok' ? $status : (is_array($attributes) && array_key_exists('status', $attributes) ? 'ok' : 'missing: the application API does not report `status` for a server'),
+            'backup_api' => $this->probe(fn () => $this->listBackups($server)),
+        ];
+    }
+
+    /** One read-only probe: `ok`, or what the panel said. */
+    private function probe(callable $ask): string
+    {
+        try {
+            $ask();
+
+            return 'ok';
+        } catch (ProviderException $e) {
+            return (in_array($e->errorCode, [ProviderErrorCode::AUTH, ProviderErrorCode::VALIDATION], true) ? 'refused: ' : 'missing: ').mb_substr($e->getMessage(), 0, 160);
         }
     }
 

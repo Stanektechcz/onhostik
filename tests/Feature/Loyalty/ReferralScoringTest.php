@@ -6,6 +6,7 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Loyalty\LoyaltyService;
 use Onhost\Domain\Loyalty\Models\Referral;
@@ -58,6 +59,7 @@ it('holds a suspicious referral for finance, learns from the decision and claws 
 
     // finance releases it: the reward follows and the two signals get lighter
     $staff = $this->staff('platform_owner');
+    app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1'); // releasing a held reward pays it out: a fresh proof of identity
     $this->actingAs($staff, 'sanctum');
     expect($this->getJson('/v1/staff/referrals?state=held')->assertOk()->json('data.0.id'))->toBe($held->id);
     $this->withHeader('Idempotency-Key', 'rr-1')->postJson("/v1/staff/referrals/{$held->id}/review", ['decision' => 'release', 'note' => 'known agency'])->assertOk()->assertJsonPath('state', 'rewarded');

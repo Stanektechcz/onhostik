@@ -293,6 +293,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::get('services/{service}/operations', [ServiceController::class, 'operations']);
     Route::get('services/{service}/backups', [ServiceController::class, 'backups']);
     Route::get('services/{service}/features', [ServiceController::class, 'features']);
+    Route::get('services/{service}/health', [ServiceController::class, 'health']); // one-pass check from the platform's records (ServiceHealthCheck)
     Route::get('services/{service}/resources/{kind}', [ServiceController::class, 'resources'])->where('kind', '[a-z_]+');
     Route::get('services/{service}/logs', [ServiceController::class, 'logs']);
     Route::get('services/{service}/files/download', [ServiceController::class, 'fileDownload']);

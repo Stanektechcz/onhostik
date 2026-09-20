@@ -23,6 +23,7 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\SshKeyGrant;
 use Onhost\Domain\Services\PlanChangeService;
 use Onhost\Domain\Services\ServiceFeatures;
+use Onhost\Domain\Services\ServiceHealthCheck;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\ServiceSpecService;
 use Onhost\Domain\Services\ServiceSummary;
@@ -255,6 +256,12 @@ final class ServiceController extends ApiController
         $model = $this->resolve($request, $service);
 
         return response()->json(['data' => ['features' => $features->features($model), 'actions' => $features->actions($model)]]);
+    }
+
+    /** "Is it all right?" from the platform's own records: state, backup, certificate, monitoring, failed operations, limits (ServiceHealthCheck). Anybody who may see the service may ask; nothing about money is in it. */
+    public function health(Request $request, ServiceHealthCheck $health, string $service): JsonResponse
+    {
+        return response()->json(['data' => $health->run($this->resolve($request, $service))]);
     }
 
     /** Live listing of one resource kind (databases, ftp, cron, subdomains, certificate, redirect, php, snapshots, mailboxes, aliases, dkim, firewall). */

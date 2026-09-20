@@ -91,6 +91,14 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **Control points are numbers** — `onhost:doctor` and the operations board show p50/p95 of every action by panel
+  (`OperationLatency`, target `ONHOST_LATENCY_TARGET_SECONDS`), name web services without a recent backup and finished
+  operations that still hold secrets; the nightly prerequisites pass asks every panel which of the calls we rely on
+  it really answers (`SelfProbing`). The assistant answers "is my service all right?" from the platform's records
+  (`ServiceHealthCheck`, also `GET /v1/services/{id}/health`), with a model or without one. Loyalty operations that
+  move money (manual points, level rewards, held referrals, streak discounts) take a step-up. The service overview
+  read backups in a state no backup ever has (`available`), so it never saw one — fixed.
+
 - **Operations forget their secrets** (`security-boundaries.md` §11): passwords and keys an action carried leave the row
   when it is done; a generated WordPress administrator password is shown for half an hour to whoever manages the
   service — it used to be readable by every viewer of the service, for good. A sweep cleans the rows of the past.
@@ -111,7 +119,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 571 tests, 12 250 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 575 tests, 12 342 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

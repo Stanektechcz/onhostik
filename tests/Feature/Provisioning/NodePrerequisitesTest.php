@@ -164,3 +164,39 @@ it('discovers the nodes of a game panel, checks its client key, daemons and temp
     expect($this->getJson("/v1/services/{$service->id}/features")->assertOk()->json('data.features.startup.enabled'))->toBeTrue();
     expect(DB::table('provider_calls')->where('instance_key', $instance->key)->pluck('request')->implode(' '))->not->toContain('CLIENTKEY');
 });
+
+it('asks the panel which of the calls we rely on it really answers, and writes down what it sends (SelfProbing)', function () {
+    [, $org] = $this->customerWithOrganization();
+    featureWebService($org, 'ispconfig');
+    $instance = ProviderInstance::query()->where('key', 'ispconfig-shared01')->firstOrFail();
+    $backupsAllowed = false;
+    Http::fake(function ($request) use (&$backupsAllowed) {
+        if (! str_starts_with($request->url(), ISP)) {
+            return null;
+        }
+        $function = (string) parse_url($request->url(), PHP_URL_QUERY);
+        if ($function === 'sites_web_domain_backup_list' && ! $backupsAllowed) {
+            return Http::response(['code' => 'remote_fault', 'message' => 'You do not have the permissions to access this function.', 'response' => false]);
+        }
+
+        return Http::response(['code' => 'ok', 'message' => '', 'response' => match ($function) {
+            'login' => 'sess-probe', 'monitor_jobqueue_count' => 0, 'server_get' => ['hostname' => 's2.example.test'],
+            'server_get_php_versions' => [['name' => 'PHP 8.3']], 'sites_cron_get' => [], 'sites_web_domain_backup_list' => [],
+            'sys_datalog_get_by_tstamp' => [['datalog_id' => 9001, 'server_id' => 1, 'dbtable' => 'web_domain', 'dbidx' => 'domain_id:7', 'action' => 'u', 'tstamp' => time(), 'status' => 'ok', 'error' => '', 'data' => 'not written down']],
+            default => false,
+        }]);
+    });
+    $check = fn () => app(NodePrerequisites::class)->check($instance->fresh(), CommandContext::system('test'));
+
+    $first = $check();
+    // the remote user may not list backups: restores of panel archives cannot work on THIS panel — operations hear it tonight, not a customer tomorrow
+    expect($first['probes']['backup_api'])->toStartWith('refused:')->and($first['backup_api'])->toBe('broken')->and(implode(' ', $first['warnings']))->toContain('backup_api');
+    // the change log can be read: its field NAMES are written down (never values) for the adapter's next step
+    expect($first['datalog_api'])->toBe('ok')->and($first['probes']['datalog_fields'])->toContain('datalog_id', 'dbtable', 'dbidx', 'status', 'error')
+        ->and(json_encode($first))->not->toContain('not written down');
+
+    $backupsAllowed = true;
+    $second = $check();
+    expect($second['backup_api'])->toBe('ok')->and(implode(' ', $second['warnings']))->not->toContain('backup_api');
+    expect($instance->fresh()->capabilities['prereqs']['probes']['backup_api'])->toBe('ok');
+});

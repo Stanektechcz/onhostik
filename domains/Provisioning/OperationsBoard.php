@@ -33,7 +33,7 @@ final class OperationsBoard
 
     public function __construct(private readonly OutboxPublisher $outbox, private readonly AuditRecorder $audit) {}
 
-    /** @return array{stalled:list<array<string,mixed>>, failed:list<array<string,mixed>>, long_running:list<array<string,mixed>>, nodes:list<array<string,mixed>>, counts:array<string,int>} */
+    /** @return array{stalled:list<array<string,mixed>>, failed:list<array<string,mixed>>, long_running:list<array<string,mixed>>, nodes:list<array<string,mixed>>, latency:array<string,mixed>, counts:array<string,int>} */
     public function board(): array
     {
         $now = CarbonImmutable::now();
@@ -47,6 +47,8 @@ final class OperationsBoard
             'failed' => $failed->map($present)->values()->all(),
             'long_running' => $long->map($present)->values()->all(),
             'nodes' => $this->nodes()->all(),
+            // how long things take, by panel and action: from accepted to finished, the queue apart from the run (OperationLatency)
+            'latency' => ['target_s' => OperationLatency::targetSeconds(), 'window_hours' => 24, 'rows' => array_slice((new OperationLatency)->summary(), 0, 60)],
             'counts' => ['stalled' => $stalled->count(), 'failed_24h' => $failed->count(), 'long_running' => $long->count(), 'draining' => Node::query()->where('state', 'draining')->count()],
         ];
     }

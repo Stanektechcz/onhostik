@@ -23,9 +23,11 @@ use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\Node;
+use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\PlanPlacement;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
+use Onhost\Domain\Provisioning\OperationLatency;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderInstanceService;
 use Onhost\Domain\Services\DeletionPolicy;
@@ -71,6 +73,7 @@ final class Doctor extends Command
         $this->mailAndObservability();
         $this->deletionLifecycle();
         $this->authorizationCatalog();
+        $this->controlPoints();
 
         $fails = count(array_filter($this->rows, fn ($r) => $r['status'] === 'FAIL'));
         $warns = count(array_filter($this->rows, fn ($r) => $r['status'] === 'WARN'));
@@ -147,6 +150,26 @@ final class Doctor extends Command
 
         $orphan = Backup::query()->where('kind', 'final')->where('state', 'completed')->whereNull('retention_until')->count();
         $this->add('lifecycle', 'every archive has a retention date', $orphan === 0, $orphan === 0 ? '' : $orphan.' × without retention_until — they would never be pruned', false);
+    }
+
+    /**
+     * Control points of the rules the platform keeps about itself: operations forget their secrets, every web service has a
+     * recent backup, and what a person waits for is done in seconds — read as numbers, not believed.
+     */
+    private function controlPoints(): void
+    {
+        $holding = Operation::query()->whereNull('secrets_scrubbed_at')->whereIn('state', [Operation::SUCCEEDED, Operation::CANCELLED])->where('finished_at', '<', now()->subHours(2))->count();
+        $this->add('security', 'finished operations hold no secrets', $holding === 0, $holding === 0 ? 'the sweep is up to date' : "{$holding} finished operation(s) not cleaned yet — onhost:operations:forget-secrets works them off (the scheduler runs it every ten minutes)", false);
+
+        $days = max(1, (int) config('onhost.backups.coverage_days', 3));
+        $services = Service::query()->whereIn('family', ['web', 'managed'])->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->where('created_at', '<', now()->subDays($days))->pluck('id');
+        $covered = Backup::query()->whereIn('service_id', $services->all())->where('state', 'completed')->where('finished_at', '>=', now()->subDays($days))->distinct()->pluck('service_id');
+        $bare = $services->diff($covered)->values();
+        $this->add('lifecycle', "every web service has a backup from the last {$days} days", $bare->isEmpty(), $bare->isEmpty() ? $services->count().' service(s) covered' : $bare->count().' without one: '.$bare->take(5)->implode(', ').($bare->count() > 5 ? ' …' : '').' — docs/runbooks/backups.md', false);
+
+        $slow = app(OperationLatency::class)->slow();
+        $target = OperationLatency::targetSeconds();
+        $this->add('speed', "actions a person waits for finish within {$target} s (p95, 24 h)", $slow === [], $slow === [] ? 'nothing slower' : implode('; ', array_map(fn (array $r) => "{$r['provider']} {$r['action']}: p95 {$r['p95_s']} s (queue {$r['wait_p95_s']} s, {$r['count']}×)", array_slice($slow, 0, 5))), false);
     }
 
     private function add(string $area, string $check, bool $ok, string $detail = '', bool $blocking = true): void

@@ -20,6 +20,7 @@ use Onhost\Providers\Contracts\ProviderHealth;
 use Onhost\Providers\Contracts\ProviderResult;
 use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\ResourceSpec;
+use Onhost\Providers\Contracts\SelfProbing;
 use Onhost\Providers\Contracts\TlsOptions;
 use Onhost\Providers\Contracts\Usage;
 use Onhost\Providers\Contracts\WebHostingProvider;
@@ -31,7 +32,7 @@ use Onhost\Providers\Contracts\WebToolsProvider;
  * responses that are sometimes `{status,msg}`, sometimes a bare string or a list.
  * Reachable only from the provisioning subnet; every response is redacted.
  */
-final class AaPanelWebProvider implements WebHostingProvider, WebToolsProvider
+final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebToolsProvider
 {
     use AaPanelTools;
 
@@ -297,6 +298,32 @@ final class AaPanelWebProvider implements WebHostingProvider, WebToolsProvider
             'terminal' => true, 'php_settings' => true, 'security' => true, 'rate_limit' => true, 'http3' => true, 'cron_edit' => true, 'cron_logs' => true, 'db_export' => true, 'db_access' => true,
             'backup_download' => true, 'backup_delete' => true, 'backup_on_demand' => true, 'files_advanced' => true, 'quotas' => true, 'node_projects' => true, 'staging' => true, 'deploy' => true, 'wordpress' => true, 'hsts' => true, 'panel_login' => false, 'proxy' => true, 'default_docs' => true,
         ];
+    }
+
+    /** What this panel really answers (SelfProbing): the backup table behind restores and database exports, and the file API behind "pack the whole site". */
+    public function probes(?ResourceRef $anyResource = null): array
+    {
+        $site = $anyResource !== null && $anyResource->remoteType === 'site' ? $anyResource : null;
+        if ($site === null) {
+            return ['backup_api' => 'skipped: no site on this instance yet', 'files_api' => 'skipped: no site on this instance yet'];
+        }
+
+        return [
+            'backup_api' => $this->probe(fn () => $this->listBackups($site)),
+            'files_api' => $this->probe(fn () => $this->transport($site)->list('')),
+        ];
+    }
+
+    /** One read-only probe: `ok`, or what the panel said. */
+    private function probe(callable $ask): string
+    {
+        try {
+            $ask();
+
+            return 'ok';
+        } catch (ProviderException $e) {
+            return (in_array($e->errorCode, [ProviderErrorCode::AUTH, ProviderErrorCode::VALIDATION], true) ? 'refused: ' : 'missing: ').mb_substr($e->getMessage(), 0, 160);
+        }
     }
 
     public function phpVersions(): array

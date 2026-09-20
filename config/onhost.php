@@ -70,6 +70,7 @@ return [
     'backups' => [
         'offsite_disk' => env('ONHOST_BACKUP_OFFSITE_DISK'), // a filesystems.disks entry (S3-compatible) for off-site copies; null = off
         'daily_hour' => (int) env('ONHOST_BACKUP_DAILY_HOUR', 2),
+        'coverage_days' => (int) env('ONHOST_BACKUP_COVERAGE_DAYS', 3), // the doctor names web services without a finished backup in this many days
         'manual_max' => (int) env('ONHOST_BACKUP_MANUAL_MAX', 5), // backups a customer may keep per web service at once (they live on the platform's backup disk); the plan's `manual_backups` entitlement overrides it
     ],
     // Discord: one platform application; customers link their Discord account to their organization and drive services with /onhost
@@ -255,6 +256,7 @@ return [
         // what an operation forgets (OperationSecrets): a generated password is shown this long, a failed run keeps what it was given this long for a retry
         'secret_reveal_minutes' => (int) env('ONHOST_OPERATION_SECRET_REVEAL_MINUTES', 30),
         'secret_failed_days' => (int) env('ONHOST_OPERATION_SECRET_FAILED_DAYS', 7),
+        'latency_target_seconds' => (int) env('ONHOST_LATENCY_TARGET_SECONDS', 30), // p95 of what a person waits for (restart, PHP, a new database…); the doctor and the operations board judge by it
         'rebalance' => ['high' => (float) env('ONHOST_REBALANCE_HIGH', 0.85), 'low' => (float) env('ONHOST_REBALANCE_LOW', 0.6), 'target' => (float) env('ONHOST_REBALANCE_TARGET', 0.75)], // node load (RAM sold / RAM capacity) that triggers, receives, and ends a rebalancing move
         'samples' => ['retention_days' => (int) env('ONHOST_NODE_SAMPLES_RETENTION_DAYS', 30)], // hourly node samples behind the trend (audit §5k-7)
         'capacity_forecast' => ['warn_days' => (int) env('ONHOST_CAPACITY_WARN_DAYS', 30), 'node_monthly_minor' => []], // node_monthly_minor: {role: price of one node per month in the budget currency} for the budget forecast (audit §5r-5) // a pool with fewer days left reaches operations (audit §5m-7)

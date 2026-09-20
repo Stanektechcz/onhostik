@@ -20,6 +20,7 @@ use Onhost\Providers\Contracts\ProviderHealth;
 use Onhost\Providers\Contracts\ProviderResult;
 use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\ResourceSpec;
+use Onhost\Providers\Contracts\SelfProbing;
 use Onhost\Providers\Contracts\Usage;
 use Onhost\Providers\Contracts\WebHostingProvider;
 use Onhost\Providers\Contracts\WebToolsProvider;
@@ -31,7 +32,7 @@ use Onhost\Providers\Shell\SecurityRules;
  * (§15). One ISPConfig client per ONhost organization, one Unix user + PHP-FPM
  * pool per site, real per-site limits from the plan entitlements.
  */
-final class IspConfigWebProvider implements MailProvider, MailToolsProvider, WebHostingProvider, WebToolsProvider
+final class IspConfigWebProvider implements MailProvider, MailToolsProvider, SelfProbing, WebHostingProvider, WebToolsProvider
 {
     use IspConfigMailTools;
     use IspConfigTools;
@@ -514,6 +515,39 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Web
     // ── Site features (customer panel) ──────────────────────────────────────
 
     /** A fact `onhost:nodes:check` recorded on the instance (NodePrerequisites), null until the first check. */
+    /**
+     * What the remote user of THIS panel may really call (SelfProbing). The backup calls decide whether panel archives can be
+     * restored at all; `sys_datalog_get_by_tstamp` decides whether a change can be followed by its own record instead of by
+     * the length of the whole server's queue (production-readiness-audit §7, item 2) — its field names are written down so
+     * that tracking is built on what the panel sends.
+     */
+    public function probes(?ResourceRef $anyResource = null): array
+    {
+        $out = [];
+        $site = $anyResource !== null && in_array($anyResource->remoteType, ['web_domain', 'site'], true) ? $anyResource : null;
+        $out['backup_api'] = $site === null ? 'skipped: no site on this instance yet' : $this->probe(fn () => $this->api->call('sites_web_domain_backup_list', ['site_id' => (int) $site->remoteId]));
+        $rows = null;
+        $out['datalog_api'] = $this->probe(function () use (&$rows): void {
+            $rows = $this->api->call('sys_datalog_get_by_tstamp', ['tstamp' => time() - 3600]);
+        });
+        $first = is_array($rows) ? collect($rows)->first(fn ($row) => is_array($row)) : null;
+        $out['datalog_fields'] = is_array($first) ? array_values(array_map('strval', array_keys($first))) : [];
+
+        return $out;
+    }
+
+    /** One read-only probe: `ok`, or what the panel said. */
+    private function probe(callable $ask): string
+    {
+        try {
+            $ask();
+
+            return 'ok';
+        } catch (ProviderException $e) {
+            return (in_array($e->errorCode, [ProviderErrorCode::AUTH, ProviderErrorCode::VALIDATION], true) ? 'refused: ' : 'missing: ').mb_substr($e->getMessage(), 0, 160);
+        }
+    }
+
     private function prerequisite(string $key): mixed
     {
         return $this->instance->capabilities['prereqs'][$key] ?? null;

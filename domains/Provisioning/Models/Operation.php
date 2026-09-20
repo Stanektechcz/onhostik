@@ -13,6 +13,8 @@ use Onhost\Platform\StateMachine\StateMachine;
  * Durable, idempotent, resumable unit of provisioning work (blueprint §5.2):
  * operation id, actor, idempotency key, correlation, desired state, attempts.
  *
+ * @property ?Carbon $queued_at
+ * @property ?Carbon $started_at
  * @property ?Carbon $finished_at
  * @property ?Carbon $secrets_scrubbed_at when the row forgot the secrets it carried (OperationSecrets); null = it may still hold some
  */

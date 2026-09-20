@@ -79,8 +79,26 @@ aaPanel `/system?action=GetSystemTotal`, Pterodactyl `/api/application/nodes`, P
 redacted error. The scheduled probe (`onhost:integrations:health`) repeats it every few minutes and raises
 `integration.down` / `integration.recovered`.
 
-## 4. Nodes and capacity
+## 3a. What the panel really answers (`SelfProbing`)
 
+Adapters are written from the vendors' documentation and proven against doubles. Whether the panel in the rack answers
+the same way is a fact about that panel — its version, the rights of the API user, a missing plugin. The prerequisites
+pass (`onhost:nodes:check`, nightly; `POST /v1/staff/integrations/{instance}/prerequisites` on demand) asks read-only
+and records the answers under `capabilities.prereqs.probes`:
+
+| Panel | Probe | What it decides |
+| --- | --- | --- |
+| ISPConfig | `backup_api` (`sites_web_domain_backup_list`) | whether panel archives can be listed and restored at all — the remote user needs the *sites* backup functions |
+| ISPConfig | `datalog_api`, `datalog_fields` (`sys_datalog_get_by_tstamp`) | whether a change can be followed by its own record instead of the whole server's queue; the field NAMES the panel sends are written down (never values). Informational: no warning |
+| aaPanel | `backup_api`, `files_api` | the backup table behind restores and exports; the file API behind "pack the whole site" |
+| Pterodactyl | `server_status_field`, `backup_api` | a restore is followed by `status` of the server in the application API; the client API lists backups |
+| Proxmox | `backup_storage` | the instance option is set and its content can be listed — backups and final snapshots are found there |
+
+A failed probe is a warning of the pass (`integration.prereqs.regressed` tells operations the night it appears).
+After the first pass on staging, read `datalog_fields`: if it lists `status` and `error`, per-change tracking on
+ISPConfig can be built on it (audit §7, item 2).
+
+## 4. Nodes and capacity
 * Proxmox: `POST /v1/staff/integrations/{key}/discover` imports cluster nodes with their CPU/RAM/disk; re-run
   any time (manual capacity overrides are kept).
 * Other executors: `POST /v1/staff/integrations/{key}/nodes` with name, role (web | managed | game | mail | dns |

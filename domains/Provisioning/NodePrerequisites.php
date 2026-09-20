@@ -13,6 +13,7 @@ use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Providers\Contracts\GameProvider;
 use Onhost\Providers\Contracts\GameToolsProvider;
 use Onhost\Providers\Contracts\ResourceRef;
+use Onhost\Providers\Contracts\SelfProbing;
 use Onhost\Providers\Contracts\WebHostingProvider;
 use Onhost\Providers\Contracts\WebToolsProvider;
 use Throwable;
@@ -87,6 +88,21 @@ final class NodePrerequisites
             if ($adapter instanceof GameToolsProvider && $adapter instanceof GameProvider && $health->healthy) {
                 $out['game'] = $this->gamePanel($instance, $adapter, $out['warnings']);
                 $out['client_api'] = $out['game']['client_api'];
+            }
+            if ($adapter instanceof SelfProbing && $health->healthy) { // which of the calls we rely on does THIS panel really answer
+                $any = ProviderBinding::query()->where('provider_instance_id', $instance->id)->whereIn('remote_type', ['web_domain', 'site', 'server', 'qemu', 'lxc'])->orderBy('created_at')->first();
+                $out['probes'] = $adapter->probes($any?->ref());
+                foreach ($out['probes'] as $probe => $answer) {
+                    // `datalog_api` is knowledge for the next change of the adapter, not something operations has to act on tonight
+                    if (is_string($answer) && $probe !== 'datalog_api' && ! str_starts_with($answer, 'ok') && ! str_starts_with($answer, 'skipped')) {
+                        $out['warnings'][] = "Kontrola „{$probe}“: {$answer}";
+                    }
+                }
+                foreach (['backup_api', 'datalog_api'] as $key) { // read by the adapters like `cron_api`
+                    if (isset($out['probes'][$key]) && is_string($out['probes'][$key])) {
+                        $out[$key] = str_starts_with($out['probes'][$key], 'ok') ? 'ok' : (str_starts_with($out['probes'][$key], 'skipped') ? 'unknown' : 'broken');
+                    }
+                }
             }
             if ($instance->provider === 'ispconfig' && $out['mod_proxy'] === 'unknown') {
                 $out['warnings'][] = 'mod_proxy na Apache není potvrzený (nastavte volbu instance mod_proxy=yes/no); reverzní proxy se nabízí, dokud ji nevypnete.';
