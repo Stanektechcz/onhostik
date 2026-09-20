@@ -41,6 +41,8 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Tax\CnbRates;
+use Onhost\Domain\Tax\Models\ExchangeRate;
 use Onhost\Domain\WalletLedger\AutoTopup;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Ops\PlatformBackup;
@@ -177,6 +179,14 @@ final class Doctor extends Command
             ->where(fn ($q) => $q->whereNull('paid_at')->orWhereNotIn('id', Invoice::query()->whereIn('type', ['statement', 'invoice'])->whereNotNull('order_id')->select('order_id')))->limit(50)->pluck('number');
         $this->add('money', 'every order being delivered was paid and documented', $unpaid->isEmpty(), $unpaid->isEmpty() ? 'none without a payment or a tax document' : $unpaid->count().' order(s): '.$unpaid->take(5)->implode(', ').($unpaid->count() > 5 ? ' …' : '').' — finance review (docs/runbooks/billing-dunning.md)');
         $over = Invoice::query()->where('credited_minor', '>', 0)->whereColumn('credited_minor', '>', 'total_minor')->limit(50)->pluck('number');
+        if (CnbRates::currencies() !== []) {
+            // a tax document in another currency states its VAT in CZK; one issued while the bank did not answer waits for `onhost:fx:sync`
+            $waiting = Invoice::query()->where('meta->czk_pending', true)->where('state', '!=', Invoice::DRAFT)->where('issued_at', '<', now()->subDay())->limit(50)->pluck('number');
+            $this->add('money', 'every tax document in another currency states its VAT in CZK', $waiting->isEmpty(), $waiting->isEmpty() ? 'none waits for the national bank\'s rate for more than a day' : $waiting->count().' document(s) without the CZK recap: '.$waiting->take(5)->implode(', ').' — run onhost:fx:sync and see why the list cannot be read', false);
+            $latest = ExchangeRate::query()->where('source', CnbRates::SOURCE)->max('valid_on');
+            $fresh = $latest !== null && CarbonImmutable::parse((string) $latest)->gte(now()->subDays(5)->startOfDay());
+            $this->add('money', 'the national bank\'s exchange rates are fresh', $fresh, $latest === null ? 'no list was ever stored — run onhost:fx:sync (documents in '.implode(', ', CnbRates::currencies()).' wait for it)' : 'latest list: '.CarbonImmutable::parse((string) $latest)->format('Y-m-d'), false);
+        }
         $this->add('money', 'no document is credited for more than it was issued for', $over->isEmpty(), $over->isEmpty() ? 'credit notes fit their documents' : $over->take(5)->implode(', ').' — finance review', false);
 
         // what a service owns on a shared node is recognised by its name prefix; two services with one prefix own each other's databases

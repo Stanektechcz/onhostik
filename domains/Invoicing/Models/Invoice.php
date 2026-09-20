@@ -12,6 +12,9 @@ use Onhost\Platform\Money\Money;
 /**
  * Issued invoices are immutable: number and business content never change (§64.2).
  *
+ * @property array<string,mixed>|null $meta
+ * @property list<array{rate:string, category:string, net:int, tax:int}>|null $tax_summary
+ * @property ?string $corrects_invoice_id
  * @property ?Carbon $issued_at
  * @property ?Carbon $supply_date
  * @property ?Carbon $due_at

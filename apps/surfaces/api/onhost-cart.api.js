@@ -155,7 +155,8 @@
   function quoteLines(it) {
     var st = cmpRef && cmpRef.state, q = st ? currentQuote(st) : null, id = quote.map[it.id];
     if (!q || !id) return null;
-    return (q.lines || []).filter(function (l) { return l.line_id === id || (l.config && l.config.parent_line_id === id); });
+    var mine = function (v) { return v === id || (typeof v === 'string' && v.indexOf(id + '#') === 0); };
+    return (q.lines || []).filter(function (l) { return mine(l.line_id) || (l.config && mine(l.config.parent_line_id)); });
   }
   function quoteLine(it) { var ls = quoteLines(it); if (!ls || !ls.length) return null; var net = 0; ls.forEach(function (l) { net += Number(l.net) || 0; }); return { net: net / 100, lines: ls }; }
   /* cartMath() of the prototype: the server's totals while the quote matches the cart, otherwise null (local estimate) */
@@ -185,8 +186,11 @@
   }
   function quoteRows(lines, rows, cmp, cs) {
     var _ = function (a, b) { return cs ? a : b; };
+    var copies = {}; // the copies of a line with a quantity are shown once, × N
+    lines.forEach(function (l) { var id = String(l.line_id || ''), i = id.indexOf('#'); if (i > 0) copies[id.slice(0, i)] = (copies[id.slice(0, i)] || 1) + 1; });
     lines.forEach(function (l) {
-      var c = l.config || {}, qty = Number(l.qty) || 1, pb = Number(c.periods_billed) || 1, unit = (Number(l.unit_net) || 0) * qty, opts = 0;
+      if (String(l.line_id || '').indexOf('#') > 0) return;
+      var c = l.config || {}, qty = copies[l.line_id] || Number(l.qty) || 1, pb = Number(c.periods_billed) || 1, unit = (Number(l.unit_net) || 0) * qty, opts = 0;
       (c.options_priced || []).forEach(function (o) { opts += (Number(o.net) || 0) * pb * qty; });
       if (l.product_key === 'domain') {
         rows.push({ k: l.name, v: money(cmp, (Number(l.net) || 0) / 100) });

@@ -43,6 +43,69 @@ final class QuoteService
     ) {}
 
     /**
+     * One line is one service, so a quantity is that many lines. A quantity used to be priced × N (renewals too) while ONE service
+     * was delivered; then it was refused — and the cart of the storefront offers a quantity, so an order for two servers could
+     * not be placed at all. Every copy is a line of its own: its own price, its own share of a discount, its own service and
+     * subscription. The add-on lines of a line are copied with it, each copy attached to its own parent.
+     *
+     * What cannot be had twice is refused: a domain name, a plan change of one service, a line that names one site.
+     *
+     * @param  list<array<string,mixed>>  $items
+     * @return list<array<string,mixed>>
+     */
+    private function expandQuantities(array $items): array
+    {
+        $max = max(1, (int) config('onhost.orders.max_quantity', 10));
+        $qtyOf = [];
+        foreach (array_values($items) as $index => $item) {
+            $qtyOf[(string) ($item['line_id'] ?? ('l'.($index + 1)))] = max(1, (int) ($item['qty'] ?? 1));
+        }
+        $out = [];
+        foreach (array_values($items) as $index => $item) {
+            $lineId = (string) ($item['line_id'] ?? ('l'.($index + 1)));
+            $qty = $qtyOf[$lineId];
+            $config = (array) ($item['config'] ?? []);
+            $parent = (string) ($config['parent_line_id'] ?? '');
+            $item['line_id'] = $lineId; // kept on the line: the positions shift once lines are copied
+            $item['qty'] = 1;
+            if ($parent !== '' && isset($qtyOf[$parent]) && $qtyOf[$parent] !== $qty) {
+                throw new DomainError('addon_quantity_mismatch', 'An add-on is ordered as many times as the service it belongs to.', 422, ['field' => "items.{$index}.qty", 'parent' => $parent]);
+            }
+            if ($qty === 1) {
+                $out[] = $item;
+
+                continue;
+            }
+            if ($qty > $max) {
+                throw new DomainError('quantity_too_large', "At most {$max} of one service fit on one order line.", 422, ['field' => "items.{$index}.qty", 'max' => $max]);
+            }
+            $named = array_values(array_filter(['fqdn', 'domain', 'hostname'], fn (string $key) => ! empty($config[$key])));
+            if (($item['product_key'] ?? '') === 'domain' || ! empty($config['upgrade_of']) || $named !== []) {
+                throw new DomainError('quantity_unsupported', 'This line names one thing (a domain name, a site, a service that changes its plan); add another line for another one.', 422, ['field' => "items.{$index}.qty"]);
+            }
+            for ($copy = 1; $copy <= $qty; $copy++) {
+                $line = $item;
+                if ($copy > 1) {
+                    $line['line_id'] = "{$lineId}#{$copy}";
+                    if ($parent !== '') {
+                        $line['config'] = array_merge($config, ['parent_line_id' => "{$parent}#{$copy}"]);
+                    }
+                    if (! empty($config['label'])) {
+                        $line['config'] = array_merge((array) $line['config'], ['label' => mb_substr((string) $config['label'], 0, 58).' '.$copy]);
+                    }
+                }
+                $out[] = $line;
+            }
+        }
+        $limit = max(1, (int) config('onhost.orders.max_lines', 50));
+        if (count($out) > $limit) {
+            throw new DomainError('order_too_large', "An order holds at most {$limit} lines.", 422, ['field' => 'items', 'max' => $limit]);
+        }
+
+        return $out;
+    }
+
+    /**
      * @param  list<array<string,mixed>>  $items
      * @param  array{country?:string,customer_class?:string,vat_status?:string,ip_country?:?string}  $customer
      */
@@ -57,6 +120,7 @@ final class QuoteService
         } else {
             $customer['vat_status'] = 'unknown'; // a guest's quote is an estimate; a VAT number is verified on the account, not claimed in a cart
         }
+        $items = $this->expandQuantities($items); // one line is one service: a quantity is that many lines
         $country = strtoupper((string) ($customer['country'] ?? 'CZ'));
         $region = $this->rules->regionFor($country); // regional list price (audit §5j-8)
         $loyaltyPct = $organization !== null ? round(max(0.0, min(30.0, (float) data_get($organization->settings, 'loyalty_discount.pct', 0))), 2) : 0.0; // the streak discount finance granted (audit §5j-3)
@@ -102,12 +166,7 @@ final class QuoteService
         }
 
         foreach ($items as $index => $item) {
-            $qty = max(1, (int) ($item['qty'] ?? 1));
-            // One line is one service. A quantity was priced (× N, renewals too) and then ONE service was delivered: ten VPS paid,
-            // one built, renewing at ten times the price. Until a line can be delivered N times it is refused, not overcharged.
-            if ($qty > 1) {
-                throw new DomainError('quantity_unsupported', 'Each service is its own cart line; add the product again for another one.', 422, ['field' => "items.{$index}.qty"]);
-            }
+            $qty = 1; // `expandQuantities()` made every line one service: a line is priced, discounted, delivered and renewed once
             $productKey = (string) ($item['product_key'] ?? '');
             $config = (array) ($item['config'] ?? []);
             $lineId = (string) ($item['line_id'] ?? ('l'.($index + 1)));

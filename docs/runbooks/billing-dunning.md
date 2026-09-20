@@ -102,7 +102,15 @@ runs once every line reached its end (`active` or `failed`):
   credit did not cover the charge.
 * An order nobody paid is cancelled after `ONHOST_ORDER_UNPAID_EXPIRE_DAYS` (14): the proforma is voided, the transfer is
   no longer matched; a late payment arrives as an unmatched bank line for finance.
-* A quantity above one is refused at the quote (`quantity_unsupported`): fulfilment builds one service per line.
+* **A quantity is that many lines** (2026-09-20). One line is one service; a quantity used to be priced × N (renewals too)
+  while ONE service was delivered, then it was refused outright — and the storefront cart offers a quantity, so an order for
+  two servers could not be placed at all. `QuoteService::expandQuantities()` turns `qty: 3` into the lines `l1`, `l1#2`,
+  `l1#3`: each has its own price, its own share of a discount (a fixed-amount code is still spent once), its own service,
+  subscription and document line — so a return or a credit note for one of the three servers works like any other. The
+  add-on lines of a line are copied with it, each copy attached to its own parent (`addon_quantity_mismatch` when an add-on
+  comes in another quantity than its service). Refused: a domain name, a plan change, a line that names one site
+  (`quantity_unsupported`), more than `ONHOST_ORDER_MAX_QUANTITY` (10) of one line (`quantity_too_large`), more than
+  `ONHOST_ORDER_MAX_LINES` (50) lines on one order (`order_too_large`). Test: `tests/Feature/Orders/PaidForIsWhatYouGetTest.php`.
 
 **Check on staging after deploying:** orders `ACTIVE` whose `wallet_holds.state` is `released`/`expired` and whose
 `meta.settlement` is missing were never charged (the old behaviour) — list them and decide per customer:
@@ -217,3 +225,31 @@ The case said `SUSPENDED` and `TERMINATED`; nobody looked at the service.
   enforced (H24) — unchanged.
 
 Tests: `tests/Feature/Billing/DunningEnforcementTest.php` (both holes proven against the old code first).
+
+## VAT in CZK on documents in another currency (2026-09-20)
+
+A tax document issued in EUR has to state its VAT **in CZK** (§ 29 (1) l) of the Czech VAT act), converted at the rate of the
+Czech National Bank valid for the day the tax is due (§ 4). It carried neither the rate nor the amount.
+
+* **Which documents:** `invoice`, `receipt` (the tax document of a top-up) and `credit_note`. A proforma is a request to pay
+  and a statement only lists what the credit paid for — neither is a tax document.
+* **Which rate:** the list valid for the document's supply day (`CnbRates::rateFor`): the latest stored list that is not
+  younger than the day and not older than `ONHOST_FX_MAX_AGE_DAYS` (7). The bank publishes at 14:30 on working days; before
+  that, and over a weekend, the previous list is the valid one — the document prints the date of the list it used.
+  **A credit note uses the rate of the document it corrects** (§ 42), never the rate of the day it is written.
+* **How it is computed:** every VAT rate of the summary is converted on its own (integers, half away from zero) and the
+  totals are their sums, so the recap adds up. `meta.czk` = `source, basis, valid_on, amount, rate, rate_micro, net_minor,
+  tax_minor, total_minor, summary[]`; printed on the PDF, exported in the e-invoice (`TaxCurrencyCode` = CZK and a second
+  `TaxTotal` in CZK — EN 16931 BT-6 / BT-111) and returned by the API (`czk`).
+* **Where the rates come from:** `onhost:fx:sync` (working days 14:40 and every day 06:10 Prague time) stores the list for the
+  currencies in `onhost.billing.currencies`. While a document is being issued and the day's list is not stored yet, the
+  bank is asked — at most once in a quarter of an hour, 5 s timeout (`ONHOST_FX_FETCH=false` turns that off; the scheduled
+  sync stays).
+* **The bank does not answer:** the document is issued all the same, with `meta.czk_pending`; the next `onhost:fx:sync`
+  adds the recap, makes the structure and the PDF again and writes `invoice.czk_statement.completed` to the audit. Nothing
+  the document was issued for changes. `onhost:doctor` (area `money`) shows documents that wait for more than a day, and
+  says when the latest list is older than five days.
+* **For the accountant to confirm:** the company's directive uses the daily rate of the ČNB (the default the law gives). A
+  fixed monthly rate would need another source here.
+
+Tests: `tests/Feature/Finance/ForeignCurrencyVatTest.php`.

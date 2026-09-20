@@ -32,6 +32,9 @@ final class UblExporter
             'TaxPointDate' => $invoice->supply_date?->format('Y-m-d'),
             'InvoiceTypeCode' => $invoice->type === 'credit_note' ? '381' : ($invoice->type === 'proforma' ? '386' : '380'),
             'DocumentCurrencyCode' => $invoice->currency,
+            // BT-6 / BT-111: the VAT accounting currency and the total VAT in it, when the document is in another currency
+            'TaxCurrencyCode' => isset($invoice->meta['czk']) ? 'CZK' : null,
+            'TaxTotalInTaxCurrency' => isset($invoice->meta['czk']) ? Money::minor((int) $invoice->meta['czk']['tax_minor'], 'CZK')->toDecimal() : null,
             'BuyerReference' => $invoice->buyer['organization_id'] ?? null,
             'BillingReference' => $invoice->corrects_invoice_id ? ['InvoiceDocumentReference' => ['ID' => $invoice->meta['original_number'] ?? $invoice->corrects_invoice_id]] : null,
             'AccountingSupplierParty' => [
@@ -104,6 +107,9 @@ final class UblExporter
         }
         $x[] = $isCredit ? '<cbc:CreditNoteTypeCode>381</cbc:CreditNoteTypeCode>' : "<cbc:InvoiceTypeCode>{$e($s['InvoiceTypeCode'])}</cbc:InvoiceTypeCode>";
         $x[] = "<cbc:DocumentCurrencyCode>{$e($s['DocumentCurrencyCode'])}</cbc:DocumentCurrencyCode>";
+        if (! empty($s['TaxCurrencyCode'])) {
+            $x[] = "<cbc:TaxCurrencyCode>{$e($s['TaxCurrencyCode'])}</cbc:TaxCurrencyCode>";
+        }
         if (! empty($s['BuyerReference'])) {
             $x[] = "<cbc:BuyerReference>{$e($s['BuyerReference'])}</cbc:BuyerReference>";
         }
@@ -133,6 +139,9 @@ final class UblExporter
             $x[] = "<cac:TaxSubtotal><cbc:TaxableAmount currencyID=\"{$cur}\">{$e($sub['TaxableAmount'])}</cbc:TaxableAmount><cbc:TaxAmount currencyID=\"{$cur}\">{$e($sub['TaxAmount'])}</cbc:TaxAmount><cac:TaxCategory><cbc:ID>{$e($sub['TaxCategory']['ID'])}</cbc:ID><cbc:Percent>{$e($sub['TaxCategory']['Percent'])}</cbc:Percent>{$reason}<cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:TaxCategory></cac:TaxSubtotal>";
         }
         $x[] = '</cac:TaxTotal>';
+        if (! empty($s['TaxCurrencyCode']) && isset($s['TaxTotalInTaxCurrency'])) {
+            $x[] = "<cac:TaxTotal><cbc:TaxAmount currencyID=\"{$e($s['TaxCurrencyCode'])}\">{$e($s['TaxTotalInTaxCurrency'])}</cbc:TaxAmount></cac:TaxTotal>";
+        }
         $t = $s['LegalMonetaryTotal'];
         $x[] = "<cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID=\"{$cur}\">{$e($t['LineExtensionAmount'])}</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID=\"{$cur}\">{$e($t['TaxExclusiveAmount'])}</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID=\"{$cur}\">{$e($t['TaxInclusiveAmount'])}</cbc:TaxInclusiveAmount><cbc:PrepaidAmount currencyID=\"{$cur}\">{$e($t['PrepaidAmount'])}</cbc:PrepaidAmount><cbc:PayableAmount currencyID=\"{$cur}\">{$e($t['PayableAmount'])}</cbc:PayableAmount></cac:LegalMonetaryTotal>";
         foreach ($s['InvoiceLine'] as $line) {

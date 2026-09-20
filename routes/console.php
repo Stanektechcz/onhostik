@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -87,6 +88,7 @@ use Onhost\Domain\Services\Web\UptimeMonitor;
 use Onhost\Domain\Services\Web\WebFileStore;
 use Onhost\Domain\Support\TicketService;
 use Onhost\Domain\Support\WorkOfferService;
+use Onhost\Domain\Tax\CnbRates;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\WalletForecast;
 use Onhost\Domain\WalletLedger\WalletService;
@@ -472,6 +474,8 @@ Schedule::command('onhost:billing:dunning')->dailyAt('06:00')->withoutOverlappin
 Schedule::command('onhost:billing:runway')->dailyAt('07:30')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:dns:platform-sync')->hourlyAt(25)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:dns:drift')->dailyAt('03:40')->withoutOverlapping()->onOneServer(); // what the DNS providers serve vs what we hold
+Schedule::command('onhost:fx:sync')->timezone('Europe/Prague')->weekdays()->at('14:40')->withoutOverlapping()->onOneServer(); // the national bank publishes at 14:30
+Schedule::command('onhost:fx:sync')->timezone('Europe/Prague')->dailyAt('06:10')->withoutOverlapping()->onOneServer(); // and a morning pass: a late list, documents that wait
 Schedule::command('onhost:certificates:issue-pending')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:registrars:sync-connections')->hourlyAt(40)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:overdue')->dailyAt('01:15')->onOneServer();
@@ -993,6 +997,28 @@ Artisan::command('onhost:registrars:sync-connections {--connection=* : limit to 
 
     return 0;
 })->purpose('Mirror every connected registrar account: domains, hosted zones, expiry notices, credit watch');
+
+/*
+ * The exchange rate list of the Czech National Bank for the currencies documents are issued in, and the CZK recap of the
+ * documents that were issued while the rate was not known. The bank publishes at 14:30 on working days.
+ */
+Artisan::command('onhost:fx:sync {--date= : the day to fetch the list for (Y-m-d), default today}', function (CnbRates $rates, InvoiceService $invoices) {
+    if (CnbRates::currencies() === []) {
+        $this->info('documents are issued in CZK only; nothing to fetch');
+
+        return 0;
+    }
+    try {
+        $list = $rates->sync($this->option('date') ? Carbon::parse((string) $this->option('date')) : null);
+        $this->info("list of {$list['valid_on']}: {$list['stored']} new rate(s)");
+    } catch (Throwable $e) {
+        $this->error('the exchange rate list could not be read: '.$e->getMessage());
+    }
+    $done = $invoices->completeCzkStatements();
+    $this->info("documents completed with their VAT in CZK: {$done['completed']}, still waiting: {$done['waiting']}");
+
+    return 0;
+})->purpose('Fetch the Czech National Bank exchange rates and complete the CZK VAT recap of foreign-currency documents');
 
 /*
  * What the DNS providers serve, compared with what the platform holds — a batch of zones a night, oldest comparison first. A

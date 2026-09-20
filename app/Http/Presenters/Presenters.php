@@ -209,6 +209,8 @@ final class Presenters
             'subtotal' => self::money((int) $invoice->subtotal_minor, $invoice->currency), 'tax' => self::money((int) $invoice->tax_minor, $invoice->currency), 'total' => self::money((int) $invoice->total_minor, $invoice->currency), 'paid' => self::money((int) $invoice->paid_minor, $invoice->currency),
             'issued_at' => $invoice->issued_at?->toIso8601String(), 'due_at' => $invoice->due_at?->toIso8601String(), 'paid_at' => $invoice->paid_at?->toIso8601String(), 'payment_method' => $invoice->payment_method, 'payment_reference' => $invoice->payment_reference,
             'order_id' => $invoice->order_id, 'corrects_invoice_id' => $invoice->corrects_invoice_id, 'pdf' => $invoice->pdf_hash !== null, 'buyer' => $invoice->buyer, 'tax_summary' => $invoice->tax_summary, 'green' => data_get($invoice->meta, 'green'),
+            // a tax document in another currency: its VAT in CZK at the national bank's rate (null for CZK documents; `pending` while the rate is not known yet)
+            'czk' => data_get($invoice->meta, 'czk'), 'czk_pending' => (bool) data_get($invoice->meta, 'czk_pending', false),
         ];
         if ($withLines) {
             $out['lines'] = $invoice->lines()->get()->map(fn ($l) => ['position' => $l->position, 'sku' => $l->sku, 'description' => $l->description, 'qty' => $l->qty, 'unit' => $l->unit, 'unit_net' => self::money((int) $l->unit_net_minor, $invoice->currency), 'net' => self::money((int) $l->net_minor, $invoice->currency), 'tax_rate' => $l->tax_rate, 'tax_category' => $l->tax_category, 'tax' => self::money((int) $l->tax_minor, $invoice->currency), 'total' => self::money((int) $l->total_minor, $invoice->currency), 'period_from' => $l->period_from, 'period_to' => $l->period_to])->all();

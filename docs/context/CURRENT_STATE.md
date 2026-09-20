@@ -91,6 +91,13 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A quantity is that many lines:** `qty: 3` becomes `l1`, `l1#2`, `l1#3` — own price, discount share, service, subscription and
+  document line each; add-on lines are copied with their parent. The storefront cart offered a quantity the server refused.
+
+- **VAT in CZK on documents in another currency:** an EUR tax document carries the ČNB rate of the supply day and its VAT in CZK
+  (PDF, e-invoice BT-6/BT-111, API); a credit note uses the original's rate; `onhost:fx:sync`; a bank that does not answer never
+  stops a document (`czk_pending`, completed later; doctor area `money`).
+
 - **DNS is compared every night and bounded in size:** `onhost:dns:drift` (what the provider serves vs what we hold; doctor area
   `dns`; a zone that is gone at the provider is `hot`, a comparison that could not be made is kept apart), at most 500 records
   and 200 waiting changes per zone. The repair is `POST /v1/dns/zones/{zone}/republish` (the provider gets what the platform
@@ -178,7 +185,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 631 tests, 12 875 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 636 tests, 12 966 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

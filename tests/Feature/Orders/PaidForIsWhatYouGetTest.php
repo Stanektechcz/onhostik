@@ -8,10 +8,12 @@ use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Catalog\Models\Plan;
+use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Orders\CheckoutService;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Project;
+use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Errors\DomainError;
@@ -112,11 +114,50 @@ it('taxes a signed-in organization by what it is, not by what the cart claims', 
     expect($guest['tax'])->toBeGreaterThan(0);
 });
 
-it('refuses a quantity it cannot deliver instead of charging for it', function () {
+it('turns a quantity into that many lines: each its own price, its own service, its own add-on', function () {
     [$owner, $org] = $this->customerWithOrganization();
-    // ten VPS were priced (and would renew) ten times over while fulfilment builds one service per line
-    expect(fn () => app(QuoteService::class)->quote([['product_key' => 'vps', 'plan_key' => 'compute-4', 'qty' => 10]], 'CZK', [], 1, null, $org))
-        ->toThrow(fn (DomainError $e) => expect($e->error)->toBe('quantity_unsupported')->and($e->status)->toBe(422));
-    $one = app(QuoteService::class)->quote([['product_key' => 'vps', 'plan_key' => 'compute-4', 'qty' => 1], ['product_key' => 'vps', 'plan_key' => 'compute-4']], 'CZK', [], 1, null, $org);
-    expect($one->lines)->toHaveCount(2); // another one is another line
+    $ctx = $this->contextFor($owner, $org);
+    app(WalletService::class)->topup($org, Money::decimal('500000', 'CZK'), 'bank', 'qty-seed', $ctx);
+    $consents = ['terms' => ['version' => '2026-09'], 'privacy' => [], 'dpa' => [], 'withdrawal_waiver' => [], 'sla' => []];
+    PromoCode::query()->create(['code' => 'STOVKA', 'kind' => 'fixed', 'value' => 100, 'applies_to' => ['cloud'], 'first_period_only' => true, 'state' => 'active']);
+
+    // the cart of the storefront offers a quantity: it used to be priced × 3 for ONE server, then it was refused — an order for
+    // three servers could not be placed at all. The add-on line comes with the quantity of the line it belongs to.
+    $quote = app(QuoteService::class)->quote([
+        ['line_id' => 'l1', 'product_key' => 'vps', 'plan_key' => 'compute-4', 'qty' => 3, 'config' => ['label' => 'uzel']],
+        ['line_id' => 'l2', 'product_key' => 'backup-plus', 'plan_key' => 'backup-7', 'qty' => 3, 'config' => ['parent_line_id' => 'l1']],
+    ], 'CZK', [], 1, 'STOVKA', $org);
+
+    expect(array_column($quote->lines, 'line_id'))->toBe(['l1', 'l1#2', 'l1#3', 'l2', 'l2#2', 'l2#3'])
+        ->and(array_unique(array_column($quote->lines, 'qty')))->toBe([1])
+        ->and(array_map(fn (array $l) => $l['config']['parent_line_id'] ?? null, $quote->lines))->toBe([null, null, null, 'l1', 'l1#2', 'l1#3'])
+        ->and(array_map(fn (array $l) => $l['config']['label'] ?? null, array_slice($quote->lines, 0, 3)))->toBe(['uzel', 'uzel 2', 'uzel 3']);
+    // three servers and three backups at the list price; "100 Kč off" is spent once, by the first line
+    expect($quote->subtotal_minor)->toBe(3 * 44900 + 3 * 4900)->and($quote->discount_minor)->toBe(10000)
+        ->and(array_column($quote->lines, 'discount'))->toBe([10000, 0, 0, 0, 0, 0])
+        ->and(array_sum(array_column($quote->lines, 'renewal_net')))->toBe(3 * 44900 + 3 * 4900);
+
+    $order = app(CheckoutService::class)->placeOrder($quote, $org, $owner, $consents, ['mode' => 'wallet'], 'qty-1', $ctx)['order'];
+    $items = OrderItem::query()->where('order_id', $order->id)->get()->keyBy(fn (OrderItem $i) => (string) $i->config['line_id']);
+    expect($items)->toHaveCount(6);
+    $services = app(ServiceService::class);
+    foreach (['l2', 'l2#2', 'l2#3'] as $addon) { // the add-on builds its parent first, then hangs under it
+        $services->createFromOrderItem($items[$addon], $order, $ctx);
+    }
+    $items = OrderItem::query()->where('order_id', $order->id)->get()->keyBy(fn (OrderItem $i) => (string) $i->config['line_id']);
+    $servers = [$items['l1']->service_id, $items['l1#2']->service_id, $items['l1#3']->service_id];
+    expect(array_filter($servers))->toHaveCount(3)->and(array_unique($servers))->toHaveCount(3); // three servers, not one
+    foreach ([['l2', 'l1'], ['l2#2', 'l1#2'], ['l2#3', 'l1#3']] as [$addon, $parent]) {
+        expect(Service::query()->findOrFail($items[$addon]->service_id)->tags['parent_service_id'] ?? null)->toBe($items[$parent]->service_id); // each backup under its own server
+    }
+
+    // what cannot be had twice is refused, and so is a quantity nobody means
+    $refused = fn (array $items) => fn () => app(QuoteService::class)->quote($items, 'CZK', [], 1, null, $org);
+    expect($refused([['product_key' => 'domain', 'qty' => 2, 'config' => ['fqdn' => 'dvakrat.cz']]]))->toThrow(fn (DomainError $e) => expect($e->error)->toBe('quantity_unsupported')->and($e->status)->toBe(422));
+    expect($refused([['product_key' => 'web-hosting', 'plan_key' => 'start', 'qty' => 2, 'config' => ['fqdn' => 'jeden-web.cz']]]))->toThrow(fn (DomainError $e) => expect($e->error)->toBe('quantity_unsupported'));
+    expect($refused([['product_key' => 'vps', 'plan_key' => 'compute-4', 'qty' => 11]]))->toThrow(fn (DomainError $e) => expect($e->error)->toBe('quantity_too_large'));
+    expect($refused([['line_id' => 'a', 'product_key' => 'vps', 'plan_key' => 'compute-4', 'qty' => 2], ['product_key' => 'backup-plus', 'plan_key' => 'backup-7', 'qty' => 1, 'config' => ['parent_line_id' => 'a']]]))
+        ->toThrow(fn (DomainError $e) => expect($e->error)->toBe('addon_quantity_mismatch'));
+    config(['onhost.orders.max_lines' => 5]);
+    expect($refused([['product_key' => 'vps', 'plan_key' => 'compute-4', 'qty' => 6]]))->toThrow(fn (DomainError $e) => expect($e->error)->toBe('order_too_large'));
 });

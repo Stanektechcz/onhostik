@@ -78,6 +78,15 @@
     @foreach($invoice->tax_summary ?? [] as $row)
       Sazba {{ rtrim(rtrim($row['rate'], '0'), '.') }} % ({{ $row['category'] }}): základ {{ $money($row['net']) }}, DPH {{ $money($row['tax']) }}<br>
     @endforeach
+    @if(!empty($invoice->meta['czk']))
+      @php($czk = $invoice->meta['czk'])
+      @php($kc = fn (int $minor) => number_format($minor / 100, 2, ',', ' ').' Kč')
+      <br>Kurz ČNB {{ $czk['basis'] === 'original' ? 'původního plnění' : 'ke dni plnění' }} ({{ \Illuminate\Support\Carbon::parse($czk['valid_on'])->format('d.m.Y') }}): {{ $czk['amount'] }} {{ $czk['currency'] }} = {{ str_replace('.', ',', $czk['rate']) }} CZK / CNB rate<br>
+      @foreach($czk['summary'] as $row)
+        DPH v CZK — sazba {{ rtrim(rtrim($row['rate'], '0'), '.') }} %: základ {{ $kc($row['net_minor']) }}, daň {{ $kc($row['tax_minor']) }}<br>
+      @endforeach
+      DPH celkem v CZK / VAT in CZK: <strong>{{ $kc($czk['tax_minor']) }}</strong><br>
+    @endif
     @if(collect($lines)->contains(fn ($l) => $l->tax_category === 'AE'))
       <br>Daň odvede zákazník (reverse charge, čl. 196 směrnice 2006/112/ES). / VAT to be accounted for by the recipient.
     @endif

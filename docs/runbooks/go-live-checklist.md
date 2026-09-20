@@ -49,6 +49,7 @@ how it is verified; nothing here is optional for production. Run through it top 
 | Bank statement import matches by variable symbol | a test transfer settles the proforma and starts fulfilment |
 | Legal entity, VAT registration, document series (`FV`, `PF`, `DK`, `PP`, `TU`), `ONHOST_LEGAL_ENTITY` | `php artisan db:seed --class=LegalEntitySeeder` on the production values |
 | Tax rules (CZ 21 %, OSS, reverse charge) and VIES endpoint | a B2B EU quote shows reverse charge |
+| Documents in EUR: the control plane reaches `www.cnb.cz` (exchange rate list, public) and the accountant confirmed the daily ČNB rate | `php artisan onhost:fx:sync` stores today's list; an EUR invoice prints "Kurz ČNB" and its VAT in CZK; `onhost:doctor` area `money` is green |
 | Dunning ladder (`onhost.billing.dunning`) matches the terms in the panel (14 days) | `docs/runbooks/billing-dunning.md` |
 | Transactional mail (`MAIL_*`), templates rendered in Czech and English, SPF/DKIM/DMARC of the sending domain | request a password reset on `/prihlaseni`, run `php artisan onhost:mail:send`, check the message and its authentication headers |
 

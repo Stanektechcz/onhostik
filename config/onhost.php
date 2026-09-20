@@ -154,6 +154,13 @@ return [
         ],
         'domain_renewal_reserve_days' => 30,
         'vies_endpoint' => env('VIES_ENDPOINT', 'https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number'),
+        // a tax document in another currency states its VAT in CZK at the rate of the Czech National Bank (CnbRates, CzkTaxStatement)
+        'fx' => [
+            'cnb_url' => env('ONHOST_CNB_RATES_URL', 'https://www.cnb.cz/cs/financni-trhy/devizovy-trh/kurzy-devizoveho-trhu/kurzy-devizoveho-trhu/denni_kurz.txt'),
+            'fetch' => (bool) env('ONHOST_FX_FETCH', true), // ask the bank while a document is being issued when the day's list is not stored yet; off = the scheduled sync only
+            'timeout_seconds' => (int) env('ONHOST_FX_TIMEOUT', 5),
+            'max_age_days' => (int) env('ONHOST_FX_MAX_AGE_DAYS', 7), // an older list is not a rate of the day: the document waits for the bank
+        ],
     ],
 
     'payments' => [
@@ -297,6 +304,9 @@ return [
     'orders' => [
         // an unpaid order with the same cart fingerprint placed within this window is returned instead of duplicated
         'duplicate_window_minutes' => (int) env('ONHOST_ORDER_DUPLICATE_WINDOW_MINUTES', 15),
+        // a cart line with a quantity becomes that many lines (one line is one service); what one line and one order may hold
+        'max_quantity' => (int) env('ONHOST_ORDER_MAX_QUANTITY', 10),
+        'max_lines' => (int) env('ONHOST_ORDER_MAX_LINES', 50),
         // an order nobody paid is cancelled after this many days (proforma voided, transfer no longer matched)
         'unpaid_expire_days' => (int) env('ONHOST_ORDER_UNPAID_EXPIRE_DAYS', 14),
         // intake pre-check (audit §5f-8): signals add up to a score; at hold_score the paid order waits for a staff decision before provisioning

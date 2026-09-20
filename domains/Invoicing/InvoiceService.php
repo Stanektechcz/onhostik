@@ -44,6 +44,7 @@ final class InvoiceService
         private readonly FilesystemFactory $storage,
         private readonly TaxEngine $tax,
         private readonly WalletService $wallets,
+        private readonly CzkTaxStatement $czk,
     ) {}
 
     /**
@@ -196,6 +197,9 @@ final class InvoiceService
                 'due_at' => $issuedAt->copy()->addDays($dueDays),
                 'payment_reference' => InvoiceNumberAllocator::variableSymbol($allocated['number']),
             ])->save();
+            // a tax document in another currency states its VAT in CZK at the national bank's rate of the supply day (it carried
+            // neither); a bank that does not answer does not stop the document — `onhost:fx:sync` completes it
+            $invoice->forceFill(['meta' => $this->czk->stamp($invoice)])->save();
             $invoice->forceFill(['structured' => $this->ubl->structure($invoice)])->save();
             $this->renderPdf($invoice);
             if (($invoice->meta['postpaid'] ?? false) && $invoice->type === 'invoice') {
@@ -452,6 +456,32 @@ final class InvoiceService
                 "credit-note-return:{$credit->id}", $context->withScope($original->organization_id), 'invoice', $credit->id, "Vráceno na kredit: dobropis {$credit->number} k faktuře {$original->number}");
             $original->forceFill(['meta' => array_merge((array) $original->meta, ['overpaid_returned_minor' => $returned + $over])])->save();
         }
+    }
+
+    /**
+     * Documents in another currency that were issued while the national bank's rate was not known (`meta.czk_pending`): the CZK
+     * recap is added, the structure and the PDF are made again. Nothing the document was issued for changes.
+     *
+     * @return array{completed:int, waiting:int}
+     */
+    public function completeCzkStatements(int $limit = 200): array
+    {
+        $stats = ['completed' => 0, 'waiting' => 0];
+        foreach (Invoice::query()->where('meta->czk_pending', true)->where('state', '!=', Invoice::DRAFT)->orderBy('issued_at')->limit(max(1, $limit))->get() as $invoice) {
+            $meta = $this->czk->stamp($invoice);
+            if (! isset($meta['czk'])) {
+                $stats['waiting']++;
+
+                continue;
+            }
+            $invoice->forceFill(['meta' => $meta])->save();
+            $invoice->forceFill(['structured' => $this->ubl->structure($invoice)])->save();
+            $this->renderPdf($invoice);
+            $this->audit->record(CommandContext::system('fx-sync')->withScope($invoice->organization_id), 'invoice.czk_statement.completed', 'succeeded', ['number' => $invoice->number, 'rate' => $meta['czk']['rate'], 'valid_on' => $meta['czk']['valid_on'], 'tax_czk_minor' => $meta['czk']['tax_minor']], 'invoice', $invoice->id);
+            $stats['completed']++;
+        }
+
+        return $stats;
     }
 
     public function renderPdf(Invoice $invoice): Invoice
