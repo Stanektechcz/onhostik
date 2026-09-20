@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Staff;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Presenters\Presenters;
+use App\Http\StaffReadAudit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Domains\Models\Domain;
@@ -51,6 +52,7 @@ final class CustomerController extends ApiController
         if ($org === null) {
             throw DomainError::notFound('organization');
         }
+        app(StaffReadAudit::class)->record($request, $this->api->context($request, $org), 'customer', $org->id, 'organization', $org->id); // a look at a customer's account is an event, and the customer sees it
         $members = OrganizationMembership::query()->with('user')->where('organization_id', $org->id)->get()->map(fn ($m) => ['user_id' => $m->user_id, 'email' => $m->user?->email, 'name' => $m->user?->name, 'role' => $m->role_key, 'state' => $m->state])->all();
 
         return response()->json(['data' => Presenters::organization($org) + [

@@ -59,3 +59,12 @@ reports the mode. Switch it back on the day a second person joins and grant them
 2. As another person (`platform_owner`): approve after the step-up dialog → the first person repeats the hold with
    `approval_ids` → it is placed; the request shows „použito".
 3. With one staff account only: the page warns; decide whether staging runs `ONHOST_FOUR_EYES=false`.
+
+## A role reads what it may change (2026-09-20)
+
+`support_l1`, `support_l2`, `support_l3` and `support_manager` hold `support.ticket.read` (they had `manage`/`assign`
+without it and got 403 on the queue and on every ticket); `billing_finance_admin` and `billing_operator` hold
+`billing.invoice.read`; `backup_dr_admin` holds `backup.read`. The operations boards *deletions* and *SSH key
+revocations* ask for `provisioning.operation.read`. `AuthorizationSeeder` runs on every deploy, so the roles are updated
+by deploying. **Walk the console under a support role, not as the platform owner** — the owner holds everything, so a
+missing permission never shows.

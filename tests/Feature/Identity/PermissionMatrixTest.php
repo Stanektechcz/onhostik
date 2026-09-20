@@ -79,3 +79,54 @@ it('leaves no console to the break-glass account alone: every staff permission i
     // usable only as PlatformOwner — "never a daily account" — so the daily account it became
     expect($orphans)->toBe(['iam.break_glass', 'provider.secret.view', 'secret.rotate']);
 });
+
+it('lets every role read what it may change: no support role could open a ticket it was allowed to answer', function () {
+    // `support.ticket.read` was held by the platform owner alone: the queue and the ticket detail answered 403 to every support
+    // role, which could reply to (`manage`) and assign tickets it could not open. The same for finance and a customer's
+    // invoice, and for the backup administrator and a backup.
+    $catalog = array_keys(PermissionCatalog::all());
+    $gaps = [];
+    foreach (RoleCatalog::all() as $key => $role) {
+        $held = $role['permissions'];
+        if (in_array('*', $held, true)) {
+            continue;
+        }
+        foreach ($held as $permission) {
+            foreach (['.manage', '.assign', '.decide', '.write', '.update', '.create', '.delete'] as $suffix) {
+                $read = str_ends_with($permission, $suffix) ? substr($permission, 0, -strlen($suffix)).'.read' : null;
+                if ($read !== null && in_array($read, $catalog, true) && ! in_array($read, $held, true)) {
+                    $gaps[] = "{$key}: {$permission} without {$read}";
+                }
+            }
+        }
+    }
+    expect(array_values(array_unique($gaps)))->toBe([]);
+});
+
+it('asks staff endpoints only for permissions some staff role holds besides the platform owner', function () {
+    // two operations boards asked for `service.read` — a customer's permission on their own services — at the global scope: only the
+    // platform owner could open them, and the owner is who tested them
+    $held = [];
+    foreach (RoleCatalog::all() as $key => $role) {
+        if ($role['staff'] && $key !== 'platform_owner' && ! in_array('*', $role['permissions'], true)) {
+            $held = array_merge($held, $role['permissions']);
+        }
+    }
+    $missing = [];
+    foreach (glob(app_path('Http/Controllers/Api/V1/Staff/*.php')) ?: [] as $file) {
+        preg_match_all('/(?:authorize|can)\(\$request, \'([a-z0-9_.]+)\', CommandScope::global\(\)/', (string) file_get_contents($file), $m);
+        foreach (array_unique($m[1]) as $permission) {
+            if (! in_array($permission, $held, true)) {
+                $missing[] = basename($file, '.php').': '.$permission;
+            }
+        }
+    }
+    expect($missing)->toBe([]);
+});
+
+it('opens the support queue and the operations boards to the roles that work them', function () {
+    $this->actingAs($this->staff('support_l1'), 'sanctum');
+    $this->getJson('/v1/staff/tickets')->assertOk(); // it used to be 403 for every support role
+    $this->getJson('/v1/staff/provisioning/deletions')->assertOk();
+    $this->getJson('/v1/staff/provisioning/ssh-key-revocations')->assertOk();
+});

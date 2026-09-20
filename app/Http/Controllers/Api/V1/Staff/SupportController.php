@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\V1\Staff;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\SupportController as CustomerSupportController;
+use App\Http\StaffReadAudit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -66,6 +67,7 @@ final class SupportController extends ApiController
     {
         $this->api->authorize($request, 'support.ticket.read', CommandScope::global());
         $model = $this->find($ticket);
+        app(StaffReadAudit::class)->record($request, $this->api->context($request), 'ticket', $model->organization_id, 'ticket', $model->id, ['number' => $model->number]);
         $messages = $model->messages()->get()->map(fn (TicketMessage $m) => ['id' => $m->id, 'from' => $m->uiFrom(), 'author_type' => $m->author_type, 'author_name' => $m->author_name, 'visibility' => $m->visibility, 'text' => $m->body, 'attachments' => $m->attachments ?? [], 'at' => $m->created_at?->toIso8601String()])->all();
 
         return response()->json(['data' => CustomerSupportController::ticket($model) + ['organization_id' => $model->organization_id, 'assignee_id' => $model->assignee_id, 'queue_id' => $model->queue_id, 'required_skills' => $model->required_skills, 'messages' => $messages, 'sla_events' => $model->slaEvents()->get()->map(fn ($e) => ['kind' => $e->kind, 'due_at' => $e->due_at?->toIso8601String(), 'met' => $e->met, 'delta_minutes' => $e->delta_minutes])->all(), 'ai' => $assistant->transcriptForTicket($model), 'meta' => $model->meta]]);

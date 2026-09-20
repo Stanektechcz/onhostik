@@ -232,6 +232,26 @@ Tests: `tests/Feature/Provisioning/CompensationGuardTest.php`.
 
 Tests: `tests/Contract/PterodactylToolsContractTest.php`.
 
+## 17. Staff reading a customer's data is an event; a role reads what it may change
+
+* Every write goes through the command bus and leaves a trail. A **look** left none: the customer's account (members,
+  credit, documents, services), a ticket's conversation, the mail queue, an integration. "Who opened this customer's
+  account last week" had no answer — for us or for the customer.
+* `StaffReadAudit`: one audit event `staff.read.<what>` per person and thing per quarter of an hour (a console that
+  refreshes itself does not flood the trail), with the screen it came from. Events about one organization are scoped to
+  it, so they are part of **that customer's own audit trail** (`GET /v1/organizations/{id}/audit?action=staff.read`):
+  the customer sees that support opened their account, the same way they see what support changed. Wired into the
+  customer detail, the ticket detail, the mail queue and the integration detail.
+* Found while testing it: **no support role could read tickets.** `support.ticket.read` was held by the platform owner
+  alone — the queue and the ticket detail answered 403 to L1, L2, L3 and the support manager, who could reply to
+  (`manage`) and assign tickets they could not open; finance could credit an invoice (`billing.invoice.manage`) they
+  could not open, the backup administrator delete a backup they could not list. And two operations boards (key
+  revocations a panel has not taken, services waiting out their restore window) asked for `service.read` — a customer's
+  permission — at the global scope. The owner is who tested all of these. Two guard tests now keep both rules: a role
+  reads what it may change, and a staff endpoint asks only for a permission some staff role holds besides the owner.
+
+Tests: `tests/Feature/Identity/StaffReadAuditTest.php`, `tests/Feature/Identity/PermissionMatrixTest.php`.
+
 ## What to look at on staging after deploying this
 
 * migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;

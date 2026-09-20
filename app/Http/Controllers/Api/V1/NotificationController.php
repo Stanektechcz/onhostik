@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\StaffReadAudit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Notifications\Models\MailOutbox;
@@ -123,6 +124,7 @@ final class NotificationController extends ApiController
     public function outbox(Request $request): JsonResponse
     {
         $this->api->authorize($request, 'notification.template.manage', CommandScope::global());
+        app(StaffReadAudit::class)->record($request, $this->api->context($request), 'mail_outbox', null, 'mail_outbox', null, ['state' => $request->query('state')]);
         $query = MailOutbox::query();
         if ($request->filled('state')) {
             $query->where('state', (string) $request->query('state'));

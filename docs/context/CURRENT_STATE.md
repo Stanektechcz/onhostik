@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **Staff reads leave a trail, and roles read what they may change:** `StaffReadAudit` (`staff.read.*`, visible in the customer's own
+  audit); `support.ticket.read` was the platform owner's alone — every support role got 403 on the queue and the ticket detail.
+
 - **Promo codes do what their form says:** a fixed-amount code is spent once per order (it was applied to every line), and a code
   that is not "first period only" discounts the renewals too (the box was stored and never read).
 
@@ -165,7 +168,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 616 tests, 12 730 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 621 tests, 12 755 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\V1\Staff;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Presenters\Presenters;
+use App\Http\StaffReadAudit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -185,7 +186,7 @@ final class ProvisioningController extends ApiController
     /** SSH key revocations a panel has not taken yet (H185): until one is confirmed the key may still open a session. */
     public function sshKeyRevocations(Request $request): JsonResponse
     {
-        $this->api->authorize($request, 'service.read', CommandScope::global());
+        $this->api->authorize($request, 'provisioning.operation.read', CommandScope::global()); // a staff board: `service.read` is a customer's permission, globally only the owner held it
         $open = SshKeyGrant::query()->where('state', SshKeyGrant::REVOKING)->orderBy('revoke_requested_at')->limit(200)->get();
         $services = Service::query()->withTrashed()->whereIn('id', $open->pluck('service_id')->unique()->all())->get()->keyBy('id');
         $organizations = Organization::query()->whereIn('id', $open->pluck('organization_id')->unique()->all())->pluck('name', 'id');
@@ -199,7 +200,7 @@ final class ProvisioningController extends ApiController
 
     public function deletions(Request $request, DeletionPolicy $policy): JsonResponse
     {
-        $this->api->authorize($request, 'service.read', CommandScope::global());
+        $this->api->authorize($request, 'provisioning.operation.read', CommandScope::global()); // a staff board: `service.read` is a customer's permission, globally only the owner held it
         $pending = Service::query()->withTrashed()->whereNotNull('terminate_at')->whereIn('state', [ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED])
             ->orderBy('terminate_at')->limit(200)->get();
         $archives = Backup::query()->where('kind', 'final')->whereIn('state', ['completed', 'failed'])->orderByDesc('created_at')->limit(200)->get();
@@ -353,6 +354,7 @@ final class ProvisioningController extends ApiController
         if ($model === null) {
             throw DomainError::notFound('provider_instance');
         }
+        app(StaffReadAudit::class)->record($request, $this->api->context($request), 'integration', null, 'provider_instance', $model->id, ['key' => $model->key]);
         $health = IntegrationHealth::query()->where('provider_instance_id', $model->id)->first();
         $nodes = Node::query()->where('provider_instance_id', $model->id)->orderBy('name')->get()->map(fn (Node $n) => ['id' => $n->id, 'name' => $n->name, 'role' => $n->role, 'state' => $n->state, 'region' => $n->region_code, 'capacity' => $n->capacity, 'usage' => $n->usage, 'last_seen_at' => $n->last_seen_at?->toIso8601String()])->all();
 
