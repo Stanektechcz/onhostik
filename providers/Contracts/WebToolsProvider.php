@@ -58,6 +58,9 @@ interface WebToolsProvider
 
     public function runCron(ResourceRef $site, string $remoteId): ProviderResult;
 
+    /** Switch one cron job of the site off or on WITHOUT re-saving it (`updateCron` rewrites the schedule from what the listing could express). */
+    public function setCronActive(ResourceRef $site, string $remoteId, bool $active): ProviderResult;
+
     /** @return list<string> */
     public function cronLogs(ResourceRef $site, string $remoteId, int $lines = 100): array;
 

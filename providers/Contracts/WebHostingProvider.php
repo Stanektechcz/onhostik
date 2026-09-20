@@ -57,6 +57,9 @@ interface WebHostingProvider extends BackupCapable, InfrastructureProvider
 
     public function setFtpPassword(ResourceRef $site, string $remoteId, string $password): ProviderResult;
 
+    /** Switch one FTP account of the site off or on again (a suspended site's files are not reachable by FTP either). */
+    public function setFtpAccountActive(ResourceRef $site, string $remoteId, bool $active): ProviderResult;
+
     /** @param array{domain:string,path?:string} $subdomain additional host name served by the site (alias or sub-folder) */
     public function addSubdomain(ResourceRef $site, array $subdomain): ProviderResult;
 

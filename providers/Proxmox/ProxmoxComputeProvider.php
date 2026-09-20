@@ -296,6 +296,9 @@ final class ProxmoxComputeProvider implements ComputeProvider, SelfProbing
     public function resume(ResourceRef $vm): ProviderResult
     {
         $this->api->put("/nodes/{$vm->node}/qemu/{$vm->remoteId}/config", ['onboot' => 1, 'protection' => 0], 'qemu.resume.config');
+        if (($vm->meta['start'] ?? true) === false) { // it was off before the suspension (the customer's own shutdown): the lock is lifted, the machine stays as its owner left it
+            return ProviderResult::completed($vm, ['resumed' => true, 'started' => false]);
+        }
         $upid = $this->api->post("/nodes/{$vm->node}/qemu/{$vm->remoteId}/status/start", [], 'qemu.resume.start', true);
 
         return ProviderResult::accepted(new AsyncHandle('pve_task', (string) $upid, $vm->node, [], 5, 600), $vm);

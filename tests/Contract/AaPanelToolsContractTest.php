@@ -144,3 +144,38 @@ it('runs commands through the panel shell wrapper and reads tool paths and quota
     $agent = $adapter->ensureAgent($site); // per-site agent user with ACLs, prepared through the root shell
     expect($agent->data['agent'])->toBe(Naming::prefix('srv_tools').'ag')->and(collect($calls)->last(fn ($c) => $c[0] === 'action=ExecShell' && str_contains((string) ($c[1]['shell'] ?? ''), 'useradd'))[1]['shell'])->toContain('setfacl')->toContain('-G www');
 });
+
+it('does not flip a cron job whose state was not changed: the panel\'s switch toggles', function () {
+    $calls = [];
+    aaToolsFake($calls, [
+        'crontab?action=GetCrontab' => [['id' => 12, 'name' => Naming::cronLabel('srv_tools', 'cache'), 'type' => 'day', 'where_hour' => '3', 'where_minute' => '0', 'sBody' => 'php cron.php', 'status' => 1]],
+        'crontab?action=modify_crond' => ['status' => true, 'msg' => 'ok'],
+        'crontab?action=set_cron_status' => ['status' => true, 'msg' => 'ok'],
+    ]);
+    $adapter = aaToolsAdapter();
+    $site = new ResourceRef('site', '41', 'aapanel-managed01', ['name' => 'shop.cz', 'path' => '/www/wwwroot/shop.cz'], 'srv_tools');
+
+    // the customer edits the command of a running job and sends its state along, as the panel's form does
+    $adapter->updateCron($site, '12', ['command' => 'php artisan schedule:run', 'active' => true]);
+    expect(collect($calls)->contains(fn ($c) => str_contains($c[0], 'set_cron_status')))->toBeFalse(); // it used to be switched OFF by this
+
+    $adapter->updateCron($site, '12', ['active' => false]);
+    expect(collect($calls)->filter(fn ($c) => str_contains($c[0], 'set_cron_status'))->count())->toBe(1);
+});
+
+it('switches an FTP account of the site off and on, and nobody else\'s', function () {
+    $calls = [];
+    $prefix = Naming::prefix('srv_tools');
+    aaToolsFake($calls, [
+        'data?action=getData&table=ftps' => ['data' => [['id' => 31, 'name' => $prefix.'_deploy', 'path' => '/www/wwwroot/shop.cz', 'status' => '1'], ['id' => 32, 'name' => 'other_ftp', 'path' => '/www/wwwroot/other.cz', 'status' => '1']]],
+        'ftp?action=SetStatus' => ['status' => true, 'msg' => 'ok'],
+    ]);
+    $adapter = aaToolsAdapter();
+    $site = new ResourceRef('site', '41', 'aapanel-managed01', ['name' => 'shop.cz', 'path' => '/www/wwwroot/shop.cz'], 'srv_tools');
+
+    $adapter->setFtpAccountActive($site, '31', false);
+    expect(collect($calls)->last(fn ($c) => str_contains($c[0], 'ftp?action=SetStatus'))[1])->toMatchArray(['id' => 31, 'username' => $prefix.'_deploy', 'status' => 0]);
+    $adapter->setFtpAccountActive($site, '31', true); // already on in the listing: nothing is sent
+    expect(collect($calls)->filter(fn ($c) => str_contains($c[0], 'ftp?action=SetStatus'))->count())->toBe(1);
+    expect(fn () => $adapter->setFtpAccountActive($site, '32', false))->toThrow(ProviderException::class); // another tenant's account on the shared node
+});

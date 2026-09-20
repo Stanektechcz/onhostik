@@ -27,6 +27,7 @@ use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\SshKeyLedger;
+use Onhost\Domain\Services\SuspensionDepth;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\DatabaseCredentials;
 use Onhost\Domain\Services\Web\WebFileStore;
@@ -100,10 +101,10 @@ final class ServiceActionWorkflow implements Workflow
 
         return match ($action) {
             'power' => [$this->powerStep(), $this->verifyPowerStep()],
-            'suspend' => [$this->suspendStep(), $this->finishStateStep(ServiceStateMachine::SUSPENDED)],
-            'resume' => [$this->resumeStep(), $this->finishStateStep(ServiceStateMachine::ACTIVE)],
+            'suspend' => [$this->suspendStep(), $this->pauseExtrasStep(), $this->finishStateStep(ServiceStateMachine::SUSPENDED)],
+            'resume' => [$this->resumeStep(), $this->resumeExtrasStep(), $this->finishStateStep(ServiceStateMachine::ACTIVE)],
             'resize' => [$this->resizeStep(), $this->finishResizeStep()],
-            'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->revokeDelegationsStep(), $this->scheduleRemovalStep()],
+            'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->pauseExtrasStep(), $this->revokeDelegationsStep(), $this->scheduleRemovalStep()],
             'purge' => [$this->identityStep(), $this->finalArchiveStep(anyOperation: true), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
             'backup' => [$this->backupStep()],
             'restore' => [$this->restoreStep()],
@@ -492,7 +493,15 @@ final class ServiceActionWorkflow implements Workflow
 
             public function run(StepContext $context): StepResult
             {
-                return $this->settle($this->capability($context, InfrastructureProvider::class)->suspend($this->ref($context)));
+                $adapter = $this->capability($context, InfrastructureProvider::class);
+                $service = $this->service($context);
+                if ($adapter instanceof ComputeProvider && data_get($service->tags, 'suspension_was_running') === null) {
+                    // a machine the customer had switched off themselves must not be started by the payment that lifts the suspension
+                    $running = $adapter->getActualState($this->ref($context))->status === 'running';
+                    $service->forceFill(['tags' => array_merge((array) $service->tags, ['suspension_was_running' => $running])])->save();
+                }
+
+                return $this->settle($adapter->suspend($this->ref($context)));
             }
         };
     }
@@ -508,7 +517,72 @@ final class ServiceActionWorkflow implements Workflow
 
             public function run(StepContext $context): StepResult
             {
-                return $this->settle($this->capability($context, InfrastructureProvider::class)->resume($this->ref($context)));
+                $service = $this->service($context);
+                $ref = $this->ref($context);
+                $wasRunning = data_get($service->tags, 'suspension_was_running');
+                if ($wasRunning !== null) {
+                    $service->forceFill(['tags' => array_diff_key((array) $service->tags, ['suspension_was_running' => true])])->save();
+                    if ($wasRunning === false) {
+                        $ref = $ref->withMeta(['start' => false]); // released, not started: it was off before we touched it
+                    }
+                }
+
+                return $this->settle($this->capability($context, InfrastructureProvider::class)->resume($ref));
+            }
+        };
+    }
+
+    /**
+     * A suspended site is more than a stopped vhost: its cron jobs and its FTP accounts are switched off too, and remembered
+     * (`SuspensionDepth`). The site is already down when this runs, so a panel that does not answer makes the step wait and
+     * try again — it does not undo the suspension.
+     */
+    private function pauseExtrasStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Pozastavení úloh a přístupů';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                if (! in_array($service->family, ['web', 'managed'], true) || $context->get('identity_missing') === true) {
+                    return StepResult::skip(); // nothing besides the service itself to pause
+                }
+                $paused = $context->container->make(SuspensionDepth::class)->pause($service, $context->adapter(), $this->ref($context));
+                if ($paused['transient'] && (int) $context->operation->attempts < 4) { // a few tries; then the suspension stands and the errors are on record
+                    return StepResult::fail('the panel did not answer while cron jobs and FTP accounts were being paused: '.implode('; ', $paused['errors']), true, [], 60);
+                }
+
+                return StepResult::done(['paused' => ['cron' => count($paused['cron']), 'ftp' => count($paused['ftp'])], 'pause_errors' => $paused['errors']]);
+            }
+        };
+    }
+
+    private function resumeExtrasStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Obnovení úloh a přístupů';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                if (! in_array($service->family, ['web', 'managed'], true) || data_get($service->tags, SuspensionDepth::TAG) === null) {
+                    return StepResult::skip(); // nothing was paused besides the service itself
+                }
+                $resumed = $context->container->make(SuspensionDepth::class)->resume($service, $context->adapter(), $this->ref($context));
+                if ($resumed['transient'] && (int) $context->operation->attempts < 4) {
+                    return StepResult::fail('the panel did not answer while cron jobs and FTP accounts were being switched on again: '.implode('; ', $resumed['errors']), true, [], 60);
+                }
+
+                return StepResult::done(['resumed' => ['cron' => count($resumed['cron']), 'ftp' => count($resumed['ftp'])], 'resume_errors' => $resumed['errors']]);
             }
         };
     }

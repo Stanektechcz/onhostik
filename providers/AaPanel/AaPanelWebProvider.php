@@ -446,6 +446,19 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
         return ProviderResult::completed(new ResourceRef('ftp', $remoteId, $this->instance->key, ['user' => $row['user']], $site->serviceId), ['password_changed' => true]);
     }
 
+    public function setFtpAccountActive(ResourceRef $site, string $remoteId, bool $active): ProviderResult
+    {
+        $row = collect($this->listFtpAccounts($site))->firstWhere('remote_id', $remoteId);
+        if ($row === null) {
+            throw new ProviderException('aapanel', ProviderErrorCode::NOT_FOUND, 'FTP account not found on this site');
+        }
+        if ((bool) $row['active'] !== $active) {
+            $this->post('/ftp?action=SetStatus', ['id' => (int) $remoteId, 'username' => $row['user'], 'status' => $active ? 1 : 0], 'ftp.status', true);
+        }
+
+        return ProviderResult::completed(new ResourceRef('ftp', $remoteId, $this->instance->key, ['user' => $row['user']], $site->serviceId), ['active' => $active]);
+    }
+
     public function addSubdomain(ResourceRef $site, array $subdomain): ProviderResult
     {
         $domain = strtolower((string) $subdomain['domain']);

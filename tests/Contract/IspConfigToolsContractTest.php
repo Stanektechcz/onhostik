@@ -231,3 +231,31 @@ it('keeps reverse proxies and default documents as a marked block in the site di
     expect($nginx)->toContain("index app.php standard_index.html;\nlocation /api/ {\n    proxy_pass http://127.0.0.1:3000/;")->toContain('proxy_set_header Host $host;')->and(ManagedDirectives::parse($nginx)['proxies'][0]['path'])->toBe('/api');
     expect(ManagedDirectives::render(['proxies' => [], 'index' => []], 'apache'))->toBe('');
 });
+
+it('switches a cron job and an FTP account off by sending the whole record back — never the password hash', function () {
+    $calls = [];
+    ispToolsFake($calls, [
+        'sites_web_domain_get' => ['domain_id' => 7, 'domain' => 'shop.cz', 'type' => 'vhost', 'server_id' => 1, 'sys_groupid' => 3],
+        'sites_cron_get' => [['id' => 5, 'parent_domain_id' => 7, 'server_id' => 1, 'type' => 'full', 'command' => 'php artisan schedule:run', 'run_min' => '*/5', 'run_hour' => '*', 'run_mday' => '*', 'run_month' => '*', 'run_wday' => '*', 'active' => 'y', 'sys_userid' => 1, 'sys_groupid' => 3]],
+        'sites_cron_update' => 1,
+        'sites_ftp_user_get' => [['ftp_user_id' => 9, 'parent_domain_id' => 7, 'server_id' => 1, 'username' => 'oh1shop_ftp', 'password' => '$6$rounds=5000$salt$HASHHASHHASH', 'dir' => '/var/www/clients/client1/web7', 'quota_size' => -1, 'active' => 'y', 'sys_userid' => 1, 'sys_groupid' => 3]],
+        'sites_ftp_user_update' => 1,
+        'server_get' => ['server' => ['hostname' => 'shared01']],
+    ]);
+    $adapter = ispToolsAdapter();
+    $ref = new ResourceRef('web_domain', '7', '1', ['client_id' => 3, 'domain' => 'shop.cz'], 'srv_tools');
+
+    $adapter->setCronActive($ref, '5', false);
+    $cron = collect($calls)->last(fn ($c) => $c[0] === 'sites_cron_update')[1];
+    expect($cron['primary_id'])->toBe(5)->and($cron['params'])->toMatchArray(['active' => 'n', 'run_min' => '*/5', 'command' => 'php artisan schedule:run', 'parent_domain_id' => 7]) // the schedule goes back as it was: nothing is rewritten
+        ->and($cron['params'])->not->toHaveKey('sys_userid')->not->toHaveKey('id');
+
+    $adapter->setFtpAccountActive($ref, '9', false);
+    $ftp = collect($calls)->last(fn ($c) => $c[0] === 'sites_ftp_user_update')[1];
+    expect($ftp['primary_id'])->toBe(9)->and($ftp['params'])->toMatchArray(['active' => 'n', 'username' => 'oh1shop_ftp'])
+        ->and($ftp['params'])->not->toHaveKey('password')  // the panel returns the HASH; sent back as a password it would be hashed again and lock the account for good
+        ->and(json_encode($ftp))->not->toContain('HASHHASHHASH');
+
+    expect(fn () => $adapter->setFtpAccountActive($ref, '999', false))->toThrow(ProviderException::class); // somebody else's account
+    expect(fn () => $adapter->setCronActive($ref, '999', false))->toThrow(ProviderException::class);
+});

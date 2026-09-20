@@ -1363,3 +1363,33 @@ the node (the agent shell) or stays a limit of that panel.
 
 The last row is item 1 of `production-readiness-audit.md` §7: the final archive before a deletion does not depend on
 it (it packs the site itself), a customer's "back up now" does.
+
+## A suspended site is more than a stopped vhost (2026-09-20)
+
+Both panels switch the web server's answer off and nothing else. A suspended site's **cron jobs kept running** (a site in
+quarantine went on sending mail from its cron) and its files stayed reachable — and writable — **by FTP**.
+
+* The `suspend` action — and the deactivation of a cancelled service — now also switches the site's cron jobs and FTP
+  accounts off (`SuspensionDepth`, step *Pozastavení úloh a přístupů*) and **remembers which ones** in
+  `services.tags.suspension_paused`. `resume` switches exactly those on again: a job the customer had turned off
+  themselves stays off. The memory is a union, so a quarantine on top of an unpaid suspension forgets nothing.
+* A job is **switched, never re-saved** (`setCronActive`): re-saving through `updateCron` rewrites the schedule from what
+  the listing can express ("every five minutes" would come back as hourly). aaPanel's switch *toggles*, so it is pressed
+  only when the state differs — saving a job with the state it already had used to turn it **off** (`updateCron` with
+  `active: true`; proven by a contract test).
+* ISPConfig gets the whole record back with one field changed (as `updateSite` does) — for an FTP user **without the
+  `password` field**: the panel returns the hash, and a hash sent back as a password would be hashed again and lock the
+  account for good.
+* The site is already down when the step runs: a panel that does not answer makes it try again a few times; then the
+  suspension stands and the errors are in the operation's result (`pause_errors`). Databases have no switch in either
+  panel — with the site stopped nothing of the site reaches them; remote access is a permission of its own.
+* **A machine its owner had switched off is not started by the payment that lifts a suspension**: the suspend step
+  records whether the VM ran (`tags.suspension_was_running`); `resume` lifts the lock (`onboot`, `protection`) and starts
+  only what ran.
+
+Unverified live: aaPanel `POST /ftp?action=SetStatus {id, username, status}` and ISPConfig `sites_ftp_user_update` /
+`sites_cron_update` with the full record — check on staging with one test site: suspend, look at the panel's FTP and cron
+lists, resume.
+
+Tests: `tests/Feature/Services/SuspensionDepthTest.php`, `tests/Contract/AaPanelToolsContractTest.php`,
+`tests/Contract/IspConfigToolsContractTest.php`.

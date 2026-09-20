@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A suspended site is more than a stopped vhost:** suspension (and the deactivation of a cancelled service) switches the
+  site's cron jobs and FTP accounts off and remembers which; resume switches exactly those on. A VM its owner had switched
+  off is not started when a suspension is lifted. aaPanel's cron switch toggles — an unchanged `active` used to turn a job off.
+
 - **Domains are not lost to a calendar:** a registrar listing without a status is not read as "active" (a domain in redemption
   came back as ACTIVE); an unpaid renewal is retried daily through the protective period after the expiry and at once after
   a top-up (it used to be abandoned the day before the expiry).
@@ -148,7 +152,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 602 tests, 12 642 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 607 tests, 12 691 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

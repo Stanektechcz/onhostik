@@ -308,11 +308,24 @@ trait AaPanelTools
             'id' => (int) $remoteId, 'name' => $name, 'type' => $hour === '*' ? 'hour-n' : 'day', 'where1' => $hour === '*' ? '1' : '', 'hour' => $hour === '*' ? 0 : (int) $hour, 'minute' => $minute === '*' ? 0 : (int) $minute,
             'week' => '', 'sType' => 'toShell', 'sName' => '', 'sBody' => (string) ($job['command'] ?? $current['command']), 'backupTo' => '', 'save' => '', 'urladdress' => '',
         ], 'cron.update', true);
-        if (array_key_exists('active', $job)) {
+        if (array_key_exists('active', $job) && (bool) $job['active'] !== (bool) ($current['active'] ?? true)) { // the panel's switch TOGGLES: saving a job with the state it already had used to turn it off
             $this->post('/crontab?action=set_cron_status', ['id' => (int) $remoteId], 'cron.status', true);
         }
 
         return ProviderResult::completed(new ResourceRef('cron', $remoteId, $this->instance->key, ['name' => $name], $site->serviceId), ['updated' => true]);
+    }
+
+    public function setCronActive(ResourceRef $site, string $remoteId, bool $active): ProviderResult
+    {
+        $current = collect($this->listCron($site))->firstWhere('remote_id', $remoteId);
+        if ($current === null) {
+            throw new ProviderException('aapanel', ProviderErrorCode::NOT_FOUND, 'The cron job does not belong to this site');
+        }
+        if ((bool) ($current['active'] ?? true) !== $active) { // the panel's switch toggles: it is pressed only when the state differs
+            $this->post('/crontab?action=set_cron_status', ['id' => (int) $remoteId], 'cron.status', true);
+        }
+
+        return ProviderResult::completed(new ResourceRef('cron', $remoteId, $this->instance->key, [], $site->serviceId), ['active' => $active]);
     }
 
     public function runCron(ResourceRef $site, string $remoteId): ProviderResult

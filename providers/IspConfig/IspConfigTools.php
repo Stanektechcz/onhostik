@@ -261,6 +261,19 @@ trait IspConfigTools
         return ProviderResult::accepted($this->jobqueueHandle((int) $site->node), new ResourceRef('cron', $remoteId, $site->node, [], $site->serviceId), ['updated' => true]);
     }
 
+    public function setCronActive(ResourceRef $site, string $remoteId, bool $active): ProviderResult
+    {
+        $this->assertWebDomain($site);
+        $row = collect((array) $this->api->call('sites_cron_get', ['primary_id' => ['parent_domain_id' => (int) $site->remoteId]]))->first(fn ($r) => is_array($r) && (string) ($r['id'] ?? '') === $remoteId);
+        if (! is_array($row)) {
+            throw new ProviderException('ispconfig', ProviderErrorCode::NOT_FOUND, 'The cron job does not belong to this site');
+        }
+        $base = array_filter($row, fn ($value, $key) => $key !== 'id' && ! str_starts_with((string) $key, 'sys_'), ARRAY_FILTER_USE_BOTH);
+        $this->api->call('sites_cron_update', ['client_id' => (int) ($site->meta['client_id'] ?? 0), 'primary_id' => (int) $remoteId, 'params' => array_merge($base, ['active' => $active ? 'y' : 'n'])], true);
+
+        return ProviderResult::accepted($this->jobqueueHandle((int) $site->node), new ResourceRef('cron', $remoteId, $site->node, [], $site->serviceId), ['active' => $active]);
+    }
+
     public function runCron(ResourceRef $site, string $remoteId): ProviderResult
     {
         $current = collect($this->listCron($site))->firstWhere('remote_id', $remoteId);

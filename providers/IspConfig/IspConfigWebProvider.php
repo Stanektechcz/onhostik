@@ -718,6 +718,21 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
         return ProviderResult::accepted($this->jobqueueHandle((int) $site->node), new ResourceRef('ftp', $remoteId, $site->node, ['user' => $row['user']], $site->serviceId), ['password_changed' => true]);
     }
 
+    public function setFtpAccountActive(ResourceRef $site, string $remoteId, bool $active): ProviderResult
+    {
+        $this->assertWebDomain($site);
+        $row = collect((array) $this->api->call('sites_ftp_user_get', ['primary_id' => ['parent_domain_id' => (int) $site->remoteId]]))->first(fn ($r) => is_array($r) && (string) ($r['ftp_user_id'] ?? '') === $remoteId);
+        if (! is_array($row)) {
+            throw new ProviderException('ispconfig', ProviderErrorCode::NOT_FOUND, 'FTP account not found on this site');
+        }
+        // the whole record goes back with one field changed — WITHOUT the password: the panel returns its hash, and a hash sent back
+        // as a password would be hashed again and lock the account for good
+        $base = array_filter($row, fn ($value, $key) => ! in_array($key, ['ftp_user_id', 'password'], true) && ! str_starts_with((string) $key, 'sys_'), ARRAY_FILTER_USE_BOTH);
+        $this->api->call('sites_ftp_user_update', ['client_id' => (int) ($site->meta['client_id'] ?? 0), 'primary_id' => (int) $remoteId, 'params' => array_merge($base, ['active' => $active ? 'y' : 'n'])], true);
+
+        return ProviderResult::accepted($this->jobqueueHandle((int) $site->node), new ResourceRef('ftp', $remoteId, $site->node, ['user' => (string) ($row['username'] ?? '')], $site->serviceId), ['active' => $active]);
+    }
+
     public function addSubdomain(ResourceRef $site, array $subdomain): ProviderResult
     {
         $domain = strtolower((string) $subdomain['domain']);
