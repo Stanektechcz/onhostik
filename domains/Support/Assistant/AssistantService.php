@@ -87,6 +87,7 @@ final class AssistantService
         private readonly Authorizer $authorizer,
         private readonly ServiceHealthCheck $health,
         private readonly SecretMask $mask,
+        private readonly AssistantBudget $budget,
     ) {}
 
     /**
@@ -164,7 +165,13 @@ final class AssistantService
         $usage = ['input_tokens' => 0, 'output_tokens' => 0];
         $model = null;
         $toolsCalled = [];
-        if ($handoffReason === null && $provider !== null) {
+        // what the model may cost has a ceiling (AssistantBudget): past it the answer comes from the help centre and the platform's
+        // own records — the same path as when the model does not answer — and a person can still be asked for
+        $spent = $handoffReason === null && $provider !== null ? $this->budget->exhausted($organization, $user, (bool) $scope?->staff) : null;
+        if ($spent !== null) {
+            $toolsCalled[] = ['tool' => 'llm', 'error' => 'budget:'.$spent];
+        }
+        if ($handoffReason === null && $provider !== null && $spent === null) {
             try {
                 [$answer, $usage, $model, $toolsCalled, $llmProposals] = $this->llm($provider, $transcript, $organization, $facts, $articles, $detail, $reference, $catalog, $locale, $intents, $scope);
                 $usedLlm = $answer !== null;
@@ -180,6 +187,9 @@ final class AssistantService
             $answer = $intents !== []
                 ? ($locale === 'en' ? 'Understood. I prepared this for you to confirm: ' : 'Rozumím. Připravil jsem k potvrzení: ').implode(', ', array_map(fn ($i) => $i['label'], $intents)).($locale === 'en' ? '. Nothing runs until you press the button; progress then shows in the service detail under Operations.' : '. Nic neproběhne, dokud nepotvrdíte tlačítkem; průběh pak uvidíte v detailu služby v záložce Provoz.')
                 : $this->rules($triage, $facts, $articles, $detail, $reference, $catalog, $locale);
+        }
+        if ($spent !== null && $handoffReason === null && $answer !== null) {
+            $answer .= $locale === 'en' ? ' (The AI model has reached its limit for now, so this answer comes from the help centre; you can ask for a human at any time.)' : ' (AI model má pro tuto chvíli vyčerpaný limit, odpovídám proto podle nápovědy; o člověka z podpory můžete požádat kdykoli.)';
         }
         $confident = $handoffReason === null && ($triage['confident'] || ($answer !== null && $facts !== []) || $intents !== []);
         if ($handoffReason === null && $mayHandOff && ! $confident && $organization !== null && ! $triage['confident'] && $triage['hits'] === 0 && $intents === []) {

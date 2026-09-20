@@ -219,6 +219,13 @@ return [
         ],
         'max_context_articles' => 6,
         'timeout_seconds' => 30,
+        // what the model may cost (AssistantBudget): past a limit the assistant answers from the help centre, nothing is refused
+        'budget' => [
+            'user_per_hour' => (int) env('ONHOST_AI_USER_PER_HOUR', 40),
+            'staff_per_hour' => (int) env('ONHOST_AI_STAFF_PER_HOUR', 120),
+            'organization_per_day' => (int) env('ONHOST_AI_ORG_PER_DAY', 300),
+            'tokens_per_day' => (int) env('ONHOST_AI_TOKENS_PER_DAY', 3000000), // input + output, the whole platform; 0 = no ceiling
+        ],
         'prompt_version' => 'support-assistant/v1',
     ],
 

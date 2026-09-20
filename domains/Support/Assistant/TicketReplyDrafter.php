@@ -37,6 +37,7 @@ final class TicketReplyDrafter
         private readonly AiProviderRegistry $providers,
         private readonly SecretMask $mask,
         private readonly AuditRecorder $audit,
+        private readonly AssistantBudget $budget,
     ) {}
 
     /**
@@ -61,6 +62,10 @@ final class TicketReplyDrafter
         $model = null;
         $usage = ['input_tokens' => 0, 'output_tokens' => 0];
         $provider = $this->providers->provider();
+        if ($provider !== null && $this->budget->exhausted(null, $staff, true) !== null) {
+            $provider = null; // the model's budget is used up: the draft is written from the findings by rules
+            $warnings[] = $locale === 'en' ? 'The AI model has reached its limit for now; this draft was written from the findings by rules.' : 'AI model má pro tuto chvíli vyčerpaný limit; návrh je sestaven pravidly ze zjištění.';
+        }
         if ($provider !== null) {
             try {
                 $result = $provider->chat($this->prompt($ticket, $staff, $facts, $check, $thread, $locale, $hint), [], ['max_tokens' => 700]);

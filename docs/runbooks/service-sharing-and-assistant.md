@@ -133,3 +133,29 @@ birth numbers, everything `Redactor::redactString` knows); variable symbols, inv
 readable. The ticket itself keeps what the customer wrote — only the copy that goes to a model is masked.
 
 Tests: `tests/Feature/Support/TicketReplyDraftTest.php`.
+
+## What the model may cost (2026-09-20)
+
+The chat route had the general API limit and nothing else: 120 questions a minute for one user or token, each a model call
+with a few thousand tokens of context (several, when the model uses its tools). A script with a customer's API token could
+run up the operator's bill without ever touching a service. `Support\Assistant\AssistantBudget`:
+
+| Limit | Default | Env |
+| --- | --- | --- |
+| model answers a person gets in an hour | 40 | `ONHOST_AI_USER_PER_HOUR` |
+| the same for a member of staff (chat over a customer's account, reply drafts) | 120 | `ONHOST_AI_STAFF_PER_HOUR` |
+| model answers an organization gets in a day (staff working on its account do not spend it) | 300 | `ONHOST_AI_ORG_PER_DAY` |
+| tokens the whole platform may use in a day, input + output (0 = no ceiling) | 3 000 000 | `ONHOST_AI_TOKENS_PER_DAY` |
+
+**Nothing is refused.** Past a limit the assistant answers from the help centre and the platform's own records — the path
+it takes whenever the model does not answer — says so in one sentence, and a person can still be asked for; a reply draft
+is written by rules with a warning. The run is recorded with `tools_called: [{tool: llm, error: budget:<limit>}]`,
+operations are told once a day per limit and subject (`assistant.budget.exhausted`; the platform's ceiling is `hot`), and
+`onhost:doctor` (area `automation`) shows the day's use against the ceiling (warns from 80 %). Days are the seller's days
+(`AccountingClock`).
+
+A conversation is kept under `<who>:<the id the client sends>` — `staff:<user>:<organization>:` for staff, `<user>:` for a
+customer. The column took 80 characters and the console's own id made 82: on PostgreSQL every question a support agent
+asked answered 500 (SQLite did not mind). The column holds 160 now (migration `000800`).
+
+Tests: `tests/Feature/Support/TicketReplyDraftTest.php`, `tests/Feature/Platform/DeclaredColumnWidthTest.php`.

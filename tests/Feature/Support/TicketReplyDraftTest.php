@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Support\Assistant\AiProviderRegistry;
 use Onhost\Domain\Support\Assistant\SecretMask;
@@ -11,6 +12,7 @@ use Onhost\Domain\Support\Models\AiRun;
 use Onhost\Domain\Support\Models\TicketMessage;
 use Onhost\Domain\Support\TicketService;
 use Onhost\Platform\Audit\AuditEvent;
+use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Providers\Contracts\AiProvider;
 
 /*
@@ -132,4 +134,36 @@ it('masks a password typed into the chat before a transcript keeps it', function
     $this->postJson('/v1/assistant/chat', ['text' => 'Nejde mi přihlášení do FTP, heslo je Tajne123! co s tím?'])->assertOk();
     $run = AiRun::query()->where('user_id', $owner->id)->latest('created_at')->firstOrFail();
     expect(json_encode($run->transcript, JSON_UNESCAPED_UNICODE))->toContain('[skryto]')->not->toContain('Tajne123');
+});
+
+it('caps what the language model may cost: past a limit the assistant answers from the help centre, and operations hear of it once', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $seen = [];
+    app(AiProviderRegistry::class)->override(draftingLlm($seen));
+    config(['onhost.ai.budget' => ['user_per_hour' => 2, 'staff_per_hour' => 120, 'organization_per_day' => 300, 'tokens_per_day' => 0]]);
+    $this->actingAs($owner, 'sanctum');
+    $ask = fn (string $text) => $this->withHeaders(['X-Organization' => $org->id])->postJson('/v1/assistant/chat', ['text' => $text, 'session_id' => 'rozpocet'])->assertOk()->json('data');
+
+    // the route had the general API limit and nothing else: 120 model calls a minute for one user or token
+    $ask('Jak nastavím DNS záznamy pro e-mail?');
+    $ask('A jak dlouho trvá změna DNS?');
+    expect($seen)->toHaveCount(2);
+
+    // the third question of the hour is answered all the same — by rules, and it says so
+    $third = $ask('Kde najdu fakturu?');
+    expect($seen)->toHaveCount(2)->and($third['text'])->toContain('vyčerpaný limit')->and($third['ai'])->toBeTrue();
+    $run = AiRun::query()->findOrFail($third['run_id']);
+    expect($run->provider)->toBe('rules')->and(collect($run->tools_called)->firstWhere('tool', 'llm')['error'] ?? null)->toBe('budget:user_per_hour');
+
+    $ask('A ještě jedna otázka.');
+    app(OutboxPublisher::class)->relayPending();
+    expect(Notification::query()->where('audience', 'internal')->where('title', 'AI asistent: vyčerpaný limit user_per_hour')->count())->toBe(1); // once a day, not once a question
+
+    // the platform's daily ceiling of tokens stops the model for everybody — a colleague's draft is written by rules
+    config(['onhost.ai.budget' => ['user_per_hour' => 40, 'staff_per_hour' => 120, 'organization_per_day' => 300, 'tokens_per_day' => 500]]);
+    $ticket = app(TicketService::class)->create(['subject' => 'Dotaz', 'body' => 'Dobrý den, mám dotaz k faktuře.'], $this->contextFor($owner, $org), $org, $owner);
+    $agent = $this->staff('support_l2');
+    $this->actingAs($agent, 'sanctum');
+    $draft = $this->postJson("/v1/staff/tickets/{$ticket->id}/draft")->assertOk()->json('data');
+    expect($draft['source'])->toBe('rules')->and(implode(' ', $draft['warnings']))->toContain('vyčerpaný limit')->and($seen)->toHaveCount(2);
 });

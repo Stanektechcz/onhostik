@@ -43,6 +43,7 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Support\Assistant\AssistantBudget;
 use Onhost\Domain\Tax\CnbRates;
 use Onhost\Domain\Tax\Models\ExchangeRate;
 use Onhost\Domain\WalletLedger\AutoTopup;
@@ -195,6 +196,11 @@ final class Doctor extends Command
         $shared = Service::query()->withTrashed()->whereNull('name_prefix')->limit(50)->pluck('id');
         $this->add('security', 'every service has a node name prefix of its own', $shared->isEmpty(), $shared->isEmpty() ? 'prefixes are unique' : $shared->count().' service(s) share a prefix with an older one: '.$shared->take(5)->implode(', ').' — move their databases and FTP accounts before anything else (docs/runbooks/security-boundaries.md §14)');
 
+        if ((bool) config('onhost.ai.enabled', false)) {
+            $ai = app(AssistantBudget::class)->today();
+            $share = $ai['tokens_per_day'] > 0 ? (int) round($ai['tokens_today'] * 100 / $ai['tokens_per_day']) : null;
+            $this->add('automation', 'the assistant\'s model use is inside its daily budget', $share === null || $share < 80, $share === null ? $ai['model_runs_today'].' model answer(s) today; no daily ceiling of tokens is set (ONHOST_AI_TOKENS_PER_DAY=0)' : $ai['model_runs_today'].' model answer(s), '.$ai['tokens_today'].' of '.$ai['tokens_per_day']." tokens today ({$share} %) — past the ceiling the assistant answers from the help centre", false);
+        }
         // a domain no registrar lists, and the registrar says it does not have: closed after it stayed away (DomainService::missingAtRegistrar)
         $away = Domain::query()->whereNotNull('meta->missing_since')->limit(50)->pluck('fqdn_ascii');
         $this->add('lifecycle', 'no domain is missing at its registrar', $away->isEmpty(), $away->isEmpty() ? 'every domain is in its registrar\'s account' : $away->count().' domain(s) not listed and not known to the registrar: '.$away->take(5)->implode(', ').' — closed (renewals stopped) once they stayed away for '.(int) config('onhost.domains.missing_confirm_hours', 36).' h; if that is wrong, look at the registrar account now', false);

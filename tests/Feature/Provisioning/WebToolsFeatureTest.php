@@ -145,6 +145,9 @@ it('runs the toolkit on an aaPanel-backed site: terminal, PHP settings, monitori
     $deploy = $this->getJson("{$base}/deploy")->assertOk()->json('data');
     expect($deploy['configured'])->toBeTrue()->and($deploy['webhook_url'])->toContain("/v1/hooks/deploy/{$sourceId}")->and($deploy['strategy'])->toBe('run_path')->and($deploy['deployments'])->toBe([]);
     $this->putJson("{$base}/deploy", ['repository' => 'onhost/site', 'build_command' => 'sudo make me a sandwich'])->assertUnprocessable();
+    // what is stored has the length of its column: a build command of 2 000 characters was accepted for a column of 500 — a 500 on PostgreSQL
+    $this->putJson("{$base}/deploy", ['repository' => 'onhost/site', 'build_command' => 'npm run build -- '.str_repeat('x', 490)])->assertUnprocessable();
+    $this->putJson("{$base}/deploy", ['repository' => 'https://git.example.com/'.str_repeat('r', 240).'.git'])->assertUnprocessable();
 
     $payload = json_encode(['ref' => 'refs/heads/main', 'after' => 'abcdef0123456789abcdef0123456789abcdef01', 'head_commit' => ['message' => 'Release 1.2', 'author' => ['name' => 'Jana']]]);
     $sign = fn (string $s) => 'sha256='.hash_hmac('sha256', $payload, $s);

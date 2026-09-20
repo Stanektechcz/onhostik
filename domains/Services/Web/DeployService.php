@@ -69,11 +69,20 @@ final class DeployService
         }
         $repository = trim((string) ($input['repository'] ?? ''));
         [$provider, $cloneUrl, $repoLabel] = self::parseRepository($repository);
+        // what is stored has the length of its column: the API took a repository of 300 and a build command of 2 000 characters
+        // for columns of 250 / 500 — SQLite did not mind, PostgreSQL answers 500. The limit is said here, where the assistant and
+        // the CLI pass through as well.
+        if (strlen($repoLabel) > 250 || strlen($cloneUrl) > 500) {
+            throw new DomainError('action_param_invalid', 'The repository address is too long (250 characters at most).', 422, ['field' => 'repository']);
+        }
         $branch = trim((string) ($input['branch'] ?? 'main'));
         if (! preg_match('#^[A-Za-z0-9._/-]{1,120}$#', $branch)) {
             throw new DomainError('action_param_invalid', 'branch must be a git branch name.', 422, ['field' => 'branch']);
         }
         $build = trim((string) ($input['build_command'] ?? ''));
+        if (strlen($build) > 500) {
+            throw new DomainError('action_param_invalid', 'The build command is too long (500 characters at most); put a longer one into a script in the repository.', 422, ['field' => 'build_command']);
+        }
         if ($build !== '') {
             CommandRunner::guard($build);
         }

@@ -91,8 +91,14 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **The model has a budget:** `AssistantBudget` — per person per hour, per organization per day, a daily ceiling of tokens; past it
+  the assistant answers from the help centre (nothing is refused). The staff assistant's conversation id did not fit its column
+  (500 on PostgreSQL) — fixed; git deploy says its limits (422) instead of failing at the database.
+
 - **The production database's only test is CI:** `pest-postgres` was red for 92 runs (a staff credit would have answered 500 on
-  PostgreSQL: an 81-character key in a 60-character ledger column; a retried credit was given twice). Fixed, guarded by
+  PostgreSQL: an 81-character key in a 60-character ledger column). Staff money actions (credit, assisted order, service,
+  points) carried the second in their command key: when the HTTP layer had no stored answer to replay, a retry was a new command —
+  now `onceKey()`. Fixed, guarded by
   `DeclaredColumnWidthTest`, and the release runbook now says: look at the workflow after every push.
 
 - **A domain has an end:** one that left the registrar's account (asked a second way, away for 36 h) is closed —
@@ -193,7 +199,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 640 tests, 13 257 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 643 tests, 13 282 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

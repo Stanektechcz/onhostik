@@ -161,7 +161,7 @@ final class CustomerController extends ApiController
     {
         $data = $request->validate(['product_key' => ['required', 'string', 'max:40'], 'plan_key' => ['nullable', 'string', 'max:40'], 'config' => ['nullable', 'array'], 'config.egg' => ['nullable', 'string', 'max:40'], 'config.version' => ['nullable', 'string', 'max:20'], 'config.label' => ['nullable', 'string', 'max:80'], 'config.region' => ['nullable', 'string', 'max:16'], 'config.environment' => ['nullable', 'array', 'max:30'], 'reason' => ['nullable', 'string', 'max:250']]);
 
-        return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, "service.create:{$organization}:".now()->format('YmdHis')), ['op' => 'service.create', 'organization_id' => $organization, 'product_key' => $data['product_key'], 'plan_key' => $data['plan_key'] ?? null, 'config' => (array) ($data['config'] ?? [])]), $this->api->context($request, null, $data['reason'] ?? null), 201);
+        return $this->dispatch(new ProvisioningCommand($this->onceKey($request, "service.create:{$organization}"), ['op' => 'service.create', 'organization_id' => $organization, 'product_key' => $data['product_key'], 'plan_key' => $data['plan_key'] ?? null, 'config' => (array) ($data['config'] ?? [])]), $this->api->context($request, null, $data['reason'] ?? null), 201);
     }
 
     /** Sandbox tenant (audit §5j-9): provisioning to lab instances, promo credit to test with, no loyalty or commissions. */
@@ -203,7 +203,7 @@ final class CustomerController extends ApiController
             'payment' => ['required', 'in:wallet,bank,postpaid'], 'commit_months' => ['nullable', 'integer', 'in:1,12,24'], 'note' => ['required', 'string', 'min:3', 'max:250'],
         ]);
 
-        return $this->dispatch(new StaffCustomerCommand($this->idempotencyKey($request, "order.assisted:{$organization}:".now()->format('YmdHis')), ['op' => 'order.assisted', 'organization_id' => $organization] + $data), $this->api->context($request, null, $data['note']), 201);
+        return $this->dispatch(new StaffCustomerCommand($this->onceKey($request, "order.assisted:{$organization}"), ['op' => 'order.assisted', 'organization_id' => $organization] + $data), $this->api->context($request, null, $data['note']), 201);
     }
 
     /**

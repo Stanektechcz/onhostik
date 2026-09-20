@@ -37,9 +37,12 @@ it('stores nothing longer than its column declares after the longest request the
     }
     expect($checked)->toBeGreaterThan(20);
 
-    // the same request a minute later is the SAME request: the second it was sent in used to be part of the key, so a retry
-    // (a timeout, a nervous second click) credited the customer twice
+    // The same request again is the SAME request. A finished request is replayed by the HTTP layer (`IdempotencyKey` middleware);
+    // the bus has to recognise it by itself when that layer has nothing to replay: the process died after the credit was
+    // committed and before the answer was stored, or the answer was a 5xx (never stored). The second the request was sent in
+    // used to be part of the command key — without the stored answer the retry was a new command, and the credit was given twice.
     $this->travel(70)->seconds();
+    DB::table('idempotency_keys')->where('key', 'like', 'http:%')->delete();
     $this->withHeader('Idempotency-Key', $key)->postJson("/v1/staff/customers/{$org->id}/wallet/credit", ['amount' => 1000, 'note' => 'platba hotově na pobočce']);
     expect(WalletTopup::query()->where('organization_id', $org->id)->count())->toBe(1)->and(app(WalletService::class)->spendable($org, 'CZK')->minor)->toBe(100000);
 
@@ -50,4 +53,21 @@ it('stores nothing longer than its column declares after the longest request the
     $this->travel(2)->minutes();
     $this->withHeaders(['Idempotency-Key' => ''])->postJson("/v1/staff/customers/{$org->id}/wallet/credit", ['amount' => 500, 'note' => 'druhá platba'])->assertCreated();
     expect(WalletTopup::query()->where('organization_id', $org->id)->count())->toBe(3);
+});
+
+it('keeps a conversation of the staff assistant under the id the console really sends', function () {
+    [, $org] = $this->customerWithOrganization();
+    $agent = $this->staff('support_l2');
+    $this->actingAs($agent, 'sanctum');
+
+    // the console names a conversation `admin-` + a timestamp in base 36 (14 characters); the platform puts `staff:<user>:<org>:` in
+    // front of it — 82 characters into a column of 80. SQLite did not mind; on PostgreSQL every question of a support agent answered 500.
+    $this->postJson('/v1/staff/assistant/chat', ['text' => 'Co vidíš na účtu zákazníka?', 'organization_id' => $org->id, 'session_id' => 'admin-'.base_convert((string) (time() * 1000), 10, 36)])->assertOk();
+    // and the longest id the API accepts — from the console, and from a customer's own client (`<user>:` goes in front of theirs)
+    $this->postJson('/v1/staff/assistant/chat', ['text' => 'A ještě jednou.', 'organization_id' => $org->id, 'session_id' => str_repeat('s', 80)])->assertOk();
+    [$customer, $own] = $this->customerWithOrganization();
+    $this->actingAs($customer, 'sanctum');
+    $this->withHeaders(['X-Organization' => $own->id])->postJson('/v1/assistant/chat', ['text' => 'Kolik mám kreditu?', 'session_id' => str_repeat('c', 80)])->assertOk();
+
+    expect(WidthGuard::measure('assistant conversations'))->toBe([]);
 });

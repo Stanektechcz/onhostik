@@ -156,7 +156,7 @@ final class WebToolsController extends ApiController
     public function configureDeploy(Request $request, string $service): JsonResponse
     {
         $model = $this->resolve($request, $service, 'service.manage');
-        $data = $request->validate(['repository' => ['required', 'string', 'max:300'], 'branch' => ['nullable', 'string', 'max:120'], 'build_command' => ['nullable', 'string', 'max:2000'], 'deploy_path' => ['nullable', 'string', 'max:200'], 'env' => ['nullable', 'array'], 'hooks' => ['nullable', 'array', 'max:10'], 'hooks.*' => ['string', 'max:2000'], 'auto_deploy' => ['nullable', 'boolean'], 'keep_releases' => ['nullable', 'integer', 'min:2', 'max:20']]);
+        $data = $request->validate(['repository' => ['required', 'string', 'max:250'], 'branch' => ['nullable', 'string', 'max:120'], 'build_command' => ['nullable', 'string', 'max:500'], 'deploy_path' => ['nullable', 'string', 'max:200'], 'env' => ['nullable', 'array'], 'hooks' => ['nullable', 'array', 'max:10'], 'hooks.*' => ['string', 'max:2000'], 'auto_deploy' => ['nullable', 'boolean'], 'keep_releases' => ['nullable', 'integer', 'min:2', 'max:20']]);
 
         return $this->dispatch(new WebToolsCommand($model->organization_id, $this->idempotencyKey($request, 'tools.deploy.configure'), ['service_id' => $model->id, 'op' => 'deploy.configure', 'params' => $data]), $this->api->context($request));
     }

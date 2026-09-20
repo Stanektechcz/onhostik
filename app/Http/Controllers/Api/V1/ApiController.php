@@ -29,9 +29,12 @@ abstract class ApiController extends Controller
     private const KEY_LENGTH = 120;
 
     /**
-     * The key of an action that must not happen twice (money). With an `Idempotency-Key` the key is the header alone: a retry a
-     * minute later is the SAME request — a time bucket in the prefix made it a new one, and the credit was given twice. Without
-     * a header the minute is part of the key, so that the same amount with the same note can be credited again another day.
+     * The key of an action that must not happen twice (a credit, an order, a service). With an `Idempotency-Key` the key is the
+     * header alone. A FINISHED request is replayed by the HTTP layer (`IdempotencyKey` middleware) — but that layer has nothing
+     * to replay when the process died after the commit and before the answer was stored, when the answer was a 5xx, or when two
+     * copies of the request are in flight at once. Then only the bus can recognise the retry, and a time bucket in the prefix
+     * made the retry a NEW command: a second credit, a second order paid from the customer's credit. Without a header the
+     * minute is part of the key, so that the same amount with the same note can be credited again another day.
      */
     protected function onceKey(Request $request, string $prefix): string
     {

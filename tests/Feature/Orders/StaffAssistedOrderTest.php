@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Orders\Models\Consent;
 use Onhost\Domain\Orders\Models\Order;
@@ -66,4 +67,26 @@ it('pays an order with bonus credit when the purchased credit does not cover it 
     expect($wallets->spendable($org, 'CZK')->minor)->toBe(55000 - $total)
         ->and($balances['promo']->minor)->toBe(55000 - $total - 5000 < 0 ? 0 : 50000 - ($total - 5000))
         ->and($wallets->refundableBalance($org->id, 'CZK')->minor)->toBe(0); // the purchased 50 Kč went into the order first, the bonus is never refundable
+});
+
+it('places an assisted order once: the same request sent again is the same order, not a second one paid from the customer\'s credit', function () {
+    [, $org] = $this->customerWithOrganization();
+    $finance = $this->staff('platform_owner');
+    $this->actingAs($finance, 'sanctum');
+    app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
+    app(WalletService::class)->topup($org, Money::decimal('5000', 'CZK'), 'bank', 'assist-once-seed', $this->contextFor($finance));
+    $body = ['items' => [['product_key' => 'web-hosting', 'plan_key' => 'start', 'config' => ['domain' => 'jednou.cz']]], 'payment' => 'wallet', 'note' => 'telefonická objednávka, tiket #5120'];
+
+    $first = $this->withHeader('Idempotency-Key', 'assist-once')->postJson("/v1/staff/customers/{$org->id}/orders", $body)->assertCreated();
+    // A finished request is replayed by the HTTP layer. The bus has to recognise the request by itself when that layer has nothing
+    // to replay — the process died after the order was committed and before the answer was stored, or the answer was a 5xx. The
+    // second the request was sent in used to be part of the command key: the retry was a new command, and a second order was
+    // placed and paid from the customer's credit.
+    $this->travel(7)->seconds();
+    DB::table('idempotency_keys')->where('key', 'like', 'http:%')->delete();
+    $again = $this->withHeader('Idempotency-Key', 'assist-once')->postJson("/v1/staff/customers/{$org->id}/orders", $body);
+
+    expect(Order::query()->where('organization_id', $org->id)->count())->toBe(1)->and($again->json('order_id'))->toBe($first->json('order_id'));
+    $paid = Order::query()->where('organization_id', $org->id)->sole();
+    expect(app(WalletService::class)->spendable($org, 'CZK')->minor)->toBe(500000 - $paid->total_minor);
 });
