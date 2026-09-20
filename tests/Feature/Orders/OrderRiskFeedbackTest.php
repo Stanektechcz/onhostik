@@ -82,6 +82,10 @@ it('reviews the model: held orders with their signals next to the outcome, per-s
     expect($decided['signals']['disposable_email'])->toMatchArray(['held' => 1, 'rejected' => 1, 'precision' => 1.0])->and($decided['orders'][0]['outcome'])->toBe('rejected')->and($decided['orders'][0]['decision_reason'])->toBe('stolen card');
     $csv = $this->get('/v1/staff/orders/risk-review?format=csv')->assertOk()->assertHeader('Content-Type', 'text/csv; charset=utf-8')->getContent();
     expect($csv)->toContain('order;organization;score;reasons;outcome')->toContain($held->number)->toContain('new_account|disposable_email')->toContain('rejected');
+    // the organization name is whatever a customer typed at registration, and a cell that starts with = + - @ is a formula to a spreadsheet
+    $org->forceFill(['name' => "=cmd|'/C calc'!A1"])->save();
+    $csv = (string) $this->get('/v1/staff/orders/risk-review?format=csv')->assertOk()->getContent();
+    expect($csv)->toContain("\"'=cmd|'/C calc'!A1\"")->not->toContain(';"=cmd');
     $this->actingAs($owner, 'sanctum')->getJson('/v1/staff/orders/risk-review')->assertForbidden();
 });
 

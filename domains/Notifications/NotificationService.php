@@ -12,6 +12,7 @@ use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Notifications\Models\NotificationPreference;
 use Onhost\Domain\Notifications\Models\NotificationTemplate;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Redaction\Redactor;
 use Throwable;
 
 /**
@@ -100,7 +101,8 @@ final class NotificationService
         $rendered = $template->render((array) $mail->vars);
         try {
             Mail::to($mail->to)->send(new TemplatedMail($rendered['subject'], $rendered['body'], $mail->template_key, $mail->ref_id));
-            $mail->forceFill(['state' => 'sent', 'sent_at' => now(), 'attempts' => $mail->attempts + 1, 'subject' => mb_substr($rendered['subject'], 0, 250), 'last_error' => null])->save();
+            // delivered: the variables stay as a record of what was said, without the one-time secret they carried (an invitation link, a reset link)
+            $mail->forceFill(['state' => 'sent', 'sent_at' => now(), 'attempts' => $mail->attempts + 1, 'subject' => mb_substr($rendered['subject'], 0, 250), 'last_error' => null, 'vars' => (new Redactor)->redact((array) $mail->vars)])->save();
 
             return true;
         } catch (Throwable $e) {
@@ -114,6 +116,11 @@ final class NotificationService
     /** Force one mail out now (staff "Odeslat" button); returns the row in its new state. */
     public function sendNow(MailOutbox $mail): MailOutbox
     {
+        // it carried a one-time secret that is no longer kept: sending it again would send a dead link (asked before the row is
+        // touched — a message put back into the queue here would go out by itself a minute later)
+        if (str_contains((string) json_encode($mail->vars), Redactor::MASK)) {
+            throw new DomainError('mail_secret_not_kept', 'This message carried a one-time link that is no longer stored; create a new one (invite again, reset again) instead of resending.', 409);
+        }
         $mail->forceFill(['state' => 'queued', 'scheduled_at' => null, 'attempts' => min($mail->attempts, 4)])->save();
         $template = NotificationTemplate::current($mail->template_key, 'mail', $mail->locale);
         if ($template === null) {
@@ -121,7 +128,7 @@ final class NotificationService
         }
         $rendered = $template->render((array) $mail->vars);
         Mail::to($mail->to)->send(new TemplatedMail($rendered['subject'], $rendered['body'], $mail->template_key, $mail->ref_id));
-        $mail->forceFill(['state' => 'sent', 'sent_at' => now(), 'attempts' => $mail->attempts + 1, 'last_error' => null])->save();
+        $mail->forceFill(['state' => 'sent', 'sent_at' => now(), 'attempts' => $mail->attempts + 1, 'last_error' => null, 'vars' => (new Redactor)->redact((array) $mail->vars)])->save();
 
         return $mail;
     }

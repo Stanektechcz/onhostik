@@ -9,6 +9,7 @@ use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
+use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -54,8 +55,10 @@ final class ConsoleRelayController extends Controller
         if (! is_array($descriptor)) {
             return response()->json(['data' => ['valid' => false]]);
         }
-        $organizationId = $descriptor['organization_id'] ?? null;
-        $member = $organizationId === null || OrganizationMembership::query()->where('user_id', $user->id)->where('organization_id', $organizationId)->current()->exists() || $user->is_staff;
+        // Whose console it is comes from the SERVICE the token was issued for. The adapters never wrote an organization into the
+        // descriptor, so this check read `null` and let every signed-in user through; a token with no known owner is nobody's.
+        $organizationId = $descriptor['organization_id'] ?? (isset($descriptor['service_id']) ? Service::query()->whereKey((string) $descriptor['service_id'])->value('organization_id') : null);
+        $member = $user->is_staff || ($organizationId !== null && OrganizationMembership::query()->where('user_id', $user->id)->where('organization_id', $organizationId)->current()->exists());
 
         return response()->json(['data' => ['valid' => (bool) $member, 'kind' => $descriptor['kind'] ?? null, 'expires_at' => $descriptor['expires_at'] ?? null]]);
     }

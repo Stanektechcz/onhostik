@@ -7,15 +7,18 @@ use Onhost\Domain\Compliance\ComplianceService;
 use Onhost\Domain\Compliance\Models\AbuseCase;
 use Onhost\Domain\Compliance\Models\ComplianceTimer;
 use Onhost\Domain\Compliance\Models\DataRequest;
+use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\Models\TicketMessage;
+use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
@@ -101,6 +104,18 @@ it('builds GDPR data exports and blocks deletion while services are live or a le
     expect(MailOutbox::query()->where('template_key', 'data-export')->where('to', $customer->email)->exists())->toBeTrue();
     $download = $this->withHeaders($headers)->get("/v1/data-requests/{$request->id}/download")->assertOk();
     expect($download->streamedContent())->toContain('"format": "onhost-export/1"')->toContain('Test s.r.o.');
+    expect(AuditEvent::query()->where('action', 'compliance.data_export.download')->where('actor_id', $customer->id)->count())->toBe(1); // who took the archive is written down
+
+    // The archive holds every member's identity, the billing data and thousands of audit rows. Asking for it needs
+    // `organization.manage`; downloading it needed nothing — a read-only member could, and so could any staff account that may
+    // merely READ customers (it reaches the organization through X-Organization).
+    $viewer = $this->customer(['email' => 'viewer@example.cz']);
+    PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $viewer->id, 'role_key' => 'viewer', 'scope_type' => 'organization', 'scope_id' => $org->id, 'organization_id' => $org->id]);
+    OrganizationMembership::query()->create(['organization_id' => $org->id, 'user_id' => $viewer->id, 'state' => 'active', 'role_key' => 'viewer', 'joined_at' => now()]);
+    $this->actingAs($viewer, 'sanctum')->withHeaders($headers)->get("/v1/data-requests/{$request->id}/download")->assertForbidden();
+    $this->actingAs($this->staff('support_l1'), 'sanctum')->withHeaders($headers)->get("/v1/data-requests/{$request->id}/download")->assertForbidden();
+    expect(AuditEvent::query()->where('action', 'compliance.data_export.download')->count())->toBe(1);
+    $this->actingAs($customer, 'sanctum');
 
     $this->withHeaders($headers)->postJson('/v1/data-requests', ['kind' => 'deletion'])->assertStatus(409)->assertJsonPath('error', 'deletion_blocked')->assertJsonPath('blocks.0', 'active_services');
     $service->forceFill(['state' => ServiceStateMachine::TERMINATED, 'terminated_at' => now()])->save();

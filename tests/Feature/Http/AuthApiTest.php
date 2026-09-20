@@ -59,11 +59,46 @@ it('signs in with password, locks after repeated failures and audits every attem
     }
     $this->postJson('/v1/auth/login', ['email' => 'user@example.cz', 'password' => 'Correct-Horse-Battery-9'])->assertStatus(423)->assertJsonPath('error', 'account_locked');
     expect(OutboxMessage::query()->where('name', 'security.account_locked')->exists())->toBeTrue();
+    // a locked account says "locked" whatever the password is — 422 for a wrong one and 423 for the right one was a password oracle
+    $this->postJson('/v1/auth/login', ['email' => 'user@example.cz', 'password' => 'still-wrong'])->assertStatus(423)->assertJsonPath('error', 'account_locked');
+    expect((int) User::query()->where('email', 'user@example.cz')->value('failed_login_attempts'))->toBe(0); // and it judges no guesses while it is locked
+});
+
+it('counts wrong authenticator codes like wrong passwords, and a reset link does not stand in for the second factor', function () {
+    Notification::fake();
+    config()->set('onhost.identity.max_failed_logins', 3);
+    $user = $this->customer(['email' => 'totp-guess@example.cz']);
+    $secret = app(Totp::class)->generateSecret();
+    $user->forceFill(['totp_secret' => $secret, 'totp_confirmed_at' => now()])->save();
+    foreach ([1, 2, 3] as $i) {
+        $this->postJson('/v1/auth/login', ['email' => 'totp-guess@example.cz', 'password' => 'Correct-Horse-Battery-9', 'totp' => '000000'])->assertUnprocessable()->assertJsonPath('error', 'mfa_invalid');
+    }
+    $this->postJson('/v1/auth/login', ['email' => 'totp-guess@example.cz', 'password' => 'Correct-Horse-Battery-9', 'totp' => Totp::code($secret)])->assertStatus(423);
+
+    // whoever reads the mailbox gets a new password, not a session: the account has a second factor
+    $this->travel(61)->seconds(); // past the sign-in throttle of this address (the authenticator runs on the real clock)
+    $this->postJson('/v1/auth/password/reset', ['email' => 'totp-guess@example.cz'])->assertOk();
+    $token = null;
+    Notification::assertSentTo($user, PasswordResetNotification::class, function (PasswordResetNotification $n) use (&$token) {
+        $token = $n->token;
+
+        return true;
+    });
+    $this->postJson('/v1/auth/password/reset/confirm', ['token' => $token, 'password' => STRONG])->assertOk()->assertJsonPath('data.signed_in', false)->assertJsonPath('data.surface', 'login')->assertJsonMissingPath('data.user');
+    $this->getJson('/v1/me')->assertUnauthorized();
+    // the reset lifted the lock; signing in still takes the code
+    $this->travel(61)->seconds();
+    $this->postJson('/v1/auth/login', ['email' => 'totp-guess@example.cz', 'password' => STRONG])->assertForbidden()->assertJsonPath('error', 'mfa_required');
+    $this->postJson('/v1/auth/login', ['email' => 'totp-guess@example.cz', 'password' => STRONG, 'totp' => Totp::code($secret, time() + 30)])->assertOk();
 });
 
 it('enrols TOTP, requires the code at login and grants step-up for high-risk commands', function () {
     $user = $this->customer(['email' => 'mfa@example.cz']);
     $this->actingAs($user, 'sanctum');
+    // turning the second factor on takes a fresh proof of the first one: a stolen session must not enrol ITS authenticator
+    $this->postJson('/v1/me/totp/enroll')->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    expect($user->fresh()->totp_secret)->toBeNull();
+    $this->postJson('/v1/auth/step-up', ['method' => 'password', 'code' => 'Correct-Horse-Battery-9'])->assertOk();
     $secret = $this->postJson('/v1/me/totp/enroll')->assertOk()->json('data.secret');
     $this->postJson('/v1/me/totp/confirm', ['code' => '000000'])->assertUnprocessable()->assertJsonPath('errors.code.0', 'Kód z autentikátoru nesouhlasí.');
     $codes = $this->postJson('/v1/me/totp/confirm', ['code' => Totp::code($secret)])->assertOk()->json('data.recovery_codes');
@@ -95,7 +130,7 @@ it('resets a password through a single-use token and revokes sessions', function
     expect(json_encode(OutboxMessage::query()->where('name', 'identity.password_reset_requested')->firstOrFail()->payload))->not->toContain($token); // the secret never enters the outbox
 
     $this->postJson('/v1/auth/password/reset/confirm', ['token' => 'bogus', 'password' => STRONG])->assertUnprocessable()->assertJsonPath('error', 'reset_token_invalid');
-    $this->postJson('/v1/auth/password/reset/confirm', ['token' => $token, 'password' => STRONG])->assertOk();
+    $this->postJson('/v1/auth/password/reset/confirm', ['token' => $token, 'password' => STRONG])->assertOk()->assertJsonPath('data.signed_in', true); // a password-only account: the link and the new password sign it in
     $this->postJson('/v1/auth/password/reset/confirm', ['token' => $token, 'password' => STRONG])->assertUnprocessable(); // used
     $this->postJson('/v1/auth/login', ['email' => 'reset@example.cz', 'password' => STRONG])->assertOk();
     expect(OutboxMessage::query()->where('name', 'security.password_changed')->exists())->toBeTrue();

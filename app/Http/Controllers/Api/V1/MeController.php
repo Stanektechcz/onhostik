@@ -57,11 +57,17 @@ final class MeController extends ApiController
         return response()->json(['data' => ['changed' => true]]);
     }
 
-    public function totpEnroll(Request $request, Totp $totp, AuditRecorder $audit): JsonResponse
+    public function totpEnroll(Request $request, Totp $totp, AuditRecorder $audit, StepUpService $stepUp): JsonResponse
     {
         $user = $this->api->user($request);
         if ($user->hasTotp()) {
             throw new DomainError('totp_already_enabled', 'Dvoufázové ověření je již zapnuté.', 409);
+        }
+        // Whoever holds a session of an account without a second factor could enrol THEIR authenticator, keep the recovery
+        // codes and lock the owner out for good. Turning the second factor on takes a fresh proof of the first one
+        // (the portal asks for it by itself: `step_up_required` opens the confirmation dialog and repeats the request).
+        if ($stepUp->activeGrant($user, $this->api->sessionId($request)) === null) {
+            throw new DomainError('step_up_required', 'Potvrďte heslem, že jste to vy, a zapnutí dvoufázového ověření zopakujte.', 403, ['requirement' => 'step_up', 'help' => '/v1/auth/step-up']);
         }
         $secret = $totp->generateSecret();
         $user->forceFill(['totp_secret' => $secret, 'totp_confirmed_at' => null])->save();

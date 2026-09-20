@@ -18,6 +18,7 @@ use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Http\EgressGuard;
+use Onhost\Platform\Redaction\Redactor;
 
 /** In-app feed, preferences, customer webhooks; staff mail outbox and template test render. */
 final class NotificationController extends ApiController
@@ -127,7 +128,7 @@ final class NotificationController extends ApiController
             $query->where('state', (string) $request->query('state'));
         }
 
-        return $this->api->paginate($request, $query, fn (MailOutbox $m) => ['id' => $m->id, 'tpl' => $m->template_key, 'to' => $m->to, 'subject' => $m->subject, 'state' => $m->state, 'at' => $m->created_at?->toIso8601String(), 'sent_at' => $m->sent_at?->toIso8601String(), 'attempts' => $m->attempts, 'last_error' => $m->last_error, 'ref' => $m->ref_id, 'vars' => $m->vars, 'organization_id' => $m->organization_id]);
+        return $this->api->paginate($request, $query, fn (MailOutbox $m) => ['id' => $m->id, 'tpl' => $m->template_key, 'to' => $m->to, 'subject' => $m->subject, 'state' => $m->state, 'at' => $m->created_at?->toIso8601String(), 'sent_at' => $m->sent_at?->toIso8601String(), 'attempts' => $m->attempts, 'last_error' => $m->last_error, 'ref' => $m->ref_id, 'vars' => (new Redactor)->redact((array) $m->vars), 'organization_id' => $m->organization_id]); // an invitation link is a way into a customer's organization
     }
 
     public function sendMail(Request $request, NotificationService $notifications, string $mail): JsonResponse

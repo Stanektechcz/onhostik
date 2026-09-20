@@ -100,3 +100,18 @@ it('hands console descriptors to the relay once, only with the relay key, and le
     $this->getJson("/console/check/{$token}")->assertOk()->assertJsonPath('data.valid', false);
     $this->withHeader('X-Relay-Key', 'relay-secret')->getJson('/console/ws/not-a-token')->assertUnprocessable();
 });
+
+it('judges a console token by the service it was issued for — the shape the adapters really store', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    [$stranger] = $this->customerWithOrganization(['email' => 'cizi@example.cz']);
+    $service = Service::query()->create(['organization_id' => $org->id, 'product_key' => 'vps', 'family' => 'cloud', 'name' => 'VPS', 'state' => 'ACTIVE', 'region_code' => 'cz1', 'entitlements' => [], 'desired_spec' => []]);
+    $token = 'con_'.strtolower((string) Str::ulid());
+    // neither adapter writes an organization into the descriptor: the membership check used to read null and pass everybody
+    Cache::put("onhost:console:{$token}", ['kind' => 'pve_vnc', 'upstream' => 'https://pve.lab/x', 'port' => 5900, 'vncticket' => 'PVEVNC:secret', 'instance' => 'pi_1', 'service_id' => $service->id], 120);
+    $orphan = 'con_'.strtolower((string) Str::ulid());
+    Cache::put("onhost:console:{$orphan}", ['kind' => 'pve_vnc', 'upstream' => 'https://pve.lab/y', 'port' => 5900, 'vncticket' => 'PVEVNC:other'], 120);
+
+    $this->actingAs($stranger)->getJson("/console/check/{$token}")->assertOk()->assertJsonPath('data.valid', false);
+    $this->actingAs($stranger)->getJson("/console/check/{$orphan}")->assertOk()->assertJsonPath('data.valid', false); // nobody's token is nobody's console
+    $this->actingAs($owner)->getJson("/console/check/{$token}")->assertOk()->assertJsonPath('data.valid', true);
+});

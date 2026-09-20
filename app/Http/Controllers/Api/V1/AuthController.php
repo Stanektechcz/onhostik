@@ -78,20 +78,16 @@ final class AuthController extends ApiController
         $data = $request->validate(['email' => ['required', 'email'], 'password' => ['required', 'string'], 'totp' => ['nullable', 'string', 'max:16'], 'remember' => ['nullable', 'boolean']]);
         $user = User::query()->where('email', strtolower($data['email']))->first();
         $context = new CommandContext('user', $user?->id, null, null, $request->ip(), mb_substr((string) $request->userAgent(), 0, 250), null, correlationId: CommandContext::currentCorrelationId());
+        // The lock is asked BEFORE the password. It used to come after: a locked account kept judging guesses, and the answer
+        // told them apart — 422 for a wrong password, 423 for the right one. Lock the account on purpose, then test passwords at leisure.
+        if ($user !== null && $user->isLocked()) {
+            throw new DomainError('account_locked', 'Účet je dočasně uzamčen po opakovaných neúspěšných pokusech.', 423, ['field' => 'email', 'locked_until' => $user->locked_until?->toIso8601String()]);
+        }
         if ($user === null || ! Hash::check($data['password'], (string) $user->password)) {
             if ($user !== null) {
-                $attempts = $user->failed_login_attempts + 1;
-                $lock = $attempts >= (int) config('onhost.identity.max_failed_logins', 8);
-                $user->forceFill(['failed_login_attempts' => $lock ? 0 : $attempts, 'locked_until' => $lock ? now()->addMinutes((int) config('onhost.identity.lockout_minutes', 15)) : $user->locked_until])->save();
-                $audit->record($context, 'auth.login', 'failed', ['email' => $data['email'], 'locked' => $lock], 'user', $user->id);
-                if ($lock) {
-                    $outbox->publish(GenericEvent::of('security.account_locked', 'user', $user->id, ['email' => $user->email, 'ip' => $request->ip()]));
-                }
+                $this->countFailedLogin($user, $context, $audit, $outbox, $request, 'password');
             }
             throw new DomainError('invalid_credentials', 'E-mail nebo heslo nesouhlasí.', 422, ['field' => 'password']);
-        }
-        if ($user->isLocked()) {
-            throw new DomainError('account_locked', 'Účet je dočasně uzamčen po opakovaných neúspěšných pokusech.', 423, ['field' => 'email', 'locked_until' => $user->locked_until?->toIso8601String()]);
         }
         if (! $user->isActive()) {
             throw new DomainError('account_inactive', 'Účet není aktivní.', 403, ['field' => 'email']);
@@ -104,7 +100,7 @@ final class AuthController extends ApiController
                 throw new DomainError('mfa_required', 'Zadejte kód z autentikátoru.', 403, ['field' => 'totp', 'mfa' => 'totp']);
             }
             if (! $stepUp->verifyTotp($user, (string) $data['totp']) && ! $stepUp->consumeRecoveryCode($user, (string) $data['totp'])) {
-                $audit->record($context, 'auth.login', 'failed', ['email' => $user->email, 'reason' => 'totp'], 'user', $user->id);
+                $this->countFailedLogin($user, $context, $audit, $outbox, $request, 'totp'); // six digits are guessable when nothing counts the guesses
                 throw new DomainError('mfa_invalid', 'Kód z autentikátoru nesouhlasí.', 422, ['field' => 'totp']);
             }
         }
@@ -161,6 +157,17 @@ final class AuthController extends ApiController
         return response()->json(['data' => ['method' => $grant->method, 'expires_at' => $grant->expires_at?->toIso8601String()]]);
     }
 
+    private function countFailedLogin(User $user, CommandContext $context, AuditRecorder $audit, OutboxPublisher $outbox, Request $request, string $reason): void
+    {
+        $attempts = $user->failed_login_attempts + 1;
+        $lock = $attempts >= (int) config('onhost.identity.max_failed_logins', 8);
+        $user->forceFill(['failed_login_attempts' => $lock ? 0 : $attempts, 'locked_until' => $lock ? now()->addMinutes((int) config('onhost.identity.lockout_minutes', 15)) : $user->locked_until])->save();
+        $audit->record($context, 'auth.login', 'failed', ['email' => $user->email, 'locked' => $lock, 'reason' => $reason], 'user', $user->id);
+        if ($lock) {
+            $outbox->publish(GenericEvent::of('security.account_locked', 'user', $user->id, ['email' => $user->email, 'ip' => $request->ip()]));
+        }
+    }
+
     public function requestPasswordReset(Request $request, OutboxPublisher $outbox, AuditRecorder $audit): JsonResponse
     {
         $data = $request->validate(['email' => ['required', 'email']]);
@@ -191,9 +198,16 @@ final class AuthController extends ApiController
         $user->tokens()->whereNull('revoked_at')->update(['revoked_at' => now()]);
         $audit->record(new CommandContext('user', $user->id, ip: $request->ip()), 'auth.password_reset.confirm', 'succeeded', [], 'user', $user->id);
         $outbox->publish(GenericEvent::of('security.password_changed', 'user', $user->id, ['email' => $user->email, 'ip' => $request->ip()]));
-        $this->startSession($request, $user); // possession of the single-use link plus the new password signs the browser in
+        // The single-use link plus the new password signs the browser in — for an account whose only factor is the password.
+        // With an authenticator enrolled (and for staff, who must have one) the link proves the mailbox and nothing more:
+        // signing in here would make a read of somebody's mail enough to take over an account the second factor protects.
+        $secondFactor = $user->hasTotp() || ($user->is_staff && config('onhost.identity.staff_mfa_required', true));
+        if ($secondFactor || ! $user->isActive()) {
+            return response()->json(['data' => ['reset' => true, 'signed_in' => false, 'surface' => 'login']]);
+        }
+        $this->startSession($request, $user);
 
-        return response()->json(['data' => ['reset' => true, 'user' => Presenters::user($user), 'surface' => $user->is_staff ? 'admin' : 'panel']]);
+        return response()->json(['data' => ['reset' => true, 'signed_in' => true, 'user' => Presenters::user($user), 'surface' => $user->is_staff ? 'admin' : 'panel']]);
     }
 
     public function verifyEmail(Request $request): JsonResponse

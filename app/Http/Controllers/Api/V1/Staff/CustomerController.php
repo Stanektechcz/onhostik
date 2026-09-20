@@ -82,6 +82,21 @@ final class CustomerController extends ApiController
      * The risk model review (audit §5i-4): every held order with its signals next to the outcome, and per signal how
      * often a hold on it was released or rejected — so staff see which signals earn their weight. `format=csv` exports.
      */
+    /**
+     * A cell that starts with = + - @ (or a tab / carriage return before one) is a FORMULA to a spreadsheet, and the
+     * organization name in this export is whatever a customer typed at registration: `=cmd|'/C …'!A1` ran on the analyst's
+     * machine when the file was opened. Such a cell is prefixed with an apostrophe, which a spreadsheet shows as text.
+     */
+    private static function csvCell(mixed $value): string
+    {
+        $text = (string) $value;
+        if ($text !== '' && preg_match('/^[\s]*[=+\-@]/', $text) === 1) {
+            $text = "'".$text;
+        }
+
+        return '"'.str_replace('"', '""', $text).'"';
+    }
+
     public function riskReview(Request $request): JsonResponse|Response
     {
         $this->api->authorize($request, 'staff.order.manage', CommandScope::global());
@@ -125,10 +140,10 @@ final class CustomerController extends ApiController
         if ((string) $request->query('format', '') === 'csv') {
             $lines = ['loop;order;organization;score;reasons;outcome;decided_at;decision_reason;total'];
             foreach ($rows as $r) {
-                $lines[] = implode(';', array_map(fn ($v) => '"'.str_replace('"', '""', (string) $v).'"', ['order', $r['order'], $r['organization'], $r['score'], implode('|', $r['reasons']), $r['outcome'], $r['decided_at'], $r['decision_reason'], $r['total']->format()]));
+                $lines[] = implode(';', array_map(fn ($v) => self::csvCell($v), ['order', $r['order'], $r['organization'], $r['score'], implode('|', $r['reasons']), $r['outcome'], $r['decided_at'], $r['decision_reason'], $r['total']->format()]));
             }
             foreach ($referralRows as $r) { // §5o-4
-                $lines[] = implode(';', array_map(fn ($v) => '"'.str_replace('"', '""', (string) $v).'"', ['referral', $r['code'], $r['organization'], $r['score'], implode('|', $r['reasons']), $r['outcome'], $r['decided_at'], $r['decision_reason'], '']));
+                $lines[] = implode(';', array_map(fn ($v) => self::csvCell($v), ['referral', $r['code'], $r['organization'], $r['score'], implode('|', $r['reasons']), $r['outcome'], $r['decided_at'], $r['decision_reason'], '']));
             }
 
             return response(implode("\n", $lines), 200, ['Content-Type' => 'text/csv; charset=utf-8', 'Content-Disposition' => 'attachment; filename="risk-review.csv"']);

@@ -6,14 +6,15 @@ namespace App\Http\Controllers\Api\V1;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Onhost\Domain\Compliance\ComplianceService;
 use Onhost\Domain\Compliance\Models\AbuseCase;
 use Onhost\Domain\Compliance\Models\DataRequest;
 use Onhost\Domain\Incidents\Presenters;
+use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Onhost\Platform\Files\FileStore;
+use Symfony\Component\HttpFoundation\Response;
 
 /** Public abuse reporting (DSA Art. 16) and the customer's GDPR / Data Act requests and abuse complaints. */
 final class ComplianceController extends ApiController
@@ -81,9 +82,13 @@ final class ComplianceController extends ApiController
         return response()->json(['data' => $compliance->downloadLink($model, $this->api->context($request, $organization))], 201);
     }
 
-    public function download(Request $request, string $dataRequest): StreamedResponse
+    public function download(Request $request, FileStore $files, AuditRecorder $audit, string $dataRequest): Response
     {
         $organization = $this->api->organization($request);
+        // The archive holds every member's name and e-mail, the billing identity, invoices, tickets and thousands of audit rows
+        // with addresses. Asking for it and linking it need `organization.manage`; downloading it needed nothing — any member,
+        // and any staff account that may merely READ customers, could pull it, and nothing was written down.
+        $this->api->authorize($request, 'organization.manage', CommandScope::organization($organization->id));
         $model = DataRequest::query()->where('organization_id', $organization->id)->find($dataRequest);
         if ($model === null) {
             throw DomainError::notFound('data_request');
@@ -92,6 +97,8 @@ final class ComplianceController extends ApiController
             throw new DomainError('data_export_not_ready', 'The export is not ready or has expired.', 409, ['state' => $model->state]);
         }
 
-        return Storage::disk('local')->download($model->file_path, "onhost-export-{$model->id}.json", ['Content-Type' => 'application/json']);
+        $audit->record($this->api->context($request, $organization), 'compliance.data_export.download', 'succeeded', ['data_request' => $model->id], 'data_request', $model->id);
+
+        return $files->download($model->file_path, "onhost-export-{$model->id}.json", 'application/json', ['X-Robots-Tag' => 'noindex']); // the store the export was written to (local or S3)
     }
 }

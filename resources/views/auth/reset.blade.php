@@ -64,7 +64,8 @@
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
       if (!res.ok) { var b = res.body || {}; var first = b.errors ? Object.keys(b.errors)[0] : null; fail((first && b.errors[first][0]) || b.message || 'Heslo se nepodařilo uložit — odkaz mohl vypršet. Požádejte o nový na stránce Obnova hesla.'); return; }
       form.hidden = true; document.getElementById('done').hidden = false;
-      var target = (res.body && res.body.data && res.body.data.surface === 'admin') ? '/sprava' : '/panel';
+      var d = (res.body && res.body.data) || {};
+      var target = d.signed_in === false ? '/prihlaseni' : (d.surface === 'admin' ? '/sprava' : '/panel'); // with a second factor the new password is used at the sign-in page
       setTimeout(function () { location.href = target; }, 1200);
     }).catch(function () { fail('Spojení se nezdařilo, zkuste to znovu.'); });
   });

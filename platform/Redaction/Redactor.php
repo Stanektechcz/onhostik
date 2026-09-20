@@ -79,6 +79,8 @@ final class Redactor
             '/\b(ptl[ac]_)[A-Za-z0-9]{10,}/' => '$1'.self::MASK,
             '/\b(onh_(?:live|test)_)[A-Za-z0-9]{6,}/' => '$1'.self::MASK,
             '/\b(sk_(?:live|test)_)[A-Za-z0-9]{6,}/' => '$1'.self::MASK,
+            // a one-time secret in a link: an invitation (?pozvanka=), a signed download, an OAuth code
+            '/([?&](?:pozvanka|invite|invitation|invitation_token|code|signature|sig|expires_signature)=)[^&#\s"\'<>]+/i' => '$1'.self::MASK,
             // SOAP/XML bodies (Subreg): <password>…</password>, <ssid>…</ssid>, <authid>…</authid> carry no ":" or "=" for the rule above
             '/(<((?:[\w.-]+:)?(?:password|passwd|pass|pw|ssid|authid|auth_id|authinfo|auth_info|secret|token|api_key))\b[^>]*>)[^<]*(<\/\2>)/i' => '$1'.self::MASK.'$3',
             // key material, whatever the field is called (aaPanel sends a certificate's private key as `key`)
