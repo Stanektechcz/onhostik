@@ -15,6 +15,7 @@ use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Services\Access\ServiceAccessService;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
@@ -83,12 +84,14 @@ final class OrganizationController extends ApiController
         return $this->dispatch(new OrganizationCommand($org->id, $this->idempotencyKey($request, 'org.invite'), ['op' => 'invite'] + $data), $this->api->context($request, $org), 201);
     }
 
-    public function acceptInvitation(Request $request, OrganizationService $organizations): JsonResponse
+    public function acceptInvitation(Request $request, OrganizationService $organizations, ServiceAccessService $access): JsonResponse
     {
         $data = $request->validate(['token' => ['required', 'string']]);
-        $membership = $organizations->acceptInvitation($data['token'], $this->api->user($request), $this->api->context($request));
+        $user = $this->api->user($request);
+        $membership = $organizations->acceptInvitation($data['token'], $user, $this->api->context($request));
+        $shared = $access->activatePending($user, Organization::query()->findOrFail($membership->organization_id)); // services that were shared with this address while it had no membership
 
-        return response()->json(['data' => ['organization_id' => $membership->organization_id, 'role' => $membership->role_key]]);
+        return response()->json(['data' => ['organization_id' => $membership->organization_id, 'role' => $membership->role_key, 'shared_services' => $shared]]);
     }
 
     public function changeRole(Request $request, string $organization, string $user): JsonResponse

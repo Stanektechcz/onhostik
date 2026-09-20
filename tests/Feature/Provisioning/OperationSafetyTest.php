@@ -7,6 +7,9 @@ use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\Project;
+use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Organizations\ProjectService;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -17,6 +20,7 @@ use Onhost\Domain\Provisioning\OperationService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\Workflow\StepContext;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
+use Onhost\Domain\Services\Access\ServiceAccessService;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -119,6 +123,39 @@ it('stops a running operation before its next step when the permission it starte
     // a run nobody can be revoked from — the scheduled purge, a reconcile repair — is never stopped this way
     $system = app(ServiceService::class)->requestAction($service->fresh(), 'backup', CommandContext::system('nightly'), 'safe-backup-1');
     expect($system->actor_type)->toBe('system');
+});
+
+it('lets somebody whose right comes from the project, or from the one service shared with them, finish what they started (H315)', function () {
+    Http::fake([
+        PVE.'/nodes/prg1-n2/qemu/1042/status/current' => Http::response(['data' => ['status' => 'running', 'uptime' => 100]]),
+        PVE.'/nodes/prg1-n2/qemu/1042/config' => Http::response(pveVmConfig()),
+        PVE.'/nodes/prg1-n2/qemu/1042/status/reboot' => Http::response(['data' => 'UPID:prg1-n2:000A1B2F:0004E1F8:66F0AA14:qmreboot:1042:onhost@pve!cp:']),
+        PVE.'/nodes/prg1-n2/tasks/*/status' => Http::response(['data' => ['status' => 'stopped', 'exitstatus' => 'OK']]),
+    ]);
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = safetyVps($org);
+    $project = Project::query()->where('organization_id', $org->id)->firstOrFail();
+    $service->forceFill(['project_id' => $project->id])->save();
+    $organizations = app(OrganizationService::class);
+
+    // a viewer of the organization who is a developer of THIS project: the re-check before each step asked at the bare
+    // service, without its project, so the project role did not cover it and the run died as "permission revoked"
+    $developer = $this->customer(['email' => 'projekt@example.cz']);
+    $organizations->attachMember($org, $developer, 'viewer', CommandContext::system('test'), true);
+    app(ProjectService::class)->addMember($org, $project, $developer, 'developer', CommandContext::system('test'));
+    // and a guest who was handed this one service
+    $guest = $this->customer(['email' => 'host@example.cz']);
+    $organizations->attachMember($org, $guest, 'guest', CommandContext::system('test'), true);
+    app(ServiceAccessService::class)->share($org, $service, 'host@example.cz', ['manage'], $this->contextFor($owner, $org, 'totp'));
+
+    foreach ([[$developer, 'proj-reboot'], [$guest, 'guest-reboot']] as [$person, $key]) {
+        $operation = app(OperationService::class)->start(ServiceActionWorkflow::class, $key, ['action' => 'power', 'power_action' => 'reboot', 'service_id' => $service->id],
+            $this->contextFor($person, $org), $service->id, $org->id, null, $service->provider_instance_id, dispatch: false, authorizedPermission: ServiceActionCommand::permissionFor('power'));
+        $state = app(OperationRunner::class)->tick($operation, 5);
+        expect(data_get($operation->fresh()->error, 'detail.access_revoked'))->toBeNull("{$person->email}: ".json_encode($operation->fresh()->error))->and($state)->not->toBe(Operation::FAILED);
+        Operation::query()->whereKey($operation->id)->delete();
+        $service->forceFill(['state' => ServiceStateMachine::ACTIVE])->save();
+    }
 });
 
 it('asks a staff run for its permission at the scope the bus checked: global, never the customer resource (H315)', function () {

@@ -81,6 +81,23 @@ final class Authorizer
         return array_values(array_unique($ids));
     }
 
+    /**
+     * Services of an organization where a resource-scoped binding grants the permission — what somebody sees who was
+     * given single services and nothing of the organization (a guest). @return list<string>
+     */
+    public function resourceIdsWhere(Authenticatable|ServiceAccount $principal, string $permission, string $organizationId): array
+    {
+        $ids = [];
+        foreach ($this->bindings($principal) as $binding) {
+            if ($binding['scope_type'] === 'resource' && $binding['organization_id'] === $organizationId && $binding['scope_id'] !== null
+                && in_array($permission, $this->rolePermissions($binding['role']), true)) {
+                $ids[] = $binding['scope_id'];
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
     /** Organizations where the principal has at least one binding. @return list<string> */
     public function organizationIds(Authenticatable|ServiceAccount $principal): array
     {
@@ -108,6 +125,13 @@ final class Authorizer
     public function forget(Authenticatable|ServiceAccount $principal): void
     {
         unset($this->bindingCache[$this->cacheKey($principal)]);
+    }
+
+    /** Everything remembered is dropped: called after every request and before every queued job, so an answer is never older than the unit of work that asks. */
+    public function flush(): void
+    {
+        $this->bindingCache = [];
+        $this->rolePermissionCache = [];
     }
 
     /** @return list<array{role:string, scope_type:string, scope_id:?string, organization_id:?string}> */

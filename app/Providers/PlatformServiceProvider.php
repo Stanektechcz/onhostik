@@ -6,9 +6,13 @@ namespace App\Providers;
 
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Encryption\Encrypter;
+use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
+use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\IdentityCommandAuthorizer;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Provisioning\ProviderRegistry;
@@ -74,6 +78,7 @@ final class PlatformServiceProvider extends ServiceProvider
 
             return $endpoint === '' ? new NullIpGeoProvider : new HttpIpGeoProvider($app->make('cache.store'), $endpoint, (int) config('onhost.orders.risk.geo.timeout_seconds', 2));
         });
+        $this->app->singleton(Authorizer::class); // every holder shares it, so a revoked binding is forgotten everywhere at once
         $this->app->singleton(CommandAuthorizer::class, IdentityCommandAuthorizer::class);
         $this->app->singleton(CommandBus::class);
         $this->app->singleton(Tracer::class); // one span buffer per process (audit §5q-2)
@@ -121,6 +126,10 @@ final class PlatformServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // The authorizer remembers a principal's bindings for as long as it lives. A web request is short; a queue worker, the
+        // scheduler and a test process are not — a permission taken away would keep being answered with yesterday's yes.
+        Event::listen(RequestHandled::class, fn () => $this->app->make(Authorizer::class)->flush());
+        Queue::before(fn () => $this->app->make(Authorizer::class)->flush());
         Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
     }
 }

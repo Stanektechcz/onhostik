@@ -14,6 +14,7 @@ use Onhost\Domain\Services\SshKeyLedger;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Outbox\OutboxEventDispatched;
+use Onhost\Platform\Outbox\OutboxMessage;
 
 /**
  * A person who loses a role loses what that role put on the panels: collaborator accounts on game servers (H333) and
@@ -30,6 +31,11 @@ final class RevokeDelegatedAccess
         $m = $event->message;
         if ($m->name === 'operation.succeeded' && data_get($m->payload, 'kind') === 'service.action') {
             $this->keys->confirmed((string) $m->aggregate_id); // a key removal the panel applied from its queue is closed now, not at the next scheduled pass
+
+            return;
+        }
+        if (in_array($m->name, ['service.access.revoked', 'service.access.expired'], true)) {
+            $this->sharedServiceEnded($m);
 
             return;
         }
@@ -64,6 +70,32 @@ final class RevokeDelegatedAccess
         }
         if ($email !== '') {
             $this->review->revokeForMember($organization, $email, $context, $services); // their collaborator accounts on game servers (H333)
+        }
+    }
+
+    /** One service was shared with somebody and no longer is: what they put on its panel under their own name goes with it, unless another role still covers it. */
+    private function sharedServiceEnded(OutboxMessage $m): void
+    {
+        $organization = Organization::query()->find((string) data_get($m->payload, 'organization_id', ''));
+        $service = Service::query()->find((string) $m->aggregate_id);
+        $userId = (string) data_get($m->payload, 'user_id', '');
+        $email = (string) data_get($m->payload, 'email', '');
+        if ($organization === null || $service === null || $service->organization_id !== $organization->id) {
+            return;
+        }
+        $user = $userId === '' ? null : User::query()->find($userId);
+        if ($user !== null) {
+            $this->authorizer->forget($user);
+            if ($this->authorizer->can($user, 'service.manage', CommandScope::resource($service->id, $service->organization_id, $service->project_id))) {
+                return; // still theirs to manage through a role in the organization or the project
+            }
+        }
+        $context = CommandContext::system('shared service access ended');
+        if ($userId !== '') {
+            $this->keys->revokeForUser($organization, $userId, $context, 'shared service access ended', [$service->id]);
+        }
+        if ($email !== '') {
+            $this->review->revokeForMember($organization, $email, $context, [$service->id]);
         }
     }
 

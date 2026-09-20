@@ -65,6 +65,7 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\QueueScaler;
 use Onhost\Domain\Provisioning\Reconciler;
 use Onhost\Domain\Provisioning\Scheduling\NodeRebalancer;
+use Onhost\Domain\Services\Access\ServiceAccessService;
 use Onhost\Domain\Services\DelegatedAccessReview;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
@@ -446,6 +447,8 @@ Schedule::command('onhost:registrar:reconcile')->dailyAt(sprintf('%02d:00', (int
 Schedule::command('onhost:bank:sync')->everyFiveMinutes()->withoutOverlapping()->onOneServer()->when(fn () => (string) config('onhost.payments.bank.fio_token', '') !== '');
 Schedule::command('onhost:billing:expire-holds')->everyTenMinutes()->onOneServer();
 Schedule::command('onhost:orders:settle')->everyTenMinutes()->withoutOverlapping()->onOneServer();
+// a service left in SUSPENDING/RESUMING/RESIZING by a step the panel refused accepts nothing until it is put back; nothing is sent to a panel
+Schedule::command('onhost:services:release-stranded --apply --minutes=30')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:meter')->hourlyAt(2)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:rate')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:renewals')->hourlyAt(20)->withoutOverlapping()->onOneServer();
@@ -684,6 +687,10 @@ Artisan::command('onhost:services:release-stranded {--apply : put them back; wit
         }
         $rows[] = [$service->id, $service->label ?: ($service->hostname ?: $service->name), $service->state, $to, $done];
     }
+    $released = array_values(array_filter($rows, fn (array $r) => $r[4] === 'released'));
+    if ($released !== []) { // staff hear about it: a panel refused something, and the platform put the service back by itself
+        app(OutboxPublisher::class)->publish(GenericEvent::of('provisioning.stranded.released', 'platform', 'stranded', ['count' => count($released), 'services' => array_map(fn (array $r) => ['id' => $r[0], 'name' => $r[1], 'from' => $r[2], 'to' => $r[3]], array_slice($released, 0, 20))]));
+    }
     $rows === [] ? $this->info('No stranded services.') : $this->table(['service', 'name', 'stranded in', 'belongs in', 'result'], $rows);
 })->purpose('List or release services stranded in a transient state by a suspend, resume or resize the panel refused');
 
@@ -739,15 +746,15 @@ Artisan::command('onhost:services:purge {--service= : one service id or name, ot
  * the membership or the project role afterwards, the same way a removal by hand does — which is what takes the person's
  * collaborator accounts and SSH keys off the panels — and tells the organization.
  */
-Artisan::command('onhost:access:expire', function (AccessExpiry $expiry, AutomationLedger $ledger) {
+Artisan::command('onhost:access:expire', function (AccessExpiry $expiry, AutomationLedger $ledger, ServiceAccessService $shared) {
     if ($ledger->off('access.expire')) {
         $this->warn('switched off by staff (console → automation); expired permissions stay refused, only the clean-up waits');
 
         return;
     }
-    $stats = $expiry->sweep();
+    $stats = $expiry->sweep() + ['shared_services' => $shared->expire()]; // one service shared until a date: the binding stopped at that second, this closes the record and lets a guest go
     $ledger->record('access.expire', $stats);
-    $this->table(['memberships', 'project_roles', 'errors'], [$stats]);
+    $this->table(['memberships', 'project_roles', 'errors', 'shared_services'], [$stats]);
 })->purpose('Remove memberships and project roles whose access ended on its date, with the panel accounts and SSH keys that were theirs');
 
 /*

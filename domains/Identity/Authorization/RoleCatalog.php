@@ -32,7 +32,18 @@ final class RoleCatalog
             'security_auditor' => self::role('Security auditor', 'Read-only incl. audit log and security settings', 'organization', false, array_merge($customerRead, ['security.settings.manage'])),
             'support_contact' => self::role('Support contact', 'Open and read tickets, use chat', 'organization', false, ['organization.read', 'service.read', 'support.ticket.read', 'support.ticket.write', 'support.chat.use']),
             'viewer' => self::role('Viewer', 'Read-only', 'organization', false, $customerRead),
+            // Somebody a service was shared with (a freelancer, an agency): a member of the organization who sees NOTHING of it by
+            // that membership — no invoices, no other services, no team. What they may do comes from the service grants below.
+            'guest' => self::role('Guest', 'Sees only the services shared with them', 'organization', false, []),
 
+            // ── capabilities on ONE service (resource scope; handed out by Services\Access\ServiceAccessService, never as an organization or project role) ──
+            'svc_view' => self::role('Service: view', 'State, metrics, logs, backups list', 'resource', false, ['service.read', 'backup.read']),
+            'svc_manage' => self::role('Service: manage', 'Actions and settings: restart, PHP, databases, cron, files, deploys, mailboxes', 'resource', false, ['service.read', 'service.manage']),
+            // a console is more than managing, never less (H334): whoever gets a shell on the service manages it
+            'svc_console' => self::role('Service: console', 'Terminal, VNC and game console', 'resource', false, ['service.read', 'service.manage', 'service.console']),
+            'svc_backups' => self::role('Service: backups', 'Download backup archives', 'resource', false, ['service.read', 'backup.read', 'backup.download']),
+            'svc_restore' => self::role('Service: restore', 'Restore the service from a backup', 'resource', false, ['service.read', 'backup.read', 'backup.restore']),
+            'svc_assistant' => self::role('Service: assistant', 'Use the AI assistant for the shared service', 'resource', false, ['service.read', 'support.chat.use']),
             // ── staff roles ──────────────────────────────────────────────────
             'platform_owner' => self::role('PlatformOwner / SuperAdmin', 'Break-glass only; never a daily account', 'global', true, array_merge($allStaff, $allCustomer)),
             'iam_admin' => self::role('IAMAdmin', 'Users, roles, SSO, JIT approvals; no refunds', 'global', true, ['iam.user.manage', 'iam.role.manage', 'iam.mfa.reset', 'iam.jit.approve', 'iam.approval.decide', 'iam.access_review.manage', 'audit.read.global', 'security.event.read', 'staff.customer.read']),
@@ -77,9 +88,15 @@ final class RoleCatalog
         return array_key_exists($key, self::all());
     }
 
-    /** @return list<string> */
+    /** @return list<string> roles a person can hold in an organization or a project (not the single-service capabilities) */
     public static function customerRoleKeys(): array
     {
-        return array_keys(array_filter(self::all(), fn ($r) => ! $r['staff']));
+        return array_keys(array_filter(self::all(), fn ($r) => ! $r['staff'] && $r['scope'] !== 'resource'));
+    }
+
+    /** A capability on one service is not a role somebody can be given in an organization or a project. */
+    public static function isResourceRole(string $key): bool
+    {
+        return (self::all()[$key]['scope'] ?? null) === 'resource';
     }
 }

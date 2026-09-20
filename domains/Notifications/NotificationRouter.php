@@ -31,6 +31,7 @@ final class NotificationRouter
         $email = $org?->billing_email ?: ($org?->owner?->email ?? null);
         $portal = rtrim((string) config('onhost.portal_url'), '/');
         $number = (string) ($p['number'] ?? '');
+        $until = substr((string) ($p['expires_at'] ?? ''), 0, 10);
         $money = fn ($v) => is_array($v) && isset($v['minor'], $v['currency']) ? Money::minor((int) $v['minor'], (string) $v['currency'])->format($locale) : (string) ($v ?? '');
         $orderNumber = $m->name === 'payment.succeeded' && ($p['reference'][0] ?? '') === 'order' ? (string) (Order::query()->find((string) ($p['reference'][1] ?? ''))?->number ?? '') : '';
 
@@ -42,6 +43,11 @@ final class NotificationRouter
             'order.placed' => $this->both($m, 'order', "Nová objednávka {$p['number']}", ($org?->name ?? '').' · '.$money($p['total'] ?? null).' · '.($p['mode'] ?? ''), 'Objednávka přijata', "{$p['number']} · ".$money($p['total'] ?? null), '/sprava/objednavky', '/panel/objednavky', 'info', $email, 'order-received', ['cislo' => $p['number'], 'castka' => $money($p['total'] ?? null), 'jmeno' => $org?->name, 'url' => "{$portal}/panel/objednavky"]),
             'order.paid' => $this->customer($m, 'order', 'Objednávka zaplacena', "{$p['number']} · zřizujeme služby", '/panel/objednavky'),
             'order.active' => $this->customer($m, 'order', 'Objednávka je hotová', "{$p['number']} · všechny služby jsou aktivní", '/panel/sluzby'),
+            'provisioning.stranded.released' => $this->internal($m, 'provisioning', 'Služby uvolněné z mezistavu: '.(int) ($p['count'] ?? 0), implode(', ', array_map(fn ($s) => (string) ($s['name'] ?? $s['id'] ?? '').' ('.(string) ($s['from'] ?? '').' → '.(string) ($s['to'] ?? '').')', (array) ($p['services'] ?? []))), '/sprava/provoz', 'warn'),
+            // one service shared with another person: the organization sees who was let in and when that ended
+            'service.access.granted' => $this->customer($m, 'account', 'Služba sdílena: '.($p['service'] ?? ''), ($p['email'] ?? '').(($p['state'] ?? '') === 'pending' ? ' · čeká na přijetí pozvánky' : ' · přístup je aktivní').($until !== '' ? ' · do '.$until : ''), '/panel/sluzby'),
+            'service.access.revoked' => $this->customer($m, 'account', 'Sdílení služby ukončeno: '.($p['service'] ?? ''), (string) ($p['email'] ?? ''), '/panel/sluzby'),
+            'service.access.expired' => $this->customer($m, 'account', 'Sdílení služby vypršelo: '.($p['service'] ?? ''), (string) ($p['email'] ?? ''), '/panel/sluzby'),
             // what could not be delivered went back to the customer (OrderSettlement): they hear it from us, with the amount and the place
             'order.refunded' => $this->both($m, 'order', "Objednávka {$number}: vráceno ".$money($p['amount'] ?? null), implode(', ', (array) ($p['items'] ?? [])).' · '.(($p['to'] ?? 'credit') === 'invoice' ? 'dobropis k faktuře' : 'zpět na kredit'),
                 ! empty($p['nothing_delivered']) ? "Objednávku {$number} se nepodařilo zřídit" : "Část objednávky {$number} se nepodařilo zřídit", $money($p['amount'] ?? null).(($p['to'] ?? 'credit') === 'invoice' ? ' jsme odečetli z faktury' : ' jsme vrátili na váš kredit').' · '.implode(', ', (array) ($p['items'] ?? [])),

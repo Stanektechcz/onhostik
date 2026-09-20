@@ -92,7 +92,7 @@ final class ProjectService
     public function addMember(Organization $organization, Project $project, User $user, string $roleKey, CommandContext $context, ?CarbonInterface $accessUntil = null): ProjectMembership
     {
         $this->assertOwned($organization, $project);
-        if (! RoleCatalog::exists($roleKey) || RoleCatalog::all()[$roleKey]['staff'] || $roleKey === 'owner') {
+        if (! RoleCatalog::exists($roleKey) || RoleCatalog::all()[$roleKey]['staff'] || $roleKey === 'owner' || $roleKey === 'guest' || RoleCatalog::isResourceRole($roleKey)) {
             throw new DomainError('invalid_role', "Role {$roleKey} cannot be assigned inside a project.", 422, ['field' => 'role']);
         }
         $membership = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->current()->first();

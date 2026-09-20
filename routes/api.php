@@ -29,6 +29,7 @@ use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\RegistrarConnectionController;
 use App\Http\Controllers\Api\V1\RewardsController;
+use App\Http\Controllers\Api\V1\ServiceAccessController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\Staff\ChargebackController;
 use App\Http\Controllers\Api\V1\Staff\ComplianceController as StaffComplianceController;
@@ -164,6 +165,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::get('account/marketplace/orders/{order}/evidence/{entry}/{key}', [MarketplaceController::class, 'evidenceFile'])->where('entry', '[0-9]+'); // the file behind a report item (audit §5p-3)
     Route::patch('me', [MeController::class, 'update']);
     Route::post('me/password', [MeController::class, 'changePassword']);
+    Route::get('me/shared-services', [ServiceAccessController::class, 'mine']);
     Route::post('me/totp/enroll', [MeController::class, 'totpEnroll']);
     Route::post('me/totp/confirm', [MeController::class, 'totpConfirm']);
     Route::post('me/totp/disable', [MeController::class, 'totpDisable']);
@@ -267,6 +269,9 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::post('services/{service}/project', [ProjectController::class, 'assignService']);
     Route::get('services/{service}/plans', [ServiceController::class, 'plans']);
     Route::put('services/{service}/policy', [ServiceController::class, 'policy']);
+    Route::get('services/{service}/access', [ServiceAccessController::class, 'index']);      // one service shared with another person
+    Route::post('services/{service}/access', [ServiceAccessController::class, 'store']);
+    Route::delete('services/{service}/access/{grant}', [ServiceAccessController::class, 'destroy']);
     Route::get('services/{service}/spec', [ServiceController::class, 'spec']);
     Route::put('services/{service}/spec', [ServiceController::class, 'applySpec']);
     Route::put('services/{service}/migration', [ServiceController::class, 'migrationWindow']);
@@ -493,6 +498,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::get('services/{service}/panel-login', [WebToolsController::class, 'panelLogin']); // staff SSO into the customer's hosting panel (audited)
         Route::get('resource-mappings', [ProvisioningController::class, 'drifts']);
         Route::post('resource-mappings/{drift}/resolve', [ProvisioningController::class, 'resolveDrift']);
+        Route::post('assistant/chat', [StaffSupportController::class, 'assistant']); // the assistant over one customer's account, for support and NOC
         Route::get('tickets', [StaffSupportController::class, 'index']);
         Route::get('tickets/clusters', [StaffSupportController::class, 'clusters']);
         Route::get('tickets/macros', [StaffSupportController::class, 'macros']);

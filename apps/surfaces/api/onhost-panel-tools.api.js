@@ -110,9 +110,52 @@
   }
 
   /* ── entry point ──────────────────────────────────────────────────────── */
+  /* Sharing one service with another person (GET/POST/DELETE /v1/services/{id}/access). Every family has the operations
+   * tab, so that is where it lives: a chip next to "Provoz". Whoever may not manage members gets a 403 from the list and
+   * never sees the chip; a guest the service was shared with sees the service and nothing of this. */
+  var ACCESS_CAPS = { view: ['zobrazení', 'view'], manage: ['správa', 'manage'], console: ['konzole', 'console'], backups: ['zálohy', 'backups'], restore: ['obnova', 'restore'], assistant: ['AI asistent', 'AI assistant'] };
+  function accessPanel(ctx, core) {
+    var _ = ctx._, sel = ctx.sel, d = get(ctx, 'access', '/services/' + encodeURIComponent(sel.id) + '/access');
+    if (!d || d.__error || !Array.isArray(d)) return core; // loading, or not this person's decision
+    var chips = [{ label: _('Provoz', 'Operations'), active: ctx.s.wbTool !== 'access', on: function () { ctx.cmp.setState({ wbTool: null }); } }, { label: _('Přístupy', 'Access') + (d.filter(function (g) { return g.state === 'active' || g.state === 'pending'; }).length ? ' · ' + d.filter(function (g) { return g.state === 'active' || g.state === 'pending'; }).length : ''), active: ctx.s.wbTool === 'access', on: function () { ctx.cmp.setState({ wbTool: 'access', wbF: { a: '', b: '', c: '' } }); } }];
+    if (ctx.s.wbTool !== 'access') { core.chips = chips; core.chipsLabel = _('Zobrazit', 'Show'); return core; }
+    var caps = function (list) { return (list || []).map(function (c) { return ACCESS_CAPS[c] ? _(ACCESS_CAPS[c][0], ACCESS_CAPS[c][1]) : c; }).join(', '); };
+    var states = { active: _('aktivní', 'active'), pending: _('čeká na přijetí pozvánky', 'invitation not accepted yet'), revoked: _('odebráno', 'revoked'), expired: _('vypršelo', 'expired') };
+    var rows = d.map(function (g) {
+      var open = g.state === 'active' || g.state === 'pending';
+      return { cells: [ctx.cell((g.name ? g.name + ' · ' : '') + g.email, '1 1 240px'), ctx.cell(caps(g.capabilities), '1 1 220px'), ctx.cell((states[g.state] || g.state) + (g.expires_at && open ? ' · ' + _('do ', 'until ') + String(g.expires_at).slice(0, 10) : ''), '0 0 210px', 1)], note: g.note || '',
+        actions: open ? [ctx.A(_('Odebrat', 'Revoke'), function () {
+          if (!window.confirm(_('Odebrat přístup ' + g.email + ' ke službě ' + sel.name + '? Skončí okamžitě, včetně SSH klíčů a účtů, které si na službě založil(a).', 'Revoke the access of ' + g.email + ' to ' + sel.name + '? It ends at once, together with the SSH keys and accounts they created on the service.'))) return;
+          API.del('/services/' + encodeURIComponent(sel.id) + '/access/' + encodeURIComponent(g.id)).then(function () { ctx.X.flash(ctx.cmp, _('Přístup odebrán', 'Access revoked'), g.email); drop(ctx, ['access']); }).catch(function (e) { ctx.X.flash(ctx.cmp, _('Nepodařilo se odebrat', 'Could not revoke'), (e && e.message) || ''); });
+        })] : [] };
+    });
+    if (!rows.length) rows = loadingRow(ctx, _('službu zatím nikdo další nespravuje', 'nobody else looks after this service yet'));
+    return { key: 'real:access', title: _('Přístupy · ', 'Access · ') + sel.name,
+      note: _('Svěřte tuto jednu službu dalšímu člověku — vývojáři, agentuře, kolegovi. Uvidí jen ji (žádné faktury, platby ani ostatní služby) a smí přesně to, co zaškrtnete. Zrušit službu ani ji předat dál nemůže; přístup můžete kdykoli odebrat nebo mu dát konec.', 'Hand this one service to another person — a developer, an agency, a colleague. They see only this service (no invoices, payments or other services) and may do exactly what you tick. They can neither cancel it nor pass it on; you can revoke the access or give it an end date at any time.'),
+      state: d.filter(function (g) { return g.state === 'active'; }).length + ' / 25', chips: chips, chipsLabel: _('Zobrazit', 'Show'),
+      head: [ctx.cell(_('Komu', 'Who'), '1 1 240px'), ctx.cell(_('Smí', 'May'), '1 1 220px'), ctx.cell(_('Stav', 'State'), '0 0 210px')], rows: rows,
+      form: { title: _('Sdílet službu', 'Share the service'), fields: [ctx.F('a', _('e-mail člověka', 'e-mail of the person'), '0 0 240px'), ctx.F('b', _('oprávnění čárkou: manage, console, backups, restore, assistant (view je vždy)', 'capabilities, comma separated: manage, console, backups, restore, assistant (view always)'), '1 1 320px'), ctx.F('c', _('platí do (RRRR-MM-DD), nepovinné', 'until (YYYY-MM-DD), optional'), '0 0 200px')], submit: _('Sdílet', 'Share'), on: function () {
+        var email = v(ctx, 'a'), list = (v(ctx, 'b') || 'view').split(/[\s,;]+/).filter(Boolean).map(function (c) { return c.toLowerCase(); }), until = v(ctx, 'c');
+        var unknown = list.filter(function (c) { return !ACCESS_CAPS[c]; });
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { ctx.X.flash(ctx.cmp, _('Zadejte e-mail', 'Enter an e-mail'), ''); return; }
+        if (unknown.length) { ctx.X.flash(ctx.cmp, _('Neznámé oprávnění', 'Unknown capability'), unknown.join(', ') + ' · ' + Object.keys(ACCESS_CAPS).join(', ')); return; }
+        if (until && !/^\d{4}-\d{2}-\d{2}$/.test(until)) { ctx.X.flash(ctx.cmp, _('Datum ve tvaru RRRR-MM-DD', 'Date as YYYY-MM-DD'), ''); return; }
+        var body = { email: email, capabilities: list };
+        if (until) body.access_until = until + 'T23:59:59';
+        API.post('/services/' + encodeURIComponent(sel.id) + '/access', body, API.key()).then(function (r) {
+          var g = (r && r.grant) || {};
+          clearForm(ctx);
+          ctx.X.flash(ctx.cmp, _('Služba sdílena', 'Service shared'), g.state === 'pending' ? _('Poslali jsme pozvánku na ', 'We sent an invitation to ') + email : email + ' · ' + _('přístup je aktivní', 'access is active'));
+          drop(ctx, ['access']);
+        }).catch(function (e) { ctx.X.flash(ctx.cmp, _('Nepodařilo se sdílet', 'Could not share'), (e && e.message) || ''); });
+      } },
+      extra: [refreshBtn(ctx, ['access'])] };
+  }
+
   function enhance(cmp, sel, tab, _, core, X) {
     if (tab === 'plan') { var pc = ctxOf(cmp, sel, tab, _, X); if (pc) return planInfo(pc); } // game servers: the prototype's plan tab shows the real plans
     var fam = X.family(sel);
+    if (tab === 'noc' && fam && fam !== 'domain') { var ac = ctxOf(cmp, sel, tab, _, X); if (ac) { try { return accessPanel(ac, core) || core; } catch (e) { return core; } } }
     var builders = fam === 'web' ? WEB : (fam === 'mail' ? MAIL : null);
     if (!builders || !builders[tab]) return core;
     var ctx = ctxOf(cmp, sel, tab, _, X);

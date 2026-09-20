@@ -32,7 +32,8 @@ it('keeps the console with the roles that manage, and the download of data with 
     }
     $downloads = array_keys(array_filter($customer, fn (array $r) => in_array('backup.download', $r['permissions'], true)));
     sort($downloads);
-    expect($downloads)->toBe(['cloud_operator', 'developer', 'game_operator', 'mail_manager', 'org_admin', 'owner']);
+    // `svc_backups` is the capability an owner ticks on purpose when sharing ONE service ("stahování záloh") — taking data away stays a decision of its own
+    expect($downloads)->toBe(['cloud_operator', 'developer', 'game_operator', 'mail_manager', 'org_admin', 'owner', 'svc_backups']);
     // seeing the list of backups stays with everybody who reads; it no longer carries the data
     expect($roles['viewer']['permissions'])->toContain('backup.read')->not->toContain('backup.download')
         ->and($roles['billing_admin']['permissions'])->not->toContain('backup.download')

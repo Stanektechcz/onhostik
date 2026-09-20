@@ -48,6 +48,9 @@ final class TokenRouteScope
         if ($family === 'me' && $request->isMethod('GET') && count($segments) <= 2) {
             return $next($request); // a token may ask who it is — and nothing else about the account
         }
+        if ($family === 'services' && ($segments[($segments[0] ?? '') === 'v1' ? 3 : 2] ?? '') === 'access') {
+            throw DomainError::forbidden('Sharing a service is not available to API tokens; use the portal.'); // a token that may restart a service must not be able to let somebody in
+        }
         $pair = self::FAMILIES[$family] ?? null;
         $needed = $pair === null ? null : $pair[in_array($request->method(), ['GET', 'HEAD'], true) ? 0 : 1];
         if ($needed === null) {

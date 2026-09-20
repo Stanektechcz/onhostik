@@ -134,8 +134,14 @@ final class OrganizationService
         $this->outbox->publish(GenericEvent::of('organization.member.removed', 'organization', $organization->id, ['user_id' => $user->id, 'email' => mb_strtolower((string) $user->email)], $organization->id));
     }
 
-    /** @return array{invitation: OrganizationInvitation, token: string} */
-    public function invite(Organization $organization, string $email, string $roleKey, CommandContext $context, ?CarbonInterface $accessUntil = null): array
+    /**
+     * `$mailTemplate` / `$mailVars`: an invitation that says why it was sent (a service shared with a guest) — the accept
+     * link is added here and nowhere else, so the token still travels only inside the mail.
+     *
+     * @param  array<string,string>  $mailVars
+     * @return array{invitation: OrganizationInvitation, token: string}
+     */
+    public function invite(Organization $organization, string $email, string $roleKey, CommandContext $context, ?CarbonInterface $accessUntil = null, string $mailTemplate = 'invitation', array $mailVars = []): array
     {
         $this->assertCustomerRole($roleKey);
         if ($accessUntil !== null && ($roleKey === 'owner' || $accessUntil->isPast())) {
@@ -153,9 +159,9 @@ final class OrganizationService
         ]);
         $this->audit->record($context->withScope($organization->id), 'organization.member.invite', 'succeeded', ['email' => $invitation->email, 'role' => $roleKey, 'access_until' => $accessUntil?->toIso8601String()], 'organization', $organization->id);
         // The accept token travels only inside the invitation mail; the (redacted, durable) outbox never carries it.
-        app(NotificationService::class)->queueMail('invitation', $invitation->email, [
+        app(NotificationService::class)->queueMail($mailTemplate, $invitation->email, array_merge($mailVars, [
             'organizace' => $organization->name, 'role' => $roleKey, 'url' => rtrim((string) config('onhost.portal_url'), '/').'/panel/tym?pozvanka='.rawurlencode($token),
-        ], 'organization_invitation', $invitation->id, $organization->id, $organization->locale ?? 'cs');
+        ]), 'organization_invitation', $invitation->id, $organization->id, $organization->locale ?? 'cs');
         $this->outbox->publish(GenericEvent::of('organization.invitation.created', 'organization', $organization->id, [
             'invitation_id' => $invitation->id, 'email' => $invitation->email, 'role' => $roleKey,
         ], $organization->id));
@@ -276,7 +282,7 @@ final class OrganizationService
 
     private function assertCustomerRole(string $roleKey): void
     {
-        if (! RoleCatalog::exists($roleKey) || RoleCatalog::all()[$roleKey]['staff']) {
+        if (! RoleCatalog::exists($roleKey) || RoleCatalog::all()[$roleKey]['staff'] || RoleCatalog::isResourceRole($roleKey)) {
             throw new DomainError('invalid_role', "Role {$roleKey} cannot be assigned inside an organization.");
         }
     }

@@ -4,13 +4,13 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| b382cf0 | 2026-09-20 | Audit: the shared NSSET finding needs the registry's answer, not a schema change |
+| d314ee9 | 2026-09-20 | Docs: what an order does with the money, secrets that are not kept, account rules, and what the review left open |
+| fe8efe5 | 2026-09-20 | Periods end on the anchor day, a domain renews once, a quantity that cannot be delivered is refused |
+| 732a314 | 2026-09-20 | Accounts and the staff side: the lock comes before the password, a reset link is not a second factor, an invitation link is not kept |
+| d72d7a1 | 2026-09-20 | Panels: a cancelled mail service deletes nobody's FTP accounts, a retried clone makes no second server (H38), long TXT records publish |
+| c132fc4 | 2026-09-20 | Secrets: a domain's transfer code is never kept, SOAP bodies and private keys are masked, replays answer without the secret |
+| abd45c3 | 2026-09-20 | Money: an order is charged for what it delivered and gives back the rest; a postpaid invoice earns once |
+| f27db92 | 2026-09-20 | Egress: a redirect target is an http(s) address, mail is collected from public servers, a site check follows no redirect inwards |
 | 53bb2bd | 2026-09-20 | Security review, second batch: promo uses, vhost directives, proxy upstreams, payment callbacks |
 | 925f126 | 2026-09-20 | Security review, first batch: checkout replay, VAT claim, settlement, SSRF, token scope, role grants |
-| 55a9c94 | 2026-09-20 | Step-up reads the setting that exists; an enrolled authenticator is the second factor |
-| d299073 | 2026-09-20 | An order delivers what was priced; stored hooks and Discord pass the action filter |
-| 9edcf04 | 2026-09-19 | The customer API keeps only what a customer may choose for a core action (H21) |
-| e9f5906 | 2026-09-19 | The platform notices when its own mail stops leaving (H24) |
-| 92fe019 | 2026-09-19 | Portable archive download (H28); the customer's monthly budget works (H30) |
-| ee61fe8 | 2026-09-19 | One definition of planned maintenance for the SLA (H15) |
-| 8f53615 | 2026-09-19 | Placement holds what it took; a server no node can take is refused in the cart (H04) |
-| aed18b5 | 2026-09-19 | Plan versions from the administration (H01): a plan is never edited |

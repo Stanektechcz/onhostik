@@ -43,13 +43,15 @@ final class ServiceController extends ApiController
         if ($this->api->can($request, 'service.read', CommandScope::organization($organization->id))) {
             $this->api->authorize($request, 'service.read', CommandScope::organization($organization->id));
         } else {
-            // a member whose organization role does not read services still sees the projects they have a role in
+            // a member whose organization role does not read services still sees the projects they have a role in — and the
+            // single services that were shared with them (a guest sees exactly those)
             $projects = $authorizer->projectIdsWhere($this->api->user($request), 'service.read', $organization->id);
-            if ($projects === []) {
+            $shared = $authorizer->resourceIdsWhere($this->api->user($request), 'service.read', $organization->id);
+            if ($projects === [] && $shared === []) {
                 $this->api->authorize($request, 'service.read', CommandScope::organization($organization->id));
             }
             $this->api->assertTokenScope($request, 'service.read');
-            $query->whereIn('project_id', $projects);
+            $query->where(fn ($q) => $q->whereIn('project_id', $projects)->orWhereIn('id', $shared));
         }
         foreach (['family', 'product_key', 'state', 'project_id'] as $filter) {
             if ($request->filled($filter)) {

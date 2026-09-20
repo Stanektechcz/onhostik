@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schedule;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\SuspensionHold;
+use Onhost\Platform\Outbox\OutboxMessage;
 
 /*
  * A suspend or a resume the panel refuses must leave the service in the state it is really in — running, or down — and
@@ -95,4 +97,8 @@ it('lists the services an older deployment stranded and releases them only when 
         ->and($busy->fresh()->state)->toBe(ServiceStateMachine::RESUMING);
     $this->artisan('onhost:services:release-stranded')->expectsOutputToContain('No stranded services.');
     expect($operation->fresh()->state)->toBe(Operation::FAILED);
+    // the release runs by itself every ten minutes; staff hear what it put back
+    expect(collect(Schedule::events())->contains(fn ($e) => str_contains((string) $e->command, 'onhost:services:release-stranded --apply')))->toBeTrue();
+    $told = OutboxMessage::query()->where('name', 'provisioning.stranded.released')->firstOrFail();
+    expect($told->payload['count'])->toBe(1)->and($told->payload['services'][0])->toMatchArray(['id' => $service->id, 'from' => ServiceStateMachine::RESUMING, 'to' => ServiceStateMachine::SUSPENDED]);
 });

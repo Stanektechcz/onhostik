@@ -209,7 +209,9 @@ final class OperationRunner
         }
         $scope = match (true) {
             $operation->authorized_scope === 'global' => CommandScope::global(), // a staff run: the role is held globally and was checked globally
-            $operation->service_id !== null => CommandScope::resource((string) $operation->service_id, (string) $operation->organization_id),
+            // with the project the service belongs to: a role held in that project covers it, and without it every multi-step run
+            // started by a project member was stopped at its second step as "permission revoked"
+            $operation->service_id !== null => CommandScope::resource((string) $operation->service_id, (string) $operation->organization_id, Service::query()->whereKey((string) $operation->service_id)->value('project_id')),
             default => CommandScope::organization((string) $operation->organization_id),
         };
         // queue workers live for hours and the authorizer keeps a principal's bindings for the life of its instance: without

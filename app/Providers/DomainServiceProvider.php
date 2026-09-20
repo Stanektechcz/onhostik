@@ -64,12 +64,15 @@ use Onhost\Domain\Provisioning\Commands\CapacityCommandHandler;
 use Onhost\Domain\Provisioning\Commands\ProvisioningCommand;
 use Onhost\Domain\Provisioning\Commands\ProvisioningCommandHandler;
 use Onhost\Domain\Services\Commands\IssueConsoleTokenCommand;
+use Onhost\Domain\Services\Commands\ServiceAccessCommand;
+use Onhost\Domain\Services\Commands\ServiceAccessCommandHandler;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Commands\ServiceArchiveCommand;
 use Onhost\Domain\Services\Commands\ServiceArchiveCommandHandler;
 use Onhost\Domain\Services\Commands\ServicesCommandHandler;
 use Onhost\Domain\Services\Commands\WebToolsCommand;
 use Onhost\Domain\Services\Commands\WebToolsCommandHandler;
+use Onhost\Domain\Services\Listeners\CloseServiceAccessGrants;
 use Onhost\Domain\Services\Listeners\RevokeDelegatedAccess;
 use Onhost\Domain\Support\Commands\WorkOfferCommandHandler;
 use Onhost\Domain\Support\Commands\WorkOfferDecisionCommand;
@@ -125,6 +128,7 @@ final class DomainServiceProvider extends ServiceProvider
         WorkOfferDecisionCommand::class => WorkOfferCommandHandler::class,
         OnCallCommand::class => OnCallCommandHandler::class,
         ComplianceCommand::class => ComplianceCommandHandler::class,
+        ServiceAccessCommand::class => ServiceAccessCommandHandler::class,
         PartnerCommand::class => PartnersCommandHandler::class,
         PartnerPortalCommand::class => PartnersCommandHandler::class,
     ];
@@ -143,6 +147,7 @@ final class DomainServiceProvider extends ServiceProvider
         Event::listen(OutboxEventDispatched::class, WebhookDispatcher::class);
         Event::listen(OutboxEventDispatched::class, OnCallService::class); // operational events page the on-call (audit §5q-1)
         Event::listen(OutboxEventDispatched::class, ChargebackSettlement::class); // credit back once the service is gone
+        Event::listen('onhost.organization.member.removed', CloseServiceAccessGrants::class); // whoever left has nothing shared any more
         Event::listen(OutboxEventDispatched::class, RevokeDelegatedAccess::class); // a removed member loses the panel accounts that were theirs (H333)
         Event::listen(OutboxEventDispatched::class, LoyaltyRouter::class); // points for what customers do
 

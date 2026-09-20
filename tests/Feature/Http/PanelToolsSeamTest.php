@@ -27,6 +27,11 @@ it('loads the toolkit module after the workbench and wires it through the workbe
         // vendor neutrality: the customer never sees the panel names
         ->not->toMatch('/aapanel|ispconfig|cloudflare/i');
 
+    // sharing one service with another person lives on the operations tab of every family; the staff assistant in the customer drawer
+    expect($tools)->toContain("tab === 'noc' && fam && fam !== 'domain'")->toContain("'/access'")->toContain('function accessPanel(ctx, core)')->toContain('if (!d || d.__error || !Array.isArray(d)) return core;');
+    $drawer = (string) file_get_contents((string) $this->get('/surfaces/api/onhost-admin-customer.api.js')->assertOk()->baseResponse->getFile());
+    expect($drawer)->toContain("'/staff/assistant/chat'")->toContain("'X-Organization': state.id")->toContain('esc(m.text)')->toContain('window.confirm(');
+
     $bridge = (string) file_get_contents((string) $this->get('/surfaces/api/onhost-session-bridge.js')->assertOk()->baseResponse->getFile());
     expect($bridge)->toContain('upload: function (p, form)')->toContain('body instanceof FormData');
 });

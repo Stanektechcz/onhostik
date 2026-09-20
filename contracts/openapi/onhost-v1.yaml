@@ -68,6 +68,8 @@ tags:
   -
     name: staff-abuse-cases
   -
+    name: staff-assistant
+  -
     name: staff-automation
   -
     name: staff-bulk-jobs
@@ -6489,6 +6491,65 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  /me/shared-services:
+    get:
+      operationId: serviceaccessMine
+      tags:
+        - identity
+      summary: 'GET /me/shared-services'
+      parameters:
+        -
+          $ref: '#/components/parameters/Limit'
+        -
+          $ref: '#/components/parameters/Offset'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+        -
+          bearer: []
   /me/totp/confirm:
     post:
       operationId: meTotpConfirm
@@ -11717,6 +11778,209 @@ paths:
           session: []
         -
           bearer: []
+  '/services/{service}/access':
+    get:
+      operationId: serviceaccessIndex
+      tags:
+        - services
+      summary: 'GET /services/{service}/access'
+      parameters:
+        -
+          name: service
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+        -
+          bearer: []
+    post:
+      operationId: serviceaccessStore
+      tags:
+        - services
+      summary: 'POST /services/{service}/access'
+      parameters:
+        -
+          name: service
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        201:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        200:
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+        -
+          bearer: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  '/services/{service}/access/{grant}':
+    delete:
+      operationId: serviceaccessDestroy
+      tags:
+        - services
+      summary: 'DELETE /services/{service}/access/{grant}'
+      parameters:
+        -
+          name: service
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          name: grant
+          in: path
+          required: true
+          schema:
+            type: string
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+        -
+          bearer: []
   '/services/{service}/actions':
     post:
       operationId: serviceAction
@@ -15046,6 +15310,77 @@ paths:
           required: true
           schema:
             type: string
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        201:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        200:
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+        -
+          bearer:
+            - staff
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /staff/assistant/chat:
+    post:
+      operationId: staffSupportAssistant
+      tags:
+        - staff-assistant
+      summary: 'POST /staff/assistant/chat'
+      parameters:
         -
           $ref: '#/components/parameters/IdempotencyKey'
         -
