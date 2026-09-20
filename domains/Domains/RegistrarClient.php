@@ -118,6 +118,13 @@ final class RegistrarClient
     {
         $adapter ??= $domain === null ? $this->adapter() : $this->forDomain($domain);
         $clTrid = self::clTrid($command, $operationId);
+        // The id is fixed per operation and command, and the column is unique: a command a step had every right to send again (the
+        // registry never received the first one) died on the database instead of reaching the registrar. Every attempt is a row
+        // of its own — `…:r2`, `…:r3` — so the log shows what was sent when, and the first id stays what it was.
+        $earlier = RegistrarOperation::query()->where('cltrid', $clTrid)->orWhere('cltrid', 'like', $clTrid.':r%')->count();
+        if ($earlier > 0) {
+            $clTrid .= ':r'.($earlier + 1);
+        }
         $record = RegistrarOperation::query()->create([
             'domain_id' => $domain?->id, 'organization_id' => $organizationId ?? $domain?->organization_id, 'operation_id' => $operationId, 'command' => $command, 'cltrid' => $clTrid,
             'registrar_provider' => $adapter::providerKey(),

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Domains\Workflows\Steps;
 
+use Illuminate\Support\Carbon;
 use Onhost\Domain\Domains\DomainStateMachine;
+use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Domains\Models\DomainConsent;
 use Onhost\Domain\Domains\Models\RegistrarContact;
 use Onhost\Domain\Domains\Models\RegistrarOperation;
@@ -36,6 +38,8 @@ final class SubmitRegistrationStep extends DomainStep
         if ($earlier || $domain->state === DomainStateMachine::PENDING_REGISTRY) {
             $info = $this->probe($adapter, $domain->fqdn_ascii);
             if ($info === 'registered') {
+                $this->forgetUnconfirmed($domain);
+
                 return StepResult::done(['registered' => true]);
             }
             if ($info === 'pending') {
@@ -43,7 +47,18 @@ final class SubmitRegistrationStep extends DomainStep
 
                 return StepResult::wait(new AsyncHandle('wapi_async', $domain->fqdn_ascii, null, ['command' => 'domain-create'], 900, 5 * 86400));
             }
+            // "Not found" right after a create whose answer was lost proves nothing: a registry that works through a queue shows
+            // the name minutes later. One such answer used to be enough to send `domain-create` again — two registrations, two
+            // charges at the registrar, one payment. The name has to stay unknown for a while before the create is repeated.
+            $wait = (int) config('onhost.domains.recreate_after_seconds', 600);
+            $firstSeenFree = data_get($domain->meta, 'create_unconfirmed.free_since');
+            if ($earlier && $wait > 0 && ($firstSeenFree === null || now()->diffInSeconds(Carbon::parse((string) $firstSeenFree), true) < $wait)) {
+                $domain->forceFill(['meta' => array_replace_recursive((array) $domain->meta, ['create_unconfirmed' => ['free_since' => $firstSeenFree ?? now()->toIso8601String()]])])->save();
+
+                return StepResult::fail('the registry does not know the domain yet and the earlier create was not confirmed; asking again before sending another one', true, ['create_unconfirmed' => true], min(300, max(60, intdiv($wait, 2))));
+            }
         }
+        $this->forgetUnconfirmed($domain);
         $registrant = RegistrarContact::query()->find($domain->registrant_contact_id);
         $admin = $domain->admin_contact_id ? RegistrarContact::query()->find($domain->admin_contact_id) : $registrant;
         if ($registrant === null || ! $registrant->isSynced()) {
@@ -82,6 +97,13 @@ final class SubmitRegistrationStep extends DomainStep
         RegistrarOperation::query()->where('operation_id', $context->operation->id)->where('command', 'domain-create')->where('state', RegistrarOperation::PENDING_REGISTRY)->update(['state' => RegistrarOperation::SUCCEEDED, 'completed_at' => now()]);
 
         return StepResult::done(['registered' => true, 'registration_detail' => $status->detail]);
+    }
+
+    private function forgetUnconfirmed(Domain $domain): void
+    {
+        if (data_get($domain->meta, 'create_unconfirmed') !== null) {
+            $domain->forceFill(['meta' => array_diff_key((array) $domain->meta, ['create_unconfirmed' => true])])->save();
+        }
     }
 
     /** @return 'registered'|'pending'|'free' */

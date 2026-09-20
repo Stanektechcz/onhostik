@@ -345,6 +345,8 @@ return [
 
     'domains' => [
         'nsset_tlds' => ['cz'],
+        // after a create whose answer was lost, the name has to stay unknown to the registry this long before the create is sent again
+        'recreate_after_seconds' => (int) env('ONHOST_DOMAIN_RECREATE_AFTER_SECONDS', 600),
         'shared_nsset_handle' => env('ONHOST_NSSET_HANDLE', 'NSSET-ONHOST'),
         'tech_contact_handle' => env('ONHOST_TECH_CONTACT_HANDLE', ''),
         'renew_lead_days' => (int) env('ONHOST_DOMAIN_RENEW_LEAD_DAYS', 14),

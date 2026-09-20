@@ -6,7 +6,9 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\DnsTemplateSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Onhost\Domain\Billing\Models\Subscription;
@@ -275,4 +277,70 @@ it('renews a domain once when the customer and the scheduler get there together,
     expect($started)->toBe(0)->and($job->fresh()->state)->toBe(DomainRenewalJob::SCHEDULED)->and((string) $job->fresh()->last_error)->toContain('already in progress');
     expect(WalletHold::query()->where('reference_id', $domain->id)->where('state', 'active')->count())->toBe(1)->and(Operation::query()->where('domain_id', $domain->id)->count())->toBe(1);
     expect($domains->renew($domain, 1, $ctx, 'domain.renew:customer-click')->id)->toBe($first->id); // the same request again is the same renewal
+});
+
+it('does not register a domain twice when the answer to the create was lost and the registry shows the name only later', function () use ($registrant, $consent) {
+    $state = ['registered' => false, 'nsset' => true, 'expiration' => '2027-09-06'];
+    $lost = true;
+    // stacked BEFORE the registry double: the first domain-create is accepted by the registry and its answer never arrives;
+    // the registry works through a queue and knows the name only eight minutes later
+    Http::fake(function (Request $request) use (&$state, &$lost) {
+        if (! str_contains($request->url(), 'api.wedos.com') || ! $request->isForm()) {
+            return null;
+        }
+        $command = json_decode((string) ($request->data()['request'] ?? ''), true)['request']['command'] ?? '';
+        if ($command === 'domain-create' && $lost) {
+            $lost = false;
+            $state['accepted_at'] = now()->toIso8601String();
+            throw new ConnectionException('cURL error 28: Operation timed out');
+        }
+        if ($command === 'domain-info' && isset($state['accepted_at']) && $state['registered'] === false && now()->diffInSeconds(Carbon::parse($state['accepted_at']), true) >= 480) {
+            $state['registered'] = true;
+        }
+
+        return null;
+    });
+    registryFake($state);
+    pdnsZoneFake('jednou-staci.cz');
+    [$user, $org] = $this->customerWithOrganization();
+    $operation = app(DomainService::class)->register($org, 'jednou-staci.cz', ['period' => 1, 'registrant' => $registrant, 'consent' => $consent], $this->contextFor($user, $org), 'reg-lost-1');
+
+    for ($i = 0; $i < 8 && ! in_array($operation->fresh()->state, [Operation::SUCCEEDED, Operation::FAILED], true); $i++) {
+        $this->travel(3)->minutes();
+        app(OperationService::class)->dispatchDue();
+    }
+    expect($operation->fresh()->state)->toBe(Operation::SUCCEEDED, json_encode($operation->fresh()->error));
+    expect(Domain::query()->where('fqdn_ascii', 'jednou-staci.cz')->value('state'))->toBe(DomainStateMachine::ACTIVE);
+    // one create reached the registry — "not found" two minutes after the timeout was not taken for "free"
+    expect(collect(Http::recorded())->filter(fn (array $p) => str_contains((string) $p[0]->body(), 'domain-create'))->count())->toBe(0)
+        ->and($lost)->toBeFalse()
+        ->and(data_get(Domain::query()->where('fqdn_ascii', 'jednou-staci.cz')->first()->meta, 'create_unconfirmed'))->toBeNull();
+});
+
+it('sends a create again when the registry never received the first one — as a new attempt on record, not as a database error', function () use ($registrant, $consent) {
+    config(['onhost.domains.recreate_after_seconds' => 300]);
+    $state = ['registered' => false, 'nsset' => true, 'expiration' => '2027-09-06'];
+    $lost = true;
+    Http::fake(function (Request $request) use (&$lost) { // the first create never reaches the registry at all
+        $command = $request->isForm() ? (json_decode((string) ($request->data()['request'] ?? ''), true)['request']['command'] ?? '') : '';
+        if (str_contains($request->url(), 'api.wedos.com') && $command === 'domain-create' && $lost) {
+            $lost = false;
+            throw new ConnectionException('cURL error 7: Failed to connect');
+        }
+
+        return null;
+    });
+    registryFake($state);
+    pdnsZoneFake('druhy-pokus.cz');
+    [$user, $org] = $this->customerWithOrganization();
+    $operation = app(DomainService::class)->register($org, 'druhy-pokus.cz', ['period' => 1, 'registrant' => $registrant, 'consent' => $consent], $this->contextFor($user, $org), 'reg-lost-2');
+    for ($i = 0; $i < 8 && ! in_array($operation->fresh()->state, [Operation::SUCCEEDED, Operation::FAILED], true); $i++) {
+        $this->travel(3)->minutes();
+        app(OperationService::class)->dispatchDue();
+    }
+    expect($operation->fresh()->state)->toBe(Operation::SUCCEEDED, json_encode($operation->fresh()->error));
+    $attempts = RegistrarOperation::query()->where('operation_id', $operation->id)->where('command', 'domain-create')->orderBy('sent_at')->get();
+    expect($attempts->pluck('state')->all())->toBe([RegistrarOperation::UNKNOWN, RegistrarOperation::SUCCEEDED])
+        ->and((string) $attempts[1]->cltrid)->toBe($attempts[0]->cltrid.':r2')
+        ->and(array_count_values(wapiCommands())['domain-create'])->toBe(1); // the one that reached the registry
 });

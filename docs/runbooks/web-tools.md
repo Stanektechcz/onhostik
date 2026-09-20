@@ -1336,3 +1336,30 @@ php artisan onhost:services:archive <služba> --create   # vytvoří archiv teď
 php artisan onhost:services:purge --dry-run             # co je po lhůtě a čeká na odstranění
 php artisan onhost:services:purge --service=<id> --force --reason="…"   # odstranění před koncem lhůty
 ```
+
+## What a panel does not offer through the platform (read from the adapters, 2026-09-20)
+
+The workbench hides a tab whose feature the adapter switches off, so a customer never meets these as errors. They are
+the gaps between "every function of the panel" and what the administration can do today — each either needs a way on
+the node (the agent shell) or stays a limit of that panel.
+
+| Function | aaPanel | ISPConfig |
+| --- | --- | --- |
+| Custom error pages on/off | — | ✔ |
+| Web-server directives | rewrite file only | ✔ (Apache and nginx) |
+| Password-protected folders | site-wide only; per-folder listing not offered | ✔ |
+| Separate database users | — (one user per database) | ✔ |
+| Shell (SSH) users and their keys | — (terminal through the agent user) | ✔ |
+| Traffic statistics (AWStats/GoAccess) | — | ✔ |
+| Log tail in the panel | ✔ | — |
+| Document root change | ✔ | — |
+| HTTP/3 switch | ✔ | — |
+| Cron run log | ✔ | — |
+| Delete one backup | ✔ | — |
+| Node.js projects | ✔ | — |
+| One-click applications | ✔ | — (WordPress through WP-CLI is offered on both) |
+| Staff single sign-on into the panel | — | ✔ |
+| Backup on demand | queued by the panel, not awaited | not available through the remote API (nightly schedule only) |
+
+The last row is item 1 of `production-readiness-audit.md` §7: the final archive before a deletion does not depend on
+it (it packs the site itself), a customer's "back up now" does.
