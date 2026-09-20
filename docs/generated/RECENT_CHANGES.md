@@ -4,13 +4,13 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| c1f9053 | 2026-09-20 | AI for support: a reply drafted for the agent; what a person types is masked before a model sees it |
+| ce37fc4 | 2026-09-20 | Dunning acts on the service, not on the case |
+| 420efd1 | 2026-09-20 | A name on a shared node belongs to one service: the name prefix is unique |
+| 2cf02eb | 2026-09-20 | The state of an order is not written by hand; corrections that hold: credit notes, returns, cancelled orders |
 | 1b3d2d7 | 2026-09-20 | The accounting day, top-up ceilings that hold, a conversation that belongs to one person |
 | 59e88ea | 2026-09-20 | Control points as numbers; panels are asked what they really answer; the assistant checks a service |
 | 0a83c97 | 2026-09-20 | Audit: what waiting on ISPConfig really watches, why it cannot be seconds, and what to watch instead |
 | 4ef56bb | 2026-09-20 | An operation forgets the secrets it carried; a generated password is read once, by whoever manages the service |
 | 236f564 | 2026-09-20 | Four eyes work: a critical staff action opens a request, somebody else decides it; consoles get named roles |
 | 38e1771 | 2026-09-20 | A backup is fresh and whole, or it fails; core actions belong to the families that have them |
-| 243babe | 2026-09-20 | The whole site can be packed and unpacked: "." is the site root for both file transports |
-| c0b5553 | 2026-09-20 | A guest invitation never takes a role away; sharing again sends no second mail |
-| e01da49 | 2026-09-20 | A lost answer to domain-create is neither a second registration nor a database error |
-| 3365208 | 2026-09-20 | The assistant reads one listing of a visible service; a guest is not shown the company behind the service |
