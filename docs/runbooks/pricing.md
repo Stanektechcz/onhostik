@@ -100,3 +100,19 @@ a retried request with the same `Idempotency-Key` returns the same order without
   `tests/Feature/Orders/GuestCheckoutTest.php`, `tests/Feature/Http/PublicPagesSeamTest.php`.
 * Doctor: `no TLD sold below its cheapest cost price` still guards the list prices against the registrar costs
   (see `domain-registrars.md`); a domain discount is applied on top of the list price, so keep the margin in mind.
+
+## Promo codes do what their form says (2026-09-20)
+
+* **A code for a fixed amount is spent once per order.** It was applied to every line: "100 Kč off" took 100 Kč off each
+  line, so a 500 Kč voucher on a cart of ten items was worth up to 5 000 Kč (proven by a test: 300 Kč instead of 100 Kč on
+  three lines). The amount is now a budget of the order, spent line by line until it runs out, never below zero. A percent
+  code stays a share of every line it applies to.
+* **"Only the first period" means something when it is unticked.** The box (`promo_codes.first_period_only`) was stored and
+  never read: renewals always came at the list price, so a customer promised a lasting discount renewed at full price. When
+  the code lasts, a percent code takes its share of every renewal and a fixed one what that line got of it
+  (`config.renewal_promo`, `renewal_promo_minor` on the order item; the subscription renews at `renewal_net_minor`).
+  Domains are the exception by rule: a domain renews at the list price of its TLD on the day of the renewal.
+* A plan change carries no discounts and spends none of a code. `prices.promo_periods` is not offered anywhere (nothing
+  sets it); the introductory price of a plan (`promo_amount_minor`) covers the first billed period.
+
+Tests: `tests/Feature/Orders/PromoCodeRulesTest.php`.

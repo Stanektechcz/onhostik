@@ -70,6 +70,23 @@ final class QuoteService
         if ($promoCode && ($promo === null || ! $promo->isUsable())) {
             throw new DomainError('promo_invalid', 'The promo code is not valid.', 422, ['field' => 'promo']);
         }
+        // A code for a fixed amount is spent ONCE per order: it was applied to every line, so "100 Kč off" took 100 Kč off each of
+        // ten lines. A percent code is a share of every line it applies to. What a line got is what its renewals get when the code
+        // says it lasts (`first_period_only = false`) — the box was stored and never read, so a lasting discount renewed at full price.
+        $promoLeft = $promo !== null && $promo->kind !== 'percent' ? Money::decimal((string) $promo->value, $currency) : null;
+        $promoFor = function (Money $net, string $family) use ($promo, &$promoLeft): Money {
+            if ($promo === null) {
+                return Money::zero($net->currency);
+            }
+            $discount = $promo->discountFor($net, $family);
+            if ($promoLeft === null) {
+                return $discount;
+            }
+            $discount = $discount->greaterThan($promoLeft) ? $promoLeft : $discount;
+            $promoLeft = $promoLeft->subtract($discount);
+
+            return $discount;
+        };
 
         $lines = [];
         $versions = ['plans' => [], 'prices' => [], 'domain_prices' => []];
@@ -112,7 +129,7 @@ final class QuoteService
                 $tldDiscount = $this->rules->domainDiscount($tld, $action);
                 $lineDiscount = $tldDiscount['percent'] > 0 ? $net->percent((string) $tldDiscount['percent']) : Money::zero($currency);
                 if ($promo !== null) {
-                    $lineDiscount = $lineDiscount->add($promo->discountFor($net->subtract($lineDiscount), 'domain'));
+                    $lineDiscount = $lineDiscount->add($promoFor($net->subtract($lineDiscount), 'domain'));
                 }
                 $versions['domain_prices'][] = $price->id;
                 $lines[] = [
@@ -185,11 +202,17 @@ final class QuoteService
             // a commitment discount exists only when staff approved one for the family (Nastavení → Slevy a doplňky); nothing is implied by the term itself
             $commitPct = $this->rules->commitDiscountPercent($product->family, $commitMonths);
             $commitDiscount = $commitPct > 0 ? $lineNet->percent((string) $commitPct) : Money::zero($currency);
-            $promoDiscount = $promo ? $promo->discountFor($lineNet->subtract($commitDiscount), $product->family) : Money::zero($currency);
+            $promoDiscount = $change === null ? $promoFor($lineNet->subtract($commitDiscount), $product->family) : Money::zero($currency); // a plan change carries no discounts, so it spends none of the code
             $loyaltyDiscount = $loyaltyPct > 0 ? $lineNet->subtract($commitDiscount)->subtract($promoDiscount)->percent((string) $loyaltyPct) : Money::zero($currency); // after the other discounts, never on a plan change
             $lineDiscount = $commitDiscount->add($promoDiscount)->add($loyaltyDiscount);
             $net = $lineNet->subtract($lineDiscount);
             $renewalNet = $renewalConfigured['net']->multiply($periodsBilled)->multiply($qty);
+            if ($promo !== null && ! $promo->first_period_only && $change === null && $promoDiscount->isPositive()) {
+                // the code lasts: a percent code takes its share of every renewal, a fixed one what this line got of it
+                $lasting = $promo->kind === 'percent' ? $promo->discountFor($renewalNet, $product->family) : ($promoDiscount->greaterThan($renewalNet) ? $renewalNet : $promoDiscount);
+                $renewalNet = $renewalNet->subtract($lasting);
+                $config = array_merge($config, ['renewal_promo' => $promo->code, 'renewal_promo_minor' => $lasting->minor]);
+            }
             if ($change !== null) { // a plan change: the pro-rated difference for the rest of the period, no setup, no discounts; the new price renews from the next period
                 $qty = 1;
                 $periodsBilled = 1;

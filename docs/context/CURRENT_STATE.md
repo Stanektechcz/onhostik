@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **Promo codes do what their form says:** a fixed-amount code is spent once per order (it was applied to every line), and a code
+  that is not "first period only" discounts the renewals too (the box was stored and never read).
+
 - **The game panel's links are followed only to its own daemons:** signed backup downloads and file uploads must point at a node
   of that panel (no redirects); the adapter reads the instance's TLS settings like every other one (`tls_ca`, `wings_tls_ca`).
 
@@ -162,7 +165,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 614 tests, 12 721 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 616 tests, 12 730 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
