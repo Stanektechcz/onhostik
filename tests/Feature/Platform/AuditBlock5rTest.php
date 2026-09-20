@@ -94,6 +94,9 @@ it('scans a binary upload and sends it to the game server through the signed upl
     $uploads = [];
     Http::fake(function (Request $request) use (&$uploads) {
         $url = $request->url();
+        if (str_starts_with($url, PTERO) && (string) parse_url($url, PHP_URL_PATH) === '/api/application/nodes') { // a transfer link must point at one of the panel's own daemons
+            return Http::response(['object' => 'list', 'data' => [['object' => 'node', 'attributes' => ['id' => 2, 'name' => 'games01', 'fqdn' => 'wings.games01.test']]], 'meta' => ['pagination' => ['total_pages' => 1]]]);
+        }
         if (str_starts_with($url, PTERO) && str_ends_with((string) parse_url($url, PHP_URL_PATH), '/files/upload')) {
             return Http::response(['object' => 'signed_url', 'attributes' => ['url' => 'https://wings.games01.test:8080/upload/file?token=one-time']]);
         }

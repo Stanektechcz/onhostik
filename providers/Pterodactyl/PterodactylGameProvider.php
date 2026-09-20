@@ -24,6 +24,7 @@ use Onhost\Providers\Contracts\ProviderResult;
 use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\ResourceSpec;
 use Onhost\Providers\Contracts\SelfProbing;
+use Onhost\Providers\Contracts\TlsOptions;
 use Onhost\Providers\Contracts\Usage;
 
 /**
@@ -641,10 +642,11 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         if ($signed === '') {
             throw new ProviderException('pterodactyl', ProviderErrorCode::VALIDATION, 'The panel returned no upload URL');
         }
+        $this->assertDaemonUrl($signed);
         $directory = '/'.trim($directory, '/');
         $response = $this->http->send(new ProviderRequest( // the daemon's own endpoint; the one-time token lives in the URL, the logger keeps the path only
             provider: 'pterodactyl', instanceKey: $this->instance->key, method: 'POST', url: $signed.(str_contains($signed, '?') ? '&' : '?').'directory='.rawurlencode($directory), action: 'files.upload',
-            headers: ['Accept' => 'application/json'], body: null, bodyType: 'multipart', timeoutSeconds: 600, critical: true, files: ['files' => ['contents' => $contents, 'filename' => basename($filename)]],
+            headers: ['Accept' => 'application/json'], body: null, bodyType: 'multipart', timeoutSeconds: 600, critical: true, options: $this->daemonTls(), files: ['files' => ['contents' => $contents, 'filename' => basename($filename)]],
         ));
         if ($response->status >= 400) {
             $this->unwrap($response, 'files.upload');
@@ -726,7 +728,76 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
 
     public function backupDownloadUrl(ResourceRef $server, string $backupId): string
     {
-        return (string) ($this->request('GET', "/api/client/servers/{$this->identifier($server)}/backups/{$backupId}/download", 'client', 'backups.download')['attributes']['url'] ?? '');
+        $url = (string) ($this->request('GET', "/api/client/servers/{$this->identifier($server)}/backups/{$backupId}/download", 'client', 'backups.download')['attributes']['url'] ?? '');
+        if ($url !== '') {
+            $this->assertDaemonUrl($url);
+        }
+
+        return $url;
+    }
+
+    /**
+     * The backup itself, streamed to a file on the control plane — with the instance's TLS settings and only from one of the
+     * panel's own daemons. The archive of a cancellation used to be fetched by a bare HTTP client in the domain layer.
+     */
+    public function downloadBackup(ResourceRef $server, string $backupId, string $targetPath, int $timeoutSeconds = 900): int
+    {
+        $url = $this->backupDownloadUrl($server, $backupId);
+        if ($url === '') {
+            throw new ProviderException('pterodactyl', ProviderErrorCode::PROVIDER_BUG, 'The panel returned no download link for the backup');
+        }
+        $response = Http::timeout(max(30, $timeoutSeconds))->connectTimeout(30)->withOptions(['sink' => $targetPath, 'allow_redirects' => false] + $this->daemonTls())->get($url);
+        if ($response->successful() && (! is_file($targetPath) || filesize($targetPath) === 0)) {
+            file_put_contents($targetPath, $response->body()); // a transport that does not stream into the sink (stubbed in tests)
+        }
+        if (! $response->successful() || ! is_file($targetPath)) {
+            throw new ProviderException('pterodactyl', ProviderErrorCode::TRANSIENT, "The backup could not be downloaded (HTTP {$response->status()})");
+        }
+
+        return (int) filesize($targetPath);
+    }
+
+    /**
+     * A link the panel hands out for a transfer (a backup download, a file upload) must point at one of the panel's OWN
+     * daemons. The control plane follows these links from inside the management network: a panel that was broken into —
+     * it is the one internet-facing piece here — could otherwise name any address there and have the answer stored as a
+     * customer's archive, or pushed into a game server it controls.
+     */
+    private function assertDaemonUrl(string $url): void
+    {
+        $parts = parse_url($url);
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        if (! is_array($parts) || ! in_array($scheme, ['http', 'https'], true) || $host === '' || isset($parts['user'])) {
+            throw new ProviderException('pterodactyl', ProviderErrorCode::PROVIDER_BUG, 'The panel returned a transfer link that is not an http(s) address of a daemon');
+        }
+        $known = $this->cache->remember("onhost:pterodactyl:daemons:{$this->instance->id}", 600, function (): array {
+            $hosts = [];
+            foreach ($this->pages('/api/application/nodes', 'app', 'nodes.list') as $node) {
+                $fqdn = strtolower(trim((string) ($node['attributes']['fqdn'] ?? '')));
+                if ($fqdn !== '') {
+                    $hosts[] = $fqdn;
+                }
+            }
+
+            return $hosts;
+        });
+        if (! in_array($host, (array) $known, true)) {
+            $this->cache->forget("onhost:pterodactyl:daemons:{$this->instance->id}"); // a node added a minute ago is found on the next try
+            throw new ProviderException('pterodactyl', ProviderErrorCode::PROVIDER_BUG, "The panel returned a transfer link to {$host}, which is not one of its daemons; nothing was transferred");
+        }
+    }
+
+    /** @return array<string,mixed> TLS options for the panel itself (`tls_ca`, `verify_tls`) — they were read by every adapter but this one */
+    private function tls(): array
+    {
+        return TlsOptions::verify($this->instance, 'pterodactyl');
+    }
+
+    /** @return array<string,mixed> TLS options for the daemons: `wings_tls_ca` when they carry another certificate than the panel, the panel's otherwise */
+    private function daemonTls(): array
+    {
+        return TlsOptions::verify($this->instance, 'pterodactyl', 'wings_tls_ca');
     }
 
     // ── migrations (audit §5g-2) ─────────────────────────────────────────────
@@ -755,9 +826,11 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         if ($upload === '') {
             throw new ProviderException('pterodactyl', ProviderErrorCode::PROVIDER_BUG, 'The panel returned no upload link for the server');
         }
+        $this->assertDaemonUrl($upload);
         $tmp = (string) tempnam(sys_get_temp_dir(), 'onhost-gmig-');
         try {
-            $download = Http::withOptions(['sink' => $tmp])->timeout(6 * 3600)->connectTimeout(30)->get($sourceUrl);
+            // the source link was checked by the panel that made it (`backupDownloadUrl`); redirects are not followed — a redirect is a second, unchecked destination
+            $download = Http::withOptions(['sink' => $tmp, 'allow_redirects' => false] + $this->daemonTls())->timeout(6 * 3600)->connectTimeout(30)->get($sourceUrl);
             if ($download->failed()) {
                 throw new ProviderException('pterodactyl', ProviderErrorCode::TRANSIENT, "Archive download failed (HTTP {$download->status()})");
             }
@@ -769,7 +842,7 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
             if ($stream === false) {
                 throw new ProviderException('pterodactyl', ProviderErrorCode::TRANSIENT, 'The downloaded archive could not be read');
             }
-            $uploaded = Http::attach('files', $stream, $fileName)->timeout(6 * 3600)->connectTimeout(30)->post($upload.(str_contains($upload, '?') ? '&' : '?').'directory=%2F');
+            $uploaded = Http::withOptions(['allow_redirects' => false] + $this->daemonTls())->attach('files', $stream, $fileName)->timeout(6 * 3600)->connectTimeout(30)->post($upload.(str_contains($upload, '?') ? '&' : '?').'directory=%2F');
             if (is_resource($stream)) {
                 fclose($stream);
             }
@@ -878,7 +951,7 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         }
         $port = (int) data_get($config, 'api.port', $node['daemon_listen']);
         $scheme = data_get($config, 'api.ssl.enabled', $node['scheme'] === 'https') ? 'https' : 'http';
-        $response = $this->http->send(new ProviderRequest(provider: 'pterodactyl', instanceKey: $this->instance->key, method: 'GET', url: "{$scheme}://{$node['fqdn']}:{$port}/api/system", action: 'wings.system', headers: ['Authorization' => "Bearer {$token}", 'Accept' => 'application/json'], body: null, bodyType: 'json', query: ['v' => '2'], timeoutSeconds: 8, critical: false, idempotent: true));
+        $response = $this->http->send(new ProviderRequest(provider: 'pterodactyl', instanceKey: $this->instance->key, method: 'GET', url: "{$scheme}://{$node['fqdn']}:{$port}/api/system", action: 'wings.system', headers: ['Authorization' => "Bearer {$token}", 'Accept' => 'application/json'], body: null, bodyType: 'json', query: ['v' => '2'], timeoutSeconds: 8, critical: false, idempotent: true, options: $this->daemonTls()));
         if ($response->status >= 400) {
             return null;
         }
@@ -933,7 +1006,7 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         $response = $this->http->send(new ProviderRequest(
             provider: 'pterodactyl', instanceKey: $this->instance->key, method: $method, url: rtrim((string) $this->instance->base_url, '/').$path, action: $action,
             headers: ['Authorization' => "Bearer {$key}", 'Accept' => 'Application/vnd.pterodactyl.v1+json', 'Content-Type' => 'application/json'],
-            body: $body === [] ? null : $body, bodyType: 'json', query: $query, timeoutSeconds: 20, critical: $critical, idempotent: $method === 'GET',
+            body: $body === [] ? null : $body, bodyType: 'json', query: $query, timeoutSeconds: 20, critical: $critical, idempotent: $method === 'GET', options: $this->tls(),
         ));
 
         return $this->unwrap($response, $action);
@@ -949,7 +1022,7 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         $response = $this->http->send(new ProviderRequest(
             provider: 'pterodactyl', instanceKey: $this->instance->key, method: $method, url: rtrim((string) $this->instance->base_url, '/').$path, action: $action,
             headers: ['Authorization' => "Bearer {$key}", 'Accept' => 'Application/vnd.pterodactyl.v1+json', 'Content-Type' => 'text/plain'],
-            body: $body, bodyType: 'raw', query: $query, timeoutSeconds: 30, critical: false, idempotent: $method === 'GET',
+            body: $body, bodyType: 'raw', query: $query, timeoutSeconds: 30, critical: false, idempotent: $method === 'GET', options: $this->tls(),
         ));
         if ($response->status >= 400) {
             $this->unwrap($response, $action); // maps the error family and throws

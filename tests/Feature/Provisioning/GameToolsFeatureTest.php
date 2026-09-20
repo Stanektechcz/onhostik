@@ -115,6 +115,7 @@ function gameToolsFake(array &$state): void
             str_ends_with($path, '/backups') && $m === 'POST' => $ok(['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => false, 'is_locked' => false, 'bytes' => 0, 'completed_at' => null, 'created_at' => now()->toIso8601String()], 'backup'),
             str_ends_with($path, '/backups') && $m === 'GET' => $list([['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => true, 'is_locked' => false, 'bytes' => 1024, 'completed_at' => now()->toIso8601String(), 'created_at' => now()->toIso8601String()]], 'backup'),
             str_ends_with($path, '/backups/bk-final') => $ok(['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => true, 'is_locked' => false, 'bytes' => 1024, 'completed_at' => now()->toIso8601String(), 'created_at' => now()->toIso8601String()], 'backup'),
+            $path === '/api/application/nodes' => $list([['id' => 2, 'name' => 'games01', 'fqdn' => 'wings.test']], 'node'), // a transfer link must point at one of the panel's own daemons
             str_ends_with($path, '/backups/bk-final/download') => Http::response(['object' => 'signed_url', 'attributes' => ['url' => 'https://wings.test/download/backup?token=abc']]),
             str_ends_with($path, '/users') && $m === 'GET' => $list(array_values($state['subusers']), 'server_subuser'),
             str_ends_with($path, '/users') && $m === 'POST' => (function () use ($request, &$state, $ok) {

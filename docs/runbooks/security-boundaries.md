@@ -214,6 +214,24 @@ Tests: `tests/Feature/Services/ServiceNamePrefixTest.php`.
 
 Tests: `tests/Feature/Provisioning/CompensationGuardTest.php`.
 
+## 16. A link the game panel hands out is followed only to the panel's own daemons
+
+* The game panel is the one internet-facing panel here, and the control plane **follows links it returns**: the signed
+  download of a backup (the archive kept after a cancellation, the data half of a migration) and the signed upload of a
+  file. They were followed wherever they pointed, by a bare HTTP client, from inside the management network — a panel
+  that was broken into could name any address there and have the answer stored as a customer's archive (which its
+  owner then downloads), or pushed into a game server it controls.
+* `PterodactylGameProvider::assertDaemonUrl()`: http(s), no credentials, and the host must be the FQDN of one of the
+  panel's **own nodes** (`/api/application/nodes`, cached ten minutes, re-read when a host is unknown). Checked where
+  the link is made (`backupDownloadUrl`, the upload links), so every consumer gets a checked one; redirects are not
+  followed. The final archive no longer fetches a vendor link from the domain layer — it asks the adapter
+  (`GameToolsProvider::downloadBackup`).
+* The instance's TLS settings (`tls_ca` pinned certificate or path, `verify_tls` for development) were read by every
+  adapter **but this one**: a panel behind a private CA could not be connected at all. They apply now to the panel calls;
+  the daemons use `wings_tls_ca` when they carry another certificate than the panel, and the panel's otherwise.
+
+Tests: `tests/Contract/PterodactylToolsContractTest.php`.
+
 ## What to look at on staging after deploying this
 
 * migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;

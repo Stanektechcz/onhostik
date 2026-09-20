@@ -112,3 +112,12 @@ ISPConfig can be built on it (audit §7, item 2).
 2. Place a test order in staging and watch `GET /v1/staff/provisioning/jobs`.
 3. Set `state: draining` before maintenance (no new placements), `maintenance` with `maintenance_until`, or
    `disabled` to remove the instance from scheduling and health checks.
+
+## TLS of a panel behind a private CA
+
+Every adapter reads the instance options `tls_ca` (the CA or the self-signed certificate — a path on the control plane or
+the PEM text pasted in the console; it is written once to `storage/app/tls/<instance>.pem`) and `verify_tls: false`
+(development only; refused in production). The game panel has one more: `wings_tls_ca` for its daemons when they carry
+another certificate than the panel itself (it falls back to `tls_ca`). Transfer links of the game panel are followed only
+to the FQDNs of its own nodes — a node whose FQDN in the panel differs from the name in its signed links cannot transfer
+backups until the two agree.

@@ -107,6 +107,7 @@ it('lists, toggles, runs and deletes schedules and manages databases, collaborat
 
                 return Http::response(['object' => 'backup', 'attributes' => ['uuid' => 'bk-1', 'is_locked' => $locked]]);
             })(),
+            $path === '/api/application/nodes' => Http::response(['object' => 'list', 'data' => [['object' => 'node', 'attributes' => ['id' => 2, 'name' => 'games01', 'fqdn' => 'games01.example.test']]], 'meta' => ['pagination' => ['total_pages' => 1]]]),
             str_ends_with($path, '/backups/bk-1/download') => Http::response(['object' => 'signed_url', 'attributes' => ['url' => 'https://games01.example.test:8080/download/backup?token=abc']]),
             str_ends_with($path, '/backups/bk-1') && $m === 'DELETE' => Http::response('', 204),
             default => null,
@@ -214,4 +215,38 @@ it('lists servers, eggs and node allocations for the control plane and creates a
     expect($allocations)->toHaveCount(2)->and($allocations[0]['assigned'])->toBeTrue()->and($allocations[1]['assigned'])->toBeFalse();
     expect($adapter->createAllocations(2, '89.187.160.10', ['25570-25579', '25600'], 'mc.liga.test')->data['ports'])->toBe(['25570-25579', '25600']);
     Http::assertSent(fn (Request $r) => $r->method() === 'POST' && str_ends_with($r->url(), '/nodes/2/allocations') && $r['ip'] === '89.187.160.10' && $r['alias'] === 'mc.liga.test' && $r['ports'] === ['25570-25579', '25600']);
+});
+
+it('follows a transfer link only to one of the panel\'s own daemons, with the TLS settings of the instance', function () {
+    $pem = "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIUOnhostTestPinnedCertificate000000000wCgYIKoZI\n-----END CERTIFICATE-----";
+    $adapter = pteroTools();
+    ProviderInstance::query()->where('key', 'pterodactyl-tools01')->update(['options' => json_encode(['tls_ca' => $pem])]);
+    app(ProviderRegistry::class)->forget(ProviderInstance::query()->where('key', 'pterodactyl-tools01')->firstOrFail());
+    $adapter = app(ProviderRegistry::class)->forInstance(ProviderInstance::query()->where('key', 'pterodactyl-tools01')->firstOrFail());
+    $link = 'https://games01.example.test:8080/download/backup?token=abc';
+    $seen = [];
+    Http::fake(function (Request $request) use (&$link, &$seen) {
+        $path = (string) parse_url($request->url(), PHP_URL_PATH);
+        $seen[] = $request->url();
+
+        return match (true) {
+            $path === '/api/application/nodes' => Http::response(['object' => 'list', 'data' => [['object' => 'node', 'attributes' => ['id' => 2, 'name' => 'games01', 'fqdn' => 'games01.example.test']]], 'meta' => ['pagination' => ['total_pages' => 1]]]),
+            str_ends_with($path, '/backups/bk-1/download') => Http::response(['object' => 'signed_url', 'attributes' => ['url' => $link]]),
+            str_starts_with($request->url(), 'https://games01.example.test:8080/download/backup') => Http::response(str_repeat('archive', 30)),
+            default => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => 'no fake']]], 404),
+        };
+    });
+    $target = tempnam(sys_get_temp_dir(), 'onhost-dl-');
+
+    // the instance's certificate was pasted in the console: it used to be read by every adapter but this one
+    expect($adapter->downloadBackup(pteroServerRef(), 'bk-1', $target))->toBe(210)->and(is_file(storage_path('app/tls/pterodactyl-tools01.pem')))->toBeTrue();
+
+    // a panel that was broken into names an address inside the management network: nothing is fetched from it
+    $link = 'http://10.0.0.5:8006/api2/json/access/ticket';
+    $before = count($seen);
+    expect(fn () => $adapter->downloadBackup(pteroServerRef(), 'bk-1', $target))->toThrow(ProviderException::class, 'not one of its daemons');
+    expect(fn () => $adapter->backupDownloadUrl(pteroServerRef(), 'bk-1'))->toThrow(ProviderException::class, 'not one of its daemons');
+    expect(collect(array_slice($seen, $before))->contains(fn (string $u) => str_contains($u, '10.0.0.5')))->toBeFalse();
+    @unlink($target);
+    @unlink(storage_path('app/tls/pterodactyl-tools01.pem'));
 });

@@ -17,11 +17,11 @@ use Onhost\Platform\Errors\ProviderException;
 final class TlsOptions
 {
     /** @return array<string,mixed> Guzzle options (`verify`) for the instance */
-    public static function verify(ProviderInstance $instance, string $provider): array
+    public static function verify(ProviderInstance $instance, string $provider, string $option = 'tls_ca'): array
     {
-        $ca = $instance->option('tls_ca');
+        $ca = $instance->option($option) ?? ($option === 'tls_ca' ? null : $instance->option('tls_ca')); // a second certificate (a game panel's daemons) falls back to the instance's
         if (is_string($ca) && trim($ca) !== '') {
-            return ['verify' => str_contains($ca, '-----BEGIN CERTIFICATE-----') ? self::pinned($instance, $ca) : $ca];
+            return ['verify' => str_contains($ca, '-----BEGIN CERTIFICATE-----') ? self::pinned($instance, $ca, $option === 'tls_ca' || $instance->option($option) === null ? '' : '-'.$option) : $ca];
         }
         if ($instance->option('verify_tls', true) === false) {
             if (app()->environment('production')) {
@@ -34,13 +34,13 @@ final class TlsOptions
         return [];
     }
 
-    private static function pinned(ProviderInstance $instance, string $pem): string
+    private static function pinned(ProviderInstance $instance, string $pem, string $suffix = ''): string
     {
         $dir = storage_path('app/tls');
         if (! is_dir($dir)) {
             mkdir($dir, 0750, true);
         }
-        $path = $dir.'/'.preg_replace('/[^a-z0-9-]/', '-', strtolower($instance->key)).'.pem';
+        $path = $dir.'/'.preg_replace('/[^a-z0-9-]/', '-', strtolower($instance->key.$suffix)).'.pem';
         $normalised = trim($pem)."\n";
         if (! is_file($path) || file_get_contents($path) !== $normalised) {
             file_put_contents($path, $normalised, LOCK_EX);

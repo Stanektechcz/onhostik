@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **The game panel's links are followed only to its own daemons:** signed backup downloads and file uploads must point at a node
+  of that panel (no redirects); the adapter reads the instance's TLS settings like every other one (`tls_ca`, `wings_tls_ca`).
+
 - **A failed operation takes back only what it made:** compensations delete through `CompensationGuard` — this operation's
   own binding, confirmed by the panel (`ServiceIdentityCheck`); a failed VPS clone used to stop and destroy the stranger's VM
   that had taken the reserved vmid. What cannot be confirmed is kept, audited and reported.
@@ -159,7 +162,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 613 tests, 12 714 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 614 tests, 12 721 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

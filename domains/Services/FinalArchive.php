@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services;
 
 use Illuminate\Contracts\Filesystem\Filesystem;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
@@ -14,6 +13,7 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Providers\Contracts\AsyncStatus;
@@ -576,13 +576,13 @@ final class FinalArchive
 
             return;
         }
-        $url = $adapter->backupDownloadUrl($ref, (string) $latest['remote_id']);
         $target = $work.'/game-backup.tar.gz';
-        $response = Http::timeout((int) config('onhost.platform_backup.download_timeout', 900))->withOptions(['sink' => $target])->get($url);
-        if ($response->successful() && (! is_file($target) || filesize($target) === 0)) {
-            file_put_contents($target, $response->body()); // a client that does not stream into the sink
+        try {
+            $bytes = $adapter->downloadBackup($ref, (string) $latest['remote_id'], $target, (int) config('onhost.platform_backup.download_timeout', 900));
+        } catch (ProviderException $e) {
+            throw new DomainError('final_archive_download', 'The game server backup could not be downloaded; nothing was deleted. ('.mb_substr($e->getMessage(), 0, 160).')', 503);
         }
-        if (! $response->successful() || ! is_file($target) || filesize($target) < 64) {
+        if ($bytes < 64) {
             throw new DomainError('final_archive_download', 'The game server backup could not be downloaded; nothing was deleted.', 503);
         }
     }

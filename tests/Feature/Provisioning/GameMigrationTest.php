@@ -98,6 +98,7 @@ function gameMigrationPanel(array &$state, bool $failUpload = false): void
             $path === '/api/client/servers/e4c1abcd/backups' && $m === 'POST' => Http::response(['object' => 'backup', 'attributes' => ['uuid' => 'bk-1', 'name' => $request->data()['name'], 'is_successful' => false, 'is_locked' => false, 'bytes' => 0, 'completed_at' => null, 'created_at' => now()->toIso8601String()]]),
             $path === '/api/client/servers/e4c1abcd/backups/bk-1' => Http::response(['object' => 'backup', 'attributes' => ['uuid' => 'bk-1', 'name' => 'onhost-migration', 'is_successful' => true, 'is_locked' => false, 'bytes' => 123456, 'checksum' => 'sha1:x', 'completed_at' => now()->toIso8601String(), 'created_at' => now()->toIso8601String()]]),
             $path === '/api/client/servers/e4c1abcd/backups/bk-1/download' => Http::response(['object' => 'signed_url', 'attributes' => ['url' => 'https://wings01.test/download/backup?token=src-jwt']]),
+            $path === '/api/application/nodes' => $list([['id' => 2, 'name' => 'games01', 'fqdn' => 'wings01.test'], ['id' => 3, 'name' => 'games02', 'fqdn' => 'wings02.test']], 'node'),
             $path === '/api/application/nodes/3/allocations' => $list([['id' => 31, 'ip' => '203.0.113.20', 'alias' => null, 'port' => 25566, 'assigned' => false], ['id' => 32, 'ip' => '203.0.113.20', 'alias' => null, 'port' => 25567, 'assigned' => true]], 'allocation'),
             $path === '/api/application/servers/77' => $server(77, 2, 'e4c1abcd', '11111111-1111-4111-8111-111111111111', 11, null),
             str_starts_with($path, '/api/application/servers/external/') => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => 'no server']]], 404),
@@ -230,6 +231,7 @@ function gameMigrationSecondPanel(array &$state): ProviderInstance
 
         return match (true) {
             $path === '/api/application/users' && $m === 'GET' => $list([['id' => 44, 'email' => 'billing@example.cz', 'username' => 'test']], 'user'),
+            $path === '/api/application/nodes' => $list([['id' => 1, 'name' => 'games-b01', 'fqdn' => 'wings03.test']], 'node'),
             $path === '/api/application/nodes/1/allocations' => $list([['id' => 71, 'ip' => '198.51.100.5', 'alias' => null, 'port' => 27015, 'assigned' => false]], 'allocation'),
             str_starts_with($path, '/api/application/servers/external/') => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => 'no server']]], 404),
             $path === '/api/application/nests/5/eggs/15' => Http::response(['object' => 'egg', 'attributes' => ['id' => 15, 'name' => 'Paper', 'docker_image' => 'ghcr.io/pterodactyl/yolks:java_21', 'docker_images' => [], 'startup' => 'java -jar {{SERVER_JARFILE}}', 'config' => ['startup' => ['privileged' => false]],

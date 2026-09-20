@@ -148,4 +148,7 @@ interface GameToolsProvider
      * @return array{bytes:int,file:string}
      */
     public function importArchive(ResourceRef $server, string $sourceUrl, string $fileName = 'onhost-import.tar.gz'): array;
+
+    /** Streams one backup of the server to a file on the control plane (the archive kept after a cancellation). @return int bytes written */
+    public function downloadBackup(ResourceRef $server, string $backupId, string $targetPath, int $timeoutSeconds = 900): int;
 }
