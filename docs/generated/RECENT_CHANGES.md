@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 2f8d175 | 2026-09-20 | A domain has an end; the production database's only test is CI — and it was red for 92 runs |
+| 6c3b431 | 2026-09-20 | Regenerate project state after the VAT-in-CZK and cart quantity blocks |
 | 8fe0a10 | 2026-09-20 | A document in EUR states its VAT in CZK; a cart quantity is that many lines; the transfer lock says what it is |
 | b2eb728 | 2026-09-20 | Regenerate project state after the DNS block |
 | 018b245 | 2026-09-20 | A plan change never resizes the node; DNS is compared with its provider every night, can be repaired, and is bounded in size |
@@ -12,5 +14,3 @@
 | 755fe65 | 2026-09-20 | Promo codes do what their form says: a fixed amount is spent once per order, a lasting code discounts the renewals |
 | 351ec82 | 2026-09-20 | The game panel's links are followed only to its own daemons; the adapter reads the instance's TLS settings |
 | bc68c68 | 2026-09-20 | A failed operation takes back only what it made: compensations delete through the identity check |
-| f1047d6 | 2026-09-20 | A premium name is not sold, registered, renewed or transferred at the list price of its TLD |
-| 04f1d1a | 2026-09-20 | Generated project state after the domain and suspension blocks |

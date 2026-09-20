@@ -9,7 +9,10 @@
   the same transaction. The workflow was red for 92 runs in a row (2026-09-15 → 2026-09-20) and nobody looked: a manual
   credit by staff put its 81-character idempotency key into a 60-character ledger column and would have answered 500 in
   production. `gh run list --branch development --workflow tests --limit 3` after every push;
-  `tests/Feature/Platform/DeclaredColumnWidthTest.php` measures stored values against the widths the migrations declare.
+  `tests/Feature/Platform/DeclaredColumnWidthTest.php` measures stored values against the widths the migrations declare;
+  `ONHOST_WIDTH_GUARD=1 php artisan test` does it after EVERY test of the suite (`tests/WidthGuard.php`, about half a minute
+  more) and writes what is too long to `storage/framework/testing/width-guard.log` — run it before a release and whenever a
+  migration or the format of a key changes.
 * A fresh, verified platform backup exists (`onhost:platform:backup && onhost:platform:backup:verify`) — a release
   with migrations never starts without one.
 * Error-budget policy for `portal`/`payments` is not `freeze` (`GET /v1/staff/reports/slo`). A freeze blocks

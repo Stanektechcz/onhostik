@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\WalletLedger\Models\WalletTopup;
 use Onhost\Domain\WalletLedger\WalletService;
+use Tests\WidthGuard;
 
 /*
  * SQLite does not look at the length of a VARCHAR; PostgreSQL — the production database — refuses the statement. A manual
@@ -13,33 +14,6 @@ use Onhost\Domain\WalletLedger\WalletService;
  * local suite cannot see that by itself, so this test measures: after the longest request the API accepts, no stored value
  * is longer than its column declares.
  */
-
-/**
- * Column → declared width of the string columns of a table, read from the migrations: SQLite creates a bare `varchar`, so
- * the schema itself cannot be asked. A later migration (`->change()`) overrides an earlier one.
- *
- * @return array<string,int>
- */
-function declaredWidths(string $table): array
-{
-    $widths = [];
-    $files = glob(database_path('migrations/*.php')) ?: [];
-    sort($files);
-    foreach ($files as $file) {
-        $parts = preg_split('/(?=Schema::(?:create|table)\()/', (string) file_get_contents($file)) ?: [];
-        foreach ($parts as $part) {
-            if (! preg_match('/^Schema::(?:create|table)\(\'([a-z_]+)\'/', $part, $m) || $m[1] !== $table) {
-                continue;
-            }
-            preg_match_all('/\$table->string\(\'([a-z_]+)\'(?:,\s*(\d+))?\)/', $part, $columns, PREG_SET_ORDER);
-            foreach ($columns as $column) {
-                $widths[$column[1]] = isset($column[2]) && $column[2] !== '' ? (int) $column[2] : 255;
-            }
-        }
-    }
-
-    return $widths;
-}
 
 it('stores nothing longer than its column declares after the longest request the API takes, and gives a credit once', function () {
     [, $org] = $this->customerWithOrganization();
@@ -52,7 +26,7 @@ it('stores nothing longer than its column declares after the longest request the
 
     $checked = 0;
     foreach (['ledger_transactions', 'ledger_postings', 'wallet_topups', 'wallets', 'audit_events', 'outbox_messages'] as $table) {
-        $widths = declaredWidths($table);
+        $widths = WidthGuard::of($table); // read from the migrations: SQLite creates a bare `varchar`
         expect($widths)->not->toBeEmpty();
         foreach (DB::table($table)->get() as $row) {
             foreach ($widths as $column => $width) {

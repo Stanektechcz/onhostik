@@ -34,6 +34,14 @@ abstract class TestCase extends BaseTestCase
         $this->app->bind(HostResolver::class, FakeHostResolver::class); // customer-named destinations are resolved without touching the network
     }
 
+    protected function tearDown(): void
+    {
+        if (WidthGuard::enabled() && $this->app !== null) {
+            WidthGuard::measure(static::class.'::'.$this->name());
+        }
+        parent::tearDown();
+    }
+
     /** A customer with an organization they own (owner role binding). @return array{0:User,1:Organization} */
     protected function customerWithOrganization(array $userAttributes = [], array $orgAttributes = []): array
     {
