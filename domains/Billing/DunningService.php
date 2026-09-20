@@ -92,8 +92,11 @@ final class DunningService
                 $this->act($case, 'schedule_termination', ['termination_at' => $case->termination_at->toIso8601String()], $context);
                 $stats['scheduled']++;
             }
-            if ($enforce && $case->state === DunningCase::TERMINATION_SCHEDULED && $case->termination_at !== null && $case->termination_at <= now()) {
-                $this->terminate($case, $context);
+            $terminationDue = $case->state === DunningCase::TERMINATION_SCHEDULED && $case->termination_at !== null && $case->termination_at <= now();
+            if ($enforce && ! $terminationDue && in_array($case->state, [DunningCase::SUSPENDED, DunningCase::TERMINATION_SCHEDULED], true) && $case->suspended_at !== null && $case->suspended_at->lt(now()->subHours(12))) {
+                $this->enforceSuspension($case, $context); // the case says "suspended"; what matters is the service
+            }
+            if ($enforce && $terminationDue && $this->terminate($case, $context)) { // a cancellation deactivates first: it needs no suspension before it
                 $stats['terminated']++;
             }
             $case->forceFill(['next_action_at' => now()->addDay()->startOfDay()->addHours(6)])->save();
@@ -180,22 +183,53 @@ final class DunningService
         }
     }
 
-    private function terminate(DunningCase $case, CommandContext $context): void
+    /**
+     * A suspension that did not happen — the panel refused it, another operation stood in the way, the operation failed —
+     * was never asked for again: the case said SUSPENDED, the site ran, and the next thing that happened to it was the
+     * termination date. It is asked for again once a day (a new idempotency key: the old one would answer with the failed
+     * operation), and staff hear that an unpaid service still runs.
+     */
+    private function enforceSuspension(DunningCase $case, CommandContext $context): void
     {
-        if ($case->service_id !== null) {
-            $service = Service::query()->find($case->service_id);
-            if ($service !== null && $service->state === ServiceStateMachine::SUSPENDED) {
-                try {
-                    app(ServiceService::class)->requestAction($service, 'terminate', CommandContext::system('dunning termination')->withScope($service->organization_id), "dunning_terminate:{$case->id}", ['reason' => 'unpaid after dunning', 'final_backup' => true]);
-                    $this->act($case, 'terminate', ['service_id' => $service->id], $context);
-                } catch (DomainError $e) {
-                    $this->act($case, 'terminate', ['service_id' => $service->id, 'error' => $e->error], $context);
+        $service = $case->service_id !== null ? Service::query()->find($case->service_id) : null;
+        if ($service === null || ! in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
+            return;
+        }
+        $meta = ['service_id' => $service->id, 'attempt' => $case->actions()->whereIn('action', ['suspend', 'suspend_retry'])->count() + 1];
+        try {
+            app(ServiceService::class)->requestAction($service, 'suspend', CommandContext::system('dunning')->withScope($service->organization_id), "dunning_suspend:{$case->id}:".now()->format('Ymd'), ['reason' => 'dunning']);
+        } catch (DomainError $e) {
+            $meta['error'] = $e->error;
+        }
+        $this->act($case, 'suspend_retry', $meta, $context);
+        $this->outbox->publish(GenericEvent::of('dunning.enforcement_failed', 'dunning_case', $case->id, ['service_id' => $service->id, 'label' => $service->label ?: ($service->hostname ?: $service->name), 'step' => 'suspend', 'attempt' => $meta['attempt'], 'error' => $meta['error'] ?? null, 'state' => $case->state], $case->organization_id));
+    }
 
-                    return; // keep the case open; an operator sees the failed action
-                }
+    /**
+     * The case is closed once its service is really down. It used to be closed by the calendar: a service that was never
+     * suspended (see above) was not even asked to terminate — `state === SUSPENDED` was the condition — and the case
+     * turned TERMINATED while the site ran on for nothing, with no case left to notice. A running service is cancelled like
+     * a suspended one (the final backup first, as always); until the cancellation went through the case stays open and the
+     * request is repeated every day.
+     */
+    private function terminate(DunningCase $case, CommandContext $context): bool
+    {
+        $service = $case->service_id !== null ? Service::query()->find($case->service_id) : null;
+        $down = $service === null || in_array($service->state, [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING], true) || $service->terminate_at !== null;
+        if (! $down) {
+            try {
+                app(ServiceService::class)->requestAction($service, 'terminate', CommandContext::system('dunning termination')->withScope($service->organization_id), "dunning_terminate:{$case->id}:".now()->format('Ymd'), ['reason' => 'unpaid after dunning', 'final_backup' => true]);
+                $this->act($case, 'terminate', ['service_id' => $service->id], $context);
+            } catch (DomainError $e) {
+                $this->act($case, 'terminate', ['service_id' => $service->id, 'error' => $e->error], $context);
+                $this->outbox->publish(GenericEvent::of('dunning.enforcement_failed', 'dunning_case', $case->id, ['service_id' => $service->id, 'label' => $service->label ?: ($service->hostname ?: $service->name), 'step' => 'terminate', 'error' => $e->error, 'state' => $case->state], $case->organization_id));
             }
+
+            return false; // open until the service is down; an operator sees the actions
         }
         $this->transition($case, DunningCase::TERMINATED, $context);
+
+        return true;
     }
 
     private function transition(DunningCase $case, string $to, CommandContext $context, array $meta = []): void

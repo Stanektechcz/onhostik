@@ -197,3 +197,23 @@ Tests: `tests/Feature/Finance/CreditNoteTest.php`, `tests/Feature/Billing/Charge
 Look at on staging: cancel a held order from the console (the reason prompt, the credit note among the customer's
 documents, the credit back); a chargeback of a service paid a year in advance (the estimate in the panel names the
 document); `onhost:doctor` area `money`.
+
+## Dunning acts on the service, not on the case (2026-09-20, night)
+
+The case said `SUSPENDED` and `TERMINATED`; nobody looked at the service.
+
+* A suspension the panel refused — another operation in the way, the node down, the operation failing later — was **never
+  asked for again**: the tick suspends only from `OVERDUE_NOTICE`/`GRACE`, and the case had already moved on. The site ran;
+  the next thing that happened to it was the termination date.
+* At the termination date the service was asked to terminate only when it was `SUSPENDED`. A service that had never been
+  suspended was skipped, and the case was closed as `TERMINATED` — the site then ran for nothing, with no case left to
+  notice (an invoice-driven case has no renewal loop that would open another one).
+* Now: while a case is `SUSPENDED` or `TERMINATION_SCHEDULED` and its service still runs, the suspension is requested
+  again once a day (a new idempotency key — the old one answers with the failed operation), action `suspend_retry`, and
+  staff get *Neplacená služba stále běží* (`dunning.enforcement_failed`, internal, hot). At the termination date a
+  running service is cancelled like a suspended one (the final backup first, as always), and the case turns `TERMINATED`
+  only once the service is down (`TERMINATING`/`TERMINATED`, or deactivated with `terminate_at` set); until then the
+  request is repeated daily and a refusal is reported the same way. While the platform's mail does not leave, nothing is
+  enforced (H24) — unchanged.
+
+Tests: `tests/Feature/Billing/DunningEnforcementTest.php` (both holes proven against the old code first).

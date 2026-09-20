@@ -5,10 +5,19 @@ declare(strict_types=1);
 namespace Onhost\Domain\Billing\Models;
 
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 use Onhost\Platform\Eloquent\Model;
 use Onhost\Platform\StateMachine\StateMachine;
 
-/** Payment delinquency separated from data destruction (blueprint §65.1). */
+/**
+ * Payment delinquency separated from data destruction (blueprint §65.1).
+ *
+ * @property Carbon $due_at
+ * @property ?Carbon $next_action_at
+ * @property ?Carbon $suspended_at
+ * @property ?Carbon $termination_at
+ * @property ?Carbon $resolved_at
+ */
 final class DunningCase extends Model
 {
     protected static string $idPrefix = 'dun';
