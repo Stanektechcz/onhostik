@@ -71,6 +71,8 @@ final class ServiceFeatures
         'startup' => ['variable.set', 'image.set'], 'game_settings' => ['rename', 'reinstall'], 'schedule_tools' => ['schedule.delete', 'schedule.toggle', 'schedule.run'], 'game_databases' => ['gamedb.create', 'gamedb.rotate', 'gamedb.delete'],
         'subusers' => ['subuser.create', 'subuser.delete'], 'game_files' => ['gfile.save', 'gfile.upload', 'gfile.delete', 'gfile.mkdir', 'gfile.rename'], 'allocations' => ['allocation.add', 'allocation.primary', 'allocation.remove'],
         'backup_tools' => ['gbackup.delete', 'gbackup.lock'], 'panel_access' => ['panel.password'],
+        // a virtual server's own access (ComputeProvider): new SSH keys and/or a new password for the administrator, through cloud-init
+        'vm_access' => ['access.reset'],
     ];
 
     public const RESOURCES = [
@@ -136,6 +138,8 @@ final class ServiceFeatures
                     'power' => $on($adapter === null || $adapter instanceof PowerCapable), 'console' => $on($adapter === null || $adapter instanceof ConsoleCapable),
                     'snapshots' => $on($adapter === null || $adapter instanceof ComputeProvider, (int) ($ent['snapshots'] ?? 3)), 'backups' => $on($adapter === null || $adapter instanceof BackupCapable, (int) ($ent['backup_days'] ?? 7)),
                     'restore' => $on($adapter === null || $adapter instanceof BackupCapable), 'resize' => $on(true), 'firewall' => $on($adapter === null || $adapter instanceof ComputeProvider), 'disks' => $on(true), 'network' => $on(true),
+                    // the customer's own server only: a managed database (family `data`) has no root for its customer
+                    'vm_access' => $on($service->family === 'cloud' && ($adapter === null || $adapter instanceof ComputeProvider)),
                 ];
                 break;
             case 'game':

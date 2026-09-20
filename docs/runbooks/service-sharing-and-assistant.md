@@ -159,3 +159,41 @@ customer. The column took 80 characters and the console's own id made 82: on Pos
 asked answered 500 (SQLite did not mind). The column holds 160 now (migration `000800`).
 
 Tests: `tests/Feature/Support/TicketReplyDraftTest.php`, `tests/Feature/Platform/DeclaredColumnWidthTest.php`.
+
+## What the assistant may put on a button (2026-09-20)
+
+**The hole.** The model proposed ANY action a service offers, with parameters and a button label of its own making
+(`propose_service_action`), and the customer confirmed a dialog that showed the label alone. A model that followed an injected
+instruction — a ticket, a file name, a page it was asked to look at — could offer "Vyčistit cache", and the click ran
+`command.run` with `curl … | sh`, saved a PHP file, changed an FTP password, created a cron job, deleted a database or
+redirected the site (each proven by `tests/Feature/Support/AssistantProposalsTest.php` against the old code, where the button
+was classed `SAFE_WRITE`). A confirmation protects nobody who cannot see what they confirm.
+
+**The rule** (`Support\Assistant\AssistantProposals`):
+
+* **safe by default** — an action that is not on the list is never proposed; new actions start outside it;
+* on the list are actions that can be undone or repeated and whose parameters are a *choice*, not a *payload*: `power`
+  (start, reboot, shutdown — never stop, reset, kill), `backup`, `snapshot`, `deploy.run`, `wp.update`, `wp.cache`,
+  `staging.refresh`, `staging.push`, `cdn.purge`, `ssl.issue`, `https.force`, `php.set`. No command, no file content, no
+  credential, no destination (URL, address, host), no deletion, nothing that asks for a fresh step-up — a guard test holds
+  the last point;
+* a parameter that is not listed never travels; a listed one has to be one of its values, or the proposal is refused;
+* the **label is the platform's**, composed from the action and its parameters (`Přepnout PHP na 8.3 · shop.cz`). The model's
+  words stay in the conversation;
+* for everything else the assistant tells the customer where in the panel to do it.
+
+The customer's own clicks in the panel are untouched by this: the list limits what the *assistant* proposes, not what a
+person may do.
+
+## Access to a virtual server after it was delivered (2026-09-20)
+
+A server is delivered with the SSH keys of its order and nothing else, and there was no way to change them: whoever lost the
+key — or ordered without one — could not get into their own server. `access.reset` (feature `vm_access`, family `cloud`
+only: a managed database has no root for its customer) sets new SSH keys and/or a new password for the administrator through
+cloud-init. Only what is given is sent (`cipassword`, `sshkeys`): the address, the gateway and the user stay. The keys
+**replace** the ones there are; the panel makes the cloud-init drive again and the server reads it at its next start — the
+panel says so and offers the reboot. HIGH risk with a fresh step-up (new keys open the server); the operation forgets the
+password once it has run; the assistant never proposes it. Unverified on a live Proxmox: that the guest's cloud-init applies
+a changed password on reboot (images differ — the supported images have to be checked on staging).
+
+Tests: `tests/Feature/Http/PanelApiTest.php`.

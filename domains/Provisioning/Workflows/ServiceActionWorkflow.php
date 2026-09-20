@@ -65,7 +65,7 @@ final class ServiceActionWorkflow implements Workflow
     /** Feature actions: one provider call each, validated by ServiceService::featureParams, no service state change. */
     public const FEATURE_ACTIONS = [
         'php.set', 'database.create', 'database.delete', 'ftp.create', 'ftp.delete', 'ftp.password', 'cron.create', 'cron.delete', 'subdomain.add', 'subdomain.remove',
-        'redirect.set', 'ssl.issue', 'https.force', 'snapshot.delete', 'firewall.apply', 'command.send', 'schedule.create', 'mailbox.create', 'mailbox.update', 'mailbox.delete',
+        'redirect.set', 'ssl.issue', 'https.force', 'snapshot.delete', 'firewall.apply', 'access.reset', 'command.send', 'schedule.create', 'mailbox.create', 'mailbox.update', 'mailbox.delete',
         'alias.create', 'alias.delete', 'sending.set',
         'errpages.set', 'directives.set', 'folder.protect', 'folder.unprotect', 'dbuser.create', 'dbuser.password', 'dbuser.delete', 'shell.create', 'shell.key', 'shell.delete', 'stats.set', 'ssl.upload',
         'file.mkdir', 'file.delete', 'file.save', 'app.install',
@@ -178,7 +178,7 @@ final class ServiceActionWorkflow implements Workflow
                     str_starts_with($this->action, 'database') => 'Databáze', str_starts_with($this->action, 'ftp') => 'FTP účet', str_starts_with($this->action, 'cron') => 'Cron',
                     str_starts_with($this->action, 'subdomain') => 'Doména webu', str_starts_with($this->action, 'mailbox') || str_starts_with($this->action, 'alias') || $this->action === 'sending.set' => 'E-mail',
                     $this->action === 'php.set' => 'Verze PHP', $this->action === 'ssl.issue' => 'Certifikát', $this->action === 'https.force' => 'HTTPS', $this->action === 'redirect.set' => 'Přesměrování',
-                    $this->action === 'snapshot.delete' => 'Snapshot', $this->action === 'firewall.apply' => 'Firewall', $this->action === 'command.send' => 'Příkaz konzole', $this->action === 'schedule.create' => 'Plánovaná úloha',
+                    $this->action === 'snapshot.delete' => 'Snapshot', $this->action === 'firewall.apply' => 'Firewall', $this->action === 'access.reset' => 'Přístup k serveru', $this->action === 'command.send' => 'Příkaz konzole', $this->action === 'schedule.create' => 'Plánovaná úloha',
                     $this->action === 'errpages.set' => 'Chybové stránky', $this->action === 'directives.set' => 'Direktivy webserveru', str_starts_with($this->action, 'folder.') => 'Chráněná složka', str_starts_with($this->action, 'dbuser.') => 'Uživatel databáze',
                     str_starts_with($this->action, 'shell.') => 'Shell přístup', $this->action === 'stats.set' => 'Statistiky', $this->action === 'ssl.upload' => 'Vlastní certifikát', str_starts_with($this->action, 'file.') => 'Soubory', $this->action === 'app.install' => 'Instalace aplikace',
                     $this->action === 'command.run' => 'Příkaz v terminálu', $this->action === 'php.settings' => 'Nastavení PHP', $this->action === 'security.set' => 'Bezpečnostní pravidla', $this->action === 'http3.set' => 'HTTP/3',
@@ -225,6 +225,17 @@ final class ServiceActionWorkflow implements Workflow
                         $result = $this->capability($context, ComputeProvider::class)->applyFirewall($ref, (array) $p('rules', []), (bool) $p('enabled', true));
                         $service = $this->service($context);
                         $service->forceFill(['desired_spec' => array_merge((array) $service->desired_spec, ['firewall' => ['rules' => (array) $p('rules', []), 'enabled' => (bool) $p('enabled', true)]])])->save();
+
+                        return $result;
+                    })(),
+                    'access.reset' => (function () use ($context, $ref, $p) {
+                        // only what is given is sent: the network and the user of the server's cloud-init stay as they are. The panel makes
+                        // the cloud-init drive again; the server reads it at its next start.
+                        $result = $this->capability($context, ComputeProvider::class)->applyCloudInit($ref, array_filter(['password' => $p('password'), 'sshkeys' => (array) $p('ssh_keys', [])], fn ($v) => $v !== null && $v !== '' && $v !== []));
+                        if ((array) $p('ssh_keys', []) !== []) {
+                            $service = $this->service($context);
+                            $service->forceFill(['desired_spec' => array_merge((array) $service->desired_spec, ['ssh_keys' => array_values((array) $p('ssh_keys'))])])->save();
+                        }
 
                         return $result;
                     })(),

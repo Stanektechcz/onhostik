@@ -22,6 +22,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentStateMachineStates as PaymentState;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -617,7 +618,8 @@ final class AssistantService
         $seen = [];
         $out = [];
         foreach ($proposals as $p) {
-            $key = ($p['service_id'] ?? '').'|'.($p['action'] ?? '').'|'.json_encode($p['params'] ?? []);
+            // an action without parameters of its own is one button, whoever proposed it (the rules say `backup {kind: manual}`, the model `backup`)
+            $key = ($p['service_id'] ?? '').'|'.($p['action'] ?? '').'|'.((AssistantProposals::ACTIONS[$p['action'] ?? ''] ?? null) === [] ? '' : json_encode($p['params'] ?? []));
             if (isset($seen[$key])) {
                 continue;
             }
@@ -676,7 +678,7 @@ final class AssistantService
             $tools[] = ['name' => 'get_service_status', 'description' => 'Recent operations, uptime monitoring and quotas of one service (read-only).', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string']], 'required' => ['service_id']]];
             $tools[] = ['name' => 'check_service', 'description' => 'Health check of one service from the platform\'s own records (no panel call): state, whether it can be managed right now, the last backup, the HTTPS certificate, uptime monitoring, operations that failed in the last day, how close it is to its limits. Returns a verdict (ok|warn|bad) and findings with a sentence each. Use it for "is my site all right", "why is it slow/down", before proposing an action.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string']], 'required' => ['service_id']]];
             $tools[] = ['name' => 'get_service_resource', 'description' => 'One read-only listing of a service: web — databases, cron, subdomains, certificate, redirect, php_settings, quotas, monitoring, staging, deploy, wordpress, cdn; mail — mailboxes, aliases, dkim, mail_forwards, mail_lists, mail_usage; game — status, schedules, allocations; cloud — snapshots, firewall; every family — backups (the last backups with their state, date and size). Passwords are never included.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'kind' => ['type' => 'string']], 'required' => ['service_id', 'kind']]];
-            $tools[] = ['name' => 'propose_service_action', 'description' => 'Propose one action on a service; the customer confirms it with a button. action is one of the service\'s actions (e.g. backup, power with params.power_action reboot|shutdown|start, deploy.run, wp.update, wp.cache with params.enabled, staging.refresh, staging.push, cdn.purge, ssl.issue, https.force, php.set with params.version).', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'action' => ['type' => 'string'], 'params' => ['type' => 'object'], 'label' => ['type' => 'string', 'description' => 'short button label in the customer\'s language']], 'required' => ['service_id', 'action']]];
+            $tools[] = ['name' => 'propose_service_action', 'description' => 'Propose one action on a service; the customer confirms it with a button the platform names. Only these can be proposed: backup, snapshot (params.name), power (params.power_action reboot|shutdown|start), deploy.run, wp.update (params.what core|plugins|themes|all), wp.cache (params.enabled), staging.refresh, staging.push, cdn.purge, ssl.issue, https.force (params.enabled), php.set (params.version like 8.3). Anything else — commands, files, passwords, keys, mail forwards, redirects, deletions — the customer does in the panel: tell them where.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'action' => ['type' => 'string'], 'params' => ['type' => 'object']], 'required' => ['service_id', 'action']]];
         }
         if ($scope !== null && $scope->domains) {
             $tools[] = ['name' => 'get_dns_records', 'description' => 'The DNS records of one zone of the signed-in organization (read-only): name, type, content, TTL, who manages the record. Use it for "where does my domain point", "is my MX set", before explaining a DNS change. zone is the domain name, e.g. firma.cz.', 'parameters' => ['type' => 'object', 'properties' => ['zone' => ['type' => 'string']], 'required' => ['zone']]];
@@ -868,19 +870,25 @@ final class AssistantService
         if ($service === null || ! $service->isActive()) {
             return ['ok' => false, 'error' => 'unknown or inactive service'];
         }
-        if (in_array($action, ['terminate', 'purge', 'restore', 'archive.restore', 'rollback_snapshot', 'suspend', 'resume', 'resize'], true) || ! in_array($action, $this->features->actions($service), true)) {
-            return ['ok' => false, 'error' => 'action not available for this service', 'available' => $this->features->actions($service)];
+        // Safe by default: what is not listed is never put on a button (AssistantProposals). The model used to propose ANY action
+        // of the service with parameters and a label of its own making — and the customer confirmed a dialog that showed the label.
+        $offered = array_values(array_intersect(array_keys(AssistantProposals::ACTIONS), [...ServiceActionWorkflow::CORE_ACTIONS, ...$this->features->actions($service)]));
+        if (! in_array($action, $offered, true)) {
+            return ['ok' => false, 'error' => 'this action is never proposed by the assistant, or the service does not offer it; tell the customer where in the panel they can do it themselves', 'available' => $offered];
         }
         if (! $scope->mayRun($service, $action)) { // a button that ends in "forbidden" is not offered
             return ['ok' => false, 'error' => 'the signed-in person may view this service but not change it'];
         }
-        $params = is_array($arguments['params'] ?? null) ? $arguments['params'] : [];
+        $params = AssistantProposals::params($action, is_array($arguments['params'] ?? null) ? $arguments['params'] : []);
+        if ($params === null) {
+            return ['ok' => false, 'error' => 'the parameters of this action are missing or not valid', 'expects' => AssistantProposals::ACTIONS[$action]];
+        }
+        $name = (string) ($service->hostname ?: ($service->label ?: $service->name));
+        $label = AssistantProposals::label($action, $params, $name, $locale); // the platform's words, never the model's
         if ($action === 'staging.push') {
             $params['confirm'] = true;
         }
-        $name = (string) ($service->hostname ?: ($service->label ?: $service->name));
-        $label = trim((string) ($arguments['label'] ?? '')) ?: ($locale === 'en' ? ucfirst(str_replace('.', ' ', $action)).' '.$name : $action.' · '.$name);
-        $proposed[] = ['kind' => 'service_action', 'label' => mb_substr($label, 0, 80), 'service_id' => $service->id, 'action' => $action, 'params' => $params, 'confirm' => true, 'class' => $scope->staff ? 'STAFF_WRITE' : 'SAFE_WRITE', 'service' => $name];
+        $proposed[] = ['kind' => 'service_action', 'label' => $label, 'service_id' => $service->id, 'action' => $action, 'params' => $params, 'confirm' => true, 'class' => $scope->staff ? 'STAFF_WRITE' : 'SAFE_WRITE', 'service' => $name];
 
         return ['ok' => true, 'proposed' => $label, 'note' => 'shown to the customer as a button to confirm'];
     }

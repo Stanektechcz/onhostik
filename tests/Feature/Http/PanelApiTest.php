@@ -20,8 +20,10 @@ use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
+use Onhost\Domain\Provisioning\OperationSecrets;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Errors\DomainError;
@@ -247,4 +249,47 @@ it('keeps a bearer token out of the account, the step-up and every route family 
         expect($response->status())->toBe(403, "{$method} {$uri} answered {$response->status()}");
     }
     expect($user->fresh()->name)->not->toBe('Převzatý účet')->and($user->fresh()->hasTotp())->toBeFalse();
+});
+
+it('lets the owner of a virtual server set new SSH keys and a new password — after a fresh step-up, and nothing else of its cloud-init moves', function () {
+    $sent = [];
+    Http::fake([
+        PVE.'/nodes/prg1-n2/qemu/1042/config' => function ($request) use (&$sent) {
+            if ($request->method() === 'PUT') {
+                $sent[] = $request->data();
+            }
+
+            return Http::response($request->method() === 'PUT' ? ['data' => null] : pveVmConfig());
+        },
+        PVE.'/nodes/prg1-n2/qemu/1042/cloudinit' => Http::response(['data' => null]),
+        PVE.'/nodes/prg1-n2/qemu/1042/status/current' => Http::response(['data' => ['status' => 'running', 'uptime' => 100]]),
+    ]);
+    [$user, $org] = $this->customerWithOrganization();
+    $service = panelVps($org);
+    $this->actingAs($user, 'sanctum');
+    $key = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ0m3Yq0v6l3S5q1v1mXbq1Qd0m1o9yq1x1w2n3b4c5d jana@notebook';
+
+    // a server is delivered with the keys of its order and there was no way to change them: whoever lost the key was locked out
+    expect(app(ServiceFeatures::class)->actions($service))->toContain('access.reset');
+    $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'access.reset', 'params' => ['ssh_keys' => [$key]]])->assertForbidden()->assertJsonPath('error', 'step_up_required'); // new keys open the server
+    app(StepUpService::class)->grant($user, 'password', null, '127.0.0.1');
+    $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'access.reset', 'params' => []])->assertUnprocessable()->assertJsonPath('error', 'action_param_invalid');
+    $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'access.reset', 'params' => ['ssh_keys' => ['ssh-rsa kratky']]])->assertUnprocessable();
+    $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'access.reset', 'params' => ['password' => 'kratke']])->assertUnprocessable();
+
+    $accepted = $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'access.reset', 'params' => ['ssh_keys' => [$key], 'password' => 'Dlouhe-Heslo-2026!']])->assertStatus(202);
+    $operation = driveOperation(Operation::query()->findOrFail($accepted->json('operation_id')));
+
+    expect($operation->state)->toBe(Operation::SUCCEEDED)->and($sent)->toHaveCount(1);
+    // only what was given: the address, the gateway and the user of the server stay as they are
+    expect(array_keys($sent[0]))->toEqualCanonicalizing(['cipassword', 'sshkeys'])->and($sent[0]['cipassword'])->toBe('Dlouhe-Heslo-2026!')->and(rawurldecode((string) $sent[0]['sshkeys']))->toBe($key);
+    Http::assertSent(fn ($r) => $r->method() === 'PUT' && str_ends_with($r->url(), '/qemu/1042/cloudinit')); // the panel makes the cloud-init drive again
+    expect($service->refresh()->desired_spec['ssh_keys'])->toBe([$key]);
+    // the row forgets the password it carried
+    expect($operation->refresh()->secrets_scrubbed_at)->not->toBeNull()->and(json_encode($operation->desired))->not->toContain('Dlouhe-Heslo-2026!')->toContain(OperationSecrets::GONE);
+
+    // a managed database has no root for its customer
+    $service->forceFill(['family' => 'data'])->save();
+    app(ServiceFeatures::class)->forget($service);
+    expect(app(ServiceFeatures::class)->actions($service->refresh()))->not->toContain('access.reset');
 });

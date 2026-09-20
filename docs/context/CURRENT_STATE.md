@@ -91,6 +91,11 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **The assistant's buttons are the platform's:** an allow-list of proposable actions with their own parameters and platform-made
+  labels (`AssistantProposals`) — the model could put `command.run` under "Vyčistit cache" on a confirm button.
+- **Access to a VPS after delivery:** `access.reset` sets new SSH keys / a password through cloud-init (step-up; never proposed
+  by the assistant).
+
 - **The password mail tells the truth:** after a password CHANGE the API tokens stay valid — the mail said they were signed out; it
   now says how many stay valid and where to revoke them (a reset still revokes them).
 
@@ -202,7 +207,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 644 tests, 13 289 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 648 tests, 13 366 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

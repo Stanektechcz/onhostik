@@ -405,6 +405,16 @@
       if (tab === 'console') {
         var p5 = infoPanel(_('Konzole a napájení · ', 'Console and power · ') + sel.name, _('napájení řídí hypervizor; konzole je VNC přes náš relay s jednorázovým tokenem', 'power is handled by the hypervisor; the console is VNC through our relay with a one-time token'), [[_('Stav', 'State'), sel.state], [_('IP adresa', 'IP address'), (window.ONHOST_PANEL.servers.filter(function (x) { return x.id === sel.id; })[0] || {}).ip || '—']]);
         p5.extra = ['start', 'reboot', 'shutdown', 'stop'].filter(function () { return on('power'); }).map(function (pa) { return { label: { start: _('Zapnout', 'Start'), reboot: _('Restartovat', 'Reboot'), shutdown: _('Vypnout (ACPI)', 'Shut down (ACPI)'), stop: _('Vypnout tvrdě', 'Power off') }[pa], primary: pa === 'reboot', on: function () { if (pa === 'reboot' || window.confirm(_('Opravdu ' + pa + '?', 'Really ' + pa + '?'))) act(cmp, sel, 'power', { power_action: pa }, [], _('Napájení: ' + pa, 'Power: ' + pa)); } }; });
+        if (on('vm_access')) {
+          p5.form = { title: _('Nový přístup k serveru (projeví se po restartu)', 'New access to the server (applies after a reboot)'), fields: [F('a', _('veřejný SSH klíč — nahradí stávající klíče', 'SSH public key — replaces the keys there are'), '1 1 320px'), passwordField('b')], submit: _('Nastavit přístup', 'Set access'), on: function () {
+            var key = String(s.wbF.a || '').trim(), pass = String(s.wbF.b || '');
+            if (!key && !pass) { flash(cmp, _('Zadejte SSH klíč, heslo, nebo obojí', 'Enter an SSH key, a password, or both'), ''); return; }
+            if (!window.confirm(_('Nastavit nový přístup správce serveru? Zadaný klíč nahradí všechny stávající; změna se projeví po restartu serveru.', 'Set new administrator access? The key replaces all existing ones; the change applies after the server reboots.'))) return;
+            var params = {}; if (key) params.ssh_keys = [key]; if (pass) params.password = pass;
+            act(cmp, sel, 'access.reset', params, ['status'], _('Přístup nastaven', 'Access set'), _('Server si nový přístup načte při příštím startu — restartujte ho tlačítkem výše.', 'The server reads the new access at its next start — reboot it with the button above.'));
+          } };
+          p5.extra.push(genExtra('b'));
+        }
         if (on('console')) p5.extra.push({ label: _('Získat přístup ke konzoli', 'Get console access'), on: function () { API.post('/services/' + sel.id + '/console-token', {}, API.key()).then(function (r) { var d = r.data || r; flash(cmp, _('Konzole připravena', 'Console ready'), (d.url || '') + ' · token ' + (d.token || '') + ' · ' + _('platí do ', 'valid until ') + (d.expires_at || '')); }).catch(function (e) { flash(cmp, _('Konzole nedostupná', 'Console unavailable'), e.message || ''); }); } });
         return p5;
       }

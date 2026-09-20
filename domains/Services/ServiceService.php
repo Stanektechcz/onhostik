@@ -710,6 +710,24 @@ final class ServiceService
 
                 return ['rules' => $rules, 'enabled' => filter_var($params['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN)];
             })(),
+            // A server is delivered with the SSH keys of its order and nothing else — and there was no way to change them afterwards:
+            // whoever lost the key, or ordered without one, could not get into their own server. The keys REPLACE the ones there are.
+            'access.reset' => (function () use ($params, $action, $password) {
+                $keys = [];
+                foreach (array_slice(array_values((array) ($params['ssh_keys'] ?? [])), 0, 10) as $key) {
+                    $key = trim((string) $key);
+                    if (! preg_match('/^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com) [A-Za-z0-9+\/=]{40,}( [^\r\n]{0,120})?$/', $key)) {
+                        throw new DomainError('action_param_invalid', "{$action}: every entry of ssh_keys must be one OpenSSH public key (ssh-ed25519, ssh-rsa, ecdsa).", 422, ['field' => 'ssh_keys']);
+                    }
+                    $keys[] = $key;
+                }
+                $withPassword = (string) ($params['password'] ?? '') !== '';
+                if ($keys === [] && ! $withPassword) {
+                    throw new DomainError('action_param_invalid', "{$action}: give ssh_keys, a password, or both.", 422, ['field' => 'ssh_keys']);
+                }
+
+                return array_filter(['ssh_keys' => $keys, 'password' => $withPassword ? $password() : null], fn ($v) => $v !== null && $v !== []);
+            })(),
             'command.send' => ['command' => $need('command', '/^[^\r\n]{1,1000}$/', 'command is required (one line)')],
             'schedule.create' => (function () use ($need, $params, $action) {
                 $actions = [];
