@@ -123,3 +123,20 @@ drifted for good.
 A renewal or a usage charge that went through closes the case **it** caused (`service_id` = that service, no invoice).
 A case that hangs on an invoice is closed only by that invoice being paid. (The old rule also closed every case of the
 organization that had no service — an unpaid work invoice was marked paid by a 149 Kč renewal.)
+
+## The accounting day and the limits of automatic top-ups (2026-09-20)
+
+* **A date on a document is the day at the seller's seat** (`AccountingClock`, `ONHOST_BILLING_TIMEZONE`, default
+  `Europe/Prague`). The servers run in UTC and the tax date and the year of the number series were taken from UTC: an
+  invoice issued on 1 January at 00:30 in Prague got **last year's number** and a tax date of 31 December, while its PDF
+  already printed 1 January; every document issued between midnight and one or two in the morning carried the previous
+  day. Number series (invoices and orders), `supply_date`, line periods and the UBL dates now use the accounting day;
+  instants (`issued_at`, `due_at`, `paid_at`) are unchanged. Documents already issued are not touched.
+* **Automatic top-ups keep both ceilings the customer set.** The day counter answered 0 or 1, so a cap of two never
+  tripped, and the monthly limit was stored and never read: a renewal loop could charge a stored card every hour. Both
+  are now counted on the charges really made (payment intents of the stored method): attempts today — a declined card
+  is an attempt — against `max_per_day`, and this month's sum plus the new charge against `monthly_limit`, in the
+  accounting day and month. The answer is `limited` with the reason; the renewal guard then tells the customer the
+  credit is short, as before.
+
+Tests: `tests/Feature/Finance/InvoiceTest.php`, `tests/Feature/Finance/AutoTopupLimitsTest.php`.

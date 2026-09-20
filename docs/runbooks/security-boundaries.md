@@ -140,8 +140,22 @@ Tests: `tests/Feature/Services/WebBackupArchiveTest.php`, `tests/Contract/IspCon
 
 Tests: `tests/Feature/Provisioning/OperationSecretsTest.php`.
 
-## What to look at on staging after deploying this
-* migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;
+## 12. A conversation with the assistant belongs to one person
+
+* Without a `session_id` the transcript key fell back to the HTTP session — or to the **IP address**. Two people behind one
+  address (an office, a mobile carrier, the next user of the same API client) continued each other's conversation: the
+  earlier questions and the assistant's answers — invoices, variable symbols, DNS records, services — went into the
+  model's context for somebody else. Found while testing the new read tools; proven by the test before the fix.
+* Now a signed-in person's key always starts with their id (`<user>:…`, staff `staff:<user>:<organization>:…`), whoever
+  calls the service; the previous run is looked up by key **and** person. A visitor's key is their browser session; with
+  none there is no memory at all (a one-off key) — never the memory of everybody behind the same address.
+* The read tools `get_dns_records` and `get_invoice` are offered only to somebody who may read that in the panel
+  (`domain.read`, `billing.invoice.read`); asked for anyway, they answer like an unknown zone or document, as they do
+  for another organization's.
+
+Tests: `tests/Feature/Support/AssistantReadToolsTest.php`.
+
+## What to look at on staging after deploying this* migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;
 * orders that were delivered and never charged (the query is in `billing-dunning.md`);
 * `provider_calls` of the last 90 days still hold what was logged before the new masks (Subreg password and session ids, private keys) — rotate the Subreg API password after deploying and let retention age the rows out, or delete `provider_calls` of `subreg` older than the deploy;
 * audit trail: `service.action.resize` by an actor who is neither staff nor the system;

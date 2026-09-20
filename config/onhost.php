@@ -134,6 +134,7 @@ return [
     ],
 
     'billing' => [
+        'timezone' => env('ONHOST_BILLING_TIMEZONE', 'Europe/Prague'), // the day a document belongs to is the day at the seller's seat (AccountingClock), whatever zone the servers run in
         'currencies' => ['CZK', 'EUR'],
         'default_currency' => 'CZK',
         'min_topup' => ['CZK' => '100', 'EUR' => '5'],

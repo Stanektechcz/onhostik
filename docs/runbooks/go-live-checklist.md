@@ -71,3 +71,11 @@ php artisan onhost:openapi && git diff --stat contracts/               # the pub
 
 Then, as a real customer: register, order web hosting by bank transfer, pay the proforma, watch the service turn
 ACTIVE, open a ticket, download the invoice PDF and cancel the service. Every step is audited (`/v1/organizations/{id}/audit`).
+
+## One report of how the installation stands
+
+`php artisan onhost:staging:report --check` asks every panel the read-only questions (`SelfProbing`), runs the doctor
+and writes `storage/app/onhost-staging-report.json`: the doctor's findings that are not OK, what each panel answered
+(including the field names of ISPConfig's change log), p50/p95 of actions for the last week, whether four eyes are in
+effect, how many finished operations still hold secrets. Nothing in it is a secret (an allow-list of facts, passed
+through the redactor) — it is the file to hand to whoever reviews the installation without access to the panels.

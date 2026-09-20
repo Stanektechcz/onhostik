@@ -5,10 +5,19 @@ declare(strict_types=1);
 namespace Onhost\Domain\Invoicing\Models;
 
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 use Onhost\Platform\Eloquent\Model;
 use Onhost\Platform\Money\Money;
 
-/** Issued invoices are immutable: number and business content never change (§64.2). */
+/**
+ * Issued invoices are immutable: number and business content never change (§64.2).
+ *
+ * @property ?Carbon $issued_at
+ * @property ?Carbon $supply_date
+ * @property ?Carbon $due_at
+ * @property ?Carbon $paid_at
+ * @property ?Carbon $cancelled_at
+ */
 final class Invoice extends Model
 {
     protected static string $idPrefix = 'inv';
@@ -36,6 +45,7 @@ final class Invoice extends Model
         ];
     }
 
+    /** @return HasMany<InvoiceLine, $this> */
     public function lines(): HasMany
     {
         return $this->hasMany(InvoiceLine::class, 'invoice_id')->orderBy('position');

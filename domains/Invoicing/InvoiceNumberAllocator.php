@@ -17,7 +17,7 @@ final class InvoiceNumberAllocator
     /** @return array{number:string, sequence:int} */
     public function allocate(string $legalEntity, string $series, ?int $year = null): array
     {
-        $year ??= (int) now()->format('Y');
+        $year ??= AccountingClock::year(); // the series of the year it is at the seller's seat: 23:30 UTC on 31 December is already January in Prague
 
         return DB::transaction(function () use ($legalEntity, $series, $year) {
             DB::table('invoice_sequences')->insertOrIgnore(['legal_entity' => $legalEntity, 'series' => $series, 'year' => $year, 'next' => 1]);

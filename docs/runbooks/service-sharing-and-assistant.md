@@ -74,8 +74,17 @@ proposal goes through it:
 
 Tests: `tests/Feature/Support/AssistantScopeTest.php`, `tests/Feature/Support/SupportTest.php`.
 
-### "Is my service all right?" (`ServiceHealthCheck`)
+### Reading DNS and a document
 
+* `get_dns_records {zone}` — the records of one zone of the organization (name, type, content, TTL, who manages it; the
+  first 80). Needs `domain.read`.
+* `get_invoice {number}` — one document by its number: type, state, dates, totals, what is left to pay, the variable
+  symbol, the lines. Needs `billing.invoice.read`.
+
+Both are read-only, scoped to the organization of the conversation, and not offered to somebody who may not read that
+in the panel. A conversation belongs to one person (`security-boundaries.md` §12).
+
+### "Is my service all right?" (`ServiceHealthCheck`)
 One pass over what the platform already knows — no panel is asked: state, whether the service can be managed right
 now, the last backup (the archive of a cancellation does not count), the HTTPS certificate and its expiry, the uptime
 monitor, operations that failed in the last day, how close the service is to its limits. A verdict (`ok|warn|bad`) and

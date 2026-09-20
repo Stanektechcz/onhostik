@@ -60,6 +60,7 @@ use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\NodePrerequisites;
 use Onhost\Domain\Provisioning\NodeSampler;
+use Onhost\Domain\Provisioning\OperationLatency;
 use Onhost\Domain\Provisioning\OperationsBoard;
 use Onhost\Domain\Provisioning\OperationSecrets;
 use Onhost\Domain\Provisioning\OperationService;
@@ -95,6 +96,7 @@ use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
 use Onhost\Platform\Ops\PlatformBackup;
 use Onhost\Platform\Outbox\OutboxPublisher;
+use Onhost\Platform\Redaction\Redactor;
 use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\Contracts\DnsProvider;
 
@@ -572,6 +574,36 @@ Artisan::command('onhost:monitoring:check {--limit=200}', function (UptimeMonito
 Artisan::command('onhost:monitoring:prune', function (UptimeMonitor $monitor) {
     $this->info('pruned samples: '.$monitor->prune());
 })->purpose('Drop uptime samples older than the retention window');
+
+/*
+ * One file that says how this installation stands — for whoever has to judge it without being able to log in to the
+ * panels: the doctor's findings that are not OK, what every panel answered to the read-only probes (SelfProbing), how
+ * long actions take, whether four eyes are in effect. `--check` asks the panels first. Nothing in it is a secret: keys
+ * of instances, names of fields, counts and verdicts — and it still goes through the redactor before it is written.
+ */
+Artisan::command('onhost:staging:report {--check : ask every panel now (onhost:nodes:check) before reporting} {--path= : where to write it; default storage/app/onhost-staging-report.json}', function (NodePrerequisites $prerequisites) {
+    if ($this->option('check')) {
+        $prerequisites->checkAll();
+    }
+    Artisan::call('onhost:doctor', ['--json' => true]);
+    $doctor = json_decode(Artisan::output(), true) ?: [];
+    $instances = ProviderInstance::query()->orderBy('key')->get()->map(fn (ProviderInstance $i) => [
+        'key' => $i->key, 'provider' => $i->provider, 'state' => $i->state, 'vendor_version' => $i->vendor_version,
+        'prereqs' => array_intersect_key((array) data_get($i->capabilities, 'prereqs', []), array_flip(['checked_at', 'api', 'version', 'php_versions', 'cron_api', 'backup_api', 'datalog_api', 'jobqueue', 'mod_proxy', 'client_api', 'probes', 'warnings'])),
+    ])->all();
+    $report = app(Redactor::class)->redact([
+        'generated_at' => now()->toIso8601String(), 'environment' => app()->environment(), 'app_version' => trim((string) @file_get_contents(base_path('VERSION'))) ?: null,
+        'doctor' => ['fail' => $doctor['fail'] ?? null, 'warn' => $doctor['warn'] ?? null, 'not_ok' => array_values(array_filter((array) ($doctor['checks'] ?? []), fn ($c) => ($c['status'] ?? '') !== 'OK'))],
+        'instances' => $instances,
+        'latency' => ['target_s' => OperationLatency::targetSeconds(), 'rows' => array_slice(app(OperationLatency::class)->summary(24 * 7), 0, 25)],
+        'four_eyes' => ['enabled' => ApprovalService::enabled(), 'deciders' => ApprovalService::deciders()->count()],
+        'operations' => ['holding_secrets' => Operation::query()->whereNull('secrets_scrubbed_at')->whereIn('state', [Operation::SUCCEEDED, Operation::CANCELLED])->count(), 'failed_24h' => Operation::query()->where('state', Operation::FAILED)->where('finished_at', '>=', now()->subDay())->count()],
+    ]);
+    $path = (string) ($this->option('path') ?: storage_path('app/onhost-staging-report.json'));
+    file_put_contents($path, (string) json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    $this->info("written: {$path}");
+    $this->line(sprintf('doctor: %s FAIL · %s WARN · %d panel instance(s) · %d slow action(s)', $report['doctor']['fail'] ?? '?', $report['doctor']['warn'] ?? '?', count($instances), count(array_filter($report['latency']['rows'], fn ($r) => $r['slow'] ?? false))));
+})->purpose('Write one redacted report of how this installation stands: doctor findings, what the panels really answer, latency, four eyes');
 
 Artisan::command('onhost:nodes:check', function (NodePrerequisites $prerequisites, AutomationLedger $ledger) {
     if ($ledger->off('nodes.check')) {

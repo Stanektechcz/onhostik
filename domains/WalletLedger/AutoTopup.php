@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\WalletLedger;
 
+use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentMethod;
 use Onhost\Domain\Payments\PaymentProviderRegistry;
 use Onhost\Domain\Payments\PaymentService;
@@ -88,8 +90,18 @@ final class AutoTopup
         }
         $currency = (string) $organization->currency;
         $amount = Money::minor(max((int) $setting->amount_minor, $shortfall->minor), $currency);
-        if ($setting->last_triggered_at !== null && $setting->last_triggered_at->isToday() && $this->triggeredToday($setting) >= (int) $setting->max_per_day) {
+        // The customer set two ceilings and neither held: the day counter answered 0 or 1 (so a cap of two never tripped) and the
+        // monthly limit was stored and never read — a renewal loop could charge a card every hour. Both are counted on the charges
+        // that were really made (payment intents of the stored method), in the accounting day and month.
+        $charges = PaymentIntent::query()->where('organization_id', $organization->id)->where('purpose', 'topup')->where('method', 'stored');
+        $day = AccountingClock::now()->startOfDay()->utc();
+        if ((clone $charges)->where('created_at', '>=', $day)->count() >= max(1, (int) $setting->max_per_day)) {
             return ['status' => 'limited', 'reason' => 'daily cap reached'];
+        }
+        $monthly = (int) $setting->monthly_limit_minor;
+        $spent = (int) (clone $charges)->where('created_at', '>=', AccountingClock::now()->startOfMonth()->utc())->whereNotIn('state', ['FAILED', 'CANCELLED', 'EXPIRED'])->sum('amount_minor');
+        if ($monthly > 0 && $spent + $amount->minor > $monthly) {
+            return ['status' => 'limited', 'reason' => 'monthly limit reached'];
         }
         if ($setting->payment_method_id === null || ! $this->supported()) {
             return ['status' => 'unsupported', 'reason' => $setting->payment_method_id === null ? 'no stored payment method' : 'no provider charges stored methods yet'];
@@ -142,10 +154,5 @@ final class AutoTopup
         }
 
         return null;
-    }
-
-    private function triggeredToday(AutoTopupSetting $setting): int
-    {
-        return (int) ($setting->last_triggered_at?->isToday() ? 1 : 0); // one row per organization: the cap is enforced per trigger time
     }
 }

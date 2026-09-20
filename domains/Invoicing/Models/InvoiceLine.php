@@ -4,8 +4,15 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Invoicing\Models;
 
+use Illuminate\Support\Carbon;
 use Onhost\Platform\Eloquent\Model;
 
+/**
+ * One line of a document.
+ *
+ * @property ?Carbon $period_from
+ * @property ?Carbon $period_to
+ */
 final class InvoiceLine extends Model
 {
     protected static string $idPrefix = 'il';

@@ -7,8 +7,11 @@ namespace Onhost\Domain\Support\Assistant;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Onhost\Domain\Billing\Models\DunningCase;
 use Onhost\Domain\Catalog\CatalogService;
+use Onhost\Domain\Dns\Models\DnsRecord;
+use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
@@ -94,8 +97,18 @@ final class AssistantService
         // what this person may see and be offered — the same answers the API would give them (a member without billing rights is
         // told nothing about invoices, a guest sees the services shared with them and no others)
         $scope ??= $organization !== null && $user !== null ? AssistantScope::for($organization, $user, $this->authorizer) : null;
-        $sessionId ??= 'anon:'.($context->sessionId ?? $context->ip ?? 'x');
-        $previous = AiRun::query()->where('session_id', $sessionId)->orderByDesc('created_at')->first();
+        // A conversation belongs to one person. Without a session id the key fell back to the HTTP session — or to the IP ADDRESS:
+        // two people behind one address (an office, a mobile carrier, the next user of the same API client) continued each other's
+        // conversation, and the earlier questions and answers — invoices, DNS, services — went into the model's context for somebody else.
+        // A signed-in person's key always starts with their id; a visitor's is their browser session, and with none there is no memory.
+        $sessionId = match (true) {
+            $user !== null && $sessionId !== null && (str_starts_with($sessionId, "{$user->id}:") || str_starts_with($sessionId, "staff:{$user->id}:")) => $sessionId,
+            $user !== null => "{$user->id}:".($sessionId ?? ($organization === null ? 'default' : $organization->id)),
+            $sessionId !== null => 'anon:'.$sessionId,
+            $context->sessionId !== null && $context->sessionId !== '' => 'anon:'.$context->sessionId,
+            default => 'anon:once:'.Str::random(24),
+        };
+        $previous = AiRun::query()->where('session_id', $sessionId)->where(fn ($q) => $user === null ? $q->whereNull('user_id') : $q->where('user_id', $user->id))->orderByDesc('created_at')->first();
         $transcript = (array) ($previous?->transcript ?? []);
         $transcript[] = ['role' => 'user', 'content' => mb_substr($text, 0, 4000), 'at' => now()->toIso8601String()];
         $triage = Triage::classify($text);
@@ -652,6 +665,12 @@ final class AssistantService
             $tools[] = ['name' => 'get_service_resource', 'description' => 'One read-only listing of a service: web — databases, cron, subdomains, certificate, redirect, php_settings, quotas, monitoring, staging, deploy, wordpress, cdn; mail — mailboxes, aliases, dkim, mail_forwards, mail_lists, mail_usage; game — status, schedules, allocations; cloud — snapshots, firewall; every family — backups (the last backups with their state, date and size). Passwords are never included.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'kind' => ['type' => 'string']], 'required' => ['service_id', 'kind']]];
             $tools[] = ['name' => 'propose_service_action', 'description' => 'Propose one action on a service; the customer confirms it with a button. action is one of the service\'s actions (e.g. backup, power with params.power_action reboot|shutdown|start, deploy.run, wp.update, wp.cache with params.enabled, staging.refresh, staging.push, cdn.purge, ssl.issue, https.force, php.set with params.version).', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'action' => ['type' => 'string'], 'params' => ['type' => 'object'], 'label' => ['type' => 'string', 'description' => 'short button label in the customer\'s language']], 'required' => ['service_id', 'action']]];
         }
+        if ($scope !== null && $scope->domains) {
+            $tools[] = ['name' => 'get_dns_records', 'description' => 'The DNS records of one zone of the signed-in organization (read-only): name, type, content, TTL, who manages the record. Use it for "where does my domain point", "is my MX set", before explaining a DNS change. zone is the domain name, e.g. firma.cz.', 'parameters' => ['type' => 'object', 'properties' => ['zone' => ['type' => 'string']], 'required' => ['zone']]];
+        }
+        if ($scope !== null && $scope->billing) {
+            $tools[] = ['name' => 'get_invoice', 'description' => 'One document of the signed-in organization by its number (read-only): type, state, dates, totals, what is left to pay, the payment reference (variable symbol) and its lines.', 'parameters' => ['type' => 'object', 'properties' => ['number' => ['type' => 'string']], 'required' => ['number']]];
+        }
         $usage = ['input_tokens' => 0, 'output_tokens' => 0];
         $called = [];
         $model = null;
@@ -673,6 +692,8 @@ final class AssistantService
                     'search_api_reference' => $this->apiReference((string) ($call['arguments']['query'] ?? '')),
                     'list_services' => $scope !== null ? $this->serviceCatalogue($scope) : [],
                     'get_service_status' => $scope !== null ? $this->serviceStatus($scope, (string) ($call['arguments']['service_id'] ?? '')) : [],
+                    'get_dns_records' => $scope !== null ? $this->dnsRecords($scope, (string) ($call['arguments']['zone'] ?? '')) : [],
+                    'get_invoice' => $scope !== null ? $this->invoiceDetail($scope, (string) ($call['arguments']['number'] ?? '')) : [],
                     'check_service' => $scope !== null ? $this->checkService($scope, (string) ($call['arguments']['service_id'] ?? '')) : [],
                     'get_service_resource' => $scope !== null ? $this->serviceResource($scope, (string) ($call['arguments']['service_id'] ?? ''), (string) ($call['arguments']['kind'] ?? '')) : [],
                     'propose_service_action' => $scope !== null ? $this->propose($scope, (array) $call['arguments'], $locale, $proposed) : ['ok' => false, 'error' => 'sign in first'],
@@ -684,6 +705,45 @@ final class AssistantService
         }
 
         return [null, $usage, $model, $called, $proposed];
+    }
+
+    /**
+     * The records of one zone of the organization — for somebody who may read domains, and nobody else (the tool is not even
+     * offered otherwise; asked anyway, it answers like an unknown zone).
+     *
+     * @return array<string,mixed>
+     */
+    private function dnsRecords(AssistantScope $scope, string $zone): array
+    {
+        $name = strtolower(trim($zone, " .\t\n"));
+        $found = $scope->domains && $name !== '' ? DnsZone::query()->where('organization_id', $scope->organization->id)->where('name', $name)->first() : null;
+        if ($found === null) {
+            return ['error' => 'unknown zone', 'zones' => $scope->domains ? DnsZone::query()->where('organization_id', $scope->organization->id)->orderBy('name')->limit(20)->pluck('name')->all() : []];
+        }
+        $records = DnsRecord::query()->where('zone_id', $found->id)->orderBy('type')->orderBy('name')->limit(80)->get();
+
+        return ['zone' => $found->name, 'state' => $found->state, 'dnssec' => (bool) $found->dnssec, 'total' => DnsRecord::query()->where('zone_id', $found->id)->count(),
+            'records' => $records->map(fn (DnsRecord $r) => ['name' => $r->name, 'type' => $r->type, 'content' => mb_substr((string) $r->content, 0, 300), 'ttl' => $r->ttl, 'managed_by' => $r->managed_by, 'protected' => (bool) $r->protected])->all()];
+    }
+
+    /**
+     * One document by its number, for somebody who may read invoices.
+     *
+     * @return array<string,mixed>
+     */
+    private function invoiceDetail(AssistantScope $scope, string $number): array
+    {
+        $invoice = $scope->billing && trim($number) !== '' ? Invoice::query()->where('organization_id', $scope->organization->id)->where('number', strtoupper(trim($number)))->first() : null;
+        if ($invoice === null) {
+            return ['error' => 'unknown document'];
+        }
+
+        return [
+            'number' => $invoice->number, 'type' => $invoice->type, 'state' => $invoice->state, 'currency' => $invoice->currency, 'issued_at' => $invoice->issued_at?->toIso8601String(), 'supply_date' => $invoice->supply_date?->format('Y-m-d'),
+            'due_at' => $invoice->due_at?->toIso8601String(), 'paid_at' => $invoice->paid_at?->toIso8601String(), 'total' => $invoice->total()->format(), 'outstanding' => $invoice->outstanding()->format(),
+            'payment_reference' => $invoice->payment_reference, 'url' => '/panel#/fakturace',
+            'lines' => $invoice->lines()->limit(30)->get()->map(fn ($l) => ['description' => $l->description, 'qty' => (float) $l->qty, 'net_minor' => (int) $l->net_minor, 'tax_rate' => (float) $l->tax_rate, 'total_minor' => (int) $l->total_minor, 'period' => $l->period_from ? $l->period_from->format('Y-m-d').' – '.($l->period_to?->format('Y-m-d') ?? '') : null])->all(),
+        ];
     }
 
     /** @return array<string,mixed> the health check of one service the person may see */

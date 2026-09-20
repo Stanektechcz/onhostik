@@ -7,6 +7,7 @@ namespace Onhost\Domain\Orders;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Orders\Models\Consent;
@@ -359,7 +360,7 @@ final class CheckoutService
 
     private function allocateNumber(): string
     {
-        $year = (int) now()->format('Y');
+        $year = AccountingClock::year(); // the order's number and its document's number belong to the same year
         DB::table('order_sequences')->insertOrIgnore(['year' => $year, 'next' => 1000]);
         $row = DB::table('order_sequences')->where('year', $year)->lockForUpdate()->first();
         $next = (int) $row->next + 1;

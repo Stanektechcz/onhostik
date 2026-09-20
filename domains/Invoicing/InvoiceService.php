@@ -59,7 +59,7 @@ final class InvoiceService
             'sku' => $item->sku, 'description' => $item->name, 'qty' => $item->qty, 'unit' => 'ks',
             'unit_net' => $item->unit_net_minor, 'discount' => $item->discount_minor, 'net' => $item->unit_net_minor * $item->qty - $item->discount_minor,
             'tax_rate' => $item->tax_rate, 'tax_category' => $item->config['tax_category'] ?? 'S', 'tax' => $item->tax_minor, 'total' => $item->total_minor,
-            'period_from' => now()->toDateString(), 'period_to' => $this->periodEnd($item->period, (int) ($item->config['periods_billed'] ?? 1) * ($item->product_key === 'domain' ? (int) ($item->config['period_years'] ?? 1) : 1)),
+            'period_from' => AccountingClock::date(), 'period_to' => $this->periodEnd($item->period, (int) ($item->config['periods_billed'] ?? 1) * ($item->product_key === 'domain' ? (int) ($item->config['period_years'] ?? 1) : 1)),
             'service_id' => $item->service_id, 'order_item_id' => $item->id,
         ])->all();
         $draft = $this->draft($organization, $type, $order->currency, $lines, $context, $order->id, ['payment_method' => $paymentMethod, 'postpaid' => $postpaid, 'order_number' => $order->number]);
@@ -186,7 +186,7 @@ final class InvoiceService
                 'number' => $allocated['number'],
                 'state' => Invoice::ISSUED,
                 'issued_at' => $issuedAt,
-                'supply_date' => ($supplyDate ?? $issuedAt)->format('Y-m-d'),
+                'supply_date' => AccountingClock::date($supplyDate ?? $issuedAt), // a DATE on a document is the accounting day, not the day in UTC
                 'due_at' => $issuedAt->copy()->addDays($dueDays),
                 'payment_reference' => InvoiceNumberAllocator::variableSymbol($allocated['number']),
             ])->save();
@@ -376,10 +376,10 @@ final class InvoiceService
     private function periodEnd(string $period, int $units): string
     {
         return match ($period) {
-            'year' => BillingPeriod::end(now(), 'year', $units)->subDay()->toDateString(),
-            'day' => now()->addDays(max(1, $units))->subDay()->toDateString(),
-            'hour' => now()->addHours(max(1, $units))->toDateString(),
-            default => BillingPeriod::end(now(), 'month', $units)->subDay()->toDateString(),
+            'year' => BillingPeriod::end(AccountingClock::now(), 'year', $units)->subDay()->toDateString(),
+            'day' => AccountingClock::now()->addDays(max(1, $units))->subDay()->toDateString(),
+            'hour' => AccountingClock::now()->addHours(max(1, $units))->toDateString(),
+            default => BillingPeriod::end(AccountingClock::now(), 'month', $units)->subDay()->toDateString(),
         };
     }
 }

@@ -27,8 +27,8 @@ final class UblExporter
             'CustomizationID' => self::CUSTOMIZATION_ID,
             'ProfileID' => self::PROFILE_ID,
             'ID' => $invoice->number,
-            'IssueDate' => $invoice->issued_at?->format('Y-m-d'),
-            'DueDate' => $invoice->due_at?->format('Y-m-d'),
+            'IssueDate' => $invoice->issued_at === null ? null : AccountingClock::date($invoice->issued_at), // the same day the PDF prints
+            'DueDate' => $invoice->due_at === null ? null : AccountingClock::date($invoice->due_at),
             'TaxPointDate' => $invoice->supply_date?->format('Y-m-d'),
             'InvoiceTypeCode' => $invoice->type === 'credit_note' ? '381' : ($invoice->type === 'proforma' ? '386' : '380'),
             'DocumentCurrencyCode' => $invoice->currency,

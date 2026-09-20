@@ -91,6 +91,13 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **Money and privacy fixes of 2026-09-20 (evening):** a date on a document is the day at the seller's seat
+  (`AccountingClock`) — the tax date and the number series came from UTC, so 1 January 00:30 in Prague was invoiced into
+  last year; automatic top-ups keep the daily cap and the monthly limit the customer set (neither ever applied); a
+  conversation with the assistant belongs to one person — without a session id the transcript was keyed by the IP
+  address and continued by whoever came next from it. The assistant reads DNS records and one document for whoever may
+  read them in the panel; `onhost:staging:report --check` writes one redacted file of how the installation stands.
+
 - **Control points are numbers** — `onhost:doctor` and the operations board show p50/p95 of every action by panel
   (`OperationLatency`, target `ONHOST_LATENCY_TARGET_SECONDS`), name web services without a recent backup and finished
   operations that still hold secrets; the nightly prerequisites pass asks every panel which of the calls we rely on
@@ -119,7 +126,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 575 tests, 12 342 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 580 tests, 12 401 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

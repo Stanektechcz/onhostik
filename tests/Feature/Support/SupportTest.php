@@ -166,7 +166,7 @@ it('uses the configured LLM provider through the AiProvider contract with read-o
     app(AiProviderRegistry::class)->override($fake);
     $reply = app(AssistantService::class)->chat('Server je pomalý, co s tím?', $org, $user, 'llm-1', $this->contextFor($user, $org));
     expect($reply['text'])->toStartWith('Vidím')->and($reply['topic'])->toBe('vykon');
-    $run = AiRun::query()->where('session_id', 'llm-1')->firstOrFail();
+    $run = AiRun::query()->where('session_id', "{$user->id}:llm-1")->firstOrFail(); // a signed-in person's conversation is keyed by their id, whoever calls the service
     expect($run->provider)->toBe('fake')->and($run->model)->toBe('fake-1')->and($run->input_tokens)->toBe(320)->and($run->tools_called[0]['tool'])->toBe('get_account_facts');
 
     app(AiProviderRegistry::class)->override(new class implements AiProvider
@@ -193,7 +193,7 @@ it('uses the configured LLM provider through the AiProvider contract with read-o
     });
     $fallback = app(AssistantService::class)->chat('Jak si nastavím DNS záznam pro doménu?', $org, $user, 'llm-2', $this->contextFor($user, $org));
     expect($fallback['topic'])->toBe('dns')->and($fallback['text'])->toContain('dvou krocích');
-    expect(AiRun::query()->where('session_id', 'llm-2')->value('provider'))->toBe('rules');
+    expect(AiRun::query()->where('session_id', "{$user->id}:llm-2")->value('provider'))->toBe('rules');
 });
 
 it('classifies topics deterministically without diacritics and caps customer priority', function () {
