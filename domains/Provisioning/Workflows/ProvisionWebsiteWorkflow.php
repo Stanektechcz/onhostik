@@ -200,13 +200,8 @@ final class ProvisionWebsiteWorkflow implements Workflow
         if ($service === null) {
             return;
         }
-        $binding = $context->binding();
-        if ($binding !== null && $context->get('already_existed') !== true) {
-            try {
-                $context->adapter()->terminate($binding->ref());
-            } catch (\Throwable) {
-                // orphan reported by the reconciler
-            }
+        if ($context->get('already_existed') !== true) { // a site that was there before this operation is not this operation's to delete
+            $context->container->make(CompensationGuard::class)->takeBack($context, $service);
         }
         $context->container->make(ServiceService::class)->fail($service, $context->actor, (string) ($context->operation->error['message'] ?? 'provisioning failed'), $context->operation);
     }

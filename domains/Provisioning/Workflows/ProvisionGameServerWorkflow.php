@@ -178,12 +178,8 @@ final class ProvisionGameServerWorkflow implements Workflow
         if ($service === null) {
             return;
         }
-        $binding = $context->binding('server');
-        if ($binding !== null && $context->get('already_existed') !== true) {
-            try {
-                $context->adapter()->terminate($binding->ref());
-            } catch (\Throwable) {
-            }
+        if ($context->get('already_existed') !== true) {
+            $context->container->make(CompensationGuard::class)->takeBack($context, $service, 'server');
         }
         $context->container->make(ServiceService::class)->fail($service, $context->actor, (string) ($context->operation->error['message'] ?? 'provisioning failed'), $context->operation);
     }

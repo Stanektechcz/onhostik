@@ -114,10 +114,8 @@ final class GameMigrationWorkflow implements Workflow
         }
         $target = self::targetBinding($service->id);
         if ($target !== null) {
-            try {
-                self::targetAdapter($context)->terminate($target->ref());
-            } catch (Throwable) {
-            }
+            // the copy this migration built is taken back only once the panel confirms it is that copy (CompensationGuard); kept otherwise, on record
+            $context->container->make(CompensationGuard::class)->takeBack($context, $service, self::TARGET_BINDING, self::targetAdapter($context), $target);
             $target->delete();
         }
         if ($context->get('source_stopped') === true) {

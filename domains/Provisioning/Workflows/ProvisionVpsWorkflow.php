@@ -15,7 +15,6 @@ use Onhost\Domain\Provisioning\Workflows\Steps\ScheduleNodeStep;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\VirtualMachine;
 use Onhost\Domain\Services\ServiceService;
-use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\Contracts\ComputeProvider;
 use Onhost\Providers\Contracts\InfrastructureProvider;
 use Onhost\Providers\Contracts\PowerCapable;
@@ -181,14 +180,9 @@ final class ProvisionVpsWorkflow implements Workflow
         if ($service === null) {
             return;
         }
-        $binding = $context->binding('qemu');
-        if ($binding !== null) {
-            try {
-                $context->adapter()->terminate($binding->ref());
-            } catch (ProviderException|\Throwable) {
-                // reconciler reports the orphan; compensation is best effort
-            }
-        }
+        // only the machine THIS operation cloned, and only once the panel confirms it is that machine (CompensationGuard): the vmid is
+        // bound when the clone is accepted — a clone that failed because the number was taken leaves the binding on a stranger's VM
+        $context->container->make(CompensationGuard::class)->takeBack($context, $service, 'qemu');
         $ipam = $context->container->make(IpamService::class);
         foreach (IpAddress::query()->where('service_id', $service->id)->where('state', 'allocated')->get() as $address) {
             $ipam->release($address);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
+use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Services\Models\Service;
@@ -30,7 +31,7 @@ final class ServiceIdentityCheck
         'web' => ['web_domain', 'site'],
         'managed' => ['web_domain', 'site'],
         'mail' => ['mail_domain'],
-        'game' => ['server', 'game_server'],
+        'game' => ['server', 'game_server', 'server_migration'], // the last one: the copy a migration is building (GameMigrationWorkflow::TARGET_BINDING)
         'cloud' => ['qemu', 'lxc', 'vm', 'server'],
         'data' => ['database', 'db_instance', 'server'],
     ];
@@ -38,9 +39,12 @@ final class ServiceIdentityCheck
     public function __construct(private readonly DeletionPolicy $policy) {}
 
     /**
-     * @return array{ok:bool, required:int, matched:int, failed:list<string>, checks:list<array{key:string,label:string,ok:bool|null,expected:?string,actual:?string,note:?string}>, verified_at:string}
+     * `$createdBy`: the proof a COMPENSATION needs before it takes back what a failed operation created — the service is still being
+     * set up (so its state is not a deletable one yet), and the binding must be the one that very operation wrote.
+     *
+     * @return array{ok:bool, required:int, matched:int, failed:list<string>, missing:bool, identifier_matched:bool, checks:list<array{key:string,label:string,ok:bool|null,expected:?string,actual:?string,note:?string}>, verified_at:string}
      */
-    public function verify(Service $service, ?object $adapter = null, ?ResourceRef $ref = null): array
+    public function verify(Service $service, ?object $adapter = null, ?ResourceRef $ref = null, ?Operation $createdBy = null): array
     {
         $checks = [];
         $binding = $ref === null
@@ -80,10 +84,14 @@ final class ServiceIdentityCheck
 
         $checks[] = self::check('legal_hold', 'Bez právní blokace', ! $service->legal_hold, 'no hold', $service->legal_hold ? 'legal hold' : 'no hold');
 
-        $checks[] = self::check('state', 'Stav služby', in_array($service->state, [
-            ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED, ServiceStateMachine::SUSPENDING,
-            ServiceStateMachine::TERMINATING, ServiceStateMachine::FAILED,
-        ], true), 'deletable state', $service->state);
+        $deletable = [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED, ServiceStateMachine::SUSPENDING, ServiceStateMachine::TERMINATING, ServiceStateMachine::FAILED];
+        if ($createdBy !== null) {
+            $deletable = array_merge($deletable, [ServiceStateMachine::PAID, ServiceStateMachine::PROVISIONING, ServiceStateMachine::VERIFYING]);
+            $key = (string) $binding->idempotency_key;
+            $checks[] = self::check('created_here', 'Vytvořeno touto operací', $key !== '' && str_starts_with($key, $createdBy->idempotency_key.':'), $createdBy->idempotency_key.':…', $key,
+                'a compensation takes back only what its own operation bound');
+        }
+        $checks[] = self::check('state', 'Stav služby', in_array($service->state, $deletable, true), 'deletable state', $service->state);
 
         [$state, $error] = $this->actual($adapter, $ref ?? $binding->ref());
         if ($error !== null) {

@@ -194,6 +194,26 @@ Tests: `tests/Feature/Orders/OrderTransitionGateTest.php`.
 
 Tests: `tests/Feature/Services/ServiceNamePrefixTest.php`.
 
+## 15. A failed operation takes back only what it made
+
+* The compensations of the provisioning sagas called `terminate()` on whatever binding the service had — no proof that
+  the thing under that number was theirs. The VPS clone step binds the service to the vmid it **reserved** the moment
+  the clone is accepted; when the clone then failed because somebody else had taken that number in the meantime (the
+  panel's own UI, another automation, a race on `nextid`), the binding pointed at a stranger's machine and the
+  compensation **stopped and destroyed it**. Proven by a test against the old code: `POST …/qemu/1042/status/stop`,
+  `DELETE …/qemu/1042`.
+* `CompensationGuard::takeBack()` is now the only way a compensation deletes: the binding must be the one **this
+  operation** wrote (`StepContext::bind` keys it by the operation — never simply "the service's first binding"), and the
+  panel must confirm the resource by the same proof a cancellation needs (`ServiceIdentityCheck`, check `created_here`
+  added; the states of a service that is still being set up are accepted). Used by the VPS, web site, game server and
+  app sagas and by the game migration's half-built target.
+* A panel that cannot be asked, a name that does not match, a resource somebody else's service also points at: **nothing
+  is deleted**. The fact is audited (`provisioning.compensation.kept`) and operations get *Po nezdařeném zřízení zůstal
+  zdroj na panelu* with the type, the number, the node and the checks that failed. An orphan costs a look; a wrong delete
+  costs a customer's server.
+
+Tests: `tests/Feature/Provisioning/CompensationGuardTest.php`.
+
 ## What to look at on staging after deploying this
 
 * migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;

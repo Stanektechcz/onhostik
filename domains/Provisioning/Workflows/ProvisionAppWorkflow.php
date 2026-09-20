@@ -103,13 +103,7 @@ final class ProvisionAppWorkflow implements Workflow
         if ($service === null) {
             return;
         }
-        $binding = $context->binding('namespace');
-        if ($binding !== null) {
-            try {
-                $context->adapter()->terminate($binding->ref());
-            } catch (\Throwable) {
-            }
-        }
+        $context->container->make(CompensationGuard::class)->takeBack($context, $service, 'namespace');
         $context->container->make(ServiceService::class)->fail($service, $context->actor, (string) ($context->operation->error['message'] ?? 'provisioning failed'), $context->operation);
     }
 }

@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A failed operation takes back only what it made:** compensations delete through `CompensationGuard` — this operation's
+  own binding, confirmed by the panel (`ServiceIdentityCheck`); a failed VPS clone used to stop and destroy the stranger's VM
+  that had taken the reserved vmid. What cannot be confirmed is kept, audited and reported.
+
 - **Premium names are not sold at list price:** the search answers `premium`, the create asks about the name once more and
   refuses a premium (or since-taken) one, renewals and transfers of premium names stop before anything is sent or held.
 
@@ -155,7 +159,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 610 tests, 12 702 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 613 tests, 12 714 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
