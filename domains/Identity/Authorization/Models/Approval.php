@@ -4,9 +4,18 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Identity\Authorization\Models;
 
+use Illuminate\Support\Carbon;
 use Onhost\Platform\Eloquent\Model;
 
-/** Two-person approval record (blueprint §61.6). Consumed exactly once by the command it approves. */
+/**
+ * Two-person approval record (blueprint §61.6). Consumed exactly once by the command it approves.
+ *
+ * @property ?Carbon $expires_at
+ * @property ?Carbon $decided_at
+ * @property ?Carbon $consumed_at
+ * @property ?Carbon $created_at
+ * @property array<string,mixed>|null $payload
+ */
 final class Approval extends Model
 {
     protected static string $idPrefix = 'apr';

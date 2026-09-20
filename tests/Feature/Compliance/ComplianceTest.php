@@ -124,13 +124,19 @@ it('builds GDPR data exports and blocks deletion while services are live or a le
     $this->actingAs($legal, 'sanctum');
     $this->postJson("/v1/staff/customers/{$org->id}/legal-hold", ['hold' => true, 'reason' => 'Žádost PČR č. j. KRPA-1234/2026'])->assertForbidden()->assertJsonPath('error', 'step_up_required');
     app(StepUpService::class)->grant($legal, 'totp', null, '127.0.0.1');
-    $this->postJson("/v1/staff/customers/{$org->id}/legal-hold", ['hold' => true, 'reason' => 'Žádost PČR č. j. KRPA-1234/2026'])->assertOk()->assertJsonPath('legal_hold', true);
+    // the permission is critical: one person alone does not place a hold — the refusal opens the request, somebody else approves it
+    $hold = ['hold' => true, 'reason' => 'Žádost PČR č. j. KRPA-1234/2026'];
+    $request = $this->postJson("/v1/staff/customers/{$org->id}/legal-hold", $hold)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
+    expect($org->fresh()->settings['legal_hold'] ?? false)->toBeFalse();
+    $this->postJson("/v1/staff/customers/{$org->id}/legal-hold", $hold + ['approval_ids' => [secondPersonApproves($request)]])->assertOk()->assertJsonPath('legal_hold', true);
 
     $this->actingAs($customer, 'sanctum');
     $this->withHeaders($headers)->postJson('/v1/data-requests', ['kind' => 'deletion'])->assertStatus(409)->assertJsonPath('blocks.0', 'legal_hold');
 
     $this->actingAs($legal, 'sanctum');
-    $this->postJson("/v1/staff/customers/{$org->id}/legal-hold", ['hold' => false, 'reason' => 'Řízení ukončeno, hold zrušen.'])->assertOk()->assertJsonPath('legal_hold', false);
+    $lift = ['hold' => false, 'reason' => 'Řízení ukončeno, hold zrušen.'];
+    $request = $this->postJson("/v1/staff/customers/{$org->id}/legal-hold", $lift)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
+    $this->postJson("/v1/staff/customers/{$org->id}/legal-hold", $lift + ['approval_ids' => [secondPersonApproves($request)]])->assertOk()->assertJsonPath('legal_hold', false);
     $this->actingAs($customer, 'sanctum');
     $this->withHeaders($headers)->postJson('/v1/data-requests', ['kind' => 'deletion'])->assertStatus(202);
     expect(app(ComplianceService::class)->processDataRequests()['deleted'])->toBe(1);

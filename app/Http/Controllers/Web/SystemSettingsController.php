@@ -91,6 +91,24 @@ final class SystemSettingsController extends Controller
         ]);
     }
 
+    /** Nastavení systému → Schvalování: requests for the second person of a critical action (four eyes, ApprovalService). */
+    public function approvals(Request $request): View|RedirectResponse
+    {
+        $user = $request->user();
+        if ($user === null) {
+            return redirect('/prihlaseni?next='.urlencode($request->getRequestUri()));
+        }
+        if (! $user->is_staff) {
+            return redirect('/panel');
+        }
+        $ds = glob(base_path('apps/surfaces/_ds/*/styles.css')) ?: [];
+
+        return view('admin.approvals', [
+            'user' => $user,
+            'stylesheet' => $ds === [] ? null : '/surfaces/'.str_replace('\\', '/', substr($ds[0], strlen(base_path('apps/surfaces')) + 1)),
+        ]);
+    }
+
     public function operations(Request $request): View|RedirectResponse
     {
         $user = $request->user();

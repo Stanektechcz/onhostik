@@ -100,7 +100,9 @@ return [
         'trusted_device_days' => 30,
         'jit_default_ttl_minutes' => 60,
         'jit_max_ttl_minutes' => 480,
-        'approval_ttl_hours' => 24,
+        'approval_ttl_hours' => (int) env('ONHOST_APPROVAL_TTL_HOURS', 24),
+        // critical staff actions take a second person (ApprovalService). Off = one operator runs the platform alone: set on the server, never from the application
+        'four_eyes' => (bool) env('ONHOST_FOUR_EYES', true),
         'oidc' => [
             'enabled' => (bool) env('OIDC_ENABLED', false),
             'issuer' => env('OIDC_ISSUER', 'https://id.onhost.cz/realms/onhost'),

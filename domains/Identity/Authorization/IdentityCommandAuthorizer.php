@@ -59,12 +59,21 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
         }
 
         $risk = $command instanceof RiskAwareCommand ? $command->riskLevel() : PermissionCatalog::risk($permission);
+        // A command may say that one of its operations is less than its permission at large (a draft, a note). What it may not do
+        // is talk a CRITICAL staff permission out of its second person: there was no way to make an approval, so commands declared
+        // themselves "high" instead — a legal hold was placed and lifted by one person alone.
+        if (PermissionCatalog::risk($permission) === PermissionCatalog::CRITICAL && (PermissionCatalog::all()[$permission]['audience'] ?? '') === 'staff') {
+            $risk = PermissionCatalog::CRITICAL;
+        }
         $needsStepUp = $risk === PermissionCatalog::HIGH || $risk === PermissionCatalog::CRITICAL;
         $needsApproval = $risk === PermissionCatalog::CRITICAL;
         if ($command instanceof RiskAwareCommand) {
             $needsStepUp = $needsStepUp || $command->requiresStepUp();
             $needsApproval = $needsApproval || $command->requiresApproval();
         }
+        // one operator runs the platform alone (ONHOST_FOUR_EYES=false on the server): the step-up stays, the second person cannot exist
+        $waived = $needsApproval && ! ApprovalService::enabled();
+        $needsApproval = $needsApproval && ! $waived;
 
         $stepUpMethod = null;
         if ($needsStepUp && $principal instanceof User) {
@@ -88,14 +97,19 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
                     break;
                 }
             }
+            // …or the one somebody else gave to exactly this command of this person: the console repeats the action as it was, it
+            // does not have to carry the id (the approval is bound to the requester, the command and the hash of its payload either way)
+            $approval ??= Approval::query()->where('action', $command->name())->where('payload_hash', $hash)->where('requested_by', (string) $context->actorId)
+                ->where('state', 'approved')->whereNull('consumed_at')->where('expires_at', '>', now())->get()
+                ->first(fn (Approval $candidate) => $candidate->isUsableFor($command->name(), $hash, (string) $context->actorId));
             if ($approval === null) {
-                return AuthorizationDecision::deny('Two-person approval required for this action', 'approval');
+                return AuthorizationDecision::deny('This action takes a second person: a request for approval was opened. Repeat it with approval_ids once somebody else has approved it.', 'approval');
             }
             $approval->forceFill(['consumed_at' => now(), 'state' => 'consumed'])->save();
             $approvalIds[] = $approval->id;
         }
 
-        return AuthorizationDecision::allow($stepUpMethod, $approvalIds);
+        return AuthorizationDecision::allow($stepUpMethod, $waived ? ['waived:single-operator'] : $approvalIds); // the audit says why nobody else signed
     }
 
     private function principal(CommandContext $context): User|ServiceAccount|null

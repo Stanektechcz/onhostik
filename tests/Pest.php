@@ -6,6 +6,10 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\Authorization\ApprovalService;
+use Onhost\Domain\Identity\Authorization\Models\Approval;
+use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Models\IpPool;
@@ -17,6 +21,7 @@ use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\OperationService;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Platform\Commands\CommandContext;
 use Tests\TestCase;
 
 pest()->extend(TestCase::class)
@@ -454,4 +459,20 @@ function connectionWapiFake(array &$state): void
 
         return Http::response(['response' => array_merge(['code' => 1000, 'result' => 'OK', 'timestamp' => time(), 'clTRID' => $payload['clTRID'], 'svTRID' => 'sv-'.uniqid(), 'command' => $command, 'data' => []], $overrides)]);
     }]);
+}
+
+/**
+ * Four eyes in a test: somebody else (a platform owner by default) approves the request the refusal opened.
+ * Returns the approval id the requester repeats the request with (`approval_ids`).
+ */
+function secondPersonApproves(string $approvalId, ?User $decider = null): string
+{
+    $decider ??= User::factory()->staff()->create();
+    if (! PolicyBinding::query()->where('principal_id', $decider->id)->exists()) {
+        PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $decider->id, 'role_key' => 'platform_owner', 'scope_type' => 'global', 'scope_id' => null, 'organization_id' => null]);
+    }
+    $approval = Approval::query()->findOrFail($approvalId);
+    app(ApprovalService::class)->decide($approval, $decider, 'approved', null, new CommandContext('user', $decider->id, null, null, '127.0.0.1', 'pest', 'second-person', stepUpMethod: 'totp'));
+
+    return $approvalId;
 }

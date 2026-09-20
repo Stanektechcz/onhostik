@@ -50,6 +50,7 @@
   <a href="/sprava/nastaveni/provoz"><strong>Provoz</strong></a>
   <a href="/sprava/nastaveni/zivotni-cyklus">Životní cyklus služeb</a>
   <a href="/sprava/nastaveni/tarify">Tarify a verze</a>
+  <a href="/sprava/nastaveni/schvalovani">Schvalování</a>
   <span class="spacer"></span>
   <span class="muted">{{ $user->name }} · {{ $user->email }}</span>
 </header>

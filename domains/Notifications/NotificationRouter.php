@@ -44,6 +44,9 @@ final class NotificationRouter
             'order.paid' => $this->customer($m, 'order', 'Objednávka zaplacena', "{$p['number']} · zřizujeme služby", '/panel/objednavky'),
             'order.active' => $this->customer($m, 'order', 'Objednávka je hotová', "{$p['number']} · všechny služby jsou aktivní", '/panel/sluzby'),
             'provisioning.stranded.released' => $this->internal($m, 'provisioning', 'Služby uvolněné z mezistavu: '.(int) ($p['count'] ?? 0), implode(', ', array_map(fn ($s) => (string) ($s['name'] ?? $s['id'] ?? '').' ('.(string) ($s['from'] ?? '').' → '.(string) ($s['to'] ?? '').')', (array) ($p['services'] ?? []))), '/sprava/provoz', 'warn'),
+            // four eyes: staff hear that somebody needs a second person, and what became of it
+            'iam.approval.requested' => $this->internal($m, 'security', 'Žádost o schválení: '.($p['action'] ?? ''), trim((string) ($p['requester'] ?? '').' · '.(string) ($p['reason'] ?? ''), ' ·'), '/sprava/nastaveni/schvalovani', 'warn'),
+            'iam.approval.decided' => $this->internal($m, 'security', (($p['decision'] ?? '') === 'approved' ? 'Žádost schválena: ' : 'Žádost zamítnuta: ').($p['action'] ?? ''), trim((string) ($p['decider'] ?? '').' · '.(string) ($p['note'] ?? ''), ' ·'), '/sprava/nastaveni/schvalovani'),
             // one service shared with another person: the organization sees who was let in and when that ended
             'service.access.granted' => $this->customer($m, 'account', 'Služba sdílena: '.($p['service'] ?? ''), ($p['email'] ?? '').(($p['state'] ?? '') === 'pending' ? ' · čeká na přijetí pozvánky' : ' · přístup je aktivní').($until !== '' ? ' · do '.$until : ''), '/panel/sluzby'),
             'service.access.revoked' => $this->customer($m, 'account', 'Sdílení služby ukončeno: '.($p['service'] ?? ''), (string) ($p['email'] ?? ''), '/panel/sluzby'),

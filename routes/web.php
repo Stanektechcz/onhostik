@@ -93,6 +93,7 @@ Route::get('sprava/nastaveni/integrace', [SystemSettingsController::class, 'inte
 Route::get('sprava/nastaveni/provoz', [SystemSettingsController::class, 'operations'])->middleware('auth:sanctum')->name('settings.operations');
 Route::get('sprava/nastaveni/hromadne-akce', [SystemSettingsController::class, 'bulk'])->middleware('auth:sanctum')->name('settings.bulk');
 Route::get('sprava/nastaveni/zivotni-cyklus', [SystemSettingsController::class, 'lifecycle'])->middleware('auth:sanctum')->name('settings.lifecycle'); // audit §5ab
+Route::get('sprava/nastaveni/schvalovani', [SystemSettingsController::class, 'approvals'])->middleware('auth:sanctum')->name('settings.approvals'); // four eyes: requests for a second person
 Route::get('sprava/nastaveni/tarify', [SystemSettingsController::class, 'plans'])->middleware('auth:sanctum')->name('settings.plans'); // versions of a plan (H01)
 Route::get('sprava/konzole/{service}', [StaffConsoleController::class, 'show'])->middleware('auth:sanctum')->name('staff.console'); // the staff-side server console (audit §5p-2)
 Route::get('sprava/{path?}', [SurfaceController::class, 'admin'])->where('path', '.*')->name('surface.admin');

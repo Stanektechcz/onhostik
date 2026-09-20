@@ -8,6 +8,7 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | --- | --- |
 | [incident-response.md](incident-response.md) | probes or customers report an outage; severity, status page, post-mortem |
 | [service-sharing-and-assistant.md](service-sharing-and-assistant.md) | One service shared with another person (capabilities, guest, expiry, revocation) and what the AI assistant may see and offer — for customers, guests and staff |
+| [approvals.md](approvals.md) | Four eyes: a critical staff action waits for a second person — how a request is opened, who may decide it, the single-operator switch on the server |
 | [backups.md](backups.md) | What a backup of a service is (web: the platform's own set of files + every database, fresh or failed), download, restore, delete, retention, off-site; what to check when one fails |
 | [security-boundaries.md](security-boundaries.md) | The rules the customer-facing edge keeps (parameter allow-lists, egress, keys and tokens, roles, money) — read before adding an endpoint |
 | [provider-outage.md](provider-outage.md) | Proxmox / ISPConfig / aaPanel / Pterodactyl / PowerDNS / WEDOS unreachable or erroring |

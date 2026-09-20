@@ -91,6 +91,11 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **Four eyes work** (`docs/runbooks/approvals.md`): a critical staff action (legal hold, roles, mass credit, tax rules,
+  secrets) opens a request when one person tries it alone; somebody else who could do it themselves approves it behind
+  their own step-up; the approval is spent once by exactly that command. A command can no longer talk a critical
+  permission down. One operator alone runs with `ONHOST_FOUR_EYES=false` set on the server — never from the application.
+
 - **Backups are fresh and whole, or they fail** (`docs/runbooks/backups.md`). A backup of a web service is the
   platform's own set — site files + every database, off the node, checksummed — for manual, scheduled and pre-push
   backups on both panels; panel backups (games, VMs) are recognised by the name the panel gave them or as the entry
@@ -102,7 +107,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 563 tests, 12 132 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 568 tests, 12 214 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

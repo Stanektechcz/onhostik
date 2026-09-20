@@ -21,7 +21,10 @@ use Onhost\Domain\Domains\Commands\DomainCommand;
 use Onhost\Domain\Domains\Commands\DomainsCommandHandler;
 use Onhost\Domain\Domains\Commands\RegistrarConnectionCommand;
 use Onhost\Domain\Domains\Commands\RegistrarConnectionsCommandHandler;
+use Onhost\Domain\Identity\Authorization\ApprovalService;
 use Onhost\Domain\Identity\Commands\ApiTokenCommand;
+use Onhost\Domain\Identity\Commands\ApprovalDecisionCommand;
+use Onhost\Domain\Identity\Commands\ApprovalDecisionCommandHandler;
 use Onhost\Domain\Identity\Commands\IdentityCommandHandler;
 use Onhost\Domain\Incidents\Commands\IncidentCommand;
 use Onhost\Domain\Incidents\Commands\IncidentsCommandHandler;
@@ -82,7 +85,9 @@ use Onhost\Domain\WalletLedger\Commands\BudgetCommand;
 use Onhost\Domain\WalletLedger\Commands\RemovePaymentMethodCommand;
 use Onhost\Domain\WalletLedger\Commands\TopUpWalletCommand;
 use Onhost\Domain\WalletLedger\Commands\WalletCommandHandler;
+use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandBus;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Outbox\OutboxEventDispatched;
 
 /**
@@ -129,6 +134,7 @@ final class DomainServiceProvider extends ServiceProvider
         OnCallCommand::class => OnCallCommandHandler::class,
         ComplianceCommand::class => ComplianceCommandHandler::class,
         ServiceAccessCommand::class => ServiceAccessCommandHandler::class,
+        ApprovalDecisionCommand::class => ApprovalDecisionCommandHandler::class,
         PartnerCommand::class => PartnersCommandHandler::class,
         PartnerPortalCommand::class => PartnersCommandHandler::class,
     ];
@@ -155,6 +161,15 @@ final class DomainServiceProvider extends ServiceProvider
             foreach (self::HANDLERS as $command => $handler) {
                 $bus->register($command, $handler);
             }
+            // four eyes: whoever is refused for want of a second person has the request opened for them, and the refusal names it
+            $bus->onApprovalRequired(function (Command $command, CommandContext $context): array {
+                if ($context->actorType !== 'user' || $context->actorId === null) {
+                    return [];
+                }
+                $approval = $this->app->make(ApprovalService::class)->request($command, $context);
+
+                return ['approval_id' => $approval->id, 'approval_state' => $approval->state, 'approval_expires_at' => $approval->expires_at?->toIso8601String(), 'help' => '/sprava/nastaveni/schvalovani'];
+            });
         });
     }
 }

@@ -25,6 +25,9 @@ final class CommandBus
     /** @var array<class-string<Command>, class-string<CommandHandler>> */
     private array $handlers = [];
 
+    /** @var (\Closure(Command, CommandContext): array<string,mixed>)|null opens the request for a second person and returns what the refusal should carry (the identity domain registers it; the platform knows no approvals) */
+    private ?\Closure $approvals = null;
+
     public function __construct(
         private readonly Container $container,
         private readonly CommandAuthorizer $authorizer,
@@ -40,6 +43,12 @@ final class CommandBus
         $this->handlers[$command] = $handler;
     }
 
+    /** @param \Closure(Command, CommandContext): array<string,mixed> $open */
+    public function onApprovalRequired(\Closure $open): void
+    {
+        $this->approvals = $open;
+    }
+
     public function dispatch(Command $command, CommandContext $context): mixed
     {
         $decision = $this->authorizer->authorize($command, $context);
@@ -49,9 +58,17 @@ final class CommandBus
                 'reason' => $decision->reason,
                 'command' => $command->toAudit(),
             ]);
+            $pending = [];
+            if ($decision->requirement === 'approval' && $this->approvals !== null) {
+                try {
+                    $pending = ($this->approvals)($command, $context);
+                } catch (Throwable $e) {
+                    report($e); // the action stays refused either way; the request can be opened by asking again
+                }
+            }
             throw match ($decision->requirement) {
                 'step_up' => new DomainError('step_up_required', $decision->reason ?? 'Step-up authentication required', 403, ['requirement' => 'step_up', 'help' => '/v1/auth/step-up']),
-                'approval', 'human' => new DomainError('approval_required', $decision->reason ?? 'A second approver is required', 403, ['requirement' => $decision->requirement === 'human' ? 'human' : 'approval']),
+                'approval', 'human' => new DomainError('approval_required', $decision->reason ?? 'A second approver is required', 403, ['requirement' => $decision->requirement === 'human' ? 'human' : 'approval'] + $pending),
                 default => DomainError::forbidden($decision->reason ?? 'Permission denied'),
             };
         }

@@ -14,6 +14,8 @@ use Onhost\Domain\Catalog\Models\TldPolicy;
 use Onhost\Domain\Domains\Models\RegistrarTldCost;
 use Onhost\Domain\Domains\RegistrarClient;
 use Onhost\Domain\Domains\RegistrarPricing;
+use Onhost\Domain\Identity\Authorization\ApprovalService;
+use Onhost\Domain\Identity\Authorization\Models\Approval;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
@@ -286,6 +288,12 @@ final class Doctor extends Command
         $this->add('identity', 'no development accounts', $demo === 0, $demo > 0 ? "{$demo} DevAccountSeeder account(s) present" : '');
         $staff = User::query()->where('is_staff', true)->count();
         $this->add('identity', 'staff users exist', $staff > 0, "{$staff} staff user(s)");
+        // four eyes need two heads (docs/runbooks/approvals.md): with fewer than two people who may decide approvals, a critical action of the only one can never be approved
+        $deciders = ApprovalService::deciders()->count();
+        $fourEyes = ApprovalService::enabled();
+        $this->add('identity', 'four eyes in effect', $fourEyes && $deciders >= 2, $fourEyes ? "{$deciders} member(s) of staff may decide approvals".($deciders >= 2 ? '' : ' — grant iam.approval.decide to a second person, or run ONHOST_FOUR_EYES=false deliberately') : 'ONHOST_FOUR_EYES=false: critical actions take one person and a step-up (single-operator mode)', false);
+        $waiting = Approval::query()->where('state', 'pending')->where('expires_at', '>', now())->where('created_at', '<', now()->subHours(4))->count();
+        $this->add('identity', 'no approval waiting for hours', $waiting === 0, $waiting === 0 ? '' : "{$waiting} request(s) older than four hours — /sprava/nastaveni/schvalovani", false);
     }
 
     private function mailAndObservability(): void

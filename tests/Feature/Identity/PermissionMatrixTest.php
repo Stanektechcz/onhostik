@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Authorization\PermissionCatalog;
+use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
@@ -62,4 +64,18 @@ it('allows and denies the operations of every customer role as the matrix says, 
         }
     }
     expect($wrong)->toBe([]);
+});
+
+it('leaves no console to the break-glass account alone: every staff permission is held by a named role, except the three that ARE break-glass', function () {
+    $held = [];
+    foreach (RoleCatalog::all() as $key => $role) {
+        if ($key !== 'platform_owner') {
+            $held = array_merge($held, $role['permissions']);
+        }
+    }
+    $orphans = array_values(array_diff(array_keys(array_filter(PermissionCatalog::all(), fn (array $p) => $p['audience'] === 'staff')), $held));
+    sort($orphans);
+    // pricing, notification templates, feature flags, loyalty and sandbox credit were checked by their consoles and held by nobody:
+    // usable only as PlatformOwner — "never a daily account" — so the daily account it became
+    expect($orphans)->toBe(['iam.break_glass', 'provider.secret.view', 'secret.rotate']);
 });

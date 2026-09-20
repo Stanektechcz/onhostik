@@ -24,6 +24,7 @@ use Onhost\Domain\Domains\RegistrarCreditMonitor;
 use Onhost\Domain\Domains\RegistrarPollWorker;
 use Onhost\Domain\Domains\RegistrarPriceScraper;
 use Onhost\Domain\Domains\RegistrarPricing;
+use Onhost\Domain\Identity\Authorization\ApprovalService;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\MaintenanceService;
 use Onhost\Domain\Incidents\OnCallRota;
@@ -753,8 +754,9 @@ Artisan::command('onhost:access:expire', function (AccessExpiry $expiry, Automat
         return;
     }
     $stats = $expiry->sweep() + ['shared_services' => $shared->expire()]; // one service shared until a date: the binding stopped at that second, this closes the record and lets a guest go
+    $stats['approvals'] = app(ApprovalService::class)->expire(); // a request for a second person nobody decided in time (it stopped being usable at that second by itself)
     $ledger->record('access.expire', $stats);
-    $this->table(['memberships', 'project_roles', 'errors', 'shared_services'], [$stats]);
+    $this->table(['memberships', 'project_roles', 'errors', 'shared_services', 'approvals'], [$stats]);
 })->purpose('Remove memberships and project roles whose access ended on its date, with the panel accounts and SSH keys that were theirs');
 
 /*

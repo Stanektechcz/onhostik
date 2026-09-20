@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\V1\RegistrarConnectionController;
 use App\Http\Controllers\Api\V1\RewardsController;
 use App\Http\Controllers\Api\V1\ServiceAccessController;
 use App\Http\Controllers\Api\V1\ServiceController;
+use App\Http\Controllers\Api\V1\Staff\ApprovalController;
 use App\Http\Controllers\Api\V1\Staff\ChargebackController;
 use App\Http\Controllers\Api\V1\Staff\ComplianceController as StaffComplianceController;
 use App\Http\Controllers\Api\V1\Staff\ConsoleController;
@@ -499,6 +500,8 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::get('resource-mappings', [ProvisioningController::class, 'drifts']);
         Route::post('resource-mappings/{drift}/resolve', [ProvisioningController::class, 'resolveDrift']);
         Route::post('assistant/chat', [StaffSupportController::class, 'assistant']); // the assistant over one customer's account, for support and NOC
+        Route::get('approvals', [ApprovalController::class, 'index']); // four eyes: requests for a second person (ApprovalService)
+        Route::post('approvals/{approval}/decision', [ApprovalController::class, 'decide']);
         Route::get('tickets', [StaffSupportController::class, 'index']);
         Route::get('tickets/clusters', [StaffSupportController::class, 'clusters']);
         Route::get('tickets/macros', [StaffSupportController::class, 'macros']);
