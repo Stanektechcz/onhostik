@@ -471,6 +471,7 @@ Schedule::command('onhost:billing:renewals')->hourlyAt(20)->withoutOverlapping()
 Schedule::command('onhost:billing:dunning')->dailyAt('06:00')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:runway')->dailyAt('07:30')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:dns:platform-sync')->hourlyAt(25)->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:dns:drift')->dailyAt('03:40')->withoutOverlapping()->onOneServer(); // what the DNS providers serve vs what we hold
 Schedule::command('onhost:certificates:issue-pending')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:registrars:sync-connections')->hourlyAt(40)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:overdue')->dailyAt('01:15')->onOneServer();
@@ -992,6 +993,16 @@ Artisan::command('onhost:registrars:sync-connections {--connection=* : limit to 
 
     return 0;
 })->purpose('Mirror every connected registrar account: domains, hosted zones, expiry notices, credit watch');
+
+/*
+ * What the DNS providers serve, compared with what the platform holds — a batch of zones a night, oldest comparison first. A
+ * record changed at the provider by hand, a commit that arrived only in part, a zone deleted there: operations hear about it
+ * the first night, the doctor shows it until it is gone. Nothing is repaired by itself — which side is right is a decision.
+ */
+Artisan::command('onhost:dns:drift {--limit= : zones to compare in this run (default: onhost.dns.drift_batch)}', function (DnsService $dns) {
+    $stats = $dns->checkDrift((int) ($this->option('limit') ?: config('onhost.dns.drift_batch', 200)));
+    $this->info("compared {$stats['checked']} zone(s): {$stats['drifted']} differ, {$stats['errors']} could not be asked");
+})->purpose('Compare every DNS zone with what its provider serves and report the differences');
 
 Artisan::command('onhost:dns:platform-sync {--service=* : limit to these service ids} {--dry-run : only report what would change}', function (DnsService $dns) {
     $query = Service::query()->whereIn('family', ['web', 'managed'])->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED]);

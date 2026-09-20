@@ -147,13 +147,11 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
     public function resize(ResourceRef $ref, ResourceSpec $spec): ProviderResult
     {
-        // Managed plans are resized by moving limits in the PHP-FPM pool / quota; aaPanel exposes the pool via SetPHPConf.
-        $workers = $spec->get('entitlements.php_workers');
-        if ($workers !== null) {
-            $this->post('/config?action=SetPHPMaxChildren', ['version' => str_replace('.', '', (string) $spec->get('php_version', '8.3')), 'max_children' => (int) $workers], 'php.pool.set', true);
-        }
-
-        return ProviderResult::completed($ref, ['php_workers' => $workers]);
+        // aaPanel runs ONE PHP-FPM pool per PHP version for the whole node. `SetPHPMaxChildren` takes a version, not a site: a plan
+        // change of one customer used to set `pm.max_children` for every site of every customer on that PHP version — a downgrade
+        // to a two-worker plan throttled the node. The pool is the operator's (node sizing); a plan change touches nothing on the
+        // node here. The plan's limits live in the service's entitlements, where the platform checks them before every action.
+        return ProviderResult::completed($ref, ['php_workers' => $spec->get('entitlements.php_workers'), 'applied' => false, 'reason' => 'aapanel has one PHP-FPM pool per PHP version for the whole node; it is not resized per site']);
     }
 
     public function suspend(ResourceRef $ref): ProviderResult

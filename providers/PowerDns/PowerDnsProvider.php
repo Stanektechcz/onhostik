@@ -128,6 +128,12 @@ final class PowerDnsProvider implements DnsProvider
                     continue;
                 }
                 [$prio, $content] = $this->splitPriority((string) $rrset['type'], (string) $record['content']);
+                // the server answers a TXT value in wire form (quoted, a long one in parts); the platform holds the value itself. Read
+                // back quoted it matched nothing: a TXT record could be neither replaced nor removed (the old SPF stayed next to the
+                // new one — a permerror), and every zone with an SPF record differed from its provider for ever
+                if ((string) $rrset['type'] === 'TXT') {
+                    $content = self::txtFromWire($content);
+                }
                 $out[] = ['name' => $relative, 'type' => (string) $rrset['type'], 'content' => $content, 'ttl' => (int) $rrset['ttl'], 'prio' => $prio];
             }
         }

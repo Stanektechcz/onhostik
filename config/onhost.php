@@ -350,6 +350,11 @@ return [
         'platform_organization_slug' => env('ONHOST_PLATFORM_ORGANIZATION_SLUG', 'onhost-platform'),
         'mail_host' => env('ONHOST_MAIL_HOST', 'mail.onhost.cz'),
         'spf_include' => env('ONHOST_SPF_INCLUDE', '_spf.onhost.cz'),
+        // a zone has a size, and so has its list of changes waiting to be published
+        'max_records_per_zone' => (int) env('ONHOST_DNS_MAX_RECORDS', 500),
+        'max_pending_changes' => (int) env('ONHOST_DNS_MAX_PENDING', 200),
+        // zones compared with their provider per night (onhost:dns:drift), oldest comparison first
+        'drift_batch' => (int) env('ONHOST_DNS_DRIFT_BATCH', 200),
     ],
 
     'domains' => [

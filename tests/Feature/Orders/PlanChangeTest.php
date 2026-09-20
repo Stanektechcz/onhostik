@@ -80,7 +80,9 @@ it('changes the plan of a running service: pro-rated charge now, new price from 
         ->and($service->state)->toBe(ServiceStateMachine::ACTIVE)->and($service->plan_version_id)->toBe($standard['version']->id)
         ->and($service->entitlements['php_workers'])->toBe($standard['version']->entitlements['php_workers'])->and($service->entitlements['nvme_gb'])->toBe($standard['version']->entitlements['nvme_gb'])
         ->and($subscription->plan_version_id)->toBe($standard['version']->id)->and($subscription->amount_minor)->toBe($newNet)->and($subscription->current_period_end->toDateString())->toBe(now()->addDays(15)->toDateString());
-    Http::assertSent(fn ($r) => str_contains($r->url(), 'SetPHPMaxChildren') && (int) $r['max_children'] === (int) $standard['version']->entitlements['php_workers']);
+    // aaPanel has one PHP-FPM pool per PHP version for the WHOLE NODE: a customer's plan change must never resize it (it used to — a
+    // downgrade to a two-worker plan set `pm.max_children = 2` for every site of every customer on that PHP version)
+    Http::assertNotSent(fn ($r) => str_contains($r->url(), 'SetPHPMaxChildren'));
     app(OutboxPublisher::class)->relayPending();
     expect(Notification::query()->where('organization_id', $org->id)->where('title', 'like', 'Tarif služby % změněn na Standard')->exists())->toBeTrue()
         ->and(MailOutbox::query()->where('organization_id', $org->id)->where('template_key', 'service-plan-changed')->exists())->toBeTrue();

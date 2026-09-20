@@ -19,19 +19,22 @@ final class DnsZone extends Model
 
     protected function casts(): array
     {
-        return ['serial' => 'integer', 'version' => 'integer', 'dnssec' => 'boolean', 'dnssec_ds' => 'array', 'nameservers' => 'array', 'secondary_providers' => 'array', 'committed_at' => 'datetime', 'last_verified_at' => 'datetime'];
+        return ['serial' => 'integer', 'version' => 'integer', 'dnssec' => 'boolean', 'dnssec_ds' => 'array', 'nameservers' => 'array', 'secondary_providers' => 'array', 'committed_at' => 'datetime', 'last_verified_at' => 'datetime', 'drift_checked_at' => 'datetime', 'drift' => 'array'];
     }
 
+    /** @return HasMany<DnsRecord, $this> */
     public function records(): HasMany
     {
         return $this->hasMany(DnsRecord::class, 'zone_id')->orderBy('name')->orderBy('type');
     }
 
+    /** @return HasMany<DnsZoneVersion, $this> */
     public function versions(): HasMany
     {
         return $this->hasMany(DnsZoneVersion::class, 'zone_id')->orderByDesc('version');
     }
 
+    /** @return HasMany<DnsChange, $this> */
     public function pendingChanges(): HasMany
     {
         return $this->hasMany(DnsChange::class, 'zone_id')->where('state', 'pending')->orderBy('created_at');

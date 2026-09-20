@@ -44,6 +44,7 @@ final class DnsCommandHandler implements CommandHandler
             'discard' => ['discarded' => $this->dns->discard($zone, $context)],
             'commit' => $this->version($this->dns->commit($zone, $context, $command->get('reason'))),
             'rollback' => $this->version($this->dns->rollback($zone, (int) $command->get('version'), $context)),
+            'republish' => $this->dns->republish($zone, $context, $command->get('reason')),
             'dnssec' => (bool) $command->get('enabled') ? $this->dns->enableDnssec($zone, $context) : (function () use ($zone, $context) {
                 $this->dns->disableDnssec($zone, $context);
 

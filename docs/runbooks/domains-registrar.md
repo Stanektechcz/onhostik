@@ -77,3 +77,54 @@ about it (`domain.renewal_failed`), and finance renew it by hand at the registry
 
 Selling premium names is a business decision (the registry's price + a margin, quoted individually); until then they
 are not sold. Tests: `tests/Feature/Domains/PremiumDomainTest.php`.
+
+## DNS: compared every night, bounded in size
+
+* `onhost:dns:drift` (daily 03:40; `ONHOST_DNS_DRIFT_BATCH` zones a night, oldest comparison first) compares what each
+  DNS provider **serves** with what the platform holds. `DnsService::drift()` existed and nobody called it: a record
+  changed at the provider by hand, a commit that arrived only in part (the WEDOS zone API takes rows one by one), a zone
+  deleted there — none of it was ever noticed. Zones of the platform's own DNS only; a zone mirrored from a customer's
+  registrar account is edited there too and has its own import.
+* A difference is said **once** (`dns.drift.detected`, internal) and stays in `onhost:doctor` (area `dns`) until it is
+  gone: the zone keeps `drift_checked_at` and a summary (`missing_at_provider`, `unknown_at_provider`, a sample). Nothing
+  is repaired by itself — somebody looks first (a record added at the provider by hand may be one that belongs into the
+  zone: add it here, then publish).
+* **The repair is `POST /v1/dns/zones/{zone}/republish`** (`dns.zone.write`; the button "Publikovat zónu znovu" on the DNS
+  tab, shown when the zone differs): the provider is made to serve what the platform holds — missing records are added,
+  unknown ones removed, a record whose TTL differs is **one update** (sent as a row added and a row removed, PowerDNS
+  would drop the record from its set: it tells records apart by their data, not by their TTL), a zone that is gone is
+  created again. The provider is read once more afterwards; the zone is clean only when nothing is left (`verified`). A
+  signed zone that had to be created again has lost its keys: the answer says `dnssec_attention` and operations are told
+  (`dns.zone.republished`, hot) — enable DNSSEC again and publish the new DS at the registry.
+* **No false alarms** — both proven against the old code: PowerDNS answers a TXT value in wire form (quoted, a long one in
+  parts) and `listRecords` handed it on like that, so every zone with an SPF record differed for ever — and, worse, a TXT
+  record could be **neither replaced nor removed** at the provider (the old SPF stayed next to the new one: a permerror;
+  a removed DKIM key stayed published). And a set of records has ONE TTL on the wire: two A records the customer gave two
+  TTLs are ours, not a difference (a TTL changed at the provider still is one).
+* A zone that is **not at the provider at all** is the largest difference there is (`zone_missing`, severity `hot`) — the
+  provider is asked a second way (`zoneExists`) before anybody is told. A comparison that **could not be made** (the key is
+  refused, the provider is down) is neither "equal" nor "gone": the zone keeps `drift_error` (the normalised error class,
+  never a vendor payload), what differed the last time stays as it was, and the doctor has a line of its own for it
+  (`every DNS zone could be compared with its provider`).
+* A zone holds at most `ONHOST_DNS_MAX_RECORDS` (500) records and `ONHOST_DNS_MAX_PENDING` (200) changes waiting to be
+  published (`dns_record_limit`, `dns_pending_limit`, 409). Nothing bounded either: one API token could stage records
+  without end, and a commit pushes the whole zone to the provider.
+
+### WEDOS hosted zones: a batch that is repeated arrives at the same zone
+
+The WEDOS zone API takes rows one by one (`dns-row-add|update|delete`) and publishes them with one `dns-domain-commit`. A
+batch can therefore fail half-way; the platform keeps the changes pending and repeats the batch as a whole. Four faults of
+the adapter, all proven against the old code (`tests/Contract/WedosZoneDnsContractTest.php`):
+
+* every repeat **added again** the rows the first attempt had already staged — a row that is there is not added now (a TTL
+  that differs is brought in line);
+* the commit is sent for every batch that is not empty, even when nothing was left to stage — the first attempt may have
+  staged everything and failed at the commit;
+* a record that was **renamed** (or whose type changed) went out as `dns-row-update`, which takes a TTL and the data and
+  never a name: WEDOS kept serving the old name while the platform held the new one. It is a row removed and a row added;
+* two MX rows of the same host were told apart by nothing — a delete removed the first one it met. The priority decides.
+
+Unverified on a live account: that `dns-rows-list` shows rows that are staged and not yet committed (the repeat relies on
+it; if it does not, a repeat adds the row again exactly as before — no worse than it was).
+
+Tests: `tests/Feature/Dns/DnsServiceTest.php`, `tests/Contract/WedosZoneDnsContractTest.php`.

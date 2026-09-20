@@ -1393,3 +1393,15 @@ lists, resume.
 
 Tests: `tests/Feature/Services/SuspensionDepthTest.php`, `tests/Contract/AaPanelToolsContractTest.php`,
 `tests/Contract/IspConfigToolsContractTest.php`.
+
+## A plan change never resizes the node (2026-09-20)
+
+aaPanel runs **one PHP-FPM pool per PHP version for the whole node**. `SetPHPMaxChildren` takes a version, not a site —
+and `resize` called it with the plan's `php_workers`: a plan change of one customer set `pm.max_children` for every site
+of every customer on that PHP version (a downgrade to a two-worker plan would have throttled the node). `resize` on
+aaPanel now changes nothing on the node and says so in its result (`applied: false`); the pool is sized by the operator
+with the node. ISPConfig is different — a web domain has its own pool (`pm_max_children`), and a plan change sets it.
+
+If a managed plan is to limit one site's concurrency on aaPanel, the panel's per-site switch is the traffic limit
+(`POST /site?action=SetLimitNet` — `perserver`, `perip`, `limit_rate`). It is not wired: how many connections stand for
+one PHP worker is a product decision, and the call is unverified on a live panel.

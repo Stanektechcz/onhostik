@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Dns;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Onhost\Domain\Dns\Models\DnsChange;
 use Onhost\Domain\Dns\Models\DnsRecord;
 use Onhost\Domain\Dns\Models\DnsTemplate;
@@ -15,6 +16,7 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxPublisher;
@@ -105,6 +107,7 @@ final class DnsService
     {
         $normalized = $this->validator->normalize($record, $zone->name);
         $this->assertEditable($zone);
+        $this->assertRoom($zone, adding: true);
 
         return DnsChange::query()->create(['zone_id' => $zone->id, 'op' => 'add', 'record' => $normalized, 'requested_by' => $actor->actorId, 'reason' => $reason, 'state' => 'pending']);
     }
@@ -115,6 +118,7 @@ final class DnsService
         $this->assertEditable($zone);
         $this->assertOwn($zone, $existing);
         $this->assertProtected($existing, $confirmProtected);
+        $this->assertRoom($zone, adding: false);
         $normalized = $this->validator->normalize(array_merge($existing->normalized(), $record), $zone->name);
 
         return DnsChange::query()->create(['zone_id' => $zone->id, 'op' => 'update', 'record' => array_merge($normalized, ['id' => $existing->id]), 'previous' => $existing->normalized(), 'requested_by' => $actor->actorId, 'reason' => $reason, 'state' => 'pending']);
@@ -203,20 +207,23 @@ final class DnsService
         $current = $zone->records()->get();
         $desired = array_map(fn ($r) => $this->strip($r), (array) $target->records);
         $keep = [];
+        $staged = 0;
         foreach ($desired as $d) {
             $match = $current->first(fn (DnsRecord $r) => $this->same($r->normalized(), $d));
             if ($match !== null) {
                 $keep[$match->id] = true;
             } else {
                 DnsChange::query()->create(['zone_id' => $zone->id, 'op' => 'add', 'record' => $d, 'requested_by' => $actor->actorId, 'reason' => "rollback to v{$toVersion}", 'state' => 'pending']);
+                $staged++;
             }
         }
         foreach ($current as $r) {
             if (! isset($keep[$r->id])) {
                 DnsChange::query()->create(['zone_id' => $zone->id, 'op' => 'delete', 'record' => array_merge($r->normalized(), ['id' => $r->id]), 'previous' => $r->normalized(), 'requested_by' => $actor->actorId, 'reason' => "rollback to v{$toVersion}", 'state' => 'pending']);
+                $staged++;
             }
         }
-        if (! $zone->pendingChanges()->exists()) {
+        if ($staged === 0) {
             throw new DomainError('dns_rollback_noop', "The zone already matches version {$toVersion}.", 409);
         }
 
@@ -285,6 +292,210 @@ final class DnsService
         $zone->forceFill(['dnssec' => false, 'dnssec_ds' => null])->save();
         $this->audit->record($actor->withScope($zone->organization_id), 'dns.dnssec.disable', 'succeeded', [], 'dns_zone', $zone->id);
         $this->outbox->publish(GenericEvent::of('dns.dnssec.disabled', 'dns_zone', $zone->id, ['name' => $zone->name, 'domain_id' => $zone->domain_id], $zone->organization_id));
+    }
+
+    /**
+     * A zone has a size, and so has its waiting list. Nothing bounded either: one API token could stage records without
+     * end — every one a row here, and a commit then pushes the whole zone to the provider (row by row at the WEDOS zone API).
+     */
+    private function assertRoom(DnsZone $zone, bool $adding): void
+    {
+        $pending = DnsChange::query()->where('zone_id', $zone->id)->where('state', 'pending')->get(['op']);
+        $maxPending = max(1, (int) config('onhost.dns.max_pending_changes', 200));
+        if ($pending->count() >= $maxPending) {
+            throw new DomainError('dns_pending_limit', "A zone holds at most {$maxPending} changes waiting to be published; publish or discard them first.", 409, ['limit' => $maxPending]);
+        }
+        if (! $adding) {
+            return;
+        }
+        $max = max(1, (int) config('onhost.dns.max_records_per_zone', 500));
+        $after = $zone->records()->count() + $pending->where('op', 'add')->count() - $pending->where('op', 'delete')->count() + 1;
+        if ($after > $max) {
+            throw new DomainError('dns_record_limit', "A zone holds at most {$max} records.", 409, ['limit' => $max]);
+        }
+    }
+
+    /**
+     * The nightly comparison of what the provider serves with what we hold (`onhost:dns:drift`). `drift()` existed and nobody
+     * called it. Zones of the platform's own DNS only: a zone mirrored from a customer's registrar account is edited there
+     * too, and its import runs on its own schedule. Oldest comparison first, a batch a night.
+     *
+     * @return array{checked:int, drifted:int, errors:int}
+     */
+    public function checkDrift(int $limit = 200): array
+    {
+        $stats = ['checked' => 0, 'drifted' => 0, 'errors' => 0];
+        $platform = ProviderInstance::query()->whereNull('organization_id')->pluck('id')->all();
+        $zones = DnsZone::query()->where('state', 'active')->where('kind', 'primary')
+            ->where(fn ($q) => $q->whereNull('provider_instance_id')->orWhereIn('provider_instance_id', $platform))
+            ->orderByRaw('drift_checked_at is not null')->orderBy('drift_checked_at')->limit(max(1, $limit))->get();
+        foreach ($zones as $zone) {
+            $gone = false;
+            try {
+                $changes = $this->withoutOwnTtlSpread($zone, $this->drift($zone));
+            } catch (\Throwable $e) {
+                // a zone that is not at the provider at all is the largest difference there is — not a comparison that failed
+                $gone = $e instanceof ProviderException && in_array($e->errorCode, [ProviderErrorCode::NOT_FOUND, ProviderErrorCode::VALIDATION], true) && $this->goneAtProvider($zone);
+                if (! $gone) {
+                    $stats['errors']++;
+                    $why = $e instanceof ProviderException ? $e->errorCode->value : 'UNEXPECTED';
+                    // moves to the end of the queue (a provider that does not answer tonight does not hold the others back); what differed
+                    // the last time stays as it was — nobody knows whether it still does
+                    $zone->forceFill(['drift_checked_at' => now(), 'drift_error' => $why])->save();
+                    Log::warning('dns drift comparison failed', ['zone' => $zone->name, 'provider' => $zone->provider, 'error' => $why]);
+
+                    continue;
+                }
+                $changes = [];
+            }
+            $stats['checked']++;
+            $had = $zone->getAttribute('drift') !== null;
+            $summary = match (true) {
+                $gone => ['zone_missing' => true, 'missing_at_provider' => $zone->records()->count(), 'unknown_at_provider' => 0, 'sample' => []],
+                $changes === [] => null,
+                default => $this->driftSummary($changes),
+            };
+            $zone->forceFill(['drift_checked_at' => now(), 'drift' => $summary, 'drift_error' => null])->save();
+            if ($summary !== null) {
+                $stats['drifted']++;
+                if (! $had) { // said once when it appears; the doctor keeps showing it until it is gone
+                    $this->outbox->publish(GenericEvent::of('dns.drift.detected', 'dns_zone', $zone->id, ['name' => $zone->name, 'provider' => $zone->provider] + $summary, $zone->organization_id));
+                }
+            }
+        }
+
+        return $stats;
+    }
+
+    /**
+     * Makes the provider serve what the platform holds — the repair after the nightly comparison found a difference. The platform
+     * database is the truth (§48): what is missing at the provider is added, what nobody here knows is removed, a zone that is
+     * gone is created again. Changes that wait to be published are not part of it. The provider is read once more afterwards:
+     * the zone is clean only when nothing is left.
+     *
+     * @return array{created:bool, added:int, removed:int, updated:int, verified:bool, left:int, dnssec_attention:bool}
+     */
+    public function republish(DnsZone $zone, CommandContext $actor, ?string $reason = null): array
+    {
+        $this->assertEditable($zone);
+        $adapter = $this->adapter($zone);
+        $created = false;
+        try {
+            if (! $adapter->zoneExists($zone->name)) {
+                $adapter->createZone($zone->name, ['nameservers' => $zone->nameservers, 'kind' => 'Native', 'dnssec' => false]);
+                $created = true;
+            }
+            $changes = $this->asUpdates($this->withoutOwnTtlSpread($zone, $this->drift($zone)));
+            if ($changes !== []) {
+                $adapter->applyChanges($zone->name, $changes);
+            }
+            $left = $this->withoutOwnTtlSpread($zone, $this->drift($zone));
+        } catch (ProviderException $e) {
+            $this->audit->record($actor->withScope($zone->organization_id), 'dns.zone.republish', 'failed', ['zone' => $zone->name, 'code' => $e->errorCode->value], 'dns_zone', $zone->id);
+            throw $e;
+        }
+        $count = fn (string $op) => count(array_filter($changes, fn (array $c) => $c['op'] === $op));
+        $result = [
+            'created' => $created, 'added' => $count('add'), 'removed' => $count('delete'), 'updated' => $count('update'), 'verified' => $left === [], 'left' => count($left),
+            // a signed zone that was created again has new keys (or none): the DS at the registry points at keys that are gone
+            'dnssec_attention' => $created && (bool) $zone->dnssec,
+        ];
+        $zone->forceFill(['drift_checked_at' => now(), 'drift_error' => null, 'drift' => $left === [] ? null : $this->driftSummary($left)])->save();
+        $this->audit->record($actor->withScope($zone->organization_id), 'dns.zone.republish', 'succeeded', ['zone' => $zone->name, 'reason' => $reason] + $result, 'dns_zone', $zone->id);
+        $this->outbox->publish(GenericEvent::of('dns.zone.republished', 'dns_zone', $zone->id, ['name' => $zone->name, 'provider' => $zone->provider] + $result, $zone->organization_id));
+
+        return $result;
+    }
+
+    /**
+     * A record that is on both sides and differs only in its TTL is ONE update. Sent as a row added and a row removed, PowerDNS
+     * would take the record out of its set altogether — it tells records apart by their data, not by their TTL.
+     *
+     * @param  list<array{op:string,record:array<string,mixed>}>  $changes
+     * @return list<array{op:string,record:array<string,mixed>,previous?:array<string,mixed>}>
+     */
+    private function asUpdates(array $changes): array
+    {
+        $identity = fn (array $r) => strtolower((string) $r['name']).'|'.strtoupper((string) $r['type']).'|'.rtrim(strtolower((string) $r['content']), '.').'|'.($r['prio'] ?? '');
+        $removed = [];
+        foreach ($changes as $i => $change) {
+            if ($change['op'] === 'delete') {
+                $removed[$identity($change['record'])] = $i;
+            }
+        }
+        $out = [];
+        $paired = [];
+        foreach ($changes as $change) {
+            $key = $identity($change['record']);
+            if ($change['op'] === 'add' && isset($removed[$key])) {
+                $out[] = ['op' => 'update', 'record' => $change['record'], 'previous' => $changes[$removed[$key]]['record']];
+                $paired[$removed[$key]] = true;
+            } elseif ($change['op'] === 'add') {
+                $out[] = $change;
+            }
+        }
+        foreach ($changes as $i => $change) {
+            if ($change['op'] === 'delete' && ! isset($paired[$i])) {
+                $out[] = $change;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<array{op:string,record:array<string,mixed>}>  $changes
+     * @return array{missing_at_provider:int, unknown_at_provider:int, sample:list<string>}
+     */
+    private function driftSummary(array $changes): array
+    {
+        return ['missing_at_provider' => count(array_filter($changes, fn (array $c) => $c['op'] === 'add')), 'unknown_at_provider' => count(array_filter($changes, fn (array $c) => $c['op'] === 'delete')),
+            'sample' => array_map(fn (array $c) => ($c['op'] === 'add' ? '− ' : '+ ').($c['record']['name'] ?? '').' '.($c['record']['type'] ?? ''), array_slice($changes, 0, 5))];
+    }
+
+    /**
+     * A set of records (a name and a type) has ONE TTL on the wire (RFC 2181 §5.2), and PowerDNS keeps one per set. The platform
+     * holds a TTL per record, so a customer who adds a second A record with another TTL makes a set the provider cannot
+     * represent — that is ours, not a difference at the provider, and it would be reported every night for ever. A record that
+     * differs only in its TTL is left out when its own set holds more than one TTL here; a TTL somebody changed at the provider
+     * is still a difference.
+     *
+     * @param  list<array{op:string,record:array<string,mixed>}>  $changes
+     * @return list<array{op:string,record:array<string,mixed>}>
+     */
+    private function withoutOwnTtlSpread(DnsZone $zone, array $changes): array
+    {
+        if ($changes === []) {
+            return [];
+        }
+        $spread = [];
+        foreach ($zone->records()->get(['name', 'type', 'ttl']) as $record) {
+            $spread[strtolower((string) $record->name).'|'.strtoupper((string) $record->type)][(int) $record->ttl] = true;
+        }
+        $identity = fn (array $r) => strtolower((string) $r['name']).'|'.strtoupper((string) $r['type']).'|'.rtrim(strtolower((string) $r['content']), '.').'|'.($r['prio'] ?? '');
+        $byIdentity = [];
+        foreach ($changes as $i => $change) {
+            $byIdentity[$identity($change['record'])][$change['op']][] = $i;
+        }
+        $drop = [];
+        foreach ($byIdentity as $ops) {
+            $set = $changes[($ops['add'] ?? $ops['delete'])[0]]['record'];
+            if (isset($ops['add'], $ops['delete']) && count($spread[strtolower((string) $set['name']).'|'.strtoupper((string) $set['type'])] ?? []) > 1) {
+                $drop = array_merge($drop, $ops['add'], $ops['delete']); // the same record on both sides, only the TTL apart, in a set we hold with several TTLs
+            }
+        }
+
+        return array_values(array_diff_key($changes, array_flip($drop)));
+    }
+
+    /** Asked a second way before anybody is told that a zone is gone: the provider says itself that it does not have it. */
+    private function goneAtProvider(DnsZone $zone): bool
+    {
+        try {
+            return ! $this->adapter($zone)->zoneExists($zone->name);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /** Drift check for the reconciler: provider records vs canonical. @return list<array{op:string,record:array<string,mixed>}> */

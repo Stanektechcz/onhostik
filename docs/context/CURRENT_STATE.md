@@ -91,6 +91,16 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **DNS is compared every night and bounded in size:** `onhost:dns:drift` (what the provider serves vs what we hold; doctor area
+  `dns`; a zone that is gone at the provider is `hot`, a comparison that could not be made is kept apart), at most 500 records
+  and 200 waiting changes per zone. The repair is `POST /v1/dns/zones/{zone}/republish` (the provider gets what the platform
+  holds; a lost zone is created again; verified by a second read). PowerDNS read TXT values in wire form — a TXT record could be
+  neither replaced nor removed; fixed. The WEDOS zone adapter repeats a half-failed batch without doubling rows, always commits,
+  and renames a record as delete + add.
+
+- **A plan change never resizes the node:** aaPanel's `SetPHPMaxChildren` is per PHP version for the whole node — one customer's
+  plan change set it for everybody; `resize` on aaPanel now touches nothing on the node.
+
 - **Staff reads leave a trail, and roles read what they may change:** `StaffReadAudit` (`staff.read.*`, visible in the customer's own
   audit); `support.ticket.read` was the platform owner's alone — every support role got 403 on the queue and the ticket detail.
 
@@ -168,7 +178,7 @@
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 621 tests, 12 755 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 631 tests, 12 875 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

@@ -61,6 +61,15 @@ final class DnsController extends ApiController
         return $this->command($request, $model, 'commit', $data);
     }
 
+    /** The provider is made to serve what the platform holds: the repair after the nightly comparison found a difference. */
+    public function republish(Request $request, string $zone): JsonResponse
+    {
+        $model = $this->resolve($request, $zone);
+        $data = $request->validate(['reason' => ['nullable', 'string', 'max:250']]);
+
+        return $this->command($request, $model, 'republish', $data);
+    }
+
     public function discard(Request $request, string $zone): JsonResponse
     {
         return $this->command($request, $this->resolve($request, $zone), 'discard', []);

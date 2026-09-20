@@ -77,3 +77,38 @@ it('publishes a long TXT value as character-strings of at most 255 bytes and rea
     }
     expect(PowerDnsProvider::txtToWire('v=spf1 -all'))->toBe('"v=spf1 -all"')->and(PowerDnsProvider::txtToWire(''))->toBe('""');
 });
+
+it('reads a TXT value the way the platform holds it, so that it can be compared, replaced and removed', function () {
+    $dkim = 'v=DKIM1; k=rsa; p='.str_repeat('MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA', 9).'IDAQAB';
+    Http::fake([
+        'pdns.mgmt.test:8081/api/v1/servers/localhost/zones/txt.cz.?rrsets=false' => Http::response(['name' => 'txt.cz.', 'serial' => 2026092001]),
+        'pdns.mgmt.test:8081/api/v1/servers/localhost/zones/txt.cz./notify' => Http::response([], 200),
+        'pdns.mgmt.test:8081/api/v1/servers/localhost/zones/txt.cz.' => Http::response(['name' => 'txt.cz.', 'rrsets' => [
+            ['name' => 'txt.cz.', 'type' => 'TXT', 'ttl' => 3600, 'records' => [['content' => '"v=spf1 include:_spf.onhost.cz -all"', 'disabled' => false], ['content' => '"google-site-verification=abc"', 'disabled' => false]]],
+            ['name' => 'k1._domainkey.txt.cz.', 'type' => 'TXT', 'ttl' => 3600, 'records' => [['content' => PowerDnsProvider::txtToWire($dkim), 'disabled' => false]]],
+        ]]),
+    ]);
+    $adapter = pdnsAdapter();
+
+    // the server answers in wire form (quoted, long values in parts); the platform holds the value itself — read back quoted,
+    // every zone with an SPF record differed from its provider for ever, and the two could not be matched
+    $records = collect($adapter->listRecords('txt.cz'));
+    expect($records->pluck('content')->all())->toBe(['v=spf1 include:_spf.onhost.cz -all', 'google-site-verification=abc', $dkim]);
+
+    $adapter->applyChanges('txt.cz', [
+        // the SPF record is replaced: it used to stay and the new one was added next to it — two SPF records are a permerror
+        ['op' => 'update', 'previous' => ['name' => '@', 'type' => 'TXT', 'content' => 'v=spf1 include:_spf.onhost.cz -all', 'ttl' => 3600], 'record' => ['name' => '@', 'type' => 'TXT', 'content' => 'v=spf1 include:_spf.onhost.cz include:_spf.google.com -all', 'ttl' => 3600]],
+        // the DKIM key is removed: it used to stay published
+        ['op' => 'delete', 'record' => ['name' => 'k1._domainkey', 'type' => 'TXT', 'content' => $dkim, 'ttl' => 3600]],
+    ]);
+
+    Http::assertSent(function ($r) {
+        if ($r->method() !== 'PATCH') {
+            return false;
+        }
+        $sets = collect($r['rrsets'])->keyBy(fn ($s) => $s['name'].'|'.$s['type']);
+        $apex = collect($sets['txt.cz.|TXT']['records'])->pluck('content')->sort()->values()->all();
+
+        return $apex === ['"google-site-verification=abc"', '"v=spf1 include:_spf.onhost.cz include:_spf.google.com -all"'] && $sets['k1._domainkey.txt.cz.|TXT']['changetype'] === 'DELETE';
+    });
+});

@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\TldPolicy;
+use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Domains\Models\RegistrarTldCost;
 use Onhost\Domain\Domains\RegistrarClient;
 use Onhost\Domain\Domains\RegistrarPricing;
@@ -181,6 +182,12 @@ final class Doctor extends Command
         // what a service owns on a shared node is recognised by its name prefix; two services with one prefix own each other's databases
         $shared = Service::query()->withTrashed()->whereNull('name_prefix')->limit(50)->pluck('id');
         $this->add('security', 'every service has a node name prefix of its own', $shared->isEmpty(), $shared->isEmpty() ? 'prefixes are unique' : $shared->count().' service(s) share a prefix with an older one: '.$shared->take(5)->implode(', ').' — move their databases and FTP accounts before anything else (docs/runbooks/security-boundaries.md §14)');
+
+        $drifted = DnsZone::query()->whereNotNull('drift')->limit(50)->pluck('name');
+        $this->add('dns', 'every DNS zone equals what its provider serves', $drifted->isEmpty(), $drifted->isEmpty() ? 'no differences at the last comparison (onhost:dns:drift, nightly)' : $drifted->count().' zone(s) differ: '.$drifted->take(5)->implode(', ').' — compare in the console and publish or import', false);
+
+        $unasked = DnsZone::query()->whereNotNull('drift_error')->limit(50)->get(['name', 'drift_error']);
+        $this->add('dns', 'every DNS zone could be compared with its provider', $unasked->isEmpty(), $unasked->isEmpty() ? 'the provider answered for every zone at the last comparison' : $unasked->count().' zone(s) could not be compared: '.$unasked->take(5)->map(fn (DnsZone $z) => $z->name.' ('.$z->getAttribute('drift_error').')')->implode(', ').' — the provider did not answer; see the provider health and `onhost:dns:drift`', false);
 
         $slow = app(OperationLatency::class)->slow();
         $target = OperationLatency::targetSeconds();

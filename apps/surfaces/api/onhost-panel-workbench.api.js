@@ -744,8 +744,11 @@
           actions: [A(_('Smazat', 'Delete'), function () { if (window.confirm(_('Smazat záznam ' + r.name + ' ' + r.type + '?', 'Delete record ' + r.name + ' ' + r.type + '?'))) zpost(cmp, sel, zone, '/changes', { change: 'delete', record_id: r.id, confirm_protected: !!r.protected }); })] };
       });
       changes.forEach(function (c) { var rec = c.record || c.previous || {}; rows.push({ cells: [cell(rec.name || '', '0 0 150px', 1), cell(rec.type || '', '0 0 90px', 1), cell(rec.content || '', '1 1 300px', 1), cell(String(rec.ttl || ''), '0 0 70px', 1)], note: _('čeká na publikování · ', 'pending publish · ') + c.op, actions: [] }); });
-      return { key: 'real:zone', title: _('DNS záznamy · ', 'DNS records · ') + sel.name, note: _('změny se nejdřív připraví a pak publikují najednou; serial ', 'changes are staged first and published together; serial ') + (zone.serial || '—'),
-        state: recs.length + ' ' + _('záznamů', 'records') + (changes.length ? ' · ' + changes.length + _(' čeká', ' pending') : ''),
+      var drift = zone.drift && zone.drift.differs ? (zone.drift.summary || {}) : null;
+      var driftNote = !drift ? '' : (drift.zone_missing ? _(' · POZOR: zóna u poskytovatele DNS neexistuje — publikujte ji znovu', ' · ATTENTION: the zone does not exist at the DNS provider — publish it again')
+        : _(' · POZOR: poskytovatel DNS vrací něco jiného, než je zde (chybí ', ' · ATTENTION: the DNS provider serves something else than is held here (missing ') + (drift.missing_at_provider || 0) + _(', navíc ', ', extra ') + (drift.unknown_at_provider || 0) + _(') — publikujte zónu znovu', ') — publish the zone again'));
+      return { key: 'real:zone', title: _('DNS záznamy · ', 'DNS records · ') + sel.name, note: _('změny se nejdřív připraví a pak publikují najednou; serial ', 'changes are staged first and published together; serial ') + (zone.serial || '—') + driftNote,
+        state: recs.length + ' ' + _('záznamů', 'records') + (changes.length ? ' · ' + changes.length + _(' čeká', ' pending') : '') + (drift ? _(' · liší se od poskytovatele', ' · differs from the provider') : ''),
         head: [cell(_('Název', 'Name'), '0 0 150px'), cell(_('Typ', 'Type'), '0 0 90px'), cell(_('Hodnota', 'Value'), '1 1 300px'), cell('TTL', '0 0 70px')],
         rows: rows.length ? rows : [{ cells: [cell(_('zóna je prázdná', 'the zone is empty'), '1 1 300px')], note: '' }],
         form: { title: _('Přidat záznam', 'Add a record'), fields: [F('a', _('název (@ nebo www)', 'name (@ or www)'), '0 0 150px'), F('b', _('typ; u MX/SRV s prioritou (MX 10)', 'type; priority for MX/SRV (MX 10)'), '0 0 190px'), F('c', _('hodnota', 'value'), '1 1 260px')], submit: _('Připravit', 'Stage'), on: function () {
@@ -759,7 +762,10 @@
           { label: _('Publikovat změny', 'Publish changes') + (changes.length ? ' (' + changes.length + ')' : ''), primary: true, on: function () { if (!changes.length) { flash(cmp, _('Nic k publikování', 'Nothing to publish'), ''); return; } zpost(cmp, sel, zone, '/commit', {}, _('Zóna publikována', 'Zone published'), _('Nová verze zóny je na jmenných serverech; rozšíření po internetu trvá až TTL.', 'The new zone version is on the nameservers; propagation takes up to the TTL.')); } },
           { label: _('Zahodit změny', 'Discard changes'), on: function () { if (changes.length) zpost(cmp, sel, zone, '/discard', {}, _('Změny zahozeny', 'Changes discarded'), ''); } },
           { label: _('Obnovit', 'Refresh'), on: function () { forget(sel, ['zone']); rerender(cmp); } }
-        ] };
+        ].concat(drift ? [{ label: _('Publikovat zónu znovu', 'Publish the zone again'), primary: true, on: function () {
+          if (!window.confirm(_('Poskytovatel DNS dostane přesně to, co je v této zóně: chybějící záznamy se doplní, neznámé se odeberou. Pokračovat?', 'The DNS provider will get exactly what this zone holds: missing records are added, unknown ones removed. Continue?'))) return;
+          zpost(cmp, sel, zone, '/republish', {}, _('Zóna publikována znovu', 'Zone published again'), _('Poskytovatel DNS teď vrací to, co je v zóně.', 'The DNS provider now serves what the zone holds.'));
+        } }] : []) };
     }
 
     if (tab === 'sec') {

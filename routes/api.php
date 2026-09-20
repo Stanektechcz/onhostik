@@ -351,6 +351,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::get('dns/zones/{zone}/preview', [DnsController::class, 'preview']);
     Route::post('dns/zones/{zone}/commit', [DnsController::class, 'commit']);
     Route::post('dns/zones/{zone}/discard', [DnsController::class, 'discard']);
+    Route::post('dns/zones/{zone}/republish', [DnsController::class, 'republish']);
     Route::get('dns/zones/{zone}/versions', [DnsController::class, 'versions']);
     Route::post('dns/zones/{zone}/rollback', [DnsController::class, 'rollback']);
     Route::post('dns/zones/{zone}/dnssec', [DnsController::class, 'dnssec']);
