@@ -80,3 +80,46 @@ correcting transaction with a reference to the statement line.
 
 `GET /v1/staff/reports/mrr | collections | churn | revenue` feed the admin `#/reporty` view; the numbers are
 computed from ledger and subscriptions, not from orders.
+
+## What an order does with the money (blueprint §5.2)
+
+An order **reserves** its total when it is paid (`wallet_holds`, purpose `order`, no expiry). `OrderSettlement::settle()`
+runs once every line reached its end (`active` or `failed`):
+
+| Line | Money | Document | Customer |
+| --- | --- | --- | --- |
+| delivered | captured from the reservation: `DR liability:wallet / CR revenue:<family> / CR liability:vat` | the statement issued at payment stands | `order.active` |
+| could not be delivered | its share of the reservation is released — it is spendable credit again | a credit note for exactly those lines; the line turns `refunded` | `order.refunded` (notification + mail `order-refunded`) |
+
+* A **postpaid** order has nothing to capture — the invoice booked the receivable. Its reservation keeps the credit
+  line occupied until the invoice is paid (`ReleaseOrderReservation`, and before the payment when it is paid from credit).
+* Paying a postpaid invoice from credit or by card **settles the receivable** (`WalletService::settleReceivable`:
+  `DR liability:wallet / CR asset:receivable`). It used to go through `charge()` and book revenue and VAT a second time.
+* `onhost:orders:settle` (every ten minutes) settles orders whose settlement was interrupted. `orders.meta.settlement`
+  holds `captured_minor`, `returned_minor`, `credit_note_id`.
+* A line that was given back is **not** delivered by retrying its operation (`order_item_refunded`, 409) — the customer
+  orders it again. `order.settlement_failed` (staff) means something was delivered but the reservation was gone and the
+  credit did not cover the charge.
+* An order nobody paid is cancelled after `ONHOST_ORDER_UNPAID_EXPIRE_DAYS` (14): the proforma is voided, the transfer is
+  no longer matched; a late payment arrives as an unmatched bank line for finance.
+* A quantity above one is refused at the quote (`quantity_unsupported`): fulfilment builds one service per line.
+
+**Check on staging after deploying:** orders `ACTIVE` whose `wallet_holds.state` is `released`/`expired` and whose
+`meta.settlement` is missing were never charged (the old behaviour) — list them and decide per customer:
+
+```sql
+select o.number, o.total_minor, h.state from orders o join wallet_holds h on h.id = o.wallet_hold_id
+where o.state in ('ACTIVE','PARTIALLY_ACTIVE') and h.state <> 'captured' and o.payment_mode <> 'postpaid';
+```
+
+## Periods
+
+`BillingPeriod::end()` — a period ends on the anchor day (the day the service was activated) where the month has one and
+on its last day where it has not: 31 Jan → 28 Feb → 31 Mar. `addMonth()` overflowed to 3 March and the renewal day
+drifted for good.
+
+## Which dunning case a payment closes
+
+A renewal or a usage charge that went through closes the case **it** caused (`service_id` = that service, no invoice).
+A case that hangs on an invoice is closed only by that invoice being paid. (The old rule also closed every case of the
+organization that had no service — an unpaid work invoice was marked paid by a 149 Kč renewal.)

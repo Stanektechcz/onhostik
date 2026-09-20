@@ -70,10 +70,24 @@
 - What remains is operational: the staging run of the new lifecycle, the payment gateway and bank tokens, staff MFA,
   the virus scanner, the console relay and the production deployment itself (`docs/runbooks/go-live-checklist.md`).
 
-## Verified baseline
+- A second review (2026-09-20: registrars, the four panel adapters, the staff side, the order-to-cash path) closed what
+  could be proven from the repository. **Money:** an order is *settled* — delivered lines are captured from the
+  reservation, undelivered ones go back with a credit note and a message (`OrderSettlement`; the reservation used to
+  run out after a day and hand everything back); a postpaid invoice paid from credit settles the receivable instead of
+  booking revenue and VAT twice; unpaid orders expire; a renewal closes only the dunning case it caused; periods do not
+  overflow months (`BillingPeriod`); a quantity that cannot be delivered is refused. **Secrets:** a domain's transfer
+  code is never kept or returned, SOAP bodies / private keys / command-line passwords are masked in `provider_calls`,
+  the replay store and a sent mail keep no one-time secret. **Accounts:** the lock is asked before the password, wrong
+  authenticator codes count, a reset link does not sign in an account with a second factor, enrolling TOTP takes a
+  step-up, the GDPR export needs `organization.manage` and is audited. **Panels:** cancelling a mail service no longer
+  touches a stranger's FTP/shell accounts, a retried Proxmox clone adopts the guest it made (H38), long TXT records
+  publish, the reconciler's auto-repair no longer dies on a missing import. Rules: `docs/runbooks/security-boundaries.md`,
+  `docs/runbooks/billing-dunning.md`. What the review found and did NOT fix is listed in
+  `docs/runbooks/production-readiness-audit.md` §"Review 2026-09-20".
 
+## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 521 tests, 11 512 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 541 tests, 11 800 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

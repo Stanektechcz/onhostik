@@ -23,7 +23,8 @@ public — no loopback, private, link-local, CGNAT, multicast; local names such 
 `*.mgmt` are refused by name), pins the connection to the checked address (`CURLOPT_RESOLVE`) and disables redirects.
 
 * used by: uptime monitors (when saved **and** at every check), customer webhooks (when created and at every delivery),
-  imports from a URL, reverse-proxy upstreams (`checkUpstream`: loopback of the node is allowed except the node's own
+  imports from a URL, the site check between a staging update and the production one (every redirect hop is judged),
+  the host mail is collected from (`checkHost` — not pinned, the node connects), reverse-proxy upstreams (`checkUpstream`: loopback of the node is allowed except the node's own
   service ports `onhost.egress.node_service_ports`).
 * `ONHOST_EGRESS_DENY_CIDRS` — the operator's own public management ranges; `ONHOST_EGRESS_ALLOW_CIDRS` — a lab on
   private addresses (empty in production).
@@ -62,8 +63,45 @@ Test: `tests/Feature/Organizations/AccessExpiryTest.php`.
 * `throttle:auth` has an e-mail bucket only when the request carries an e-mail (`email` or `customer.email`).
   Tests: `tests/Feature/Orders/CheckoutTest.php`.
 
+## 6. Secrets that are handed out once are not kept
+
+* `domains.registry_status` is filtered by the model when written and by the endpoint when returned — Subreg's
+  `Info_Domain` carries the transfer code. Test: `tests/Feature/Domains/TransferCodeSecrecyTest.php`.
+* `provider_calls`: XML elements (`<password>`, `<ssid>`, `<authid>`), PEM private keys whatever the field is called,
+  passwords on a command line (`DB_PASSWORD '…'`, `--dbpass=`, `-p'…'`) and one-time links (`?pozvanka=`, `?code=`,
+  `?signature=`) are masked. Test: `tests/Unit/RedactorTest.php`.
+* The replay store (`idempotency_keys.result`) and a **sent** mail (`mail_outbox.vars`) keep the shape, not the secret;
+  `GET /v1/staff/outbox` never shows it; a mail whose link is gone is not resent (`mail_secret_not_kept`).
+  Tests: `tests/Feature/Domains/TransferCodeSecrecyTest.php`, `tests/Feature/Notifications/MailOutboxSecretsTest.php`.
+* Still open: `operations.desired/context/result` keep generated passwords (the customer reads the WordPress admin
+  password from the operation result). See `production-readiness-audit.md` §"Review 2026-09-20".
+
+## 7. Accounts
+
+* A locked account answers *locked* whatever the password is (422 vs 423 was a password oracle), and judges no guesses.
+* A wrong authenticator code counts towards the lock like a wrong password.
+* A password-reset link signs in only an account whose one factor is the password; with TOTP (and for staff) it sets the
+  password and sends the user to the sign-in page (`signed_in: false`).
+* Enrolling TOTP takes a step-up (`step_up_required` → the portal's confirmation dialog repeats the request).
+* The GDPR export is downloaded by whoever may `organization.manage` — not by a read-only member and not by staff who
+  may only read customers — and every download is audited (`compliance.data_export.download`).
+* A console token is judged by the service it was issued for; a token with no known owner is nobody's.
+* A CSV cell never starts a formula (`'` is put in front of `= + - @`).
+  Tests: `tests/Feature/Http/AuthApiTest.php`, `tests/Feature/Compliance/ComplianceTest.php`,
+  `tests/Feature/Http/SurfaceTest.php`, `tests/Feature/Orders/OrderRiskFeedbackTest.php`.
+
+## 8. One panel id is not another panel id
+
+ISPConfig numbers web domains and mail domains separately. The adapter refuses site calls (FTP, shell users, cron,
+databases, sub-domains) for anything but a web binding, and termination revokes web delegations on a web binding only —
+cancelling a **mail** service used to delete the FTP and shell accounts of the stranger whose web domain had the same
+number. Test: `tests/Contract/IspConfigContractTest.php`.
+
 ## What to look at on staging after deploying this
 
+* migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;
+* orders that were delivered and never charged (the query is in `billing-dunning.md`);
+* `provider_calls` of the last 90 days still hold what was logged before the new masks (Subreg password and session ids, private keys) — rotate the Subreg API password after deploying and let retention age the rows out, or delete `provider_calls` of `subreg` older than the deploy;
 * audit trail: `service.action.resize` by an actor who is neither staff nor the system;
 * order items whose `config.options` hold keys the product does not sell or values above the option's range;
 * orders/invoices of EU organizations with reverse charge whose `vat_status` was never verified by VIES;

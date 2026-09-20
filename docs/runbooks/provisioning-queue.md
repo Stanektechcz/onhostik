@@ -29,6 +29,15 @@ FAILED | COMPENSATING | CANCELLED | DEAD. `GET …/jobs/{id}` adds attempts and 
 
 Resolve at `POST /v1/staff/resource-mappings/{id}/resolve` with `approved | ignored | repair` and a note.
 
+## A step that is run twice (Brain card H38)
+
+A create that was accepted while its answer got lost must not create a second resource. Proxmox cannot give a clone
+any tags, so a guest in the middle of being cloned is recognised by the description the clone did get
+(`ONhost service <id> [idem-…]`); while it is still locked the step waits (`TRANSIENT`) instead of cloning again. Tags
+(`onhost`, the service, the first writer's idempotency tag) are written with the first resize and never taken away; the
+reconciler compares `onhost` + the service tag only. An order line whose money went back to the customer is not
+delivered by retrying its operation (`order_item_refunded`).
+
 ## Freeze switch
 
 `POST /v1/staff/provisioning/freeze` stops new provider mutations (operations stay queued), reads and billing

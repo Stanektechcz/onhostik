@@ -24,6 +24,9 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 | `identity.registered` | user | `email`, `name`, `organization_id` | AuthController::register |
 | `organization.created` / `organization.invitation.created` / `organization.invitation.cancelled` / `organization.limited` / `organization.limit_lifted` | organization | `name`, `slug`, `role`, `reason`, `invitation_id`, `email` | OrganizationService |
 | `order.placed` / `order.paid` / `order.fulfilment_failed` | order | `number`, `total`, `payment_mode`, `reason` | CheckoutService, OrderFulfilmentService |
+| `order.refunded` | order | `number`, `amount`, `to` (`credit` \| `invoice`), `credit_note`, `items[]`, `nothing_delivered` — lines that could not be delivered went back to the customer: their share of the reservation is released, a credit note covers exactly those lines; customer notification + mail `order-refunded` | OrderSettlement |
+| `order.settlement_failed` | order | `number`, `amount`, `reason` — delivered, but the reservation was gone and the credit did not cover the charge; staff decide | OrderSettlement |
+| `order.cancelled` | order | `number`, `from`, `note` — the customer is told only when an order ran out of time unpaid (`from = PENDING_PAYMENT`); a staff note is never shown | CheckoutService, CommerceHousekeeping |
 | `payment.succeeded` | payment_intent | `amount`, `provider`, `method` | PaymentService |
 | `wallet.topup.completed` / `wallet.charged` / `wallet.frozen` / `wallet.hold.released` / `wallet.refund.requested` | wallet | `amount`, `balance`, `source`, `reason` | WalletService |
 | `invoice.issued` / `invoice.paid` / `invoice.overdue` | invoice | `number`, `type`, `total`, `amount`, `method`, `due_at` | InvoiceService |
@@ -140,7 +143,8 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
   HMAC-SHA256 signature (`v1=`) over `timestamp.body`, exponential retry [1, 5, 30, 120, 720] minutes and
   automatic pause after 20 consecutive failures.
 * **Domain listeners** — `onhost.order.paid` → `FulfillPaidOrder`; `onhost.invoice.paid` →
-  `SettleBillingAfterPayment` (dunning, subscriptions) and `AccruePartnerCommission`; `onhost.invoice.issued`
+  `SettleBillingAfterPayment` (dunning, subscriptions), `ReleaseOrderReservation` (a postpaid order frees its share of
+  the credit line) and `AccruePartnerCommission`; `onhost.invoice.issued`
   (credit notes) → `AccruePartnerCommission::reverseForCreditNote`; `onhost.wallet.topup.completed` →
   `SettleBillingAfterPayment` (past-due recovery).
 

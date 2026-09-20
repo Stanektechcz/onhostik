@@ -154,3 +154,48 @@ dokumentace v `docs/` a runbooky. Priority: **P0** blokuje spuštění, **P1** d
 5. **Rozpočtový strop kapacity**: měsíční limit objednávek uzlů, schválení nad limit financemi.
 6. **Turnstile na registraci a checkoutu** jako další signál rizikového modelu.
 7. **EN lokalizace notifikací a e-mailů**: šablony podle jazyka organizace.
+
+## 7. Review 2026-09-20 — co revize našla a co z toho zůstává otevřené
+
+Čtyři souběžné revize (registrátoři a DNS, adaptéry čtyř panelů, obslužná strana a účty, cesta objednávka → peníze).
+Opravené nálezy jsou v `docs/runbooks/security-boundaries.md` a `docs/runbooks/billing-dunning.md`. Tady je zbytek:
+sloupec **Ověřeno** říká, jestli jsem tvrzení sám přečetl v kódu (✔), nebo ho zatím jen hlásí revize (–). Nic z toho
+není ověřeno proti skutečným panelům.
+
+### Před spuštěním (P0)
+
+| # | Oblast | Nález | Ověřeno | Návrh |
+| --- | --- | --- | --- | --- |
+| 1 | Zálohy na vyžádání | ISPConfig `backup()` žádnou zálohu nevytvoří (jen přepíše noční plán) a krok pak označí jako „hotovou" nejnovější **starší** zálohu; aaPanel `ToBackup` je fire-and-forget se stejným následkem; obnova na Pterodactylu se hlásí hotová při prvním dotazu (server je při obnově `offline`). Závěrečný archiv před smazáním na tom nezávisí (`FinalArchive` balí sám). | ✔ ISPConfig, – ostatní | Zálohu na vyžádání stavět vlastním archivem přes uzel (jako `FinalArchive`); za vytvořenou považovat jen položku novější než začátek kroku; u obnovy čekat na `is_successful` / `completed_at` zálohy, ne na stav serveru |
+| 2 | ISPConfig | `awaitStatus` sleduje délku fronty úloh serveru, ne svou úlohu: prázdná fronta = „úspěch" i po chybě, cizí úloha = čekání až do timeoutu | – | Po zápisu ověřit výsledek čtením (`*_get`) místo fronty |
+| 3 | Registrace domény | Po timeoutu se `domain-info` s odpovědí „nenalezeno / neplatné" čte jako „volná" a `domain-create` se pošle znovu; Subreg objednávky nenesou `clTRID`, ztracená odpověď je nedohledatelná | – | „Nevím" není „volná": čekat a znovu se ptát; u Subregu posílat vlastní identifikátor a dohledat objednávku |
+| 4 | Limity tarifu | ISPConfig nastaví limity klienta (schránky, databáze, weby, SSH, cron) jen při založení; změna tarifu je nezmění. aaPanel neposílá žádné kvóty. Entitlementy `outbound_mail_per_hour`, `db_connections`, `inodes`, `traffic` se neposílají nikam | – | `resize` má aktualizovat klienta; zbylé entitlementy buď uplatnit, nebo je neprodávat |
+| 5 | aaPanel | `resize` volá `SetPHPMaxChildren` bez webu → mění PHP-FPM pool **celého uzlu** | – | Nastavovat pool webu, ne verze PHP |
+| 6 | Schvalování | Čtyři oči nemají žádnou cestu vzniku (`Approval` nikdo nevytváří) a příkazy smějí riziko z katalogu **snížit** (`riskLevel()` nahrazuje katalog): CRITICAL → HIGH, HIGH → NORMAL u compliance, provisioningu, věrnosti, partnerů, katalogu | – | Riziko z katalogu jako spodní mez; doplnit žádost o schválení a její rozhodnutí |
+| 7 | Role obsluhy | Konzole podpory, ceníku, šablon a věrnosti kontrolují oprávnění, které nemá žádná pojmenovaná role → použitelné jen jako `platform_owner` | – | Doplnit oprávnění do rolí (`RoleCatalog`) a `PermissionMatrixTest` |
+| 8 | Transfer lock | Jen místní příznak; registr o zámku neví. Po opravě úniku kódu je to aspoň skutečná brána k vydání AUTH-ID | ✔ | Zámek u registrátora, kde ho API nabízí; jinak to tak v UI pojmenovat |
+| 9 | Prémiové domény | Subreg vrací cenu a příznak `premium`; hledání i registrace je ignorují → prodej za ceníkovou cenu | – | Prémiové jméno neprodávat (nebo jen za cenu registru + marže) |
+| 10 | NSSET | Sdílený NSSET je klíčovaný jen handle; u druhého registrátora se založení přeskočí a registrace selže po zaplacení | – | Klíč `handle + registrar_provider` |
+| 11 | Pozastavení | Zastaví jen vhost / VM; FTP, cron, databáze, Node projekty běží dál. `resume` spustí i VM, kterou si zákazník sám vypnul | – | Pozastavit i přístupy a plánovače; pamatovat si stav před pozastavením |
+| 12 | Jména na uzlu | 6znakový prefix služby je i jméno unixového agenta; kolize (řádově procenta při desítkách tisíc služeb) dá zákazníkovi práva k cizímu webu | – | Delší prefix + kontrola existence při zakládání |
+| 13 | Tajemství | `operations.desired/context/result` drží vygenerovaná hesla (WordPress admin) napořád | ✔ | Jednorázová tajemství do krátkodobé šifrované schránky; po dokončení operace je z řádku odstranit |
+
+### První měsíc (P1)
+
+| # | Oblast | Nález | Ověřeno | Návrh |
+| --- | --- | --- | --- | --- |
+| 14 | Doklady | Storno zaplacené objednávky (`PAID → CANCELLED`) nevystaví dobropis; vratky nevystavují dobropis vůbec → DPH se neopraví, provize a body se nevrátí | – | Dobropis ke každé vratce; provize a body vázat na dobropis |
+| 15 | Vratky | `ChargebackService` počítá z ceníkové ceny bez DPH, ne ze zaplacené částky, a účtuje vratku jako vratný kredit proti „bankovnímu" účtu | – | Počítat ze zaplaceného dokladu; vlastní účet vratek |
+| 16 | Spotřebitel | Čtrnáctidenní odstoupení není mechanika (jen souhlas se zřeknutím) | – | Žádost, lhůta, poměrná část, vratka |
+| 17 | DPH | Faktura v EUR nenese částku DPH v CZK ani kurz | – | Kurz ČNB ke dni plnění na dokladu |
+| 18 | Čas | Doklady a „splatné dnes" se počítají v UTC: objednávka 1. 1. v 00:30 dostane číslo a DUZP minulého roku | ✔ (`config/app.php`) | Účetní den v `Europe/Prague` |
+| 19 | Dobíjení | Denní strop automatického dobití se nikdy neuplatní; měsíční limit se nečte | – | Počítat pokusy za den; číst limit |
+| 20 | Ceník | `promo_codes.first_period_only` a `prices.promo_periods` se ukládají a nečtou | – | Buď číst, nebo z administrace odstranit |
+| 21 | Dunning | Nepovedené pozastavení se neopakuje a případ se zavře jako `TERMINATED`, služba běží dál; `onhost:services:release-stranded` není v plánovači | – | Opakovat; uzavřít až po potvrzení stavu |
+| 22 | Domény | Subreg `listDomains` vrací prázdný stav → reconcile oživí doménu v karanténě jako `ACTIVE`; WEDOS `awaitStatus` hlásí prodloužení hotové hned; doména po expiraci se už neprodlužuje, ani v ochranné lhůtě; smazání domény neexistuje | – | Stav brát z `domainInfo`; prodloužení potvrzovat datem expirace; plánovat i `EXPIRED/GRACE` |
+| 23 | DNS | `DnsService::drift()` nikdo nevolá; změny ve WEDOS zóně nejsou atomické; chybí limit počtu záznamů; glue záznamy a změna registranta (`updateContact`) nejsou dostupné | – | Noční kontrola driftu; limit; glue v API |
+| 24 | Pterodactyl | Ignoruje `tls_ca` / `verify_tls` instance; `importArchive` obchází `ProviderHttpClient` (dva šestihodinové timeouty) | – | `TlsOptions` jako ostatní adaptéry; import po částech mimo krok |
+| 25 | Kompenzace | Kompenzační cesty volají `terminate()` bez pětibodové kontroly identity | – | Stejná brána jako u zrušení |
+| 26 | Audit | Čtení citlivých dat obsluhou (přehled zákazníka, fronta e-mailů, integrace) se nezapisuje | – | Auditovat čtení |
+| 27 | Košík | Množství > 1 se odmítá (dřív se účtovalo ×N a zřídila jedna služba) | ✔ | Rozpad řádku na N položek při zadání objednávky |
+| 28 | Hesla | Změna hesla neruší API tokeny (obnova ano) | ✔ | Rozhodnutí vlastníka: rušit, nebo upozornit |
