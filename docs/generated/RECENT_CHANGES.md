@@ -4,13 +4,13 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 0489f4b | 2026-09-21 | What the assistant puts on a button is the platform's; a virtual server's access can be set again |
+| aebdc67 | 2026-09-20 | The mail after a password change tells the truth about API tokens |
+| cc062e0 | 2026-09-20 | The model has a budget; what PostgreSQL would refuse is found locally; a correction of the record |
+| 5c154a6 | 2026-09-20 | A width guard for the whole suite: what SQLite forgives and PostgreSQL refuses shows up locally |
 | 2f8d175 | 2026-09-20 | A domain has an end; the production database's only test is CI — and it was red for 92 runs |
 | 6c3b431 | 2026-09-20 | Regenerate project state after the VAT-in-CZK and cart quantity blocks |
 | 8fe0a10 | 2026-09-20 | A document in EUR states its VAT in CZK; a cart quantity is that many lines; the transfer lock says what it is |
 | b2eb728 | 2026-09-20 | Regenerate project state after the DNS block |
 | 018b245 | 2026-09-20 | A plan change never resizes the node; DNS is compared with its provider every night, can be repaired, and is bounded in size |
 | 6f348b5 | 2026-09-20 | Generated project state after the compensation, premium, panel-link, promo and read-audit blocks |
-| 1eb2dfc | 2026-09-20 | Staff reading a customer's data is an event; a role reads what it may change |
-| 755fe65 | 2026-09-20 | Promo codes do what their form says: a fixed amount is spent once per order, a lasting code discounts the renewals |
-| 351ec82 | 2026-09-20 | The game panel's links are followed only to its own daemons; the adapter reads the instance's TLS settings |
-| bc68c68 | 2026-09-20 | A failed operation takes back only what it made: compensations delete through the identity check |
