@@ -197,3 +197,27 @@ password once it has run; the assistant never proposes it. Unverified on a live 
 a changed password on reboot (images differ — the supported images have to be checked on staging).
 
 Tests: `tests/Feature/Http/PanelApiTest.php`.
+
+## What the panel offers each person (2026-09-21)
+
+**The hole.** `ServiceFeatures::features()` answered from the service alone — the same map for its owner and for
+somebody who was given read-only access. The collaborator was shown every button and found out only by pressing one
+(403); and a suspended service produced a bare `enabled: false`, indistinguishable from "this panel cannot do that at
+all". Brain cards H412 (actions follow the real capabilities, the role and the state) and H413 (the UI tells a missing
+permission apart from an unsupported backend and a temporary outage) ask for exactly this.
+
+**The rule.** `features($service, $actor)` and `actions($service, $actor)` take the person who is asking:
+
+* a feature survives only if the actor holds the permission of at least one of its actions — asked through the
+  `Authorizer` with `ServiceActionCommand::permissionFor()`, which is **the same permission the command bus will ask
+  for**, so the panel and the server cannot disagree;
+* a feature that is gone says why: `permission` (you may look at this service, not do this to it) or `state` (the
+  service is not running right now — suspended, being cancelled, not provisioned yet);
+* without an actor nothing changes. The internal gates (`resources()`, the workflows, `requestAction`) ask what the
+  *service* offers, not who is asking, and keep the answer they always had.
+
+Worth knowing when reading the capability list: `backups` is *downloading* archives (`backup.download`), while making a
+backup is an action of `manage`. `console` implies `manage` (H334). So a `['view','backups']` collaborator correctly
+gets the backup listing and no Backup button.
+
+Tests: `tests/Feature/Services/FeatureReasonsTest.php`.

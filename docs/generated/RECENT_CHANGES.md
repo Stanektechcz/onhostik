@@ -4,6 +4,7 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 2fe0e85 | 2026-09-21 | ISPConfig is followed by its own change log, not the whole server's queue |
 | aad7a85 | 2026-09-21 | What a destructive action replaces is kept first |
 | 08d4065 | 2026-09-21 | A broken server can boot something else: rescue mode (H233) |
 | 07f0528 | 2026-09-21 | Rows of the same second have no order of their own |
@@ -13,4 +14,3 @@
 | 1193da8 | 2026-09-21 | A paid add-on changes the service it was bought for, and can be cancelled |
 | b5a6bca | 2026-09-21 | Regenerate project state after the assistant-proposals and VPS-access block |
 | 0489f4b | 2026-09-21 | What the assistant puts on a button is the platform's; a virtual server's access can be set again |
-| aebdc67 | 2026-09-20 | The mail after a password change tells the truth about API tokens |

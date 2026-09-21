@@ -255,7 +255,10 @@ final class ServiceController extends ApiController
     {
         $model = $this->resolve($request, $service);
 
-        return response()->json(['data' => ['features' => $features->features($model), 'actions' => $features->actions($model)]]);
+        // what THIS person can do with it, not only what the service offers: a read-only collaborator is shown no button they cannot press (H412, H413)
+        $actor = $request->user();
+
+        return response()->json(['data' => ['features' => $features->features($model, $actor), 'actions' => $features->actions($model, $actor)]]);
     }
 
     /** "Is it all right?" from the platform's own records: state, backup, certificate, monitoring, failed operations, limits (ServiceHealthCheck). Anybody who may see the service may ask; nothing about money is in it. */

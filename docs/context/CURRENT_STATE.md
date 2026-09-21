@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A button a person cannot press is not offered:** `features($service, $actor)` gates every feature on the permission the
+  command bus will ask for and says why it is gone (`permission`, `state`) — a read-only collaborator sees no dead buttons.
+
 - **ISPConfig is followed by its own change log:** a named write carries its `sys_datalog` row; an error there fails the
   operation and an applied change finishes it at once, however busy the server is (opt-in on the nightly probe).
 

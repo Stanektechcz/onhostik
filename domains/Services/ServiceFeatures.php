@@ -6,11 +6,13 @@ namespace Onhost\Domain\Services;
 
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Onhost\Domain\Dns\DnsService;
+use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\IpAddress;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
+use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
@@ -21,6 +23,7 @@ use Onhost\Domain\Services\Web\ImportService;
 use Onhost\Domain\Services\Web\StagingService;
 use Onhost\Domain\Services\Web\UptimeMonitor;
 use Onhost\Domain\Services\Web\WordPressService;
+use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
@@ -106,14 +109,60 @@ final class ServiceFeatures
         return false;
     }
 
+    /**
+     * Why a feature is not there, so the panel can say it instead of showing a dead button (Brain cards H412, H413).
+     * The words are the UI's to translate; the platform only says which of the four it is.
+     */
+    public const REASON_STATE = 'state';        // the service is not running right now (suspended, being cancelled, not provisioned yet)
+
+    public const REASON_PERMISSION = 'permission'; // this person may see the service, not do this to it
+
+    /**
+     * What the service can do. With `$actor` the answer is what **that person** can do with it: a collaborator who was
+     * given read-only access used to be shown every button and learnt the truth only as a 403 when they pressed one
+     * (audit §5ah). The gate is the same permission the command bus will ask for, so the panel and the server cannot
+     * disagree. Without `$actor` nothing changes: the internal gates ask what the SERVICE offers, not who is asking.
+     *
+     * @return array<string, array{enabled:bool, limit?:int|null, options?:mixed, reason?:string}>
+     */
+    public function features(Service $service, ?User $actor = null): array
+    {
+        $out = $this->offered($service);
+        if ($actor === null) {
+            return $out;
+        }
+        $authorizer = app(Authorizer::class);
+        $scope = CommandScope::resource($service->id, (string) $service->organization_id);
+        $allowed = [];
+        foreach (self::ACTIONS as $feature => $actions) {
+            if (empty($out[$feature]['enabled'])) {
+                continue;
+            }
+            foreach ($actions as $action) {
+                $permission = ServiceActionCommand::permissionFor($action);
+                $allowed[$permission] ??= $authorizer->can($actor, $permission, $scope);
+                if ($allowed[$permission]) {
+                    continue 2; // one action of this feature is enough for the feature to stay
+                }
+            }
+            $out[$feature] = ['enabled' => false, 'reason' => self::REASON_PERMISSION];
+        }
+
+        return $out;
+    }
+
     /** @return array<string, array{enabled:bool, limit?:int|null, options?:mixed, reason?:string}> */
-    public function features(Service $service): array
+    private function offered(Service $service): array
     {
         $ent = (array) $service->entitlements;
         $active = in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true);
         $adapter = $this->adapter($service);
         $executor = (string) data_get($service->desired_spec, 'executor', '');
-        $on = fn (bool $enabled, ?int $limit = null, mixed $options = null) => array_filter(['enabled' => $enabled && $active, 'limit' => $limit, 'options' => $options], fn ($v) => $v !== null);
+        // a feature the service HAS but cannot use right now says so: "the service is suspended" is not "the panel cannot do this" (H413)
+        $on = fn (bool $enabled, ?int $limit = null, mixed $options = null) => array_filter([
+            'enabled' => $enabled && $active, 'limit' => $limit, 'options' => $options,
+            'reason' => $enabled && ! $active ? self::REASON_STATE : null,
+        ], fn ($v) => $v !== null);
 
         $out = [
             'usage' => $on(true), 'operations' => $on(true), 'suspend' => $on($service->state === ServiceStateMachine::ACTIVE),
@@ -196,10 +245,10 @@ final class ServiceFeatures
         return $out;
     }
 
-    /** Actions the customer may request right now (features → actions). @return list<string> */
-    public function actions(Service $service): array
+    /** Actions the customer may request right now (features → actions); with an actor, what THAT person may request. @return list<string> */
+    public function actions(Service $service, ?User $actor = null): array
     {
-        $features = $this->features($service);
+        $features = $this->features($service, $actor);
         $out = [];
         foreach (self::ACTIONS as $feature => $actions) {
             if (! empty($features[$feature]['enabled'])) {
