@@ -40,9 +40,11 @@ it('turns Alertmanager notifications into on-call alerts and back', function () 
 
 it('exports the operations series the alert rules and the dashboard read', function () {
     config()->set('onhost.metrics.token', 'metrics-token');
-    cache()->forever(PlatformBackup::VERIFIED_KEY, ['set' => 'platform-backups/x', 'at' => now()->subHours(2)->toIso8601String()]);
+    // one instant, read twice: `now()` on both lines made this test red whenever the second ticked over between them
+    $verifiedAt = now()->subHours(2);
+    cache()->forever(PlatformBackup::VERIFIED_KEY, ['set' => 'platform-backups/x', 'at' => $verifiedAt->toIso8601String()]);
     $body = $this->get('/metrics', ['Authorization' => 'Bearer metrics-token'])->assertOk()->getContent();
-    expect($body)->toContain('onhost_platform_backup_verified_timestamp '.now()->subHours(2)->getTimestamp())->toContain('onhost_automation_alive{machine="scheduler"}')->toContain('onhost_automation_alive{machine="worker"} 1')
+    expect($body)->toContain('onhost_platform_backup_verified_timestamp '.$verifiedAt->getTimestamp())->toContain('onhost_automation_alive{machine="scheduler"}')->toContain('onhost_automation_alive{machine="worker"} 1')
         ->toContain('onhost_oncall_assigned 0')->toContain('# TYPE onhost_oncall_alerts_active gauge')->not->toContain("\nonhost_virus_scanner_up ");
     $rules = (string) file_get_contents(base_path('infra/monitoring/slo-alerts.yml'));
     foreach (['OnhostBackupStale', 'OnhostAutomationDead', 'OnhostVirusScannerDown', 'OnhostOnCallUnacknowledged', 'OnhostNobodyOnCall'] as $rule) {
