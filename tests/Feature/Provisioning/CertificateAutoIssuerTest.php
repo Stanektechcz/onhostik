@@ -51,7 +51,7 @@ it('requests the certificate of a pending site once its name resolves to the nod
     expect($issuer->run())->toBe(['checked' => 1, 'resolved' => 1, 'requested' => 1]);
     $service->refresh();
     expect($service->tags['access']['certificate'])->toBeIn(['requested', 'issued']); // `issued` already when the test queue runs the operation inline
-    $operation = Operation::query()->where('service_id', $service->id)->latest('created_at')->firstOrFail();
+    $operation = Operation::query()->where('service_id', $service->id)->latest('created_at')->orderByDesc('id')->firstOrFail();
     expect(data_get($operation->desired, 'action'))->toBe('ssl.issue')->and(data_get($operation->desired, 'domains'))->toBe(['shop.cz', 'www.shop.cz']);
     $operation = driveOperation($operation);
     expect($operation->state)->toBe(Operation::SUCCEEDED, json_encode($operation->error))->and($issued)->toBeTrue()

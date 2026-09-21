@@ -157,7 +157,7 @@ it('runs the toolkit on an aaPanel-backed site: terminal, PHP settings, monitori
     $hook = $this->call('POST', "/v1/hooks/deploy/{$sourceId}", [], [], [], ['HTTP_X_HUB_SIGNATURE_256' => $sign($secret), 'HTTP_X_GITHUB_EVENT' => 'push', 'CONTENT_TYPE' => 'application/json'], $payload)->assertAccepted();
     expect($hook->json('accepted'))->toBeTrue();
     driveOperations();
-    $deployment = Deployment::query()->where('service_id', $service->id)->latest('created_at')->firstOrFail();
+    $deployment = Deployment::query()->where('service_id', $service->id)->latest('created_at')->orderByDesc('id')->firstOrFail();
     expect($deployment->state)->toBe('succeeded', (string) $deployment->log)->and($deployment->triggered_by)->toBe('webhook')->and($deployment->sha)->toBe('abcdef0123456789abcdef0123456789abcdef01')->and($deployment->message)->toBe('Release 1.2')->and($deployment->author)->toBe('Jana')
         ->and($deployment->release)->not->toBeEmpty()->and($deployment->log)->toContain('composer install --no-dev');
     expect($runPath)->toContain('/.onhost/releases/'.$deployment->release); // the site now serves the release folder

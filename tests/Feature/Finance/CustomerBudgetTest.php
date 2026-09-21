@@ -71,7 +71,7 @@ it('lets the customer set a monthly budget that warns, stops orders and direct c
     expect(DB::table('ledger_transactions')->where('idempotency_key', 'ledger:budget-invoice-1')->exists())->toBeTrue();
     // … and it is still money spent this month: the 90 % warning comes, truthfully
     app(OutboxPublisher::class)->relayPending();
-    expect(OutboxMessage::query()->where('name', 'budget.threshold')->orderBy('created_at')->get()->map(fn (OutboxMessage $m) => $m->payload['threshold'])->all())->toBe([50, 90]);
+    expect(OutboxMessage::query()->where('name', 'budget.threshold')->orderBy('created_at')->orderBy('id')->get()->map(fn (OutboxMessage $m) => $m->payload['threshold'])->all())->toBe([50, 90]);
 
     // the first of the next month: the budget starts from zero and its warnings are armed again
     $this->travelTo(now()->startOfMonth()->addMonth()->addHours(2));
@@ -79,7 +79,7 @@ it('lets the customer set a monthly budget that warns, stops orders and direct c
     expect($fresh['spent']['minor'])->toBe(0)->and($fresh['period_start'])->toBe(now()->startOfMonth()->toDateString());
     $wallets->charge($org, Money::decimal('500', 'CZK'), 'cloud', 'budget-usage-3', $ctx);
     app(OutboxPublisher::class)->relayPending();
-    expect(OutboxMessage::query()->where('name', 'budget.threshold')->orderBy('created_at')->get()->map(fn (OutboxMessage $m) => $m->payload['threshold'])->all())->toBe([50, 90, 50]);
+    expect(OutboxMessage::query()->where('name', 'budget.threshold')->orderBy('created_at')->orderBy('id')->get()->map(fn (OutboxMessage $m) => $m->payload['threshold'])->all())->toBe([50, 90, 50]);
 
     // limit 0 removes it
     expect($put(['limit' => '0'])->assertOk()->json('data'))->toBeNull();

@@ -123,7 +123,7 @@ it('hands a model the conversation as masked data without tools and without inte
     expect($data['basis']['messages'])->toBe(8);
     // the model's own words pass the mask too before an agent sees them
     expect($data['source'])->toBe('llm')->and($data['model'])->toBe('fake-1')->and($data['draft'])->toContain('zkontrolovali jsme')->not->toContain('Tajne123');
-    $run = AiRun::query()->where('ticket_id', $ticket->id)->latest('created_at')->firstOrFail();
+    $run = AiRun::query()->where('ticket_id', $ticket->id)->latest('created_at')->orderByDesc('id')->firstOrFail();
     expect($run->input_tokens)->toBe(321)->and($run->output_tokens)->toBe(45)->and(json_encode($run->transcript))->not->toContain('Tajne123');
 });
 
@@ -132,7 +132,7 @@ it('masks a password typed into the chat before a transcript keeps it', function
     [$owner, $org] = $this->customerWithOrganization();
     $this->actingAs($owner, 'sanctum')->withHeader('X-Organization', $org->id);
     $this->postJson('/v1/assistant/chat', ['text' => 'Nejde mi přihlášení do FTP, heslo je Tajne123! co s tím?'])->assertOk();
-    $run = AiRun::query()->where('user_id', $owner->id)->latest('created_at')->firstOrFail();
+    $run = AiRun::query()->where('user_id', $owner->id)->latest('created_at')->orderByDesc('id')->firstOrFail();
     expect(json_encode($run->transcript, JSON_UNESCAPED_UNICODE))->toContain('[skryto]')->not->toContain('Tajne123');
 });
 

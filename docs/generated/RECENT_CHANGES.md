@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| d641a15 | 2026-09-21 | A server's reverse record reaches the resolver |
+| 2b6dd21 | 2026-09-21 | A plan promises only what the platform enforces, applies or measures |
 | a3316a0 | 2026-09-21 | A test that reads the clock twice is red whenever the second ticks over |
 | 1193da8 | 2026-09-21 | A paid add-on changes the service it was bought for, and can be cancelled |
 | b5a6bca | 2026-09-21 | Regenerate project state after the assistant-proposals and VPS-access block |
@@ -12,5 +14,3 @@
 | cc062e0 | 2026-09-20 | The model has a budget; what PostgreSQL would refuse is found locally; a correction of the record |
 | 5c154a6 | 2026-09-20 | A width guard for the whole suite: what SQLite forgives and PostgreSQL refuses shows up locally |
 | 2f8d175 | 2026-09-20 | A domain has an end; the production database's only test is CI — and it was red for 92 runs |
-| 6c3b431 | 2026-09-20 | Regenerate project state after the VAT-in-CZK and cart quantity blocks |
-| 8fe0a10 | 2026-09-20 | A document in EUR states its VAT in CZK; a cart quantity is that many lines; the transfer lock says what it is |

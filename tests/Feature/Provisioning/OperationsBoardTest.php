@@ -91,7 +91,7 @@ it('tells staff which operations drained a node, resumes a quiet drained node af
     $board = app(OperationsBoard::class);
     expect($board->autoDrain())->toMatchArray(['drained' => 1, 'resumed' => 0, 'probed' => 0]);
     app(OutboxPublisher::class)->relayPending();
-    $notice = Notification::query()->where('audience', 'internal')->where('title', 'like', 'Uzel % odstaven z umísťování (automaticky)')->latest('created_at')->first();
+    $notice = Notification::query()->where('audience', 'internal')->where('title', 'like', 'Uzel % odstaven z umísťování (automaticky)')->latest('created_at')->orderByDesc('id')->first();
     expect($notice)->not->toBeNull()->and($notice->body)->toContain('Certifikát')->toContain('"failed":[{"id":"op_'); // which operations, which step — not just "drained"
 
     // the operations move elsewhere, the node is quiet: the board probes the integration instead of waiting for a success that cannot come

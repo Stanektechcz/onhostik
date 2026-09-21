@@ -306,7 +306,7 @@ it('takes a removed member off the game servers at once and only reports the col
     // the weekly review: an account of someone with an ONhost login who is not a member is reported, an outside friend is not, nothing is deleted
     $stats = app(DelegatedAccessReview::class)->review($org->id);
     expect($stats)->toMatchArray(['organizations' => 1, 'services' => 1, 'findings' => 1, 'errors' => 0]);
-    $finding = OutboxMessage::query()->where('name', 'access.review.findings')->latest('created_at')->firstOrFail();
+    $finding = OutboxMessage::query()->where('name', 'access.review.findings')->latest('created_at')->orderByDesc('id')->firstOrFail();
     expect(data_get($finding->payload, 'findings.0.email'))->toBe('byvaly@jinde.test')->and(data_get($finding->payload, 'count'))->toBe(1);
     expect(array_keys($state['subusers']))->toBe(['su-2', 'su-3']);
     expect($stranger->id)->not->toBe($contractor->id);

@@ -103,7 +103,7 @@ it('reads the records of a zone and one document for somebody who may read them,
 
     // …and the conversation is this person's alone. The same address and no session id used to continue the OWNER's transcript:
     // the questions and answers above — the records, the invoice, its variable symbol — went into the model's context for somebody else
-    $mine = AiRun::query()->where('user_id', $contact->id)->latest('created_at')->firstOrFail();
+    $mine = AiRun::query()->where('user_id', $contact->id)->latest('created_at')->orderByDesc('id')->firstOrFail();
     expect($mine->session_id)->toStartWith($contact->id.':')->and(collect($mine->transcript)->where('role', 'user')->count())->toBe(1)
         ->and(json_encode($mine->transcript))->not->toContain('203.0.113.10')->not->toContain('20260042');
 });
@@ -114,8 +114,12 @@ it('gives a visitor without a browser session no memory at all, instead of the m
     $visitor = fn () => new CommandContext('system', null, null, null, '203.0.113.5', 'pest', null);
     $first = app(AssistantService::class)->chat('Moje doména tajna-firma.cz nejde, jsem jan@tajna-firma.cz', null, null, null, $visitor());
     $second = app(AssistantService::class)->chat('Kolik stojí webhosting?', null, null, null, $visitor());
-    $runs = AiRun::query()->whereNull('user_id')->orderBy('created_at')->get();
-    expect($runs)->toHaveCount(2)->and($runs[0]->session_id)->not->toBe($runs[1]->session_id)->and($runs[0]->session_id)->not->toContain('203.0.113.5')
-        ->and(json_encode($runs[1]->transcript))->not->toContain('tajna-firma.cz');
+    // by id, not by created_at: two runs of the same second have no order of their own, and PostgreSQL is free to return
+    // them either way round — the test then read the first visitor's transcript as the second's and went red at random
+    $runs = AiRun::query()->whereNull('user_id')->orderBy('id')->get();
+    $firstRun = $runs->firstWhere('id', $first['run_id']);
+    $secondRun = $runs->firstWhere('id', $second['run_id']);
+    expect($runs)->toHaveCount(2)->and($firstRun?->session_id)->not->toBe($secondRun?->session_id)->and($firstRun?->session_id)->not->toContain('203.0.113.5')
+        ->and(json_encode($secondRun?->transcript))->not->toContain('tajna-firma.cz');
     expect($first['run_id'])->not->toBe($second['run_id']);
 });

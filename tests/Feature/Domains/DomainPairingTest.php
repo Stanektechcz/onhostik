@@ -83,7 +83,7 @@ it('pairs a mirrored domain with a web hosting plan and unpairs it again', funct
     $issuer = app(CertificateAutoIssuer::class);
     $issuer->resolveWith(fn (string $hostname) => in_array($hostname, ['eshop.cz', 'www.eshop.cz'], true) ? ['192.0.2.11'] : []);
     expect($issuer->run())->toBe(['checked' => 1, 'resolved' => 1, 'requested' => 1]);
-    $operation = Operation::query()->where('service_id', $service->id)->latest('created_at')->firstOrFail();
+    $operation = Operation::query()->where('service_id', $service->id)->latest('created_at')->orderByDesc('id')->firstOrFail();
     expect(data_get($operation->desired, 'action'))->toBe('ssl.issue')->and(data_get($operation->desired, 'domains'))->toBe(['eshop.cz', 'www.eshop.cz']);
     expect(driveOperation($operation)->state)->toBe(Operation::SUCCEEDED)->and(Service::query()->findOrFail($service->id)->tags['access']['certificate'])->toBe('issued');
 

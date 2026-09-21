@@ -23,7 +23,7 @@ it('records that support opened a customer\'s account and a ticket — once per 
     $this->getJson("/v1/staff/customers/{$org->id}")->assertOk(); // the console refreshes itself: still one event
     $this->getJson("/v1/staff/tickets/{$ticket->id}")->assertOk();
 
-    $reads = AuditEvent::query()->where('organization_id', $org->id)->where('action', 'like', 'staff.read.%')->orderBy('created_at')->get();
+    $reads = AuditEvent::query()->where('organization_id', $org->id)->where('action', 'like', 'staff.read.%')->orderBy('created_at')->orderBy('id')->get();
     expect($reads->pluck('action')->all())->toBe(['staff.read.customer', 'staff.read.ticket'])
         ->and($reads[0]->actor_id)->toBe($agent->id)->and($reads[0]->resource_id)->toBe($org->id)->and($reads[1]->resource_id)->toBe($ticket->id);
 
