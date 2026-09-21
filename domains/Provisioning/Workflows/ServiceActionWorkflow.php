@@ -126,6 +126,9 @@ final class ServiceActionWorkflow implements Workflow
             'reinstall' => [$this->safetyCopyStep('pre_reinstall'), $this->featureStep('reinstall')], // rewrites the server files
             // a dump is written OVER a live database: room first, then a copy of exactly that database, then the import
             'database.import' => [$this->importRoomStep(), $this->safetyCopyStep('pre_import', onlyTargetDatabase: true), $this->featureStep('database.import')],
+            // `database.delete` deliberately keeps NO copy of its own: the customer asked for that data to go, they saw
+            // the preview and confirmed the target, and a protected archive they cannot remove would be the platform
+            // keeping deleted data for sixty days. What protects them there is the preview and the scheduled backups.
             default => in_array($action, self::FEATURE_ACTIONS, true) ? [$this->featureStep($action)] : throw new \InvalidArgumentException("Unknown service action {$action}"),
         };
     }

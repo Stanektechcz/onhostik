@@ -50,7 +50,7 @@ function importPanel(Service $service, array &$log, array $options = []): object
 {
     $transport = Mockery::mock(FileTransport::class)->shouldIgnoreMissing();
     $adapter = Mockery::mock(ProviderAdapter::class, InfrastructureProvider::class, WebHostingProvider::class, WebToolsProvider::class)->shouldIgnoreMissing();
-    $adapter->shouldReceive('siteFeatures')->andReturn(['backups' => true, 'restore' => true, 'databases' => true, 'db_export' => true, 'quotas' => true]);
+    $adapter->shouldReceive('siteFeatures')->andReturn(['backups' => true, 'restore' => true, 'databases' => true, 'db_export' => true, 'quotas' => true] + (array) ($options['features'] ?? []));
     $adapter->shouldReceive('transport')->andReturn($transport);
     $adapter->shouldReceive('getActualState')->andReturn(new ActualState(true, ['domain' => 'shop.cz', 'name' => 'shop.cz', 'path' => '/www/wwwroot/shop.cz'], 'active', now()->toISOString()));
     $adapter->shouldReceive('listDatabases')->andReturn([['remote_id' => '4', 'name' => 'shop_db'], ['remote_id' => '5', 'name' => 'blog_db']]);
@@ -141,6 +141,24 @@ it('puts the database back when the panel refuses the dump, and leaves a timeout
     $told = Notification::query()->where('event', 'service.database.import.failed')->get();
     expect($told->pluck('audience')->unique()->all())->toContain('customer')
         ->and($told->first()->body)->toContain('vrátili jsme');
+});
+
+it('refuses to remove a database account a database still hangs on (H462)', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'ispconfig');
+    $log = [];
+    $adapter = importPanel($service, $log, ['features' => ['db_users' => true]]);
+    $adapter->shouldReceive('listDbUsers')->andReturn([
+        ['remote_id' => '11', 'user' => 'web41_app', 'databases' => ['shop_db', 'blog_db']],
+        ['remote_id' => '12', 'user' => 'web41_old', 'databases' => []],
+    ]);
+    $this->actingAs($user, 'sanctum');
+    $delete = fn (string $id, string $key) => $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'dbuser.delete', 'params' => ['remote_id' => $id]], ['Idempotency-Key' => $key]);
+
+    // the account an application signs in with: removing it takes the site down at the next request, silently
+    $delete('11', 'du-1')->assertStatus(409)->assertJsonPath('error', 'dbuser_in_use')->assertJsonPath('databases', ['shop_db', 'blog_db']);
+    // one nothing hangs on goes as before
+    $delete('12', 'du-2')->assertAccepted();
 });
 
 it('does not race an import that may still be running on the node', function () {

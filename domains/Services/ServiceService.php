@@ -806,7 +806,19 @@ final class ServiceService
 
                 return ['path' => $path, 'user' => $need('user', '/^[a-z0-9_.-]{2,32}$/i', 'user may contain letters, digits, dots, dashes and underscores (2–32)'), 'password' => $password()];
             })(),
-            'folder.unprotect', 'dbuser.delete', 'shell.delete' => ['remote_id' => $remote()],
+            'folder.unprotect', 'shell.delete' => ['remote_id' => $remote()],
+            // a database account is what an application signs in with: removing one a database still hangs on takes the
+            // site down at the next request, silently, and the panel would do it without a word (H462)
+            'dbuser.delete' => (function () use ($remote, $service, $features, $action) {
+                $id = $remote();
+                $user = collect($features->resources($service, 'db_users', true))->firstWhere('remote_id', $id);
+                $databases = array_values(array_filter(array_map('strval', (array) ($user['databases'] ?? []))));
+                if ($databases !== []) {
+                    throw new DomainError('dbuser_in_use', "{$action}: tento účet používá ".implode(', ', array_slice($databases, 0, 5)).'. Nejdřív databázi přepněte na jiný účet, jinak se web při dalším dotazu neohlásí.', 409, ['databases' => $databases]);
+                }
+
+                return ['remote_id' => $id];
+            })(),
             'dbuser.create' => (function () use ($need, $password, $service) {
                 return ['user' => ServiceFeatures::scopedName($service, $need('user', '/^[a-z0-9_]{1,16}$/i', 'user may contain letters, digits and underscores (max 16)')), 'password' => $password()];
             })(),
