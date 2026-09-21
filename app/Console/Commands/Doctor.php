@@ -167,6 +167,11 @@ final class Doctor extends Command
         $stalled = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->where('tags->backup_schedule->missed', '>=', BackupScheduler::MISSES_BEFORE_ALARM)->count();
         $this->add('lifecycle', 'backup schedules keeping up', $stalled === 0, $stalled === 0 ? '' : $stalled.' service(s) have missed '.BackupScheduler::MISSES_BEFORE_ALARM.'+ slots in a row — tags.backup_schedule says why', false);
 
+        // a schedule that stopped itself after repeated failures waits for a person and nothing else will start it (H447)
+        $pausedSchedules = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->whereNotNull('tags->backup_schedule->paused_at')->count();
+        $this->add('lifecycle', 'no backup schedule is waiting for a person', $pausedSchedules === 0,
+            $pausedSchedules === 0 ? '' : $pausedSchedules.' schedule(s) stopped after '.BackupScheduler::FAILURES_BEFORE_PAUSE.' failures in a row — fix the cause, then set the schedule again', false);
+
         // an add-on is a billing row that changes its parent; one the platform cannot apply would be charged for nothing (audit §5ac)
         $undelivered = Addons::unsellable();
         $this->add('catalog', 'every add-on on sale is one the platform delivers', $undelivered === [],

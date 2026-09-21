@@ -197,3 +197,25 @@ was the record and the alarm (H434, H435, H446):
 * `onhost:doctor` lists the services that are behind ("backup schedules keeping up").
 
 Tests: `tests/Feature/Services/BackupScheduleMissesTest.php`.
+
+## A schedule that keeps failing stops itself (2026-09-22)
+
+The miss record (above) covers a slot the scheduler could not **start**. A backup that starts and then **fails** was
+a different story and nobody was watching it:
+
+* `due()` treated only a `running` or `completed` backup as "this slot has run", so a failed one left the slot due —
+  and the scheduler started the whole packing run again at **every tick** until the window passed. On an hourly plan
+  with a broken node that is the site packed over and over, all day.
+* Nothing counted the failures, so a schedule that could never succeed went on trying for ever.
+
+Now (H447): a failed attempt counts as the slot having been tried — the operation runner has already retried it — and
+`BackupScheduler::noteOutcome()` reads what became of the last scheduled backup. Five failures in a row and the
+schedule **stops itself**: `tags.backup_schedule.paused_at` is set, `service.backup.schedule.paused` is published once
+to the customer and the operator, and no tick will start it again.
+
+The resume is deliberately a person's: setting the backup schedule (`PUT /v1/services/{id}/backups/schedule`) clears
+the pause and the failure count. Nothing is deleted while a schedule is paused and every backup already made stays
+where it is — pruning and off-site copying are skipped along with it, which keeps more than the retention asks for,
+never less. `onhost:doctor` lists them under "no backup schedule is waiting for a person".
+
+Tests: `tests/Feature/Services/BackupScheduleMissesTest.php`.

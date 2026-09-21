@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A schedule that keeps failing stops itself:** five failed scheduled backups in a row pause the schedule
+  (`service.backup.schedule.paused`); only a person setting the schedule again starts it.
+
 - **A suspended game server's schedules are disarmed too:** `SuspensionDepth` is driven by a table of kinds
   (`cron`, `ftp`, `schedule`) and switches back on exactly what it switched off.
 

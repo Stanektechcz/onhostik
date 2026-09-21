@@ -35,14 +35,24 @@ final class BackupScheduler
     /** @return array{started:int, skipped:int, deleted:int, offsite:int, errors:int} */
     public function tick(int $limit = 100): array
     {
-        $stats = ['started' => 0, 'skipped' => 0, 'deleted' => 0, 'offsite' => 0, 'errors' => 0, 'missed' => 0];
+        $stats = ['started' => 0, 'skipped' => 0, 'deleted' => 0, 'offsite' => 0, 'errors' => 0, 'missed' => 0, 'paused' => 0];
         $context = CommandContext::system('backup scheduler');
         $services = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->whereNotNull('provider_instance_id')->orderBy('id')->limit($limit)->get();
         foreach ($services as $service) {
             $schedule = null; // never the previous service's schedule, whatever throws below
             try {
+                if (self::pausedAt($service) !== null) {
+                    $stats['paused']++;
+
+                    continue; // a schedule that paused itself waits for a person, however many ticks pass
+                }
                 $schedule = $this->scheduleFor($service);
                 if ($schedule === null) {
+                    continue;
+                }
+                if ($this->noteOutcome($service, $schedule)) {
+                    $stats['paused']++;
+
                     continue;
                 }
                 if ($this->due($service, $schedule)) {
@@ -91,7 +101,10 @@ final class BackupScheduler
             if (($state['missed'] ?? 0) === 0 && ($state['last_slot'] ?? null) === $schedule['slot']) {
                 return false;
             }
-            $tags[self::TAG] = ['last_slot' => $schedule['slot'], 'last_run_at' => now()->toIso8601String(), 'frequency' => $schedule['frequency'], 'missed' => 0];
+            // merged, not replaced: what the slot did is one thing, what became of the backups is another (H447), and
+            // replacing the record here used to wipe the failure count every time a new slot was started
+            $tags[self::TAG] = array_merge(array_diff_key($state, array_flip(['last_missed_slot', 'last_missed_at', 'last_error'])),
+                ['last_slot' => $schedule['slot'], 'last_run_at' => now()->toIso8601String(), 'frequency' => $schedule['frequency'], 'missed' => 0]);
             $service->forceFill(['tags' => $tags])->save();
 
             return false;
@@ -116,6 +129,84 @@ final class BackupScheduler
     public static function health(Service $service): array
     {
         return (array) data_get($service->tags, self::TAG, []);
+    }
+
+    /** When the schedule stopped itself, or null while it is running. */
+    public static function pausedAt(Service $service): ?string
+    {
+        $at = data_get($service->tags, self::TAG.'.paused_at');
+
+        return is_string($at) && $at !== '' ? $at : null;
+    }
+
+    /**
+     * How many scheduled backups may fail in a row before the schedule stops itself.
+     *
+     * The operation runner already retries a failed backup, so five failures in a row are five slots that each tried
+     * and could not: the cause is the node, the disk or the site, not luck.
+     */
+    public const FAILURES_BEFORE_PAUSE = 5;
+
+    /**
+     * What became of the backup this schedule asked for last time — and, when the answer keeps being "it failed",
+     * stopping the schedule (H447).
+     *
+     * A backup that fails costs the node the whole packing run every time, so a schedule that cannot succeed is a
+     * schedule that must not go on trying for ever. It stops itself, says so once, and waits for a person to look
+     * and set the schedule again; nothing is deleted and every backup already made stays where it is.
+     *
+     * @param  array{frequency:string, slot:string, ...}  $schedule
+     * @return bool whether the schedule was paused by this call
+     */
+    private function noteOutcome(Service $service, array $schedule): bool
+    {
+        $last = Backup::query()->where('service_id', $service->id)->where('kind', 'scheduled')->whereIn('state', ['completed', 'failed'])
+            ->orderByDesc('started_at')->orderByDesc('id')->first();
+        $tags = (array) $service->tags;
+        $state = (array) ($tags[self::TAG] ?? []);
+        if ($last === null || (string) ($state['last_outcome'] ?? '') === (string) $last->id) {
+            return false; // nothing has finished yet, or this one is already counted
+        }
+        $failures = $last->state === 'failed' ? (int) ($state['failures'] ?? 0) + 1 : 0;
+        $state['failures'] = $failures;
+        $state['last_outcome'] = (string) $last->id;
+        $reason = mb_substr((string) (data_get($last->meta, 'error') ?? 'záloha selhala'), 0, 60);
+        if ($last->state === 'failed') {
+            $state['last_failure'] = $reason;
+        }
+        $paused = $failures >= self::FAILURES_BEFORE_PAUSE;
+        if ($paused) {
+            $state['paused_at'] = now()->toIso8601String();
+        }
+        $tags[self::TAG] = $state;
+        $service->forceFill(['tags' => $tags])->save();
+        if ($paused) {
+            $this->outbox->publish(GenericEvent::of('service.backup.schedule.paused', 'service', $service->id, [
+                'failures' => $failures, 'frequency' => $schedule['frequency'], 'reason' => $reason,
+                'label' => $service->label ?: ($service->hostname ?: $service->name),
+            ], $service->organization_id));
+        }
+
+        return $paused;
+    }
+
+    /**
+     * Start the schedule again after somebody has looked at it — the controlled resume H447 asks for. Called when the
+     * backup schedule is set, which is a person deciding the schedule is right; the failure count starts from nothing.
+     */
+    public static function resume(Service $service): bool
+    {
+        $tags = (array) $service->tags;
+        $state = (array) ($tags[self::TAG] ?? []);
+        if (($state['paused_at'] ?? null) === null && (int) ($state['failures'] ?? 0) === 0) {
+            return false;
+        }
+        unset($state['paused_at'], $state['last_failure']);
+        $state['failures'] = 0;
+        $tags[self::TAG] = $state;
+        $service->forceFill(['tags' => $tags])->save();
+
+        return true;
     }
 
     /** @return array{frequency:string, minutes:int, days:int, generations:int, offsite:bool, slot:string, window_start:Carbon}|null */
@@ -148,7 +239,9 @@ final class BackupScheduler
 
     private function due(Service $service, array $schedule): bool
     {
-        $last = Backup::query()->where('service_id', $service->id)->where('kind', 'scheduled')->whereIn('state', ['running', 'completed'])->orderByDesc('started_at')->first();
+        // a failed attempt counts as this slot having been tried: the operation runner has already retried it, and
+        // without this the scheduler started the whole packing run again at EVERY tick until the window passed
+        $last = Backup::query()->where('service_id', $service->id)->where('kind', 'scheduled')->whereIn('state', ['running', 'completed', 'failed'])->orderByDesc('started_at')->orderByDesc('id')->first();
 
         return $last === null || $last->started_at === null || $last->started_at->lessThan($schedule['window_start']);
     }

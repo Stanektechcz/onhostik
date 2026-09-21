@@ -139,6 +139,8 @@ final class Lexicon
         'CDN je aktivní' => 'CDN is active', 'CDN zapnuto' => 'CDN enabled', 'CDN vypnuto' => 'CDN disabled', ' · nastavte nameservery u registrátora' => ' · set the nameservers at your registrar', ' změněn na ' => ' changed to ',
         'Plánovaná záloha se nespustila' => 'A scheduled backup did not start', 'Zálohu služby ' => 'The backup of ', ' se nepodařilo spustit ' => ' could not be started ',
         '× po sobě (' => ' times in a row (', '). Díváme se na to; poslední hotová záloha zůstává k dispozici.' => '). We are looking into it; the last finished backup is still there.',
+        'Plánování záloh jsme zastavili' => 'We stopped the backup schedule', 'Zálohy služby ' => 'The backups of ', ' selhaly ' => ' failed ',
+        '), tak jsme plán zastavili, aby se pokusy neopakovaly donekonečna. Hotové zálohy zůstávají. Plán se rozeběhne, jakmile ho znovu nastavíte.' => '), so we stopped the schedule rather than let it try for ever. Every finished backup is still there. The schedule starts again as soon as you set it.',
         'Server běží v záchranném režimu' => 'The server is running in rescue mode', 'Nastartovali jsme server ze záchranného obrazu (' => 'We booted the server from a rescue image (',
         '). Disky zůstaly nedotčené. Režim sám skončí ' => '). The disks were left untouched. The mode ends by itself ', ' a server nabootuje zpět do svého systému.' => ' and the server boots back into its own system.',
         'Záchranný režim skončil' => 'Rescue mode ended', 'Server jsme vrátili do vlastního systému (' => 'We put the server back on its own system (',

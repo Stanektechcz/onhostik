@@ -86,9 +86,10 @@ final class WebToolsCommandHandler implements CommandHandler
         $offsiteAllowed = (bool) data_get($service->entitlements, 'backup_offsite', false);
         $offsite = $offsiteAllowed && filter_var($params['offsite'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $policy = BackupPolicy::query()->updateOrCreate(['service_id' => $service->id], ['product_key' => $service->product_key, 'schedule' => ['frequency' => $frequency], 'retention' => ['days' => $days, 'generations' => $generations], 'offsite' => $offsite]);
+        $restarted = BackupScheduler::resume($service); // a schedule that had stopped itself after repeated failures starts again here, and only here (H447)
         $this->audit->record($context->withScope($service->organization_id), 'service.backup_schedule.set', 'succeeded', ['frequency' => $frequency, 'days' => $days, 'generations' => $generations, 'offsite' => $offsite], 'service', $service->id);
         $this->features->forget($service);
 
-        return ['schedule' => ['frequency' => $frequency, 'days' => $days, 'generations' => $generations, 'offsite' => $offsite, 'offsite_available' => $offsiteAllowed, 'plan' => $plan], 'policy_id' => $policy->id];
+        return ['schedule' => ['frequency' => $frequency, 'days' => $days, 'generations' => $generations, 'offsite' => $offsite, 'offsite_available' => $offsiteAllowed, 'plan' => $plan], 'policy_id' => $policy->id, 'restarted' => $restarted];
     }
 }

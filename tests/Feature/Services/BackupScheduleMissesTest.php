@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
+use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Web\BackupScheduler;
@@ -65,6 +66,40 @@ it('counts one miss per slot, and a slot that runs clears the count', function (
     expect($scheduler->tick()['started'])->toBe(1);
     $health = BackupScheduler::health($service->fresh());
     expect($health['missed'])->toBe(0)->and($health['last_run_at'])->not->toBeNull();
+});
+
+it('stops a schedule whose backups keep failing, and starts it again only when a person sets it (H447)', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'ispconfig');
+    BackupPolicy::query()->create(['service_id' => $service->id, 'product_key' => 'backup-plus', 'schedule' => ['frequency' => 'daily'], 'retention' => ['days' => 30, 'generations' => 30], 'offsite' => false, 'restore_test' => [], 'state' => 'active']);
+    $scheduler = app(BackupScheduler::class);
+    $fail = function (int $day) use ($service) { // the packing run reached the node and could not finish: the row is failed
+        Backup::query()->create(['service_id' => $service->id, 'organization_id' => $service->organization_id, 'kind' => 'scheduled', 'state' => 'failed', 'protected' => false,
+            'started_at' => now()->subDays($day)->setTime(2, 31), 'finished_at' => now()->subDays($day)->setTime(2, 40), 'meta' => ['error' => 'no space left on device']]);
+    };
+
+    foreach (range(5, 1) as $i => $day) {
+        $fail($day);
+        $this->travelTo(now()->startOfDay()->addHours(3)->addMinutes($i));
+        $stats = $scheduler->tick();
+        expect($stats['paused'])->toBe($i === 4 ? 1 : 0, "day {$day}"); // the fifth failure is the one that stops it
+    }
+    $health = BackupScheduler::health($service->fresh());
+    expect($health['failures'])->toBe(BackupScheduler::FAILURES_BEFORE_PAUSE)->and($health['last_failure'])->toContain('no space left')
+        ->and(BackupScheduler::pausedAt($service->fresh()))->not->toBeNull();
+
+    // it stays stopped however many ticks pass: nothing starts a schedule that gave up but a person
+    expect($scheduler->tick())->toMatchArray(['started' => 0, 'paused' => 1]);
+
+    app(OutboxPublisher::class)->relayPending();
+    $told = Notification::query()->where('event', 'service.backup.schedule.paused')->get();
+    expect($told->pluck('audience')->unique()->all())->toContain('customer')
+        ->and($told->first()->body)->toContain('5×');
+
+    // the controlled resume: the customer looks at it and sets the schedule again
+    $this->actingAs($user, 'sanctum')->putJson("/v1/services/{$service->id}/backups/schedule", ['frequency' => 'daily', 'days' => 7, 'generations' => 7])->assertOk();
+    expect(BackupScheduler::pausedAt($service->fresh()))->toBeNull()
+        ->and(BackupScheduler::health($service->fresh())['failures'])->toBe(0);
 });
 
 it('never carries one service\'s missed slot over to another', function () {
