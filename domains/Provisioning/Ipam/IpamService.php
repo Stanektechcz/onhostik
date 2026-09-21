@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Onhost\Domain\Provisioning\Ipam;
 
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Provisioning\Models\IpAddress;
 use Onhost\Domain\Provisioning\Models\IpPool;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Platform\Support\Hostname;
+use Throwable;
 
 /**
  * IPv4/IPv6 allocation with row locks. IPv4 is a scarce, billable resource
@@ -52,6 +55,9 @@ final class IpamService
 
     public function release(IpAddress $address, int $quarantineDays = 7): void
     {
+        if ($address->rdns !== null) {
+            $this->setReverseDns($address, null, CommandContext::system('ipam'), 'address released'); // the PTR of the last tenant never follows the address to the next one
+        }
         $address->forceFill(['state' => 'quarantine', 'service_id' => null, 'organization_id' => null, 'rdns' => null, 'released_at' => now(), 'reserved_until' => now()->addDays($quarantineDays)])->save();
     }
 
@@ -60,11 +66,35 @@ final class IpamService
         return IpAddress::query()->where('state', 'quarantine')->where('reserved_until', '<', now())->update(['state' => 'free', 'reserved_until' => null]);
     }
 
-    public function setReverseDns(IpAddress $address, string $hostname): IpAddress
+    /**
+     * The reverse record of an address — written down here **and published** into the reverse zone the platform holds
+     * (audit §5ae). Until this, `rdns` was a column nothing ever turned into a PTR: every VPS the platform provisioned
+     * had no reverse record at all, so mail leaving it was refused by most receivers — while the IPv4 add-on sold
+     * `rdns: true`. A null hostname removes the record.
+     */
+    public function setReverseDns(IpAddress $address, ?string $hostname, ?CommandContext $actor = null, string $reason = 'reverse dns'): IpAddress
     {
-        $address->forceFill(['rdns' => Hostname::canonical($hostname)])->save();
+        $canonical = $hostname === null || trim($hostname) === '' ? null : Hostname::canonical($hostname);
+        $address->forceFill(['rdns' => $canonical])->save();
+        try {
+            $published = app(DnsService::class)->syncPtr((string) $address->address, $canonical, $actor ?? CommandContext::system('ipam'), $reason);
+        } catch (Throwable $e) { // the record stays written down; the nightly drift check and republish put it right
+            $this->outbox->publish(GenericEvent::of('ipam.rdns.failed', 'ip_address', (string) $address->address, ['hostname' => $canonical, 'error' => mb_substr($e->getMessage(), 0, 200)], $address->organization_id));
 
-        return $address;
+            return $address->refresh();
+        }
+        if ($published === null && $canonical !== null) {
+            // no reverse zone here for this address: the operator has to be delegated one, or the upstream sets the PTR
+            $this->outbox->publish(GenericEvent::of('ipam.rdns.unpublished', 'ip_address', (string) $address->address, ['hostname' => $canonical], $address->organization_id));
+        }
+
+        return $address->refresh();
+    }
+
+    /** Whether the platform can publish a PTR for this address at all (the panel asks before offering the field). */
+    public function reverseZoneExists(IpAddress $address): bool
+    {
+        return app(DnsService::class)->reverseZoneFor((string) $address->address) !== null;
     }
 
     /** Seed a pool with every host address of a CIDR (IPv4) or a list of /64 subnets (IPv6). */

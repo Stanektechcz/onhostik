@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services;
 
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Provisioning\GameTemplates;
+use Onhost\Domain\Provisioning\Models\IpAddress;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Models\Service;
@@ -73,6 +75,7 @@ final class ServiceFeatures
         'backup_tools' => ['gbackup.delete', 'gbackup.lock'], 'panel_access' => ['panel.password'],
         // a virtual server's own access (ComputeProvider): new SSH keys and/or a new password for the administrator, through cloud-init
         'vm_access' => ['access.reset'],
+        'vm_rdns' => ['rdns.set'],
     ];
 
     public const RESOURCES = [
@@ -89,6 +92,18 @@ final class ServiceFeatures
     public const PLATFORM_RESOURCES = ['staging', 'deploy', 'deployments', 'wordpress', 'monitoring', 'monitoring_samples', 'certificates', 'cdn', 'imports'];
 
     public function __construct(private readonly ProviderRegistry $providers, private readonly CacheRepository $cache) {}
+
+    /** Whether the platform holds a reverse zone for any address of this service — without one no PTR can be published. */
+    private static function reverseZoneAvailable(Service $service): bool
+    {
+        foreach (IpAddress::query()->where('service_id', $service->id)->where('state', 'allocated')->get() as $address) {
+            if (app(DnsService::class)->reverseZoneFor((string) $address->address) !== null) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /** @return array<string, array{enabled:bool, limit?:int|null, options?:mixed, reason?:string}> */
     public function features(Service $service): array
@@ -140,6 +155,8 @@ final class ServiceFeatures
                     'restore' => $on($adapter === null || $adapter instanceof BackupCapable), 'resize' => $on(true), 'firewall' => $on($adapter === null || $adapter instanceof ComputeProvider), 'disks' => $on(true), 'network' => $on(true),
                     // the customer's own server only: a managed database (family `data`) has no root for its customer
                     'vm_access' => $on($service->family === 'cloud' && ($adapter === null || $adapter instanceof ComputeProvider)),
+                    // the reverse record of the server's own address, offered only where the platform holds the reverse zone to publish it into
+                    'vm_rdns' => $on($service->family === 'cloud' && self::reverseZoneAvailable($service)),
                 ];
                 break;
             case 'game':

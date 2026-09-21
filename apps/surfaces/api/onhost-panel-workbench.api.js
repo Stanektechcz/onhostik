@@ -435,6 +435,11 @@
           function () { return {}; });
         p6.rows = rules.length ? rules.map(function (r, i) { return { cells: [cell(r.action, '0 0 90px'), cell(r.type, '0 0 70px'), cell((r.proto || 'any') + (r.dport ? ' ' + r.dport : ''), '1 1 160px', 1), cell(r.source || _('kdokoli', 'anyone'), '1 1 160px', 1)], note: r.comment || '', actions: [A(_('Odebrat', 'Remove'), function () { var next = rules.filter(function (x, j) { return j !== i; }); act(cmp, sel, 'firewall.apply', { rules: next, enabled: fw.enabled !== false }, ['firewall']); })] }; }) : [{ cells: [cell(_('žádná pravidla · vše povoleno', 'no rules · everything allowed'), '1 1 300px')], note: '' }];
         p6.form = { title: _('Povolit port', 'Allow a port'), fields: [F('a', _('port (např. 443 nebo 8000:8100)', 'port (e.g. 443 or 8000:8100)'), '0 0 200px'), F('b', _('zdroj (CIDR, volitelně)', 'source (CIDR, optional)'), '0 0 200px'), F('c', _('protokol tcp/udp', 'protocol tcp/udp'), '0 0 120px')], submit: _('Přidat', 'Add'), on: function () { var next = rules.concat([{ action: 'ACCEPT', type: 'in', proto: (s.wbF.c || 'tcp').trim(), dport: (s.wbF.a || '').trim(), source: (s.wbF.b || '').trim() || undefined, enable: true, comment: 'panel' }]); act(cmp, sel, 'firewall.apply', { rules: next, enabled: true }, ['firewall']); } };
+        if (on('vm_rdns')) p6.extra = (p6.extra || []).concat([{ label: _('Reverzní záznam (PTR)', 'Reverse record (PTR)'), on: function () {
+          var name = window.prompt(_('Jméno, které se má vracet pro IP adresu serveru (prázdné = zrušit záznam):', 'The name to return for the server IP address (empty removes the record):'), '');
+          if (name === null) return;
+          act(cmp, sel, 'rdns.set', { hostname: String(name).trim() }, [], String(name).trim() ? _('Reverzní záznam nastaven', 'Reverse record set') : _('Reverzní záznam zrušen', 'Reverse record removed'), _('Záznam je vidět na internetu do pár minut.', 'The record is visible on the internet within minutes.'));
+        } }]);
         return p6;
       }
       if (tab === 'bkp') return backupsPanel(cmp, sel, _, on('restore'));

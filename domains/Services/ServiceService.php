@@ -730,6 +730,17 @@ final class ServiceService
 
                 return array_filter(['ssh_keys' => $keys, 'password' => $withPassword ? $password() : null], fn ($v) => $v !== null && $v !== []);
             })(),
+            // The reverse record of the server's address: a name, or nothing to remove it. Which address it belongs to is the
+            // platform's business — the customer names a host, never an address (H21: nobody sets a PTR for somebody else's IP).
+            'rdns.set' => (function () use ($params, $action) {
+                $hostname = strtolower(trim((string) ($params['hostname'] ?? '')));
+                if ($hostname !== '' && ! preg_match('/^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $hostname)) {
+                    throw new DomainError('action_param_invalid', "{$action}: hostname must be a full domain name (www.example.cz), or empty to remove the record.", 422, ['field' => 'hostname']);
+                }
+                $family = (int) ($params['family'] ?? 4);
+
+                return ['hostname' => $hostname, 'family' => in_array($family, [4, 6], true) ? $family : 4];
+            })(),
             'command.send' => ['command' => $need('command', '/^[^\r\n]{1,1000}$/', 'command is required (one line)')],
             'schedule.create' => (function () use ($need, $params, $action) {
                 $actions = [];

@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A server's reverse record reaches the resolver:** `DnsService::reverseZoneFor`/`syncPtr` publish the PTR into the reverse
+  zone the platform holds; the customer sets it with `rdns.set`, releasing the address removes it (migration `000810`).
+
 - **A plan promises only what the platform holds:** `PlanPromises` — every number in `entitlements`/`limits` is read by code or
   declared fair use; the transfer and the file count are measured against what the panel reports; a key can leave a plan.
 

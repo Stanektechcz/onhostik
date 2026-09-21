@@ -552,6 +552,71 @@ final class DnsService
         return $this->syncSystemRecords($zone, $records, $actor, $reason, $owner);
     }
 
+    /**
+     * The reverse zone the platform holds for an address, and the label of that address inside it.
+     *
+     * A PTR lives in a zone the operator was delegated (`2.0.192.in-addr.arpa` for 192.0.2.x, the /64 nibble zone for
+     * IPv6). The longest delegation wins, so a /24, a /16 and an RFC 2317 style sub-zone all work as long as the zone
+     * row exists here — without one there is nothing to publish into and the caller says so.
+     *
+     * @return array{0:DnsZone, 1:string}|null
+     */
+    public function reverseZoneFor(string $ip): ?array
+    {
+        $labels = self::reverseLabels($ip);
+        if ($labels === null) {
+            return null;
+        }
+        [$nibbles, $suffix] = $labels;
+        for ($keep = 0; $keep < count($nibbles); $keep++) { // longest delegation first: the zone with the fewest labels left for the record
+            $name = implode('.', array_slice($nibbles, $keep)).'.'.$suffix;
+            $zone = DnsZone::query()->where('name', $name)->where('state', 'active')->first();
+            if ($zone !== null) {
+                return [$zone, $keep === 0 ? '@' : implode('.', array_slice($nibbles, 0, $keep))];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The PTR of one address, owned by whoever asked for it (`ip:<address>`); a null hostname removes it.
+     * Returns null when the platform holds no reverse zone for the address — then nothing was published.
+     */
+    public function syncPtr(string $ip, ?string $hostname, CommandContext $actor, string $reason): ?DnsZoneVersion
+    {
+        $found = $this->reverseZoneFor($ip);
+        if ($found === null) {
+            return null;
+        }
+        [$zone, $relative] = $found;
+        $records = $hostname === null || trim($hostname) === '' ? [] : [['name' => $relative, 'type' => 'PTR', 'content' => $hostname, 'ttl' => 3600]];
+
+        return $this->syncSystemRecords($zone, $records, $actor, $reason, 'ip:'.strtolower($ip));
+    }
+
+    /**
+     * The nibble/octet labels of an address, most specific first, and the arpa suffix they hang under.
+     *
+     * @return array{0:list<string>, 1:string}|null
+     */
+    public static function reverseLabels(string $ip): ?array
+    {
+        $ip = trim($ip);
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
+            return [array_reverse(explode('.', $ip)), 'in-addr.arpa'];
+        }
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) {
+            return null;
+        }
+        $packed = inet_pton($ip);
+        if ($packed === false) {
+            return null;
+        }
+
+        return [array_reverse(str_split(bin2hex($packed))), 'ip6.arpa'];
+    }
+
     public function adapter(DnsZone $zone): DnsProvider
     {
         $instance = $zone->provider_instance_id ? ProviderInstance::query()->find($zone->provider_instance_id) : null;
