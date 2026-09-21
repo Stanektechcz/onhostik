@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A paid add-on changes the service it was bought for:** `Addons` applies it, writes down what it replaced and gives that
+  back on cancellation; an add-on the platform cannot deliver is not on sale, and an add-on can now be cancelled at all.
+
 - **The assistant's buttons are the platform's:** an allow-list of proposable actions with their own parameters and platform-made
   labels (`AssistantProposals`) — the model could put `command.run` under "Vyčistit cache" on a confirm button.
 - **Access to a VPS after delivery:** `access.reset` sets new SSH keys / a password through cloud-init (step-up; never proposed

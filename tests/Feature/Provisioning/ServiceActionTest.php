@@ -92,14 +92,18 @@ it('cancels in two phases: archive and deactivate now, remove the VM only after 
     [$user, $org] = $this->customerWithOrganization();
     $service = activeVps($org);
     $services = app(ServiceService::class);
+    // an add-on bought for this VM: it has no resource of its own, so nothing ever stopped it — it stayed ACTIVE and billed on
+    $addon = Service::query()->create(['organization_id' => $org->id, 'product_key' => 'backup-hourly', 'family' => 'addon', 'name' => 'Hodinové zálohy', 'state' => ServiceStateMachine::ACTIVE, 'region_code' => $service->region_code,
+        'provider_instance_id' => $service->provider_instance_id, 'entitlements' => ['interval_hours' => 1, 'retention_days' => 30, 'offsite' => true], 'sla_class' => 'standard', 'activated_at' => now(), 'tags' => ['parent_service_id' => $service->id], 'desired_spec' => []]);
 
     // phase 1 — the customer cancels: everything is archived, the VM is switched off, nothing is destroyed
     $cancel = driveOperation($services->requestAction($service, 'terminate', $this->contextFor($user, $org, 'webauthn'), 'act-term-1', ['reason' => 'customer request']));
-    expect($cancel->state)->toBe(Operation::SUCCEEDED);
+    expect($cancel->state)->toBe(Operation::SUCCEEDED, (string) data_get($cancel->error, 'message', ''));
     $deactivated = Service::query()->findOrFail($service->id);
     expect($deactivated->state)->toBe(ServiceStateMachine::SUSPENDED)->and($deactivated->deleted_at)->toBeNull()
         ->and($deactivated->terminate_at)->not->toBeNull()->and((int) now()->diffInDays($deactivated->terminate_at))->toBeGreaterThanOrEqual(29)
         ->and(data_get($deactivated->tags, 'deletion.grace_days'))->toBe(30);
+    expect($addon->fresh()->state)->toBe(ServiceStateMachine::SUSPENDED)->and($addon->fresh()->terminate_at)->not->toBeNull(); // the add-on goes with the service it belonged to
     $backup = Backup::query()->where('service_id', $service->id)->firstOrFail();
     expect($backup->kind)->toBe('final')->and($backup->state)->toBe('completed')->and($backup->protected)->toBeTrue()->and($backup->remote_id)->toBe('pbs-cz1:backup/vm/1042/2026-09-06T10:00:00Z')->and($backup->size_bytes)->toBe(123456789);
     expect(data_get($backup->meta, 'identity.ok'))->toBeTrue()->and(data_get($backup->meta, 'identity.matched'))->toBeGreaterThanOrEqual(5);

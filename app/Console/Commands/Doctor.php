@@ -36,6 +36,7 @@ use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\OperationLatency;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderInstanceService;
+use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
@@ -159,6 +160,15 @@ final class Doctor extends Command
 
         $orphan = Backup::query()->where('kind', 'final')->where('state', 'completed')->whereNull('retention_until')->count();
         $this->add('lifecycle', 'every archive has a retention date', $orphan === 0, $orphan === 0 ? '' : $orphan.' × without retention_until — they would never be pruned', false);
+
+        // an add-on is a billing row that changes its parent; one the platform cannot apply would be charged for nothing (audit §5ac)
+        $undelivered = Addons::unsellable();
+        $this->add('catalog', 'every add-on on sale is one the platform delivers', $undelivered === [],
+            $undelivered === [] ? implode(', ', Addons::handled()) : 'sold and never applied: '.implode(', ', $undelivered).' — Onhost\Domain\Services\Addons::handled()');
+        $addonsWithoutParent = Service::query()->where('family', 'addon')->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])
+            ->whereNull('tags->parent_service_id')->count();
+        $this->add('catalog', 'every add-on knows the service it belongs to', $addonsWithoutParent === 0,
+            $addonsWithoutParent === 0 ? '' : $addonsWithoutParent.' × without a parent service — they change nothing and bill anyway', false);
     }
 
     /**

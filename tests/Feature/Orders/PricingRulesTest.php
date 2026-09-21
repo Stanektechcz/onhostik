@@ -91,16 +91,16 @@ it('prices per-item add-ons from the catalogue options and ties add-on products 
         ->and(array_column($quote->lines[0]['config']['options_priced'], 'key'))->toBe(['nvme_gb', 'staging'])
         ->and($quote->lines[1]['config']['parent_line_id'])->toBe('web')->and($quote->lines[1]['net'])->toBe(19000);
 
-    expect(fn () => pricingQuote($org, [['line_id' => 'vps', 'product_key' => 'vps', 'plan_key' => 'compute-2'], ['product_key' => 'ssl', 'plan_key' => 'ov-business', 'config' => ['parent_line_id' => 'vps']]]))
+    expect(fn () => pricingQuote($org, [['line_id' => 'vps', 'product_key' => 'vps', 'plan_key' => 'compute-2'], ['product_key' => 'mail-hosting', 'plan_key' => 'basic', 'config' => ['parent_line_id' => 'vps']]]))
         ->toThrow(DomainError::class, 'not offered as an add-on');
     expect(fn () => pricingQuote($org, [['product_key' => 'cdn', 'plan_key' => 'cdn-start', 'config' => ['parent_line_id' => 'nope']]]))
         ->toThrow(DomainError::class, 'does not exist');
 
     // staff can change what a product may carry
     $rules = app(PricingRules::class);
-    expect($rules->addonProducts('web-hosting'))->toBe(['ssl', 'cdn', 'backup-plus']);
-    $rules->setAddonProducts('web-hosting', ['ssl']);
-    expect($rules->addonProducts('web-hosting'))->toBe(['ssl']);
+    expect($rules->addonProducts('web-hosting'))->toBe(['cdn', 'backup-plus', 'mail-hosting']); // ssl is a draft product: never offered
+    $rules->setAddonProducts('web-hosting', ['backup-plus']);
+    expect($rules->addonProducts('web-hosting'))->toBe(['backup-plus']);
     expect(fn () => pricingQuote($org, [['line_id' => 'web', 'product_key' => 'web-hosting', 'plan_key' => 'start'], ['product_key' => 'cdn', 'plan_key' => 'cdn-start', 'config' => ['parent_line_id' => 'web']]]))
         ->toThrow(DomainError::class, 'not offered as an add-on');
     expect(fn () => $rules->setAddonProducts('web-hosting', ['nope']))->toThrow(DomainError::class, 'does not exist');

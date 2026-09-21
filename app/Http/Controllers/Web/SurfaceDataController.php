@@ -134,6 +134,12 @@ final class SurfaceDataController extends Controller
                         'note' => $cs ? 'Tuto službu zatím neprodáváme. Ozvěte se a dáme vám vědět, jakmile bude v nabídce.' : 'This service is not sold yet. Get in touch and we will tell you when it is available.',
                         'cta' => $cs ? 'Nezávazně poptat' : 'Request it',
                     ];
+                    if ($slug === 'ssl') { // what is on offer here IS delivered — the free DV certificate; only the paid OV and wildcard ones are not sold yet
+                        $out[$slug]['keep_first'] = 1;
+                        $out[$slug]['note'] = $cs
+                            ? 'Certifikát DV je u každého hostingu zdarma, vystaví se sám a sám se obnovuje. Placené OV a wildcard certifikáty zatím neprodáváme — ozvěte se a dáme vám vědět.'
+                            : 'A DV certificate comes free with every hosting plan, issued and renewed automatically. Paid OV and wildcard certificates are not sold yet — get in touch and we will tell you when they are.';
+                    }
                 }
 
                 continue;

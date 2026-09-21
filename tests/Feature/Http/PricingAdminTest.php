@@ -20,14 +20,14 @@ it('lets staff approve commitment and domain discounts, manage promo codes, add-
     $this->actingAs($this->staff('platform_owner'), 'sanctum');
     $index = $this->getJson('/v1/staff/pricing')->assertOk()->json('data');
     expect($index['commit_discounts'])->toBe(['default' => [], 'families' => []])->and($index['domain_discounts'])->toBe([])->and($index['commit_months'])->toBe([1, 12, 24])
-        ->and(collect($index['promo_codes'])->pluck('code')->all())->toContain('ONHOST10')->and(collect($index['products'])->firstWhere('key', 'web-hosting')['addon_products'])->toBe(['ssl', 'cdn', 'backup-plus'])
+        ->and(collect($index['promo_codes'])->pluck('code')->all())->toContain('ONHOST10')->and(collect($index['products'])->firstWhere('key', 'web-hosting')['addon_products'])->toBe(['cdn', 'backup-plus', 'mail-hosting']) // ssl is not on sale: a draft add-on is never offered
         ->and(collect(collect($index['products'])->firstWhere('key', 'web-custom')['options'])->pluck('key')->all())->toContain('sites', 'nvme_gb', 'backup_days')->and(collect($index['addon_candidates'])->pluck('key')->all())->toContain('ssl', 'cdn');
 
     $this->putJson('/v1/staff/pricing/commit-discounts', ['default' => [12 => 0], 'families' => ['web' => [12 => 5, 24 => 10]]])->assertOk()->assertJsonPath('commit_discounts.families.web.24', 10);
     $this->putJson('/v1/staff/pricing/commit-discounts', ['families' => ['web' => [24 => 120]]])->assertUnprocessable();
     $this->putJson('/v1/staff/pricing/domain-discounts', ['tld' => '.cz', 'register' => 15, 'label' => 'Podzimní akce'])->assertOk()->assertJsonPath('domain_discount.register', 15)->assertJsonPath('tld', 'cz');
     $this->putJson('/v1/staff/pricing/promo-codes', ['code' => 'jaro-2026', 'kind' => 'percent', 'value' => 15, 'applies_to' => ['web', 'domain'], 'max_uses' => 100])->assertOk()->assertJsonPath('promo.code', 'JARO-2026');
-    $this->putJson('/v1/staff/pricing/addon-products', ['product_key' => 'wordpress', 'addon_products' => ['ssl']])->assertOk()->assertJsonPath('addon_products', ['ssl']);
+    $this->putJson('/v1/staff/pricing/addon-products', ['product_key' => 'wordpress', 'addon_products' => ['cdn']])->assertOk()->assertJsonPath('addon_products', ['cdn']);
     $this->putJson('/v1/staff/pricing/addon-products', ['product_key' => 'wordpress', 'addon_products' => ['nope']])->assertUnprocessable()->assertJsonPath('error', 'addon_product_unknown');
     $this->putJson('/v1/staff/pricing/options', ['product_key' => 'web-hosting', 'key' => 'malware_scan', 'kind' => 'addon', 'label' => ['cs' => 'Sken malwaru', 'en' => 'Malware scan'], 'desc' => ['cs' => 'denní kontrola souborů'], 'price_czk' => 39])->assertOk()->assertJsonPath('option.key', 'malware_scan');
     $this->putJson('/v1/staff/pricing/options', ['product_key' => 'web-custom', 'key' => 'sites', 'kind' => 'slider', 'label' => ['cs' => 'Weby'], 'unit' => 'ks', 'min' => 1, 'max' => 100, 'step' => 1, 'default' => 1, 'price_czk' => 35, 'entitlement' => ['key' => 'sites', 'mode' => 'absolute']])->assertOk();
@@ -52,7 +52,7 @@ it('lets staff approve commitment and domain discounts, manage promo codes, add-
     $data = json_decode($m[1] ?? '{}', true)['cs'];
     expect($data['pricing']['commit']['families']['web'])->toBe(['12' => 5, '24' => 10])->and($data['pricing']['domain_discounts']['cz']['register'])->toBe(15)->and($data['pricing']['product_families']['cdn'])->toBe('addon')
         ->and(collect($data['addons']['web-hosting']['options'])->firstWhere('key', 'malware_scan'))->toMatchArray(['kind' => 'addon', 'label' => 'Sken malwaru', 'price' => 39, 'desc' => 'denní kontrola souborů'])
-        ->and(collect($data['addons']['web-hosting']['products'])->pluck('key')->all())->toBe(['ssl', 'cdn', 'backup-plus'])->and(collect($data['addons']['wordpress']['products'])->pluck('key')->all())->toBe(['ssl'])
+        ->and(collect($data['addons']['web-hosting']['products'])->pluck('key')->all())->toBe(['cdn', 'backup-plus', 'mail-hosting'])->and(collect($data['addons']['wordpress']['products'])->pluck('key')->all())->toBe(['cdn'])
         ->and(collect($data['pages']['web-hosting']['builder']['options'])->firstWhere('key', 'sites'))->toMatchArray(['price' => 35, 'min' => 1, 'max' => 100])
         ->and($data['pages']['web-hosting']['builder']['base_price'])->toBe(49)->and($data['pages']['web-hosting']['details']['cols'])->toBe(['Start', 'Standard', 'Profi'])->and(count($data['pages']['web-hosting']['details']['rows']))->toBeGreaterThan(10)
         ->and($data['tlds'][0])->toMatchArray(['tld' => 'cz', 'register' => 179, 'discount' => 15, 'default_period' => 1]);

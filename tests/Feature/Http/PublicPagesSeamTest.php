@@ -23,7 +23,10 @@ it('generates catalogue-driven plans, comparison tables and SKUs for the public 
 
     $eshop = $pages['eshop'];
     expect(array_column($eshop['plans'], 'name'))->toBe(['Shop Start', 'Shop Growth', 'Shop Peak'])->and($eshop['plans'][1]['price'])->toBe(990)->and($eshop['plans'][2]['specs'][0])->toBe('Bez limitu produktů');
-    expect($pages['ssl']['keep_first'])->toBe(1)->and($pages['ssl']['plans'][0])->toMatchArray(['name' => 'OV Business', 'price' => 1490, 'unitYear' => true]);
+    // paid OV and wildcard certificates are ordered at no registrar, so they are not on sale; the free DV certificate the page
+    // opens with is delivered by the platform itself and stays (audit §5ac)
+    expect($pages['ssl']['keep_first'])->toBe(1)->and($pages['ssl']['unavailable'])->toBeTrue()
+        ->and($pages['ssl'])->not->toHaveKey('plans')->and($pages['ssl']['note'])->toContain('DV')->toContain('zdarma');
     expect($pages['cdn']['plans'][1])->toMatchArray(['name' => 'Shield', 'price' => 890, 'tag' => 'Nejoblíbenější']);
     expect($pages['backup']['plans'])->toHaveCount(3)->and($pages['vps']['plans'][0]['specs'])->toContain('2 vCPU', '4 GB RAM', '80 GB NVMe');
     expect($pages['domains'])->toMatchArray(['keep_last' => 1])->and($pages['domains']['plans'][0])->toMatchArray(['name' => '.cz', 'price' => 0, 'priceLabel' => '179 Kč', 'goto' => 'home', 'unitYear' => true])->and($pages['domains']['plans'][0]['specs'])->toContain('DNSSEC')->and($pages['domains']['plans'][0]['priceNote'])->toContain('obnova 179 Kč / rok');

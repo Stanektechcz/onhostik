@@ -39,7 +39,6 @@ use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Provisioning\Workflows\StagingWorkflow;
 use Onhost\Domain\Provisioning\Workflows\WordPressWorkflow;
 use Onhost\Domain\Services\Models\Backup;
-use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\DatabaseInstance;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -149,6 +148,7 @@ final class ServiceService
         if ($parent === null || $parent->organization_id !== $organization->id) {
             throw new DomainError('addon_parent_required', "Addon {$product->key} needs a parent service in the same organization.", 422);
         }
+        Addons::assertSellable($product->key); // an add-on the platform cannot deliver is not billed for nothing (audit §5ac)
         $entitlements = (array) ($config['entitlements'] ?? $version?->entitlements ?? []);
         $service = Service::query()->create([
             'organization_id' => $organization->id, 'product_key' => $product->key, 'plan_version_id' => $version?->id, 'family' => 'addon', 'name' => $item->name, 'state' => ServiceStateMachine::ACTIVE, 'activated_at' => now(),
@@ -156,15 +156,12 @@ final class ServiceService
             'tags' => ['parent_service_id' => $parent->id], 'desired_spec' => ['parent_service_id' => $parent->id, 'addon' => $product->key],
         ]);
         $item->forceFill(['service_id' => $service->id, 'state' => 'active'])->save();
-        if ($product->key === 'backup-plus') {
-            BackupPolicy::query()->updateOrCreate(['service_id' => $parent->id], ['product_key' => $product->key, 'schedule' => ['daily' => '02:30'], 'retention' => array_intersect_key($entitlements, array_flip(['daily', 'weekly', 'monthly'])), 'offsite' => (bool) ($entitlements['offsite'] ?? false), 'restore_test' => ['cadence' => $entitlements['restore_test'] ?? 'monthly'], 'state' => 'active']);
-        } elseif ($product->key === 'ipv4') {
-            $parent->forceFill(['entitlements' => array_replace((array) $parent->entitlements, ['ipv4' => (int) ($entitlements['addresses'] ?? 1)])])->save();
-            if ($parent->isActive() && $parent->family === 'cloud') {
-                $this->requestAction($parent, 'resize', $context, "addon:{$item->id}", ['entitlements' => ['ipv4' => (int) ($entitlements['addresses'] ?? 1)], 'reason' => 'ipv4 addon']);
-            }
+        // what the customer paid for reaches the parent here, written down with the value it replaced so a cancellation can give it back
+        $applied = app(Addons::class)->apply($parent, $service);
+        if ($product->key === 'ipv4' && $parent->isActive() && $parent->family === 'cloud') {
+            $this->requestAction($parent, 'resize', $context, "addon:{$item->id}", ['entitlements' => ['ipv4' => (int) ($entitlements['addresses'] ?? 1)], 'reason' => 'ipv4 addon']);
         }
-        $this->audit->record($context->withScope($organization->id), 'service.addon.attach', 'succeeded', ['addon' => $product->key, 'parent' => $parent->id], 'service', $service->id);
+        $this->audit->record($context->withScope($organization->id), 'service.addon.attach', 'succeeded', ['addon' => $product->key, 'parent' => $parent->id, 'applied' => $applied['patch'], 'backup_policy' => $applied['backup_policy']], 'service', $service->id);
         $this->outbox->publish(GenericEvent::of('service.activated', 'service', $service->id, ['product_key' => $product->key, 'parent_service_id' => $parent->id, 'order_item_id' => $item->id], $organization->id));
         $this->checkOrderCompletion($item, $context);
 
@@ -428,8 +425,13 @@ final class ServiceService
         if ($existing !== null) {
             return $existing;
         }
-        if ($service->primaryBinding() === null || $service->provider_instance_id === null) {
+        // an add-on has no resource of its own: it changed the service it was bought for, and cancelling it gives that
+        // back (audit §5ac). Sent through this gate it could never be cancelled and the subscription billed on.
+        if ($service->family !== 'addon' && ($service->primaryBinding() === null || $service->provider_instance_id === null)) {
             throw new DomainError('service_not_provisioned', 'The service has no provider resource yet.', 409);
+        }
+        if ($service->family === 'addon' && ! in_array($action, ['terminate', 'purge'], true)) {
+            throw new DomainError('addon_action_unsupported', 'Doplněk se spravuje přes službu, ke které patří; zrušit jej lze samostatně.', 422, ['action' => $action]);
         }
         // one thing at a time per service — except a declarative apply, which deliberately queues several steps; the queue runs them one after another (RunOperation is WithoutOverlapping per service)
         if (! $chained && Operation::query()->where('service_id', $service->id)->whereIn('state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING])->exists()) {

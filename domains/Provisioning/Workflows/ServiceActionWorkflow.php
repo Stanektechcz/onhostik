@@ -14,6 +14,7 @@ use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Workflow\StepContext;
 use Onhost\Domain\Provisioning\Workflow\StepResult;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
+use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\AvailabilityWatch;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
@@ -98,13 +99,21 @@ final class ServiceActionWorkflow implements Workflow
     public function steps(Operation $operation): array
     {
         $action = (string) data_get($operation->desired, 'action');
+        // an add-on has no resource of its own: it changed the service it was bought for, and cancelling it gives that back.
+        // Sent down the ordinary chain it failed the identity check ("the service has no provider binding") — so a paid
+        // add-on could be neither delivered nor cancelled (audit §5ac).
+        if (in_array($action, ['terminate', 'purge'], true) && Service::query()->whereKey($operation->service_id)->value('family') === 'addon') {
+            return $action === 'purge'
+                ? [$this->detachAddonStep(), $this->releaseStep()]
+                : [$this->detachAddonStep(), $this->scheduleRemovalStep()];
+        }
 
         return match ($action) {
             'power' => [$this->powerStep(), $this->verifyPowerStep()],
             'suspend' => [$this->suspendStep(), $this->pauseExtrasStep(), $this->finishStateStep(ServiceStateMachine::SUSPENDED)],
             'resume' => [$this->resumeStep(), $this->resumeExtrasStep(), $this->finishStateStep(ServiceStateMachine::ACTIVE)],
             'resize' => [$this->resizeStep(), $this->finishResizeStep()],
-            'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->pauseExtrasStep(), $this->revokeDelegationsStep(), $this->scheduleRemovalStep()],
+            'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->pauseExtrasStep(), $this->cancelAddonsStep(), $this->revokeDelegationsStep(), $this->scheduleRemovalStep()],
             'purge' => [$this->identityStep(), $this->finalArchiveStep(anyOperation: true), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
             'backup' => [$this->backupStep()],
             'restore' => [$this->restoreStep()],
@@ -847,6 +856,71 @@ final class ServiceActionWorkflow implements Workflow
                 ], $fresh->organization_id));
 
                 return StepResult::done(['deactivated' => true, 'grace_until' => $graceUntil->toIso8601String()]);
+            }
+        };
+    }
+
+    /**
+     * A cancelled service takes its add-ons with it. They have no resource of their own, so nothing here would ever have
+     * stopped them: the add-on stayed ACTIVE and its subscription billed on after the service it belonged to was gone.
+     */
+    private function cancelAddonsStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Zrušení doplňků';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                $addons = Service::query()->where('family', 'addon')->where('tags->parent_service_id', $service->id)
+                    ->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->get();
+                if ($addons->isEmpty()) {
+                    return StepResult::skip();
+                }
+                $services = $context->container->make(ServiceService::class);
+                $addonsApi = $context->container->make(Addons::class);
+                $cancelled = [];
+                foreach ($addons as $addon) {
+                    $addonsApi->revoke($service, $addon);
+                    $addon->forceFill(['state' => ServiceStateMachine::SUSPENDING])->save(); // ACTIVE → SUSPENDING → SUSPENDED, as every other service goes
+                    $services->settleTransient($addon, ServiceStateMachine::SUSPENDED, $context->actor, 'the service it belonged to was cancelled', $context->operation, null, 'service.deactivated');
+                    $addon->forceFill(['terminate_at' => $service->terminate_at ?? now()->addDays($context->container->make(DeletionPolicy::class)->graceDays())])->save();
+                    Subscription::query()->where('service_id', $addon->id)->whereNotIn('state', [Subscription::CANCELLED])->update(['state' => Subscription::CANCELLED, 'auto_renew' => false]);
+                    $cancelled[] = $addon->product_key;
+                }
+
+                return StepResult::done(['addons_cancelled' => $cancelled]);
+            }
+        };
+    }
+
+    /** A cancelled add-on gives the parent back what it gave it: the extra address, the mailboxes, the CDN, the backup schedule. */
+    private function detachAddonStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Odpojení doplňku';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $addon = $this->service($context);
+                $parent = Service::query()->find((string) data_get($addon->tags, 'parent_service_id', ''));
+                if ($parent === null) {
+                    return StepResult::done(['detached' => 'no parent']); // the parent is gone already; there is nothing to give back
+                }
+                if (data_get($addon->tags, 'addon.revoked_at') !== null) {
+                    return StepResult::done(['detached' => 'already']);
+                }
+                $result = $context->container->make(Addons::class)->revoke($parent, $addon);
+
+                return StepResult::done(['detached' => true, 'parent_service_id' => $parent->id, 'restored' => $result['restored'], 'kept' => $result['kept'], 'backup_policy' => $result['backup_policy']]);
             }
         };
     }

@@ -97,3 +97,33 @@ set with `site-files.tar.gz` made by `files?action=Zip` of the root entries.
    second path on that panel, by design.
 4. `restore_database_missing` → the customer recreates the database under the same name and repeats the restore.
 5. A set that fails its re-hash: `service.final_archive.corrupt`; take a new backup, keep the broken set for forensics.
+
+## What a paid add-on does to the service it was bought for (2026-09-21)
+
+**The hole.** An add-on has no resource of its own: it is a billing row whose whole job is to change its parent. Five of the
+seven add-ons on sale changed nothing at all — hourly backups, mailboxes, the CDN, the OV certificate and the anti-DDoS
+profile were charged every month and delivered nothing. The two that did something (`ipv4`, `backup-plus`) wrote a backup
+policy in a shape `BackupScheduler` cannot read: it asks for `schedule.frequency`, `retention.days` and
+`retention.generations`, the row carried `schedule: {daily: '02:30'}` and `retention: {daily: 30, weekly: 4, monthly: 6}`,
+so the scheduler found neither and fell back to the parent plan's own daily/7/7. And **no add-on could be cancelled**: an
+add-on has no provider binding, so `requestAction` refused it (`service_not_provisioned`, 409) and the identity check behind
+it would have refused it too — the subscription billed on for ever. Proven against the old code by
+`tests/Feature/Orders/AddonDeliveryTest.php`.
+
+**The rule** (`Domain\Services\Addons`):
+
+* **an add-on the platform cannot deliver is not on sale.** `Addons::handled()` is the list; ordering anything else fails
+  with `addon_not_delivered` instead of billing for nothing, `onhost:doctor` has a control point, and a guard test holds the
+  other direction. `ssl` (a paid OV certificate is ordered at no registrar) and `anti-ddos-pro` (no L7 profile reaches any
+  router) are `draft` until they are implemented — a draft product is offered nowhere, on the price list or as an add-on;
+* what an add-on changes on the parent is written down with the value it replaced (`tags.addon.patch` / `.before`), so a
+  cancellation gives back **exactly** what was taken — and a key somebody changed meanwhile is left alone (`tags.addon.kept`);
+* the backup add-ons write the policy in the scheduler's words: `backup-hourly` → `hourly`, 30 days, 720 generations;
+  `backup-plus` → `daily`, 30 days, 40 generations (30 daily + 4 weekly + 6 monthly). The number of copies is capped at
+  `Addons::MAX_GENERATIONS`;
+* cancelling an add-on runs its own short chain (`detachAddonStep` → the usual grace or release), not the provider one:
+  there is no resource to archive or delete, and the parent keeps everything of its own.
+
+Today's add-ons: `ipv4` (an address on the parent), `backup-plus` and `backup-hourly` (the backup policy), `mail-hosting`
+(mailboxes, quota and DKIM on the parent — it was on sale and no cart line could reach it), `cdn` (the CDN feature and the
+WAF level on the parent).

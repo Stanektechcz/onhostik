@@ -153,8 +153,14 @@ final class PricingRules
         }
         $map = (array) $this->settings->get(self::KEY_ADDONS, []);
         $keys = array_key_exists($product->key, $map) ? (array) $map[$product->key] : (array) (($product->meta ?? [])['addon_products'] ?? []);
+        $keys = array_values(array_unique(array_filter(array_map(fn ($k) => is_string($k) ? trim($k) : '', $keys), fn ($k) => $k !== '' && $k !== $product->key)));
+        if ($keys === []) {
+            return [];
+        }
+        // a product that is not on sale is not offered as an add-on either: the mapping outlives a product being taken off sale
+        $onSale = Product::query()->whereIn('key', $keys)->where('state', 'active')->pluck('key')->all();
 
-        return array_values(array_unique(array_filter(array_map(fn ($k) => is_string($k) ? trim($k) : '', $keys), fn ($k) => $k !== '' && $k !== $product->key)));
+        return array_values(array_filter($keys, fn (string $k) => in_array($k, $onSale, true)));
     }
 
     /** @param list<string> $keys @return list<string> */
