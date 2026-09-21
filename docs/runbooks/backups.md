@@ -153,3 +153,26 @@ The copies are `pre_restore`, `pre_rollback` and `pre_reinstall` in `backups.kin
 steps, so a new destructive action has to pass it.
 
 Tests: `tests/Feature/Provisioning/SafetyCopyTest.php`, `tests/Feature/Services/WebBackupArchiveTest.php`.
+
+## Before a destructive action: the preview and its fingerprint (2026-09-21)
+
+Brain card H414 asks a confirmation to show the concrete service, the data, the dependencies and the way back — and its
+acceptance scenario is the security of it: *changing the target after the preview requires a new confirmation*.
+
+`GET /v1/services/{id}/actions/{action}/preview` (read-only, no step-up, the caller's own token scope) answers with:
+
+* **service** — by the name the customer gave it;
+* **what** — the concrete things that would go: the sentences of the action plus the databases and mailboxes the panel
+  really lists right now, not "your data";
+* **depends** — the add-ons that would be cancelled with it, the staging copy, the DNS zone that would be left pointing
+  nowhere, the subscription that stops;
+* **recovery** — named, because it is real: the final archive with its retention for a cancellation, the safety copy for
+  a restore, a rollback or a reinstall (and, for deleting a backup, the plain truth that there is no way back);
+* **fingerprint** — a digest of everything the action would touch.
+
+Send that fingerprint back as `confirm` with `POST /v1/services/{id}/actions` and the platform checks it still describes
+what would happen. A backup that is no longer the one that was previewed, a database added in the meantime, a service
+that changed state — any of these answers **409 `target_changed`** and nothing is destroyed. The field is optional, so
+no existing client breaks; every surface that offers a destructive action should send it.
+
+Tests: `tests/Feature/Services/DestructivePreviewTest.php`.

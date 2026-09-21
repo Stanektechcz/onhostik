@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A destructive action is previewed, and a stale confirmation is refused:** `DestructivePreview` names what goes, what
+  hangs on it and how far back one could come, and its fingerprint makes a confirmation that no longer fits fail 409.
+
 - **A button a person cannot press is not offered:** `features($service, $actor)` gates every feature on the permission the
   command bus will ask for and says why it is gone (`permission`, `state`) — a read-only collaborator sees no dead buttons.
 

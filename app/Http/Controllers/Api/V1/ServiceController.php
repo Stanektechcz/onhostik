@@ -17,6 +17,7 @@ use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Services\Commands\IssueConsoleTokenCommand;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Commands\WebToolsCommand;
+use Onhost\Domain\Services\DestructivePreview;
 use Onhost\Domain\Services\Mail\MailboxPasswordLinks;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
@@ -76,10 +77,23 @@ final class ServiceController extends ApiController
     }
 
     /** Generic action endpoint plus the shorthand routes (power/resize/backup/…) mapped onto it. */
+    /**
+     * What a destructive action would really do — the service by name, the things that would go, what hangs on them and
+     * how far back the customer could come (H414). The answer carries a fingerprint of the target; sending it back with
+     * the action makes the platform refuse a confirmation that no longer describes what would happen.
+     */
+    public function preview(Request $request, DestructivePreview $preview, string $service, string $action): JsonResponse
+    {
+        $model = $this->resolve($request, $service);
+        $this->api->assertTokenScope($request, ServiceActionCommand::permissionFor($action));
+
+        return $this->ok($preview->of($model, $action, (array) $request->input('params', [])));
+    }
+
     public function action(Request $request, string $service, ?string $action = null): JsonResponse
     {
         $model = $this->resolve($request, $service);
-        $data = $request->validate(['action' => [$action === null ? 'required' : 'nullable', 'string', 'in:'.implode(',', ServiceActionWorkflow::ACTIONS)], 'params' => ['nullable', 'array'], 'reason' => ['nullable', 'string', 'max:250']]);
+        $data = $request->validate(['action' => [$action === null ? 'required' : 'nullable', 'string', 'in:'.implode(',', ServiceActionWorkflow::ACTIONS)], 'params' => ['nullable', 'array'], 'reason' => ['nullable', 'string', 'max:250'], 'confirm' => ['nullable', 'string', 'size:64']]);
         $action ??= $data['action'];
         $params = (array) ($data['params'] ?? []);
         if ($action === 'power') {
@@ -87,6 +101,9 @@ final class ServiceController extends ApiController
         }
         if ($data['reason'] ?? null) {
             $params['reason'] = $data['reason'];
+        }
+        if (($data['confirm'] ?? null) !== null) { // a confirmation that no longer describes what would happen is refused, not carried out (H414)
+            app(DestructivePreview::class)->assertFresh($model, $action, $params, (string) $data['confirm']);
         }
         $organization = Organization::query()->find($model->organization_id);
 

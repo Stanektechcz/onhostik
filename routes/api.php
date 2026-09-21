@@ -282,6 +282,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::post('services/{service}/chargeback', [ServiceController::class, 'requestChargeback']);
     Route::post('services/{service}/chargeback/cancel', [ServiceController::class, 'cancelWithChargeback']);
     Route::get('services/{service}/ssh-keys', [ServiceController::class, 'sshKeys']); // whose key sits on which shell account, and revocations the panel has not taken yet (H185)
+    Route::get('services/{service}/actions/{action}/preview', [ServiceController::class, 'preview'])->where('action', '[a-z_.]+'); // what a destructive action would really do (H414)
     Route::post('services/{service}/actions', [ServiceController::class, 'action']);
     Route::post('services/{service}/game-files/upload', [ServiceController::class, 'uploadFile']); // binary files to a game server, scanned first (audit §5r-3/§5r-4)
     foreach (['power', 'resize', 'backup', 'restore', 'snapshot', 'suspend', 'resume', 'terminate'] as $shorthand) {
