@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A missed backup slot is not silent:** the scheduler writes down every slot it could not run and reports the third in a
+  row (`service.backup.schedule.stalled`); a slot that runs clears the count.
+
 - **A destructive action is previewed, and a stale confirmation is refused:** `DestructivePreview` names what goes, what
   hangs on it and how far back one could come, and its fingerprint makes a confirmation that no longer fits fail 409.
 

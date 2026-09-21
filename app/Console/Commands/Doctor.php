@@ -45,6 +45,7 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Support\Assistant\AssistantBudget;
 use Onhost\Domain\Tax\CnbRates;
 use Onhost\Domain\Tax\Models\ExchangeRate;
@@ -161,6 +162,10 @@ final class Doctor extends Command
 
         $orphan = Backup::query()->where('kind', 'final')->where('state', 'completed')->whereNull('retention_until')->count();
         $this->add('lifecycle', 'every archive has a retention date', $orphan === 0, $orphan === 0 ? '' : $orphan.' × without retention_until — they would never be pruned', false);
+
+        // a schedule that keeps missing its slot is a backup the customer paid for and did not get (H434, H446)
+        $stalled = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->where('tags->backup_schedule->missed', '>=', BackupScheduler::MISSES_BEFORE_ALARM)->count();
+        $this->add('lifecycle', 'backup schedules keeping up', $stalled === 0, $stalled === 0 ? '' : $stalled.' service(s) have missed '.BackupScheduler::MISSES_BEFORE_ALARM.'+ slots in a row — tags.backup_schedule says why', false);
 
         // an add-on is a billing row that changes its parent; one the platform cannot apply would be charged for nothing (audit §5ac)
         $undelivered = Addons::unsellable();

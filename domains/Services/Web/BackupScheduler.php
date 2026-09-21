@@ -35,10 +35,11 @@ final class BackupScheduler
     /** @return array{started:int, skipped:int, deleted:int, offsite:int, errors:int} */
     public function tick(int $limit = 100): array
     {
-        $stats = ['started' => 0, 'skipped' => 0, 'deleted' => 0, 'offsite' => 0, 'errors' => 0];
+        $stats = ['started' => 0, 'skipped' => 0, 'deleted' => 0, 'offsite' => 0, 'errors' => 0, 'missed' => 0];
         $context = CommandContext::system('backup scheduler');
         $services = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->whereNotNull('provider_instance_id')->orderBy('id')->limit($limit)->get();
         foreach ($services as $service) {
+            $schedule = null; // never the previous service's schedule, whatever throws below
             try {
                 $schedule = $this->scheduleFor($service);
                 if ($schedule === null) {
@@ -47,13 +48,18 @@ final class BackupScheduler
                 if ($this->due($service, $schedule)) {
                     $this->services->requestAction($service, 'backup', $context, 'backup:auto:'.$service->id.':'.$schedule['slot'], ['kind' => 'scheduled', 'retention_days' => $schedule['days'], 'policy' => ['notes' => 'scheduled '.$schedule['frequency']]]);
                     $stats['started']++;
+                    $this->record($service, $schedule, null);
                 } else {
                     $stats['skipped']++;
                 }
                 $stats['deleted'] += $this->prune($service, $schedule, $context);
                 $stats['offsite'] += $this->offsite($service, $schedule);
             } catch (DomainError $e) {
-                $stats['skipped']++; // another operation in progress, frozen provisioning, feature not available
+                // a slot that could not run is a backup the customer paid for and did not get: it is written down, and
+                // when it keeps happening somebody is told (H434, H435, H446). An hourly plan on a site whose backup
+                // takes longer than an hour misses every slot, and used to do it in silence.
+                $stats['skipped']++;
+                $stats['missed'] += $schedule === null ? 0 : (int) $this->record($service, $schedule, $e->error);
             } catch (Throwable $e) {
                 $stats['errors']++;
                 report($e);
@@ -61,6 +67,55 @@ final class BackupScheduler
         }
 
         return $stats;
+    }
+
+    /** How many slots in a row may be missed before somebody is told. */
+    public const MISSES_BEFORE_ALARM = 3;
+
+    /** The tag the schedule's own record lives under. */
+    public const TAG = 'backup_schedule';
+
+    /**
+     * Writes down what happened to this slot. A slot that ran clears the count; a slot that could not run raises it,
+     * and the third one in a row is reported once — to the operator, because a backup nobody takes is theirs to fix,
+     * and to the customer, because it is their data.
+     *
+     * @param  array{frequency:string, minutes:int, days:int, generations:int, offsite:bool, slot:string, window_start:Carbon}  $schedule
+     * @return bool whether this call counted a missed slot
+     */
+    private function record(Service $service, array $schedule, ?string $error): bool
+    {
+        $tags = (array) $service->tags;
+        $state = (array) ($tags[self::TAG] ?? []);
+        if ($error === null) {
+            if (($state['missed'] ?? 0) === 0 && ($state['last_slot'] ?? null) === $schedule['slot']) {
+                return false;
+            }
+            $tags[self::TAG] = ['last_slot' => $schedule['slot'], 'last_run_at' => now()->toIso8601String(), 'frequency' => $schedule['frequency'], 'missed' => 0];
+            $service->forceFill(['tags' => $tags])->save();
+
+            return false;
+        }
+        if (($state['last_missed_slot'] ?? null) === $schedule['slot']) {
+            return false; // the same slot, looked at again within its window: one miss is one miss
+        }
+        $missed = (int) ($state['missed'] ?? 0) + 1;
+        $tags[self::TAG] = array_merge($state, ['missed' => $missed, 'last_missed_slot' => $schedule['slot'], 'last_missed_at' => now()->toIso8601String(), 'last_error' => mb_substr($error, 0, 60), 'frequency' => $schedule['frequency']]);
+        $service->forceFill(['tags' => $tags])->save();
+        if ($missed === self::MISSES_BEFORE_ALARM || ($missed > self::MISSES_BEFORE_ALARM && $missed % (self::MISSES_BEFORE_ALARM * 8) === 0)) {
+            $this->outbox->publish(GenericEvent::of('service.backup.schedule.stalled', 'service', $service->id, [
+                'missed' => $missed, 'frequency' => $schedule['frequency'], 'reason' => mb_substr($error, 0, 60),
+                'label' => $service->label ?: ($service->hostname ?: $service->name),
+            ], $service->organization_id));
+        }
+
+        return true;
+    }
+
+    /** What the schedule of a service has been doing lately (the panel and the doctor read it). @return array<string,mixed> */
+    public static function health(Service $service): array
+    {
+        return (array) data_get($service->tags, self::TAG, []);
     }
 
     /** @return array{frequency:string, minutes:int, days:int, generations:int, offsite:bool, slot:string, window_start:Carbon}|null */

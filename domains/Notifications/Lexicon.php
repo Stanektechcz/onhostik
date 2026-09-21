@@ -137,6 +137,8 @@ final class Lexicon
         'Objednávku ' => 'Order ', 'Objednávka ' => 'Order ', ' ještě kontrolujeme' => ' is still being checked', ' byla schválena' => ' was approved', ' jsme nemohli přijmout' => ' could not be accepted',
         ' · zřizujeme služby' => ' · provisioning the services', ' · všechny služby jsou aktivní' => ' · all services are active',
         'CDN je aktivní' => 'CDN is active', 'CDN zapnuto' => 'CDN enabled', 'CDN vypnuto' => 'CDN disabled', ' · nastavte nameservery u registrátora' => ' · set the nameservers at your registrar', ' změněn na ' => ' changed to ',
+        'Plánovaná záloha se nespustila' => 'A scheduled backup did not start', 'Zálohu služby ' => 'The backup of ', ' se nepodařilo spustit ' => ' could not be started ',
+        '× po sobě (' => ' times in a row (', '). Díváme se na to; poslední hotová záloha zůstává k dispozici.' => '). We are looking into it; the last finished backup is still there.',
         'Server běží v záchranném režimu' => 'The server is running in rescue mode', 'Nastartovali jsme server ze záchranného obrazu (' => 'We booted the server from a rescue image (',
         '). Disky zůstaly nedotčené. Režim sám skončí ' => '). The disks were left untouched. The mode ends by itself ', ' a server nabootuje zpět do svého systému.' => ' and the server boots back into its own system.',
         'Záchranný režim skončil' => 'Rescue mode ended', 'Server jsme vrátili do vlastního systému (' => 'We put the server back on its own system (',

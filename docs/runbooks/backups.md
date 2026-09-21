@@ -176,3 +176,24 @@ that changed state — any of these answers **409 `target_changed`** and nothing
 no existing client breaks; every surface that offers a destructive action should send it.
 
 Tests: `tests/Feature/Services/DestructivePreviewTest.php`.
+
+## A missed slot is not silent (2026-09-21)
+
+The scheduler asks for one `backup` operation per slot. When it cannot have one — most often because the previous
+backup of that service is still running, and the service lock refuses a second — the slot used to be counted as
+"skipped" and nothing else. An hourly plan on a site whose backup takes longer than an hour therefore missed **every**
+slot without a word, and the customer would find out on the day they needed it. Since the hourly backup add-on really
+works now, that is a plan somebody can buy.
+
+The overlap itself was never possible: the per-service operation lock is what refuses the second run. What was missing
+was the record and the alarm (H434, H435, H446):
+
+* every slot is written down on the service (`tags.backup_schedule`): the slot that ran and when, or how many slots in
+  a row have been missed, the last reason and the frequency — `BackupScheduler::health($service)` reads it;
+* one miss per slot, however many times the tick looks at it inside the same window;
+* the **third** missed slot in a row publishes `service.backup.schedule.stalled` (customer and operator), and after
+  that only rarely, so a long outage is one conversation and not a flood;
+* a slot that runs clears the count, so the alarm means "right now", not "once upon a time";
+* `onhost:doctor` lists the services that are behind ("backup schedules keeping up").
+
+Tests: `tests/Feature/Services/BackupScheduleMissesTest.php`.
