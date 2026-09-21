@@ -829,12 +829,70 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
         return ProviderResult::accepted($this->jobqueueHandle((int) $alias->node), null, ['deleted' => true]);
     }
 
+    /**
+     * ISPConfig applies nothing in the response: the server cron reads `sys_datalog` and writes the outcome back into
+     * that row. The adapter used to watch the length of the whole server's queue — so an empty queue meant "succeeded"
+     * even when OUR job had failed, and somebody else's writes on a busy server kept us waiting until the timeout
+     * (audit §2). When the write could be named (`IspConfigConnector::lastWrite`) and this panel's change log really
+     * reports a status, the row of our own job decides. Anything else keeps the old behaviour: never worse than before.
+     */
     public function awaitStatus(AsyncHandle $handle): AsyncStatus
     {
         $serverId = (int) ($handle->meta['server_id'] ?? $handle->node ?? $this->serverId());
+        $row = $this->datalogRow($handle, $serverId);
+        if ($row !== null) {
+            $status = strtolower(trim((string) ($row['status'] ?? '')));
+            $error = trim((string) ($row['error'] ?? ''));
+            if ($status === 'ok' || ($status === '' && $error === '' && ($row['processed'] ?? 0))) {
+                return AsyncStatus::succeeded(['server_id' => $serverId, 'datalog_id' => $row['datalog_id'] ?? null]);
+            }
+            if ($status === 'error' || $error !== '') {
+                return AsyncStatus::failed('ISPConfig applied nothing: '.mb_substr($error !== '' ? $error : 'the server reported an error', 0, 300), ['server_id' => $serverId, 'datalog_id' => $row['datalog_id'] ?? null]);
+            }
+
+            return AsyncStatus::running('the server has not applied this change yet', ['datalog_id' => $row['datalog_id'] ?? null]);
+        }
         $count = (int) $this->api->call('monitor_jobqueue_count', ['server_id' => $serverId]);
 
         return $count === 0 ? AsyncStatus::succeeded(['server_id' => $serverId, 'meta' => $handle->meta]) : AsyncStatus::running("{$count} jobs pending on server {$serverId}", ['jobqueue' => $count]);
+    }
+
+    /**
+     * Our own row in the change log, or null when this panel cannot be followed that way (the write had no name, the
+     * panel's change log carries no status, the function is not allowed to this user, or the row is not there yet).
+     *
+     * @return array<string,mixed>|null
+     */
+    private function datalogRow(AsyncHandle $handle, int $serverId): ?array
+    {
+        $write = (array) ($handle->meta['datalog'] ?? []);
+        if (($write['dbtable'] ?? '') === '' || ($write['dbidx'] ?? '') === '') {
+            return null;
+        }
+        // opt in on evidence: the nightly node check reads the change log and writes down which fields it really returns.
+        // Until this panel has answered with a `status`, nothing changes — an older ISPConfig, or a remote user without
+        // that function group, keeps the queue count it always had.
+        $fields = (array) data_get($this->instance->capabilities, 'prereqs.probes.datalog_fields', []);
+        if (! in_array('status', $fields, true)) {
+            return null;
+        }
+        try {
+            $rows = (array) $this->api->call('sys_datalog_get_by_tstamp', ['tstamp' => max(0, (int) ($write['at'] ?? time()) - 5)]);
+        } catch (ProviderException) {
+            return null; // the remote user may lack this function group; the queue count still works
+        }
+        $ours = null;
+        foreach ($rows as $row) {
+            if (! is_array($row) || (string) ($row['dbtable'] ?? '') !== (string) $write['dbtable'] || (string) ($row['dbidx'] ?? '') !== (string) $write['dbidx']) {
+                continue;
+            }
+            if (isset($row['server_id']) && (int) $row['server_id'] !== $serverId && (int) $row['server_id'] !== 0) {
+                continue;
+            }
+            $ours = $row; // the newest row for this record wins: the list is ordered oldest first
+        }
+
+        return $ours;
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -968,7 +1026,11 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
 
     private function jobqueueHandle(int $serverId, array $meta = [], int $poll = 5, int $timeout = 900): AsyncHandle
     {
-        return new AsyncHandle('ispconfig_jobqueue', "jobqueue:{$serverId}:".now()->timestamp, (string) $serverId, array_merge(['server_id' => $serverId], $meta), $poll, $timeout);
+        // the change-log row this write becomes, so awaitStatus can watch our own job instead of the whole server's queue
+        $write = $this->api->lastWrite();
+
+        return new AsyncHandle('ispconfig_jobqueue', "jobqueue:{$serverId}:".now()->timestamp, (string) $serverId,
+            array_merge(['server_id' => $serverId], $write === null ? [] : ['datalog' => $write], $meta), $poll, $timeout);
     }
 
     private function phpVersionString(string $version): string

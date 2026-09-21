@@ -121,3 +121,36 @@ the PEM text pasted in the console; it is written once to `storage/app/tls/<inst
 another certificate than the panel itself (it falls back to `tls_ca`). Transfer links of the game panel are followed only
 to the FQDNs of its own nodes — a node whose FQDN in the panel differs from the name in its signed links cannot transfer
 backups until the two agree.
+
+## ISPConfig: following our own change, not the whole server's queue (2026-09-21)
+
+ISPConfig applies nothing in the response. The remote API writes a row into `sys_datalog`; the server's own cron reads
+it, does the work and writes the outcome back into that row. The adapter used to watch `monitor_jobqueue_count` — the
+length of the **whole server's** queue — which is wrong in both directions:
+
+* an empty queue was reported as **success** even when our own job had failed (the row is taken out of the queue either
+  way), so the platform told a customer their PHP version had changed when the node had refused it;
+* on a busy server, other people's writes kept the count above zero and our operation waited until its timeout, long
+  after it had been applied.
+
+**Now:** a write the connector can name (`IspConfigConnector::DATALOG_TABLES`) records the row it will become —
+`web_domain / domain_id:7`, `mail_user / mailuser_id:12`, … — and `jobqueueHandle` carries it. `awaitStatus` then reads
+`sys_datalog_get_by_tstamp` and looks for **that** row:
+
+| what the row says | what the platform does |
+| --- | --- |
+| `status = ok` | the operation finishes at once, whatever else is queued |
+| `status = error` | the operation **fails**, with the server's own message |
+| still pending, or no row yet | keep waiting |
+| the write had no name, or no row of ours is there | the old queue count, exactly as before |
+
+It is **opt in on evidence**: only a panel whose nightly node check really returned a `status` field
+(`prereqs.probes.datalog_fields`) is followed this way. An older ISPConfig, or a remote user without that function
+group, keeps the behaviour it had. A table this map guesses wrongly can only *miss* — the row is matched on the table
+**and** the index — so it can never pick up somebody else's record.
+
+**What is still needed on the node.** The lower bound of an ISPConfig change is how often `server.sh` runs; by default
+that is once a minute, so "in seconds" is impossible however precisely the platform watches. Run it on a systemd timer
+every 10–15 s on the web nodes, then this path makes the difference visible.
+
+Tests: `tests/Contract/IspConfigDatalogContractTest.php`.

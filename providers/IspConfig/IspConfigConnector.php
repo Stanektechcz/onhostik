@@ -35,6 +35,43 @@ final class IspConfigConnector
         return $this->instance;
     }
 
+    /**
+     * The change log row a write of ours will become. ISPConfig applies nothing in the response: the server cron reads
+     * `sys_datalog` and reports back through it. Until this, the adapter watched the length of the WHOLE server's queue
+     * (`monitor_jobqueue_count`) — an empty queue meant "succeeded" even when our job had failed, and somebody else's
+     * writes on a busy server kept ours waiting until the timeout. Knowing the row lets `awaitStatus` watch its own.
+     *
+     * Only the tables named here are followed; a function this map does not know leaves no last write and the adapter
+     * falls back to the queue count. A wrong guess can only miss (the row is matched on table AND index), never match
+     * somebody else's record.
+     *
+     * @var array<string,array{0:string,1:string}> function prefix => [datalog table, its primary key column]
+     */
+    private const DATALOG_TABLES = [
+        'sites_web_domain' => ['web_domain', 'domain_id'],
+        'sites_web_subdomain' => ['web_domain', 'domain_id'],
+        'sites_web_aliasdomain' => ['web_domain', 'domain_id'],
+        'sites_database_user' => ['web_database_user', 'database_user_id'],
+        'sites_database' => ['web_database', 'database_id'],
+        'sites_ftp_user' => ['ftp_user', 'ftp_user_id'],
+        'sites_shell_user' => ['shell_user', 'shell_user_id'],
+        'sites_cron' => ['cron', 'cron_id'],
+        'mail_domain' => ['mail_domain', 'domain_id'],
+        'mail_user' => ['mail_user', 'mailuser_id'],
+        'mail_forward' => ['mail_forwarding', 'forwarding_id'],
+        'mail_alias' => ['mail_forwarding', 'forwarding_id'],
+        'client' => ['client', 'client_id'],
+    ];
+
+    /** @var array{dbtable:string, dbidx:string, at:int}|null what the last write of this connector will look like in the change log */
+    private ?array $lastWrite = null;
+
+    /** @return array{dbtable:string, dbidx:string, at:int}|null */
+    public function lastWrite(): ?array
+    {
+        return $this->lastWrite;
+    }
+
     /** @param array<string,mixed> $params ordered function arguments (without session_id) */
     public function call(string $function, array $params = [], bool $critical = false, ?string $operationId = null): mixed
     {
@@ -49,8 +86,33 @@ final class IspConfigConnector
             throw $this->mapFault($function, (string) $result['message']);
         }
         $this->http->recordSuccess($this->instance->key);
+        $this->rememberWrite($function, $params, $result['response']);
 
         return $result['response'];
+    }
+
+    /** @param array<string,mixed> $params */
+    private function rememberWrite(string $function, array $params, mixed $response): void
+    {
+        $verb = (string) (explode('_', $function)[count(explode('_', $function)) - 1] ?? '');
+        if (! in_array($verb, ['add', 'update', 'delete'], true)) {
+            return;
+        }
+        $prefix = mb_substr($function, 0, -mb_strlen($verb) - 1);
+        $table = self::DATALOG_TABLES[$prefix] ?? null;
+        if ($table === null) {
+            $this->lastWrite = null; // a write we cannot name: the adapter falls back to the queue count
+
+            return;
+        }
+        // an add answers with the new id; an update and a delete were given it
+        $id = $verb === 'add' ? (int) (is_array($response) ? ($response['id'] ?? 0) : $response) : (int) ($params['primary_id'] ?? 0);
+        if ($id <= 0) {
+            $this->lastWrite = null;
+
+            return;
+        }
+        $this->lastWrite = ['dbtable' => $table[0], 'dbidx' => $table[1].':'.$id, 'at' => time()];
     }
 
     public function logout(): void

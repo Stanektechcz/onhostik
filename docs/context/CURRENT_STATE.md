@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **ISPConfig is followed by its own change log:** a named write carries its `sys_datalog` row; an error there fails the
+  operation and an applied change finishes it at once, however busy the server is (opt-in on the nightly probe).
+
 - **What a destructive action replaces is kept first:** a restore, a rollback and a game reinstall each take a protected copy
   (`safetyCopyStep`) before they overwrite anything; when the copy fails, nothing is overwritten.
 
