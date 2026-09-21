@@ -99,6 +99,49 @@ trait AaPanelTools
         return $this->agentUser($site);
     }
 
+    /** Holds the customer's own command inside the body aaPanel stores. */
+    private const CRON_MARK = 'ONHOST_CRON';
+
+    /**
+     * The body aaPanel will run for a scheduled job.
+     *
+     * aaPanel's scheduler IS the node's root crontab: `AddCrontab` has no user field, and a `toShell` job is a script
+     * the panel daemon runs as root. The customer's command used to go in as that script — so anyone who could fill in
+     * the cron form of a shared web site was running commands as root on the node, beside every other tenant's files
+     * and databases and the panel's own keys. ISPConfig never had this; its cron belongs to the site's client and is
+     * jailed (`type: chrooted`).
+     *
+     * The command now goes in as DATA: a quoted here-document handed to the site's own user. A quoted here-document
+     * expands nothing at all, so the only way out of it is a line equal to the marker — and a scheduled command is one
+     * line without control characters (`CronCommand`), so it cannot contain one.
+     */
+    private function cronBody(ResourceRef $site, string $command): string
+    {
+        return "# onhost: the site's own scheduled command. It runs as the site's user, never as root.\n"
+            .'cd '.Q::arg($this->sitePath($site))." || exit 1\n"
+            .'/bin/su -s /bin/bash '.Q::arg($this->cronUser($site)).' <<\''.self::CRON_MARK."'\n"
+            .$command."\n"
+            .self::CRON_MARK."\n";
+    }
+
+    /** The command the customer wrote, read back out of the body. A job made before this, or by hand, comes back unchanged. */
+    public static function cronCommandOf(string $body): string
+    {
+        $mark = preg_quote(self::CRON_MARK, '/');
+
+        return preg_match("/<<'{$mark}'\n(.*)\n{$mark}/s", str_replace("\r\n", "\n", $body), $m) === 1 ? $m[1] : $body;
+    }
+
+    /** The site's own user, made if it is not there yet: without somebody to drop to, no job is written at all. */
+    private function cronUser(ResourceRef $site): string
+    {
+        if (! $this->shellAvailable($site)) {
+            $this->ensureAgent($site); // TRANSIENT when the node cannot be reached — the operation waits and tries again
+        }
+
+        return $this->siteUser($site);
+    }
+
     public function documentRoot(ResourceRef $site): string
     {
         $run = $this->post('/site?action=GetSiteRunPath', ['id' => (int) $site->remoteId], 'site.runpath');
@@ -302,11 +345,11 @@ trait AaPanelTools
         if ($current === null) {
             throw new ProviderException('aapanel', ProviderErrorCode::NOT_FOUND, 'The cron job does not belong to this site');
         }
-        [$minute, $hour] = array_pad(explode(' ', trim((string) ($job['schedule'] ?? $current['schedule']))), 5, '*');
+        [$minute, $hour] = $this->cronFields((string) ($job['schedule'] ?? $current['schedule']));
         $name = Naming::cronLabel($site->serviceId, $job['label'] ?? $current['label'] ?? null);
         $this->post('/crontab?action=modify_crond', [
             'id' => (int) $remoteId, 'name' => $name, 'type' => $hour === '*' ? 'hour-n' : 'day', 'where1' => $hour === '*' ? '1' : '', 'hour' => $hour === '*' ? 0 : (int) $hour, 'minute' => $minute === '*' ? 0 : (int) $minute,
-            'week' => '', 'sType' => 'toShell', 'sName' => '', 'sBody' => (string) ($job['command'] ?? $current['command']), 'backupTo' => '', 'save' => '', 'urladdress' => '',
+            'week' => '', 'sType' => 'toShell', 'sName' => '', 'sBody' => $this->cronBody($site, (string) ($job['command'] ?? $current['command'])), 'backupTo' => '', 'save' => '', 'urladdress' => '',
         ], 'cron.update', true);
         if (array_key_exists('active', $job) && (bool) $job['active'] !== (bool) ($current['active'] ?? true)) { // the panel's switch TOGGLES: saving a job with the state it already had used to turn it off
             $this->post('/crontab?action=set_cron_status', ['id' => (int) $remoteId], 'cron.status', true);

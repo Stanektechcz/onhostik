@@ -4,9 +4,16 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Providers\AaPanel\AaPanelWebProvider;
 use Onhost\Providers\Contracts\Naming;
+use Onhost\Providers\Shell\ScriptedShell;
 
-beforeEach(fn () => Http::preventStrayRequests());
+beforeEach(function () {
+    Http::preventStrayRequests();
+    // a scheduled job is written as the site's own user, so the adapter asks the node whether that user is there
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^id -u /' => "1042\n"]);
+});
+afterEach(fn () => AaPanelWebProvider::$shellFactory = null);
 
 it('exposes the executor\'s feature catalogue without naming the vendor and lists site resources from aaPanel', function () {
     [$user, $org] = $this->customerWithOrganization();
@@ -102,7 +109,9 @@ it('creates and deletes a database, a cron job and an FTP account on aaPanel thr
     $cron = $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'cron.create', 'params' => ['schedule' => '30 2 * * *', 'command' => '/usr/bin/backup.sh', 'label' => 'backup']], ['Idempotency-Key' => 'cron-1'])->assertAccepted();
     $op = driveOperation(Operation::query()->findOrFail($cron->json('operation_id')));
     expect($op->state)->toBe(Operation::SUCCEEDED);
-    Http::assertSent(fn ($r) => str_contains($r->url(), 'AddCrontab') && $r['name'] === "onhost:{$service->id}:backup" && (int) $r['hour'] === 2 && (int) $r['minute'] === 30 && $r['sBody'] === '/usr/bin/backup.sh');
+    // the body aaPanel stores is not the bare command: aaPanel runs it as root, so the command is handed to the site's own user
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'AddCrontab') && $r['name'] === "onhost:{$service->id}:backup" && (int) $r['hour'] === 2 && (int) $r['minute'] === 30
+        && str_contains((string) $r['sBody'], '/usr/bin/backup.sh') && str_contains((string) $r['sBody'], '/bin/su -s /bin/bash '));
     $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'cron.create', 'params' => ['schedule' => 'daily', 'command' => 'x']], ['Idempotency-Key' => 'cron-2'])->assertUnprocessable()->assertJsonPath('error', 'action_param_invalid');
 
     // ftp.create scopes the user name and defaults the path to the site root

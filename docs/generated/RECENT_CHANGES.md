@@ -4,6 +4,7 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 5b1453b | 2026-09-21 | A missed backup slot is not silent |
 | 2cc1a1f | 2026-09-21 | A destructive action is previewed, and a stale confirmation is refused |
 | 315e8b5 | 2026-09-21 | A button a person cannot press is not offered, and what is gone says why |
 | 2fe0e85 | 2026-09-21 | ISPConfig is followed by its own change log, not the whole server's queue |
@@ -13,4 +14,3 @@
 | d641a15 | 2026-09-21 | A server's reverse record reaches the resolver |
 | 2b6dd21 | 2026-09-21 | A plan promises only what the platform enforces, applies or measures |
 | a3316a0 | 2026-09-21 | A test that reads the clock twice is red whenever the second ticks over |
-| 1193da8 | 2026-09-21 | A paid add-on changes the service it was bought for, and can be cancelled |

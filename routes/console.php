@@ -77,6 +77,7 @@ use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\RescueMode;
+use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\SshKeyLedger;
@@ -730,6 +731,43 @@ Artisan::command('onhost:services:rescue-expire {--limit=50 : how many services 
     }
     $this->info(sprintf('rescue sessions past their window: %d · put back: %d · failed: %d', $stats['checked'], $stats['ended'], count($stats['errors'])));
 })->purpose('End the rescue sessions whose window has passed and put the servers back');
+
+/*
+ * Jobs scheduled before the body was confined are still the node's root scripts (H438). They are recognised by their
+ * own body — a confined one carries the site user and the here-document — and put right by rewriting them with the
+ * command they already have, which sends them back through `cronBody()`. Read-only without `--apply`.
+ */
+Artisan::command('onhost:services:cron-confine {--apply : rewrite them; without it only the list} {--limit=200 : how many services to look at}', function (ServiceService $services, ServiceFeatures $features) {
+    $rows = [];
+    $web = Service::query()->whereIn('family', ['web', 'managed'])->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED])->orderBy('created_at')->orderBy('id')->limit(max(1, (int) $this->option('limit')))->get();
+    foreach ($web as $service) {
+        try {
+            $jobs = $features->resources($service, 'cron', true);
+        } catch (Throwable $e) {
+            $rows[] = [$service->name, '—', 'nelze načíst: '.mb_substr($e->getMessage(), 0, 50)];
+
+            continue;
+        }
+        foreach ($jobs as $job) {
+            if (($job['confined'] ?? true) !== false) {
+                continue;
+            }
+            $status = 'nalezeno';
+            if ((bool) $this->option('apply')) {
+                try {
+                    $services->requestAction($service, 'cron.update', CommandContext::system('cli:services:cron-confine'), 'cron-confine:'.$service->id.':'.$job['remote_id'],
+                        ['remote_id' => (string) $job['remote_id'], 'command' => (string) $job['command']]);
+                    $status = 'přepsáno';
+                } catch (Throwable $e) {
+                    $status = 'chyba: '.mb_substr($e->getMessage(), 0, 50);
+                }
+            }
+            $rows[] = [$service->name, mb_substr((string) $job['command'], 0, 50), $status];
+        }
+    }
+    $this->table(['služba', 'příkaz', 'stav'], $rows);
+    $this->info($rows === [] ? 'Každá plánovaná úloha běží pod uživatelem svého webu.' : count($rows).' úloh(y) běží mimo uživatele webu — spusť s --apply.');
+})->purpose('Find scheduled jobs still running as the node\'s root and rewrite them to run as the site user');
 
 Artisan::command('onhost:services:release-stranded {--apply : put them back; without it only the list} {--minutes=15 : how long a transient state must have lasted}', function (ServiceService $services) {
     $back = [ServiceStateMachine::SUSPENDING => ServiceStateMachine::ACTIVE, ServiceStateMachine::RESUMING => ServiceStateMachine::SUSPENDED, ServiceStateMachine::RESIZING => ServiceStateMachine::ACTIVE];

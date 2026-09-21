@@ -43,6 +43,7 @@ use Onhost\Domain\Services\Models\DatabaseInstance;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Web\CommandRunner;
+use Onhost\Domain\Services\Web\CronCommand;
 use Onhost\Domain\Services\Web\CustomDirectives;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -674,12 +675,8 @@ final class ServiceService
             'cron.create' => (function () use ($need, $params, $limit) {
                 $limit('cron', 'cron');
                 $schedule = $need('schedule', '/^(\S+\s+){4}\S+$/', 'schedule must have five cron fields (minute hour day month weekday)');
-                $command = trim((string) ($params['command'] ?? ''));
-                if ($command === '' || strlen($command) > 500 || preg_match('/[\r\n]/', $command)) {
-                    throw new DomainError('action_param_invalid', 'cron.create: command is required (one line, max 500 characters).', 422, ['field' => 'command']);
-                }
 
-                return ['schedule' => $schedule, 'command' => $command, 'label' => substr(trim((string) ($params['label'] ?? '')), 0, 40) ?: null];
+                return ['schedule' => $schedule, 'command' => CronCommand::assert('cron.create', $params['command'] ?? ''), 'label' => substr(trim((string) ($params['label'] ?? '')), 0, 40) ?: null];
             })(),
             'subdomain.add' => (function () use ($need, $params, $hostname, $limit) {
                 $limit('subdomains', 'subdomains');
@@ -752,7 +749,19 @@ final class ServiceService
                     if (! in_array($a['action'] ?? '', ['command', 'power', 'backup'], true)) {
                         throw new DomainError('action_param_invalid', "{$action}: actions must be command, power or backup.", 422, ['field' => 'actions']);
                     }
-                    $actions[] = ['action' => $a['action'], 'payload' => substr((string) ($a['payload'] ?? ''), 0, 1000)];
+                    // a scheduled task is a stored instruction the platform later carries out by itself, so what it may
+                    // say is settled here and not at the panel: a power task is one of four words, never free text
+                    $payload = substr(trim((string) ($a['payload'] ?? '')), 0, 1000);
+                    if (preg_match('/[\x00-\x1F\x7F]/', $payload) === 1) {
+                        throw new DomainError('action_param_invalid', "{$action}: a task must be a single line.", 422, ['field' => 'actions']);
+                    }
+                    if ($a['action'] === 'power' && ! in_array($payload, ['start', 'stop', 'restart', 'kill'], true)) {
+                        throw new DomainError('action_param_invalid', "{$action}: a power task must be start, stop, restart or kill.", 422, ['field' => 'actions']);
+                    }
+                    if ($a['action'] === 'command' && $payload === '') {
+                        throw new DomainError('action_param_invalid', "{$action}: a command task needs a command.", 422, ['field' => 'actions']);
+                    }
+                    $actions[] = ['action' => $a['action'], 'payload' => $payload];
                 }
                 if ($actions === []) {
                     throw new DomainError('action_param_invalid', "{$action}: at least one action is required.", 422, ['field' => 'actions']);
@@ -914,11 +923,7 @@ final class ServiceService
                     $out['schedule'] = trim((string) $params['schedule']);
                 }
                 if (isset($params['command']) && $params['command'] !== '') {
-                    $command = trim((string) $params['command']);
-                    if (strlen($command) > 500 || preg_match('/[\r\n]/', $command)) {
-                        throw new DomainError('action_param_invalid', "{$action}: command must be one line (max 500 characters).", 422, ['field' => 'command']);
-                    }
-                    $out['command'] = $command;
+                    $out['command'] = CronCommand::assert($action, $params['command']);
                 }
                 if (isset($params['label'])) {
                     $out['label'] = substr(trim((string) $params['label']), 0, 40) ?: null;

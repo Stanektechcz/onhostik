@@ -170,12 +170,55 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
     public function terminate(ResourceRef $ref): ProviderResult
     {
+        $cron = $this->dropCron($ref); // first: the jobs are ours to remove whether the site is still there or not
         if ($this->getSite((int) $ref->remoteId, isset($ref->meta['name']) ? (string) $ref->meta['name'] : null) === null) {
-            return ProviderResult::completed(null, ['already_deleted' => true], alreadyExisted: true);
+            return ProviderResult::completed(null, ['already_deleted' => true, 'cron_removed' => $cron], alreadyExisted: true);
         }
         $this->post('/site?action=DeleteSite', ['id' => (int) $ref->remoteId, 'webname' => $ref->meta['name'] ?? '', 'path' => 1, 'database' => 1, 'ftp' => 1], 'site.delete', true);
 
-        return ProviderResult::completed(null, ['deleted' => true]);
+        return ProviderResult::completed(null, ['deleted' => true, 'cron_removed' => $cron]);
+    }
+
+    /**
+     * The minute and the hour aaPanel will really use — or a refusal.
+     *
+     * aaPanel's scheduler does not take a cron line: it takes a type (`day`, `hour-n`, `week`, …) with a single hour
+     * and minute. The adapter read the first two fields and threw the rest away, so `0 3 * * 1` (Mondays) was created
+     * as every DAY at 03:00, and a step like "every fifth minute" as every hour at :00 — the site's own panel then
+     * showed the customer the schedule aaPanel had, not the one they had asked for, and the difference was never
+     * mentioned anywhere. Everything the panel cannot express is refused now instead of quietly becoming something
+     * else; a step or a weekday belongs on a panel that can run it.
+     *
+     * @return array{0:string,1:string} minute, hour
+     */
+    private function cronFields(string $schedule): array
+    {
+        [$minute, $hour, $dom, $month, $dow] = array_pad(preg_split('/\s+/', trim($schedule)) ?: [], 5, '*');
+        $every = fn (string $f) => $f === '*';
+        $fixed = fn (string $f) => preg_match('/^\d{1,2}$/', $f) === 1;
+        if ($every($dom) && $every($month) && $every($dow) && $fixed($minute) && ($every($hour) || $fixed($hour))) {
+            return [$minute, $hour];
+        }
+        throw new ProviderException('aapanel', ProviderErrorCode::VALIDATION, 'This panel runs a job once an hour ("M * * * *") or once a day ("M H * * *"); it cannot express '.mb_substr($schedule, 0, 40));
+    }
+
+    /**
+     * aaPanel's crontab belongs to the node, not to the site: `DeleteSite` takes the files, the databases and the FTP
+     * users, and leaves every scheduled job behind. A cancelled site's jobs went on firing on the node for ever — and,
+     * before the body was confined, as root. They are recognised by their name (`onhost:<service>:…`), so this cleans
+     * up whether the site is still there or was deleted in the panel by hand.
+     *
+     * @return int how many jobs were removed
+     */
+    private function dropCron(ResourceRef $ref): int
+    {
+        $removed = 0;
+        foreach ($this->listCron($ref) as $job) {
+            $this->post('/crontab?action=DelCrontab', ['id' => (int) $job['remote_id']], 'cron.delete', true);
+            $removed++;
+        }
+
+        return $removed;
     }
 
     public function usage(ResourceRef $ref, ?string $periodStart = null, ?string $periodEnd = null): Usage
@@ -246,12 +289,12 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
 
     public function createCron(ResourceRef $site, array $job): ProviderResult
     {
-        [$minute, $hour] = array_pad(explode(' ', trim($job['schedule'])), 5, '*');
+        [$minute, $hour] = $this->cronFields((string) $job['schedule']);
         $name = Naming::cronLabel($site->serviceId, $job['label'] ?? null);
         // aaPanel's scheduler is host-wide: hourly jobs run every hour at :minute, daily ones at hour:minute
         $this->post('/crontab?action=AddCrontab', [
             'name' => $name, 'type' => $hour === '*' ? 'hour-n' : 'day', 'where1' => $hour === '*' ? '1' : '', 'hour' => $hour === '*' ? 0 : (int) $hour, 'minute' => $minute === '*' ? 0 : (int) $minute,
-            'week' => '', 'sType' => 'toShell', 'sName' => '', 'sBody' => $job['command'], 'backupTo' => '', 'save' => '', 'urladdress' => '',
+            'week' => '', 'sType' => 'toShell', 'sName' => '', 'sBody' => $this->cronBody($site, (string) $job['command']), 'backupTo' => '', 'save' => '', 'urladdress' => '',
         ], 'cron.add', true);
         $created = collect($this->listCron($site))->firstWhere('label', substr($name, strlen('onhost:'.$site->serviceId.':')));
 
@@ -269,7 +312,8 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
             $hour = (string) ($row['where_hour'] ?? '*');
             $minute = (string) ($row['where_minute'] ?? '0');
             $daily = ($row['type'] ?? 'day') === 'day' || preg_match('/day/i', (string) ($row['type'] ?? '')) === 1; // the panel lists the type as a phrase ("Every Day", "Every 1 Hours")
-            $out[] = ['remote_id' => (string) $row['id'], 'schedule' => ($daily ? "{$minute} {$hour} * * *" : "{$minute} * * * *"), 'command' => (string) ($row['sBody'] ?? ''), 'label' => substr($name, strlen('onhost:'.$site->serviceId.':')), 'active' => (int) ($row['status'] ?? 1) === 1];
+            $body = (string) ($row['sBody'] ?? '');
+            $out[] = ['remote_id' => (string) $row['id'], 'schedule' => ($daily ? "{$minute} {$hour} * * *" : "{$minute} * * * *"), 'command' => self::cronCommandOf($body), 'label' => substr($name, strlen('onhost:'.$site->serviceId.':')), 'active' => (int) ($row['status'] ?? 1) === 1, 'confined' => self::cronCommandOf($body) !== $body];
         }
 
         return $out;

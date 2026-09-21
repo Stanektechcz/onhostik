@@ -1405,3 +1405,41 @@ with the node. ISPConfig is different — a web domain has its own pool (`pm_max
 If a managed plan is to limit one site's concurrency on aaPanel, the panel's per-site switch is the traffic limit
 (`POST /site?action=SetLimitNet` — `perserver`, `perip`, `limit_rate`). It is not wired: how many connections stand for
 one PHP worker is a product decision, and the call is unverified on a live panel.
+
+## A scheduled command is not a root shell (2026-09-22)
+
+aaPanel's scheduler **is the node's root crontab**. `crontab?action=AddCrontab` has no user field, and a job of type
+`toShell` is a script the panel daemon — which runs as root — executes. The adapter put the customer's command in as
+that script, so anybody who could fill in the cron form of a shared web site was running commands as root beside every
+other tenant's files and databases, the panel's own key and the platform's agent credentials. ISPConfig never had
+this: its cron belongs to the site's client and is created `type: chrooted`.
+
+What changed (H438, H441):
+
+* **Who runs it.** `AaPanelTools::cronBody()` writes a body that changes into the site root and hands the command to
+  the site's own agent user (`<prefix>ag`, the same user the terminal and the toolkit use). The command travels as
+  DATA inside a quoted here-document, which expands nothing, so quoting cannot be broken out of; the only escape
+  would be a line equal to the marker, and a scheduled command is one line without control characters. If the agent
+  user cannot be prepared the job is **not written at all** — there is no fallback to root.
+* **Reading it back.** `AaPanelWebProvider::cronCommandOf()` takes the customer's own line back out of the body, so
+  the panel, the service spec and `updateCron` all see what the customer wrote. A job made before this change, or by
+  hand in the panel, comes back unchanged and is listed with `confined: false`.
+* **What it may say.** `Domain\Services\Web\CronCommand` judges the command statement by statement, exactly as
+  `CustomDirectives` judges a vhost — a deny-list anchored at the start of the whole line is one `;` away from
+  useless. Refused: programs that change identity, the host's accounts, its schedule, its kernel, its network rules
+  or its containers, the panels' own command lines, everything the interactive terminal already refuses
+  (`CommandRunner::FORBIDDEN`), and `/dev/tcp` (a reverse shell with no program name to name).
+* **A schedule the panel cannot run.** aaPanel takes a type and a single hour and minute, not a cron line. The
+  adapter read the first two fields and dropped the rest, so `0 3 * * 1` (Mondays) was created as *every day* at
+  03:00 and the customer was never told. Now only "every hour at :M" and "every day at H:M" are accepted; anything
+  else is refused with a message instead of quietly running at another time.
+* **The jobs end with the service.** `DeleteSite` takes the files, the databases and the FTP users and leaves the
+  crontab alone, because the crontab is the node's. A cancelled site's jobs went on firing for ever. `terminate()`
+  now removes the service's own jobs first — recognised by name, so it works even when the site was deleted by hand —
+  and leaves every other tenant's alone.
+
+On the node: `ensureAgent` must have run for the site, which it does the first time any toolkit action touches it.
+Worth watching on staging: that a job really runs under `<prefix>ag` (the node hardening blocks `www` from executing
+binaries, which is why the agent user exists at all).
+
+Tests: `tests/Feature/Services/ScheduledCommandTest.php`, `tests/Contract/AaPanelToolsContractTest.php`.

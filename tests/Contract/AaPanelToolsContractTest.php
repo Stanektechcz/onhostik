@@ -9,6 +9,7 @@ use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
 use Onhost\Providers\Contracts\Naming;
 use Onhost\Providers\Contracts\ResourceRef;
+use Onhost\Providers\Shell\ScriptedShell;
 
 /*
  * The web toolkit on aaPanel: the panel API for cron edit/run/logs, database access, backup deletion, Node projects
@@ -25,6 +26,8 @@ function aaToolsAdapter(): AaPanelWebProvider
 
     return $registry->forInstance($instance);
 }
+
+afterEach(fn () => AaPanelWebProvider::$shellFactory = null);
 
 function aaToolsFake(array &$calls, array $answers): void
 {
@@ -61,6 +64,7 @@ it('drives cron edit/run/logs, database access, backup deletion, Node projects a
         'project/nodejs/restart_project' => ['status' => true, 'msg' => 'ok'],
         'site?action=GetSiteRunPath' => ['runPath' => '/public'],
     ]);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^id -u /' => "1042\n"]); // a job is written as the site's own user: the adapter checks it is there
     $adapter = aaToolsAdapter();
     $site = new ResourceRef('site', '41', 'aapanel-managed01', ['name' => 'shop.cz', 'path' => '/www/wwwroot/shop.cz'], 'srv_tools');
 
@@ -70,7 +74,9 @@ it('drives cron edit/run/logs, database access, backup deletion, Node projects a
     expect($adapter->runCron($site, '12')->data['started'])->toBeTrue();
     $adapter->updateCron($site, '12', ['schedule' => '30 * * * *', 'command' => 'php worker.php', 'active' => false]);
     $modify = collect($calls)->last(fn ($c) => str_contains($c[0], 'modify_crond'))[1];
-    expect($modify)->toMatchArray(['id' => 12, 'type' => 'hour-n', 'minute' => 30, 'sBody' => 'php worker.php'])->and((string) $modify['name'])->toStartWith('onhost:');
+    expect($modify)->toMatchArray(['id' => 12, 'type' => 'hour-n', 'minute' => 30])->and((string) $modify['name'])->toStartWith('onhost:')
+        ->and((string) $modify['sBody'])->toContain('php worker.php')->toContain('/bin/su -s /bin/bash '); // never the bare command: aaPanel runs it as root
+    expect(AaPanelWebProvider::cronCommandOf((string) $modify['sBody']))->toBe('php worker.php'); // and the customer reads back what they wrote
     expect(collect($calls)->contains(fn ($c) => str_contains($c[0], 'set_cron_status')))->toBeTrue();
     expect(fn () => $adapter->runCron($site, '13'))->toThrow(ProviderException::class); // another tenant's job on the shared node
 
@@ -152,6 +158,7 @@ it('does not flip a cron job whose state was not changed: the panel\'s switch to
         'crontab?action=modify_crond' => ['status' => true, 'msg' => 'ok'],
         'crontab?action=set_cron_status' => ['status' => true, 'msg' => 'ok'],
     ]);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^id -u /' => "1042\n"]);
     $adapter = aaToolsAdapter();
     $site = new ResourceRef('site', '41', 'aapanel-managed01', ['name' => 'shop.cz', 'path' => '/www/wwwroot/shop.cz'], 'srv_tools');
 
