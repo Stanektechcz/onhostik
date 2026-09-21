@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A broken server can boot something else:** `RescueMode` (H233) — an image from the node's ISO storage, a window that
+  ends by itself (`onhost:services:rescue-expire`), and exactly the boot order it found going back.
+
 - **A server's reverse record reaches the resolver:** `DnsService::reverseZoneFor`/`syncPtr` publish the PTR into the reverse
   zone the platform holds; the customer sets it with `rdns.set`, releasing the address removes it (migration `000810`).
 

@@ -30,6 +30,9 @@ use Onhost\Providers\Contracts\Usage;
  */
 final class ProxmoxComputeProvider implements ComputeProvider, SelfProbing
 {
+    /** The drive a rescue image is attached to; never used for anything else, so detaching it can never take a disk away. */
+    private const RESCUE_DRIVE = 'ide2';
+
     private readonly ProxmoxConnector $api;
 
     public function __construct(
@@ -408,6 +411,49 @@ final class ProxmoxComputeProvider implements ComputeProvider, SelfProbing
         } catch (ProviderException) {
             return false;
         }
+    }
+
+    /**
+     * The ISO images of the rescue storage (`iso_storage`, `local` by default). Only what the operator put there can
+     * ever be booted: the customer picks from this list, never from a path of their own (H233).
+     */
+    public function listIsoImages(string $node): array
+    {
+        $storage = (string) $this->instance->option('iso_storage', 'local');
+        $out = [];
+        foreach ((array) $this->api->get("/nodes/{$node}/storage/{$storage}/content", ['content' => 'iso'], 'storage.content.iso') as $row) {
+            $volume = (string) ($row['volid'] ?? '');
+            if ($volume === '') {
+                continue;
+            }
+            $out[] = ['volume' => $volume, 'name' => basename(str_replace('\\', '/', $volume)), 'size_bytes' => (int) ($row['size'] ?? 0)];
+        }
+        usort($out, fn (array $a, array $b) => strcmp($a['name'], $b['name']));
+
+        return $out;
+    }
+
+    public function bootMedia(ResourceRef $vm): array
+    {
+        $config = (array) $this->api->get("/nodes/{$vm->node}/qemu/{$vm->remoteId}/config", [], 'qemu.config.get');
+        $drive = (string) ($config[self::RESCUE_DRIVE] ?? '');
+        $volume = $drive === '' || str_starts_with($drive, 'none') ? null : explode(',', $drive)[0];
+
+        return ['iso' => $volume, 'boot' => (string) ($config['boot'] ?? '')];
+    }
+
+    public function setBootMedia(ResourceRef $vm, ?string $volume, ?string $bootOrder = null): ProviderResult
+    {
+        $params = [self::RESCUE_DRIVE => $volume === null ? 'none,media=cdrom' : $volume.',media=cdrom'];
+        if ($bootOrder !== null) {
+            $params['boot'] = $bootOrder;
+        }
+        $result = $this->api->put("/nodes/{$vm->node}/qemu/{$vm->remoteId}/config", $params, 'qemu.config.boot');
+        if (is_string($result) && str_starts_with($result, 'UPID')) {
+            return ProviderResult::accepted(new AsyncHandle('pve_task', $result, $vm->node, [], 3, 600), $vm);
+        }
+
+        return ProviderResult::completed($vm, ['iso' => $volume, 'boot' => $bootOrder]);
     }
 
     /** What this cluster really answers (SelfProbing): a backup storage is configured and its content can be listed — every backup and final snapshot is found there. */

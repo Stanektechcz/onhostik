@@ -76,6 +76,7 @@ final class ServiceFeatures
         // a virtual server's own access (ComputeProvider): new SSH keys and/or a new password for the administrator, through cloud-init
         'vm_access' => ['access.reset'],
         'vm_rdns' => ['rdns.set'],
+        'vm_rescue' => ['rescue.start', 'rescue.stop'],
     ];
 
     public const RESOURCES = [
@@ -157,6 +158,8 @@ final class ServiceFeatures
                     'vm_access' => $on($service->family === 'cloud' && ($adapter === null || $adapter instanceof ComputeProvider)),
                     // the reverse record of the server's own address, offered only where the platform holds the reverse zone to publish it into
                     'vm_rdns' => $on($service->family === 'cloud' && self::reverseZoneAvailable($service)),
+                    // booting somebody else's system on the customer's own disks: offered where the hypervisor holds rescue images (H233)
+                    'vm_rescue' => $on($service->family === 'cloud' && ($adapter === null || $adapter instanceof ComputeProvider), null, ['session' => RescueMode::session($service), 'hours' => RescueMode::hours()]),
                 ];
                 break;
             case 'game':

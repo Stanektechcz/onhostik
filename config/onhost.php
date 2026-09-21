@@ -67,6 +67,11 @@ return [
             'download_fee_minor' => ['CZK' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_CZK', 50000), 'EUR' => (int) env('ONHOST_ARCHIVE_DOWNLOAD_FEE_EUR', 2000)],
         ],
     ],
+    // a rescue session boots the server from an image of the operator's ISO storage and ends by itself (H233)
+    'rescue' => [
+        'hours' => (int) env('ONHOST_RESCUE_HOURS', 8),
+    ],
+
     'backups' => [
         'offsite_disk' => env('ONHOST_BACKUP_OFFSITE_DISK'), // a filesystems.disks entry (S3-compatible) for off-site copies; null = off
         'daily_hour' => (int) env('ONHOST_BACKUP_DAILY_HOUR', 2),

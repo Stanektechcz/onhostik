@@ -34,6 +34,27 @@ interface ComputeProvider extends BackupCapable, ConsoleCapable, InfrastructureP
 
     public function guestAgentPing(ResourceRef $vm): bool;
 
+    /**
+     * Rescue media the node offers: the images a customer may boot when their own system will not start (H233).
+     *
+     * @return list<array{volume:string,name:string,size_bytes:int}>
+     */
+    public function listIsoImages(string $node): array;
+
+    /**
+     * What the VM boots from right now — the attached image and the boot order — so the platform can put back exactly
+     * what it found when the rescue session ends.
+     *
+     * @return array{iso:string|null, boot:string}
+     */
+    public function bootMedia(ResourceRef $vm): array;
+
+    /**
+     * Attaches an image and/or sets the boot order. A null volume detaches the drive; a null order leaves it alone.
+     * The change reaches the running guest only at its next start, so the caller reboots.
+     */
+    public function setBootMedia(ResourceRef $vm, ?string $volume, ?string $bootOrder = null): ProviderResult;
+
     /** Moves the VM to another node of the same cluster (live when it runs, offline otherwise); the async handle is the migration task. */
     public function migrate(ResourceRef $vm, string $targetNode, bool $online = true): ProviderResult;
 }

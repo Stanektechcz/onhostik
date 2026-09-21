@@ -121,6 +121,8 @@ final class NotificationRouter
             'service.resumed' => $this->customer($m, 'service', 'Služba byla obnovena', '', '/panel/sluzby'),
             'service.terminated' => $this->customer($m, 'service', 'Služba byla ukončena', 'Zálohy držíme po dobu retenční lhůty.', '/panel/sluzby', 'warn'),
             // the deletion lifecycle (audit §5ab): deactivation, the restore window, the removal and the archive
+            'service.rescue.started' => $this->customer($m, 'service', 'Server běží v záchranném režimu', 'Nastartovali jsme server ze záchranného obrazu ('.($p['image'] ?? '').'). Disky zůstaly nedotčené. Režim sám skončí '.($p['until'] ?? '').' a server nabootuje zpět do svého systému.', '/panel/sluzby', 'warn'),
+            'service.rescue.ended' => $this->customer($m, 'service', 'Záchranný režim skončil', 'Server jsme vrátili do vlastního systému ('.($p['reason'] ?? '').').', '/panel/sluzby', 'info'),
             'service.deactivated' => $this->internal($m, 'service', 'Služba deaktivována ke zrušení', (string) ($p['reason'] ?? ''), '/sprava/sluzby'),
             'service.deletion.scheduled' => $this->customer($m, 'service', 'Služba byla zrušena a deaktivována', 'Zálohu máme hotovou. Obnovit službu můžete do '.(int) ($p['grace_days'] ?? 30).' dnů. Data uchováme dalších '.(int) ($p['retention_days'] ?? 60).' dní.', '/panel/sluzby', 'warn', $email, 'service-deletion-scheduled', ['lhuta' => (string) (int) ($p['grace_days'] ?? 30), 'uchovani' => (string) (int) ($p['retention_days'] ?? 60), 'url' => "{$portal}/panel/sluzby"]),
             'service.deletion.cancelled' => $this->customer($m, 'service', 'Zrušení služby jsme odvolali', 'Služba běží dál, plánované odstranění jsme zrušili.', '/panel/sluzby', 'info'),

@@ -741,6 +741,9 @@ final class ServiceService
 
                 return ['hostname' => $hostname, 'family' => in_array($family, [4, 6], true) ? $family : 4];
             })(),
+            // which image is the node's business: the value is checked against what it really offers (RescueMode)
+            'rescue.start' => array_filter(['image' => (string) ($params['image'] ?? '') !== '' ? mb_substr((string) $params['image'], 0, 200) : null, 'hours' => isset($params['hours']) ? max(1, min(72, (int) $params['hours'])) : null], fn ($v) => $v !== null),
+            'rescue.stop' => [],
             'command.send' => ['command' => $need('command', '/^[^\r\n]{1,1000}$/', 'command is required (one line)')],
             'schedule.create' => (function () use ($need, $params, $action) {
                 $actions = [];

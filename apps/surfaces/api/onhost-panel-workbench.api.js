@@ -415,6 +415,17 @@
           } };
           p5.extra.push(genExtra('b'));
         }
+        if (on('vm_rescue')) {
+          var resc = (((window.ONHOST_PANEL.features || {})[sel.id] || {}).vm_rescue || {}).options || {};
+          if (resc.session) {
+            p5.extra.push({ label: _('Ukončit záchranný režim', 'End rescue mode'), on: function () { act(cmp, sel, 'rescue.stop', {}, ['status'], _('Záchranný režim ukončen', 'Rescue mode ended'), _('Server se restartuje do svého systému.', 'The server reboots into its own system.')); } });
+          } else {
+            p5.extra.push({ label: _('Záchranný režim', 'Rescue mode'), on: function () {
+              if (!window.confirm(_('Nastartovat server ze záchranného obrazu? Disky zůstanou nedotčené a režim sám skončí za ' + (resc.hours || 8) + ' h.', 'Boot the server from a rescue image? The disks are left alone and the mode ends by itself in ' + (resc.hours || 8) + ' h.'))) return;
+              act(cmp, sel, 'rescue.start', {}, ['status'], _('Záchranný režim zapnut', 'Rescue mode on'), _('Server nabíhá ze záchranného obrazu; připojte se přes konzoli.', 'The server is booting the rescue image; connect through the console.'));
+            } });
+          }
+        }
         if (on('console')) p5.extra.push({ label: _('Získat přístup ke konzoli', 'Get console access'), on: function () { API.post('/services/' + sel.id + '/console-token', {}, API.key()).then(function (r) { var d = r.data || r; flash(cmp, _('Konzole připravena', 'Console ready'), (d.url || '') + ' · token ' + (d.token || '') + ' · ' + _('platí do ', 'valid until ') + (d.expires_at || '')); }).catch(function (e) { flash(cmp, _('Konzole nedostupná', 'Console unavailable'), e.message || ''); }); } });
         return p5;
       }

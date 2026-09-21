@@ -76,6 +76,7 @@ use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\RescueMode;
 use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\SshKeyLedger;
@@ -467,6 +468,7 @@ Schedule::command('onhost:billing:expire-holds')->everyTenMinutes()->onOneServer
 Schedule::command('onhost:orders:settle')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 // a service left in SUSPENDING/RESUMING/RESIZING by a step the panel refused accepts nothing until it is put back; nothing is sent to a panel
 Schedule::command('onhost:services:release-stranded --apply --minutes=30')->everyTenMinutes()->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:services:rescue-expire')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:meter')->hourlyAt(2)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:rate')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:renewals')->hourlyAt(20)->withoutOverlapping()->onOneServer();
@@ -720,6 +722,15 @@ Artisan::command('onhost:backups:run {--limit=100}', function (BackupScheduler $
  * (a suspend that never happened → ACTIVE, a resume that never happened → SUSPENDED with its reason and holds, a
  * resize → ACTIVE) through the ordinary audited settle. Nothing is sent to a panel.
  */
+// A rescue session nobody closed is a server booted from somebody else's image for as long as nobody looks (H233).
+Artisan::command('onhost:services:rescue-expire {--limit=50 : how many services to look at}', function (RescueMode $rescue) {
+    $stats = $rescue->expire(max(1, (int) $this->option('limit')));
+    foreach ($stats['errors'] as $problem) {
+        $this->warn($problem);
+    }
+    $this->info(sprintf('rescue sessions past their window: %d · put back: %d · failed: %d', $stats['checked'], $stats['ended'], count($stats['errors'])));
+})->purpose('End the rescue sessions whose window has passed and put the servers back');
+
 Artisan::command('onhost:services:release-stranded {--apply : put them back; without it only the list} {--minutes=15 : how long a transient state must have lasted}', function (ServiceService $services) {
     $back = [ServiceStateMachine::SUSPENDING => ServiceStateMachine::ACTIVE, ServiceStateMachine::RESUMING => ServiceStateMachine::SUSPENDED, ServiceStateMachine::RESIZING => ServiceStateMachine::ACTIVE];
     $stranded = ServiceService::stranded(max(1, (int) $this->option('minutes')));

@@ -23,6 +23,7 @@ use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\RestoreJob;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\RescueMode;
 use Onhost\Domain\Services\ServiceBackups;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceIdentityCheck;
@@ -66,7 +67,7 @@ final class ServiceActionWorkflow implements Workflow
     /** Feature actions: one provider call each, validated by ServiceService::featureParams, no service state change. */
     public const FEATURE_ACTIONS = [
         'php.set', 'database.create', 'database.delete', 'ftp.create', 'ftp.delete', 'ftp.password', 'cron.create', 'cron.delete', 'subdomain.add', 'subdomain.remove',
-        'redirect.set', 'ssl.issue', 'https.force', 'snapshot.delete', 'firewall.apply', 'access.reset', 'rdns.set', 'command.send', 'schedule.create', 'mailbox.create', 'mailbox.update', 'mailbox.delete',
+        'redirect.set', 'ssl.issue', 'https.force', 'snapshot.delete', 'firewall.apply', 'access.reset', 'rdns.set', 'rescue.start', 'rescue.stop', 'command.send', 'schedule.create', 'mailbox.create', 'mailbox.update', 'mailbox.delete',
         'alias.create', 'alias.delete', 'sending.set',
         'errpages.set', 'directives.set', 'folder.protect', 'folder.unprotect', 'dbuser.create', 'dbuser.password', 'dbuser.delete', 'shell.create', 'shell.key', 'shell.delete', 'stats.set', 'ssl.upload',
         'file.mkdir', 'file.delete', 'file.save', 'app.install',
@@ -187,7 +188,7 @@ final class ServiceActionWorkflow implements Workflow
                     str_starts_with($this->action, 'database') => 'Databáze', str_starts_with($this->action, 'ftp') => 'FTP účet', str_starts_with($this->action, 'cron') => 'Cron',
                     str_starts_with($this->action, 'subdomain') => 'Doména webu', str_starts_with($this->action, 'mailbox') || str_starts_with($this->action, 'alias') || $this->action === 'sending.set' => 'E-mail',
                     $this->action === 'php.set' => 'Verze PHP', $this->action === 'ssl.issue' => 'Certifikát', $this->action === 'https.force' => 'HTTPS', $this->action === 'redirect.set' => 'Přesměrování',
-                    $this->action === 'snapshot.delete' => 'Snapshot', $this->action === 'firewall.apply' => 'Firewall', $this->action === 'access.reset' => 'Přístup k serveru', $this->action === 'rdns.set' => 'Reverzní záznam', $this->action === 'command.send' => 'Příkaz konzole', $this->action === 'schedule.create' => 'Plánovaná úloha',
+                    $this->action === 'snapshot.delete' => 'Snapshot', $this->action === 'firewall.apply' => 'Firewall', $this->action === 'access.reset' => 'Přístup k serveru', $this->action === 'rdns.set' => 'Reverzní záznam', str_starts_with($this->action, 'rescue.') => 'Záchranný režim', $this->action === 'command.send' => 'Příkaz konzole', $this->action === 'schedule.create' => 'Plánovaná úloha',
                     $this->action === 'errpages.set' => 'Chybové stránky', $this->action === 'directives.set' => 'Direktivy webserveru', str_starts_with($this->action, 'folder.') => 'Chráněná složka', str_starts_with($this->action, 'dbuser.') => 'Uživatel databáze',
                     str_starts_with($this->action, 'shell.') => 'Shell přístup', $this->action === 'stats.set' => 'Statistiky', $this->action === 'ssl.upload' => 'Vlastní certifikát', str_starts_with($this->action, 'file.') => 'Soubory', $this->action === 'app.install' => 'Instalace aplikace',
                     $this->action === 'command.run' => 'Příkaz v terminálu', $this->action === 'php.settings' => 'Nastavení PHP', $this->action === 'security.set' => 'Bezpečnostní pravidla', $this->action === 'http3.set' => 'HTTP/3',
@@ -263,6 +264,16 @@ final class ServiceActionWorkflow implements Workflow
                         $ipam->setReverseDns($address, $hostname === '' ? null : $hostname, $context->actor, 'customer request');
 
                         return ProviderResult::completed($ref, ['rdns' => $address->fresh()->rdns, 'address' => (string) $address->address]);
+                    })(),
+                    'rescue.start' => (function () use ($context, $ref, $p) {
+                        $session = $context->container->make(RescueMode::class)->start($this->service($context), $context->actor, $p('image'), $p('hours') === null ? null : (int) $p('hours'));
+
+                        return ProviderResult::completed($ref, ['image' => basename((string) $session['iso']), 'until' => $session['until']]);
+                    })(),
+                    'rescue.stop' => (function () use ($context, $ref) {
+                        $result = $context->container->make(RescueMode::class)->stop($this->service($context), $context->actor, 'the customer ended it');
+
+                        return ProviderResult::completed($ref, $result);
                     })(),
                     'command.send' => $this->capability($context, GameProvider::class)->sendCommand($ref, (string) $p('command')),
                     'schedule.create' => $this->capability($context, GameProvider::class)->createSchedule($ref, ['name' => $p('name'), 'cron' => $p('cron'), 'actions' => (array) $p('actions', [])]),
