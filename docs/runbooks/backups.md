@@ -127,3 +127,29 @@ it would have refused it too — the subscription billed on for ever. Proven aga
 Today's add-ons: `ipv4` (an address on the parent), `backup-plus` and `backup-hourly` (the backup policy), `mail-hosting`
 (mailboxes, quota and DKIM on the parent — it was on sale and no cart line could reach it), `cdn` (the CDN feature and the
 WAF level on the parent).
+
+## What a destructive action replaces is kept first (2026-09-21)
+
+**The hole.** The owner's rule — nothing is deleted, cleared or otherwise disturbed before it has been fully backed up —
+was held only by the cancellation chain. Three other actions overwrite what is there and kept no copy of it:
+
+* `restore` writes a backup over the live service (files over the site root, every dump into its database),
+* `rollback_snapshot` throws away everything the server did since the snapshot,
+* `reinstall` (game) runs the egg's install script again and rewrites the server's files.
+
+The panel simply told the customer to take a backup first. Whoever restored the wrong backup, or rolled back a day too
+far, had no way back — and that is the single most common way a hosting customer loses data.
+
+**The rule.** Each of those three chains now begins with `safetyCopyStep`:
+
+* a server (family `cloud`/`data`) gets a provider **snapshot** — instant, and the rollback stops the machine anyway;
+* everything else gets the same archive a cancellation takes (`ServiceBackups::take`, `fresh_only`): the files and every
+  database, fresh, or the step fails;
+* the copy is `protected` and kept for `DeletionPolicy::retentionDays()` (60 days), so no prune touches it while it matters;
+* **if the copy cannot be made, nothing is overwritten** — the operation fails with the reason and the service is untouched;
+* one copy per operation: the step is re-entered while the provider task runs (`afterAsyncSuccess`) and never starts a second.
+
+The copies are `pre_restore`, `pre_rollback` and `pre_reinstall` in `backups.kind`, and a guard test holds the order of the
+steps, so a new destructive action has to pass it.
+
+Tests: `tests/Feature/Provisioning/SafetyCopyTest.php`, `tests/Feature/Services/WebBackupArchiveTest.php`.

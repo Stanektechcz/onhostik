@@ -11,6 +11,7 @@ use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
+use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\RestoreJob;
@@ -248,7 +249,12 @@ it('restores a set in place — databases first, then the files over the root �
     $log = [];
     $id = $this->withHeader('Idempotency-Key', 'wr-1')->postJson("/v1/services/{$service->id}/actions", ['action' => 'restore', 'params' => ['backup_id' => $backup->id]])->assertStatus(202)->json('operation_id');
     expect(driveOperation(Operation::query()->findOrFail($id))->state)->toBe(Operation::SUCCEEDED);
-    expect(collect($log)->pluck(0)->all())->toBe(['import', 'import', 'upload', 'extract']);
+    // audit §5ag: what the restore is about to overwrite is kept first — both databases and the site files, then the restore
+    expect(collect($log)->pluck(0)->all())->toBe(['export', 'export', 'archive', 'import', 'import', 'upload', 'extract']);
+    $safety = Backup::query()->where('service_id', $service->id)->where('kind', 'pre_restore')->sole();
+    expect($safety->state)->toBe('completed')->and($safety->protected)->toBeTrue()
+        ->and((int) now()->diffInDays($safety->retention_until))->toBeGreaterThanOrEqual(app(DeletionPolicy::class)->retentionDays() - 1)
+        ->and(implode(' ', (array) data_get($safety->meta, 'parts')))->toContain('site-files')->toContain('database-');
     expect(collect($log)->where(0, 'import')->pluck(1)->sort()->values()->all())->toBe(['7', '8'])->and(collect($log)->firstWhere(0, 'import')[2])->toContain('CREATE TABLE')
         ->and(collect($log)->firstWhere(0, 'extract')[2])->toBe('.');
     $job = RestoreJob::query()->where('operation_id', $id)->firstOrFail();
@@ -259,7 +265,9 @@ it('restores a set in place — databases first, then the files over the root �
     $log = [];
     $second = $this->withHeader('Idempotency-Key', 'wr-2')->postJson("/v1/services/{$service->id}/actions", ['action' => 'restore', 'params' => ['backup_id' => $backup->id]])->assertStatus(202)->json('operation_id');
     $failed = driveOperation(Operation::query()->findOrFail($second));
-    expect($failed->state)->toBe(Operation::FAILED)->and((string) data_get($failed->error, 'message'))->toContain('blog-db')->and($log)->toBe([]);
+    // the safety copy is made (it is the customer's data either way), and then nothing is written: no import, no upload, no extract
+    expect($failed->state)->toBe(Operation::FAILED)->and((string) data_get($failed->error, 'message'))->toContain('blog-db')
+        ->and(collect($log)->pluck(0)->intersect(['import', 'upload', 'extract'])->all())->toBe([]);
 
     // the archive of a cancelled service does not go back this way (it is restored onto a new service, with its own rules)
     $final = Backup::query()->create(['service_id' => $service->id, 'organization_id' => $org->id, 'kind' => 'final', 'state' => 'completed', 'protected' => true, 'meta' => ['set' => FinalArchive::PREFIX.'/x/y']]);

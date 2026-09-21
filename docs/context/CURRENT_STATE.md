@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **What a destructive action replaces is kept first:** a restore, a rollback and a game reinstall each take a protected copy
+  (`safetyCopyStep`) before they overwrite anything; when the copy fails, nothing is overwritten.
+
 - **A broken server can boot something else:** `RescueMode` (H233) — an image from the node's ISO storage, a window that
   ends by itself (`onhost:services:rescue-expire`), and exactly the boot order it found going back.
 

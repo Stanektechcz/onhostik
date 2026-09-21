@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 08d4065 | 2026-09-21 | A broken server can boot something else: rescue mode (H233) |
+| 07f0528 | 2026-09-21 | Rows of the same second have no order of their own |
 | d641a15 | 2026-09-21 | A server's reverse record reaches the resolver |
 | 2b6dd21 | 2026-09-21 | A plan promises only what the platform enforces, applies or measures |
 | a3316a0 | 2026-09-21 | A test that reads the clock twice is red whenever the second ticks over |
@@ -12,5 +14,3 @@
 | 0489f4b | 2026-09-21 | What the assistant puts on a button is the platform's; a virtual server's access can be set again |
 | aebdc67 | 2026-09-20 | The mail after a password change tells the truth about API tokens |
 | cc062e0 | 2026-09-20 | The model has a budget; what PostgreSQL would refuse is found locally; a correction of the record |
-| 5c154a6 | 2026-09-20 | A width guard for the whole suite: what SQLite forgives and PostgreSQL refuses shows up locally |
-| 2f8d175 | 2026-09-20 | A domain has an end; the production database's only test is CI — and it was red for 92 runs |

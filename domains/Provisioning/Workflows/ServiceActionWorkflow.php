@@ -117,10 +117,11 @@ final class ServiceActionWorkflow implements Workflow
             'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->pauseExtrasStep(), $this->cancelAddonsStep(), $this->revokeDelegationsStep(), $this->scheduleRemovalStep()],
             'purge' => [$this->identityStep(), $this->finalArchiveStep(anyOperation: true), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
             'backup' => [$this->backupStep()],
-            'restore' => [$this->restoreStep()],
+            'restore' => [$this->safetyCopyStep('pre_restore'), $this->restoreStep()],
             'archive.restore' => [$this->archiveRestoreStep()],
             'snapshot' => [$this->snapshotStep()],
-            'rollback_snapshot' => [$this->rollbackSnapshotStep()],
+            'rollback_snapshot' => [$this->safetyCopyStep('pre_rollback'), $this->rollbackSnapshotStep()],
+            'reinstall' => [$this->safetyCopyStep('pre_reinstall'), $this->featureStep('reinstall')], // rewrites the server files
             default => in_array($action, self::FEATURE_ACTIONS, true) ? [$this->featureStep($action)] : throw new \InvalidArgumentException("Unknown service action {$action}"),
         };
     }
@@ -1275,6 +1276,79 @@ final class ServiceActionWorkflow implements Workflow
                 ], $service->organization_id));
 
                 return StepResult::done(['restored_from_archive' => $backup->id] + $result);
+            }
+        };
+    }
+
+    /**
+     * What a destructive action replaces is kept first (audit §5ag). A restore writes a backup over the service, a
+     * rollback throws away everything since the snapshot, a game reinstall rewrites the server's files — and none of
+     * them kept a copy of what they destroyed. The customer who restored the wrong backup, or rolled back a day too
+     * far, had no way back: the panel only told them to take a backup themselves.
+     *
+     * A server takes a provider snapshot (instant, and the rollback stops the machine anyway); everything else takes
+     * the same archive a cancellation takes — files and every database, fresh or the step fails. The copy is
+     * protected and kept for the retention the deletion policy sets, so nothing prunes it while it still matters.
+     */
+    private function safetyCopyStep(string $kind): ServiceStep
+    {
+        return new class($kind) extends ServiceStep
+        {
+            public function __construct(private readonly string $kind) {}
+
+            public function label(): string
+            {
+                return 'Záloha před přepsáním';
+            }
+
+            /** The hypervisor finished the snapshot this step started: the copy is real, so the row says so. */
+            protected function afterAsyncSuccess(StepContext $context, AsyncStatus $status): StepResult
+            {
+                $backup = Backup::query()->where('operation_id', $context->operation->id)->where('kind', $this->kind)->first();
+                $backup?->forceFill(['state' => 'completed', 'finished_at' => now(), 'verified_at' => now(), 'verify_status' => 'ok'])->save();
+
+                return StepResult::done(['safety_copy_id' => $backup?->id, 'safety_copy' => $backup?->remote_id]);
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                $existing = Backup::query()->where('operation_id', $context->operation->id)->where('kind', $this->kind)->first();
+                if ($existing !== null) {
+                    // the step is entered again after the provider task it waited for finished — one copy per operation, never two
+                    if ($existing->state !== 'completed') {
+                        $existing->forceFill(['state' => 'completed', 'finished_at' => now(), 'verified_at' => now(), 'verify_status' => 'ok'])->save();
+                    }
+
+                    return StepResult::done(['safety_copy_id' => $existing->id, 'safety_copy' => $existing->remote_id]);
+                }
+                $days = $context->container->make(DeletionPolicy::class)->retentionDays();
+                try {
+                    if (in_array($service->family, ['cloud', 'data'], true)) {
+                        $name = mb_substr('onhost-'.str_replace('_', '-', $this->kind).'-'.now()->format('ymdHis'), 0, 40);
+                        $result = $this->capability($context, ComputeProvider::class)->snapshot($this->ref($context), $name, 'ONhost: stav před akcí '.$context->desired('action'));
+                        $backup = Backup::query()->create([
+                            'service_id' => $service->id, 'organization_id' => $service->organization_id, 'provider_instance_id' => $service->provider_instance_id,
+                            'kind' => $this->kind, 'state' => $result->isAsync() ? 'running' : 'completed', 'started_at' => now(), 'finished_at' => $result->isAsync() ? null : now(),
+                            'protected' => true, 'operation_id' => $context->operation->id, 'remote_id' => $name,
+                            'retention_until' => now()->addDays($days), 'meta' => ['reason' => $this->kind, 'snapshot' => $name],
+                        ]);
+
+                        return $result->isAsync()
+                            ? $this->settle($result, ['safety_copy_id' => $backup->id, 'safety_copy' => $name])
+                            : StepResult::done(['safety_copy_id' => $backup->id, 'safety_copy' => $name]);
+                    }
+                    $backup = $context->container->make(ServiceBackups::class)
+                        ->take($service, $context->adapter(), $this->ref($context), $context->actor, $context->operation->id, $this->kind, $days, protected: true);
+                } catch (DomainError $e) {
+                    return StepResult::fail('zálohu před přepsáním se nepodařilo vytvořit: '.$e->getMessage().'; nic nebylo přepsáno', $e->status >= 500, ['error' => $e->error], 120);
+                } catch (ProviderException $e) {
+                    return self::fromProviderException($e);
+                } catch (Throwable $e) {
+                    return StepResult::fail('zálohu před přepsáním se nepodařilo vytvořit: '.$e->getMessage().'; nic nebylo přepsáno', true, [], 120);
+                }
+
+                return StepResult::done(['safety_copy_id' => $backup->id, 'safety_copy_set' => data_get($backup->meta, 'set')]);
             }
         };
     }
