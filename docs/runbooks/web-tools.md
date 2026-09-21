@@ -1406,6 +1406,24 @@ If a managed plan is to limit one site's concurrency on aaPanel, the panel's per
 (`POST /site?action=SetLimitNet` — `perserver`, `perip`, `limit_rate`). It is not wired: how many connections stand for
 one PHP worker is a product decision, and the call is unverified on a live panel.
 
+### A game server is suspended in the same depth (2026-09-22)
+
+`SuspensionDepth` knew only the web: cron jobs and FTP accounts. A game server was suspended at the panel — which
+stops it — and its **schedules stayed armed**, so every slot went on firing against a server that may not run, and
+after the resume nobody knew which of them the customer had wanted on. H440 asks the suspension to decide what stops
+and what may safely keep going.
+
+It is now a table of kinds — `cron`, `ftp`, `schedule` — each offered by the adapter that can do it
+(`SuspensionDepth::switches()`), so a panel that cannot do one of them pauses what it can and says so in the errors.
+The memory in `services.tags.suspension_paused` gains a `schedule` key and empty kinds are not written, so a web
+service's tag keeps the shape it always had. `pauseExtrasStep`/`resumeExtrasStep` now run for `game` as well.
+
+What deliberately keeps running: scheduled backups. `BackupScheduler::tick()` only looks at services that are ACTIVE
+or DEGRADED, so a suspended service makes no new backups and keeps every one it has — which is the safe direction
+under the owner's rule that nothing may be lost.
+
+Tests: `tests/Feature/Services/SuspensionDepthTest.php`.
+
 ## A scheduled command is not a root shell (2026-09-22)
 
 aaPanel's scheduler **is the node's root crontab**. `crontab?action=AddCrontab` has no user field, and a job of type

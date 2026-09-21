@@ -77,6 +77,43 @@ it('switches a suspended site\'s cron jobs and FTP accounts off, and on again â€
         ->and(data_get($site->tags, SuspensionDepth::TAG))->toBeNull();
 });
 
+it('disarms a suspended game server\'s schedules, and arms again exactly those (H440)', function () {
+    [, $org] = $this->customerWithOrganization();
+    $game = featureGameService($org);
+    // the panel as it stands: a nightly restart the customer wants, and a backup schedule they had already turned off
+    $panel = [7 => true, 8 => false];
+    Http::fake(function (Request $r) use (&$panel) {
+        $path = (string) parse_url($r->url(), PHP_URL_PATH);
+        $row = fn (int $id) => ['attributes' => ['id' => $id, 'name' => "schedule {$id}", 'cron' => ['minute' => '0', 'hour' => '4', 'day_of_month' => '*', 'month' => '*', 'day_of_week' => '*'], 'is_active' => $panel[$id], 'only_when_online' => false]];
+        if (preg_match('~/schedules/(\d+)$~', $path, $m) === 1) {
+            if ($r->method() === 'POST') {
+                $panel[(int) $m[1]] = (bool) $r->data()['is_active'];
+
+                return Http::response($row((int) $m[1]));
+            }
+
+            return Http::response($row((int) $m[1]));
+        }
+        if (str_ends_with($path, '/schedules')) {
+            return Http::response(['data' => array_map($row, array_keys($panel))]);
+        }
+
+        return Http::response(['attributes' => ['name' => 'srv', 'identifier' => 'e4c1abcd', 'egg' => 5, 'node' => 1, 'suspended' => false, 'limits' => ['memory' => 4096, 'disk' => 20480, 'cpu' => 200], 'feature_limits' => ['backups' => 2, 'allocations' => 1, 'databases' => 1], 'container' => ['installed' => 1]]]);
+    });
+    $services = app(ServiceService::class);
+    $system = CommandContext::system('dunning')->withScope($org->id);
+
+    $suspend = driveOperation($services->requestAction($game, 'suspend', $system, 'game-depth-suspend', ['reason' => 'dunning']));
+    expect($suspend->state)->toBe(Operation::SUCCEEDED, json_encode($suspend->error));
+    // the panel stops the server and leaves the schedules armed: every slot then fires at a server that may not run
+    expect($panel)->toBe([7 => false, 8 => false])
+        ->and(data_get($game->refresh()->tags, SuspensionDepth::TAG))->toBe(['schedule' => ['7']]);
+
+    expect(driveOperation($services->requestAction($game, 'resume', $system, 'game-depth-resume', ['reason' => 'paid', 'lift' => 'payment']))->state)->toBe(Operation::SUCCEEDED);
+    expect($panel)->toBe([7 => true, 8 => false]) // what the customer had turned off themselves stays off
+        ->and(data_get($game->refresh()->tags, SuspensionDepth::TAG))->toBeNull();
+});
+
 it('does not start a machine its owner had switched off when a suspension is lifted', function () {
     [, $org] = $this->customerWithOrganization();
     $instance = pveLab();

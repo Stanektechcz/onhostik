@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A suspended game server's schedules are disarmed too:** `SuspensionDepth` is driven by a table of kinds
+  (`cron`, `ftp`, `schedule`) and switches back on exactly what it switched off.
+
 - **A scheduled command runs as the site's own user, and ends with the service:** aaPanel's scheduler is the node's
   root crontab, so a cron body is now a quoted here-document handed to the site's user, judged statement by statement
   (`CronCommand`), and removed from the node when the service is terminated.

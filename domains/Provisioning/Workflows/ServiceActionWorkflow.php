@@ -597,15 +597,15 @@ final class ServiceActionWorkflow implements Workflow
             public function run(StepContext $context): StepResult
             {
                 $service = $this->service($context);
-                if (! in_array($service->family, ['web', 'managed'], true) || $context->get('identity_missing') === true) {
+                if (! in_array($service->family, ['web', 'managed', 'game'], true) || $context->get('identity_missing') === true) {
                     return StepResult::skip(); // nothing besides the service itself to pause
                 }
                 $paused = $context->container->make(SuspensionDepth::class)->pause($service, $context->adapter(), $this->ref($context));
                 if ($paused['transient'] && (int) $context->operation->attempts < 4) { // a few tries; then the suspension stands and the errors are on record
-                    return StepResult::fail('the panel did not answer while cron jobs and FTP accounts were being paused: '.implode('; ', $paused['errors']), true, [], 60);
+                    return StepResult::fail('the panel did not answer while scheduled jobs and accesses were being paused: '.implode('; ', $paused['errors']), true, [], 60);
                 }
 
-                return StepResult::done(['paused' => ['cron' => count($paused['cron']), 'ftp' => count($paused['ftp'])], 'pause_errors' => $paused['errors']]);
+                return StepResult::done(['paused' => array_map('count', array_intersect_key($paused, array_flip(SuspensionDepth::KINDS))), 'pause_errors' => $paused['errors']]);
             }
         };
     }
@@ -622,15 +622,15 @@ final class ServiceActionWorkflow implements Workflow
             public function run(StepContext $context): StepResult
             {
                 $service = $this->service($context);
-                if (! in_array($service->family, ['web', 'managed'], true) || data_get($service->tags, SuspensionDepth::TAG) === null) {
+                if (! in_array($service->family, ['web', 'managed', 'game'], true) || data_get($service->tags, SuspensionDepth::TAG) === null) {
                     return StepResult::skip(); // nothing was paused besides the service itself
                 }
                 $resumed = $context->container->make(SuspensionDepth::class)->resume($service, $context->adapter(), $this->ref($context));
                 if ($resumed['transient'] && (int) $context->operation->attempts < 4) {
-                    return StepResult::fail('the panel did not answer while cron jobs and FTP accounts were being switched on again: '.implode('; ', $resumed['errors']), true, [], 60);
+                    return StepResult::fail('the panel did not answer while scheduled jobs and accesses were being switched on again: '.implode('; ', $resumed['errors']), true, [], 60);
                 }
 
-                return StepResult::done(['resumed' => ['cron' => count($resumed['cron']), 'ftp' => count($resumed['ftp'])], 'resume_errors' => $resumed['errors']]);
+                return StepResult::done(['resumed' => array_map('count', array_intersect_key($resumed, array_flip(SuspensionDepth::KINDS))), 'resume_errors' => $resumed['errors']]);
             }
         };
     }

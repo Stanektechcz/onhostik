@@ -7,91 +7,123 @@ namespace Onhost\Domain\Services;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
+use Onhost\Providers\Contracts\GameToolsProvider;
 use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\WebHostingProvider;
 use Onhost\Providers\Contracts\WebToolsProvider;
 
 /**
- * A suspended site is more than a stopped vhost. The panels switch the web server's answer off and nothing else: the
+ * A suspended service is more than a stopped vhost. The panels switch the web server's answer off and nothing else: the
  * site's cron jobs kept running (a quarantined site went on sending mail from its cron), and its files stayed reachable —
- * and writable — by FTP. Pausing switches those off as well and REMEMBERS which ones it switched off; resuming switches
- * exactly those on again, so a job the customer had turned off themselves stays off.
+ * and writable — by FTP. A game server's schedules are the same story: the panel stops the server, the schedule rows stay
+ * armed, and every slot fires against a server that may not run. Pausing switches all of those off and REMEMBERS which
+ * ones it switched off; resuming switches exactly those on again, so a job the customer had turned off themselves stays
+ * off (H440: suspension decides what stops, and everything it stopped comes back).
  *
  * The memory lives in `services.tags.suspension_paused` and is a union: a quarantine on top of an unpaid suspension does
  * not forget what the first one paused. Databases have no switch in either panel; with the site stopped nothing of the
- * site reaches them, and remote access is a permission of its own.
+ * site reaches them, and remote access is a permission of its own. Scheduled backups need no switch either — the
+ * scheduler only looks at services that are ACTIVE or DEGRADED, so a suspended service makes none and keeps the ones
+ * it has.
  */
 final class SuspensionDepth
 {
     /** A tag of its own: `tags.suspension` belongs to the holds (`SuspensionHold` reads its mere presence). */
     public const TAG = 'suspension_paused';
 
+    /** Everything a suspension switches off, in the order it is switched off. */
+    public const KINDS = ['cron', 'ftp', 'schedule'];
+
     /**
-     * @return array{cron:list<string>, ftp:list<string>, errors:list<string>, transient:bool}
+     * @return array{cron:list<string>, ftp:list<string>, schedule:list<string>, errors:list<string>, transient:bool}
      */
-    public function pause(Service $service, object $adapter, ResourceRef $site): array
+    public function pause(Service $service, object $adapter, ResourceRef $ref): array
     {
-        $remembered = (array) data_get($service->tags, self::TAG, []);
-        $paused = ['cron' => array_values(array_map('strval', (array) ($remembered['cron'] ?? []))), 'ftp' => array_values(array_map('strval', (array) ($remembered['ftp'] ?? [])))];
+        $paused = $this->remembered($service);
         $errors = [];
         $transient = false;
-        if ($adapter instanceof WebHostingProvider && $adapter instanceof WebToolsProvider) {
-            foreach ($this->listing(fn () => $adapter->listCron($site), $errors, $transient) as $job) {
-                if (! ($job['active'] ?? true)) {
+        foreach ($this->switches($adapter, $ref) as $kind => $switch) {
+            foreach ($this->listing($switch['list'], $errors, $transient) as $row) {
+                if (! ($row['active'] ?? true)) {
                     continue;
                 }
-                if ($this->attempt(fn () => $adapter->setCronActive($site, (string) $job['remote_id'], false), "cron {$job['remote_id']}", $errors, $transient)) {
-                    $paused['cron'][] = (string) $job['remote_id'];
+                $id = (string) $row['remote_id'];
+                if ($this->attempt(fn () => ($switch['set'])($id, false), "{$kind} {$id}", $errors, $transient)) {
+                    $paused[$kind][] = $id;
                 }
             }
         }
-        if ($adapter instanceof WebHostingProvider) {
-            foreach ($this->listing(fn () => $adapter->listFtpAccounts($site), $errors, $transient) as $account) {
-                if (! ($account['active'] ?? true)) {
-                    continue;
-                }
-                if ($this->attempt(fn () => $adapter->setFtpAccountActive($site, (string) $account['remote_id'], false), "ftp {$account['remote_id']}", $errors, $transient)) {
-                    $paused['ftp'][] = (string) $account['remote_id'];
-                }
-            }
-        }
-        $paused = ['cron' => array_values(array_unique($paused['cron'])), 'ftp' => array_values(array_unique($paused['ftp']))];
+        $paused = array_map(fn (array $ids) => array_values(array_unique($ids)), $paused);
         $this->remember($service, $paused);
 
         return $paused + ['errors' => $errors, 'transient' => $transient];
     }
 
     /**
-     * @return array{cron:list<string>, ftp:list<string>, errors:list<string>, transient:bool}
+     * @return array{cron:list<string>, ftp:list<string>, schedule:list<string>, errors:list<string>, transient:bool}
      */
-    public function resume(Service $service, object $adapter, ResourceRef $site): array
+    public function resume(Service $service, object $adapter, ResourceRef $ref): array
     {
-        $remembered = (array) data_get($service->tags, self::TAG, []);
-        $left = ['cron' => [], 'ftp' => []];
-        $done = ['cron' => [], 'ftp' => []];
+        $remembered = $this->remembered($service);
+        $switches = $this->switches($adapter, $ref);
+        $left = $done = array_fill_keys(self::KINDS, []);
         $errors = [];
         $transient = false;
-        foreach (array_map('strval', (array) ($remembered['cron'] ?? [])) as $id) {
-            $ok = $adapter instanceof WebToolsProvider && $this->attempt(fn () => $adapter->setCronActive($site, $id, true), "cron {$id}", $errors, $transient, gone: true);
-            $ok ? $done['cron'][] = $id : $left['cron'][] = $id;
+        foreach (self::KINDS as $kind) {
+            $switch = $switches[$kind] ?? null;
+            foreach ($remembered[$kind] as $id) {
+                $ok = $switch !== null && $this->attempt(fn () => ($switch['set'])($id, true), "{$kind} {$id}", $errors, $transient, gone: true);
+                $ok ? $done[$kind][] = $id : $left[$kind][] = $id;
+            }
         }
-        foreach (array_map('strval', (array) ($remembered['ftp'] ?? [])) as $id) {
-            $ok = $adapter instanceof WebHostingProvider && $this->attempt(fn () => $adapter->setFtpAccountActive($site, $id, true), "ftp {$id}", $errors, $transient, gone: true);
-            $ok ? $done['ftp'][] = $id : $left['ftp'][] = $id;
-        }
-        $this->remember($service, $transient ? $left : ['cron' => [], 'ftp' => []]); // what could not be switched on because the panel did not answer is tried again; what is gone is forgotten
+        $this->remember($service, $transient ? $left : array_fill_keys(self::KINDS, [])); // what could not be switched on because the panel did not answer is tried again; what is gone is forgotten
 
         return $done + ['errors' => $errors, 'transient' => $transient];
     }
 
-    /** @param array{cron:list<string>, ftp:list<string>} $paused */
+    /**
+     * What this adapter can switch off, by kind. A capability the adapter does not have is simply not in the list —
+     * the same service seen through a panel that cannot do it pauses what it can and says so in the errors.
+     *
+     * @return array<string, array{list:callable():array<int,array<string,mixed>>, set:callable(string,bool):mixed}>
+     */
+    private function switches(object $adapter, ResourceRef $ref): array
+    {
+        $out = [];
+        if ($adapter instanceof WebHostingProvider && $adapter instanceof WebToolsProvider) {
+            $out['cron'] = ['list' => fn () => $adapter->listCron($ref), 'set' => fn (string $id, bool $on) => $adapter->setCronActive($ref, $id, $on)];
+        }
+        if ($adapter instanceof WebHostingProvider) {
+            $out['ftp'] = ['list' => fn () => $adapter->listFtpAccounts($ref), 'set' => fn (string $id, bool $on) => $adapter->setFtpAccountActive($ref, $id, $on)];
+        }
+        if ($adapter instanceof GameToolsProvider) {
+            $out['schedule'] = ['list' => fn () => $adapter->listSchedules($ref), 'set' => fn (string $id, bool $on) => $adapter->setScheduleActive($ref, $id, $on)];
+        }
+
+        return $out;
+    }
+
+    /** @return array{cron:list<string>, ftp:list<string>, schedule:list<string>} */
+    private function remembered(Service $service): array
+    {
+        $tags = (array) data_get($service->tags, self::TAG, []);
+        $out = [];
+        foreach (self::KINDS as $kind) {
+            $out[$kind] = array_values(array_map('strval', (array) ($tags[$kind] ?? [])));
+        }
+
+        return $out;
+    }
+
+    /** @param array{cron:list<string>, ftp:list<string>, schedule:list<string>} $paused */
     private function remember(Service $service, array $paused): void
     {
         $tags = (array) $service->tags;
-        if ($paused['cron'] === [] && $paused['ftp'] === []) {
+        $kept = array_filter($paused, fn (array $ids) => $ids !== []); // an empty kind is not written: a web service's tag keeps the shape it always had
+        if ($kept === []) {
             unset($tags[self::TAG]);
         } else {
-            $tags[self::TAG] = $paused;
+            $tags[self::TAG] = $kept;
         }
         $service->forceFill(['tags' => $tags])->save();
     }
