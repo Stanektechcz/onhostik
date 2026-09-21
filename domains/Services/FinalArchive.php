@@ -118,7 +118,7 @@ final class FinalArchive
                 $gaps[] = 'the resource no longer exists at the provider; only the service metadata is archived';
             } else {
                 match ($service->family) {
-                    'web', 'managed' => $this->web($adapter, $ref, $work, $gaps, $attempts, $freshOnly),
+                    'web', 'managed' => $this->web($adapter, $ref, $work, $gaps, $attempts, $freshOnly, isset($options['only_database']) ? (string) $options['only_database'] : null),
                     'game' => $this->game($adapter, $ref, $work, $gaps),
                     'mail' => $this->mail($adapter, $ref, $work, $gaps),
                     'cloud', 'data' => $snapshot = $this->snapshot($adapter, $ref, $gaps),
@@ -434,13 +434,25 @@ final class FinalArchive
      * shared node does not always offer both: the file transport (SFTP or the panel's file API) and the panel's own
      * site backup. Each attempt is recorded; only when both fail does the archive — and with it the deletion — stop.
      */
-    private function web(?object $adapter, ?ResourceRef $ref, string $work, array &$gaps, array &$attempts, bool $freshOnly = false): void
+    private function web(?object $adapter, ?ResourceRef $ref, string $work, array &$gaps, array &$attempts, bool $freshOnly = false, ?string $onlyDatabase = null): void
     {
         if (! $adapter instanceof WebToolsProvider || $ref === null) {
             if ($freshOnly) { // a backup with nothing of the site in it is not a backup; the final archive still keeps the metadata
                 throw new DomainError('backup_not_possible', 'Tento panel nenabízí export souborů ani databází; zálohu nelze vytvořit.', 503);
             }
             $gaps[] = 'web: the panel offers no file or database export';
+
+            return;
+        }
+        // the copy taken before a dump is written over a live database: that one database and nothing else. The files
+        // are not being touched, so packing the whole site would only make the copy slow enough to be skipped one day.
+        if ($onlyDatabase !== null) {
+            $database = $adapter instanceof WebHostingProvider ? collect($adapter->listDatabases($ref))->firstWhere('remote_id', $onlyDatabase) : null;
+            if ($database === null) {
+                throw new DomainError('backup_not_possible', 'Databázi, která se má přepsat, panel nezná; nic nebylo změněno.', 409);
+            }
+            $adapter->exportDatabase($ref, $onlyDatabase, $work.'/database-'.self::databaseSlug((string) ($database['name'] ?? $onlyDatabase)).'.sql');
+            $gaps[] = 'only the database being overwritten is in this copy';
 
             return;
         }

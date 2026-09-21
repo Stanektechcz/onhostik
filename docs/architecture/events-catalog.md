@@ -130,6 +130,7 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 | `service.rescue.started` | service | the server boots a rescue image until the stated time | customer + operator |
 | `service.backup.schedule.stalled` | service | a scheduled backup could not start for three slots in a row (and rarely after that) | customer + operator |
 | `service.backup.schedule.paused` | service | five scheduled backups failed in a row, so the schedule stopped itself and waits for a person | customer + operator |
+| `service.database.import.failed` | service | a SQL import did not finish; says whether the copy taken before it was put back | customer + operator |
 | `service.rescue.ended` | service | the server is back on its own system | customer + operator |
 | `ipam.rdns.failed` | ip_address | the reverse zone refused the change; the record stays written down and the nightly drift check reports it | operator |
 | `service.migration.scheduled` / `service.migration.rescheduled` | a migration with a customer window (audit §5h-3): the customer gets the window and the default start (mail `service-migration-scheduled`) and may move the start from the panel (`PUT /v1/services/{id}/migration`); the move is an internal notice | customer `/panel/sluzby`; admin `#/gprov` |

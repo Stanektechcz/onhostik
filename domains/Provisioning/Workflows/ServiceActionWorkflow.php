@@ -10,6 +10,7 @@ use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Models\IpAddress;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Workflow\StepContext;
 use Onhost\Domain\Provisioning\Workflow\StepResult;
@@ -32,6 +33,7 @@ use Onhost\Domain\Services\SshKeyLedger;
 use Onhost\Domain\Services\SuspensionDepth;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\DatabaseCredentials;
+use Onhost\Domain\Services\Web\DatabaseImport;
 use Onhost\Domain\Services\Web\WebFileStore;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Errors\ProviderErrorCode;
@@ -122,6 +124,8 @@ final class ServiceActionWorkflow implements Workflow
             'snapshot' => [$this->snapshotStep()],
             'rollback_snapshot' => [$this->safetyCopyStep('pre_rollback'), $this->rollbackSnapshotStep()],
             'reinstall' => [$this->safetyCopyStep('pre_reinstall'), $this->featureStep('reinstall')], // rewrites the server files
+            // a dump is written OVER a live database: room first, then a copy of exactly that database, then the import
+            'database.import' => [$this->importRoomStep(), $this->safetyCopyStep('pre_import', onlyTargetDatabase: true), $this->featureStep('database.import')],
             default => in_array($action, self::FEATURE_ACTIONS, true) ? [$this->featureStep($action)] : throw new \InvalidArgumentException("Unknown service action {$action}"),
         };
     }
@@ -143,8 +147,50 @@ final class ServiceActionWorkflow implements Workflow
             'purge' => $services->settleTransient($service, ServiceStateMachine::FAILED, $context->actor, "purge failed: {$reason}", $context->operation),
             'restore' => RestoreJob::query()->where('operation_id', $context->operation->id)->update(['state' => 'failed', 'finished_at' => now(), 'result' => ['error' => $reason]]),
             'backup' => Backup::query()->where('operation_id', $context->operation->id)->update(['state' => 'failed', 'finished_at' => now()]),
+            'database.import' => $this->afterFailedImport($context, $service, $reason),
             default => null,
         };
+    }
+
+    /**
+     * An import that did not finish must not leave half a database behind (H467).
+     *
+     * MySQL applies a dump statement by statement: a file that breaks half way leaves the database half old and half
+     * new, and the site goes on serving from it. The copy taken before the import is the way back — but only when we
+     * know the import is really over. A failure the platform may retry (a timeout, a panel that stopped answering)
+     * may still be running on the node, and a restore would race it; those are left exactly as they are and named.
+     *
+     * When the panel refused for good, putting the copy back is right either way: if nothing was applied it writes
+     * the same rows again, and if part of it was, this is the only way back.
+     */
+    private function afterFailedImport(StepContext $context, Service $service, string $reason): void
+    {
+        $copy = Backup::query()->where('operation_id', $context->operation->id)->where('kind', 'pre_import')->where('state', 'completed')->first();
+        // the PANEL's own code, not the operation's `retryable`: once the retries are spent the operation says it will not
+        // try again, which is true of a timeout as well — and a timeout is exactly the case that may still be running
+        $code = ProviderErrorCode::tryFrom((string) data_get($context->operation->error, 'detail.code', ''));
+        $refused = $code !== null && ! $code->isRetryable();
+        $restored = false;
+        try {
+            $adapter = $context->adapter();
+            if ($copy !== null && $refused && $adapter instanceof WebToolsProvider) {
+                $binding = $context->binding() ?? ProviderBinding::query()->where('service_id', $service->id)->orderBy('created_at')->orderBy('id')->first();
+                if ($binding !== null) {
+                    $context->container->make(ServiceBackups::class)->restoreInPlace($service, $adapter, $binding->ref(), $copy);
+                    $restored = true;
+                }
+            }
+        } catch (Throwable $e) {
+            $reason .= ' · kopii se nepodařilo nahrát zpět: '.mb_substr($e->getMessage(), 0, 120);
+        }
+        $tags = (array) $service->tags;
+        $tags['db_import'] = ['database' => (string) $context->desired('remote_id'), 'phase' => $restored ? 'rolled_back' : ($copy === null ? 'no_copy' : 'left_as_is'),
+            'copy_id' => $copy?->id, 'at' => now()->toIso8601String(), 'reason' => mb_substr($reason, 0, 160)];
+        $service->forceFill(['tags' => $tags])->save();
+        $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.database.import.failed', 'service', $service->id, [
+            'database' => (string) $context->desired('remote_id'), 'restored' => $restored, 'copy_id' => $copy?->id,
+            'reason' => mb_substr($reason, 0, 160), 'label' => $service->label ?: ($service->hostname ?: $service->name),
+        ], $service->organization_id));
     }
 
     private function powerStep(): ServiceStep
@@ -1290,11 +1336,51 @@ final class ServiceActionWorkflow implements Workflow
      * the same archive a cancellation takes — files and every database, fresh or the step fails. The copy is
      * protected and kept for the retention the deletion policy sets, so nothing prunes it while it still matters.
      */
-    private function safetyCopyStep(string $kind): ServiceStep
+    /**
+     * Whether what this dump becomes still fits in what the plan sells (H456).
+     *
+     * An import that runs out of disk half way takes the database with it, and the dump is not the size of what it
+     * becomes — the rows are written again, the indexes are built beside them and the engine needs room while it
+     * loads. Refused here, before the file is carried to the node and before a copy is made, so nothing has changed.
+     */
+    private function importRoomStep(): ServiceStep
     {
-        return new class($kind) extends ServiceStep
+        return new class extends ServiceStep
         {
-            public function __construct(private readonly string $kind) {}
+            public function label(): string
+            {
+                return 'Kontrola místa pro import';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                $file = $context->container->make(WebFileStore::class)->uploadPath($service, (string) $context->desired('upload_id'));
+                $dump = DatabaseImport::dumpBytes($file);
+                if ($dump <= 0) {
+                    return StepResult::fail('nahraný soubor už na disku není; nahrajte ho prosím znovu', false, ['error' => 'upload_missing']);
+                }
+                try {
+                    $quotas = $context->container->make(ServiceFeatures::class)->resources($service, 'quotas', true, []);
+                } catch (Throwable) {
+                    $quotas = []; // the panel does not measure disk, or is not answering: the node's own guard is still behind this
+                }
+                try {
+                    $room = DatabaseImport::assertRoom($dump, (array) $quotas);
+                } catch (DomainError $e) {
+                    return StepResult::fail($e->getMessage(), false, ['error' => $e->error] + $e->extra);
+                }
+
+                return StepResult::done(['dump_bytes' => $dump, 'needs_bytes' => $room['needed'], 'free_bytes' => $room['free'], 'room_checked' => $room['checked']]);
+            }
+        };
+    }
+
+    private function safetyCopyStep(string $kind, bool $onlyTargetDatabase = false): ServiceStep
+    {
+        return new class($kind, $onlyTargetDatabase) extends ServiceStep
+        {
+            public function __construct(private readonly string $kind, private readonly bool $onlyTargetDatabase = false) {}
 
             public function label(): string
             {
@@ -1339,7 +1425,8 @@ final class ServiceActionWorkflow implements Workflow
                             : StepResult::done(['safety_copy_id' => $backup->id, 'safety_copy' => $name]);
                     }
                     $backup = $context->container->make(ServiceBackups::class)
-                        ->take($service, $context->adapter(), $this->ref($context), $context->actor, $context->operation->id, $this->kind, $days, protected: true);
+                        ->take($service, $context->adapter(), $this->ref($context), $context->actor, $context->operation->id, $this->kind, $days, protected: true,
+                            onlyDatabase: $this->onlyTargetDatabase ? (string) $context->desired('remote_id') : null);
                 } catch (DomainError $e) {
                     return StepResult::fail('zálohu před přepsáním se nepodařilo vytvořit: '.$e->getMessage().'; nic nebylo přepsáno', $e->status >= 500, ['error' => $e->error], 120);
                 } catch (ProviderException $e) {

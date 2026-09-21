@@ -58,16 +58,16 @@ final class ServiceBackups
      * Takes the backup now. Throws when any part the panel offers cannot be stored — the caller fails its step, the
      * row stays `failed` with the reason and what was tried.
      */
-    public function take(Service $service, object $adapter, ResourceRef $ref, CommandContext $context, string $operationId, string $kind, int $retentionDays, bool $protected = false): Backup
+    public function take(Service $service, object $adapter, ResourceRef $ref, CommandContext $context, string $operationId, string $kind, int $retentionDays, bool $protected = false, ?string $onlyDatabase = null): Backup
     {
         $done = Backup::query()->where('operation_id', $operationId)->where('kind', $kind)->where('state', 'completed')->first();
         if ($done !== null) {
             return $done; // the step ran again after the archive was written (a worker died between the two writes)
         }
 
-        return $this->archives->create($service, $adapter, $ref, $context, $operationId, null, [
-            'kind' => $kind, 'retention_days' => $retentionDays, 'protected' => $protected, 'reason' => $kind, 'fresh_only' => true,
-        ])['backup'];
+        return $this->archives->create($service, $adapter, $ref, $context, $operationId, null, array_filter([
+            'kind' => $kind, 'retention_days' => $retentionDays, 'protected' => $protected, 'reason' => $kind, 'fresh_only' => true, 'only_database' => $onlyDatabase,
+        ], fn ($v) => $v !== null))['backup'];
     }
 
     /**

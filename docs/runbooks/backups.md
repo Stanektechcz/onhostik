@@ -219,3 +219,35 @@ where it is — pruning and off-site copying are skipped along with it, which ke
 never less. `onhost:doctor` lists them under "no backup schedule is waiting for a person".
 
 Tests: `tests/Feature/Services/BackupScheduleMissesTest.php`.
+
+## An import keeps a copy of what it overwrites (2026-09-22)
+
+`database.import` writes a SQL dump **over a live database**. It was the one destructive action still without a copy
+of what it replaces: the safety copies added earlier cover `restore`, `rollback_snapshot` and the game `reinstall`,
+and the import was missed. MySQL applies a dump statement by statement, so a file that breaks half way leaves the
+database half old and half new while the site goes on serving from it (H467).
+
+The chain is now **room → copy → import**:
+
+* **Room** (`DatabaseImport`, H456). The size of a gzipped dump is read from the four bytes gzip writes at the end of
+  the file, not from the compressed size — a 90 kB file can be 1.2 MB of SQL. What it needs is twice that (the rows
+  written again, the indexes built beside them, and what the engine needs while it loads) and it is compared with
+  what is left of the plan's disk. A panel that does not measure disk is not guessed about: the check says so and
+  lets the import through, with the node's own guard behind it.
+* **Copy.** `safetyCopyStep('pre_import', onlyTargetDatabase: true)` exports **that one database** — not the files,
+  which nothing is touching — as a protected set kept for the deletion-policy retention. If the copy fails, nothing
+  is imported.
+* **Import**, then the record: `tags.db_import` carries the target database, the phase reached and the copy's id.
+
+When the import does not finish, what happens next depends on **the panel's own error code**, not on the operation's
+`retryable` flag — once the retries are spent the operation says it will not try again, which is true of a timeout as
+well, and a timeout is exactly the case that may still be running on the node:
+
+* a code that is **not** retryable (the panel read the file and refused it) → the copy goes back in. If nothing had
+  been applied this writes the same rows again and is harmless; if part of it had, this is the only way back.
+* a retryable code (timeout, the panel stopped answering) → nothing is touched, and the notification says the copy
+  is there to be restored by hand once somebody has looked at the node.
+
+Either way `service.database.import.failed` reaches the customer and the operator, and says which of the two it was.
+
+Tests: `tests/Feature/Services/DatabaseImportSafetyTest.php`.

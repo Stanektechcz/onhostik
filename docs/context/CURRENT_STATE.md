@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A SQL import keeps a copy of the database it overwrites:** room is checked, that one database is exported and
+  kept protected, and a dump the panel refuses is rolled back (`service.database.import.failed`).
+
 - **A schedule that keeps failing stops itself:** five failed scheduled backups in a row pause the schedule
   (`service.backup.schedule.paused`); only a person setting the schedule again starts it.
 
