@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A plan promises only what the platform holds:** `PlanPromises` — every number in `entitlements`/`limits` is read by code or
+  declared fair use; the transfer and the file count are measured against what the panel reports; a key can leave a plan.
+
 - **A paid add-on changes the service it was bought for:** `Addons` applies it, writes down what it replaced and gives that
   back on cancellation; an add-on the platform cannot deliver is not on sale, and an add-on can now be cancelled at all.
 

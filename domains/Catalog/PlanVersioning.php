@@ -53,8 +53,8 @@ final class PlanVersioning
             $prices = $this->prices($currentPrices->all(), (array) ($in['prices'] ?? []), (bool) ($in['confirm_large_change'] ?? false));
 
             $changed = [
-                'entitlements' => array_keys(array_filter($entitlements, fn ($v, $k) => ($current->entitlements[$k] ?? null) !== $v, ARRAY_FILTER_USE_BOTH)),
-                'limits' => array_keys(array_filter($limits, fn ($v, $k) => (($current->limits ?? [])[$k] ?? null) !== $v, ARRAY_FILTER_USE_BOTH)),
+                'entitlements' => self::diff((array) $current->entitlements, $entitlements),
+                'limits' => self::diff((array) ($current->limits ?? []), $limits),
                 'features' => $features !== $current->features,
                 'prices' => array_values(array_map(fn (array $p) => $p['currency'].'/'.$p['period'], array_filter($prices, fn (array $p) => $p['changed']))),
             ];
@@ -128,6 +128,20 @@ final class PlanVersioning
         return Plan::query()->where('product_id', $product->id)->where('key', $planKey)->first() ?? throw DomainError::notFound("Plan {$productKey}/{$planKey}");
     }
 
+    /**
+     * Keys whose value changed, plus the ones the new version no longer carries — a removal is a change too.
+     *
+     * @param  array<string,mixed>  $was
+     * @param  array<string,mixed>  $now
+     * @return list<string>
+     */
+    private static function diff(array $was, array $now): array
+    {
+        $changed = array_keys(array_filter($now, fn ($v, $k) => ($was[$k] ?? null) !== $v, ARRAY_FILTER_USE_BOTH));
+
+        return array_values(array_unique(array_merge($changed, array_keys(array_diff_key($was, $now)))));
+    }
+
     /** @param array<string,mixed> $in */
     private function reason(array $in): string
     {
@@ -151,6 +165,11 @@ final class PlanVersioning
         foreach ($changes as $key => $value) {
             if (! array_key_exists($key, $current)) {
                 throw new DomainError('plan_key_unknown', "{$field}.{$key} is not part of this plan; new keys come with the code that reads them.", 422, ['field' => "{$field}.{$key}"]);
+            }
+            if ($value === null) { // the schema could only grow: a number nothing applies any more had no way off the plan (audit §5ad)
+                unset($current[$key]);
+
+                continue;
             }
             $was = $current[$key];
             $sameKind = match (true) {

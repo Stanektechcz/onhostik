@@ -107,6 +107,9 @@ final class UsageWatch
             self::metric($out, 'disk', (int) ($quotas['disk_used_bytes'] ?? 0), $diskLimit);
             $trafficLimit = (int) ($quotas['traffic_limit_bytes'] ?? 0) ?: (int) (($entitlements['traffic_gb'] ?? 0) * 1024 ** 3);
             self::metric($out, 'traffic', (int) ($quotas['traffic_used_bytes'] ?? 0), $trafficLimit);
+            // both panels count the files of a site (`inodes_used`); the plan sold a number and nothing ever compared the two,
+            // so a site that had eaten its whole file allowance heard about it from the node, not from us (audit §5ad)
+            self::metric($out, 'inodes', (int) ($quotas['inodes_used'] ?? 0), (int) ($entitlements['inodes'] ?? 0));
         } elseif ($service->family === 'cloud' || $service->family === 'game') {
             // VPS and game servers report live usage; game servers count against the plan's disk and memory the same way (audit §5f-3)
             $metrics = $this->services->usage($service)->metrics;
@@ -192,7 +195,8 @@ final class UsageWatch
     public static function metricLabel(string $key, string $locale = 'cs'): string
     {
         return match ($key) {
-            'disk' => $locale === 'cs' ? 'prostor' : 'disk space', 'traffic' => $locale === 'cs' ? 'přenos dat' : 'traffic', 'memory' => $locale === 'cs' ? 'paměť' : 'memory', 'mail' => $locale === 'cs' ? 'poštovní schránky' : 'mailboxes', default => $key,
+            'disk' => $locale === 'cs' ? 'prostor' : 'disk space', 'traffic' => $locale === 'cs' ? 'přenos dat' : 'traffic', 'memory' => $locale === 'cs' ? 'paměť' : 'memory', 'mail' => $locale === 'cs' ? 'poštovní schránky' : 'mailboxes',
+            'inodes' => $locale === 'cs' ? 'počet souborů' : 'file count', default => $key,
         };
     }
 

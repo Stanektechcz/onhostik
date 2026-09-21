@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\TldPolicy;
+use Onhost\Domain\Catalog\PlanPromises;
 use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Domain\Domains\Models\Domain;
@@ -165,6 +166,10 @@ final class Doctor extends Command
         $undelivered = Addons::unsellable();
         $this->add('catalog', 'every add-on on sale is one the platform delivers', $undelivered === [],
             $undelivered === [] ? implode(', ', Addons::handled()) : 'sold and never applied: '.implode(', ', $undelivered).' — Onhost\Domain\Services\Addons::handled()');
+        // a version published in the administration can put a number back long after the guard test was written (audit §5ad)
+        $promises = PlanPromises::onSaleProblems(PlanPromises::readInSource());
+        $this->add('catalog', 'no plan on sale promises a number nothing applies', $promises === [],
+            $promises === [] ? 'every number is enforced, applied, measured, or declared fair use' : implode(' · ', array_map(fn (string $plan, array $keys) => $plan.': '.implode(', ', $keys), array_keys($promises), $promises)), false);
         $addonsWithoutParent = Service::query()->where('family', 'addon')->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])
             ->whereNull('tags->parent_service_id')->count();
         $this->add('catalog', 'every add-on knows the service it belongs to', $addonsWithoutParent === 0,

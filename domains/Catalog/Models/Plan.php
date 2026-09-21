@@ -19,11 +19,13 @@ final class Plan extends Model
         return ['name' => 'array', 'description' => 'array', 'highlighted' => 'boolean', 'sort' => 'integer', 'current_version' => 'integer'];
     }
 
+    /** @return BelongsTo<Product, $this> */
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id');
     }
 
+    /** @return HasMany<PlanVersion, $this> */
     public function versions(): HasMany
     {
         return $this->hasMany(PlanVersion::class, 'plan_id');

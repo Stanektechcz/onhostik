@@ -116,3 +116,31 @@ a retried request with the same `Idempotency-Key` returns the same order without
   sets it); the introductory price of a plan (`promo_amount_minor`) covers the first billed period.
 
 Tests: `tests/Feature/Orders/PromoCodeRulesTest.php`.
+
+## What a plan may promise (2026-09-21)
+
+**The hole.** A plan version carries two machine-read bags, `entitlements` and `limits`, and the platform is supposed to
+enforce, apply or measure every number in them. Five numbers on plans that were on sale were read by **no code at all**:
+`cpu_seconds_per_day` (web hosting, Managed WordPress, e-shop, custom), `db_connections` and `outbound_mail_per_hour`
+(web hosting), `pps_limit` (VPS). The customer never saw them either — `CatalogPresentation` has no wording for them, so
+they only looked like limits in the plan editor. `inodes` was sold, both panels count the files of a site
+(`inodes_used` in the quotas of `AaPanelTools` and `IspConfigTools`), and nothing ever compared the two. The transfer was
+sold as a sentence (`traffic: 'fair-use 500 GB/měs'`) while `UsageWatch` reads the number `traffic_gb` — so the transfer
+limit of a hosting plan never applied to anything.
+
+**The rule** (`Domain\Catalog\PlanPromises`):
+
+* a number in `entitlements` or `limits` is **read by code outside the catalogue**, or it is a declared **fair-use**
+  promise (`PlanPromises::FAIR_USE`) kept by how the platform is operated rather than by a setting — and then the price
+  list says "fair use" where the customer reads it (`relay_per_hour`, `capacity_gbps`, `pops`, `io_class`, `slots`, …);
+* the guard test scans the source (`tests/Feature/Catalog/PlanPromisesTest.php`) and `onhost:doctor` reports plans on
+  sale that break it, because a version published in the administration can put a number back at any time;
+* `traffic_gb` and `inodes` are now measured against what the panel reports, so the customer hears about the transfer and
+  the file count on the same path as the disk (85 % warn, 95 % critical, one message per level and day);
+* **a number can leave a plan**: `plan.publish` with a `null` value removes the key. The schema could only grow before —
+  a key nothing applied had no way off the price list. A key the plan never had is still refused.
+
+After a deploy the seeded plans are only the starting point: plan versions already published on the server keep whatever
+they carried, so publish a new version (reason: "nikdo to neuplatňuje") to drop the old numbers. The doctor lists them.
+
+Tests: `tests/Feature/Catalog/PlanPromisesTest.php`.

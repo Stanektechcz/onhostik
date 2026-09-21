@@ -137,7 +137,7 @@ final class Lexicon
         'Objednávku ' => 'Order ', 'Objednávka ' => 'Order ', ' ještě kontrolujeme' => ' is still being checked', ' byla schválena' => ' was approved', ' jsme nemohli přijmout' => ' could not be accepted',
         ' · zřizujeme služby' => ' · provisioning the services', ' · všechny služby jsou aktivní' => ' · all services are active',
         'CDN je aktivní' => 'CDN is active', 'CDN zapnuto' => 'CDN enabled', 'CDN vypnuto' => 'CDN disabled', ' · nastavte nameservery u registrátora' => ' · set the nameservers at your registrar', ' změněn na ' => ' changed to ',
-        'Služba ' => 'Service ', ' využívá ' => ' uses ', '(prostor)' => '(disk space)', '(přenos dat)' => '(traffic)', '(paměť)' => '(memory)', '(poštovní schránky)' => '(mailboxes)',
+        'Služba ' => 'Service ', ' využívá ' => ' uses ', '(prostor)' => '(disk space)', '(přenos dat)' => '(traffic)', '(paměť)' => '(memory)', '(poštovní schránky)' => '(mailboxes)', '(počet souborů)' => '(file count)',
         'Blížíte se limitu tarifu. ' => 'You are close to the plan limit. ', 'Kapacita je téměř vyčerpaná. ' => 'Capacity is almost used up. ', 'Vyšší tarif pro tuto službu nenabízíme; napište podpoře.' => 'We offer no higher plan for this service; contact support.',
         'Vyšší tarif ' => 'The higher plan ', ' stojí ' => ' costs ', ' a přepnete ho jedním klikem v panelu (doplatek jen za zbytek období).' => ' and you switch to it with one click in the panel (you only pay the difference for the rest of the period).', ' / rok' => ' / year', ' / měsíc' => ' / month',
         'Nový doklad ' => 'New document ', 'Doklad ' => 'Document ', ' byl stornován' => ' was cancelled', ' je po splatnosti' => ' is overdue',

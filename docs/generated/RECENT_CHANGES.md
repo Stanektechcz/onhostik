@@ -4,6 +4,9 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| a3316a0 | 2026-09-21 | A test that reads the clock twice is red whenever the second ticks over |
+| 1193da8 | 2026-09-21 | A paid add-on changes the service it was bought for, and can be cancelled |
+| b5a6bca | 2026-09-21 | Regenerate project state after the assistant-proposals and VPS-access block |
 | 0489f4b | 2026-09-21 | What the assistant puts on a button is the platform's; a virtual server's access can be set again |
 | aebdc67 | 2026-09-20 | The mail after a password change tells the truth about API tokens |
 | cc062e0 | 2026-09-20 | The model has a budget; what PostgreSQL would refuse is found locally; a correction of the record |
@@ -11,6 +14,3 @@
 | 2f8d175 | 2026-09-20 | A domain has an end; the production database's only test is CI — and it was red for 92 runs |
 | 6c3b431 | 2026-09-20 | Regenerate project state after the VAT-in-CZK and cart quantity blocks |
 | 8fe0a10 | 2026-09-20 | A document in EUR states its VAT in CZK; a cart quantity is that many lines; the transfer lock says what it is |
-| b2eb728 | 2026-09-20 | Regenerate project state after the DNS block |
-| 018b245 | 2026-09-20 | A plan change never resizes the node; DNS is compared with its provider every night, can be repaired, and is bounded in size |
-| 6f348b5 | 2026-09-20 | Generated project state after the compensation, premium, panel-link, promo and read-audit blocks |

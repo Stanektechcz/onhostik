@@ -146,7 +146,7 @@ final class CatalogPresentation
 
         return match ($key) {
             'nvme_gb', 'quota_gb_per_mailbox' => $v.' GB', 'php_memory_mb' => $v.' MB', 'ram_mb' => (is_numeric($v) ? (int) $v >= 1024 ? rtrim(rtrim(number_format((int) $v / 1024, 1, '.', ''), '0'), '.').' GB' : $v.' MB' : $v),
-            'backup_days', 'pitr_days', 'retention_days', 'logs_retention_days' => $v.' '.self::days((int) $v, $cs), 'traffic_tb' => $v.' TB', 'capacity_gbps' => $v.' Gbps', 'interval_hours' => $v.' h',
+            'backup_days', 'pitr_days', 'retention_days', 'logs_retention_days' => $v.' '.self::days((int) $v, $cs), 'traffic_tb' => $v.' TB', 'traffic_gb' => $v.' GB', 'inodes' => number_format((int) $v, 0, ',', ' '), 'capacity_gbps' => $v.' Gbps', 'interval_hours' => $v.' h',
             'sites', 'products', 'mailboxes', 'databases', 'aliases', 'domains', 'connections', 'snapshots', 'backups', 'allocations', 'replicas', 'builds_per_day', 'custom_domains', 'workers', 'cron', 'daily', 'weekly', 'monthly' => is_numeric($v) && (int) $v >= 999999 ? ($cs ? 'neomezeně' : 'unlimited') : $v,
             'php_workers' => $v, default => $v,
         };
@@ -170,14 +170,16 @@ final class CatalogPresentation
             'php_memory_mb' => 'PHP '.$n.' MB', 'mailboxes' => $unlimited ? ($cs ? 'Neomezeně schránek' : 'Unlimited mailboxes') : ($cs ? $n.' '.$plural($n, 'schránka', 'schránky', 'schránek') : $n.' '.($n === 1 ? 'mailbox' : 'mailboxes')),
             'databases' => $unlimited ? ($cs ? 'Neomezeně databází' : 'Unlimited databases') : ($cs ? $n.' '.$plural($n, 'databáze', 'databáze', 'databází') : $n.' '.($n === 1 ? 'database' : 'databases')),
             'backup_days' => $cs ? 'Zálohy '.$n.' '.self::days($n, true) : $n.'-day backups', 'backup_frequency' => $cs ? 'Zálohy každých '.$value : 'Backups every '.$value, 'staging' => $cs ? 'Staging na klik' : 'One-click staging',
-            'ssh' => $cs ? 'SSH a WP-CLI' : 'SSH and WP-CLI', 'waf' => is_string($value) ? 'WAF '.$value : 'WAF', 'traffic' => $cs ? 'Přenos '.$value : 'Traffic '.$value, 'object_cache' => $cs ? 'Cache '.$value : ucfirst((string) $value).' cache',
+            'ssh' => $cs ? 'SSH a WP-CLI' : 'SSH and WP-CLI', 'waf' => is_string($value) ? 'WAF '.$value : 'WAF',
+            'traffic_gb' => $cs ? 'Přenos '.($n >= 1024 ? rtrim(rtrim(number_format($n / 1024, 1, '.', ''), '0'), '.').' TB' : $n.' GB').' měsíčně (fair use)' : 'Transfer '.($n >= 1024 ? rtrim(rtrim(number_format($n / 1024, 1, '.', ''), '0'), '.').' TB' : $n.' GB').' a month (fair use)',
+            'inodes' => $cs ? 'Až '.number_format($n, 0, ',', ' ').' souborů' : 'Up to '.number_format($n, 0, '.', ',').' files', 'object_cache' => $cs ? 'Cache '.$value : ucfirst((string) $value).' cache',
             'monitoring' => $cs ? 'Monitoring v ceně' : 'Monitoring included', 'updates' => $cs ? 'Aktualizace: '.$value : 'Updates: '.$value, 'support' => $cs ? 'Podpora '.$value : 'Support '.$value, 'dedicated_db' => $cs ? 'Dedikovaná databáze' : 'Dedicated database',
             'vcpu' => $n.' vCPU'.(($all['cpu_class'] ?? null) === 'dedicated' ? ($cs ? ' dedikovaných' : ' dedicated') : ''), 'ram_mb' => ($n >= 1024 ? rtrim(rtrim(number_format($n / 1024, 1, '.', ''), '0'), '.').' GB' : $n.' MB').' RAM',
             'traffic_tb' => $cs ? $n.' TB přenosu' : $n.' TB traffic', 'ipv4' => $value === 'addon' ? null : ($cs ? 'IPv4 v ceně' : 'IPv4 included'), 'ipv6' => 'IPv6 '.$value, 'snapshots' => $cs ? $n.' '.$plural($n, 'snapshot', 'snapshoty', 'snapshotů') : $n.' snapshots',
             'backup' => $value === 'addon' ? null : ($cs ? 'Zálohy '.$value : 'Backups '.$value), 'io_class' => $cs ? 'IO třída '.$value : 'IO class '.$value, 'console' => $cs ? 'Konzole '.$value : 'Console '.$value,
             'slots' => $cs ? 'Sloty: '.$value : 'Slots: '.$value, 'backups' => $cs ? $n.' záloh' : $n.' backups', 'allocations' => $cs ? $n.' portů' : $n.' ports', 'ddos' => 'Anti-DDoS '.$value, 'sftp' => 'SFTP',
             'quota_gb_per_mailbox' => $cs ? $n.' GB na schránku' : $n.' GB per mailbox', 'aliases' => $cs ? $n.' aliasů' : $n.' aliases', 'domains' => $cs ? $n.' '.$plural($n, 'doména', 'domény', 'domén') : $n.' domains',
-            'relay_per_hour' => $cs ? $n.' e-mailů za hodinu' : $n.' e-mails per hour', 'spam_filter' => $cs ? 'Antispam '.$value : 'Antispam '.$value, 'imap' => 'IMAP, SMTP, webmail', 'dedicated_outbound_ip' => $cs ? 'Dedikovaná odchozí IP' : 'Dedicated outbound IP',
+            'relay_per_hour' => $cs ? $n.' odeslaných e-mailů za hodinu (fair use)' : $n.' e-mails sent per hour (fair use)', 'spam_filter' => $cs ? 'Antispam '.$value : 'Antispam '.$value, 'imap' => 'IMAP, SMTP, webmail', 'dedicated_outbound_ip' => $cs ? 'Dedikovaná odchozí IP' : 'Dedicated outbound IP',
             'connections' => $cs ? $n.' spojení' : $n.' connections', 'pitr_days' => 'PITR '.$n.' '.self::days($n, $cs), 'ha' => $cs ? 'Primár + replika' : 'Primary + replica', 'external_access' => null,
             'cpu_limit' => $value.' CPU', 'replicas' => $cs ? $n.' '.$plural($n, 'replika', 'repliky', 'replik') : $n.' replicas', 'builds_per_day' => $cs ? $n.' buildů denně' : $n.' builds a day', 'custom_domains' => $cs ? $n.' vlastních domén' : $n.' custom domains',
             'workers' => $cs ? $n.' workerů' : $n.' workers', 'cron' => $cs ? $n.' cron úloh' : $n.' cron jobs', 'logs_retention_days' => $cs ? 'Logy '.$n.' dní' : $n.'-day logs', 'zero_downtime' => $cs ? 'Nasazení bez výpadku' : 'Zero-downtime deploys', 'tls' => 'TLS '.$value,
