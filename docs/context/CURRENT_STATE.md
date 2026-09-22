@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **The assistant proposes what the platform learned since:** restore test, staging, deployment rollback, rescue end,
+  Node.js apps, HTTP/3, game schedules, database export, mailbox backup, wildcard certificate — same allow-list rule; the
+  tool description is generated from the list; refusals say why; no button that would end in an error.
+
 - **The automatic drain judges the node, not its panel:** `OperationsBoard` counts the operations of the services placed
   on each node, and a quiet drained node comes back when the node itself answers (cluster `online`, its Wings daemon).
 

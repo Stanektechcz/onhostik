@@ -23,6 +23,7 @@ use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\Models\PaymentStateMachineStates as PaymentState;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
+use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -66,8 +67,8 @@ final class AssistantService
      * nor file contents. Whatever comes back still passes the redactor, and the plan's own feature gates apply.
      */
     private const READABLE = [
-        'web' => ['databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'wordpress', 'cdn', 'backups'],
-        'managed' => ['databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'wordpress', 'cdn', 'backups'],
+        'web' => ['databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'deployments', 'wordpress', 'cdn', 'node_projects', 'backups'],
+        'managed' => ['databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'deployments', 'wordpress', 'cdn', 'node_projects', 'backups'],
         'mail' => ['mailboxes', 'aliases', 'dkim', 'mail_forwards', 'mail_lists', 'mail_usage', 'backups'],
         'game' => ['status', 'schedules', 'allocations', 'backups'],
         'cloud' => ['snapshots', 'firewall', 'backups'],
@@ -75,7 +76,7 @@ final class AssistantService
     ];
 
     /** Extra system guidance when the LLM acts as the service-management agent (proposals become confirm buttons). */
-    private const AGENT_PROMPT = "\n\nYou can also help manage the customer's services. Use list_services to see them and get_service_status for details. When the customer asks for a change (restart, backup, deploy, WordPress update, Redis cache, staging refresh/push, CDN purge, certificate, PHP version), call propose_service_action once per action — the platform shows it as a button the customer must confirm; never claim an action ran. Only propose actions the tool reports as available. Explain briefly what the action does and any risk (e.g. staging push replaces production).";
+    private const AGENT_PROMPT = "\n\nYou can also help manage the customer's services. Use list_services to see them and get_service_status for details. When the customer asks for a change (restart, backup, snapshot, deploy or roll back a deployment, WordPress update, Redis cache, staging, CDN purge, certificate, PHP version, HTTP/3, a restore test of a backup, starting or stopping a Node.js app, a game schedule, a database export, a mailbox backup), call propose_service_action once per action — the platform shows it as a button the customer must confirm; never claim an action ran. Only propose actions the tool reports as available. Explain briefly what the action does and any risk (e.g. staging push replaces production).";
 
     public function __construct(
         private readonly AiProviderRegistry $providers,
@@ -677,8 +678,8 @@ final class AssistantService
             $tools[] = ['name' => 'list_services', 'description' => 'The signed-in organization\'s services with their state, enabled features and the actions each one accepts (read-only).', 'parameters' => ['type' => 'object', 'properties' => new \stdClass, 'required' => []]];
             $tools[] = ['name' => 'get_service_status', 'description' => 'Recent operations, uptime monitoring and quotas of one service (read-only).', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string']], 'required' => ['service_id']]];
             $tools[] = ['name' => 'check_service', 'description' => 'Health check of one service from the platform\'s own records (no panel call): state, whether it can be managed right now, the last backup, the HTTPS certificate, uptime monitoring, operations that failed in the last day, how close it is to its limits. Returns a verdict (ok|warn|bad) and findings with a sentence each. Use it for "is my site all right", "why is it slow/down", before proposing an action.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string']], 'required' => ['service_id']]];
-            $tools[] = ['name' => 'get_service_resource', 'description' => 'One read-only listing of a service: web — databases, cron, subdomains, certificate, redirect, php_settings, quotas, monitoring, staging, deploy, wordpress, cdn; mail — mailboxes, aliases, dkim, mail_forwards, mail_lists, mail_usage; game — status, schedules, allocations; cloud — snapshots, firewall; every family — backups (the last backups with their state, date and size). Passwords are never included.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'kind' => ['type' => 'string']], 'required' => ['service_id', 'kind']]];
-            $tools[] = ['name' => 'propose_service_action', 'description' => 'Propose one action on a service; the customer confirms it with a button the platform names. Only these can be proposed: backup, snapshot (params.name), power (params.power_action reboot|shutdown|start), deploy.run, wp.update (params.what core|plugins|themes|all), wp.cache (params.enabled), staging.refresh, staging.push, cdn.purge, ssl.issue, https.force (params.enabled), php.set (params.version like 8.3). Anything else — commands, files, passwords, keys, mail forwards, redirects, deletions — the customer does in the panel: tell them where.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'action' => ['type' => 'string'], 'params' => ['type' => 'object']], 'required' => ['service_id', 'action']]];
+            $tools[] = ['name' => 'get_service_resource', 'description' => 'One read-only listing of a service: '.self::readableKinds().' (backups: the last backups with their id, state, date and size). Passwords are never included.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'kind' => ['type' => 'string']], 'required' => ['service_id', 'kind']]];
+            $tools[] = ['name' => 'propose_service_action', 'description' => 'Propose one action on a service; the customer confirms it with a button the platform names. Only these can be proposed: '.AssistantProposals::describe().'. Anything else — commands, files, passwords, keys, mail forwards, redirects, deletions, or what asks for a fresh confirmation of identity — the customer does in the panel: tell them where.', 'parameters' => ['type' => 'object', 'properties' => ['service_id' => ['type' => 'string'], 'action' => ['type' => 'string'], 'params' => ['type' => 'object']], 'required' => ['service_id', 'action']]];
         }
         if ($scope !== null && $scope->domains) {
             $tools[] = ['name' => 'get_dns_records', 'description' => 'The DNS records of one zone of the signed-in organization (read-only): name, type, content, TTL, who manages the record. Use it for "where does my domain point", "is my MX set", before explaining a DNS change. zone is the domain name, e.g. firma.cz.', 'parameters' => ['type' => 'object', 'properties' => ['zone' => ['type' => 'string']], 'required' => ['zone']]];
@@ -874,7 +875,14 @@ final class AssistantService
         // of the service with parameters and a label of its own making — and the customer confirmed a dialog that showed the label.
         $offered = array_values(array_intersect(array_keys(AssistantProposals::ACTIONS), [...ServiceActionWorkflow::CORE_ACTIONS, ...$this->features->actions($service)]));
         if (! in_array($action, $offered, true)) {
-            return ['ok' => false, 'error' => 'this action is never proposed by the assistant, or the service does not offer it; tell the customer where in the panel they can do it themselves', 'available' => $offered];
+            // the model is told WHY, so that it can tell the customer: not offered here, or theirs to do in the panel — and for which reason
+            $why = match (true) {
+                ! in_array($action, [...ServiceActionWorkflow::CORE_ACTIONS, ...$this->features->actions($service)], true) => 'the service does not offer this action',
+                (new ServiceActionCommand((string) $service->organization_id, 'assistant:why', ['action' => $action]))->requiresStepUp() => 'it asks for a fresh confirmation of the customer\'s identity, which only the panel can ask for',
+                default => 'it carries a command, file content, a password or key, a destination, or it deletes something: the customer does it in the panel, where they see exactly what they confirm',
+            };
+
+            return ['ok' => false, 'error' => "not proposed: {$why}; tell the customer where in the panel they can do it themselves", 'available' => $offered];
         }
         if (! $scope->mayRun($service, $action)) { // a button that ends in "forbidden" is not offered
             return ['ok' => false, 'error' => 'the signed-in person may view this service but not change it'];
@@ -882,6 +890,12 @@ final class AssistantService
         $params = AssistantProposals::params($action, is_array($arguments['params'] ?? null) ? $arguments['params'] : []);
         if ($params === null) {
             return ['ok' => false, 'error' => 'the parameters of this action are missing or not valid', 'expects' => AssistantProposals::ACTIONS[$action]];
+        }
+        if ($action === 'restore.test') { // a button that would end in "not found" or "not restorable" is not drawn — the same rule as the request
+            $backup = Backup::query()->find((string) $params['backup_id']);
+            if ($backup === null || ! $backup->restorableOnto($service)) {
+                return ['ok' => false, 'error' => 'not a finished backup of this service that can be restored; read its backups (get_service_resource kind backups) and pick one'];
+            }
         }
         $name = (string) ($service->hostname ?: ($service->label ?: $service->name));
         $label = AssistantProposals::label($action, $params, $name, $locale); // the platform's words, never the model's
@@ -891,6 +905,12 @@ final class AssistantService
         $proposed[] = ['kind' => 'service_action', 'label' => $label, 'service_id' => $service->id, 'action' => $action, 'params' => $params, 'confirm' => true, 'class' => $scope->staff ? 'STAFF_WRITE' : 'SAFE_WRITE', 'service' => $name];
 
         return ['ok' => true, 'proposed' => $label, 'note' => 'shown to the customer as a button to confirm'];
+    }
+
+    /** The listings the model may ask for, per family, as the tool describes them — made from READABLE. */
+    private static function readableKinds(): string
+    {
+        return implode('; ', array_map(fn (string $family, array $kinds) => $family.' — '.implode(', ', $kinds), array_keys(self::READABLE), self::READABLE));
     }
 
     /** Human takeover: a staff member can read what the AI did (blueprint §69.4). */

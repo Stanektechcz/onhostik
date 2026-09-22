@@ -185,6 +185,24 @@ was classed `SAFE_WRITE`). A confirmation protects nobody who cannot see what th
 The customer's own clicks in the panel are untouched by this: the list limits what the *assistant* proposes, not what a
 person may do.
 
+**Grown with the platform (2026-09-22).** The list had none of what the platform learned since. Added under the same rule:
+`restore.test` (a backup of the service, `backup_id` — the dumps go into a database of their own, are compared and
+dropped), `staging.create`, `deploy.rollback` (`deployment_id` of an earlier deployment), `rescue.stop`, `node.action`
+(`remote_id` of the app, `op` start|stop|restart — never delete), `http3.set`, `schedule.toggle` (a game schedule, `active`),
+`database.export` (a dump for the customer to download), `mailbox.backup`, `ssl.wildcard` (the service's own domain). The
+model reads the references it needs from new listings (`node_projects`, `deployments`) next to `backups`, `databases`,
+`schedules`, `mailboxes`.
+
+* The tool's description is **made from the list** (`AssistantProposals::describe()`, `readableKinds()`): it used to be a
+  sentence written by hand next to it, and they would have told different stories the moment an action was added.
+* A button that would end in an error is not drawn: `restore.test` is proposed only for a finished backup of that very
+  service that can be restored (`Backup::restorableOnto()` — the same rule the request applies when the button is pressed).
+* A refused proposal tells the model **why** — the service does not offer it; it asks for a fresh confirmation of identity,
+  which only the panel can ask for; or it carries a command, file content, a credential, a destination or a deletion — so the
+  assistant can tell the customer what to do instead of "not possible".
+
+Tests: `tests/Feature/Support/AssistantManagesMoreTest.php` (every button drawn is pressed through the customer's own API).
+
 ## Access to a virtual server after it was delivered (2026-09-20)
 
 A server is delivered with the SSH keys of its order and nothing else, and there was no way to change them: whoever lost the

@@ -492,7 +492,7 @@ final class ServiceService
             if ($backup === null) {
                 throw DomainError::notFound('backup');
             }
-            if ($backup->state !== 'completed' || ($backup->remote_id === null && ! FinalArchive::isSet($backup)) || $backup->kind === 'final') { // the final archive goes onto a new service (`archive.restore`)
+            if (! $backup->restorableOnto($service)) { // the final archive goes onto a new service (`archive.restore`)
                 throw new DomainError('backup_not_restorable', 'Only a finished backup can be restored.', 409, ['state' => $backup->state]);
             }
         }
