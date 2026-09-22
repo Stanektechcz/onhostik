@@ -6,15 +6,19 @@ namespace Onhost\Domain\Provisioning;
 
 use App\Http\Presenters\Presenters;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Onhost\Domain\Provisioning\Models\IntegrationHealth;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxPublisher;
+use Onhost\Providers\Contracts\ComputeProvider;
+use Onhost\Providers\Contracts\GameToolsProvider;
 
 /**
  * Staff operations board (audit §5e-3): what is stuck across all tenants right now — operations waiting on a node
@@ -22,6 +26,11 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  * failure counts. The same numbers drive the automatic drain: a node whose operations keep failing on transient
  * errors stops receiving new placements (state `draining`, the scheduler only picks `active` nodes) and is put back
  * once its operations succeed again; staff can drain or resume a node by hand at any time.
+ *
+ * The numbers are the NODE's: the operations of the services placed on it. They used to be the whole panel instance's for
+ * every node of it — on a cluster or a game panel with several nodes one node that was down was never drained (the other
+ * nodes' successes outweighed it) and in a quiet window every node of the instance was drained at once. A quiet drained
+ * node comes back when the node itself answers — the cluster says it is online, its Wings daemon replies — not the panel.
  */
 final class OperationsBoard
 {
@@ -75,7 +84,7 @@ final class OperationsBoard
      */
     private function nodeRow(Node $node, CarbonImmutable $window, Collection $health, Collection $instances): array
     {
-        $ops = Operation::query()->where('provider_instance_id', $node->provider_instance_id)->where(fn ($q) => $q->where('queued_at', '>=', $window)->orWhere('finished_at', '>=', $window));
+        $ops = self::operationsOf($node)->where(fn ($q) => $q->where('queued_at', '>=', $window)->orWhere('finished_at', '>=', $window));
         $succeeded = (clone $ops)->where('state', Operation::SUCCEEDED)->count();
         $transient = (clone $ops)->whereIn('state', [Operation::WAITING, Operation::FAILED])->where('error->retryable', true)->count();
         $instance = $instances->get($node->provider_instance_id);
@@ -163,11 +172,25 @@ final class OperationsBoard
     {
         $window = CarbonImmutable::now()->subMinutes(self::DRAIN_WINDOW_MINUTES);
 
-        return Operation::query()->where('provider_instance_id', $node->provider_instance_id)->whereIn('state', [Operation::WAITING, Operation::FAILED])->where('error->retryable', true)
+        return self::operationsOf($node)->whereIn('state', [Operation::WAITING, Operation::FAILED])->where('error->retryable', true)
             ->where(fn ($q) => $q->where('queued_at', '>=', $window)->orWhere('finished_at', '>=', $window))->orderByDesc('queued_at')->limit(5)->get()
             ->map(fn (Operation $o) => ['id' => $o->id, 'kind' => $o->kind, 'step' => $o->step_label, 'service_id' => $o->service_id, 'message' => mb_substr((string) ($o->error['message'] ?? ''), 0, 120)])->values()->all();
     }
 
+    /**
+     * The operations of the services placed on this node — what says whether the NODE works.
+     *
+     * @return Builder<Operation>
+     */
+    private static function operationsOf(Node $node): Builder
+    {
+        return Operation::query()->where('provider_instance_id', $node->provider_instance_id)->whereIn('service_id', Service::query()->select('id')->where('node_id', $node->id));
+    }
+
+    /**
+     * Whether the node itself answers, not only its panel: a Proxmox node is asked of the cluster (`online`), a game node
+     * through its Wings daemon; a panel that is its own single node (aaPanel, ISPConfig) by the panel's health probe.
+     */
     private function probeOk(Node $node): bool
     {
         $instance = $node->provider_instance_id ? ProviderInstance::query()->find($node->provider_instance_id) : null;
@@ -175,7 +198,18 @@ final class OperationsBoard
             return false;
         }
         try {
-            return (bool) (app(IntegrationHealthProbe::class)->probeInstance($instance)['up'] ?? false);
+            if (! (bool) (app(IntegrationHealthProbe::class)->probeInstance($instance)['up'] ?? false)) {
+                return false;
+            }
+            $adapter = app(ProviderRegistry::class)->forInstance($instance);
+            if ($adapter instanceof ComputeProvider) {
+                return collect($adapter->clusterNodes())->contains(fn (array $n) => $n['node'] === $node->name && $n['status'] === 'online');
+            }
+            if ($adapter instanceof GameToolsProvider && ctype_digit((string) $node->remote_id)) {
+                return $adapter->nodeSystem((int) $node->remote_id) !== null;
+            }
+
+            return true;
         } catch (\Throwable) {
             return false;
         }

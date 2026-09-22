@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **The automatic drain judges the node, not its panel:** `OperationsBoard` counts the operations of the services placed
+  on each node, and a quiet drained node comes back when the node itself answers (cluster `online`, its Wings daemon).
+
 - **A panel on a version nobody verified takes no new orders:** `PanelVersionGate` compares the version the health
   probe reads with what the adapter declares and verifies a change on passing checks; a held instance is not usable for
   new work, services on it are still managed; `onhost:integrations:versions --accept` (runbook panel-upgrade.md).

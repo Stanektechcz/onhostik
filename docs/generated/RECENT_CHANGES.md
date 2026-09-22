@@ -4,6 +4,9 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| bd8d1d6 | 2026-09-22 | A panel on a version nobody verified takes no new orders (H530, H514, H521, H511) |
+| a56e19f | 2026-09-22 | A VM moved by HA is followed, once it proves to be the service's (H288) |
+| 7414f90 | 2026-09-22 | A panel's breaker trips for the panel, not for one guest or one node (H288) |
 | e434159 | 2026-09-22 | A resumed clone is waited for, not retried; a lock waits on the ordinary backoff |
 | ae1e13c | 2026-09-22 | A new VM never gets a number the platform gave before (H488, H505) |
 | 679ec04 | 2026-09-22 | An expired VPS archive is gone from the backup server too (H488) |
@@ -11,6 +14,3 @@
 | 6590a92 | 2026-09-22 | A VPS firewall change is made before it is broken, keeps the customer's order, and warns before a lockout (H501, H503) |
 | 8562f1a | 2026-09-22 | A site's Node.js app ends with the site, stops with it, and is nobody else's (H505, H500, H440) |
 | bbdc62e | 2026-09-22 | A node must make and remove one thing before it carries anybody (H479) |
-| 712145d | 2026-09-22 | A node nobody has qualified sells nothing (H471) |
-| d49a8ab | 2026-09-22 | A promised restore test is really made (H458) |
-| a05bf88 | 2026-09-22 | A service that did not answer is not a service that was checked |

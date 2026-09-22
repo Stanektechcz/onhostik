@@ -350,7 +350,7 @@ asked to top up. The Fakturace ledger *Co se stane, když nezaplatíte* carries 
 **Operations board** (`OperationsBoard`, `GET /v1/staff/provisioning/board`, Blade `/sprava/nastaveni/provoz`).
 Stalled (WAITING with a retryable error or a second attempt), failed in 24 h and running > 10 min across tenants,
 with retry/cancel (the existing job commands), plus every node with its 15-minute record (successes, transient
-failures, instance health). `onhost:provisioning:board` (every 5 min) drains a node with ≥ 3 transient failures and
+failures — the operations of the services placed on it, not of its whole panel instance —, instance health). `onhost:provisioning:board` (every 5 min) drains a node with ≥ 3 transient failures and
 no success (`node.drained`, tag `auto_drain`, scheduler skips non-active nodes) and resumes it once operations succeed
 again (`node.resumed`); staff drain/resume by hand with `POST /v1/staff/integrations/{instance}/nodes/{node}/state`
 (op `node.state`, `provider.instance.manage`) — hand-set states are never resumed automatically.
@@ -475,8 +475,9 @@ git/rsync/composer/wp/unzip/tar via `command -v`, the Apache proxy module file) 
 that sees the module sets `mod_proxy=yes` when the option was unknown. Missing tools become warnings.
 
 **Auto-drain feedback loop**: `node.drained` carries `failed[]` (the transient failures: operation id, kind, step,
-message) so the internal notification says what failed; a drained node with no operations in the window is probed
-(`IntegrationHealthProbe`) and resumed after two healthy probes in a row (`auto_drain.probe_ok`); staff can drain with
+message) so the internal notification says what failed; a drained node with no operations in the window is probed —
+the panel (`IntegrationHealthProbe`) and the node itself: a Proxmox node must be `online` in the cluster, a game node's
+Wings daemon must answer — and resumed after two healthy probes in a row (`auto_drain.probe_ok`); staff can drain with
 `keep=true` (`POST …/nodes/{node}/state`) and the loop leaves the node alone.
 
 **Order intake pre-check** (`OrderRiskService`, config `onhost.orders.risk`): signals — new account without a paid
