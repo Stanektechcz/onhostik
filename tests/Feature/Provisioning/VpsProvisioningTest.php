@@ -66,7 +66,8 @@ it('provisions a VPS end-to-end: placement, IPAM, clone, sizing, cloud-init, fir
     Http::assertSent(fn (Request $r) => $r->method() === 'PUT' && str_ends_with($r->url(), '/qemu/1042/config') && ($r['ipconfig0'] ?? null) === 'ip=192.0.2.2/29,gw=192.0.2.1' && preg_match('#^ip6=2001:db8:1:[0-9a-f:]*1/64,gw6=2001:db8:1::1$#', (string) ($r['ipconfig1'] ?? '')) === 1 && str_contains((string) $r['sshkeys'], 'ssh-ed25519'));
     Http::assertSent(fn (Request $r) => $r->method() === 'PUT' && str_ends_with($r->url(), '/qemu/1042/config') && ($r['cores'] ?? null) === 4 && ($r['memory'] ?? null) === 8192);
     expect(collect(Http::recorded())->filter(fn (array $p) => $p[0]->method() === 'POST' && str_ends_with($p[0]->url(), '/firewall/rules')))->toHaveCount(3);
-    Http::assertSent(fn (Request $r) => str_ends_with($r->url(), '/firewall/options') && $r['policy_in'] === 'DROP' && $r['enable'] === 1);
+    // the options are READ first (so a refused change can put them back) and then written: the write is the one that counts
+    Http::assertSent(fn (Request $r) => $r->method() === 'PUT' && str_ends_with($r->url(), '/firewall/options') && $r['policy_in'] === 'DROP' && $r['enable'] === 1);
     expect(AuditEvent::query()->where('action', 'service.activated')->where('resource_id', $service->id)->exists())->toBeTrue();
     expect(OutboxMessage::query()->where('name', 'service.activated')->where('aggregate_id', $service->id)->exists())->toBeTrue();
     expect(DB::table('provider_calls')->where('instance_key', 'proxmox-cz1')->count())->toBeGreaterThan(10);

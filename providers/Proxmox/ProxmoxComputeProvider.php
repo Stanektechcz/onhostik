@@ -21,6 +21,7 @@ use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\ResourceSpec;
 use Onhost\Providers\Contracts\SelfProbing;
 use Onhost\Providers\Contracts\Usage;
+use Throwable;
 
 /**
  * Proxmox VE executor for VPS/VDS/HA Cloud (blueprint §10). Every mutating call
@@ -373,22 +374,74 @@ final class ProxmoxComputeProvider implements ComputeProvider, SelfProbing
         return $out;
     }
 
+    /**
+     * Replace the VM's firewall policy — as a whole, and never through a moment worse than both.
+     *
+     * It used to delete every rule and then add the new ones, with the firewall already on and `policy_in: DROP`: for
+     * as long as the adds took, the VM dropped everything, and when one of them was refused (a bad port expression, a
+     * panel that stopped answering) the VM stayed like that — a partial rule set under DROP, the customer's own SSH gone.
+     * And each rule was added WITHOUT a position, which Proxmox puts at the top: the customer's list came out upside
+     * down, and on a firewall the first match wins ("accept my office, drop everyone else on 22" became the reverse).
+     *
+     * Now: make before break (H503). The new rules go in first, each at its own explicit position, on top of the old
+     * ones; only then are the old ones removed, from the bottom; only then are the options switched. When anything fails
+     * the previous policy is put back the same way — rules and options — and the error says so.
+     */
     public function applyFirewall(ResourceRef $vm, array $rules, bool $enabled = true): ProviderResult
     {
         $base = "/nodes/{$vm->node}/qemu/{$vm->remoteId}/firewall";
-        $existing = (array) $this->api->get("{$base}/rules", [], 'fw.rules.get');
-        foreach (array_reverse($existing) as $rule) {
-            $this->api->delete("{$base}/rules/{$rule['pos']}", [], 'fw.rule.delete');
+        $before = array_values((array) $this->api->get("{$base}/rules", [], 'fw.rules.get'));
+        $options = (array) $this->api->get("{$base}/options", [], 'fw.options.get');
+        $wanted = array_map(fn (array $r) => array_filter([
+            'action' => strtoupper((string) $r['action']), 'type' => strtolower((string) $r['type']), 'proto' => $r['proto'] ?? null, 'dport' => $r['dport'] ?? null,
+            'source' => $r['source'] ?? null, 'enable' => (int) ($r['enable'] ?? true), 'comment' => $r['comment'] ?? null,
+        ], fn ($v) => $v !== null && $v !== ''), array_values($rules));
+        try {
+            $this->replaceRules($base, $wanted);
+            $this->api->put("{$base}/options", ['enable' => (int) $enabled, 'policy_in' => 'DROP', 'policy_out' => 'ACCEPT'], 'fw.options');
+        } catch (Throwable $e) {
+            $restored = true;
+            try {
+                $this->replaceRules($base, array_map(fn (array $r) => self::ruleParams($r), $before));
+                $this->api->put("{$base}/options", array_filter(['enable' => (int) ($options['enable'] ?? 0), 'policy_in' => $options['policy_in'] ?? null, 'policy_out' => $options['policy_out'] ?? null], fn ($v) => $v !== null), 'fw.options');
+            } catch (Throwable) {
+                $restored = false;
+            }
+            throw new ProviderException('proxmox', $e instanceof ProviderException ? $e->errorCode : ProviderErrorCode::UNKNOWN,
+                'The firewall change was refused ('.mb_substr($e->getMessage(), 0, 120).'); '.($restored
+                    ? 'the previous rules were put back.'
+                    : 'the previous rules could not be put back either — the server console still works.'));
         }
-        foreach ($rules as $rule) {
-            $this->api->post("{$base}/rules", array_filter([
-                'action' => strtoupper((string) $rule['action']), 'type' => strtolower((string) $rule['type']), 'proto' => $rule['proto'] ?? null, 'dport' => $rule['dport'] ?? null,
-                'source' => $rule['source'] ?? null, 'enable' => (int) ($rule['enable'] ?? true), 'comment' => $rule['comment'] ?? null,
-            ], fn ($v) => $v !== null), 'fw.rule.add');
-        }
-        $this->api->put("{$base}/options", ['enable' => (int) $enabled, 'policy_in' => 'DROP', 'policy_out' => 'ACCEPT'], 'fw.options');
 
         return ProviderResult::completed($vm, ['rules' => count($rules), 'enabled' => $enabled]);
+    }
+
+    /**
+     * Make before break: the new rules are inserted on top while the old ones still stand below them; then the old ones
+     * are removed from the bottom so the positions stay true.
+     *
+     * They are inserted LAST FIRST, each at position 0. A rule created without a position goes to the top, and whether
+     * the create call honours `pos` at all is not something to bet a customer's SSH on — last-first at the top gives
+     * the customer's order either way.
+     *
+     * @param  list<array<string,mixed>>  $rules
+     */
+    private function replaceRules(string $base, array $rules): void
+    {
+        $present = count((array) $this->api->get("{$base}/rules", [], 'fw.rules.get'));
+        foreach (array_reverse($rules) as $rule) {
+            $this->api->post("{$base}/rules", $rule + ['pos' => 0], 'fw.rule.add');
+        }
+        for ($pos = count($rules) + $present - 1; $pos >= count($rules); $pos--) {
+            $this->api->delete("{$base}/rules/{$pos}", [], 'fw.rule.delete');
+        }
+    }
+
+    /** A rule as Proxmox lists it, back into the fields it is created with. @param array<string,mixed> $rule @return array<string,mixed> */
+    private static function ruleParams(array $rule): array
+    {
+        return array_filter(array_intersect_key($rule, array_flip(['type', 'action', 'proto', 'dport', 'sport', 'source', 'dest', 'enable', 'comment', 'macro', 'iface', 'log'])),
+            fn ($v) => $v !== null && $v !== '');
     }
 
     /** `qm migrate` through the API: local disks travel with the VM; the task runs on the source node. */

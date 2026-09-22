@@ -707,8 +707,11 @@ final class ServiceService
                     }
                     $rules[] = ['action' => strtoupper((string) $rule['action']), 'type' => strtolower((string) ($rule['type'] ?? 'in')), 'proto' => isset($rule['proto']) ? strtolower((string) $rule['proto']) : null, 'dport' => isset($rule['dport']) ? preg_replace('/[^\d:,-]/', '', (string) $rule['dport']) : null, 'source' => isset($rule['source']) ? preg_replace('/[^\da-fA-F:.\/,]/', '', (string) $rule['source']) : null, 'enable' => filter_var($rule['enable'] ?? true, FILTER_VALIDATE_BOOLEAN), 'comment' => substr((string) ($rule['comment'] ?? ''), 0, 60)];
                 }
+                $enabled = filter_var($params['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN);
+                // the way back is the console; the customer hears that BEFORE the change closes their terminal (H501)
+                FirewallPolicy::assertWayIn($action, $rules, $enabled, filter_var($params['accept_lockout'] ?? false, FILTER_VALIDATE_BOOLEAN));
 
-                return ['rules' => $rules, 'enabled' => filter_var($params['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN)];
+                return ['rules' => $rules, 'enabled' => $enabled];
             })(),
             // A server is delivered with the SSH keys of its order and nothing else — and there was no way to change them afterwards:
             // whoever lost the key, or ordered without one, could not get into their own server. The keys REPLACE the ones there are.

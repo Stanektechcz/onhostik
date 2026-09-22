@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A VPS firewall change is made before it is broken, keeps the customer's order, and warns before a lockout:**
+  new rules go in on top before the old ones are removed, a refused change puts the whole previous policy back, and a
+  rule set that closes SSH/RDP needs `accept_lockout` (the way back is the console).
+
 - **A site's Node.js app ends with the site, stops with it, and is nobody else's:** aaPanel apps are owned by the
   site root or below its slash (a bare prefix gave `shop.cz` the apps of `shop.cz.eu`), removed before `DeleteSite`
   and paused by `SuspensionDepth`.

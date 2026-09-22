@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 8562f1a | 2026-09-22 | A site's Node.js app ends with the site, stops with it, and is nobody else's (H505, H500, H440) |
+| bbdc62e | 2026-09-22 | A node must make and remove one thing before it carries anybody (H479) |
 | 712145d | 2026-09-22 | A node nobody has qualified sells nothing (H471) |
 | d49a8ab | 2026-09-22 | A promised restore test is really made (H458) |
 | a05bf88 | 2026-09-22 | A service that did not answer is not a service that was checked |
@@ -12,5 +14,3 @@
 | 68b1022 | 2026-09-22 | A database account a database hangs on is not removed (H462) |
 | b81f560 | 2026-09-22 | An import keeps a copy of the database it overwrites (H456, H467) |
 | f246399 | 2026-09-22 | A schedule that keeps failing stops itself (H447) |
-| 47edcea | 2026-09-22 | A suspended game server's schedules are disarmed too (H440) |
-| ac18f18 | 2026-09-22 | A scheduled command is not a root shell (H438, H441) |
