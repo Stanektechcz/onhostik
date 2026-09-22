@@ -128,8 +128,8 @@ it('marks the order PARTIALLY_ACTIVE when one item cannot be provisioned and kee
 
     // The money (blueprint §5.2). The order reserved its total; the reservation used to run out after a day and hand everything
     // back while the domain stayed registered. Now the delivered line is charged, the other one goes back with a credit note.
-    $items = OrderItem::query()->where('order_id', $order->id)->get()->keyBy('product_key');
-    expect($items->map->state->all())->toBe(['mail' => 'refunded', 'domain' => 'active']);
+    $items = OrderItem::query()->where('order_id', $order->id)->orderBy('product_key')->get()->keyBy('product_key'); // PostgreSQL returns updated rows in any order
+    expect($items->map->state->all())->toBe(['domain' => 'active', 'mail' => 'refunded']);
     $domainLine = $items['domain'];
     $mailLine = $items['mail'];
     $ledger = app(LedgerService::class);
