@@ -4,6 +4,9 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 0ffbb28 | 2026-09-22 | The assistant proposes what the platform learned since, and says why when it may not |
+| e562525 | 2026-09-22 | An upgraded panel's resources must still be themselves; maintenance names the panel's running tasks (H517, H519) |
+| cee007a | 2026-09-22 | Compare the order's lines in a fixed order (PostgreSQL CI flake) |
 | 624f8c0 | 2026-09-22 | The automatic drain judges the node, not its panel (H288) |
 | bd8d1d6 | 2026-09-22 | A panel on a version nobody verified takes no new orders (H530, H514, H521, H511) |
 | a56e19f | 2026-09-22 | A VM moved by HA is followed, once it proves to be the service's (H288) |
@@ -11,6 +14,3 @@
 | e434159 | 2026-09-22 | A resumed clone is waited for, not retried; a lock waits on the ordinary backoff |
 | ae1e13c | 2026-09-22 | A new VM never gets a number the platform gave before (H488, H505) |
 | 679ec04 | 2026-09-22 | An expired VPS archive is gone from the backup server too (H488) |
-| e261ea8 | 2026-09-22 | A game server is deleted with everything of it, or not at all (H505, H488) |
-| 6590a92 | 2026-09-22 | A VPS firewall change is made before it is broken, keeps the customer's order, and warns before a lockout (H501, H503) |
-| 8562f1a | 2026-09-22 | A site's Node.js app ends with the site, stops with it, and is nobody else's (H505, H500, H440) |

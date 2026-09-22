@@ -69,7 +69,14 @@ it('asks again for a suspension the panel refused, and tells staff that an unpai
     // A case says when it may be looked at again — tomorrow at 06:00 — so the clock is moved PAST that hour and not
     // by a flat day: `travel(1)->days()` from a run that started between midnight and 06:00 UTC lands before it, and
     // the case is then not due, which made this test fail every night for six hours.
-    $nextMorning = fn () => $this->travelTo(now()->addDay()->startOfDay()->addHours(7));
+    // … and the retry is only asked for once the suspension has stood for twelve hours (`suspended_at->lt(now()->subHours(12))`),
+    // so a run late in the evening has to travel past that window as well: from 19:00 UTC the next morning at 07:00 is
+    // only eleven hours away, and this test went red every night from seven o'clock.
+    $nextMorning = function () {
+        $morning = now()->addDay()->startOfDay()->addHours(7);
+
+        $this->travelTo($morning->lt(now()->addHours(13)) ? now()->addHours(13) : $morning);
+    };
     $nextMorning();
     $dunning->tick();
     app(OutboxPublisher::class)->relayPending();

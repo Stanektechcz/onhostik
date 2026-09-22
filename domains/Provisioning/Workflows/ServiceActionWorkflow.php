@@ -19,6 +19,7 @@ use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\AvailabilityWatch;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
+use Onhost\Domain\Services\IncludedServices;
 use Onhost\Domain\Services\LegalHold;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\RestoreJob;
@@ -31,11 +32,14 @@ use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\SshKeyLedger;
 use Onhost\Domain\Services\SuspensionDepth;
+use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\DatabaseCredentials;
 use Onhost\Domain\Services\Web\DatabaseImport;
 use Onhost\Domain\Services\Web\RestoreTest;
+use Onhost\Domain\Services\Web\StagingService;
 use Onhost\Domain\Services\Web\WebFileStore;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
@@ -114,11 +118,11 @@ final class ServiceActionWorkflow implements Workflow
 
         return match ($action) {
             'power' => [$this->powerStep(), $this->verifyPowerStep()],
-            'suspend' => [$this->suspendStep(), $this->pauseExtrasStep(), $this->finishStateStep(ServiceStateMachine::SUSPENDED)],
-            'resume' => [$this->resumeStep(), $this->resumeExtrasStep(), $this->finishStateStep(ServiceStateMachine::ACTIVE)],
+            'suspend' => [$this->suspendStep(), $this->pauseExtrasStep(), $this->holdIncludedServicesStep(true), $this->finishStateStep(ServiceStateMachine::SUSPENDED)],
+            'resume' => [$this->resumeStep(), $this->resumeExtrasStep(), $this->holdIncludedServicesStep(false), $this->finishStateStep(ServiceStateMachine::ACTIVE)],
             'resize' => [$this->resizeStep(), $this->finishResizeStep()],
-            'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->pauseExtrasStep(), $this->cancelAddonsStep(), $this->revokeDelegationsStep(), $this->scheduleRemovalStep()],
-            'purge' => [$this->identityStep(), $this->finalArchiveStep(anyOperation: true), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
+            'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->pauseExtrasStep(), $this->cancelAddonsStep(), $this->endIncludedServicesStep(), $this->revokeDelegationsStep(), $this->scheduleRemovalStep()],
+            'purge' => [$this->identityStep(), $this->finalArchiveStep(anyOperation: true), $this->endIncludedServicesStep(), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
             'backup' => [$this->backupStep()],
             'restore' => [$this->safetyCopyStep('pre_restore'), $this->restoreStep()],
             'restore.test' => [$this->restoreTestStep()], // restores into databases of its own: nothing live is touched, so no copy is needed
@@ -973,6 +977,114 @@ final class ServiceActionWorkflow implements Workflow
                 }
 
                 return StepResult::done(['addons_cancelled' => $cancelled]);
+            }
+        };
+    }
+
+    /**
+     * The further sites the service carries — the test copy, and the sites its plan sells — are cancelled with it.
+     * Each one goes through its own cancellation, so each one gets its own final archive before anything is removed;
+     * a site whose cancellation is already running is left alone. Without this step they served on for ever, with the
+     * customer's files and databases on the node, while the cancellation dialog promised the customer they would go.
+     */
+    private function endIncludedServicesStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Ukončení dalších webů služby';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                $included = IncludedServices::of($service)->filter(fn (Service $child) => $child->terminate_at === null);
+                if ($included->isEmpty()) {
+                    return StepResult::skip();
+                }
+                $services = $context->container->make(ServiceService::class);
+                $staging = $context->container->make(StagingService::class);
+                $ended = [];
+                $errors = [];
+                foreach ($included as $child) {
+                    try {
+                        if ($child->primaryBinding() === null) { // provisioning never reached the node: there is nothing to archive and nothing to remove
+                            $child->forceFill(['state' => ServiceStateMachine::TERMINATED, 'terminated_at' => now()])->save();
+                            $ended[] = (string) ($child->hostname ?: $child->name);
+
+                            continue;
+                        }
+                        $services->requestAction($child, 'terminate', CommandContext::system('cancelled with '.$service->id), "included:terminate:{$context->operation->id}:{$child->id}", ['reason' => 'zrušena služba, ke které web patřil']);
+                        $ended[] = (string) ($child->hostname ?: $child->name);
+                    } catch (Throwable $e) {
+                        $errors[] = ($child->hostname ?: $child->id).': '.$e->getMessage();
+                    }
+                }
+                $link = $staging->link($service); // the test copy is cancelled above; its link must not outlive it
+                if ($link !== null && $included->contains(fn (Service $child) => $child->id === $link->staging_service_id)) {
+                    $link->forceFill(['state' => 'deleted'])->save();
+                    $link->delete();
+                }
+                if ($errors !== [] && (int) $context->operation->attempts < 4) { // a few tries; then the cancellation stands and the reasons are on record
+                    return StepResult::fail('a site of the service could not be cancelled: '.implode('; ', $errors), true, [], 60);
+                }
+
+                return StepResult::done(['included_ended' => $ended, 'included_errors' => $errors]);
+            }
+        };
+    }
+
+    /**
+     * Suspension reaches the sites the service carries too: an unpaid web hosting must not keep serving from its test
+     * copy. Only the sites this step switched off are switched back on, so one the customer had suspended themselves
+     * stays suspended (the same rule `SuspensionDepth` follows for cron jobs and FTP accounts).
+     */
+    private function holdIncludedServicesStep(bool $suspend): ServiceStep
+    {
+        return new class($suspend) extends ServiceStep
+        {
+            public function __construct(private readonly bool $suspend) {}
+
+            public function label(): string
+            {
+                return $this->suspend ? 'Pozastavení dalších webů služby' : 'Obnovení dalších webů služby';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                $services = $context->container->make(ServiceService::class);
+                $touched = [];
+                $errors = [];
+                foreach (IncludedServices::of($service) as $child) {
+                    $heldBy = (string) data_get($child->tags, 'included.held_by', '');
+                    $wanted = $this->suspend
+                        ? ($child->state === ServiceStateMachine::ACTIVE || $child->state === ServiceStateMachine::DEGRADED)
+                        : ($child->state === ServiceStateMachine::SUSPENDED && $heldBy !== '' && $child->terminate_at === null);
+                    if (! $wanted) {
+                        continue;
+                    }
+                    try {
+                        // the platform lifts exactly the hold it put on: a site the customer or an abuse case stopped stays stopped
+                        $lift = $this->suspend ? null : ((string) data_get($child->tags, 'included.held_hold', '') ?: null);
+                        $services->requestAction($child, $this->suspend ? 'suspend' : 'resume', CommandContext::system(($this->suspend ? 'suspended' : 'resumed').' with '.$service->id), 'included:'.($this->suspend ? 'suspend' : 'resume').":{$context->operation->id}:{$child->id}", array_filter(['reason' => 'stav služby, ke které web patří', 'lift' => $lift]));
+                        $child->refresh(); // its own operation may have run already (and written to the same row)
+                        $tags = (array) ($child->tags ?? []);
+                        $tags['included'] = array_filter(array_merge((array) ($tags['included'] ?? []), $this->suspend
+                            ? ['held_by' => $service->id, 'held_hold' => SuspensionHold::holds($child)[0] ?? null]
+                            : ['held_by' => null, 'held_hold' => null]), fn ($v) => $v !== null);
+                        $child->forceFill(['tags' => $tags])->save();
+                        $touched[] = (string) ($child->hostname ?: $child->name);
+                    } catch (Throwable $e) {
+                        $errors[] = ($child->hostname ?: $child->id).': '.$e->getMessage();
+                    }
+                }
+                if ($touched === [] && $errors === []) {
+                    return StepResult::skip();
+                }
+
+                return StepResult::done([($this->suspend ? 'included_suspended' : 'included_resumed') => $touched, 'included_errors' => $errors]);
             }
         };
     }

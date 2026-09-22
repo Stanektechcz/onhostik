@@ -178,6 +178,11 @@ final class DestructivePreview
             if ($staging !== null) {
                 $out[] = 'Odstraní se i testovací kopie webu.';
             }
+            // the further sites of the plan go with the service too — each one archived first, like the service itself
+            $sites = array_values(array_diff(IncludedServices::domains($service), [(string) $staging?->staging_domain]));
+            if ($sites !== []) {
+                $out[] = 'Zruší se i další weby služby: '.implode(', ', array_slice($sites, 0, 10)).(count($sites) > 10 ? ' a další' : '').'.';
+            }
         } catch (Throwable) {
             // no staging link is not a reason to refuse a preview
         }

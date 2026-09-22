@@ -91,6 +91,11 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A service ends the sites it carries:** a web hosting service holds further sites of the same customer as
+  services of their own (`tags.billing = included`) — the test copy today. `IncludedServices` names them and the
+  cancellation, the removal, the suspension and the resume all reach them; each site is archived by its own
+  cancellation before anything is removed, and only the hold the platform imposed is lifted again.
+
 - **The assistant proposes what the platform learned since:** restore test, staging, deployment rollback, rescue end,
   Node.js apps, HTTP/3, game schedules, database export, mailbox backup, wildcard certificate — same allow-list rule; the
   tool description is generated from the list; refusals say why; no button that would end in an error.
