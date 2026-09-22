@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A site's Node.js app ends with the site, stops with it, and is nobody else's:** aaPanel apps are owned by the
+  site root or below its slash (a bare prefix gave `shop.cz` the apps of `shop.cz.eu`), removed before `DeleteSite`
+  and paused by `SuspensionDepth`.
+
 - **A node must make and remove one thing before it carries anybody:** `SyntheticService` creates a throw-away
   resource from the owner's per-role template, confirms it, removes it and confirms it is gone; a leftover fails the
   node. No template configured → nothing is created (the default).

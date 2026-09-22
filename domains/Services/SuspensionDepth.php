@@ -16,7 +16,8 @@ use Onhost\Providers\Contracts\WebToolsProvider;
  * A suspended service is more than a stopped vhost. The panels switch the web server's answer off and nothing else: the
  * site's cron jobs kept running (a quarantined site went on sending mail from its cron), and its files stayed reachable —
  * and writable — by FTP. A game server's schedules are the same story: the panel stops the server, the schedule rows stay
- * armed, and every slot fires against a server that may not run. Pausing switches all of those off and REMEMBERS which
+ * armed, and every slot fires against a server that may not run. A site's Node.js app is the panel's too, with its own
+ * proxy for the site's domains: stopping the vhost left it answering. Pausing switches all of those off and REMEMBERS which
  * ones it switched off; resuming switches exactly those on again, so a job the customer had turned off themselves stays
  * off (H440: suspension decides what stops, and everything it stopped comes back).
  *
@@ -32,10 +33,10 @@ final class SuspensionDepth
     public const TAG = 'suspension_paused';
 
     /** Everything a suspension switches off, in the order it is switched off. */
-    public const KINDS = ['cron', 'ftp', 'schedule'];
+    public const KINDS = ['cron', 'ftp', 'schedule', 'app'];
 
     /**
-     * @return array{cron:list<string>, ftp:list<string>, schedule:list<string>, errors:list<string>, transient:bool}
+     * @return array{cron:list<string>, ftp:list<string>, schedule:list<string>, app:list<string>, errors:list<string>, transient:bool}
      */
     public function pause(Service $service, object $adapter, ResourceRef $ref): array
     {
@@ -60,7 +61,7 @@ final class SuspensionDepth
     }
 
     /**
-     * @return array{cron:list<string>, ftp:list<string>, schedule:list<string>, errors:list<string>, transient:bool}
+     * @return array{cron:list<string>, ftp:list<string>, schedule:list<string>, app:list<string>, errors:list<string>, transient:bool}
      */
     public function resume(Service $service, object $adapter, ResourceRef $ref): array
     {
@@ -99,11 +100,19 @@ final class SuspensionDepth
         if ($adapter instanceof GameToolsProvider) {
             $out['schedule'] = ['list' => fn () => $adapter->listSchedules($ref), 'set' => fn (string $id, bool $on) => $adapter->setScheduleActive($ref, $id, $on)];
         }
+        if ($adapter instanceof WebToolsProvider) {
+            // a Node.js app of a site is the panel's, not the site's: stopping the vhost left it running and answering for
+            // the site's domains through its own proxy. Its listing says running/stopped; here that is the switch.
+            $out['app'] = [
+                'list' => fn () => array_map(fn (array $p) => $p + ['active' => ($p['state'] ?? '') === 'running'], $adapter->nodeProjects($ref)),
+                'set' => fn (string $id, bool $on) => $adapter->nodeProjectAction($ref, $id, $on ? 'start' : 'stop'),
+            ];
+        }
 
         return $out;
     }
 
-    /** @return array{cron:list<string>, ftp:list<string>, schedule:list<string>} */
+    /** @return array{cron:list<string>, ftp:list<string>, schedule:list<string>, app:list<string>} */
     private function remembered(Service $service): array
     {
         $tags = (array) data_get($service->tags, self::TAG, []);
@@ -115,7 +124,7 @@ final class SuspensionDepth
         return $out;
     }
 
-    /** @param array{cron:list<string>, ftp:list<string>, schedule:list<string>} $paused */
+    /** @param array{cron:list<string>, ftp:list<string>, schedule:list<string>, app:list<string>} $paused */
     private function remember(Service $service, array $paused): void
     {
         $tags = (array) $service->tags;

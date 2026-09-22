@@ -3,8 +3,6 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
-use Onhost\Domain\Provisioning\Models\ProviderInstance;
-use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
 use Onhost\Providers\Contracts\Naming;
@@ -16,16 +14,6 @@ use Onhost\Providers\Shell\ScriptedShell;
  * and the run path, plus the shell wrapper (ExecShell + polled exit/output files) that the terminal, quotas and
  * tool discovery run through. Tenancy: jobs, databases and projects of other sites on the node are never touched.
  */
-
-function aaToolsAdapter(): AaPanelWebProvider
-{
-    $_ENV['AAPANEL_MANAGED01_API_KEY'] = 'aa-key-123';
-    $instance = ProviderInstance::query()->firstOrCreate(['key' => 'aapanel-managed01'], ['provider' => 'aapanel', 'name' => 'aaPanel managed01', 'base_url' => 'https://managed01.mgmt.test:8888', 'secret_ref' => 'env://AAPANEL_MANAGED01', 'state' => 'active', 'capabilities' => ['web'], 'region_code' => 'cz1']);
-    $registry = app(ProviderRegistry::class);
-    $registry->register('aapanel', AaPanelWebProvider::class);
-
-    return $registry->forInstance($instance);
-}
 
 afterEach(fn () => AaPanelWebProvider::$shellFactory = null);
 

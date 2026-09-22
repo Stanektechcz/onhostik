@@ -1461,3 +1461,23 @@ Worth watching on staging: that a job really runs under `<prefix>ag` (the node h
 binaries, which is why the agent user exists at all).
 
 Tests: `tests/Feature/Services/ScheduledCommandTest.php`, `tests/Contract/AaPanelToolsContractTest.php`.
+
+## A site's Node.js app belongs to the panel, not to the site (2026-09-22)
+
+On aaPanel a Node.js project lives under `project/nodejs/*` — a list shared by every site on the node. Three things
+followed from that (H505, H500, H440):
+
+* **Ownership was a bare path prefix.** `nodeProjects()` kept every project whose path started with the site root, so
+  `/www/wwwroot/shop.cz` "owned" the projects of `/www/wwwroot/shop.cz.eu` — and `nodeProjectAction()` checks
+  ownership through that list, so one customer could stop, restart or delete another's app. It is now the root itself
+  or something below its slash.
+* **`DeleteSite` leaves the app behind.** It takes the files and keeps the project: started at every boot
+  (`is_power_on`), its port reserved, the panel still routing the site's domains to that port. The next customer
+  given the same port would receive this customer's traffic, and a running process does not notice its files were
+  deleted — it answers from memory. `AaPanelWebProvider::terminate()` now stops each of the site's apps and then
+  removes it, before the site goes (the listener is released only once it has stopped), and reports `apps_removed`.
+* **A suspended site's app kept answering.** `SiteStop` switches the vhost off; the app has a proxy of its own.
+  `SuspensionDepth` gained the kind `app`: running apps are stopped and remembered, and exactly those are started again
+  on resume — an app the customer had stopped stays stopped. ISPConfig lists no Node.js apps, so it is untouched.
+
+Tests: `tests/Feature/Services/SiteAppsTest.php`.

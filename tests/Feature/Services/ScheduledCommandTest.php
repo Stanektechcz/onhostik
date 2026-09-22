@@ -53,6 +53,9 @@ function cronPanelFake(array &$rows, array &$calls): void
         if (str_contains($path, 'site?action=DeleteSite')) {
             return Http::response(['status' => true, 'msg' => 'deleted']);
         }
+        if (str_contains($path, 'project/nodejs/get_project_list')) {
+            return Http::response(['data' => []]); // no Node.js apps on this site (they are covered by SiteAppsTest)
+        }
 
         return Http::response(['status' => false, 'msg' => "unexpected {$path}"]);
     });

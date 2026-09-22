@@ -171,12 +171,42 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
     public function terminate(ResourceRef $ref): ProviderResult
     {
         $cron = $this->dropCron($ref); // first: the jobs are ours to remove whether the site is still there or not
+        $apps = $this->dropNodeProjects($ref); // and the site's apps, which listen on a port and answer for its domains
         if ($this->getSite((int) $ref->remoteId, isset($ref->meta['name']) ? (string) $ref->meta['name'] : null) === null) {
-            return ProviderResult::completed(null, ['already_deleted' => true, 'cron_removed' => $cron], alreadyExisted: true);
+            return ProviderResult::completed(null, ['already_deleted' => true, 'cron_removed' => $cron, 'apps_removed' => $apps], alreadyExisted: true);
         }
         $this->post('/site?action=DeleteSite', ['id' => (int) $ref->remoteId, 'webname' => $ref->meta['name'] ?? '', 'path' => 1, 'database' => 1, 'ftp' => 1], 'site.delete', true);
 
-        return ProviderResult::completed(null, ['deleted' => true, 'cron_removed' => $cron]);
+        return ProviderResult::completed(null, ['deleted' => true, 'cron_removed' => $cron, 'apps_removed' => $apps]);
+    }
+
+    /**
+     * A site's Node.js apps belong to the panel, not to the site: `DeleteSite` takes the files and leaves the project.
+     * It is started at every boot (`is_power_on`), it keeps its PORT reserved, and the panel keeps routing the domains
+     * it was given to that port — so the next customer whose app is given the same port would receive this customer's
+     * traffic. A running process does not even notice its files were deleted; it goes on answering from memory.
+     *
+     * Stopped first, then removed (H505: the listener is released only once it has stopped). Found by the site root,
+     * so this also cleans up after a site that was deleted in the panel by hand.
+     *
+     * @return int how many apps were removed
+     */
+    private function dropNodeProjects(ResourceRef $ref): int
+    {
+        $removed = 0;
+        foreach ($this->nodeProjects($ref) as $project) {
+            $name = (string) ($project['remote_id'] ?? '');
+            if ($name === '') {
+                continue;
+            }
+            if (($project['state'] ?? '') === 'running') {
+                $this->post('/project/nodejs/stop_project', ['project_name' => $name], 'node.stop', true);
+            }
+            $this->post('/project/nodejs/remove_project', ['project_name' => $name], 'node.delete', true);
+            $removed++;
+        }
+
+        return $removed;
     }
 
     /**

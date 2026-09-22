@@ -24,9 +24,11 @@ use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\OperationService;
+use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Providers\AaPanel\AaPanelWebProvider;
 use Tests\TestCase;
 
 pest()->extend(TestCase::class)
@@ -384,6 +386,21 @@ function subregRegistryFake(array &$state): void
 /* Shared web-hosting fixture: an active web service bound to an aaPanel or ISPConfig instance (WebFeature*Test). */
 const AAP = 'https://managed01.mgmt.test:8888';
 const ISP = 'https://shared01.mgmt.test:8080';
+
+/**
+ * The real aaPanel adapter for the `aapanel-managed01` instance. It lives here and not in the contract test that first
+ * wrote it: three files call it, and a helper in another test file exists only when that file happens to be loaded —
+ * run on its own, a test that borrowed it failed with "Call to undefined function".
+ */
+function aaToolsAdapter(): AaPanelWebProvider
+{
+    $_ENV['AAPANEL_MANAGED01_API_KEY'] = 'aa-key-123';
+    $instance = ProviderInstance::query()->firstOrCreate(['key' => 'aapanel-managed01'], ['provider' => 'aapanel', 'name' => 'aaPanel managed01', 'base_url' => AAP, 'secret_ref' => 'env://AAPANEL_MANAGED01', 'state' => 'active', 'capabilities' => ['web'], 'region_code' => 'cz1']);
+    $registry = app(ProviderRegistry::class);
+    $registry->register('aapanel', AaPanelWebProvider::class);
+
+    return $registry->forInstance($instance);
+}
 
 function featureWebService(Organization $org, string $executor): Service
 {

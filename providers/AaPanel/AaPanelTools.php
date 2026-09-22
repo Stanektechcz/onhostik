@@ -518,9 +518,12 @@ trait AaPanelTools
             if (! is_array($row)) {
                 continue;
             }
-            $path = (string) ($row['path'] ?? ($row['project_cwd'] ?? ''));
-            if (! str_starts_with($path, $root)) {
-                continue; // projects of other sites on the shared node are never listed
+            $path = rtrim((string) ($row['path'] ?? ($row['project_cwd'] ?? '')), '/');
+            // projects of other sites on the shared node are never listed — and "under the site root" means the root itself
+            // or below its SLASH: a bare prefix gave /www/wwwroot/shop.cz the projects of /www/wwwroot/shop.cz.eu, so one
+            // customer could stop, restart or delete another's app, and cancelling the first would have removed the second's
+            if ($path !== $root && ! str_starts_with($path, $root.'/')) {
+                continue;
             }
             $cfg = is_array($row['project_config'] ?? null) ? $row['project_config'] : (is_string($row['project_config'] ?? null) ? (array) json_decode((string) $row['project_config'], true) : []);
             $out[] = ['remote_id' => (string) ($row['name'] ?? ($row['project_name'] ?? '')), 'name' => (string) ($row['name'] ?? ($row['project_name'] ?? '')), 'path' => $path, 'port' => isset($cfg['port']) ? (int) $cfg['port'] : (isset($row['port']) ? (int) $row['port'] : null), 'state' => ! empty($row['run']) || ($row['status'] ?? '') === 'running' ? 'running' : 'stopped', 'version' => $cfg['project_version'] ?? ($row['version'] ?? null), 'domains' => array_values((array) ($cfg['domains'] ?? []))];
