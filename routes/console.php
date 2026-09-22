@@ -739,11 +739,14 @@ Artisan::command('onhost:services:rescue-expire {--limit=50 : how many services 
  */
 Artisan::command('onhost:services:cron-confine {--apply : rewrite them; without it only the list} {--limit=200 : how many services to look at}', function (ServiceService $services, ServiceFeatures $features) {
     $rows = [];
+    $found = 0;
+    $unreadable = 0;
     $web = Service::query()->whereIn('family', ['web', 'managed'])->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED])->orderBy('created_at')->orderBy('id')->limit(max(1, (int) $this->option('limit')))->get();
     foreach ($web as $service) {
         try {
             $jobs = $features->resources($service, 'cron', true);
         } catch (Throwable $e) {
+            $unreadable++; // a panel that did not answer says nothing about its jobs, in either direction
             $rows[] = [$service->name, '—', 'nelze načíst: '.mb_substr($e->getMessage(), 0, 50)];
 
             continue;
@@ -762,11 +765,19 @@ Artisan::command('onhost:services:cron-confine {--apply : rewrite them; without 
                     $status = 'chyba: '.mb_substr($e->getMessage(), 0, 50);
                 }
             }
+            $found++;
             $rows[] = [$service->name, mb_substr((string) $job['command'], 0, 50), $status];
         }
     }
     $this->table(['služba', 'příkaz', 'stav'], $rows);
-    $this->info($rows === [] ? 'Každá plánovaná úloha běží pod uživatelem svého webu.' : count($rows).' úloh(y) běží mimo uživatele webu — spusť s --apply.');
+    $this->info(match (true) {
+        $found > 0 => $found.' úloh(y) běží mimo uživatele webu — spusť s --apply.',
+        $unreadable > 0 => 'Mezi službami, které odpověděly, neběží mimo uživatele svého webu žádná úloha.',
+        default => 'Žádná plánovaná úloha neběží mimo uživatele svého webu.',
+    });
+    if ($unreadable > 0) { // said separately: a service we could not read is not a service we checked
+        $this->warn($unreadable.' služba/služby neodpověděly — o jejich úlohách tenhle výpis neříká nic.');
+    }
 })->purpose('Find scheduled jobs still running as the node\'s root and rewrite them to run as the site user');
 
 Artisan::command('onhost:services:release-stranded {--apply : put them back; without it only the list} {--minutes=15 : how long a transient state must have lasted}', function (ServiceService $services) {
