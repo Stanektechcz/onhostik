@@ -741,7 +741,26 @@ Artisan::command('onhost:services:rescue-expire {--limit=50 : how many services 
  * still fails on; `--accept` puts one into the offer, and only when every required point passes. `--exception` records
  * what is knowingly accepted anyway (H478) — it is written on the node, never hidden.
  */
-Artisan::command('onhost:nodes:qualify {--accept= : the id or name of the node to put into the offer} {--exception= : what is knowingly accepted anyway, and why}', function (NodeQualification $qualification) {
+Artisan::command('onhost:nodes:qualify {--accept= : the id or name of the node to put into the offer} {--exception= : what is knowingly accepted anyway, and why} {--synthetic= : make one throw-away resource on this node and remove it again (H479)}', function (NodeQualification $qualification) {
+    $synthetic = (string) ($this->option('synthetic') ?? '');
+    if ($synthetic !== '') {
+        $node = Node::query()->find($synthetic) ?? Node::query()->where('name', $synthetic)->first();
+        if ($node === null) {
+            $this->error("Uzel {$synthetic} neznám.");
+
+            return 1;
+        }
+        $this->line("Zakládám a zase odstraňuji zkušební zdroj na {$node->name} …");
+        $result = $qualification->synthetic($node, CommandContext::system('cli:nodes:qualify'));
+        $line = sprintf('%s · %s · %d s', $result['status'], $result['detail'], $result['seconds']);
+        match ($result['status']) {
+            'ok' => $this->info($line),
+            'not_configured' => $this->warn($line),
+            default => $this->error($line.($result['leftover'] !== null ? ' — NA UZLU ZŮSTALO: '.$result['leftover'].', odstraňte ho ručně' : '')),
+        };
+
+        return $result['status'] === 'failed' ? 1 : 0;
+    }
     $accept = (string) ($this->option('accept') ?? '');
     if ($accept === '') {
         $waiting = $qualification->waiting();

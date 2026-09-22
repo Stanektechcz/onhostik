@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A node must make and remove one thing before it carries anybody:** `SyntheticService` creates a throw-away
+  resource from the owner's per-role template, confirms it, removes it and confirms it is gone; a leftover fails the
+  node. No template configured → nothing is created (the default).
+
 - **A node nobody has qualified sells nothing:** a discovered or freshly installed node is born `qualifying`; the
   scheduler cannot see it until `NodeQualification::accept()` passes every required point (`onhost:nodes:qualify`).
 

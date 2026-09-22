@@ -117,3 +117,33 @@ Operator: `php artisan onhost:nodes:qualify` lists what is waiting and what each
 already in the offer that have never been qualified at all.
 
 Tests: `tests/Feature/Provisioning/NodeQualificationTest.php`.
+
+### The synthetic service (H479)
+
+A node can pass every point above and still not be able to make the one thing it is there for. The only proof is to
+make one. `SyntheticService::run()`, on exactly this node:
+
+1. `provision()` a throw-away resource — the adapter contract every panel implements — and waits for its task;
+2. `getActualState()` must show it;
+3. `terminate()` it and waits;
+4. `getActualState()` must no longer show it.
+
+The result is `ok` only when it was made **and** removed. A resource that could not be removed fails the node — the
+card is explicit that creating is not enough, and a node that leaves things behind will leave a customer's cancelled
+service behind too. The removal is tried once more in a `finally`; what stays is named (`leftover`), published as
+`node.synthetic.leftover` and listed by `onhost:doctor` ("no synthetic test resource was left on a node").
+
+What is created is what the owner writes down per role in `onhost.provisioning.qualification.synthetic.<role>` —
+the attributes of the smallest thing that role sells, as the adapter reads them (for compute e.g. `template`,
+`cores`, `memory_mb`, `disk_gb`, `storage`). **Nothing is guessed, and the default is empty**: a role without a
+template creates nothing and touches no panel. Configure it on a test range first.
+
+Once a template exists for a role, the synthetic run becomes a **required** point of that role's qualification, and
+only a run from the last seven days counts.
+
+```bash
+php artisan onhost:nodes:qualify --synthetic=<node>
+php artisan onhost:nodes:qualify --accept=<node>
+```
+
+Tests: `tests/Feature/Provisioning/SyntheticServiceTest.php`.

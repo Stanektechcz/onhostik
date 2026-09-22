@@ -282,6 +282,11 @@ return [
         'capacity_forecast' => ['warn_days' => (int) env('ONHOST_CAPACITY_WARN_DAYS', 30), 'node_monthly_minor' => []], // node_monthly_minor: {role: price of one node per month in the budget currency} for the budget forecast (audit §5r-5) // a pool with fewer days left reaches operations (audit §5m-7)
         'capacity_budget' => ['monthly_minor' => (int) env('ONHOST_CAPACITY_BUDGET_MONTHLY_MINOR', 0), 'currency' => env('ONHOST_CAPACITY_BUDGET_CURRENCY', 'EUR')], // the monthly cap on vendor node orders, 0 = none (audit §5q-5)
         'node_bootstrap' => ['callback_base' => env('ONHOST_NODE_BOOTSTRAP_CALLBACK', ''), 'user_data' => env('ONHOST_NODE_BOOTSTRAP_USER_DATA', ''), 'ssh_key' => env('ONHOST_NODE_BOOTSTRAP_SSH_KEY', '')], // cloud-init of a vendor-ordered node and its readiness call-back (audit §5o-7)
+        // what a node must make and remove again before it carries anybody (H479): the attributes of the smallest thing each
+        // role sells, as the adapter reads them — e.g. compute: {template: 9000, cores: 1, memory_mb: 512, disk_gb: 5,
+        // storage: "local-lvm"}. EMPTY on purpose: a role without a template creates nothing, so no panel is touched until
+        // the owner has written one down for a test range. Once written, the synthetic run becomes a required point.
+        'qualification' => ['synthetic' => []],
         'backlog' => ['threshold' => (int) env('ONHOST_QUEUE_BACKLOG_THRESHOLD', 25), 'age_minutes' => (int) env('ONHOST_QUEUE_BACKLOG_AGE_MINUTES', 5)], // operations due for longer than this pile up → platform.queue.backlog (audit §5h-5)
         'autoscale' => ['enabled' => (bool) env('ONHOST_QUEUE_AUTOSCALE', false), 'max_helpers' => (int) env('ONHOST_QUEUE_MAX_HELPERS', 3), 'cooldown_minutes' => (int) env('ONHOST_QUEUE_COOLDOWN_MINUTES', 15), 'max_time_seconds' => (int) env('ONHOST_QUEUE_MAX_TIME', 900)], // helper workers started on the backlog gauge (audit §5i-3)
         'console_token_ttl_seconds' => (int) env('ONHOST_CONSOLE_TOKEN_TTL', 120),

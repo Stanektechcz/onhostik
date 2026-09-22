@@ -173,6 +173,11 @@ final class Doctor extends Command
         $waiting = Node::query()->where('state', Node::QUALIFYING)->count();
         $this->add('capacity', 'no node is waiting to be qualified', $waiting === 0,
             $waiting === 0 ? 'none waiting' : $waiting.' node(s) discovered and not yet in the offer — php artisan onhost:nodes:qualify', false);
+        // something made for a test and not removed is on a node on nobody's bill (H479)
+        $leftovers = Node::query()->whereNotNull('qualification->synthetic->leftover')->get(['name', 'qualification'])
+            ->map(fn (Node $n) => $n->name.': '.(string) data_get($n->qualification, 'synthetic.leftover'))->all();
+        $this->add('capacity', 'no synthetic test resource was left on a node', $leftovers === [],
+            $leftovers === [] ? 'none' : implode(', ', array_slice($leftovers, 0, 5)).' — remove by hand, then run the synthetic check again');
         $unqualified = Node::query()->where('state', Node::ACTIVE)->whereNull('qualified_at')->count();
         $this->add('capacity', 'every node in the offer has been qualified', $unqualified === 0,
             $unqualified === 0 ? 'all of them' : $unqualified.' node(s) carry customers without a qualification on record — onhost:nodes:qualify --accept=<node>', false);

@@ -45,7 +45,39 @@ final class NodeQualification
     /** How much of a node's disk must be free before anything new is put on it. */
     public const DISK_HEADROOM_PCT = 15.0;
 
-    public function __construct(private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox) {}
+    /** A synthetic run older than this proves little about the node as it is now. */
+    public const SYNTHETIC_DAYS = 7;
+
+    public function __construct(private readonly AuditRecorder $audit, private readonly OutboxPublisher $outbox, private readonly SyntheticService $synthetic) {}
+
+    /**
+     * The points that must pass for this node. The synthetic service joins them the moment the owner has configured a
+     * template for the node's role: once it CAN be tested, it has to be (H479).
+     *
+     * @return list<string>
+     */
+    public function required(Node $node): array
+    {
+        return $this->synthetic->template($node) === null ? self::REQUIRED : [...self::REQUIRED, 'synthetic'];
+    }
+
+    /**
+     * Make one throw-away resource on the node and remove it again (H479), and keep what happened on the node.
+     *
+     * @return array{status:string, detail:string, created:?string, removed:bool, leftover:?string, seconds:int, at:string}
+     */
+    public function synthetic(Node $node, CommandContext $context): array
+    {
+        $result = $this->synthetic->run($node);
+        $node->forceFill(['qualification' => array_merge((array) ($node->qualification ?? []), ['synthetic' => $result])])->save();
+        $this->audit->record($context, 'provisioning.node.synthetic', $result['status'] === 'ok' ? 'succeeded' : 'failed',
+            ['node' => $node->name, 'status' => $result['status'], 'leftover' => $result['leftover']], 'node', $node->id);
+        if ($result['leftover'] !== null) { // something made for a test is still on a node: somebody has to remove it by hand
+            $this->outbox->publish(GenericEvent::of('node.synthetic.leftover', 'node', $node->id, ['name' => $node->name, 'leftover' => $result['leftover'], 'detail' => $result['detail']]));
+        }
+
+        return $result;
+    }
 
     /**
      * Look at a node and write down what was found. Nothing is accepted here — this only establishes the facts.
@@ -99,11 +131,38 @@ final class NodeQualification
         $points['resolver'] = $open('name resolution from the node itself is not read from here yet (H473)');
         $points['egress'] = $open('outbound reach from the node itself is not read from here yet (H474)');
         $points['management'] = $open('how the management interface is exposed is not read from here yet (H480)');
-        $points['synthetic'] = $open('no service has been created and removed on this node yet (H479)');
+        $points['synthetic'] = $this->syntheticPoint($node, $ok, $bad, $open);
 
-        $failed = array_values(array_filter(self::REQUIRED, fn (string $key) => $points[$key]['status'] !== 'ok'));
+        $failed = array_values(array_filter($this->required($node), fn (string $key) => $points[$key]['status'] !== 'ok'));
 
         return ['checked_at' => now()->toIso8601String(), 'points' => $points, 'passed' => $failed === [], 'failed' => $failed];
+    }
+
+    /**
+     * What the last synthetic run says about the node — and only a recent, complete one counts: made AND removed.
+     *
+     * @param  callable(string):array{status:string, detail:string}  $ok
+     * @param  callable(string):array{status:string, detail:string}  $bad
+     * @param  callable(string):array{status:string, detail:string}  $open
+     * @return array{status:string, detail:string}
+     */
+    private function syntheticPoint(Node $node, callable $ok, callable $bad, callable $open): array
+    {
+        if ($this->synthetic->template($node) === null) {
+            return $open("no synthetic template is configured for the role {$node->role}, so nothing has been made on this node (H479)");
+        }
+        $last = (array) data_get($node->qualification, 'synthetic', []);
+        $at = (string) ($last['at'] ?? '');
+        if ($last === [] || $at === '') {
+            return $bad('no service has been made and removed on this node yet — onhost:nodes:qualify --synthetic='.$node->name);
+        }
+        if (Carbon::parse($at)->lessThan(now()->subDays(self::SYNTHETIC_DAYS))) {
+            return $bad('the last synthetic run is older than '.self::SYNTHETIC_DAYS.' days; run it again');
+        }
+
+        return ($last['status'] ?? '') === 'ok' && ($last['removed'] ?? false) === true
+            ? $ok((string) ($last['detail'] ?? 'made and removed'))
+            : $bad((string) ($last['detail'] ?? 'the last synthetic run did not complete'));
     }
 
     /** Look at the node and keep the answer on it. */
@@ -134,7 +193,8 @@ final class NodeQualification
         }
         $node->forceFill([
             'state' => Node::ACTIVE, 'qualified_at' => now(),
-            'qualification' => array_merge($report, ['accepted_by' => $context->actorId, 'accepted_at' => now()->toIso8601String(), 'exception' => $exception === null ? null : mb_substr($exception, 0, 250)]),
+            // merged, not replaced: the synthetic run and anything else recorded on the node is part of the handover
+            'qualification' => array_merge((array) ($node->refresh()->qualification ?? []), $report, ['accepted_by' => $context->actorId, 'accepted_at' => now()->toIso8601String(), 'exception' => $exception === null ? null : mb_substr($exception, 0, 250)]),
         ])->save();
         $this->audit->record($context, 'provisioning.node.accept', 'succeeded', ['node' => $node->name, 'exception' => $exception], 'node', $node->id);
         $this->outbox->publish(GenericEvent::of('node.qualified', 'node', $node->id, [

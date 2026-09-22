@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 712145d | 2026-09-22 | A node nobody has qualified sells nothing (H471) |
+| d49a8ab | 2026-09-22 | A promised restore test is really made (H458) |
 | a05bf88 | 2026-09-22 | A service that did not answer is not a service that was checked |
 | 046e995 | 2026-09-22 | Audit row 48: the nightly six-hour test flake and how it was found |
 | 6904cb0 | 2026-09-22 | A dunning case is due at six, so the test waits until seven |
@@ -12,5 +14,3 @@
 | f246399 | 2026-09-22 | A schedule that keeps failing stops itself (H447) |
 | 47edcea | 2026-09-22 | A suspended game server's schedules are disarmed too (H440) |
 | ac18f18 | 2026-09-22 | A scheduled command is not a root shell (H438, H441) |
-| 5b1453b | 2026-09-21 | A missed backup slot is not silent |
-| 2cc1a1f | 2026-09-21 | A destructive action is previewed, and a stale confirmation is refused |
