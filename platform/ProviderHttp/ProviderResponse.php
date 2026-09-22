@@ -6,13 +6,17 @@ namespace Onhost\Platform\ProviderHttp;
 
 final class ProviderResponse
 {
-    /** @param array<string, list<string>> $headers */
+    /**
+     * @param  array<string, list<string>>  $headers
+     * @param  string  $reason  the text of the HTTP status line — Proxmox says there why it refused, its body is only `{"data":null}`
+     */
     public function __construct(
         public readonly int $status,
         public readonly string $rawBody,
         public readonly array $headers,
         public readonly int $durationMs,
         public readonly string $callId,
+        public readonly string $reason = '',
     ) {}
 
     /** Decoded JSON body or null when the body is not JSON. */

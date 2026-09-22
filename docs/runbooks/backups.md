@@ -298,7 +298,8 @@ Now `prune()` removes the provider's copy first, through `Providers\Contracts\Ex
   from the provider too".
 * A legal hold still stops everything, as before.
 
-Still open: `reserveVmid()` takes the lowest free VMID, so the number of a purged VPS is given to the next one — whose
-backups then land in the same PBS group `vm/<vmid>` as whatever is left of the previous customer's.
+The number of a purged VPS is not given again (since 2026-09-22): `VmidReservations` keeps every new VM above every
+number the platform ever held or bound on the cluster and skips numbers the backup storage holds backups of, so no
+successor's backups land in the PBS group `vm/<vmid>` of a predecessor (docs/provider-adapters/proxmox.md).
 
 Tests: `tests/Feature/Services/ArchiveExpiryTest.php`.

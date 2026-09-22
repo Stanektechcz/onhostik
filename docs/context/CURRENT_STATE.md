@@ -91,6 +91,11 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **The number of a new VM is never one the platform gave before:** `VmidReservations` holds it per cluster
+  (`vmid_reservations`), above every number ever held or bound, skipping live guests and numbers with backups; a lost
+  clone answer waits for its own clone. Proxmox refusals are read from the HTTP status line; a guest is missing only
+  when the whole cluster says so.
+
 - **An expired VPS archive is gone from the backup server too:** `FinalArchive::prune()` removes the protected backup at
   the provider (`ExpiringBackups`) before it marks the archive expired; until then the archive stays `completed`.
 

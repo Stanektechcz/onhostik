@@ -6,13 +6,24 @@ namespace Onhost\Providers\Contracts;
 
 interface ComputeProvider extends BackupCapable, ConsoleCapable, InfrastructureProvider, PowerCapable
 {
+    /**
+     * Context key of the exception `provision()` throws when the number in the spec (`vmid`) belongs to something that is not
+     * this service's: the caller takes another number and does not try this one again.
+     */
+    public const VMID_TAKEN = 'vmid_taken';
+
     /** @return list<array{node:string,status:string,cpu:float|null,maxcpu:int|null,mem:int|null,maxmem:int|null,disk:int|null,maxdisk:int|null,uptime:int|null}> */
     public function clusterNodes(): array;
 
     /** @return list<array<string,mixed>> guests visible to the token (vmid, node, name, status, cpus, maxmem, maxdisk, tags) */
     public function listGuests(): array;
 
-    public function reserveVmid(): int;
+    /**
+     * A number for a new guest, never below `$atLeast` (the caller's own high-water mark): the lowest one at or above every
+     * floor that no guest has — VM, container or template — and no backup on the backup storage carries, confirmed free at
+     * the time of asking. Not reserved: two callers may be handed the same number, so the platform holds it on its own side.
+     */
+    public function reserveVmid(int $atLeast = 0): int;
 
     public function snapshot(ResourceRef $vm, string $name, ?string $description = null): ProviderResult;
 

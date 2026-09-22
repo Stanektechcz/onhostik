@@ -34,6 +34,7 @@ use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\PlanPlacement;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
+use Onhost\Domain\Provisioning\Models\VmidReservation;
 use Onhost\Domain\Provisioning\OperationLatency;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderInstanceService;
@@ -185,6 +186,11 @@ final class Doctor extends Command
         $unqualified = Node::query()->where('state', Node::ACTIVE)->whereNull('qualified_at')->count();
         $this->add('capacity', 'every node in the offer has been qualified', $unqualified === 0,
             $unqualified === 0 ? 'all of them' : $unqualified.' node(s) carry customers without a qualification on record — onhost:nodes:qualify --accept=<node>', false);
+        // a number somebody took at Proxmox before the platform's clone arrived: VMs are being made by hand inside the range the
+        // platform gives out (H488) — every such collision costs an order a retry
+        $burned = VmidReservation::query()->whereNotNull('burned_at')->where('burned_at', '>', now()->subDays(30))->count();
+        $this->add('capacity', 'guest numbers are the platform\'s own', $burned === 0,
+            $burned === 0 ? 'no number taken from under an order in 30 days' : $burned.' number(s) taken at Proxmox before the clone arrived in 30 days — VMs made by hand in the platform\'s range; raise vmid_min or number them elsewhere (docs/provider-adapters/proxmox.md)', false);
 
         // the plan sells a restore test; a service that has never had one has a promise nobody kept (H458)
         $promised = BackupPolicy::query()->whereNotNull('restore_test')->pluck('service_id')->all();

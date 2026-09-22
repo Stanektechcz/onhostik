@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use GuzzleHttp\Promise\Create;
+use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -146,8 +148,9 @@ it('brings a cancelled service back inside the restore window and calls the remo
 
 it('still finishes a cancellation when the resource is already gone from the panel (audit §5ab)', function () {
     Http::fake([
-        PVE.'/nodes/prg1-n2/qemu/1042/status/current' => Http::response(['data' => null, 'errors' => ['vmid' => 'no such VM']], 404), // the VM is not there any more
-        PVE.'/nodes/prg1-n2/qemu/1042/config' => Http::response(['data' => null], 404),
+        // the VM is not there any more: Proxmox has no 404 for a guest, it names the missing configuration file in its status line
+        PVE.'/nodes/prg1-n2/qemu/1042/*' => Create::promiseFor(new Psr7Response(500, ['Content-Type' => 'application/json'], '{"data":null}', '1.1', "Configuration file 'nodes/prg1-n2/qemu-server/1042.conf' does not exist")),
+        PVE.'/cluster/resources*' => Http::response(['data' => []]), // and it is on no other node of the cluster either
         PVE.'/nodes/prg1-n2/tasks/*/status' => Http::response(['data' => ['status' => 'stopped', 'exitstatus' => 'OK']]),
     ]);
     [$user, $org] = $this->customerWithOrganization();

@@ -35,6 +35,9 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
     /** The drive a rescue image is attached to; never used for anything else, so detaching it can never take a disk away. */
     private const RESCUE_DRIVE = 'ide2';
 
+    /** The highest number Proxmox accepts for a guest. */
+    private const VMID_CEILING = 999_999_999;
+
     private readonly ProxmoxConnector $api;
 
     public function __construct(
@@ -116,9 +119,77 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
         ], array_filter((array) $this->api->get('/cluster/resources', ['type' => 'vm'], 'resources'), fn ($g) => ($g['type'] ?? '') === 'qemu')));
     }
 
-    public function reserveVmid(): int
+    /**
+     * Proxmox's own `/cluster/nextid` hands out the LOWEST free number, so the number of a VPS that was just purged went to
+     * the next order: its binding collided with the cancelled service's, and its backups would have joined the group
+     * `vm/<number>` on the backup server that still holds the predecessor's protected final archive. The number is the
+     * lowest one at or above every floor — the caller's, the instance option `vmid_min`, the cluster's own `next-id` range —
+     * that no guest has and no backup on the backup storage carries; Proxmox confirms it free at the time of asking.
+     */
+    public function reserveVmid(int $atLeast = 0): int
     {
-        return (int) $this->api->get('/cluster/nextid', [], 'nextid', true);
+        $ceiling = min(self::VMID_CEILING, (int) $this->instance->option('vmid_max', self::VMID_CEILING));
+        $vmid = max($atLeast, (int) $this->instance->option('vmid_min', 100), (int) $this->api->get('/cluster/nextid', [], 'nextid', true));
+        $taken = $this->takenVmids();
+        for ($tries = 0; $tries < 10; $tries++, $vmid++) {
+            while (isset($taken[$vmid])) {
+                $vmid++;
+            }
+            if ($vmid > $ceiling) {
+                throw new ProviderException('proxmox', ProviderErrorCode::CAPACITY, "The VMID range of {$this->instance->key} is used up: the next number would be {$vmid}, the instance option vmid_max is {$ceiling}");
+            }
+            try {
+                $this->api->get('/cluster/nextid', ['vmid' => $vmid], 'nextid.check', true); // refused (HTTP 400) when the number exists
+
+                return $vmid;
+            } catch (ProviderException $e) {
+                if ($e->errorCode !== ProviderErrorCode::VALIDATION) {
+                    throw $e;
+                }
+            }
+        }
+
+        throw new ProviderException('proxmox', ProviderErrorCode::TRANSIENT, "No free VMID at or above {$atLeast} after ten tries", retryAfterSeconds: 10);
+    }
+
+    /** @return list<array{vmid:int, type:string, node:string}> every guest of the cluster: VMs, containers and templates */
+    private function clusterGuests(): array
+    {
+        $guests = [];
+        foreach ((array) $this->api->get('/cluster/resources', ['type' => 'vm'], 'resources') as $guest) {
+            if ((int) ($guest['vmid'] ?? 0) > 0) {
+                $guests[] = ['vmid' => (int) $guest['vmid'], 'type' => (string) ($guest['type'] ?? ''), 'node' => (string) ($guest['node'] ?? '')];
+            }
+        }
+
+        return $guests;
+    }
+
+    /** @return array<int,true> the number of every guest, and every number the backup storage holds backups of */
+    private function takenVmids(): array
+    {
+        $taken = array_fill_keys(array_column($this->clusterGuests(), 'vmid'), true);
+        $storage = (string) $this->instance->option('backup_storage', '');
+        $node = (string) $this->instance->option('default_node', '');
+        if ($storage === '' || $node === '') {
+            return $taken;
+        }
+        try {
+            foreach ((array) $this->api->get("/nodes/{$node}/storage/{$storage}/content", ['content' => 'backup'], 'backup.list') as $backup) {
+                $id = (int) ($backup['vmid'] ?? 0);
+                if ($id <= 0 && preg_match('~(?:backup/(?:vm|ct)/|vzdump-(?:qemu|lxc)-)(\d+)~', (string) ($backup['volid'] ?? ''), $m) === 1) {
+                    $id = (int) $m[1];
+                }
+                if ($id > 0) {
+                    $taken[$id] = true;
+                }
+            }
+        } catch (ProviderException) {
+            // an unreachable backup server does not stop an order: every number this platform ever gave is below the caller's
+            // floor anyway, what the listing adds are guests made by hand and deleted since (the failed call is in provider_calls)
+        }
+
+        return $taken;
     }
 
     public function provision(ResourceSpec $spec): ProviderResult
@@ -141,7 +212,16 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
         if ($templateVmid <= 0) {
             throw new ProviderException('proxmox', ProviderErrorCode::VALIDATION, "No golden template configured for image {$image}");
         }
-        $vmid = (int) ($spec->get('vmid') ?: $this->reserveVmid());
+        $vmid = (int) $spec->get('vmid');
+        if ($vmid > 0) {
+            // the number the platform holds for this operation (VmidReservations) — an earlier attempt may have cloned into it already
+            $ours = $this->holderOf($vmid, $spec);
+            if ($ours !== null) {
+                return ProviderResult::completed(new ResourceRef('qemu', (string) $vmid, $ours['node'], ['name' => $ours['name']], $spec->serviceId), $ours, alreadyExisted: true);
+            }
+        } else {
+            $vmid = $this->reserveVmid();
+        }
         $params = array_filter([
             'newid' => $vmid,
             'name' => $this->safeName((string) $spec->get('hostname', $spec->serviceId)),
@@ -152,7 +232,14 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
             'description' => self::cloneMarker($spec),
         ], fn ($v) => $v !== null && $v !== '');
         $templateNode = (string) ($templates[$image.'_node'] ?? $this->instance->option('template_node', $node));
-        $upid = $this->api->post("/nodes/{$templateNode}/qemu/{$templateVmid}/clone", $params, 'qemu.clone', true);
+        try {
+            $upid = $this->api->post("/nodes/{$templateNode}/qemu/{$templateVmid}/clone", $params, 'qemu.clone', true);
+        } catch (ProviderException $e) {
+            if ($e->errorCode === ProviderErrorCode::CONFLICT) { // "unable to create VM …: config file already exists" — somebody took it since it was checked
+                throw self::numberTaken($vmid, 'was taken at Proxmox a moment before the clone ('.mb_substr($e->getMessage(), 0, 160).')');
+            }
+            throw $e;
+        }
 
         return ProviderResult::accepted(
             new AsyncHandle('pve_task', (string) $upid, $templateNode, ['vmid' => $vmid, 'target_node' => $node], 5, 1800),
@@ -229,14 +316,26 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
 
     public function getActualState(ResourceRef $vm): ActualState
     {
+        $movedTo = null;
         try {
             $status = $this->api->get("/nodes/{$vm->node}/qemu/{$vm->remoteId}/status/current", [], 'qemu.status');
             $config = $this->api->get("/nodes/{$vm->node}/qemu/{$vm->remoteId}/config", [], 'qemu.config.get');
         } catch (ProviderException $e) {
-            if ($e->errorCode === ProviderErrorCode::NOT_FOUND) {
+            if ($e->errorCode !== ProviderErrorCode::NOT_FOUND) {
+                throw $e;
+            }
+            // Proxmox answers for a guest only on the node that holds it: a VM moved by HA or by hand looks exactly like a deleted
+            // one from its old node. Missing means missing from the whole cluster — a cancellation that took a moved VM for gone
+            // would leave it running and give its address to somebody else
+            $movedTo = collect($this->clusterGuests())->first(fn (array $g) => $g['vmid'] === (int) $vm->remoteId && $g['type'] === 'qemu')['node'] ?? null;
+            if ($movedTo === null) {
                 return ActualState::missing();
             }
-            throw $e;
+            if ($movedTo === $vm->node) {
+                throw $e; // the cluster lists it right where it was asked for: an answer of the moment, not a verdict
+            }
+            $status = $this->api->get("/nodes/{$movedTo}/qemu/{$vm->remoteId}/status/current", [], 'qemu.status');
+            $config = $this->api->get("/nodes/{$movedTo}/qemu/{$vm->remoteId}/config", [], 'qemu.config.get');
         }
         $diskSpec = (string) ($config[(string) $this->instance->option('os_disk', 'scsi0')] ?? '');
         preg_match('/size=(\d+)([MGT])/', $diskSpec, $m);
@@ -256,7 +355,7 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
             'uptime' => (int) ($status['uptime'] ?? 0),
             'status' => (string) ($status['status'] ?? 'unknown'),
             'ha' => $status['ha'] ?? null,
-        ], (string) ($status['status'] ?? 'unknown'), now()->toISOString());
+        ] + ($movedTo === null ? [] : ['node' => $movedTo]), (string) ($status['status'] ?? 'unknown'), now()->toISOString()); // a VM found on another node says where: the identity check will not delete it on the strength of a stale binding
     }
 
     public function reconcile(ResourceSpec $spec, ActualState $actual): ActionPlan
@@ -679,7 +778,6 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
     private function findByCloneMarker(ResourceSpec $spec): ?array
     {
         $name = $this->safeName((string) $spec->get('hostname', $spec->serviceId));
-        $needle = "ONhost service {$spec->serviceId}";
         foreach ($this->listGuests() as $guest) {
             if ($guest['template'] === 1 || $guest['name'] !== $name) {
                 continue;
@@ -692,13 +790,69 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
                 }
                 throw $e;
             }
-            $description = rawurldecode((string) ($config['description'] ?? ''));
-            if (str_starts_with($description, $needle) && (strlen($description) === strlen($needle) || $description[strlen($needle)] === ' ')) {
+            if (self::carriesMarker($config, $spec)) {
                 return ['vmid' => $guest['vmid'], 'node' => $guest['node'], 'name' => $guest['name'], 'lock' => (string) ($config['lock'] ?? '')];
             }
         }
 
         return null;
+    }
+
+    /**
+     * Who holds the number this operation reserved. Null when nobody does; the guest when it is this service's own clone from
+     * an earlier attempt whose answer was lost. While its first disk is still being copied, such a clone has only Proxmox's
+     * temporary config (`lock: clone`, no name, no description) — nothing recognised it, and a retry cloned a second VM next
+     * to it (H38): now the operation waits for it. Anything else under the number is somebody else's.
+     *
+     * @return array{vmid:int, node:string, name:string, lock:string}|null
+     */
+    private function holderOf(int $vmid, ResourceSpec $spec): ?array
+    {
+        $guest = collect($this->clusterGuests())->firstWhere('vmid', $vmid);
+        if ($guest === null) {
+            return null;
+        }
+        if ($guest['type'] === 'qemu') {
+            try {
+                $config = (array) $this->api->get("/nodes/{$guest['node']}/qemu/{$vmid}/config", [], 'qemu.config.get');
+            } catch (ProviderException $e) {
+                if ($e->errorCode === ProviderErrorCode::NOT_FOUND) {
+                    return null; // gone since the list was read
+                }
+                throw $e;
+            }
+            $lock = (string) ($config['lock'] ?? '');
+            if ($lock === 'clone' && ! isset($config['name']) && ! isset($config['description'])) {
+                throw new ProviderException('proxmox', ProviderErrorCode::TRANSIENT, "The clone into VMID {$vmid}, the number this operation holds, is still copying its disk; waiting for it rather than making a second VM", retryAfterSeconds: 30);
+            }
+            if (self::carriesMarker($config, $spec)) {
+                if ($lock !== '') {
+                    throw new ProviderException('proxmox', ProviderErrorCode::TRANSIENT, "Guest {$vmid} of this service is still locked ({$lock}) by an earlier attempt", retryAfterSeconds: 30);
+                }
+
+                return ['vmid' => $vmid, 'node' => $guest['node'], 'name' => (string) ($config['name'] ?? ''), 'lock' => ''];
+            }
+        }
+
+        throw self::numberTaken($vmid, 'is in use by a guest that is not this service\'s');
+    }
+
+    private static function numberTaken(int $vmid, string $why): ProviderException
+    {
+        return new ProviderException('proxmox', ProviderErrorCode::CONFLICT, "VMID {$vmid} {$why}; the platform takes another number", context: [ComputeProvider::VMID_TAKEN => $vmid]);
+    }
+
+    /**
+     * Whether a guest carries the description a clone of this service is given (`cloneMarker`).
+     *
+     * @param  array<string,mixed>  $config
+     */
+    private static function carriesMarker(array $config, ResourceSpec $spec): bool
+    {
+        $description = rawurldecode((string) ($config['description'] ?? ''));
+        $needle = "ONhost service {$spec->serviceId}";
+
+        return str_starts_with($description, $needle) && (strlen($description) === strlen($needle) || $description[strlen($needle)] === ' ');
     }
 
     /** Tags are added to what the guest has, never taken away: `onhost`, the service, and the idempotency tag of the first writer. */

@@ -28,7 +28,8 @@ beforeEach(function () {
 it('provisions a VPS end-to-end: placement, IPAM, clone, sizing, cloud-init, firewall, start, verify, ACTIVE', function () {
     Http::fake([
         PVE.'/cluster/resources*' => Http::response(['data' => []]),
-        PVE.'/cluster/nextid' => Http::response(['data' => '1042']),
+        PVE.'/cluster/nextid*' => Http::response(['data' => '1042']), // the lowest free number, and the same answer when asked whether 1042 is free
+        PVE.'/nodes/prg1-n2/storage/pbs-cz1/content*' => Http::response(['data' => []]), // no backup holds a number yet
         PVE.'/nodes/prg1-n2/qemu/9001/clone' => Http::response(['data' => 'UPID:prg1-n2:000A1B2C:0004E1F5:66F0AA11:qmclone:9001:onhost@pve!cp:']),
         PVE.'/nodes/prg1-n2/tasks/*/status' => Http::sequence()->push(['data' => ['status' => 'running']])->whenEmpty(Http::response(['data' => ['status' => 'stopped', 'exitstatus' => 'OK']])),
         PVE.'/nodes/prg1-n2/qemu/1042/config' => fn (Request $r) => $r->method() === 'GET' ? Http::response(pveVmConfig()) : Http::response(['data' => null]),

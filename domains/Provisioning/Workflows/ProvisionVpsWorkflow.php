@@ -7,6 +7,7 @@ namespace Onhost\Domain\Provisioning\Workflows;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Models\IpAddress;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Provisioning\VmidReservations;
 use Onhost\Domain\Provisioning\Workflow\StepContext;
 use Onhost\Domain\Provisioning\Workflow\StepResult;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
@@ -15,6 +16,7 @@ use Onhost\Domain\Provisioning\Workflows\Steps\ScheduleNodeStep;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\VirtualMachine;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\Contracts\ComputeProvider;
 use Onhost\Providers\Contracts\InfrastructureProvider;
 use Onhost\Providers\Contracts\PowerCapable;
@@ -51,11 +53,29 @@ final class ProvisionVpsWorkflow implements Workflow
                 {
                     $service = $this->service($context);
                     $infra = $this->capability($context, InfrastructureProvider::class);
-                    $spec = $context->spec('vm', [
-                        'hostname' => $context->desired('hostname', $service->hostname ?? $service->id), 'image' => $context->desired('image', 'debian-13'),
-                        'tags' => ['onhost', $service->id, (string) $service->organization_id, 'sla-'.$service->sla_class],
-                    ]);
-                    $result = $infra->provision($spec);
+                    $adapter = $context->adapter();
+                    $numbers = $context->container->make(VmidReservations::class);
+                    for ($attempt = 1; ; $attempt++) {
+                        // a number held for this operation, above every number this platform ever gave on the cluster (VmidReservations)
+                        $vmid = $adapter instanceof ComputeProvider ? $numbers->hold($context->instance(), $adapter, $service->id, $context->operation->id) : null;
+                        $spec = $context->spec('vm', array_filter([
+                            'hostname' => $context->desired('hostname', $service->hostname ?? $service->id), 'image' => $context->desired('image', 'debian-13'),
+                            'tags' => ['onhost', $service->id, (string) $service->organization_id, 'sla-'.$service->sla_class], 'vmid' => $vmid,
+                        ], fn ($value) => $value !== null));
+                        try {
+                            $result = $infra->provision($spec);
+                            break;
+                        } catch (ProviderException $e) {
+                            $taken = (int) ($e->context[ComputeProvider::VMID_TAKEN] ?? 0);
+                            if ($taken <= 0) {
+                                throw $e;
+                            }
+                            $numbers->burn($context->instance(), $taken, $e->getMessage()); // somebody else's now; the next round holds another number
+                            if ($attempt >= 3) {
+                                return StepResult::fail('three numbers in a row were taken at Proxmox before the clone arrived; trying again shortly', true, ['vmid_taken' => $taken], 60);
+                            }
+                        }
+                    }
                     if ($result->ref !== null) {
                         $context->bind($context->instance(), 'qemu', $result->ref->remoteId, $result->ref->node, $result->ref->meta, ['managed_by' => 'onhost']);
                     }

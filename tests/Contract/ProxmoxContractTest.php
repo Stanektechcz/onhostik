@@ -38,7 +38,8 @@ function pveAdapter(): ProxmoxComputeProvider
 it('clones a template, awaits the UPID and reports success only when exitstatus is OK', function () {
     Http::fake([
         'pve.mgmt.test:8006/api2/json/cluster/resources*' => Http::response(['data' => [['type' => 'qemu', 'vmid' => 100, 'node' => 'prg1-n2', 'name' => 'other', 'tags' => 'onhost;srv-x;idem-000000000000', 'status' => 'running']]]),
-        'pve.mgmt.test:8006/api2/json/cluster/nextid' => Http::response(['data' => '1042']),
+        'pve.mgmt.test:8006/api2/json/cluster/nextid*' => Http::response(['data' => '1042']),
+        'pve.mgmt.test:8006/api2/json/nodes/prg1-n2/storage/pbs-cz1/content*' => Http::response(['data' => []]),
         'pve.mgmt.test:8006/api2/json/nodes/prg1-n2/qemu/9001/clone' => Http::response(['data' => 'UPID:prg1-n2:000A1B2C:0004E1F5:66F0AA11:qmclone:9001:onhost@pve!cp:']),
         'pve.mgmt.test:8006/api2/json/nodes/prg1-n2/tasks/*/status' => Http::sequence()
             ->push(['data' => ['status' => 'running']])

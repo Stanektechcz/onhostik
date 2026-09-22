@@ -96,13 +96,24 @@ final class ProxmoxConnector
             throw new ProviderException('proxmox', ProviderErrorCode::RATE_LIMIT, 'Proxmox rate limited', '429', retryAfterSeconds: $response->retryAfterSeconds() ?? 10);
         }
         if ($response->status >= 500) {
-            $message = is_array($json) ? (string) ($json['message'] ?? $json['errors'] ?? 'server error') : 'server error';
-            $code = str_contains(strtolower($message), 'already exists') || str_contains(strtolower($message), 'lock') ? ProviderErrorCode::CONFLICT : ProviderErrorCode::TRANSIENT;
-            throw new ProviderException('proxmox', $code, "Proxmox {$action} failed: {$message}", (string) $response->status);
+            // Proxmox names the reason of a refusal in the HTTP status line and answers `{"data":null}`. Read from the body alone,
+            // every refusal was "server error": a number somebody else holds could not be told from a VM that is busy, nor a VM
+            // that is gone — Proxmox has no 404 for a guest, it says its configuration file does not exist
+            $message = self::said($json, $response->reason);
+            $lower = strtolower($message);
+            $code = match (true) {
+                str_contains($lower, 'already exists') => ProviderErrorCode::CONFLICT,
+                (str_contains($lower, 'configuration file') && str_contains($lower, 'does not exist')) || str_contains($lower, 'no such vm')
+                    || str_contains($lower, 'no such machine') || str_contains($lower, 'unable to find configuration file') => ProviderErrorCode::NOT_FOUND,
+                default => ProviderErrorCode::TRANSIENT, // a guest locked by a running task (backup, clone, migration) is the usual one: it passes
+            };
+            $locked = str_contains($lower, 'locked') || str_contains($lower, "can't lock");
+            throw new ProviderException('proxmox', $code, "Proxmox {$action} failed: {$message}", (string) $response->status, retryAfterSeconds: $locked ? 15 : null);
         }
         if ($response->status >= 400) {
             $errors = is_array($json) ? ($json['errors'] ?? $json['message'] ?? null) : null;
-            throw new ProviderException('proxmox', ProviderErrorCode::VALIDATION, "Proxmox {$action} rejected: ".json_encode($errors), (string) $response->status, ['errors' => $errors]);
+            $reason = $errors === null && $response->reason !== '' ? ' ('.$response->reason.')' : '';
+            throw new ProviderException('proxmox', ProviderErrorCode::VALIDATION, "Proxmox {$action} rejected: ".json_encode($errors).$reason, (string) $response->status, ['errors' => $errors]);
         }
         if (! is_array($json) || ! array_key_exists('data', $json)) {
             throw new ProviderException('proxmox', ProviderErrorCode::PROVIDER_BUG, "Proxmox {$action} returned no data envelope", (string) $response->status);
@@ -110,5 +121,17 @@ final class ProxmoxConnector
         $this->http->recordSuccess($this->instance->key);
 
         return $json['data'];
+    }
+
+    /** What Proxmox said about a refusal: the body's message when it carries one, else the text of the status line. */
+    private static function said(mixed $json, string $statusLine): string
+    {
+        $said = is_array($json) ? ($json['message'] ?? $json['errors'] ?? null) : null;
+        $said = is_array($said) ? (string) json_encode($said, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : (is_scalar($said) ? trim((string) $said) : '');
+        if ($said === '') {
+            $said = $statusLine !== '' ? $statusLine : 'server error';
+        }
+
+        return mb_substr($said, 0, 300);
     }
 }

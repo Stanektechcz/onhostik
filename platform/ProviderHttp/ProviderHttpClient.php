@@ -174,7 +174,7 @@ final class ProviderHttpClient
             $breaker->recordSuccess();
         }
 
-        return new ProviderResponse($status, $body, $response->headers(), $duration, $callId);
+        return new ProviderResponse($status, $body, $response->headers(), $duration, $callId, mb_substr(trim($response->reason()), 0, 300));
     }
 
     /** The body up to `$limit` bytes, or null when the provider sent more than that. */
