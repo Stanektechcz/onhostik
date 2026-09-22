@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services;
 
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Onhost\Domain\Catalog\WafLevels;
 use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
@@ -187,7 +188,7 @@ final class ServiceFeatures
                     'files' => $on($flag('files')), 'apps' => $on($flag('apps')), 'db_admin' => $on($flag('db_admin')),
                     // tools on top of the panel (WebToolsProvider) — what the executor offers, gated by what the plan sells
                     'terminal' => $on($flag('terminal') && $adapter instanceof WebToolsProvider && (! empty($ent['ssh']) || ! empty($ent['terminal']))),
-                    'php_settings' => $on($flag('php_settings')), 'security' => $on($flag('security'), null, ['rate' => $flag('rate_limit'), 'waf' => (string) ($ent['waf'] ?? 'basic')]), 'http3' => $on($flag('http3')),
+                    'php_settings' => $on($flag('php_settings')), 'security' => $on($flag('security'), null, self::wafPromise((string) ($ent['waf'] ?? 'basic'), (bool) $flag('rate_limit'))), 'http3' => $on($flag('http3')),
                     'cron_edit' => $on($flag('cron_edit')), 'cron_logs' => $on($flag('cron_logs')), 'db_export' => $on($flag('db_export')), 'db_access' => $on($flag('db_access')),
                     // backups of a web service are the platform's own sets (ServiceBackups): downloading and deleting them does not depend on what the panel can do with its archives
                     'backup_download' => $on($flag('backup_download') || $adapter instanceof WebToolsProvider), 'backup_delete' => $on($flag('backup_delete') || $adapter instanceof WebToolsProvider),
@@ -590,11 +591,42 @@ final class ServiceFeatures
     }
 
     /** Executor feature set when the adapter cannot be built (credentials missing): what each executor kind offers. */
+    /**
+     * Which of the managed security rules a panel can put on one site. Both apply the block of directives (deny and
+     * allow lists, bad bots, hotlinking, HSTS, headers); a request or connection limit is aaPanel's alone, because
+     * nginx wants its `limit_req_zone` in the http block of the node and a customer's site does not own that.
+     *
+     * @return list<string>
+     */
+    public static function securitySupports(string $executor): array
+    {
+        return self::supportsFor((bool) (self::fallbackSite($executor)['rate_limit'] ?? false));
+    }
+
+    /** @return list<string> */
+    private static function supportsFor(bool $rate): array
+    {
+        return array_values(array_filter(WafLevels::RULES, fn (string $rule) => $rule !== 'rate' || $rate));
+    }
+
+    /**
+     * The WAF line of the plan next to what this service's own server does of it: a level was a label and nothing
+     * else, so a plan promising a rate limit delivered none of it on a shared ISPConfig node and nobody was told.
+     *
+     * @return array<string, mixed>
+     */
+    private static function wafPromise(string $waf, bool $rate): array
+    {
+        $supports = self::supportsFor($rate);
+
+        return ['rate' => $rate, 'waf' => $waf, 'level' => WafLevels::levelOf($waf), 'promised' => WafLevels::promised($waf), 'delivered' => array_values(array_intersect(WafLevels::promised($waf), $supports)), 'missing' => WafLevels::missing($waf, $supports)];
+    }
+
     private static function fallbackSite(string $executor): array
     {
         return match ($executor) {
-            'aapanel' => ['php' => true, 'databases' => true, 'ftp' => true, 'ssl' => true, 'https' => true, 'cron' => true, 'logs' => true, 'backups' => true, 'restore' => false, 'subdomains' => true, 'redirects' => true, 'ssh' => false, 'mail' => false, 'file_manager' => true, 'usage' => true, 'errpages' => false, 'directives' => true, 'protected' => true, 'db_users' => false, 'stats' => false, 'ssl_upload' => true, 'files' => true, 'apps' => true, 'db_admin' => false],
-            'ispconfig' => ['php' => true, 'databases' => true, 'ftp' => true, 'ssl' => true, 'https' => true, 'cron' => true, 'logs' => false, 'backups' => true, 'restore' => true, 'subdomains' => true, 'redirects' => true, 'ssh' => true, 'mail' => true, 'file_manager' => false, 'usage' => true, 'errpages' => true, 'directives' => true, 'protected' => true, 'db_users' => true, 'stats' => true, 'ssl_upload' => true, 'files' => false, 'apps' => false, 'db_admin' => false],
+            'aapanel' => ['php' => true, 'rate_limit' => true, 'databases' => true, 'ftp' => true, 'ssl' => true, 'https' => true, 'cron' => true, 'logs' => true, 'backups' => true, 'restore' => false, 'subdomains' => true, 'redirects' => true, 'ssh' => false, 'mail' => false, 'file_manager' => true, 'usage' => true, 'errpages' => false, 'directives' => true, 'protected' => true, 'db_users' => false, 'stats' => false, 'ssl_upload' => true, 'files' => true, 'apps' => true, 'db_admin' => false],
+            'ispconfig' => ['php' => true, 'rate_limit' => false, 'databases' => true, 'ftp' => true, 'ssl' => true, 'https' => true, 'cron' => true, 'logs' => true, 'backups' => true, 'restore' => true, 'subdomains' => true, 'redirects' => true, 'ssh' => true, 'mail' => true, 'file_manager' => false, 'usage' => true, 'errpages' => true, 'directives' => true, 'protected' => true, 'db_users' => true, 'stats' => true, 'ssl_upload' => true, 'files' => false, 'apps' => false, 'db_admin' => false],
             default => [],
         };
     }

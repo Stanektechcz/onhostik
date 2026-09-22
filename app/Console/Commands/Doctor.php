@@ -12,6 +12,7 @@ use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\TldPolicy;
 use Onhost\Domain\Catalog\PlanPromises;
+use Onhost\Domain\Catalog\WafLevels;
 use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Domain\Domains\Models\Domain;
@@ -47,6 +48,7 @@ use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
+use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Support\Assistant\AssistantBudget;
@@ -213,6 +215,11 @@ final class Doctor extends Command
         $promises = PlanPromises::onSaleProblems(PlanPromises::readInSource());
         $this->add('catalog', 'no plan on sale promises a number nothing applies', $promises === [],
             $promises === [] ? 'every number is enforced, applied, measured, or declared fair use' : implode(' · ', array_map(fn (string $plan, array $keys) => $plan.': '.implode(', ', $keys), array_keys($promises), $promises)), false);
+        // a WAF level is a line on the price list; the panels do not do the same things, and a level nobody defined
+        // used to mean nothing at all (audit §5ad, the same rule as the numbers above)
+        $waf = WafLevels::onSaleProblems(['ispconfig' => ServiceFeatures::securitySupports('ispconfig'), 'aapanel' => ServiceFeatures::securitySupports('aapanel')]);
+        $this->add('catalog', 'every plan on sale keeps its WAF promise on its own panel', $waf === [],
+            $waf === [] ? 'every level names only rules the site\'s server applies' : implode(' · ', array_map(fn (string $plan, array $rules) => $plan.': '.implode(', ', $rules), array_keys($waf), $waf)), false);
         $addonsWithoutParent = Service::query()->where('family', 'addon')->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])
             ->whereNull('tags->parent_service_id')->count();
         $this->add('catalog', 'every add-on knows the service it belongs to', $addonsWithoutParent === 0,
