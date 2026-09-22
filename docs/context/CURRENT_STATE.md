@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A game server is deleted with everything of it, or not at all:** the plain panel delete removes the files on Wings
+  and the databases on the database host or refuses; `/force` only behind the instance switch `terminate_force`.
+
 - **A VPS firewall change is made before it is broken, keeps the customer's order, and warns before a lockout:**
   new rules go in on top before the old ones are removed, a refused change puts the whole previous policy back, and a
   rule set that closes SSH/RDP needs `accept_lockout` (the way back is the console).

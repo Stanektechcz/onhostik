@@ -156,7 +156,7 @@ it('requests, approves, cancels and refunds the configured share of the unused p
         $path = (string) parse_url($request->url(), PHP_URL_PATH);
 
         return match (true) {
-            $path === '/api/application/servers/77' => Http::response(['object' => 'server', 'attributes' => ['id' => 77, 'uuid' => 'u', 'identifier' => 'e4c1abcd', 'name' => 'mc-liga', 'suspended' => false, 'status' => null, 'user' => 9, 'node' => 2, 'allocation' => 11, 'nest' => 1, 'egg' => 3, 'limits' => ['memory' => 8192, 'disk' => 61440, 'cpu' => 300], 'feature_limits' => ['databases' => 2, 'allocations' => 2, 'backups' => 5], 'container' => ['installed' => 1, 'environment' => []]]]),
+            $path === '/api/application/servers/77' && $request->method() === 'GET' => Http::response(['object' => 'server', 'attributes' => ['id' => 77, 'uuid' => 'u', 'identifier' => 'e4c1abcd', 'name' => 'mc-liga', 'suspended' => false, 'status' => null, 'user' => 9, 'node' => 2, 'allocation' => 11, 'nest' => 1, 'egg' => 3, 'limits' => ['memory' => 8192, 'disk' => 61440, 'cpu' => 300], 'feature_limits' => ['databases' => 2, 'allocations' => 2, 'backups' => 5], 'container' => ['installed' => 1, 'environment' => []]]]),
             $path === '/api/client/servers/e4c1abcd/backups' && $request->method() === 'POST' => Http::response(['object' => 'backup', 'attributes' => ['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => false, 'is_locked' => false, 'bytes' => 0, 'completed_at' => null, 'created_at' => now()->toIso8601String()]]),
             $path === '/api/client/servers/e4c1abcd/backups' && $request->method() === 'GET' => Http::response(['object' => 'list', 'data' => [['object' => 'backup', 'attributes' => ['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => true, 'is_locked' => false, 'bytes' => 1024, 'completed_at' => now()->toIso8601String(), 'created_at' => now()->toIso8601String()]]]]),
             $path === '/api/client/servers/e4c1abcd/backups/bk-final' => Http::response(['object' => 'backup', 'attributes' => ['uuid' => 'bk-final', 'name' => 'final', 'is_successful' => true, 'is_locked' => false, 'bytes' => 1024, 'completed_at' => now()->toIso8601String(), 'created_at' => now()->toIso8601String()]]),
@@ -164,7 +164,7 @@ it('requests, approves, cancels and refunds the configured share of the unused p
             $path === '/api/client/servers/e4c1abcd/backups/bk-final/download' => Http::response(['object' => 'signed_url', 'attributes' => ['url' => 'https://wings.test/download/backup?token=abc']]),
             $path === '/api/client/servers/e4c1abcd/users' && $request->method() === 'GET' => Http::response(['object' => 'list', 'data' => []]), // the cancellation revokes collaborators (H346): none here
             $path === '/api/application/servers/77/suspend' => Http::response('', 204), // the cancellation deactivates first, the removal comes after the restore window
-            $path === '/api/application/servers/77/force' => Http::response('', 204),
+            $path === '/api/application/servers/77' && $request->method() === 'DELETE' => Http::response('', 204), // deleted without force: the panel removes the files and databases, or refuses
             default => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => "no fake for {$path}"]]], 404),
         };
     });

@@ -100,7 +100,7 @@ function gameMigrationPanel(array &$state, bool $failUpload = false): void
             $path === '/api/client/servers/e4c1abcd/backups/bk-1/download' => Http::response(['object' => 'signed_url', 'attributes' => ['url' => 'https://wings01.test/download/backup?token=src-jwt']]),
             $path === '/api/application/nodes' => $list([['id' => 2, 'name' => 'games01', 'fqdn' => 'wings01.test'], ['id' => 3, 'name' => 'games02', 'fqdn' => 'wings02.test']], 'node'),
             $path === '/api/application/nodes/3/allocations' => $list([['id' => 31, 'ip' => '203.0.113.20', 'alias' => null, 'port' => 25566, 'assigned' => false], ['id' => 32, 'ip' => '203.0.113.20', 'alias' => null, 'port' => 25567, 'assigned' => true]], 'allocation'),
-            $path === '/api/application/servers/77' => $server(77, 2, 'e4c1abcd', '11111111-1111-4111-8111-111111111111', 11, null),
+            $path === '/api/application/servers/77' && $m === 'GET' => $server(77, 2, 'e4c1abcd', '11111111-1111-4111-8111-111111111111', 11, null),
             str_starts_with($path, '/api/application/servers/external/') => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => 'no server']]], 404),
             $path === '/api/application/nests/1/eggs/3' => Http::response(['object' => 'egg', 'attributes' => ['id' => 3, 'name' => 'Paper', 'docker_image' => 'ghcr.io/pterodactyl/yolks:java_21', 'docker_images' => [], 'startup' => 'java -jar {{SERVER_JARFILE}}', 'config' => ['startup' => ['privileged' => false]],
                 'relationships' => ['variables' => ['data' => [['attributes' => ['env_variable' => 'SERVER_JARFILE', 'default_value' => 'server.jar', 'rules' => 'required|string', 'user_editable' => true]], ['attributes' => ['env_variable' => 'MOTD', 'default_value' => 'A Minecraft server', 'rules' => 'nullable|string', 'user_editable' => true]]]]]]]),
@@ -116,7 +116,7 @@ function gameMigrationPanel(array &$state, bool $failUpload = false): void
 
                 return Http::response('', 204);
             })(),
-            $path === '/api/application/servers/77/force' && $m === 'DELETE', $path === '/api/application/servers/88/force' && $m === 'DELETE' => (function () use (&$state, $path) {
+            $path === '/api/application/servers/77' && $m === 'DELETE', $path === '/api/application/servers/88' && $m === 'DELETE' => (function () use (&$state, $path) {
                 $state['deleted'][] = (int) explode('/', $path)[4];
 
                 return Http::response('', 204);
@@ -253,7 +253,7 @@ function gameMigrationSecondPanel(array &$state): ProviderInstance
 
                 return Http::response('', 204);
             })(),
-            $path === '/api/application/servers/91/force' && $m === 'DELETE' => (function () use (&$state) {
+            $path === '/api/application/servers/91' && $m === 'DELETE' => (function () use (&$state) {
                 $state['deleted'][] = 91;
 
                 return Http::response('', 204);
@@ -389,7 +389,7 @@ it('carries the collaborators to the new server with exactly the permissions the
     $firstRead = array_search('GET /api/client/servers/e4c1abcd/users', $paths, true);
     $firstStop = array_search('POST /api/client/servers/e4c1abcd/power', $paths, true);
     $lastCarry = max(array_keys($paths, 'POST /api/client/servers/f00dbabe/users', true));
-    $sourceDeleted = array_search('DELETE /api/application/servers/77/force', $paths, true);
+    $sourceDeleted = array_search('DELETE /api/application/servers/77', $paths, true);
     expect($firstRead)->toBeLessThan($firstStop)->and($lastCarry)->toBeLessThan($sourceDeleted);
 });
 

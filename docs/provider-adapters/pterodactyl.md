@@ -8,7 +8,15 @@
 
 Two APIs: the **application** API (`/api/application`, admin key) for users, servers, nodes and allocations; the
 **client** API (`/api/client`, per-user key) for power actions, console websocket and files. Keys from
-`env://PTERODACTYL_<KEY>`; options `eggs` (game key → `{nest, egg}`), `default_node`, `location_id`.
+`env://PTERODACTYL_<KEY>`; options `eggs` (game key → `{nest, egg}`), `default_node`, `location_id`, `terminate_force`.
+
+**Deleting a server (2026-09-22).** `terminate()` calls the plain `DELETE /api/application/servers/{id}`: the panel asks
+Wings to remove the server's files and the database host to drop its databases, and refuses when either does not
+answer (a 404 from Wings — the server is not there — counts as done). The refusal fails the step and the operation
+tries again when the node is back. It used to call `/force`, which deletes the record anyway and leaves the world on
+the Wings disk and the databases "dangling on the host instance" — a cancelled customer's data that nothing knows about
+any more. `terminate_force: true` on the instance is the operator's switch for a node that is gone for good; the result
+then carries `forced: true`. Tests: `tests/Contract/PterodactylDeletionTest.php`.
 
 | Contract | Method | Endpoint |
 | --- | --- | --- |

@@ -293,14 +293,27 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         return ProviderResult::completed($ref, ['suspended' => false]);
     }
 
+    /**
+     * Delete the server — and everything of it, or nothing.
+     *
+     * The panel's plain delete asks Wings to remove the server's files and the database host to drop its databases, and
+     * refuses when either does not answer (a 404 from Wings — the server is not there any more — it takes as success).
+     * `/force` skips whatever does not answer and deletes the record anyway: the world stays on the Wings disk and the
+     * databases stay "dangling on the host instance", as the panel's own code puts it — for ever, with a cancelled
+     * customer's data in them and nothing left that knows they exist. That is what this used to call.
+     *
+     * A refusal now fails the step and the operation tries again later, when the node is back. Only for a node that is
+     * gone for good may an operator switch the instance to `terminate_force` — recorded on the result, never implicit.
+     */
     public function terminate(ResourceRef $ref): ProviderResult
     {
         if (! $this->getActualState($ref)->exists) {
             return ProviderResult::completed(null, ['already_deleted' => true], alreadyExisted: true);
         }
-        $this->request('DELETE', "/api/application/servers/{$ref->remoteId}/force", 'app', 'servers.delete', [], critical: true);
+        $force = (bool) $this->instance->option('terminate_force', false);
+        $this->request('DELETE', "/api/application/servers/{$ref->remoteId}".($force ? '/force' : ''), 'app', 'servers.delete', [], critical: true);
 
-        return ProviderResult::completed(null, ['deleted' => true]);
+        return ProviderResult::completed(null, ['deleted' => true, 'forced' => $force]);
     }
 
     public function usage(ResourceRef $ref, ?string $periodStart = null, ?string $periodEnd = null): Usage
