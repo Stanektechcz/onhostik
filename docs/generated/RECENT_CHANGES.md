@@ -4,13 +4,13 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| e434159 | 2026-09-22 | A resumed clone is waited for, not retried; a lock waits on the ordinary backoff |
+| ae1e13c | 2026-09-22 | A new VM never gets a number the platform gave before (H488, H505) |
+| 679ec04 | 2026-09-22 | An expired VPS archive is gone from the backup server too (H488) |
+| e261ea8 | 2026-09-22 | A game server is deleted with everything of it, or not at all (H505, H488) |
+| 6590a92 | 2026-09-22 | A VPS firewall change is made before it is broken, keeps the customer's order, and warns before a lockout (H501, H503) |
 | 8562f1a | 2026-09-22 | A site's Node.js app ends with the site, stops with it, and is nobody else's (H505, H500, H440) |
 | bbdc62e | 2026-09-22 | A node must make and remove one thing before it carries anybody (H479) |
 | 712145d | 2026-09-22 | A node nobody has qualified sells nothing (H471) |
 | d49a8ab | 2026-09-22 | A promised restore test is really made (H458) |
 | a05bf88 | 2026-09-22 | A service that did not answer is not a service that was checked |
-| 046e995 | 2026-09-22 | Audit row 48: the nightly six-hour test flake and how it was found |
-| 6904cb0 | 2026-09-22 | A dunning case is due at six, so the test waits until seven |
-| 68b1022 | 2026-09-22 | A database account a database hangs on is not removed (H462) |
-| b81f560 | 2026-09-22 | An import keeps a copy of the database it overwrites (H456, H467) |
-| f246399 | 2026-09-22 | A schedule that keeps failing stops itself (H447) |

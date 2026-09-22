@@ -17,9 +17,14 @@ use Throwable;
 
 /**
  * Transport layer shared by every adapter: circuit breaker, quota buckets, timeouts,
- * TLS pinning, call logging with redaction. Business-level failures (HTTP 200 with an
- * error in the body — WEDOS, aaPanel, ISPConfig) are decided by the adapter, which
- * reports them back with `recordFailure()` so the breaker sees them too.
+ * TLS pinning, call logging with redaction.
+ *
+ * The breaker is told whether the PANEL is well, and the HTTP status does not always say so. Proxmox answers an ordinary
+ * refusal about one guest with HTTP 500, Pterodactyl a daemon of one node that does not answer with a 5xx; ISPConfig,
+ * WEDOS and Subreg report their own failures in the body of an HTTP 200 — the success recorded for the status reset the
+ * count before the adapter could report the failure, so their breakers never tripped. A request marked `judgedByCaller`
+ * leaves the verdict on an answer to its adapter (`recordSuccess()` / `recordFailure()` / neither); a call that brought
+ * no answer at all — no connection, a broken transfer, an oversized body — is a failure here, whoever judges.
  */
 final class ProviderHttpClient
 {
@@ -168,10 +173,12 @@ final class ProviderHttpClient
         $bodyCode = $this->bodyCode(is_array($json) ? $json : null);
         $callId = $this->logger->log($request, $status, $bodyCode, $transportOk, $duration, $this->summarize($request), $request->secretResponse ? ['withheld' => 'the answer is a credential'] : (is_array($json) ? $json : mb_substr($body, 0, 2000)));
 
-        if ($status >= 500) {
-            $breaker->recordFailure();
-        } elseif ($status !== 429) {
-            $breaker->recordSuccess();
+        if (! $request->judgedByCaller) {
+            if ($status >= 500) {
+                $breaker->recordFailure();
+            } elseif ($status !== 429) {
+                $breaker->recordSuccess();
+            }
         }
 
         return new ProviderResponse($status, $body, $response->headers(), $duration, $callId, mb_substr(trim($response->reason()), 0, 300));

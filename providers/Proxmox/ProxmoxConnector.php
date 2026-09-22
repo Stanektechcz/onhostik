@@ -77,6 +77,7 @@ final class ProxmoxConnector
             headers: ['Authorization' => "PVEAPIToken={$tokenId}={$secret}", 'Accept' => 'application/json'],
             body: $method === 'GET' ? null : $params, bodyType: 'form', query: $method === 'GET' ? $params : [],
             timeoutSeconds: (int) config('onhost.provisioning.provider_timeout_seconds', 10) + 5, critical: $critical, idempotent: $method === 'GET', options: $options, operationId: $operationId,
+            judgedByCaller: true, // an HTTP 500 from Proxmox is as often a refusal about one guest as a failing cluster: unwrap() tells them apart
         );
         $response = $this->http->send($request);
 
@@ -86,6 +87,9 @@ final class ProxmoxConnector
     private function unwrap(ProviderResponse $response, string $action): mixed
     {
         $json = $response->json();
+        if ($response->status < 500 && $response->status !== 429) {
+            $this->http->recordSuccess($this->instance->key); // the cluster answered; what it said is judged below
+        }
         if ($response->status === 401 || $response->status === 403) {
             throw new ProviderException('proxmox', ProviderErrorCode::AUTH, "Proxmox rejected the API token for {$action} (HTTP {$response->status})", (string) $response->status);
         }
@@ -109,6 +113,11 @@ final class ProxmoxConnector
                 // ordinary backoff (10 s … 10 min) — a short fixed pause would spend every attempt of the operation inside one backup
                 default => ProviderErrorCode::TRANSIENT,
             };
+            // the breaker of the whole cluster is for a cluster that fails: a refusal about one guest (taken, gone, locked) or a node
+            // the API node cannot reach (595/596) is an answer — five of them from one customer retrying used to shut every VPS off
+            if (! self::answered($response->status, $code, $lower)) {
+                $this->http->recordFailure($this->instance->key);
+            }
             throw new ProviderException('proxmox', $code, "Proxmox {$action} failed: {$message}", (string) $response->status);
         }
         if ($response->status >= 400) {
@@ -119,9 +128,16 @@ final class ProxmoxConnector
         if (! is_array($json) || ! array_key_exists('data', $json)) {
             throw new ProviderException('proxmox', ProviderErrorCode::PROVIDER_BUG, "Proxmox {$action} returned no data envelope", (string) $response->status);
         }
-        $this->http->recordSuccess($this->instance->key);
 
         return $json['data'];
+    }
+
+    /** Whether a 5xx is the cluster answering about one guest or one node, rather than the cluster failing. */
+    private static function answered(int $status, ProviderErrorCode $code, string $lower): bool
+    {
+        return in_array($status, [595, 596], true) // pveproxy could not reach the node that holds the guest
+            || $code !== ProviderErrorCode::TRANSIENT // taken or gone
+            || str_contains($lower, 'locked') || str_contains($lower, "can't lock"); // busy with a task of its own
     }
 
     /** What Proxmox said about a refusal: the body's message when it carries one, else the text of the status line. */

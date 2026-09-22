@@ -88,9 +88,12 @@ final class WapiGateway
             headers: ['Accept' => 'application/json'], body: ['request' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)], bodyType: 'form',
             timeoutSeconds: 30, critical: $critical, operationId: $operationId, bucket: in_array($command, self::DOMAIN_FAMILY, true) ? 'wapi:domain' : 'wapi:all',
             options: array_filter(['force_ip_resolve' => config('onhost.wapi.force_ip_resolve')]), // WAPI answers IPv6 clients with a redirect to a 404 page (observed 2026-09-07): stay on the allow-listed IPv4 egress
+            judgedByCaller: true, // WAPI reports its own failures in the body of an HTTP 200: judged below
         ));
         $this->http->bucket('wapi:all')?->tryConsume($critical, 1, $this->http->inDiagnostic()); // the domain family counts against the global limit too
         if ($response->status >= 500) {
+            $this->http->recordFailure($this->instance->key);
+
             throw new ProviderException('wedos', ProviderErrorCode::TRANSIENT, "WAPI HTTP {$response->status}", (string) $response->status);
         }
         $serverDate = $response->serverDate();
@@ -99,6 +102,8 @@ final class WapiGateway
         }
         $body = $response->json('response');
         if (! is_array($body) || ! isset($body['code'])) {
+            $this->http->recordFailure($this->instance->key); // no answer of the API: an error page in its place
+
             throw new ProviderException('wedos', ProviderErrorCode::PROVIDER_BUG, "WAPI {$command} returned no response envelope (HTTP {$response->status})");
         }
         $code = (int) $body['code'];
@@ -119,8 +124,12 @@ final class WapiGateway
             }
         } elseif ($mapped['code'] === ProviderErrorCode::VALIDATION) {
             $breaker->recordFailure(); // >10 invalid requests would trigger the WEDOS penalty; we stop earlier
-        } elseif ($mapped['code'] === ProviderErrorCode::TRANSIENT) {
+        }
+        // WAPI's own trouble counts against it; a refused request is an answer (the invalid-request breaker above counts those)
+        if ($mapped['code'] === ProviderErrorCode::TRANSIENT) {
             $this->http->recordFailure($this->instance->key);
+        } elseif ($mapped['code'] !== ProviderErrorCode::RATE_LIMIT) {
+            $this->http->recordSuccess($this->instance->key);
         }
         throw new ProviderException('wedos', $mapped['code'], "WAPI {$command} failed: [{$code}] {$result['result']}", (string) $code, ['normalized' => $mapped['normalized'], 'clTRID' => $clTrid, 'svTRID' => $result['svTRID'], 'data' => $result['data']], $mapped['retry_after']);
     }

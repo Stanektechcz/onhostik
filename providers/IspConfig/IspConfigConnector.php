@@ -146,6 +146,7 @@ final class IspConfigConnector
                 'password' => (string) ($this->credentials['remote_password'] ?? ''),
                 'client_login' => false,
             ], true);
+            $this->http->recordSuccess($this->instance->key); // the panel answered; a refused login is ours to fix, not the panel's failure
             if ($result['code'] !== 'ok' || ! is_string($result['response']) || $result['response'] === '') {
                 throw new ProviderException('ispconfig', ProviderErrorCode::AUTH, 'ISPConfig remote login failed: '.$result['message'], 'remote_fault');
             }
@@ -169,15 +170,22 @@ final class IspConfigConnector
             url: rtrim((string) $this->instance->base_url, '/').'/remote/json.php?'.$function, action: $function,
             headers: ['Content-Type' => 'application/json', 'Accept' => 'application/json'], body: $body, bodyType: 'json',
             timeoutSeconds: 20, critical: $critical, options: $options, operationId: $operationId, secretResponse: $secretAnswer,
+            judgedByCaller: true, // ISPConfig reports its own failures in the body of an HTTP 200: call() and mapFault() judge them
         ));
         if ($response->status >= 500) {
+            $this->http->recordFailure($this->instance->key);
+
             throw new ProviderException('ispconfig', ProviderErrorCode::TRANSIENT, "ISPConfig {$function} returned HTTP {$response->status}", (string) $response->status);
         }
         if (in_array($response->status, [401, 403], true)) {
+            $this->http->recordSuccess($this->instance->key); // the panel answered: it refuses us, it is not down
+
             throw new ProviderException('ispconfig', ProviderErrorCode::AUTH, "ISPConfig {$function} rejected (HTTP {$response->status}); check remote user IP allow-list", (string) $response->status);
         }
         $json = $response->json();
         if (! is_array($json) || ! isset($json['code'])) {
+            $this->http->recordFailure($this->instance->key); // not an answer of the remote API: an error page in its place
+
             throw new ProviderException('ispconfig', ProviderErrorCode::PROVIDER_BUG, "ISPConfig {$function} returned a non-JSON body (HTTP {$response->status})");
         }
 
@@ -195,8 +203,11 @@ final class IspConfigConnector
             str_contains($lower, 'database') || str_contains($lower, 'mysql') || str_contains($lower, 'timeout') => ProviderErrorCode::TRANSIENT,
             default => ProviderErrorCode::VALIDATION,
         };
+        // the panel's own trouble (its database, a timeout) counts against it; a refusal about one record is an answer
         if ($code === ProviderErrorCode::TRANSIENT) {
             $this->http->recordFailure($this->instance->key);
+        } else {
+            $this->http->recordSuccess($this->instance->key);
         }
 
         return new ProviderException('ispconfig', $code, "ISPConfig {$function}: {$message}", 'remote_fault');

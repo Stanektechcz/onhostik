@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A panel's breaker trips for the panel, not for one guest or one node:** requests marked `judgedByCaller` leave the
+  verdict to the adapter — Proxmox refusals and unreachable nodes, a Pterodactyl node's daemon, are answers; failures
+  ISPConfig, WEDOS and Subreg report inside an HTTP 200 now count; Wings is called under a breaker per node.
+
 - **The number of a new VM is never one the platform gave before:** `VmidReservations` holds it per cluster
   (`vmid_reservations`), above every number ever held or bound, skipping live guests and numbers with backups; a lost
   clone answer waits for its own clone. Proxmox refusals are read from the HTTP status line; a guest is missing only

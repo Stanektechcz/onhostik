@@ -16,14 +16,18 @@ operations piling up in WAITING/FAILED, circuit breaker open (`provider_circuit_
 
 * **Proxmox VE / PBS** — check cluster quorum and the API token permissions before retrying. Operations wait on
   UPIDs; a node reboot leaves UPIDs unknown → operations fail with `TRANSIENT` and retry. Console tokens expire
-  in 2 minutes; nothing to clean up.
+  in 2 minutes; nothing to clean up. A refusal about one guest (locked, gone, number taken) or a node the API node
+  cannot reach (HTTP 595/596) does not open the breaker of the cluster; "no quorum" and other failures of the cluster do.
 * **ISPConfig** — the remote API uses a session per call; `jobqueue` entries may stay queued when the server
   daemon is stopped. Restart `ispconfig_server` on the node, then retry operations. Never re-run site creation
   by hand: adapters treat "already exists" as success.
 * **aaPanel** — API access is IP allow-listed; a changed egress IP shows as `AUTH`. Update the allow-list in
   aaPanel, then `probe`.
 * **Pterodactyl** — application API for nodes/servers, client API for power/console. A Wings node offline shows
-  as `TRANSIENT` on power actions; game servers keep running. Allocation exhaustion → `capacity.unavailable`.
+  as `TRANSIENT` on power actions; game servers keep running. Allocation exhaustion → `capacity.unavailable`. The
+  panel passes a daemon that does not answer on as a 5xx (`DaemonConnectionException`): that does not open the panel's
+  breaker, so servers on the other nodes stay manageable; uploads and system reads that go to Wings directly have a
+  breaker per node (`<instance>:node-<id>`) that heals itself a minute after the node is back.
 * **PowerDNS** — zone changes are staged; a failed commit rolls back the version. Check `pdns_control` and the
   API key; secondaries keep serving from the last NOTIFY.
 * **WEDOS WAPI** — see [domains-registrar.md](domains-registrar.md); the invalid-request breaker opens after

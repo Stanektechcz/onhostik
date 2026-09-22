@@ -19,7 +19,12 @@ Shared rules (blueprint §30–§31):
 * **Every call is logged** in `provider_calls` (method, path, status, duration, error class) with the operation
   and correlation id; secrets never.
 * **Rate limits and breakers** are per instance (`ProviderHttpClient`: token buckets, circuit breaker with
-  half-open probes); WAPI has its own gateway.
+  half-open probes); WAPI has its own gateway. The breaker is told whether the **panel** is well, which the HTTP status
+  does not always say: an adapter whose panel answers refusals with 5xx (Proxmox, Pterodactyl) or reports failures in
+  an HTTP 200 (ISPConfig, WEDOS, Subreg) marks its requests `judgedByCaller` and records exactly one verdict per answer
+  — `recordSuccess()`, `recordFailure()`, or neither for a refusal about one resource or an unreachable node. A call
+  that brought no answer at all is still counted by the client. Calls straight to a node's daemon (Wings) use a key of
+  their own, `<instance>:node-<id>`.
 * **Contract tests** (`tests/Contract/*`) pin request shapes with HTTP fakes; live credentials are never used in CI.
 
 | Adapter | Executor for | Doc |

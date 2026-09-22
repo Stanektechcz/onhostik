@@ -272,15 +272,24 @@ final class SubregSoapGateway
             headers: ['Content-Type' => 'text/xml; charset=utf-8', 'SOAPAction' => '"'.self::ACTION_NS.'#'.$function.'"', 'Accept' => 'text/xml'],
             body: $this->envelope($function, $params), bodyType: 'raw', timeoutSeconds: 40, critical: $critical, operationId: $operationId,
             bucket: 'subreg:'.$this->instance->key, options: TlsOptions::verify($this->instance, 'subreg'),
+            judgedByCaller: true, // Subreg reports its own failures inside an HTTP 200 envelope; an HTTP 5xx used to be counted twice
         ));
         if ($response->status >= 500) {
             $this->http->recordFailure($this->instance->key);
             throw new ProviderException('subreg', ProviderErrorCode::TRANSIENT, "Subreg HTTP {$response->status}", (string) $response->status, ['normalized' => SubregErrorMap::REGISTRY_TEMPORARILY_UNAVAILABLE], 120);
         }
         if ($response->status === 401 || $response->status === 403) {
+            $this->http->recordSuccess($this->instance->key); // the registrar answered: it refuses us, it is not down
+
             throw new ProviderException('subreg', ProviderErrorCode::AUTH, "Subreg HTTP {$response->status}", (string) $response->status, ['normalized' => SubregErrorMap::PROVIDER_AUTH_ERROR]);
         }
-        $parsed = self::parse($response->rawBody);
+        try {
+            $parsed = self::parse($response->rawBody);
+        } catch (ProviderException $e) {
+            $this->http->recordFailure($this->instance->key); // a SOAP fault, or no answer of the API at all
+
+            throw $e;
+        }
         if ($parsed['status'] === 'ok') {
             $this->http->recordSuccess($this->instance->key);
 
@@ -288,8 +297,11 @@ final class SubregSoapGateway
         }
         $error = $parsed['error'] ?? ['errormsg' => 'unknown error', 'major' => 0, 'minor' => 0];
         $mapped = SubregErrorMap::map($error['major'], $error['minor'], $error['errormsg']);
+        // the registry's or Subreg's own trouble counts against it; a refused request is an answer
         if ($mapped['code'] === ProviderErrorCode::TRANSIENT) {
             $this->http->recordFailure($this->instance->key);
+        } elseif ($mapped['code'] !== ProviderErrorCode::RATE_LIMIT) {
+            $this->http->recordSuccess($this->instance->key);
         }
         $vendorCode = $error['major'].'.'.$error['minor'];
 

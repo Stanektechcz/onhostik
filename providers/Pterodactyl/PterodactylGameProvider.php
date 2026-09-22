@@ -658,11 +658,11 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         $this->assertDaemonUrl($signed);
         $directory = '/'.trim($directory, '/');
         $response = $this->http->send(new ProviderRequest( // the daemon's own endpoint; the one-time token lives in the URL, the logger keeps the path only
-            provider: 'pterodactyl', instanceKey: $this->instance->key, method: 'POST', url: $signed.(str_contains($signed, '?') ? '&' : '?').'directory='.rawurlencode($directory), action: 'files.upload',
+            provider: 'pterodactyl', instanceKey: $this->daemonKey((string) $server->node), method: 'POST', url: $signed.(str_contains($signed, '?') ? '&' : '?').'directory='.rawurlencode($directory), action: 'files.upload',
             headers: ['Accept' => 'application/json'], body: null, bodyType: 'multipart', timeoutSeconds: 600, critical: true, options: $this->daemonTls(), files: ['files' => ['contents' => $contents, 'filename' => basename($filename)]],
         ));
         if ($response->status >= 400) {
-            $this->unwrap($response, 'files.upload');
+            $this->unwrap($response, 'files.upload', panel: false); // the daemon answered, not the panel: its own breaker already has the verdict
         }
 
         return ProviderResult::completed($server, ['directory' => $directory, 'name' => basename($filename)]);
@@ -964,7 +964,7 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         }
         $port = (int) data_get($config, 'api.port', $node['daemon_listen']);
         $scheme = data_get($config, 'api.ssl.enabled', $node['scheme'] === 'https') ? 'https' : 'http';
-        $response = $this->http->send(new ProviderRequest(provider: 'pterodactyl', instanceKey: $this->instance->key, method: 'GET', url: "{$scheme}://{$node['fqdn']}:{$port}/api/system", action: 'wings.system', headers: ['Authorization' => "Bearer {$token}", 'Accept' => 'application/json'], body: null, bodyType: 'json', query: ['v' => '2'], timeoutSeconds: 8, critical: false, idempotent: true, options: $this->daemonTls()));
+        $response = $this->http->send(new ProviderRequest(provider: 'pterodactyl', instanceKey: $this->daemonKey((string) $nodeId), method: 'GET', url: "{$scheme}://{$node['fqdn']}:{$port}/api/system", action: 'wings.system', headers: ['Authorization' => "Bearer {$token}", 'Accept' => 'application/json'], body: null, bodyType: 'json', query: ['v' => '2'], timeoutSeconds: 8, critical: false, idempotent: true, options: $this->daemonTls()));
         if ($response->status >= 400) {
             return null;
         }
@@ -1020,6 +1020,7 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
             provider: 'pterodactyl', instanceKey: $this->instance->key, method: $method, url: rtrim((string) $this->instance->base_url, '/').$path, action: $action,
             headers: ['Authorization' => "Bearer {$key}", 'Accept' => 'Application/vnd.pterodactyl.v1+json', 'Content-Type' => 'application/json'],
             body: $body === [] ? null : $body, bodyType: 'json', query: $query, timeoutSeconds: 20, critical: $critical, idempotent: $method === 'GET', options: $this->tls(),
+            judgedByCaller: true, // a 5xx may be the daemon of one node, not the panel: unwrap() tells them apart
         ));
 
         return $this->unwrap($response, $action);
@@ -1036,6 +1037,7 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
             provider: 'pterodactyl', instanceKey: $this->instance->key, method: $method, url: rtrim((string) $this->instance->base_url, '/').$path, action: $action,
             headers: ['Authorization' => "Bearer {$key}", 'Accept' => 'Application/vnd.pterodactyl.v1+json', 'Content-Type' => 'text/plain'],
             body: $body, bodyType: 'raw', query: $query, timeoutSeconds: 30, critical: false, idempotent: $method === 'GET', options: $this->tls(),
+            judgedByCaller: true,
         ));
         if ($response->status >= 400) {
             $this->unwrap($response, $action); // maps the error family and throws
@@ -1060,12 +1062,14 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         return $items;
     }
 
-    private function unwrap(ProviderResponse $response, string $action): array
+    /** @param bool $panel false for an answer of a node's daemon, which the panel's breaker does not judge */
+    private function unwrap(ProviderResponse $response, string $action, bool $panel = true): array
     {
         $json = $response->json();
+        if ($panel && $response->status < 500 && $response->status !== 429) {
+            $this->http->recordSuccess($this->instance->key); // the panel answered; what it said is judged below
+        }
         if ($response->status === 204 || ($response->status < 300 && trim($response->rawBody) === '')) { // 204 No Content and 202 Accepted (schedule execute) carry no body
-            $this->http->recordSuccess($this->instance->key);
-
             return [];
         }
         if (in_array($response->status, [401, 403], true)) {
@@ -1084,6 +1088,11 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
             throw new ProviderException('pterodactyl', ProviderErrorCode::VALIDATION, "Pterodactyl {$action}: ".$this->errorDetail($json), '422', ['errors' => $json['errors'] ?? null]);
         }
         if ($response->status >= 500) {
+            // the panel passes the failure of a node's Wings daemon on as a 5xx: the panel itself is well, and one node that is down
+            // used to shut every game server of every other node off for a minute
+            if ($panel && (is_array($json) ? ($json['errors'][0]['code'] ?? '') : '') !== 'DaemonConnectionException') {
+                $this->http->recordFailure($this->instance->key);
+            }
             throw new ProviderException('pterodactyl', ProviderErrorCode::TRANSIENT, "Pterodactyl {$action}: ".$this->errorDetail($json), (string) $response->status);
         }
         if ($response->status >= 400) {
@@ -1092,9 +1101,14 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         if (! is_array($json)) {
             throw new ProviderException('pterodactyl', ProviderErrorCode::PROVIDER_BUG, "Pterodactyl {$action} returned a non-JSON body");
         }
-        $this->http->recordSuccess($this->instance->key);
 
         return $json;
+    }
+
+    /** The breaker of one node's Wings daemon, called directly (uploads, system info): a node that is down is not the panel. */
+    private function daemonKey(string $nodeId): string
+    {
+        return $this->instance->key.':node-'.($nodeId !== '' ? $nodeId : 'unknown');
     }
 
     private function errorDetail(mixed $json): string

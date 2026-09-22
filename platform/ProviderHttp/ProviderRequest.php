@@ -40,5 +40,11 @@ final class ProviderRequest
         public readonly ?int $maxBodyBytes = null,
         /** The answer itself is a credential (a session, a one-time token) under a key no redactor could know: it is never written to `provider_calls` (H12) */
         public readonly bool $secretResponse = false,
+        /**
+         * The adapter, not the HTTP status, says whether an answer shows the panel well or failing: it records the verdict on the
+         * instance's breaker itself (`ProviderHttpClient::recordSuccess()` / `recordFailure()`, or neither for a refusal about one
+         * resource). Only a call that brought no answer is still counted as a failure by the client.
+         */
+        public readonly bool $judgedByCaller = false,
     ) {}
 }
