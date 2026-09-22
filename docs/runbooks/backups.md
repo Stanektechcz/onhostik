@@ -279,3 +279,26 @@ Worth knowing: a part of a set is named `database-<slug>.sql` whatever it holds,
 made".
 
 Tests: `tests/Feature/Services/RestoreTestTest.php`.
+
+## An expired VPS archive is gone from the backup server too (2026-09-22)
+
+The final archive of a VPS is a **protected** vzdump backup on the backup server (`FinalArchive::snapshot()`); the set
+on the platform disk holds only its metadata. Protection is what keeps it for the retention — no prune job of the
+backup server may take a protected backup. It also meant nothing ever took it: when the retention ran out,
+`FinalArchive::prune()` deleted the metadata set and marked the archive `expired`, and the whole disk image of the
+cancelled customer's server stayed on the backup server for good (H488).
+
+Now `prune()` removes the provider's copy first, through `Providers\Contracts\ExpiringBackups::expireBackup()`:
+
+* Proxmox: the storage is the part of the volid before the colon; any online node reaches a shared backup storage
+  (the VM, and often its node, is long gone); the volume is **unprotected, then deleted**; a volume that is already
+  gone counts as removed.
+* Until the provider's copy is gone the archive is **not** expired: it stays `completed`, keeps its metadata, and
+  `meta.expiry_blocked` says why. The next run tries again; `onhost:doctor` lists them under "expired archives are gone
+  from the provider too".
+* A legal hold still stops everything, as before.
+
+Still open: `reserveVmid()` takes the lowest free VMID, so the number of a purged VPS is given to the next one — whose
+backups then land in the same PBS group `vm/<vmid>` as whatever is left of the previous customer's.
+
+Tests: `tests/Feature/Services/ArchiveExpiryTest.php`.

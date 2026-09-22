@@ -8,6 +8,8 @@ use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
+use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -18,6 +20,7 @@ use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Onhost\Providers\Contracts\AsyncStatus;
 use Onhost\Providers\Contracts\BackupCapable;
+use Onhost\Providers\Contracts\ExpiringBackups;
 use Onhost\Providers\Contracts\GameToolsProvider;
 use Onhost\Providers\Contracts\InfrastructureProvider;
 use Onhost\Providers\Contracts\MailProvider;
@@ -54,6 +57,7 @@ final class FinalArchive
         private readonly OutboxPublisher $outbox,
         private readonly DeletionPolicy $policy,
         private readonly ServiceIdentityCheck $identity,
+        private readonly ProviderRegistry $providers,
     ) {}
 
     public function disk(): Filesystem
@@ -321,6 +325,9 @@ final class FinalArchive
             if (LegalHold::coversBackup($backup)) {
                 continue; // a legal hold suspends deletion (H18): the archive — often the only copy left — waits for the hold to be lifted
             }
+            if (! $this->expireProviderCopy($backup)) {
+                continue; // the data is still at the provider: the archive is not expired, whatever its date says; the next run tries again
+            }
             $this->deleteSet($backup);
             $backup->forceFill(['state' => $backup->kind === 'final' ? 'expired' : 'deleted', 'protected' => false, 'meta' => array_merge((array) $backup->meta, ['deleted_at' => now()->toIso8601String(), 'deleted_by' => 'retention'])])->save();
             if ($backup->kind !== 'final' && $backup->service_id !== null) {
@@ -330,6 +337,43 @@ final class FinalArchive
         }
 
         return $removed;
+    }
+
+    /**
+     * Remove what the archive keeps at the provider, when it keeps anything there (H488).
+     *
+     * A VPS is archived as a PROTECTED backup on the backup server; the set on our disk only holds its metadata. Expiring
+     * the set alone marked the archive gone while the whole disk image of the cancelled customer's server stayed on the
+     * backup server for good — protected, so no prune job would ever take it. The provider's copy goes first; until it is
+     * gone, the archive is not expired.
+     */
+    private function expireProviderCopy(Backup $backup): bool
+    {
+        $remote = (string) ($backup->remote_id ?? '');
+        if ($remote === '' || data_get($backup->meta, 'snapshot') === null) {
+            return true; // a set made on our disk (web, mail, game): there is nothing of it at a provider
+        }
+        $instance = $backup->provider_instance_id !== null ? ProviderInstance::query()->find($backup->provider_instance_id) : null;
+        try {
+            $adapter = $instance !== null ? $this->providers->forInstance($instance) : null;
+            if (! $adapter instanceof ExpiringBackups) {
+                $this->keepProviderCopy($backup, 'the provider of this archive cannot remove it; it has to be removed by hand');
+
+                return false;
+            }
+            $adapter->expireBackup($remote);
+        } catch (Throwable $e) {
+            $this->keepProviderCopy($backup, mb_substr($e->getMessage(), 0, 200));
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private function keepProviderCopy(Backup $backup, string $why): void
+    {
+        $backup->forceFill(['meta' => array_merge((array) $backup->meta, ['expiry_blocked' => ['at' => now()->toIso8601String(), 'why' => $why]])])->save();
     }
 
     /** Whether the backup is a set on the platform's backup disk (and not an archive that lives on the panel). */

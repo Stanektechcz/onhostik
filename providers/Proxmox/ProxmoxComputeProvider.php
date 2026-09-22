@@ -15,6 +15,7 @@ use Onhost\Providers\Contracts\ActualState;
 use Onhost\Providers\Contracts\AsyncHandle;
 use Onhost\Providers\Contracts\AsyncStatus;
 use Onhost\Providers\Contracts\ComputeProvider;
+use Onhost\Providers\Contracts\ExpiringBackups;
 use Onhost\Providers\Contracts\ProviderHealth;
 use Onhost\Providers\Contracts\ProviderResult;
 use Onhost\Providers\Contracts\ResourceRef;
@@ -29,7 +30,7 @@ use Throwable;
  * Idempotency: VMs are tagged `onhost;<service id>;idem-<hash>` and looked up
  * through /cluster/resources before any clone.
  */
-final class ProxmoxComputeProvider implements ComputeProvider, SelfProbing
+final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, SelfProbing
 {
     /** The drive a rescue image is attached to; never used for anything else, so detaching it can never take a disk away. */
     private const RESCUE_DRIVE = 'ide2';
@@ -548,6 +549,42 @@ final class ProxmoxComputeProvider implements ComputeProvider, SelfProbing
         ], fn ($v) => $v !== null), 'vzdump', true);
 
         return ProviderResult::accepted(new AsyncHandle('pve_task', (string) $upid, $vm->node, ['storage' => $policy['storage'] ?? $this->instance->option('backup_storage')], 15, 4 * 3600), $vm);
+    }
+
+    /**
+     * Remove a backup volume for good once the retention it was kept for has passed.
+     *
+     * The final archive of a VPS is a PROTECTED vzdump backup: no prune job of the backup server may take it, which is
+     * exactly what keeps it for the sixty days. It also meant nothing ever took it — `FinalArchive::prune()` removed the
+     * metadata on the platform's disk and marked the archive expired while the whole disk image of the cancelled
+     * customer's server stayed on the backup server for good.
+     *
+     * The storage is the part of the volid before the colon; any online node sees a shared backup storage, which matters
+     * because the VM — and often its node — is long gone by then. Unprotected first, then deleted; a volume that is
+     * already gone is not an error.
+     */
+    public function expireBackup(string $backupRemoteId): ProviderResult
+    {
+        [$storage] = explode(':', $backupRemoteId, 2);
+        if ($storage === '' || ! str_contains($backupRemoteId, ':')) {
+            throw new ProviderException('proxmox', ProviderErrorCode::VALIDATION, 'Not a backup volume id: '.mb_substr($backupRemoteId, 0, 80));
+        }
+        $node = collect($this->clusterNodes())->firstWhere('status', 'online')['node'] ?? null;
+        if ($node === null) {
+            throw new ProviderException('proxmox', ProviderErrorCode::TRANSIENT, 'No node of the cluster is online to reach the backup storage');
+        }
+        $path = "/nodes/{$node}/storage/{$storage}/content/".rawurlencode($backupRemoteId);
+        try {
+            $this->api->put($path, ['protected' => 0], 'backup.unprotect');
+            $this->api->delete($path, [], 'backup.delete', true);
+        } catch (ProviderException $e) {
+            if ($e->errorCode === ProviderErrorCode::NOT_FOUND) {
+                return ProviderResult::completed(null, ['deleted' => false], alreadyExisted: true);
+            }
+            throw $e;
+        }
+
+        return ProviderResult::completed(null, ['deleted' => true, 'volid' => $backupRemoteId]);
     }
 
     public function listBackups(ResourceRef $vm): array

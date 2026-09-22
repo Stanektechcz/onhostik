@@ -163,6 +163,10 @@ final class Doctor extends Command
 
         $orphan = Backup::query()->where('kind', 'final')->where('state', 'completed')->whereNull('retention_until')->count();
         $this->add('lifecycle', 'every archive has a retention date', $orphan === 0, $orphan === 0 ? '' : $orphan.' × without retention_until — they would never be pruned', false);
+        // an archive past its date whose copy at the provider could not be removed still holds a cancelled customer's data (H488)
+        $blocked = Backup::query()->where('state', 'completed')->where('retention_until', '<', now())->whereNotNull('meta->expiry_blocked')->count();
+        $this->add('lifecycle', 'expired archives are gone from the provider too', $blocked === 0,
+            $blocked === 0 ? '' : $blocked.' archive(s) past retention still at the provider — backups.meta.expiry_blocked says why', false);
 
         // a schedule that keeps missing its slot is a backup the customer paid for and did not get (H434, H446)
         $stalled = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->where('tags->backup_schedule->missed', '>=', BackupScheduler::MISSES_BEFORE_ALARM)->count();

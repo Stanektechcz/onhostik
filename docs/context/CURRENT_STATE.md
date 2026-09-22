@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **An expired VPS archive is gone from the backup server too:** `FinalArchive::prune()` removes the protected backup at
+  the provider (`ExpiringBackups`) before it marks the archive expired; until then the archive stays `completed`.
+
 - **A game server is deleted with everything of it, or not at all:** the plain panel delete removes the files on Wings
   and the databases on the database host or refuses; `/force` only behind the instance switch `terminate_force`.
 
