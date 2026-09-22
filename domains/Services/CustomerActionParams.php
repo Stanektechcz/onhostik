@@ -26,6 +26,7 @@ final class CustomerActionParams
         'purge' => ['reason'],
         'backup' => ['reason'],
         'restore' => ['backup_id', 'reason'],
+        'restore.test' => ['backup_id', 'reason'],
         'archive.restore' => ['backup_id', 'reason'],
         'snapshot' => ['name', 'description', 'reason'],
         'rollback_snapshot' => ['name', 'reason'],

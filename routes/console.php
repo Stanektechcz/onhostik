@@ -86,6 +86,7 @@ use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Services\Web\CdnService;
 use Onhost\Domain\Services\Web\CertificateAutoIssuer;
 use Onhost\Domain\Services\Web\CertificateService;
+use Onhost\Domain\Services\Web\RestoreTest;
 use Onhost\Domain\Services\Web\UptimeMonitor;
 use Onhost\Domain\Services\Web\WebFileStore;
 use Onhost\Domain\Support\TicketService;
@@ -470,6 +471,7 @@ Schedule::command('onhost:orders:settle')->everyTenMinutes()->withoutOverlapping
 // a service left in SUSPENDING/RESUMING/RESIZING by a step the panel refused accepts nothing until it is put back; nothing is sent to a panel
 Schedule::command('onhost:services:release-stranded --apply --minutes=30')->everyTenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:rescue-expire')->everyTenMinutes()->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:services:restore-test')->dailyAt('04:20')->withoutOverlapping()->onOneServer(); // the cadence is per service; this only asks who is owed one
 Schedule::command('onhost:billing:meter')->hourlyAt(2)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:rate')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:billing:renewals')->hourlyAt(20)->withoutOverlapping()->onOneServer();
@@ -731,6 +733,13 @@ Artisan::command('onhost:services:rescue-expire {--limit=50 : how many services 
     }
     $this->info(sprintf('rescue sessions past their window: %d · put back: %d · failed: %d', $stats['checked'], $stats['ended'], count($stats['errors'])));
 })->purpose('End the rescue sessions whose window has passed and put the servers back');
+
+// The plan sells "test obnovy měsíčně" and nothing ever tested one (H458). Each due service gets a restore into
+// databases of its own, compared by a round trip; the test databases are removed whatever happens.
+Artisan::command('onhost:services:restore-test {--limit=20 : how many services to look at}', function (RestoreTest $tests) {
+    $stats = $tests->tick(max(1, (int) $this->option('limit')));
+    $this->info(sprintf('services looked at: %d · tests started: %d · not owed: %d · errors: %d', $stats['checked'], $stats['started'], $stats['skipped'], $stats['errors']));
+})->purpose('Restore the newest backup of every service whose plan promises a restore test, into databases of its own');
 
 /*
  * Jobs scheduled before the body was confined are still the node's root scripts (H438). They are recognised by their

@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A promised restore test is really made:** `restore.test` restores the newest set into databases of its own,
+  compares the tables that come back, removes them again, and reports what it found (`RestoreTest`).
+
 - **A SQL import keeps a copy of the database it overwrites:** room is checked, that one database is exported and
   kept protected, and a dump the panel refuses is rolled back (`service.database.import.failed`).
 

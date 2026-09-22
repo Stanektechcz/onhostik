@@ -34,6 +34,7 @@ use Onhost\Domain\Services\SuspensionDepth;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\DatabaseCredentials;
 use Onhost\Domain\Services\Web\DatabaseImport;
+use Onhost\Domain\Services\Web\RestoreTest;
 use Onhost\Domain\Services\Web\WebFileStore;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Errors\ProviderErrorCode;
@@ -64,7 +65,7 @@ use Throwable;
  */
 final class ServiceActionWorkflow implements Workflow
 {
-    public const CORE_ACTIONS = ['power', 'suspend', 'resume', 'resize', 'terminate', 'purge', 'backup', 'restore', 'archive.restore', 'snapshot', 'rollback_snapshot'];
+    public const CORE_ACTIONS = ['power', 'suspend', 'resume', 'resize', 'terminate', 'purge', 'backup', 'restore', 'restore.test', 'archive.restore', 'snapshot', 'rollback_snapshot'];
 
     /** Feature actions: one provider call each, validated by ServiceService::featureParams, no service state change. */
     public const FEATURE_ACTIONS = [
@@ -120,6 +121,7 @@ final class ServiceActionWorkflow implements Workflow
             'purge' => [$this->identityStep(), $this->finalArchiveStep(anyOperation: true), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
             'backup' => [$this->backupStep()],
             'restore' => [$this->safetyCopyStep('pre_restore'), $this->restoreStep()],
+            'restore.test' => [$this->restoreTestStep()], // restores into databases of its own: nothing live is touched, so no copy is needed
             'archive.restore' => [$this->archiveRestoreStep()],
             'snapshot' => [$this->snapshotStep()],
             'rollback_snapshot' => [$this->safetyCopyStep('pre_rollback'), $this->rollbackSnapshotStep()],
@@ -1375,6 +1377,43 @@ final class ServiceActionWorkflow implements Workflow
                 }
 
                 return StepResult::done(['dump_bytes' => $dump, 'needs_bytes' => $room['needed'], 'free_bytes' => $room['free'], 'room_checked' => $room['checked']]);
+            }
+        };
+    }
+
+    /**
+     * Does the archive really become a database again? (H458)
+     *
+     * Restored into databases of its own, compared by a round trip, and the test databases are removed whatever
+     * happens — the live data is never the thing being experimented on.
+     */
+    private function restoreTestStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Test obnovy ze zálohy';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                $backup = Backup::query()->where('service_id', $service->id)->find((string) $context->desired('backup_id'));
+                if ($backup === null || $backup->state !== 'completed') {
+                    return StepResult::fail('zálohu k otestování se nepodařilo najít', false, ['error' => 'backup_not_found']);
+                }
+                $tester = $context->container->make(RestoreTest::class);
+                try {
+                    $result = $tester->run($service, $context->adapter(), $this->ref($context), $backup);
+                } catch (DomainError $e) {
+                    return StepResult::fail($e->getMessage(), $e->status >= 500, ['error' => $e->error]);
+                } catch (ProviderException $e) {
+                    return self::fromProviderException($e);
+                }
+                $tester->record($service, $backup, $result);
+
+                return StepResult::done(['restore_test' => $result['outcome'], 'databases' => $result['databases'], 'problems' => $result['problems']]);
             }
         };
     }

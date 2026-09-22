@@ -41,6 +41,7 @@ use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
+use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
@@ -166,6 +167,13 @@ final class Doctor extends Command
         // a schedule that keeps missing its slot is a backup the customer paid for and did not get (H434, H446)
         $stalled = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->where('tags->backup_schedule->missed', '>=', BackupScheduler::MISSES_BEFORE_ALARM)->count();
         $this->add('lifecycle', 'backup schedules keeping up', $stalled === 0, $stalled === 0 ? '' : $stalled.' service(s) have missed '.BackupScheduler::MISSES_BEFORE_ALARM.'+ slots in a row — tags.backup_schedule says why', false);
+
+        // the plan sells a restore test; a service that has never had one has a promise nobody kept (H458)
+        $promised = BackupPolicy::query()->whereNotNull('restore_test')->pluck('service_id')->all();
+        $untested = $promised === [] ? 0 : Service::query()->whereIn('id', $promised)->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])
+            ->where(fn ($q) => $q->whereNull('tags->restore_test->last_at')->orWhere('tags->restore_test->outcome', '!=', 'ok'))->count();
+        $this->add('lifecycle', 'every promised restore test has been made', $untested === 0,
+            $untested === 0 ? (count($promised) === 0 ? 'no plan promises one' : count($promised).' service(s) with a tested backup') : $untested.' service(s) sold a restore test have none that passed — onhost:services:restore-test', false);
 
         // a schedule that stopped itself after repeated failures waits for a person and nothing else will start it (H447)
         $pausedSchedules = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->whereNotNull('tags->backup_schedule->paused_at')->count();

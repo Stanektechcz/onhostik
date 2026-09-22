@@ -485,7 +485,7 @@ final class ServiceService
             $service = $this->liftHolds($service, $context, $params);
         }
         self::assertCoreActionOffered($service, $action);
-        if ($action === 'restore') {
+        if ($action === 'restore' || $action === 'restore.test') {
             // a backup is restored onto the service it was taken from, and nowhere else (H21): somebody else's backup — or a
             // backup of another service of the same customer — does not exist for this request, said now and not in a failed operation
             $backup = Backup::query()->where('service_id', $service->id)->find((string) ($params['backup_id'] ?? ''));
@@ -555,6 +555,7 @@ final class ServiceService
     {
         $families = match ($action) {
             'backup', 'restore' => ['web', 'managed', 'cloud', 'data', 'game'],
+            'restore.test' => ['web', 'managed'], // a set of database dumps is what can be restored into a copy and compared
             'snapshot', 'rollback_snapshot' => ['cloud', 'data'],
             'power' => ['cloud', 'data', 'game'],
             default => null,
@@ -571,7 +572,7 @@ final class ServiceService
             'resume' => [ServiceStateMachine::SUSPENDED],
             'terminate' => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED],
             'purge' => [ServiceStateMachine::SUSPENDED, ServiceStateMachine::FAILED, ServiceStateMachine::TERMINATING],
-            'backup', 'restore' => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED],
+            'backup', 'restore', 'restore.test' => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED],
             default => [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], // feature actions (php, databases, ftp, cron, ssl, mail …)
         };
     }

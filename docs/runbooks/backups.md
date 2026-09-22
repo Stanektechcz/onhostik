@@ -251,3 +251,31 @@ well, and a timeout is exactly the case that may still be running on the node:
 Either way `service.database.import.failed` reaches the customer and the operator, and says which of the two it was.
 
 Tests: `tests/Feature/Services/DatabaseImportSafetyTest.php`.
+
+## A backup nobody has ever restored is not a backup (2026-09-22)
+
+`backup-7` and `backup-30` are sold with `restore_test: monthly`. The price list says "Test obnovy měsíčně", the plan
+writes it into `backup_policies.restore_test` — and **no code ever tested a restore**. The only other mention of it in
+the platform is a loyalty mission asking the customer to try one themselves (H458).
+
+`onhost:services:restore-test` (nightly at 04:20, cadence per service) asks for a `restore.test` operation on every
+service that is owed one. The test:
+
+* takes the newest finished set of the service that holds at least one database dump;
+* for each dump **makes a database of its own** (`<prefix>_rt<random>`) — a test may not answer the question by
+  overwriting the live database;
+* imports the dump into it, **exports it straight back**, and compares the tables that come back with the tables the
+  dump carried. That round trip uses only what both panels already do, needs no database connection of ours, and
+  proves the thing that matters: the archive on the backup disk really becomes a database again;
+* **removes the test database whatever happens**, so neither the customer's disk nor their database count keeps it;
+* writes the result to `tags.restore_test` (`RestoreTest::health($service)`) and publishes
+  `service.restore_test.failed` when the archive did not come back whole. A passing test is read in the panel — a
+  monthly "it worked" mail would be noise.
+
+Worth knowing: a part of a set is named `database-<slug>.sql` whatever it holds, and aaPanel hands out `.sql.gz`, so
+`RestoreTest::tablesIn()` decides how to read it from the first two bytes and not from the extension.
+
+`onhost:doctor` lists services sold a test that have none that passed, under "every promised restore test has been
+made".
+
+Tests: `tests/Feature/Services/RestoreTestTest.php`.

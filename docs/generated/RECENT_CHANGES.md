@@ -4,13 +4,13 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| a05bf88 | 2026-09-22 | A service that did not answer is not a service that was checked |
+| 046e995 | 2026-09-22 | Audit row 48: the nightly six-hour test flake and how it was found |
+| 6904cb0 | 2026-09-22 | A dunning case is due at six, so the test waits until seven |
+| 68b1022 | 2026-09-22 | A database account a database hangs on is not removed (H462) |
+| b81f560 | 2026-09-22 | An import keeps a copy of the database it overwrites (H456, H467) |
+| f246399 | 2026-09-22 | A schedule that keeps failing stops itself (H447) |
+| 47edcea | 2026-09-22 | A suspended game server's schedules are disarmed too (H440) |
+| ac18f18 | 2026-09-22 | A scheduled command is not a root shell (H438, H441) |
 | 5b1453b | 2026-09-21 | A missed backup slot is not silent |
 | 2cc1a1f | 2026-09-21 | A destructive action is previewed, and a stale confirmation is refused |
-| 315e8b5 | 2026-09-21 | A button a person cannot press is not offered, and what is gone says why |
-| 2fe0e85 | 2026-09-21 | ISPConfig is followed by its own change log, not the whole server's queue |
-| aad7a85 | 2026-09-21 | What a destructive action replaces is kept first |
-| 08d4065 | 2026-09-21 | A broken server can boot something else: rescue mode (H233) |
-| 07f0528 | 2026-09-21 | Rows of the same second have no order of their own |
-| d641a15 | 2026-09-21 | A server's reverse record reaches the resolver |
-| 2b6dd21 | 2026-09-21 | A plan promises only what the platform enforces, applies or measures |
-| a3316a0 | 2026-09-21 | A test that reads the clock twice is red whenever the second ticks over |

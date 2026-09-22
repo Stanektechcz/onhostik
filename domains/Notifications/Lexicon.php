@@ -139,6 +139,8 @@ final class Lexicon
         'CDN je aktivní' => 'CDN is active', 'CDN zapnuto' => 'CDN enabled', 'CDN vypnuto' => 'CDN disabled', ' · nastavte nameservery u registrátora' => ' · set the nameservers at your registrar', ' změněn na ' => ' changed to ',
         'Plánovaná záloha se nespustila' => 'A scheduled backup did not start', 'Zálohu služby ' => 'The backup of ', ' se nepodařilo spustit ' => ' could not be started ',
         '× po sobě (' => ' times in a row (', '). Díváme se na to; poslední hotová záloha zůstává k dispozici.' => '). We are looking into it; the last finished backup is still there.',
+        'Záloha se nepodařilo obnovit na zkoušku' => 'A backup could not be restored in a test', 'Pravidelný test obnovy u služby ' => 'The regular restore test of ', ' neprošel: ' => ' did not pass: ',
+        ' Vaše data ani databáze jsme nijak nezměnili — test běží stranou. Díváme se na to.' => ' Your data and databases were not touched — the test runs to one side. We are looking into it.',
         'Import databáze se nedokončil' => 'The database import did not finish', 'Import do databáze ' => 'The import into the database ',
         ' se nedokončil a vrátili jsme ji do stavu těsně před importem.' => ' did not finish, so we put it back the way it was just before it started.',
         ' se nedokončil. Kopii z doby těsně před importem máme uloženou.' => ' did not finish. We have the copy from just before it started.', ' Důvod: ' => ' Reason: ',
