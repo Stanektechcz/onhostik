@@ -13,6 +13,7 @@ use Onhost\Domain\Services\Models\DeploySource;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\UsageGuard;
 use Onhost\Domain\Services\Web\DeployService;
 use Onhost\Domain\Services\Web\UptimeMonitor;
 use Onhost\Domain\Services\Web\WebFileStore;
@@ -56,6 +57,7 @@ final class WebToolsController extends ApiController
         if (str_contains($dir, '..')) {
             throw new DomainError('action_param_invalid', 'path must stay inside the site root.', 422, ['field' => 'path']);
         }
+        UsageGuard::assertRoomFor($model, 'file.save'); // a site with no room left does not take more files
         $file = $request->file('file');
         $name = preg_replace('/[^\w.\-() ]+/u', '_', (string) $file->getClientOriginalName()) ?: 'upload.bin';
         $target = ($dir !== '' ? $dir.'/' : '').$name;

@@ -102,7 +102,13 @@ final class NotificationRouter
 
                     return;
                 }
-                $this->customer($m, 'service', "Služba {$name} využívá {$pct} % ({$metric})", ($p['level'] ?? 'warn') === 'critical' ? "Kapacita je téměř vyčerpaná. {$offer}" : "Blížíte se limitu tarifu. {$offer}", '/panel/sluzby', ($p['level'] ?? 'warn') === 'critical' ? 'hot' : 'warn', $email, 'service-usage-high', ['sluzba' => $name, 'metrika' => $metric, 'procenta' => (string) $pct, 'nabidka' => $offer, 'url' => "{$portal}/panel/sluzby"]);
+                $level = (string) ($p['level'] ?? 'warn');
+                $body = match ($level) { // a full plan is not a warning any more: the site cannot take more until there is room
+                    'full' => "Tarif je vyčerpaný, takže do služby zatím nejde přidávat další obsah. Uvolněte místo, nebo zvyšte tarif. {$offer}",
+                    'critical' => "Kapacita je téměř vyčerpaná. {$offer}",
+                    default => "Blížíte se limitu tarifu. {$offer}",
+                };
+                $this->customer($m, 'service', $level === 'full' ? "Služba {$name} má vyčerpaný tarif ({$metric})" : "Služba {$name} využívá {$pct} % ({$metric})", $body, '/panel/sluzby', in_array($level, ['critical', 'full'], true) ? 'hot' : 'warn', $email, 'service-usage-high', ['sluzba' => $name, 'metrika' => $metric, 'procenta' => (string) $pct, 'nabidka' => $offer, 'url' => "{$portal}/panel/sluzby"]);
             })(),
             'service.migration.scheduled' => $this->customer($m, 'service', 'Stěhování serveru '.($p['label'] ?? '').' je naplánované', 'Začne '.self::when($p['starts_at'] ?? null).'; termín můžete posunout v okně '.self::when($p['from'] ?? null).' – '.self::when($p['to'] ?? null).' v panelu.', '/panel/sluzby', 'warn', $email, 'service-migration-scheduled', ['sluzba' => (string) ($p['label'] ?? ''), 'zacatek' => self::when($p['starts_at'] ?? null), 'od' => self::when($p['from'] ?? null), 'do' => self::when($p['to'] ?? null), 'duvod' => (string) ($p['reason'] ?? ''), 'url' => "{$portal}/panel/sluzby"]),
             'service.migration.rescheduled' => $this->internal($m, 'infra', 'Zákazník posunul stěhování '.($p['label'] ?? ''), 'Nový začátek '.self::when($p['starts_at'] ?? null), '/sprava#/gprov', 'info'),

@@ -29,6 +29,12 @@ final class UsageWatch
 
     public const CRITICAL_PCT = 95;
 
+    /** Full: the plan is used up. ISPConfig stops the site writing at this point; on aaPanel nothing does, so the platform does. */
+    public const FULL_PCT = 100;
+
+    /** How long a measurement is taken as the truth: an old one must not hold a customer's site back for ever. */
+    public const FRESH_HOURS = 26;
+
     public function __construct(
         private readonly ServiceFeatures $features,
         private readonly ServiceService $services,
@@ -37,10 +43,10 @@ final class UsageWatch
         private readonly AuditRecorder $audit,
     ) {}
 
-    /** @return array{checked:int, warned:int, critical:int, upgraded:int, errors:int} */
+    /** @return array{checked:int, warned:int, critical:int, full:int, upgraded:int, errors:int} */
     public function run(int $limit = 200): array
     {
-        $stats = ['checked' => 0, 'warned' => 0, 'critical' => 0, 'upgraded' => 0, 'errors' => 0];
+        $stats = ['checked' => 0, 'warned' => 0, 'critical' => 0, 'full' => 0, 'upgraded' => 0, 'errors' => 0];
         $services = Service::query()->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->whereIn('family', ['web', 'managed', 'cloud', 'game', 'mail'])
             ->orderBy('id')->limit(max(1, $limit))->get();
         foreach ($services as $service) {
@@ -63,9 +69,9 @@ final class UsageWatch
             $upgrade = null;
             if ($level !== 'ok') {
                 $upgrade = $this->nextPlan($service);
-                $escalated = ($usage['notified_level'] === 'ok') || ($usage['notified_level'] === 'warn' && $level === 'critical') || $usage['notified_on'] !== $today;
+                $escalated = self::rank($level) > self::rank((string) $usage['notified_level']) || $usage['notified_on'] !== $today;
                 $order = null;
-                if ($level === 'critical' && ! empty($tags['policy']['auto_upgrade']) && $upgrade !== null && $usage['auto_upgrade_on'] !== $today) {
+                if (in_array($level, ['critical', 'full'], true) && ! empty($tags['policy']['auto_upgrade']) && $upgrade !== null && $usage['auto_upgrade_on'] !== $today) {
                     $usage['auto_upgrade_on'] = $today;
                     $order = $this->autoUpgrade($service, $upgrade);
                     if ($order !== null) {
@@ -76,7 +82,9 @@ final class UsageWatch
                 if ($escalated) {
                     $usage['notified_level'] = $level;
                     $usage['notified_on'] = $today;
-                    $stats[$level === 'critical' ? 'critical' : 'warned']++;
+                    $stats[match ($level) {
+                        'full' => 'full', 'critical' => 'critical', default => 'warned'
+                    }]++;
                     $this->outbox->publish(GenericEvent::of('service.usage.high', 'service', $service->id, [
                         'level' => $level, 'metrics' => $metrics, 'top' => self::top($metrics), 'hostname' => $service->hostname, 'label' => $service->label,
                         'plan' => $upgrade['current'] ?? null, 'upgrade' => $upgrade === null ? null : array_diff_key($upgrade, ['current' => 1]),
@@ -134,7 +142,15 @@ final class UsageWatch
     {
         $max = max(array_map(fn (array $m) => $m['pct'], $metrics) ?: [0]);
 
-        return $max >= self::CRITICAL_PCT ? 'critical' : ($max >= self::WARN_PCT ? 'warn' : 'ok');
+        return $max >= self::FULL_PCT ? 'full' : ($max >= self::CRITICAL_PCT ? 'critical' : ($max >= self::WARN_PCT ? 'warn' : 'ok'));
+    }
+
+    /** Where a level stands on the ladder ok → warn → critical → full: the customer hears when it rises, and once a day. */
+    public static function rank(string $level): int
+    {
+        return match ($level) {
+            'full' => 3, 'critical' => 2, 'warn' => 1, default => 0
+        };
     }
 
     /** The metric closest to its limit. @param  array<string, array{used:int, limit:int, pct:int}>  $metrics @return array{key:string, pct:int}|null */

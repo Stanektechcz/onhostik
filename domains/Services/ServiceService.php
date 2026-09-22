@@ -487,6 +487,7 @@ final class ServiceService
             $service = $this->liftHolds($service, $context, $params);
         }
         self::assertCoreActionOffered($service, $action);
+        UsageGuard::assertRoomFor($service, $action); // a service with no room left does not grow: ISPConfig stops it, aaPanel does not, the platform always does
         if ($action === 'restore' || $action === 'restore.test') {
             // a backup is restored onto the service it was taken from, and nowhere else (H21): somebody else's backup — or a
             // backup of another service of the same customer — does not exist for this request, said now and not in a failed operation

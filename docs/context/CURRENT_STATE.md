@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A used-up plan stops growing:** at 100 % the customer is told (level `full`) and `UsageGuard` refuses the
+  actions that would store more — while deleting, backups, restores and a plan change stay open. It reads the last
+  measurement (no panel call) and only while it is fresh, so a stale number never blocks a site for ever.
+
 - **A plan change fits what the service holds, and reaches the panel:** `PlanFit` refuses a plan that sells fewer
   sites than the service has (or less space than its sites hold, or no staging, or not their PHP version) before any
   money moves, naming every reason at once; the ISPConfig client's limits now follow the plan, so a paid upgrade is
