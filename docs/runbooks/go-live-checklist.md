@@ -39,6 +39,7 @@ how it is verified; nothing here is optional for production. Run through it top 
 | RKE2 service account token + cluster CA pinned | Probe UP, `apps.create` capability on |
 | IPAM pools per region for VPS addresses | `POST /v1/staff/ipam/pools`; a VPS order no longer waits with `ipam.exhausted` |
 | Console relay key shared with the relay service | `ONHOST_CONSOLE_RELAY_KEY`; opening a console in the panel connects |
+| Panel versions (H530): every panel runs a version its adapter was verified on, or one an operator accepted on passing checks | `php artisan onhost:integrations:versions` shows no `held` and no `baseline`; ISPConfig and aaPanel report a version (see [panel-upgrade.md](panel-upgrade.md)) |
 
 ## 3. Money and documents
 

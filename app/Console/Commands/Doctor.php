@@ -36,6 +36,7 @@ use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\Models\VmidReservation;
 use Onhost\Domain\Provisioning\OperationLatency;
+use Onhost\Domain\Provisioning\PanelVersionGate;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderInstanceService;
 use Onhost\Domain\Services\Addons;
@@ -348,6 +349,16 @@ final class Doctor extends Command
         }
         $roles = Node::query()->where('state', 'active')->get()->groupBy('role')->map->count();
         $this->add('providers', 'active nodes', $roles->isNotEmpty(), $roles->isEmpty() ? 'none — run Discover or register nodes' : $roles->map(fn ($n, $r) => "{$r}: {$n}")->implode(', '));
+        // a panel on a version nobody verified takes no new orders (H530): the held ones, the baselines the adapter was never
+        // verified on, and the panels whose version cannot be seen at all (an upgrade there would go unnoticed)
+        $versioned = ProviderInstance::query()->platform()->whereIn('provider', PanelVersionGate::SELF_HOSTED)->where('state', '!=', 'disabled')->get();
+        $named = fn (string $state) => $versioned->filter(fn (ProviderInstance $i) => data_get($i->version_gate, 'state') === $state)->map(fn (ProviderInstance $i) => $i->key.' '.data_get($i->version_gate, 'version'))->values()->all();
+        $held = $named('held');
+        $this->add('providers', 'no panel is held on an unverified version', $held === [], $held === [] ? 'none held' : implode(', ', $held).' — no new orders go there; php artisan onhost:integrations:versions', false);
+        $baseline = $named('baseline');
+        $this->add('providers', 'every panel runs a version its adapter was verified on', $baseline === [], $baseline === [] ? 'verified or accepted' : implode(', ', $baseline).' — in use before the version gate; check it, then onhost:integrations:versions --accept or upgrade', false);
+        $silent = $versioned->filter(fn (ProviderInstance $i) => $i->provider !== 'pterodactyl' && (string) ($i->vendor_version ?? '') === '')->pluck('key')->all(); // the game panel's API has no version to give
+        $this->add('providers', 'panels report their version', $silent === [], $silent === [] ? 'all of them' : implode(', ', $silent).' — an upgrade there would go unnoticed; check the API user\'s rights (ISPConfig: "Server functions")', false);
         $this->add('providers', 'WEDOS test mode off', ! config('onhost.wapi.test_mode'), config('onhost.wapi.test_mode') ? 'WEDOS_TEST_MODE=true makes registry operations dry runs' : '');
         $registrars = app(RegistrarClient::class)->instances();
         $this->add('providers', 'registrar available', $registrars !== [], $registrars === [] ? 'no usable registrar instance (wedos / subreg): domains cannot be registered' : implode(', ', array_map(fn ($i) => $i->key.' ('.$i->provider.')', $registrars)));

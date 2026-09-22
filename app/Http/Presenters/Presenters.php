@@ -262,7 +262,11 @@ final class Presenters
 
     public static function providerInstance(ProviderInstance $instance, ?array $health = null): array
     {
-        return ['id' => $instance->id, 'key' => $instance->key, 'provider' => $instance->provider, 'name' => $instance->name, 'region' => $instance->region_code, 'state' => $instance->state, 'capabilities' => $instance->capabilities, 'vendor_version' => $instance->vendor_version, 'adapter_version' => $instance->adapter_version, 'health' => $health ?? $instance->health, 'health_checked_at' => $instance->health_checked_at?->toIso8601String(), 'maintenance_until' => $instance->maintenance_until?->toIso8601String(), 'state_reason' => $instance->state_reason];
+        $gate = (array) ($instance->version_gate ?? []);
+
+        return ['id' => $instance->id, 'key' => $instance->key, 'provider' => $instance->provider, 'name' => $instance->name, 'region' => $instance->region_code, 'state' => $instance->state, 'capabilities' => $instance->capabilities, 'vendor_version' => $instance->vendor_version, 'adapter_version' => $instance->adapter_version, 'health' => $health ?? $instance->health, 'health_checked_at' => $instance->health_checked_at?->toIso8601String(), 'maintenance_until' => $instance->maintenance_until?->toIso8601String(), 'state_reason' => $instance->state_reason,
+            // what the platform concluded about the version the panel runs (PanelVersionGate): held = no new orders go there
+            'usable' => $instance->isUsable(), 'version_gate' => $gate === [] ? null : array_intersect_key($gate, array_flip(['state', 'version', 'declared', 'previous', 'since', 'checked_at', 'why', 'reason', 'accepted_by', 'accepted_at', 'evidence']))];
     }
 
     public static function drift(ResourceDrift $drift): array

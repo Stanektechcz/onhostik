@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A panel on a version nobody verified takes no new orders:** `PanelVersionGate` compares the version the health
+  probe reads with what the adapter declares and verifies a change on passing checks; a held instance is not usable for
+  new work, services on it are still managed; `onhost:integrations:versions --accept` (runbook panel-upgrade.md).
+
 - **A VM moved by HA is followed:** the reconciler moves the binding, the VM record and the service's node after a VM
   that answers from another node — once it proves to be the service's (service tag, else name); otherwise a drift.
 

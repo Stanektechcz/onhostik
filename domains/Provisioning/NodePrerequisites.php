@@ -42,7 +42,7 @@ final class NodePrerequisites
         return $stats;
     }
 
-    /** @return array{checked_at:string, api:string, version:?string, php_versions:list<string>, cron_api:string, jobqueue:?int, mod_proxy:string, client_api:?string, game:?array<string,mixed>, warnings:list<string>} */
+    /** @return array{checked_at:string, api:string, version:?string, php_versions:list<string>, cron_api:string, jobqueue:?int, mod_proxy:string, client_api:?string, game:?array<string,mixed>, shell:?array<string,mixed>, warnings:list<string>, probes?:array<string, string|list<string>>, backup_api?:string, datalog_api?:string} */
     public function check(ProviderInstance $instance, CommandContext $context): array
     {
         $out = ['checked_at' => now()->toIso8601String(), 'api' => 'down', 'version' => null, 'php_versions' => [], 'cron_api' => 'unknown', 'jobqueue' => null, 'mod_proxy' => (string) $instance->option('mod_proxy', 'unknown'), 'client_api' => null, 'game' => null, 'shell' => null, 'warnings' => []];

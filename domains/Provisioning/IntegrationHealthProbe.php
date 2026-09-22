@@ -15,7 +15,7 @@ use Throwable;
 /** Provider health for the Integrations panel and alerting (blueprint §5.7): one probe per instance, state transitions emit events. */
 final class IntegrationHealthProbe
 {
-    public function __construct(private readonly ProviderRegistry $providers, private readonly ProviderHttpClient $http, private readonly OutboxPublisher $outbox) {}
+    public function __construct(private readonly ProviderRegistry $providers, private readonly ProviderHttpClient $http, private readonly OutboxPublisher $outbox, private readonly PanelVersionGate $versions) {}
 
     /** @return array{checked:int, up:int, down:int} */
     public function run(): array
@@ -78,6 +78,13 @@ final class IntegrationHealthProbe
         $overdueBefore = (bool) data_get($instance->health, 'maintenance_overdue', false);
         $instance->forceFill(['health' => array_merge(['up' => $up, 'latency_ms' => $latency, 'error' => $error], $detail), 'health_checked_at' => now(), 'vendor_version' => $version ?? $instance->vendor_version])->save();
         $this->settleMaintenanceLock($instance, $up, $overdueBefore);
+        if ($up && $version !== null && $version !== '') {
+            try {
+                $this->versions->observe($instance, $version); // an upgraded panel takes no new orders until its version is verified (H530)
+            } catch (Throwable $e) {
+                report($e); // the gate failing must never cost the health record itself
+            }
+        }
         if ($wasUp !== null && $wasUp !== $up) {
             $this->outbox->publish(GenericEvent::of($up ? 'integration.recovered' : 'integration.down', 'provider_instance', $instance->id, ['key' => $instance->key, 'provider' => $instance->provider, 'error' => $error]));
         } elseif ($wasUp === null && ! $up) {

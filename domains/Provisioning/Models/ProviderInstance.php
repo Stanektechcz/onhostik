@@ -18,6 +18,7 @@ use Onhost\Platform\Secrets\SecretRef;
  * @property ?string $state_reason
  * @property array<string,mixed>|null $health
  * @property array<string,mixed>|null $options
+ * @property array<string,mixed>|null $version_gate
  */
 final class ProviderInstance extends Model
 {
@@ -29,7 +30,7 @@ final class ProviderInstance extends Model
     {
         return [
             'capabilities' => 'array', 'options' => 'array', 'quotas' => 'array', 'rate_limits' => 'array', 'health' => 'array',
-            'health_checked_at' => 'datetime', 'maintenance_until' => 'datetime',
+            'health_checked_at' => 'datetime', 'maintenance_until' => 'datetime', 'version_gate' => 'array',
         ];
     }
 
@@ -63,10 +64,17 @@ final class ProviderInstance extends Model
      * Whether automation may place on, reconcile against and repair through this instance. Only `active` counts;
      * a maintenance lock never lifts itself when its time runs out — an expired lock stays a lock until a health
      * probe proves the panel is back (IntegrationHealthProbe) or staff set the state by hand (audit §5ab, card H322).
+     * A panel whose version is held (PanelVersionGate) takes nothing new either; what already runs there is still managed.
      */
     public function isUsable(): bool
     {
-        return $this->state === 'active';
+        return $this->state === 'active' && ! $this->versionHeld();
+    }
+
+    /** The panel runs a version nobody verified or accepted yet (PanelVersionGate, H530). */
+    public function versionHeld(): bool
+    {
+        return data_get($this->version_gate, 'state') === 'held';
     }
 
     /** A maintenance lock whose planned end has passed: still locked, waiting for a fresh check before anything moves. */

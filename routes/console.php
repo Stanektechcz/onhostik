@@ -66,6 +66,7 @@ use Onhost\Domain\Provisioning\OperationLatency;
 use Onhost\Domain\Provisioning\OperationsBoard;
 use Onhost\Domain\Provisioning\OperationSecrets;
 use Onhost\Domain\Provisioning\OperationService;
+use Onhost\Domain\Provisioning\PanelVersionGate;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\QueueScaler;
 use Onhost\Domain\Provisioning\Reconciler;
@@ -741,6 +742,38 @@ Artisan::command('onhost:services:rescue-expire {--limit=50 : how many services 
  * still fails on; `--accept` puts one into the offer, and only when every required point passes. `--exception` records
  * what is knowingly accepted anyway (H478) — it is written on the node, never hidden.
  */
+Artisan::command('onhost:integrations:versions {--accept= : the key of the instance whose held version is accepted} {--reason= : what was checked and where; it stays on the record}', function (PanelVersionGate $gate) {
+    $accept = (string) ($this->option('accept') ?? '');
+    if ($accept !== '') {
+        $instance = ProviderInstance::query()->platform()->where('key', $accept)->first();
+        if ($instance === null) {
+            $this->error("Instanci {$accept} neznám.");
+
+            return 1;
+        }
+        try {
+            $record = $gate->accept($instance, (string) ($this->option('reason') ?? ''), CommandContext::system('cli:integrations:versions'), 'cli:'.(getenv('SUDO_USER') ?: getenv('USER') ?: getenv('USERNAME') ?: 'unknown'));
+        } catch (DomainError $e) {
+            $this->error($e->getMessage());
+
+            return 1;
+        }
+        $this->info("{$instance->key} {$record['version']}: přijato — nové objednávky tam znovu jdou.");
+
+        return 0;
+    }
+    $rows = [];
+    foreach (ProviderInstance::query()->platform()->whereIn('provider', PanelVersionGate::SELF_HOSTED)->where('state', '!=', 'disabled')->orderBy('provider')->orderBy('key')->get() as $instance) {
+        $record = (array) ($instance->version_gate ?? []);
+        $rows[] = [$instance->key, (string) ($instance->vendor_version ?? '—'), implode(', ', $gate->declaredFor($instance)) ?: '—', (string) ($record['state'] ?? 'unknown'), mb_substr((string) ($record['why'] ?? $record['reason'] ?? ''), 0, 90)];
+    }
+    $this->table(['instance', 'runs', 'adapter verified on', 'state', 'why / reason'], $rows);
+    $held = array_filter($rows, fn (array $row) => $row[3] === 'held');
+    $held === [] ? $this->info('Žádná verze nečeká na ověření.') : $this->warn(count($held).' instance nebere nové objednávky — po kontrole: --accept=<instance> --reason="…"');
+
+    return 0;
+})->purpose('Panel versions: what each panel runs, what its adapter was verified on, and accepting a held one (H530)');
+
 Artisan::command('onhost:nodes:qualify {--accept= : the id or name of the node to put into the offer} {--exception= : what is knowingly accepted anyway, and why} {--synthetic= : make one throw-away resource on this node and remove it again (H479)}', function (NodeQualification $qualification) {
     $synthetic = (string) ($this->option('synthetic') ?? '');
     if ($synthetic !== '') {

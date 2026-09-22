@@ -74,6 +74,22 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
      * user without them is up with a warning (the operator sees exactly which groups to enable in ISPConfig →
      * System → Remote Users).
      */
+    /**
+     * The ISPConfig release the panel runs (`3.2.11p2`). Without it an upgrade of the panel could not even be noticed
+     * (PanelVersionGate); null where the remote user may not ask or the release is older than the call.
+     */
+    private function appVersion(): ?string
+    {
+        try {
+            $answer = $this->api->call('server_get_app_version', ['server_id' => 0]);
+        } catch (ProviderException) {
+            return null;
+        }
+        $version = is_array($answer) ? trim((string) ($answer['ispc_app_version'] ?? '')) : '';
+
+        return $version !== '' ? mb_substr($version, 0, 40) : null;
+    }
+
     public function health(): ProviderHealth
     {
         $started = hrtime(true);
@@ -93,7 +109,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
             $detail += ['server_id' => $serverId, 'jobqueue' => $queue, 'hostname' => is_array($server) ? ($server['hostname'] ?? null) : null];
             $detail['permissions'] += ['server' => true, 'monitor' => true];
 
-            return new ProviderHealth($queue < 200, null, $ms(), $detail, $queue >= 200 ? "ISPConfig job queue has {$queue} pending jobs" : null);
+            return new ProviderHealth($queue < 200, $this->appVersion(), $ms(), $detail, $queue >= 200 ? "ISPConfig job queue has {$queue} pending jobs" : null);
         } catch (ProviderException $e) {
             if ($e->errorCode !== ProviderErrorCode::AUTH) {
                 return ProviderHealth::down($e->getMessage(), $ms());

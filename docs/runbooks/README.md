@@ -12,6 +12,7 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | [backups.md](backups.md) | What a backup of a service is (web: the platform's own set of files + every database, fresh or failed), download, restore, delete, retention, off-site; what to check when one fails |
 | [security-boundaries.md](security-boundaries.md) | The rules the customer-facing edge keeps (parameter allow-lists, egress, keys and tokens, roles, money) — read before adding an endpoint |
 | [provider-outage.md](provider-outage.md) | Proxmox / ISPConfig / aaPanel / Pterodactyl / PowerDNS / WEDOS unreachable or erroring |
+| [panel-upgrade.md](panel-upgrade.md) | upgrading a panel: what the version gate does by itself, the maintenance window, accepting a version the adapter was not verified on |
 | [provisioning-queue.md](provisioning-queue.md) | failed or stuck operations, drift, freeze switch, capacity |
 | [domains-registrar.md](domains-registrar.md) | WEDOS credit, renewals at risk, async registrations, reconciliation |
 | [billing-dunning.md](billing-dunning.md) | past-due invoices, suspension/resume, refunds, reconciliation mismatches |
