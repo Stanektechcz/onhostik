@@ -168,6 +168,15 @@ final class Doctor extends Command
         $stalled = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->where('tags->backup_schedule->missed', '>=', BackupScheduler::MISSES_BEFORE_ALARM)->count();
         $this->add('lifecycle', 'backup schedules keeping up', $stalled === 0, $stalled === 0 ? '' : $stalled.' service(s) have missed '.BackupScheduler::MISSES_BEFORE_ALARM.'+ slots in a row — tags.backup_schedule says why', false);
 
+        // a node nobody looked at is a node the scheduler would sell (H471): the waiting ones, and the ones already
+        // in the offer that have never been through a qualification at all
+        $waiting = Node::query()->where('state', Node::QUALIFYING)->count();
+        $this->add('capacity', 'no node is waiting to be qualified', $waiting === 0,
+            $waiting === 0 ? 'none waiting' : $waiting.' node(s) discovered and not yet in the offer — php artisan onhost:nodes:qualify', false);
+        $unqualified = Node::query()->where('state', Node::ACTIVE)->whereNull('qualified_at')->count();
+        $this->add('capacity', 'every node in the offer has been qualified', $unqualified === 0,
+            $unqualified === 0 ? 'all of them' : $unqualified.' node(s) carry customers without a qualification on record — onhost:nodes:qualify --accept=<node>', false);
+
         // the plan sells a restore test; a service that has never had one has a promise nobody kept (H458)
         $promised = BackupPolicy::query()->whereNotNull('restore_test')->pluck('service_id')->all();
         $untested = $promised === [] ? 0 : Service::query()->whereIn('id', $promised)->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])

@@ -74,7 +74,8 @@ it('tests the connection of a registered instance and imports Proxmox cluster no
     $discovered = $this->postJson('/v1/staff/integrations/proxmox-cz2/discover')->assertOk();
     expect($discovered->json('nodes'))->toBe(['prg2-n1', 'prg2-n2']);
     $n1 = Node::query()->where('name', 'prg2-n1')->firstOrFail();
-    expect($n1->role)->toBe('compute')->and($n1->state)->toBe('active')->and($n1->capacity['cpu_cores'])->toBe(64)->and($n1->capacity['ram_mb'])->toBe(262144)->and($n1->capacity['disk_gb'])->toBe(4000)->and($n1->usage['cpu_pct'])->toBe(12);
+    // discovered, and therefore NOT yet in the offer: nobody has looked at this host (H471)
+    expect($n1->role)->toBe('compute')->and($n1->state)->toBe(Node::QUALIFYING)->and($n1->isSchedulable())->toBeFalse()->and($n1->capacity['cpu_cores'])->toBe(64)->and($n1->capacity['ram_mb'])->toBe(262144)->and($n1->capacity['disk_gb'])->toBe(4000)->and($n1->usage['cpu_pct'])->toBe(12);
     expect(Node::query()->where('name', 'prg2-n2')->value('state'))->toBe('unreachable');
 
     // manual nodes for executors without discovery; maintenance state pauses scheduling

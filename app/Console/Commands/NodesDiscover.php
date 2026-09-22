@@ -91,10 +91,13 @@ final class NodesDiscover extends Command
         $needed = match ($instance->provider) {
             'ispconfig' => 'web', 'aapanel' => 'managed', 'pterodactyl' => 'game', 'proxmox' => 'compute', default => null
         };
-        if ($needed !== null && ! $nodes->contains(fn (Node $n) => $n->role === $needed && $n->state === 'active')) {
-            $this->warn("No active node with role {$needed}: web/game orders on {$instance->key} cannot be placed. Run again with --role={$needed}.");
-        } else {
-            $this->info(count($result['nodes']).' node(s) imported from '.$instance->key.'.');
+        $this->info(count($result['nodes']).' node(s) imported from '.$instance->key.'.');
+        // a discovered node is not a node anybody has looked at (H471): say which of the two is missing, they are fixed differently
+        if ($needed !== null && ! $nodes->contains(fn (Node $n) => $n->role === $needed && $n->state === Node::ACTIVE)) {
+            $waiting = $nodes->filter(fn (Node $n) => $n->role === $needed && $n->state === Node::QUALIFYING);
+            $this->warn($waiting->isEmpty()
+                ? "No node with role {$needed}: orders on {$instance->key} cannot be placed. Run again with --role={$needed}."
+                : $waiting->count()." node(s) with role {$needed} are waiting to be qualified, so nothing can be placed on {$instance->key} yet: php artisan onhost:nodes:qualify");
         }
 
         return self::SUCCESS;

@@ -60,6 +60,7 @@ use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\NodePrerequisites;
+use Onhost\Domain\Provisioning\NodeQualification;
 use Onhost\Domain\Provisioning\NodeSampler;
 use Onhost\Domain\Provisioning\OperationLatency;
 use Onhost\Domain\Provisioning\OperationsBoard;
@@ -96,6 +97,7 @@ use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\WalletForecast;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Files\FileStore;
@@ -733,6 +735,38 @@ Artisan::command('onhost:services:rescue-expire {--limit=50 : how many services 
     }
     $this->info(sprintf('rescue sessions past their window: %d · put back: %d · failed: %d', $stats['checked'], $stats['ended'], count($stats['errors'])));
 })->purpose('End the rescue sessions whose window has passed and put the servers back');
+
+/*
+ * A node nobody has qualified sells nothing (H471). Without arguments this lists what is waiting and what each one
+ * still fails on; `--accept` puts one into the offer, and only when every required point passes. `--exception` records
+ * what is knowingly accepted anyway (H478) — it is written on the node, never hidden.
+ */
+Artisan::command('onhost:nodes:qualify {--accept= : the id or name of the node to put into the offer} {--exception= : what is knowingly accepted anyway, and why}', function (NodeQualification $qualification) {
+    $accept = (string) ($this->option('accept') ?? '');
+    if ($accept === '') {
+        $waiting = $qualification->waiting();
+        $this->table(['uzel', 'role', 'region', 'prošel', 'co chybí'], array_map(fn (array $r) => [$r['node'], $r['role'], $r['region'], $r['passed'] ? 'ano' : 'ne', $r['failed']], $waiting['rows']));
+        $this->info($waiting['waiting'] === 0 ? 'Žádný uzel nečeká na kvalifikaci.' : $waiting['waiting'].' uzel/uzly čekají — přijmi je pomocí --accept=<uzel>.');
+
+        return;
+    }
+    $node = Node::query()->find($accept) ?? Node::query()->where('name', $accept)->first();
+    if ($node === null) {
+        $this->error("Uzel {$accept} neznám.");
+
+        return 1;
+    }
+    try {
+        $qualification->accept($node, CommandContext::system('cli:nodes:qualify'), (string) ($this->option('exception') ?? '') ?: null);
+    } catch (DomainError $e) {
+        $this->error($e->getMessage());
+
+        return 1;
+    }
+    $this->info("Uzel {$node->name} je kvalifikovaný a v nabídce.");
+
+    return 0;
+})->purpose('List the nodes waiting to be qualified, and put a node that passes into the offer');
 
 // The plan sells "test obnovy měsíčně" and nothing ever tested one (H458). Each due service gets a restore into
 // databases of its own, compared by a round trip; the test databases are removed whatever happens.

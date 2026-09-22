@@ -264,7 +264,7 @@ final class ProviderInstanceService
             $capacity = (array) ($node->capacity ?? []);
             $node->forceFill([
                 'region_code' => $node->region_code ?? $instance->region_code, 'role' => $node->role ?? 'compute',
-                'state' => $remote['status'] === 'online' ? ($node->exists ? $node->state : 'active') : 'unreachable',
+                'state' => $remote['status'] === 'online' ? ($node->exists ? $node->state : Node::QUALIFYING) : 'unreachable',
                 'capacity' => $capacity + ['cpu_cores' => $remote['maxcpu'] ?? 0, 'ram_mb' => (int) round(($remote['maxmem'] ?? 0) / 1048576), 'disk_gb' => (int) round(($remote['maxdisk'] ?? 0) / 1073741824)],
                 'usage' => ['cpu_pct' => (int) round(($remote['cpu'] ?? 0) * 100), 'ram_used_mb' => (int) round(($remote['mem'] ?? 0) / 1048576), 'disk_used_gb' => (int) round(($remote['disk'] ?? 0) / 1073741824), 'io_wait_pct' => 0],
                 'remote_id' => $remote['node'], 'last_seen_at' => now(), 'failure_domain' => $node->failure_domain ?? $remote['node'], 'tags' => $node->tags ?? [],
@@ -292,7 +292,7 @@ final class ProviderInstanceService
             $node->forceFill([
                 'region_code' => $node->region_code ?? $instance->region_code,
                 'role' => $node->role ?? $remote['roles'][0],
-                'state' => $node->exists ? $node->state : 'active',
+                'state' => $node->exists ? $node->state : Node::QUALIFYING,
                 'capacity' => (array) ($node->capacity ?? []) + $remote['capacity'],
                 'usage' => $node->usage ?? [],
                 'remote_id' => (string) $remote['remote_id'], 'last_seen_at' => now(),
@@ -328,7 +328,7 @@ final class ProviderInstanceService
         $capacity = (array) ($node->capacity ?? []);
         $node->forceFill([
             'region_code' => $node->region_code ?? $instance->region_code, 'role' => $node->role ?? 'managed',
-            'state' => $node->exists ? $node->state : 'active',
+            'state' => $node->exists ? $node->state : Node::QUALIFYING,
             'capacity' => array_merge($capacity, array_filter(['ram_mb' => (int) data_get($health->detail, 'mem_total', 0)])),
             'usage' => array_merge((array) ($node->usage ?? []), ['ram_used_mb' => (int) data_get($health->detail, 'mem_realused', 0)]),
             'remote_id' => $node->remote_id, 'last_seen_at' => now(), 'failure_domain' => $node->failure_domain ?? $name, 'tags' => (array) ($node->tags ?? []),
@@ -353,7 +353,7 @@ final class ProviderInstanceService
             $capacity = (array) ($node->capacity ?? []);
             $node->forceFill([
                 'region_code' => $node->region_code ?? $instance->region_code, 'role' => 'game',
-                'state' => $remote['maintenance'] ? 'maintenance' : ($node->exists && $node->state !== 'maintenance' ? $node->state : 'active'),
+                'state' => $remote['maintenance'] ? 'maintenance' : ($node->exists && $node->state !== 'maintenance' ? $node->state : Node::QUALIFYING),
                 'capacity' => array_merge($capacity, ['cpu_cores' => (int) ($capacity['cpu_cores'] ?? 0), 'ram_mb' => self::overallocated((int) $remote['memory'], (int) ($remote['memory_overallocate'] ?? 0)), 'disk_gb' => (int) round(self::overallocated((int) $remote['disk'], (int) ($remote['disk_overallocate'] ?? 0)) / 1024)]), // the panel's overallocation (%) is what it really accepts // the panel's limits win over what was stored (audit §5q follow-up: limits change from the console)
                 'usage' => ['cpu_pct' => (int) data_get($node->usage, 'cpu_pct', 0), 'ram_used_mb' => (int) $remote['allocated_memory'], 'disk_used_gb' => (int) round($remote['allocated_disk'] / 1024), 'io_wait_pct' => 0],
                 'remote_id' => (string) $remote['id'], 'last_seen_at' => now(), 'failure_domain' => $node->failure_domain ?? (string) $remote['name'], 'tags' => array_merge((array) ($node->tags ?? []), ['maintenance' => (bool) $remote['maintenance']]),
@@ -384,8 +384,15 @@ final class ProviderInstanceService
         if (($input['region_code'] ?? $instance->region_code) === null) {
             throw new DomainError('node_region_required', 'A node needs a region (set it on the node or on the instance).', 422, ['field' => 'region_code']);
         }
+        // a node the platform has just learnt about is not a node anybody has looked at: it is listed and watched, and the
+        // scheduler does not see it until it has been qualified (H471). A node already known keeps the state it has.
+        $known = Node::query()->where('provider_instance_id', $instance->id)->where('name', $name)->first();
+        $state = (string) ($input['state'] ?? '');
+        if ($state === '') {
+            $state = $known instanceof Node ? (string) $known->state : Node::QUALIFYING;
+        }
         $node = Node::query()->updateOrCreate(['provider_instance_id' => $instance->id, 'name' => $name], array_filter([
-            'region_code' => $input['region_code'] ?? $instance->region_code, 'role' => $input['role'], 'state' => $input['state'] ?? 'active',
+            'region_code' => $input['region_code'] ?? $instance->region_code, 'role' => $input['role'], 'state' => $state,
             'capacity' => (array) ($input['capacity'] ?? []), 'usage' => $input['usage'] ?? ['cpu_pct' => 0, 'ram_used_mb' => 0, 'disk_used_gb' => 0, 'io_wait_pct' => 0],
             'failure_domain' => $input['failure_domain'] ?? null, 'remote_id' => $input['remote_id'] ?? null, 'tags' => (array) ($input['tags'] ?? []), 'last_seen_at' => now(),
         ], fn ($v) => $v !== null));

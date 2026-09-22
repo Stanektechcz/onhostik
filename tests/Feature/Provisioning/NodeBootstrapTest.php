@@ -14,6 +14,7 @@ use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\NodeUsageSample;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\NodeBootstrap;
+use Onhost\Domain\Provisioning\NodeQualification;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Outbox\OutboxPublisher;
@@ -87,10 +88,18 @@ it('ships the readiness call-back in the user-data and accepts it once', functio
     $activated = $this->postJson("/v1/probes/capacity/{$request->id}/activate", ['token' => $ready['activate_token'], 'hostname' => 'cz1-game03', 'ip' => '203.0.113.20', 'os' => 'Debian 12', 'cpu_cores' => 16, 'ram_mb' => 64000])->assertStatus(202)->json('data');
     expect($activated['state'])->toBe(CapacityRequest::DELIVERED)->and($activated['activated_at'])->not->toBeNull()->and($activated['delivered_at'])->not->toBeNull();
     $node->refresh();
-    expect($node->state)->toBe('active')->and($node->capacity['ram_mb'])->toBe(64000)->and($node->capacity['cpu_cores'])->toBe(16)->and(data_get($node->tags, 'bootstrap.activated_at'))->not->toBeNull();
+    // the machine is installed and said so from its own boot script — which is exactly as much as that proves. The vendor's
+    // part is delivered; the node itself waits to be qualified before the scheduler may see it (H471).
+    expect($node->state)->toBe(Node::QUALIFYING)->and($node->isSchedulable())->toBeFalse()
+        ->and($node->capacity['ram_mb'])->toBe(64000)->and($node->capacity['cpu_cores'])->toBe(16)->and(data_get($node->tags, 'bootstrap.activated_at'))->not->toBeNull();
     $this->postJson("/v1/probes/capacity/{$request->id}/activate", ['token' => $ready['activate_token']])->assertNotFound(); // spent
     app(OutboxPublisher::class)->relayPending();
     expect(Notification::query()->where('audience', 'internal')->where('event', 'capacity.request.activated')->where('title', 'Uzel je aktivní: cz1-game03')->exists())->toBeTrue()
         ->and(Notification::query()->where('event', 'capacity.request.delivered')->exists())->toBeTrue();
-    expect(app(NodeScheduler::class)->sellableCapacity('game', 'cz1')['nodes'])->toBe(3); // the new node counts now
+    // it does not count as capacity that can be sold: it is installed, not qualified
+    expect(app(NodeScheduler::class)->sellableCapacity('game', 'cz1')['nodes'])->toBe(2);
+
+    $node->forceFill(['failure_domain' => 'cz1-rack-a', 'capacity' => (array) $node->capacity + ['disk_gb' => 500], 'usage' => ['disk_used_gb' => 10]])->save();
+    app(NodeQualification::class)->accept($node->refresh(), CommandContext::system('test'));
+    expect(app(NodeScheduler::class)->sellableCapacity('game', 'cz1')['nodes'])->toBe(3); // and now it counts
 });

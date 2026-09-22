@@ -13,9 +13,14 @@ final class Node extends Model
 
     protected $table = 'nodes';
 
+    /** Discovered but not yet qualified: it exists, it is listed, and nothing may be sold on it (H471). */
+    public const QUALIFYING = 'qualifying';
+
+    public const ACTIVE = 'active';
+
     protected function casts(): array
     {
-        return ['capacity' => 'array', 'usage' => 'array', 'tags' => 'array', 'last_seen_at' => 'datetime', 'remote_id' => 'integer'];
+        return ['capacity' => 'array', 'usage' => 'array', 'tags' => 'array', 'last_seen_at' => 'datetime', 'qualified_at' => 'datetime', 'qualification' => 'array', 'remote_id' => 'integer'];
     }
 
     public function providerInstance(): BelongsTo
@@ -25,7 +30,13 @@ final class Node extends Model
 
     public function isSchedulable(): bool
     {
-        return $this->state === 'active';
+        return $this->state === self::ACTIVE;
+    }
+
+    /** Whether this node has ever been through the qualification it is supposed to pass before it carries anybody. */
+    public function isQualified(): bool
+    {
+        return $this->qualified_at !== null;
     }
 
     public function cap(string $key, float $default = 0.0): float

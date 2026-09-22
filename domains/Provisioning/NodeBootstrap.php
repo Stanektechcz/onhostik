@@ -94,7 +94,9 @@ final class NodeBootstrap
         if (! empty($report['cpu_cores'])) {
             $capacity['cpu_cores'] = (int) $report['cpu_cores'];
         }
-        $node->forceFill(['state' => 'active', 'last_seen_at' => now(), 'capacity' => $capacity, 'tags' => array_merge((array) ($node->tags ?? []), ['bootstrap' => array_merge((array) data_get($node->tags, 'bootstrap', []), $report, ['activated_at' => now()->toIso8601String()])])])->save();
+        // the machine is installed and says so from its own boot script — which is exactly as much as that proves. It goes
+        // into the offer only once somebody has qualified it (H471, NodeQualification); until then the scheduler cannot see it.
+        $node->forceFill(['state' => Node::QUALIFYING, 'last_seen_at' => now(), 'capacity' => $capacity, 'tags' => array_merge((array) ($node->tags ?? []), ['bootstrap' => array_merge((array) data_get($node->tags, 'bootstrap', []), $report, ['activated_at' => now()->toIso8601String()])])])->save();
         $request->forceFill(['activated_at' => now(), 'meta' => array_merge(array_diff_key((array) $request->meta, ['activate_token_hash' => true]), ['activated' => $report])])->save();
         $this->planner->track($request->refresh());
         $this->outbox->publish(GenericEvent::of('capacity.request.activated', 'capacity_request', $request->id, CapacityPlanner::present($request->refresh()) + ['report' => $report]));

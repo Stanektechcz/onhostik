@@ -158,11 +158,16 @@ final class CapacityPlanner
         return $request;
     }
 
-    /** An ordered node that operations put `active` closes the request. */
+    /**
+     * An ordered node that is installed closes the request: the vendor did their part.
+     *
+     * Qualifying it is ours and takes as long as it takes (H471), so `qualifying` counts as delivered here — otherwise
+     * a request stays open for days and the planner keeps proposing hardware for capacity it has already bought.
+     */
     public function track(CapacityRequest $request): bool
     {
         $node = $request->node_id !== null ? Node::query()->find($request->node_id) : null;
-        if ($node === null || $node->state !== 'active') {
+        if ($node === null || ! in_array($node->state, [Node::ACTIVE, Node::QUALIFYING], true)) {
             return false;
         }
         $request->forceFill(['state' => CapacityRequest::DELIVERED, 'delivered_at' => now()])->save();

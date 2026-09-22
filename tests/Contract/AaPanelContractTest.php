@@ -70,7 +70,9 @@ it('imports the aaPanel host as one managed node through the panel API; the sche
     $this->artisan('onhost:nodes:discover aapanel-managed01')->expectsOutputToContain('--region')->assertExitCode(1);
     $this->artisan('onhost:nodes:discover aapanel-managed01 --region=cz1')->expectsOutputToContain('1 node(s) imported')->assertExitCode(0);
     $node = Node::query()->where('provider_instance_id', ProviderInstance::query()->where('key', 'aapanel-managed01')->value('id'))->sole();
-    expect($node->role)->toBe('managed')->and($node->region_code)->toBe('cz1')->and($node->state)->toBe('active')->and((int) $node->capacity['ram_mb'])->toBe(15988);
+    // the panel host is imported, and waits to be qualified before anything is placed on it (H471)
+    expect($node->role)->toBe('managed')->and($node->region_code)->toBe('cz1')->and($node->state)->toBe(Node::QUALIFYING)->and((int) $node->capacity['ram_mb'])->toBe(15988);
+    $node->forceFill(['state' => Node::ACTIVE, 'qualified_at' => now()])->save();
 
     $instance = ProviderInstance::query()->where('key', 'aapanel-managed01')->firstOrFail();
     try {

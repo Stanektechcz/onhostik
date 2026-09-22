@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A node nobody has qualified sells nothing:** a discovered or freshly installed node is born `qualifying`; the
+  scheduler cannot see it until `NodeQualification::accept()` passes every required point (`onhost:nodes:qualify`).
+
 - **A promised restore test is really made:** `restore.test` restores the newest set into databases of its own,
   compares the tables that come back, removes them again, and reports what it found (`RestoreTest`).
 

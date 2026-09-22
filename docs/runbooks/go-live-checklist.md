@@ -80,3 +80,40 @@ and writes `storage/app/onhost-staging-report.json`: the doctor's findings that 
 (including the field names of ISPConfig's change log), p50/p95 of actions for the last week, whether four eyes are in
 effect, how many finished operations still hold secrets. Nothing in it is a secret (an allow-list of facts, passed
 through the redactor) — it is the file to hand to whoever reviews the installation without access to the panels.
+
+## A node nobody has qualified sells nothing (2026-09-22)
+
+`nodes.state` defaulted to `active`, and both ways a node comes into being put it there at once:
+
+* discovery from a panel — four branches in `ProviderInstanceService` (Proxmox cluster nodes, ISPConfig servers, the
+  aaPanel host, game-panel nodes);
+* `NodeBootstrap::activate()`, which a freshly installed machine calls **from its own boot script**. One curl from
+  cloud-init and the scheduler would place a paying customer on a host nobody had looked at.
+
+A node is now born `qualifying` (H471). It is listed and watched, and `NodeScheduler` does not see it —
+`Node::isSchedulable()` is `state === active`, and that was already the filter everywhere, so the gate needed no
+change to the scheduler itself.
+
+`NodeQualification::inspect()` reports on every point; `REQUIRED` are the ones that must pass:
+
+| point | what it establishes |
+| --- | --- |
+| `instance` | the provider instance is usable and its last prerequisite check did not find the API down |
+| `seen` | the panel confirmed this node within the last two hours |
+| `capacity` | the node says how many cores, how much memory and how much disk it has — without that the scheduler cannot size anything on it |
+| `placement` | region, role and **failure domain** are set; without a failure domain nothing can be spread away from this host |
+| `headroom` | at least 15 % of the disk is free |
+
+The points that need a shell on the node itself — its clock (H472), what it can resolve (H473) and reach (H474), how
+the management interface is exposed (H480) — and the synthetic service (H479) are reported as `not_checked` **with
+the reason**, never as passed. A check nobody made is not a check.
+
+`accept()` refuses while any required point fails, and records who accepted, when, and any exception knowingly
+accepted anyway (H478) — written on the node, never hidden. `CapacityPlanner::track()` treats `qualifying` as
+delivered: the vendor did their part, qualifying it is ours.
+
+Operator: `php artisan onhost:nodes:qualify` lists what is waiting and what each one still fails on;
+`--accept=<node> [--exception="…"]` puts one into the offer. `onhost:doctor` has two rows: nodes waiting, and nodes
+already in the offer that have never been qualified at all.
+
+Tests: `tests/Feature/Provisioning/NodeQualificationTest.php`.
