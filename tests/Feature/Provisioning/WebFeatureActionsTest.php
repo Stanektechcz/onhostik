@@ -149,7 +149,8 @@ it('drives ISPConfig site features through the remote API: PHP version, HTTPS, s
     $this->actingAs($user, 'sanctum');
 
     $features = $this->getJson("/v1/services/{$service->id}/features")->assertOk()->json('data.features');
-    expect($features['ssh']['enabled'])->toBeTrue()->and($features['logs']['enabled'])->toBeFalse()->and($features['restore']['enabled'])->toBeTrue()->and($features['mail'])->toBe(['enabled' => true, 'limit' => 10]);
+    // logs: the remote API has none, but the site's own `log/` directory is read as its agent user (WebLogsTest)
+    expect($features['ssh']['enabled'])->toBeTrue()->and($features['logs']['enabled'])->toBeTrue()->and($features['restore']['enabled'])->toBeTrue()->and($features['mail'])->toBe(['enabled' => true, 'limit' => 10]);
     expect($this->getJson("/v1/services/{$service->id}/resources/subdomains")->assertOk()->json('data'))->toBe([['remote_id' => 'sub:71', 'domain' => 'blog.shop.cz', 'path' => '/blog/']]);
     expect($this->getJson("/v1/services/{$service->id}/resources/certificate")->assertOk()->json('data'))->toMatchArray(['issued' => true, 'letsencrypt' => true, 'https_forced' => false, 'domains' => ['shop.cz', 'www.shop.cz']]);
 

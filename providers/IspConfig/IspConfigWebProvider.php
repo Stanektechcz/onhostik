@@ -25,6 +25,7 @@ use Onhost\Providers\Contracts\Usage;
 use Onhost\Providers\Contracts\WebHostingProvider;
 use Onhost\Providers\Contracts\WebToolsProvider;
 use Onhost\Providers\Shell\ManagedDirectives;
+use Onhost\Providers\Shell\Q;
 use Onhost\Providers\Shell\SecurityRules;
 
 /**
@@ -389,8 +390,20 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
 
     public function tailLog(ResourceRef $site, string $log = 'access', int $lines = 200): array
     {
-        // ISPConfig exposes no log API; logs are shipped by the node agent to Loki and read there (docs/provider-adapters/ispconfig.md).
-        throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'ISPConfig remote API has no log endpoint; use the log pipeline (Loki) for site logs');
+        // The remote API has no log endpoint — but the node keeps the site's own logs in `log/` next to `web/`, which is
+        // exactly what the customer sees over SFTP, and the platform already reaches that directory as the site's agent
+        // user. Without this a shared-hosting customer could not read their own access or error log in ONhost at all,
+        // while a managed one could; „use the log pipeline“ was an answer for operators, not for the customer.
+        $this->assertWebDomain($site);
+        $name = $log === 'error' ? 'error.log' : 'access.log';
+        $path = rtrim($this->siteDirInShell($site), '/').'/log/'.$name;
+        $run = $this->shell($site)->run('tail -n '.max(1, min(5000, $lines)).' '.Q::arg($path), ['timeout' => 30]);
+        if (! $run->ok()) {
+            throw new ProviderException('ispconfig', ProviderErrorCode::NOT_FOUND, "The site has no {$name} yet (the node writes it once the site has been asked for something).", context: ['log' => $log]);
+        }
+        $all = preg_split('/\r?\n/', rtrim($run->stdout, "\n")) ?: [];
+
+        return array_slice(array_filter($all, fn (string $line) => trim($line) !== ''), -$lines);
     }
 
     public function nodeLoad(?string $node = null): array
@@ -582,7 +595,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
     {
         return [
             // cron only where the node's cron API works (NodePrerequisites records `cron_api`); proxies only where the operator confirmed mod_proxy (instance option)
-            'php' => true, 'databases' => true, 'ftp' => true, 'ssl' => true, 'https' => true, 'cron' => $this->prerequisite('cron_api') !== 'broken', 'logs' => false, 'backups' => true, 'restore' => true,
+            'php' => true, 'databases' => true, 'ftp' => true, 'ssl' => true, 'https' => true, 'cron' => $this->prerequisite('cron_api') !== 'broken', 'logs' => true, 'backups' => true, 'restore' => true, // logs: read as the site's own agent user out of its `log/` directory
             'subdomains' => true, 'redirects' => true, 'ssh' => true, 'mail' => (bool) ($this->instance->capabilities['mail.create'] ?? false), 'file_manager' => true, 'usage' => true,
             // extended tabs: ISPConfig manages these through the remote API; the file manager runs over SFTP as the site's agent user; one-click apps it does not offer
             'errpages' => true, 'directives' => true, 'protected' => true, 'db_users' => true, 'stats' => true, 'ssl_upload' => true, 'files' => true, 'apps' => false, 'db_admin' => (bool) $this->instance->option('phpmyadmin_url'),
