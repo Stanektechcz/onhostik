@@ -4,18 +4,22 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Provisioning;
 
+use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\ResourceDrift;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Services\AvailabilityWatch;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\Models\VirtualMachine;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxPublisher;
+use Onhost\Providers\Contracts\ActualState;
 use Onhost\Providers\Contracts\InfrastructureProvider;
 use Onhost\Providers\Contracts\ResourceSpec;
 use Throwable;
@@ -100,6 +104,9 @@ final class Reconciler
 
             return;
         }
+        if (! $this->followMovedGuest($service, $binding, $instance, $actual, $observeOnly, $context)) {
+            return; // found under its number on another node and not provably this service's: nothing is repaired on it
+        }
         $spec = new ResourceSpec($service->id, $this->kindFor($service), "reconcile:{$service->id}", array_replace((array) $service->desired_spec, ['entitlements' => $service->entitlements]), $binding->remote_node, $service->region_code, $service->organization_id);
         $plan = $adapter->reconcile($spec, $actual);
         $service->forceFill(['health' => array_replace((array) $service->health, ['status' => $actual->status, 'checked_at' => now()->toISOString(), 'drift' => count($plan->drifts), 'observe_only' => $observeOnly ?: null])])->save();
@@ -125,6 +132,40 @@ final class Reconciler
             $service->forceFill(['state' => ServiceStateMachine::RESIZING])->save();
             $stats['repaired'] = ($stats['repaired'] ?? 0) + 1;
         }
+    }
+
+    /**
+     * A VM moved by HA after a node failure, or by hand, answers from another node than its binding names — the adapter says
+     * where (`attributes.moved`). Left alone, every later action on it went to the old node and was refused there: a restart,
+     * a backup, the cancellation (the identity check will not delete on a binding that names another node). The binding, the
+     * VM record and the service's node follow it — once the guest proves to be this service's (its service tag, or the name
+     * the platform gave it). Anything else under the number is a drift for a person, and false is returned.
+     */
+    private function followMovedGuest(Service $service, ProviderBinding $binding, ProviderInstance $instance, ActualState $actual, bool $observeOnly, CommandContext $context): bool
+    {
+        $moved = (array) ($actual->attributes['moved'] ?? []);
+        $from = (string) $binding->remote_node;
+        $to = (string) ($moved['to'] ?? '');
+        if (! in_array($binding->remote_type, ['qemu', 'lxc'], true) || $to === '' || $to === $from) {
+            return true;
+        }
+        $proof = $moved['proof'] ?? null;
+        if (! is_string($proof) || $proof === '' || $observeOnly) {
+            $this->openDrift($service, 'node', $from, $to, 'PROVIDER_MANAGED', $observeOnly ? 'REQUIRES_APPROVAL' : 'SECURITY_SUSPICIOUS', $context);
+
+            return false;
+        }
+        $binding->forceFill(['remote_node' => $to])->save();
+        VirtualMachine::query()->where('service_id', $service->id)->update(['node' => $to]);
+        $node = Node::query()->where('provider_instance_id', $instance->id)->where('name', $to)->value('id');
+        if ($node !== null) {
+            $service->forceFill(['node_id' => $node])->save(); // capacity is counted where the VM runs
+        }
+        ResourceDrift::query()->where('service_id', $service->id)->where('field', 'node')->where('state', 'open')->update(['state' => 'repaired', 'resolved_at' => now(), 'resolution' => "followed to {$to}"]);
+        $this->audit->record($context->withScope($service->organization_id), 'provisioning.guest.relocated', 'succeeded', ['from' => $from, 'to' => $to, 'proof' => $proof], 'service', $service->id);
+        $this->outbox->publish(GenericEvent::of('service.relocated', 'service', $service->id, ['from' => $from, 'to' => $to, 'proof' => $proof, 'remote' => $binding->remote_type.':'.$binding->remote_id, 'name' => $service->name], $service->organization_id));
+
+        return true;
     }
 
     private function openDrift(Service $service, string $field, mixed $expected, mixed $actual, string $ownership, string $classification, CommandContext $context): void

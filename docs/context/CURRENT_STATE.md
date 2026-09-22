@@ -91,6 +91,9 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A VM moved by HA is followed:** the reconciler moves the binding, the VM record and the service's node after a VM
+  that answers from another node — once it proves to be the service's (service tag, else name); otherwise a drift.
+
 - **A panel's breaker trips for the panel, not for one guest or one node:** requests marked `judgedByCaller` leave the
   verdict to the adapter — Proxmox refusals and unreachable nodes, a Pterodactyl node's daemon, are answers; failures
   ISPConfig, WEDOS and Subreg report inside an HTTP 200 now count; Wings is called under a breaker per node.

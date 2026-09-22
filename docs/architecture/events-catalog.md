@@ -134,6 +134,7 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 | `service.restore_test.failed` | service | the periodic restore test did not bring the archive back as a database | customer + operator |
 | `node.qualified` | node | a node passed its qualification and was put into the offer (with the exception knowingly accepted, if any) | operator |
 | `node.synthetic.leftover` | node | a throw-away resource made to qualify a node could not be removed; it names what is left | operator |
+| `service.relocated` | service | a VM moved to another node (HA after a node failure, or by hand) and proved to be this service's (`proof`: service tag or name); the reconciler moved its binding, VM record and node with it (`from`, `to`) | operator |
 | `service.rescue.ended` | service | the server is back on its own system | customer + operator |
 | `ipam.rdns.failed` | ip_address | the reverse zone refused the change; the record stays written down and the nightly drift check reports it | operator |
 | `service.migration.scheduled` / `service.migration.rescheduled` | a migration with a customer window (audit §5h-3): the customer gets the window and the default start (mail `service-migration-scheduled`) and may move the start from the panel (`PUT /v1/services/{id}/migration`); the move is an internal notice | customer `/panel/sluzby`; admin `#/gprov` |

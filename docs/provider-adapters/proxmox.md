@@ -25,7 +25,8 @@ vmid, `<image>_node` → the node holding it), `template_node`, `backup_storage`
 | ComputeProvider | `migrate(ref, targetNode, online)` | `POST /nodes/{node}/qemu/{vmid}/migrate` (`target`, `online` when the VM runs, `with-local-disks=1`) — the handle polls the *source* node's task; the binding's `remote_node` and the service node move in `VpsMigrationWorkflow` | UPID |
 
 Spec keys consumed: `vcpu`, `ram_mb`, `nvme_gb`, `cpu_limit`, `hostname`, `image`, `ssh_keys`, `ipv4`, `ipv6`,
-`gateway`, `tags`. VM tags carry `onhost`, `svc:<ulid>`, `org:<ulid>` for reconciliation.
+`gateway`, `tags`. VM tags carry `onhost`, the service id (`serviceTag()`: lower case, `_` → `-`) and the idempotency tag
+of the operation that made it; the service tag is what reconciliation checks and what proves a moved VM is the service's.
 
 ## Async and errors
 
@@ -34,12 +35,16 @@ Proxmox puts the reason of a refusal into the **HTTP status line** and answers `
 body's `message`/`errors` first and the status line otherwise (before 2026-09-22 every refusal read "server error").
 HTTP 401/403 → `AUTH`; 400 with parameter verification → `VALIDATION`; 500 "already exists" → `CONFLICT`; 500
 "Configuration file … does not exist" / "no such VM" → `NOT_FOUND` (Proxmox has no 404 for a guest); anything else,
-including a guest locked by a running task (retry after 15 s), → `TRANSIENT`; connection errors → `TRANSIENT`.
+including a guest locked by a running task (retried on the ordinary backoff), → `TRANSIENT`; connection errors →
+`TRANSIENT`. The breaker of the cluster counts only the cluster's own failures: a refusal about one guest (taken, gone,
+locked) and a node the API node cannot reach (HTTP 595/596) are answers (`ProxmoxConnector::answered()`).
 
 `getActualState()` reports a VM missing only when the **whole cluster** does not list it: asked on a node that does not
 hold it, Proxmox says the configuration does not exist — a VM moved by HA or by hand looks deleted from its old node.
 Found elsewhere, the state is read there and carries `node`, which `ServiceIdentityCheck` compares with the binding: a
-cancellation never deletes a VM on the strength of a binding that names another node.
+cancellation never deletes a VM on the strength of a binding that names another node. It also carries `moved`
+(`from`, `to`, `proof`: the service tag, else the name the platform gave it, else null); the `Reconciler` follows it there —
+binding, VM record and the service's node — only with a proof, and opens a `node` drift without one.
 
 ## Reconciliation
 

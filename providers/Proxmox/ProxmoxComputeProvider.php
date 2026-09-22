@@ -364,7 +364,24 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
             'uptime' => (int) ($status['uptime'] ?? 0),
             'status' => (string) ($status['status'] ?? 'unknown'),
             'ha' => $status['ha'] ?? null,
-        ] + ($movedTo === null ? [] : ['node' => $movedTo]), (string) ($status['status'] ?? 'unknown'), now()->toISOString()); // a VM found on another node says where: the identity check will not delete it on the strength of a stale binding
+        ] + ($movedTo === null ? [] : ['node' => $movedTo, 'moved' => ['from' => (string) $vm->node, 'to' => $movedTo, 'proof' => self::proofOfService($vm, (array) $config)]]), (string) ($status['status'] ?? 'unknown'), now()->toISOString()); // a VM found on another node says where: the identity check will not delete it on the strength of a stale binding
+    }
+
+    /**
+     * What shows that a guest found under the binding's number on another node is still this service's: the service tag the
+     * platform gave it, else the name it was given. Null when neither does — then nobody may follow it there on its number alone.
+     *
+     * @param  array<string,mixed>  $config
+     */
+    private static function proofOfService(ResourceRef $vm, array $config): ?string
+    {
+        $tags = array_filter(explode(';', (string) ($config['tags'] ?? '')));
+        if ($vm->serviceId !== null && $vm->serviceId !== '' && in_array(self::serviceTag($vm->serviceId), $tags, true)) {
+            return 'service_tag';
+        }
+        $name = (string) ($vm->meta['name'] ?? '');
+
+        return $name !== '' && $name === (string) ($config['name'] ?? '') ? 'name' : null;
     }
 
     public function reconcile(ResourceSpec $spec, ActualState $actual): ActionPlan

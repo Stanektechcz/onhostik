@@ -245,7 +245,7 @@ final class NotificationRouter
             // a plan version decides what new customers get and pay (H01): finance hears about it, it is not an alarm
             'catalog.plan.version_published', 'catalog.plan.version_activated' => $this->internal($m, 'finance', self::internalTitle($m->name, $p), 'Změněno: '.implode(', ', array_merge((array) ($p['changed']['entitlements'] ?? []), (array) ($p['changed']['limits'] ?? []), (array) ($p['changed']['prices'] ?? []))).' · důvod: '.($p['reason'] ?? ''), '/sprava/fakturace', 'warn'),
             'platform.mail.failing', 'platform.mail.recovered',
-            'registrar.credit.low', 'integration.down', 'integration.maintenance.lifted', 'integration.maintenance.overdue', 'security.ssh_key.revocation.stuck', 'platform.load_shedding.started', 'platform.load_shedding.ended', 'platform.queue.stalled', 'platform.queue.backlog', 'node.drained', 'node.resumed', 'node.qualified', 'node.synthetic.leftover', 'service.backup.schedule.stalled', 'service.backup.schedule.paused', 'service.database.import.failed', 'service.restore_test.failed', 'capacity.unavailable', 'ipam.exhausted', 'ipam.threshold', 'ipam.rdns.unpublished', 'ipam.rdns.failed', 'provisioning.drift.detected', 'operation.failed', 'finance.reconciliation.mismatch', 'registrar.notification.dead', 'domain.reconcile.missing_remote', 'domain.reconcile.unknown_remote', 'payment.orphan_callback', 'security.incident.opened', 'abuse.case.opened', 'compliance.timer.due', 'compliance.timer.missed', 'sla.burn_rate', 'sla.budget.exhausted', 'maintenance.unapproved' => $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), mb_substr(json_encode(array_diff_key($p, array_flip(['row', 'raw'])), JSON_UNESCAPED_UNICODE) ?: '', 0, 250), self::internalSurface($m->name), 'hot'),
+            'registrar.credit.low', 'integration.down', 'integration.maintenance.lifted', 'integration.maintenance.overdue', 'security.ssh_key.revocation.stuck', 'platform.load_shedding.started', 'platform.load_shedding.ended', 'platform.queue.stalled', 'platform.queue.backlog', 'node.drained', 'node.resumed', 'node.qualified', 'node.synthetic.leftover', 'service.relocated', 'service.backup.schedule.stalled', 'service.backup.schedule.paused', 'service.database.import.failed', 'service.restore_test.failed', 'capacity.unavailable', 'ipam.exhausted', 'ipam.threshold', 'ipam.rdns.unpublished', 'ipam.rdns.failed', 'provisioning.drift.detected', 'operation.failed', 'finance.reconciliation.mismatch', 'registrar.notification.dead', 'domain.reconcile.missing_remote', 'domain.reconcile.unknown_remote', 'payment.orphan_callback', 'security.incident.opened', 'abuse.case.opened', 'compliance.timer.due', 'compliance.timer.missed', 'sla.burn_rate', 'sla.budget.exhausted', 'maintenance.unapproved' => $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), mb_substr(json_encode(array_diff_key($p, array_flip(['row', 'raw'])), JSON_UNESCAPED_UNICODE) ?: '', 0, 250), self::internalSurface($m->name), 'hot'),
             // marketplace (audit §5j-1): the partner gets the brief, the customer the delivery; disputes reach support and the partner
             'marketplace.ordered' => $this->customer($m, 'order', 'Objednávka z marketplace: '.($p['title'] ?? ''), 'Partner dostal zadání; dodání do '.self::when($p['due_at'] ?? null).'. Zaplaceno z kreditu ('.$money($p['total'] ?? null).').', '/panel/nastaveni', 'info'),
             'marketplace.assigned' => $this->customer($m, 'order', 'Nová zakázka z marketplace: '.($p['title'] ?? ''), 'Zákazník '.($p['customer'] ?? '').' · dodání do '.self::when($p['due_at'] ?? null).' · '.mb_substr((string) ($p['brief'] ?? ''), 0, 200), '/partner', 'warn', $email, 'marketplace-assigned', ['sluzba' => (string) ($p['title'] ?? ''), 'zakaznik' => (string) ($p['customer'] ?? ''), 'termin' => self::when($p['due_at'] ?? null), 'zadani' => mb_substr((string) ($p['brief'] ?? ''), 0, 500), 'url' => "{$portal}/partner"]),
@@ -378,6 +378,7 @@ final class NotificationRouter
             str_starts_with($event, 'integration.'), str_starts_with($event, 'provisioning.'), str_starts_with($event, 'operation.'), str_starts_with($event, 'capacity.'), str_starts_with($event, 'ipam.') => 'infra',
             str_starts_with($event, 'security.'), str_starts_with($event, 'abuse.'), str_starts_with($event, 'compliance.') => 'security',
             str_starts_with($event, 'sla.'), str_starts_with($event, 'maintenance.') => 'infra',
+            str_starts_with($event, 'node.'), str_starts_with($event, 'service.'), str_starts_with($event, 'platform.') => 'infra', // they used to land under finance
             default => 'finance',
         };
     }
@@ -433,6 +434,7 @@ final class NotificationRouter
             'node.resumed' => 'Uzel '.($p['name'] ?? '').' opět přijímá služby',
             'node.qualified' => 'Uzel '.($p['name'] ?? '').' je kvalifikovaný a v nabídce'.(empty($p['exception']) ? '' : ' (s výjimkou)'),
             'node.synthetic.leftover' => 'Na uzlu '.($p['name'] ?? '').' zůstal zkušební zdroj '.($p['leftover'] ?? ''),
+            'service.relocated' => 'Virtuál služby '.($p['name'] ?? '').' běží na uzlu '.($p['to'] ?? '').' místo '.($p['from'] ?? '').'; vazba ho následuje',
             'capacity.unavailable' => 'Kapacita vyčerpána ('.($p['role'] ?? '').')',
             'service.backup.schedule.stalled' => 'Plánovaná záloha se opakovaně nespustila',
             'service.backup.schedule.paused' => 'Plánování záloh se zastavilo po opakovaném selhání',
@@ -466,6 +468,8 @@ final class NotificationRouter
             str_starts_with($event, 'registrar.'), str_starts_with($event, 'domain.') => '/sprava/sluzby',
             str_starts_with($event, 'integration.'), str_starts_with($event, 'provisioning.'), str_starts_with($event, 'operation.'), str_starts_with($event, 'capacity.'), str_starts_with($event, 'ipam.') => '/sprava/uzly',
             str_starts_with($event, 'security.'), str_starts_with($event, 'abuse.'), str_starts_with($event, 'compliance.'), str_starts_with($event, 'sla.'), str_starts_with($event, 'maintenance.') => '/sprava/incidenty',
+            str_starts_with($event, 'node.'), str_starts_with($event, 'platform.') => '/sprava/uzly',
+            str_starts_with($event, 'service.') => '/sprava/sluzby',
             default => '/sprava/fakturace',
         };
     }

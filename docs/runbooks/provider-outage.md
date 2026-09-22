@@ -18,6 +18,8 @@ operations piling up in WAITING/FAILED, circuit breaker open (`provider_circuit_
   UPIDs; a node reboot leaves UPIDs unknown → operations fail with `TRANSIENT` and retry. Console tokens expire
   in 2 minutes; nothing to clean up. A refusal about one guest (locked, gone, number taken) or a node the API node
   cannot reach (HTTP 595/596) does not open the breaker of the cluster; "no quorum" and other failures of the cluster do.
+  VMs moved by HA after a node failure are followed by the reconciler within 5–15 minutes (`service.relocated`); a
+  machine under a service's number that does not prove to be the service's opens a `node` drift instead.
 * **ISPConfig** — the remote API uses a session per call; `jobqueue` entries may stay queued when the server
   daemon is stopped. Restart `ispconfig_server` on the node, then retry operations. Never re-run site creation
   by hand: adapters treat "already exists" as success.
