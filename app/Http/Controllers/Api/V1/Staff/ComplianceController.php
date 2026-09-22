@@ -135,7 +135,7 @@ final class ComplianceController extends ApiController
 
     public function closeAbuse(Request $request, string $case): JsonResponse
     {
-        $data = $request->validate(['note' => ['nullable', 'string', 'max:2000']]);
+        $data = $request->validate(['note' => ['nullable', 'string', 'max:2000'], 'restore' => ['nullable', 'boolean']]);
 
         return $this->dispatch(new ComplianceCommand("abuse.close:{$case}", ['op' => 'abuse.close', 'case_id' => $case] + $data), $this->api->context($request));
     }

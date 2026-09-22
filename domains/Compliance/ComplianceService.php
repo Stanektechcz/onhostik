@@ -345,15 +345,64 @@ final class ComplianceService
         return $case;
     }
 
-    public function closeAbuse(AbuseCase $case, CommandContext $context, ?string $note = null): AbuseCase
+    /**
+     * Closing a case has to say what happens to what the case took. A quarantine is imposed as a hold of its own
+     * (`SuspensionHold::ABUSE`) so that nothing else can lift it by accident — and **nothing ever lifted it**: a
+     * customer whose site was suspended and who then won the appeal stayed suspended for ever, because closing the
+     * case only wrote a state. So a case that suspended a service is not closable without an answer: either the
+     * service comes back now, or the suspension stands and the record says so. A service held by another open case
+     * is never released by closing this one.
+     */
+    public function closeAbuse(AbuseCase $case, CommandContext $context, ?string $note = null, ?bool $restore = null): AbuseCase
     {
         if (! in_array($case->state, ['ACTIONED', 'DISMISSED', 'APPEALED'], true)) {
             throw new DomainError('abuse_not_closable', 'Decide the case before closing it.', 409);
         }
+        $service = $case->action_taken === 'service_suspended' && $case->service_id !== null ? Service::query()->find($case->service_id) : null;
+        if ($service !== null && $restore === null) {
+            throw new DomainError('abuse_restore_undecided', 'Případ pozastavil službu: řekněte, jestli se služba vrací do provozu (`restore`), nebo jestli pozastavení trvá.', 422, ['field' => 'restore', 'service_id' => $service->id]);
+        }
+        $released = null;
+        if ($service !== null && $restore === true) {
+            $released = $this->releaseQuarantine($case, $service, $context);
+        }
         $case->forceFill(['state' => 'CLOSED'])->save();
-        $this->audit->record($context, 'abuse.case.close', 'succeeded', ['number' => $case->number, 'note' => $note], 'abuse_case', $case->id);
+        if ($service !== null && $case->ticket_id !== null) {
+            $ticket = Ticket::query()->find($case->ticket_id);
+            if ($ticket !== null) {
+                $this->tickets->reply($ticket, 'staff', $context->actorId, 'Trust & Safety', $restore === true
+                    ? "Případ {$case->number} je uzavřen a omezení jsme zrušili.".($released === 'held' ? ' Službu drží ještě jiný otevřený případ, takže zůstává pozastavená.' : ' Služba se vrací do provozu.')
+                    : "Případ {$case->number} je uzavřen. Pozastavení služby trvá.".($note !== null ? "\n\n{$note}" : ''), $context->withScope($case->organization_id));
+            }
+        }
+        $this->audit->record($context, 'abuse.case.close', 'succeeded', ['number' => $case->number, 'note' => $note, 'service_id' => $service?->id, 'restored' => $service === null ? null : $restore, 'release' => $released], 'abuse_case', $case->id);
+        $this->outbox->publish(GenericEvent::of('abuse.case.closed', 'abuse_case', $case->id, ['number' => $case->number, 'service_id' => $service?->id, 'restored' => $service === null ? null : $restore, 'release' => $released], $case->organization_id));
 
         return $case;
+    }
+
+    /**
+     * Gives the service back what the quarantine took: the abuse hold goes, and the service is resumed unless
+     * something else is still holding it (an unpaid invoice, another abuse case, the customer's own pause).
+     *
+     * @return string what happened: `resumed`, `hold_lifted` (something else keeps it down) or `held` (another case)
+     */
+    private function releaseQuarantine(AbuseCase $case, Service $service, CommandContext $context): string
+    {
+        $others = AbuseCase::query()->whereKeyNot($case->id)->where('service_id', $service->id)
+            ->where('action_taken', 'service_suspended')->whereNotIn('state', ['CLOSED', 'DISMISSED'])->exists();
+        if ($others) {
+            return 'held'; // another case still wants this service off; its own closing releases it
+        }
+        $service = $this->services->liftHold($service, SuspensionHold::ABUSE, $context->withScope($service->organization_id));
+        if (SuspensionHold::holds($service) !== []) {
+            return 'hold_lifted';
+        }
+        if (in_array($service->state, [ServiceStateMachine::SUSPENDED, ServiceStateMachine::SUSPENDING], true)) {
+            $this->services->requestAction($service, 'resume', CommandContext::system("abuse case {$case->number} closed")->withScope($service->organization_id), "abuse:{$case->number}:resume", ['reason' => "abuse:{$case->number} closed"]);
+        }
+
+        return 'resumed';
     }
 
     private function actionLabel(string $action): string

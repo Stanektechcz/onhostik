@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A quarantine ends:** an abuse case that suspended a service cannot be closed without saying whether the service
+  comes back; `liftHold(ABUSE)` had no caller at all, so a customer who won the appeal stayed suspended for ever. A
+  service another open case still holds is never released by closing this one.
+
 - **Traffic is measured where the panel cannot:** aaPanel has no traffic counter, so a managed site's sold traffic
   was measured against nothing; it is now summed from the site's own access log for the current month, and a log
   format the platform cannot read reports "not measured" instead of zero.

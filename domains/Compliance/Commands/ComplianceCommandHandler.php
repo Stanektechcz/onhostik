@@ -35,7 +35,7 @@ final class ComplianceCommandHandler implements CommandHandler
             'abuse.triage' => Presenters::abuseCase($this->compliance->triageAbuse($this->abuse($command), (string) $command->get('decision', ''), (string) $command->get('reason', ''), $context), true),
             'abuse.notify' => Presenters::abuseCase($this->compliance->notifyCustomer($this->abuse($command), (string) $command->get('statement', ''), $context), true),
             'abuse.action' => Presenters::abuseCase($this->compliance->actionAbuse($this->abuse($command), (string) $command->get('action', ''), (string) $command->get('reason', ''), $context), true),
-            'abuse.close' => Presenters::abuseCase($this->compliance->closeAbuse($this->abuse($command), $context, $command->get('note')), true),
+            'abuse.close' => Presenters::abuseCase($this->compliance->closeAbuse($this->abuse($command), $context, $command->get('note'), $command->get('restore') === null ? null : (bool) $command->get('restore')), true),
             'legal_hold' => (function () use ($command, $context) {
                 $organization = Organization::query()->find((string) $command->get('organization_id'));
                 if ($organization === null) {
