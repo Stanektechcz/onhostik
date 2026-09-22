@@ -216,6 +216,15 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
         if ($vmid > 0) {
             // the number the platform holds for this operation (VmidReservations) — an earlier attempt may have cloned into it already
             $ours = $this->holderOf($vmid, $spec);
+            if ($ours !== null && $ours['lock'] !== '') {
+                // its task id was lost with the answer: the clone is followed by the lock on the guest it is building, like any clone —
+                // waiting, not retrying, so a large disk cannot use up the operation's attempts and leave the finished VM behind
+                return ProviderResult::accepted(
+                    new AsyncHandle('pve_clone', "clone:{$vmid}", $ours['node'], ['vmid' => $vmid, 'target_node' => $ours['node'], 'service_id' => $spec->serviceId], 10, 1800),
+                    new ResourceRef('qemu', (string) $vmid, $ours['node'], ['name' => $this->safeName((string) $spec->get('hostname', $spec->serviceId))], $spec->serviceId),
+                    ['vmid' => $vmid, 'node' => $ours['node'], 'resumed' => true],
+                );
+            }
             if ($ours !== null) {
                 return ProviderResult::completed(new ResourceRef('qemu', (string) $vmid, $ours['node'], ['name' => $ours['name']], $spec->serviceId), $ours, alreadyExisted: true);
             }
@@ -739,6 +748,9 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
 
     public function awaitStatus(AsyncHandle $handle): AsyncStatus
     {
+        if ($handle->kind === 'pve_clone') {
+            return $this->cloneStatus($handle);
+        }
         $node = $handle->node ?? (string) $this->instance->option('default_node');
         try {
             $status = $this->api->get("/nodes/{$node}/tasks/".rawurlencode($handle->handle).'/status', [], 'task.status');
@@ -790,7 +802,7 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
                 }
                 throw $e;
             }
-            if (self::carriesMarker($config, $spec)) {
+            if (self::carriesMarker($config, $spec->serviceId)) {
                 return ['vmid' => $guest['vmid'], 'node' => $guest['node'], 'name' => $guest['name'], 'lock' => (string) ($config['lock'] ?? '')];
             }
         }
@@ -802,7 +814,9 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
      * Who holds the number this operation reserved. Null when nobody does; the guest when it is this service's own clone from
      * an earlier attempt whose answer was lost. While its first disk is still being copied, such a clone has only Proxmox's
      * temporary config (`lock: clone`, no name, no description) — nothing recognised it, and a retry cloned a second VM next
-     * to it (H38): now the operation waits for it. Anything else under the number is somebody else's.
+     * to it (H38). It is taken for ours because the number is held for this operation alone; `awaitStatus()` still checks the
+     * finished guest carries this service's description before anything goes on. Anything else under the number is somebody
+     * else's.
      *
      * @return array{vmid:int, node:string, name:string, lock:string}|null
      */
@@ -822,19 +836,39 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
                 throw $e;
             }
             $lock = (string) ($config['lock'] ?? '');
-            if ($lock === 'clone' && ! isset($config['name']) && ! isset($config['description'])) {
-                throw new ProviderException('proxmox', ProviderErrorCode::TRANSIENT, "The clone into VMID {$vmid}, the number this operation holds, is still copying its disk; waiting for it rather than making a second VM", retryAfterSeconds: 30);
-            }
-            if (self::carriesMarker($config, $spec)) {
-                if ($lock !== '') {
-                    throw new ProviderException('proxmox', ProviderErrorCode::TRANSIENT, "Guest {$vmid} of this service is still locked ({$lock}) by an earlier attempt", retryAfterSeconds: 30);
-                }
-
-                return ['vmid' => $vmid, 'node' => $guest['node'], 'name' => (string) ($config['name'] ?? ''), 'lock' => ''];
+            $building = $lock === 'clone' && ! isset($config['name']) && ! isset($config['description']);
+            if ($building || self::carriesMarker($config, $spec->serviceId)) {
+                return ['vmid' => $vmid, 'node' => $guest['node'], 'name' => (string) ($config['name'] ?? ''), 'lock' => $lock];
             }
         }
 
         throw self::numberTaken($vmid, 'is in use by a guest that is not this service\'s');
+    }
+
+    /**
+     * A clone whose task id was lost with its answer, followed by the guest it is building: done when Proxmox has taken the
+     * clone lock off — and only when the guest carries this service's description, or the steps after it would size, start and
+     * hand over somebody else's machine.
+     */
+    private function cloneStatus(AsyncHandle $handle): AsyncStatus
+    {
+        $vmid = (int) ($handle->meta['vmid'] ?? 0);
+        try {
+            $config = (array) $this->api->get("/nodes/{$handle->node}/qemu/{$vmid}/config", [], 'qemu.config.get');
+        } catch (ProviderException $e) {
+            if ($e->errorCode === ProviderErrorCode::NOT_FOUND) {
+                return AsyncStatus::failed("the clone into VMID {$vmid} is gone: Proxmox removes it when the copy fails", ['vmid' => $vmid]);
+            }
+            throw $e;
+        }
+        if ((string) ($config['lock'] ?? '') !== '') {
+            return AsyncStatus::running(null, ['vmid' => $vmid, 'lock' => (string) $config['lock']]);
+        }
+        if (! self::carriesMarker($config, (string) ($handle->meta['service_id'] ?? ''))) {
+            return AsyncStatus::failed("the guest built into VMID {$vmid} is not this service's", ['vmid' => $vmid]);
+        }
+
+        return AsyncStatus::succeeded(['vmid' => $vmid, 'meta' => $handle->meta]);
     }
 
     private static function numberTaken(int $vmid, string $why): ProviderException
@@ -847,10 +881,13 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
      *
      * @param  array<string,mixed>  $config
      */
-    private static function carriesMarker(array $config, ResourceSpec $spec): bool
+    private static function carriesMarker(array $config, string $serviceId): bool
     {
+        if ($serviceId === '') {
+            return false;
+        }
         $description = rawurldecode((string) ($config['description'] ?? ''));
-        $needle = "ONhost service {$spec->serviceId}";
+        $needle = "ONhost service {$serviceId}";
 
         return str_starts_with($description, $needle) && (strlen($description) === strlen($needle) || $description[strlen($needle)] === ' ');
     }

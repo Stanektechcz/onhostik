@@ -22,6 +22,8 @@ use Onhost\Domain\Services\ServiceService;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
+use Onhost\Providers\Contracts\AsyncHandle;
+use Onhost\Providers\Contracts\AsyncStatus;
 use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Proxmox\ProxmoxComputeProvider;
 
@@ -220,6 +222,21 @@ it('makes no second VM when the answer to a clone is lost while its disk is stil
     expect($pve['clones'])->toBe([1042])
         ->and($operation->state)->toBe(Operation::SUCCEEDED)
         ->and(ProviderBinding::query()->where('service_id', $service->id)->value('remote_id'))->toBe('1042');
+});
+
+it('follows a resumed clone by its lock, and calls it done only when the machine is this service\'s', function () {
+    $config = ['lock' => 'clone', 'digest' => 'e3b0c44298fc']; // the temporary config of a clone still copying its disk
+    Http::fake(function (Request $r) use (&$config) {
+        return str_ends_with((string) parse_url($r->url(), PHP_URL_PATH), '/nodes/prg1-n2/qemu/1042/config') ? Http::response(['data' => $config]) : null;
+    });
+    $handle = new AsyncHandle('pve_clone', 'clone:1042', 'prg1-n2', ['vmid' => 1042, 'service_id' => 'svc_01jmine'], 10, 1800);
+
+    expect(vmidAdapter()->awaitStatus($handle)->state)->toBe(AsyncStatus::RUNNING);
+    $config = ['name' => 'app-prod', 'description' => 'ONhost service svc_01jmine [idem-1a2b3c]'];
+    expect(vmidAdapter()->awaitStatus($handle)->state)->toBe(AsyncStatus::SUCCEEDED);
+    // built into the number this operation held — and somebody else's: the steps after it must not size, start and hand it over
+    $config = ['name' => 'cizi-stroj', 'description' => 'ONhost service svc_01jother [idem-4d5e6f]'];
+    expect(vmidAdapter()->awaitStatus($handle)->state)->toBe(AsyncStatus::FAILED);
 });
 
 it('tells a VM that is gone from one that HA moved to another node', function () {

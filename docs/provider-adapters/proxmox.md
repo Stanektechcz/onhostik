@@ -60,11 +60,13 @@ backups would have joined the predecessor's PBS group `vm/<vmid>`.
   cluster's own `next-id` floor that **no guest has** (VM, container, template) and **no backup on `backup_storage`
   carries**, and asks `/cluster/nextid?vmid=N` to confirm it free. An unreadable backup storage does not stop an order
   (the platform's own numbers are below the floor anyway). Above `vmid_max` → `CAPACITY`.
-* `provision()` with a held number looks at it first: nobody there → clone; this service's clone (its description) →
-  adopted; **a clone still copying its first disk** (Proxmox's temporary config: `lock: clone`, no name, no description) →
-  wait 30 s — a lost answer used to make a second VM; anything else → `CONFLICT` with `ComputeProvider::VMID_TAKEN`, and
-  the step burns the number and holds the next one (three in a row → retry in a minute). A clone refused with
-  "already exists" is the same case.
+* `provision()` with a held number looks at it first: nobody there → clone; this service's finished clone (its
+  description) → adopted; **a clone still being built** — its answer and task id were lost; while the first disk is copied
+  Proxmox shows only a temporary config (`lock: clone`, no name, no description) — is followed like any clone, by the
+  lock on the guest (async handle `pve_clone`, no attempt spent while it waits), and is done only when the finished guest
+  carries this service's description. A lost answer used to make a second VM. Anything else under the number →
+  `CONFLICT` with `ComputeProvider::VMID_TAKEN`: the step burns the number and holds the next one (three in a row → retry
+  in a minute). A clone refused with "already exists" is the same case.
 * Doctor: "guest numbers are the platform's own" counts numbers taken from under an order in the last 30 days — VMs
   made by hand inside the platform's range. Give those their own range, or raise `vmid_min`.
 

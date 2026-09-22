@@ -105,10 +105,11 @@ final class ProxmoxConnector
                 str_contains($lower, 'already exists') => ProviderErrorCode::CONFLICT,
                 (str_contains($lower, 'configuration file') && str_contains($lower, 'does not exist')) || str_contains($lower, 'no such vm')
                     || str_contains($lower, 'no such machine') || str_contains($lower, 'unable to find configuration file') => ProviderErrorCode::NOT_FOUND,
-                default => ProviderErrorCode::TRANSIENT, // a guest locked by a running task (backup, clone, migration) is the usual one: it passes
+                // a guest locked by a running task (backup, clone, migration) is the usual one: it passes, so it is retried on the
+                // ordinary backoff (10 s … 10 min) — a short fixed pause would spend every attempt of the operation inside one backup
+                default => ProviderErrorCode::TRANSIENT,
             };
-            $locked = str_contains($lower, 'locked') || str_contains($lower, "can't lock");
-            throw new ProviderException('proxmox', $code, "Proxmox {$action} failed: {$message}", (string) $response->status, retryAfterSeconds: $locked ? 15 : null);
+            throw new ProviderException('proxmox', $code, "Proxmox {$action} failed: {$message}", (string) $response->status);
         }
         if ($response->status >= 400) {
             $errors = is_array($json) ? ($json['errors'] ?? $json['message'] ?? null) : null;
