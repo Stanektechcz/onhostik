@@ -65,8 +65,12 @@ it('asks again for a suspension the panel refused, and tells staff that an unpai
     driveOperations();
     expect($case->refresh()->state)->toBe(DunningCase::SUSPENDED)->and($service->refresh()->state)->toBe(ServiceStateMachine::ACTIVE); // the case says suspended, the site runs
 
-    // the next day: asked for again (it used to be never), and staff hear that an unpaid service still runs
-    $this->travel(1)->days();
+    // the next day: asked for again (it used to be never), and staff hear that an unpaid service still runs.
+    // A case says when it may be looked at again — tomorrow at 06:00 — so the clock is moved PAST that hour and not
+    // by a flat day: `travel(1)->days()` from a run that started between midnight and 06:00 UTC lands before it, and
+    // the case is then not due, which made this test fail every night for six hours.
+    $nextMorning = fn () => $this->travelTo(now()->addDay()->startOfDay()->addHours(7));
+    $nextMorning();
     $dunning->tick();
     app(OutboxPublisher::class)->relayPending();
     expect($case->actions()->where('action', 'suspend_retry')->count())->toBe(1)
@@ -76,13 +80,13 @@ it('asks again for a suspension the panel refused, and tells staff that an unpai
 
     // the panel is back: the next day's attempt goes through
     $panelDown = false;
-    $this->travel(1)->days();
+    $nextMorning();
     $dunning->tick();
     driveOperations();
     expect($service->refresh()->state)->toBe(ServiceStateMachine::SUSPENDED)->and($service->suspended_reason)->toBe('dunning')->and($case->actions()->where('action', 'suspend_retry')->count())->toBe(2);
 
     // and once it is down nothing more is asked for
-    $this->travel(1)->days();
+    $nextMorning();
     $dunning->tick();
     expect($case->actions()->where('action', 'suspend_retry')->count())->toBe(2);
 });
@@ -105,6 +109,6 @@ it('does not close a case as terminated while its service still runs', function 
     // the cancellation went through (deactivated, the removal follows the restore window): now the case is closed
     Operation::query()->where('service_id', $service->id)->update(['state' => Operation::SUCCEEDED, 'finished_at' => now()]);
     $service->forceFill(['state' => ServiceStateMachine::SUSPENDED, 'terminate_at' => now()->addDays(30)])->save();
-    $this->travel(1)->days();
+    $this->travelTo(now()->addDay()->startOfDay()->addHours(7)); // past the hour the case may be looked at again, whatever time the suite starts
     expect($dunning->tick()['terminated'])->toBe(1)->and($case->refresh()->state)->toBe(DunningCase::TERMINATED);
 });
