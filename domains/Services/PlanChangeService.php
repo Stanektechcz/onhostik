@@ -64,10 +64,12 @@ final class PlanChangeService
             }
             $net = $resolved['price']->renewalAmount();
             $diff = max(0, $net->minor - $oldNet);
+            $fit = $plan->key === $currentPlan ? [] : app(PlanFit::class)->shortfalls($service, (array) $resolved['version']->entitlements);
             $plans[] = [
                 'product_key' => $product->key, 'plan_key' => $plan->key, 'name' => $plan->localizedName('cs'), 'name_en' => $plan->localizedName('en'), 'current' => $plan->key === $currentPlan,
                 'direction' => $plan->key === $currentPlan ? 'current' : ($net->minor > $oldNet ? 'upgrade' : 'downgrade'), 'period' => $period, 'price' => $net,
                 'change_now' => Money::minor((int) round($diff * $fraction), $currency), 'entitlements' => $resolved['version']->entitlements, 'sla_class' => $plan->sla_class,
+                'blockers' => $fit, 'fits' => $fit === [], // what the service already holds and this plan would not cover
             ];
         }
 
@@ -152,6 +154,7 @@ final class PlanChangeService
             throw new DomainError('plan_change_product_mismatch', 'The plan belongs to a different product than the service.', 422);
         }
         $entitlements = $this->services->entitlementsFor($version, (array) ($config['options'] ?? []), $product);
+        app(PlanFit::class)->assertFits($service, $entitlements); // the service may have grown between the order and its payment
         $from = (string) (data_get($config, 'plan_change.from_plan') ?? '');
         $to = (string) ($version->plan?->key ?? '');
         $periodChange = (bool) data_get($config, 'plan_change.period_change', false);

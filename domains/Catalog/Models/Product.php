@@ -18,6 +18,7 @@ final class Product extends Model
         return ['name' => 'array', 'description' => 'array', 'meta' => 'array', 'sort' => 'integer'];
     }
 
+    /** @return HasMany<Plan, $this> */
     public function plans(): HasMany
     {
         return $this->hasMany(Plan::class, 'product_id')->orderBy('sort');

@@ -121,3 +121,48 @@ it('refuses web-site calls for a mail domain: its number among web sites is some
     }
     Http::assertNothingSent();
 });
+
+it('moves the limits of the client with the plan, and leaves the other sites their share of the space', function () {
+    // the client's limits were written once, when the client was created: a customer who paid for „10 webů“ and 50 GB
+    // still had `limit_web_domain = 1` at the panel, so ISPConfig refused the second site and the bigger quota
+    Http::fake([
+        'shared01.mgmt.test:8080/remote/json.php?login' => Http::response(ispResponse('sess-plan')),
+        'shared01.mgmt.test:8080/remote/json.php?client_get' => Http::response(ispResponse([
+            'client_id' => 12, 'username' => 'onh_1', 'password' => '$1$hashed', 'contact_name' => 'ONhost customer', 'sys_userid' => 1,
+            'limit_web_domain' => 1, 'limit_web_quota' => 10240, 'limit_database' => 1, 'limit_mailbox' => 5, 'limit_cron' => 1, 'limit_shell_user' => 0,
+        ])),
+        'shared01.mgmt.test:8080/remote/json.php?client_update' => Http::response(ispResponse(1)),
+        'shared01.mgmt.test:8080/remote/json.php?sites_web_domain_get' => Http::response(ispResponse(['domain_id' => 77, 'domain' => 'shop.cz', 'hd_quota' => 10240, 'pm_max_children' => 2, 'ssl_cert' => 'keep-out', 'sys_userid' => 1])),
+        'shared01.mgmt.test:8080/remote/json.php?sites_web_domain_update' => Http::response(ispResponse(1)),
+        'shared01.mgmt.test:8080/remote/json.php?monitor_jobqueue_count' => Http::response(ispResponse(0)),
+    ]);
+    $adapter = ispAdapter();
+    $ref = new ResourceRef('web_domain', '77', '1', ['client_id' => 12, 'domain' => 'shop.cz'], 'srv_web');
+    // the plan sells 50 GB; the customer's other site of the plan holds 20, so this one gets 30
+    $result = $adapter->resize($ref, new ResourceSpec('srv_web', 'website', 'plan-change:1', [
+        'entitlements' => ['sites' => 10, 'nvme_gb' => 50, 'databases' => 20, 'mailboxes' => 50, 'cron_concurrency' => 2, 'ssh' => true, 'php_workers' => 6],
+        'site_nvme_gb' => 30,
+    ], organizationId: 'org_1'));
+
+    expect($result->data['client_limits'])->toContain('limit_web_domain')->toContain('limit_web_quota');
+    Http::assertSent(fn ($r) => str_ends_with($r->url(), '?client_update') && (int) $r['client_id'] === 12
+        && (int) $r['params']['limit_web_domain'] === 10 && (int) $r['params']['limit_web_quota'] === 51200
+        && (int) $r['params']['limit_database'] === 20 && (int) $r['params']['limit_shell_user'] === 1
+        && ! isset($r->data()['params']['password']) && ! isset($r->data()['params']['sys_userid'])); // the hash would become the new password
+    Http::assertSent(fn ($r) => str_ends_with($r->url(), '?sites_web_domain_update') && (int) $r['params']['hd_quota'] === 30 * 1024 && (int) $r['params']['pm_max_children'] === 6);
+});
+
+it('does not fail a plan change when the panel refuses the client functions', function () {
+    Http::fake([
+        'shared01.mgmt.test:8080/remote/json.php?login' => Http::response(ispResponse('sess-plan2')),
+        'shared01.mgmt.test:8080/remote/json.php?client_get' => Http::response(ispResponse(false, 'remote_fault', 'You do not have the permissions to access this function.')),
+        'shared01.mgmt.test:8080/remote/json.php?sites_web_domain_get' => Http::response(ispResponse(['domain_id' => 77, 'domain' => 'shop.cz', 'hd_quota' => 10240, 'sys_userid' => 1])),
+        'shared01.mgmt.test:8080/remote/json.php?sites_web_domain_update' => Http::response(ispResponse(1)),
+        'shared01.mgmt.test:8080/remote/json.php?monitor_jobqueue_count' => Http::response(ispResponse(0)),
+    ]);
+    $result = ispAdapter()->resize(new ResourceRef('web_domain', '77', '1', ['client_id' => 12], 'srv_web'), new ResourceSpec('srv_web', 'website', 'plan-change:2', ['entitlements' => ['sites' => 10, 'nvme_gb' => 50]], organizationId: 'org_1'));
+
+    expect($result->data['client_limits'][0] ?? '')->toContain('refused'); // said out loud, not swallowed
+    Http::assertSent(fn ($r) => str_ends_with($r->url(), '?sites_web_domain_update') && (int) $r['params']['hd_quota'] === 51200);
+    Http::assertNotSent(fn ($r) => str_ends_with($r->url(), '?client_update'));
+});

@@ -20,6 +20,7 @@ use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\PlanChangeService;
+use Onhost\Domain\Services\PlanFit;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Tax\TaxEngine;
 use Onhost\Platform\Errors\DomainError;
@@ -209,7 +210,7 @@ final class QuoteService
             $requestedPeriod = isset($item['period']) ? (string) $item['period'] : null;
             $period = $requestedPeriod ?? ($commitMonths >= 12 ? 'year' : 'month');
             $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period);
-            $change = ! empty($config['upgrade_of']) ? $this->planChange($organization, (string) $config['upgrade_of'], $resolved['product'], $planKey, $requestedPeriod) : null;
+            $change = ! empty($config['upgrade_of']) ? $this->planChange($organization, (string) $config['upgrade_of'], $resolved['product'], $planKey, $resolved['version'], $requestedPeriod) : null;
             if ($change !== null && $change['period'] !== $period) {
                 $period = $change['period'];
                 $resolved = $this->catalog->resolve($productKey, $planKey, $currency, $period); // a plan change keeps the subscription's billing period unless the line asks for the other one
@@ -398,7 +399,7 @@ final class QuoteService
         }
     }
 
-    private function planChange(?Organization $organization, string $serviceId, Product $product, string $planKey, ?string $requestedPeriod = null): array
+    private function planChange(?Organization $organization, string $serviceId, Product $product, string $planKey, PlanVersion $version, ?string $requestedPeriod = null): array
     {
         if ($organization === null) {
             throw new DomainError('plan_change_requires_account', 'Sign in to change the plan of a service.', 422, ['field' => 'items']);
@@ -423,6 +424,8 @@ final class QuoteService
         if ($fromPlan === $planKey && ! $periodChange) {
             throw new DomainError('plan_change_same_plan', 'The service already runs this plan.', 422, ['field' => 'items']);
         }
+        // …and it has to fit what the service already holds: a plan that sells one site does not take a service with three
+        app(PlanFit::class)->assertFits($service, (array) $version->entitlements);
 
         return [
             'service' => $service, 'subscription' => $subscription, 'from_plan' => $fromPlan, 'period' => $periodChange ? $requestedPeriod : $fromPeriod, 'from_period' => $fromPeriod, 'period_change' => $periodChange,

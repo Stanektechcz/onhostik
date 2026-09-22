@@ -260,10 +260,14 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
         }
         $this->assertWebDomain($ref);
         $ent = (array) $spec->get('entitlements', []);
-        $params = array_filter(['hd_quota' => isset($ent['nvme_gb']) ? (int) $ent['nvme_gb'] * 1024 : null, 'pm_max_children' => $ent['php_workers'] ?? null, 'backup_copies' => $ent['backup_generations'] ?? null], fn ($v) => $v !== null);
+        // the plan's space is the ACCOUNT's; this site holds what the customer's other sites leave of it (`site_nvme_gb`)
+        $siteGb = $spec->get('site_nvme_gb') !== null ? (int) $spec->get('site_nvme_gb') : (isset($ent['nvme_gb']) ? (int) $ent['nvme_gb'] : null);
+        $params = array_filter(['hd_quota' => $siteGb !== null ? $siteGb * 1024 : null, 'pm_max_children' => $ent['php_workers'] ?? null, 'backup_copies' => $ent['backup_generations'] ?? null], fn ($v) => $v !== null);
+        // the client's limits first: ISPConfig checks a site against them, so a bigger site under the old limits is refused
+        $client = $this->updateClientLimits((int) ($ref->meta['client_id'] ?? 0), $ent);
         $this->updateSite($ref, $params);
 
-        return ProviderResult::accepted($this->jobqueueHandle((int) $ref->node), $ref, ['updated' => array_keys($params)]);
+        return ProviderResult::accepted($this->jobqueueHandle((int) $ref->node), $ref, ['updated' => array_keys($params), 'client_limits' => $client]);
     }
 
     public function suspend(ResourceRef $ref): ProviderResult
@@ -1331,6 +1335,58 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
      * ISPConfig validates the whole record on `sites_web_domain_update` (server, domain, quota …), so a change is
      * applied as get → merge → update. Record identity and stored certificate material are never sent back.
      */
+    /**
+     * The limits of the ISPConfig client follow the plan. They were written once, when the client was created, and a
+     * plan change never touched them: a customer who paid for „10 webů“ and 50 GB still had `limit_web_domain = 1` and
+     * the old quota at the panel, so the panel refused the second site and the bigger quota — the upgrade was paid for
+     * and not delivered. ISPConfig replaces the whole record on update, so the client is read back and merged.
+     *
+     * @param  array<string,mixed>  $ent
+     * @return list<string> the limits that were changed (empty when the panel already had them)
+     */
+    private function updateClientLimits(int $clientId, array $ent): array
+    {
+        if ($clientId <= 0 || $ent === []) {
+            return [];
+        }
+        $wanted = array_filter([
+            'limit_web_domain' => isset($ent['sites']) ? (int) $ent['sites'] : null,
+            'limit_web_quota' => isset($ent['nvme_gb']) ? (int) $ent['nvme_gb'] * 1024 : null,
+            'limit_database' => isset($ent['databases']) ? (int) $ent['databases'] : null,
+            'limit_mailbox' => isset($ent['mailboxes']) ? (int) $ent['mailboxes'] : null,
+            'limit_cron' => isset($ent['cron_concurrency']) ? (int) $ent['cron_concurrency'] : null,
+            'limit_shell_user' => isset($ent['ssh']) ? (empty($ent['ssh']) ? 0 : 1) : null,
+        ], fn ($value) => $value !== null);
+        if ($wanted === []) {
+            return [];
+        }
+        try {
+            $current = $this->api->call('client_get', ['client_id' => $clientId]);
+        } catch (ProviderException $e) {
+            // the remote user may not have the client functions: the platform tried, the panel said no, and the site
+            // update that follows will fail on the panel's own limits with the panel's own words — nothing is hidden
+            return ['refused: '.mb_substr($e->getMessage(), 0, 120)];
+        }
+        if (! is_array($current) || $current === []) {
+            return []; // the client is not there (a panel rebuilt underneath us): the site update below says so
+        }
+        $current = array_is_list($current) ? (array) ($current[0] ?? []) : $current;
+        $changed = array_keys(array_filter($wanted, fn ($value, $key) => (string) ($current[$key] ?? '') !== (string) $value, ARRAY_FILTER_USE_BOTH));
+        if ($changed === []) {
+            return [];
+        }
+        $base = [];
+        foreach ($current as $key => $value) {
+            if (in_array($key, ['client_id', 'password', 'parent_client_id'], true) || str_starts_with((string) $key, 'sys_')) {
+                continue; // the password is hashed in the record; sending it back would set the hash as the new password
+            }
+            $base[$key] = $value;
+        }
+        $this->api->call('client_update', ['client_id' => $clientId, 'reseller_id' => 0, 'params' => array_merge($base, $wanted)], true);
+
+        return $changed;
+    }
+
     private function updateSite(ResourceRef $site, array $params): void
     {
         $current = $this->getSite((int) $site->remoteId);

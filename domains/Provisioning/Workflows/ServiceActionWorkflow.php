@@ -37,6 +37,7 @@ use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\DatabaseCredentials;
 use Onhost\Domain\Services\Web\DatabaseImport;
 use Onhost\Domain\Services\Web\RestoreTest;
+use Onhost\Domain\Services\Web\ServiceSites;
 use Onhost\Domain\Services\Web\StagingService;
 use Onhost\Domain\Services\Web\WebFileStore;
 use Onhost\Platform\Commands\CommandContext;
@@ -727,10 +728,14 @@ final class ServiceActionWorkflow implements Workflow
                 $target = (array) $context->desired('entitlements', $service->entitlements);
                 $infra = $this->capability($context, InfrastructureProvider::class);
 
+                // a web hosting holds several sites and the plan's space is divided between them: this site gets what the
+                // plan leaves after the others, while the plan's own numbers travel on as the limits of the account
+                $siteShare = in_array($service->family, ['web', 'managed'], true) ? ServiceSites::ownShare($service, (int) ($target['nvme_gb'] ?? 0)) : null;
+
                 return $this->settle($infra->resize($this->ref($context), $context->spec($this->kindFor($service), [
                     'entitlements' => $target, 'vcpu' => (int) ($target['vcpu'] ?? 0) ?: null, 'ram_mb' => (int) ($target['ram_mb'] ?? 0) ?: null, 'nvme_gb' => (int) ($target['nvme_gb'] ?? 0) ?: null, 'cpu_limit' => ($target['cpu_class'] ?? 'shared') === 'dedicated' ? null : ((int) ($target['vcpu'] ?? 0) ?: null),
-                    'limits' => (array) $context->desired('limits', []), 'php_version' => $context->desired('php_version'),
-                ])), ['target_entitlements' => $target]);
+                    'limits' => (array) $context->desired('limits', []), 'php_version' => $context->desired('php_version'), 'site_nvme_gb' => $siteShare,
+                ])), ['target_entitlements' => $target, 'site_nvme_gb' => $siteShare]);
             }
 
             private function kindFor(Service $service): string
@@ -756,7 +761,11 @@ final class ServiceActionWorkflow implements Workflow
                 $service = $this->service($context);
                 $actual = $this->capability($context, InfrastructureProvider::class)->getActualState($this->ref($context));
                 $target = (array) $context->get('target_entitlements', []);
-                $service->forceFill(['entitlements' => array_replace((array) $service->entitlements, $target), 'desired_spec' => array_replace((array) $service->desired_spec, ['entitlements' => array_replace((array) $service->entitlements, $target)])])->save();
+                $tags = (array) ($service->tags ?? []);
+                if ($context->get('site_nvme_gb') !== null) { // what of the plan's space this site holds after the change
+                    $tags['sites'] = array_merge((array) ($tags['sites'] ?? []), ['quota_gb' => (int) $context->get('site_nvme_gb')]);
+                }
+                $service->forceFill(['tags' => $tags, 'entitlements' => array_replace((array) $service->entitlements, $target), 'desired_spec' => array_replace((array) $service->desired_spec, ['entitlements' => array_replace((array) $service->entitlements, $target)])])->save();
                 $context->container->make(ServiceService::class)->settleTransient($service, ServiceStateMachine::ACTIVE, $context->actor, 'resized', $context->operation, $actual, 'service.resized');
 
                 return StepResult::done(['status' => $actual->status]);

@@ -91,6 +91,11 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A plan change fits what the service holds, and reaches the panel:** `PlanFit` refuses a plan that sells fewer
+  sites than the service has (or less space than its sites hold, or no staging, or not their PHP version) before any
+  money moves, naming every reason at once; the ISPConfig client's limits now follow the plan, so a paid upgrade is
+  not refused by the panel it was bought for.
+
 - **The plan's sites are sites:** „10 webů“ used to buy nine extra NAMES on one site. `site.create` / `site.delete`
   (`ServiceSites`, `SiteWorkflow`) give each one its own document root, PHP version, certificate and backups, capped by
   the plan and by the space of the plan, which is divided between the sites and never doubled.

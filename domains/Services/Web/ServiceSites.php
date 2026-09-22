@@ -83,6 +83,21 @@ final class ServiceSites
     }
 
     /**
+     * What the service's own site holds of a plan of `$totalGb`: everything the carried sites do not. A plan change
+     * that raised the space has to reach the site the customer actually works on — and one that lowered it must not
+     * hand the same gigabytes out twice (`PlanFit` has already refused a plan the shares do not fit into).
+     */
+    public static function ownShare(Service $owner, int $totalGb): ?int
+    {
+        if ($totalGb <= 0) {
+            return null;
+        }
+        $others = (int) self::of($owner)->reject(fn (Service $site) => $site->id === $owner->id)->sum(fn (Service $site) => self::share($site, $owner));
+
+        return max(self::MIN_GB, $totalGb - $others);
+    }
+
+    /**
      * What a new site of `$wantGb` would leave the others: the free part of the plan first, the rest taken from the
      * service's own site, which is the only one the customer is adding to.
      *
