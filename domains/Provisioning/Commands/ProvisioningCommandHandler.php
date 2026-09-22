@@ -95,7 +95,7 @@ final class ProvisioningCommandHandler implements CommandHandler
             })(),
             'instance.upsert' => $this->instanceView($this->instances->upsert($command->payload, $context)),
             'instance.probe' => $this->instances->probe($this->findInstance($command), $context) + ['instance' => $this->instanceView($this->findInstance($command))],
-            'instance.state' => $this->instanceView($this->instances->setState($this->findInstance($command), (string) $command->get('state'), $context, $command->get('reason'), $command->get('maintenance_until') ? now()->parse((string) $command->get('maintenance_until')) : null)),
+            'instance.state' => $this->instanceView($this->instances->setState($this->findInstance($command), (string) $command->get('state'), $context, $command->get('reason'), $command->get('maintenance_until') ? now()->parse((string) $command->get('maintenance_until')) : null, filter_var($command->get('acknowledge_running', false), FILTER_VALIDATE_BOOLEAN))),
             'instance.discover' => $this->instances->discoverNodes($this->findInstance($command), $context),
             'node.upsert' => (function () use ($command, $context) {
                 $node = $this->instances->upsertNode($this->findInstance($command), (array) $command->get('node', []), $context);

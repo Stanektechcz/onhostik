@@ -6,6 +6,7 @@ namespace Onhost\Domain\Provisioning;
 
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Provisioning\Models\Node;
+use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -227,16 +228,34 @@ final class ProviderInstanceService
         return $result + ['credentials' => $this->credentialStatus($instance->fresh())];
     }
 
-    public function setState(ProviderInstance $instance, string $state, CommandContext $context, ?string $reason = null, ?\DateTimeInterface $maintenanceUntil = null): ProviderInstance
+    public function setState(ProviderInstance $instance, string $state, CommandContext $context, ?string $reason = null, ?\DateTimeInterface $maintenanceUntil = null, bool $acknowledgeRunning = false): ProviderInstance
     {
         if (! in_array($state, ['active', 'draining', 'maintenance', 'disabled'], true)) {
             throw new DomainError('instance_state_invalid', 'State must be active, draining, maintenance or disabled.', 422, ['field' => 'state']);
         }
+        // before a panel is taken down — an upgrade, a restart — the tasks it is carrying out for the platform are named (H519): a clone,
+        // a backup, a restore running AT the panel would be cut off by it and followed blind afterwards
+        $running = in_array($state, ['maintenance', 'disabled'], true) && $instance->state !== $state ? $this->tasksAtPanel($instance) : [];
+        if ($running !== [] && ! $acknowledgeRunning) {
+            throw new DomainError('instance_tasks_running', count($running).' task(s) are running at the panel for the platform right now; let them finish, or confirm with acknowledge_running=true that they are followed up after the maintenance.', 409, ['tasks' => $running]);
+        }
         $instance->forceFill(['state' => $state, 'maintenance_until' => $state === 'maintenance' ? $maintenanceUntil : null, 'state_reason' => $state === 'active' ? null : ($reason !== null ? mb_substr($reason, 0, 250) : null)])->save();
         $this->providers->forget($instance);
-        $this->audit->record($context, 'provider.instance.state', 'succeeded', ['key' => $instance->key, 'state' => $state, 'reason' => $reason, 'maintenance_until' => $maintenanceUntil?->format(DATE_ATOM)], 'provider_instance', $instance->id);
+        $this->audit->record($context, 'provider.instance.state', 'succeeded', ['key' => $instance->key, 'state' => $state, 'reason' => $reason, 'maintenance_until' => $maintenanceUntil?->format(DATE_ATOM), 'tasks_left_running' => array_column($running, 'id')], 'provider_instance', $instance->id);
 
         return $instance;
+    }
+
+    /**
+     * The tasks the panel is carrying out for the platform right now: operations waiting on a handle the panel gave them.
+     *
+     * @return list<array{id:string, kind:string, step:?string, service_id:?string, since:?string}>
+     */
+    private function tasksAtPanel(ProviderInstance $instance): array
+    {
+        return Operation::query()->where('provider_instance_id', $instance->id)->whereIn('state', [Operation::RUNNING, Operation::WAITING])->whereNotNull('external_handle')
+            ->orderBy('queued_at')->limit(20)->get()
+            ->map(fn (Operation $o) => ['id' => $o->id, 'kind' => (string) $o->kind, 'step' => $o->step_label, 'service_id' => $o->service_id, 'since' => $o->started_at?->toIso8601String()])->values()->all();
     }
 
     /** Import cluster nodes from a Proxmox instance into the scheduler (`nodes`), keeping manual capacity overrides. */

@@ -11,7 +11,9 @@ platform runs itself. Brain cards H511–H530.
   * **Changed** (an upgrade, a rollback) **or a new instance**: *verified* when the version is one the adapter declares
     (`supportedVendorVersions()`, matched by `VendorVersion`) **and** the checks pass on the panel as it is now
     (`NodePrerequisites::check()`: the calls the adapter relies on — `SelfProbing` —, the API user's rights, the cron API,
-    the game panel's client API). Event `integration.version.verified`.
+    the game panel's client API) **and** up to three of the services already there still prove to be themselves (H517:
+    `ServiceIdentityCheck` — the resource exists and a name or owner the panel reports matches; an upgrade that renumbered
+    what the panel holds is not taken as the same resources by their numbers). Event `integration.version.verified`.
   * Otherwise **held**: `ProviderInstance::isUsable()` is false, so **no new orders or placements go there**; the services
     already on it are still managed. Event `integration.version.held` (hot) with the reason; doctor row "no panel is
     held on an unverified version".
@@ -36,11 +38,13 @@ state and why.
 
 1. `php artisan onhost:integrations:versions` — is the target version one the adapter declares? If not, check it on a lab
    instance first and write down what was checked; the acceptance asks for it.
-2. Operations still running on the instance: `GET /v1/staff/provisioning/jobs?state=RUNNING` and `?state=WAITING` — let
-   them finish; do not start the upgrade in the middle of a backup or a migration.
-3. Put **only this instance** into maintenance for the window: `POST /v1/staff/integrations/{instance}/state` with
+2. Put **only this instance** into maintenance for the window: `POST /v1/staff/integrations/{instance}/state` with
    `state=maintenance`, `maintenance_until`, `reason` (H518). New work for it waits, customers of its services see
    `control_plane_maintenance` with the planned end; every other panel keeps working.
+3. While the panel is still carrying out tasks for the platform (a clone, a backup, a restore — operations waiting on a
+   handle the panel gave them), the request is refused with `409 instance_tasks_running` and the list of them (H519).
+   Let them finish, or send `acknowledge_running=true`: they are followed up after the maintenance and the audit records
+   which ones were left running.
 4. Take the panel's own backup (its database and configuration) the way the vendor documents it.
 
 ## After the upgrade

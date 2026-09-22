@@ -8,6 +8,7 @@ use Illuminate\Support\Carbon;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -41,9 +42,16 @@ final class PanelVersionGate
     /** A declared version whose checks failed is looked at again after this long. */
     public const RECHECK_MINUTES = 15;
 
+    /** How many of the instance's services must still prove to be themselves after a change (H517). */
+    public const IDENTITY_SAMPLE = 3;
+
+    /** The points of an identity check that say whether the panel's resource is still the service's — not whether it may be deleted today. */
+    private const IDENTITY_POINTS = ['organization', 'binding', 'binding_type', 'remote_id', 'provider_instance', 'sole_owner', 'remote_exists', 'owner', 'name', 'node'];
+
     public function __construct(
         private readonly ProviderRegistry $providers,
         private readonly NodePrerequisites $prerequisites,
+        private readonly ServiceIdentityCheck $identity,
         private readonly AuditRecorder $audit,
         private readonly OutboxPublisher $outbox,
     ) {}
@@ -160,7 +168,9 @@ final class PanelVersionGate
 
     /**
      * The checks the platform relies on, on the panel as it is now: the calls the adapters use (`SelfProbing`), the cron and
-     * the client APIs. Nothing is changed on the panel; `datalog_api` is knowledge for the adapter, not a condition.
+     * the client APIs — and that a few of the services already there are still themselves (H517): an upgrade that renumbered
+     * or renamed what it holds must not be taken as the same resources by their numbers alone. Nothing is changed on the
+     * panel; `datalog_api` is knowledge for the adapter, not a condition.
      *
      * @return array{api:string, failed:list<string>, checked_at:string}
      */
@@ -180,8 +190,33 @@ final class PanelVersionGate
         if (is_string($client) && ! in_array($client, ['ok', 'unknown'], true)) {
             $failed[] = "client_api: {$client}";
         }
+        if (($prereqs['api'] ?? 'down') === 'up') {
+            $failed = array_merge($failed, $this->identities($instance));
+        }
 
         return ['api' => (string) ($prereqs['api'] ?? 'down'), 'failed' => $failed, 'checked_at' => now()->toIso8601String()];
+    }
+
+    /** @return list<string> the services of a sample whose resource the panel no longer shows as theirs */
+    private function identities(ProviderInstance $instance): array
+    {
+        $services = Service::query()->where('provider_instance_id', $instance->id)->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED])
+            ->whereHas('bindings')->inRandomOrder()->limit(self::IDENTITY_SAMPLE)->get();
+        if ($services->isEmpty()) {
+            return [];
+        }
+        $adapter = $this->providers->forInstance($instance);
+        $failed = [];
+        foreach ($services as $service) {
+            $report = $this->identity->verify($service, $adapter);
+            $points = array_values(array_intersect($report['failed'], self::IDENTITY_POINTS));
+            $unanswered = collect($report['checks'])->contains(fn (array $check) => $check['key'] === 'remote_exists' && $check['ok'] === null);
+            if ($points !== [] || $unanswered || ! $report['identifier_matched']) {
+                $failed[] = "identity of {$service->id}: ".($points !== [] ? implode(', ', $points) : ($unanswered ? 'the panel could not be asked' : 'nothing the panel reports matches'));
+            }
+        }
+
+        return $failed;
     }
 
     /** @param array{api:string, failed:list<string>} $evidence */
