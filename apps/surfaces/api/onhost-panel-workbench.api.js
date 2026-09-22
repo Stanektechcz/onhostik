@@ -261,9 +261,30 @@
             })];
           });
         }
+        // the sites the plan sells: each one a site of its own (own folder, PHP, certificate, databases), not another name here
+        var siteList = on('sites') ? resource(cmp, sel, 'sites') : [];
+        if (on('sites') && Array.isArray(siteList)) {
+          panel.rows = panel.rows.concat(siteList.map(function (w) {
+            var note = w.primary ? _('hlavní web služby', 'the main site of the service') : _('web tarifu', 'a site of the plan');
+            return {
+              cells: [cell(_('Web', 'Site'), '1 1 220px'), cell(w.domain + ' · ' + (w.nvme_gb ? w.nvme_gb + ' GB' : '—') + (w.state && w.state !== 'ACTIVE' ? ' · ' + w.state : ''), '1 1 260px', 1)],
+              note: note,
+              actions: w.primary ? [] : [A(_('Odebrat', 'Remove'), function () {
+                if (window.confirm(_('Odebrat web ' + w.domain + '? Nejdřív ho zazálohujeme, pak se vypne a po ochranné lhůtě odstraní i se soubory a databázemi.', 'Remove the site ' + w.domain + '? It is backed up first, then switched off and removed with its files and databases after the grace window.'))) act(cmp, sel, 'site.delete', { site_id: w.service_id }, ['sites'], _('Odebíráme web', 'Removing the site'), _('Záloha a vypnutí trvají chvíli.', 'The backup and shutdown take a moment.'));
+              })]
+            };
+          }));
+        }
         panel.rows = panel.rows.concat(rowsSub);
-        if (on('subdomains')) panel.form = { title: _('Přidat doménu nebo subdoménu', 'Add a domain or subdomain'), fields: [F('a', _('doména (např. blog.' + sel.name + ')', 'domain (e.g. blog.' + sel.name + ')'), '1 1 220px'), F('b', _('podsložka (volitelně, např. blog)', 'sub-folder (optional, e.g. blog)'), '0 0 200px')], submit: _('Přidat', 'Add'), on: function () { if (!(s.wbF.a || '').trim()) { flash(cmp, _('Chybí doména', 'Domain missing'), ''); return; } act(cmp, sel, 'subdomain.add', { domain: s.wbF.a.trim(), path: (s.wbF.b || '').trim() || undefined }, ['subdomains']); } };
-        panel.state = (Array.isArray(subs) ? subs.length : 0) + (limit('subdomains') != null ? ' / ' + limit('subdomains') : '') + ' ' + _('dalších domén', 'extra domains');
+        if (on('sites') && Array.isArray(siteList) && siteList.length < (limit('sites') || 1)) {
+          panel.form = { title: _('Přidat web do tarifu', 'Add a site to the plan'), fields: [F('c', _('doména nového webu (např. druhy-web.cz)', 'domain of the new site (e.g. second-site.com)'), '1 1 240px'), F('d', _('prostor v GB', 'space in GB'), '0 0 140px')], submit: _('Založit web', 'Create the site'), on: function () {
+            if (!(s.wbF.c || '').trim()) { flash(cmp, _('Chybí doména', 'Domain missing'), ''); return; }
+            act(cmp, sel, 'site.create', { domain: s.wbF.c.trim().toLowerCase(), nvme_gb: parseInt(s.wbF.d || '0', 10) || undefined }, ['sites', 'quotas'], _('Zakládáme web', 'Creating the site'), _('Web, PHP, DNS a certifikát nastavíme sami; trvá to 1–3 minuty.', 'The site, PHP, DNS and certificate are set up for you; it takes 1–3 minutes.'));
+          } };
+        } else if (on('subdomains')) {
+          panel.form = { title: _('Přidat doménu nebo subdoménu', 'Add a domain or subdomain'), fields: [F('a', _('doména (např. blog.' + sel.name + ')', 'domain (e.g. blog.' + sel.name + ')'), '1 1 220px'), F('b', _('podsložka (volitelně, např. blog)', 'sub-folder (optional, e.g. blog)'), '0 0 200px')], submit: _('Přidat', 'Add'), on: function () { if (!(s.wbF.a || '').trim()) { flash(cmp, _('Chybí doména', 'Domain missing'), ''); return; } act(cmp, sel, 'subdomain.add', { domain: s.wbF.a.trim(), path: (s.wbF.b || '').trim() || undefined }, ['subdomains']); } };
+        }
+        panel.state = (on('sites') && Array.isArray(siteList) ? siteList.length + ' / ' + (limit('sites') || 1) + ' ' + _('webů', 'sites') + ' · ' : '') + (Array.isArray(subs) ? subs.length : 0) + (limit('subdomains') != null ? ' / ' + limit('subdomains') : '') + ' ' + _('dalších domén', 'extra domains');
         return panel;
       }
       if (tab === 'redirect') {

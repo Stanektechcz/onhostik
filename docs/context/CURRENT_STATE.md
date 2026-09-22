@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **The plan's sites are sites:** „10 webů“ used to buy nine extra NAMES on one site. `site.create` / `site.delete`
+  (`ServiceSites`, `SiteWorkflow`) give each one its own document root, PHP version, certificate and backups, capped by
+  the plan and by the space of the plan, which is divided between the sites and never doubled.
+
 - **A service ends the sites it carries:** a web hosting service holds further sites of the same customer as
   services of their own (`tags.billing = included`) — the test copy today. `IncludedServices` names them and the
   cancellation, the removal, the suspension and the resume all reach them; each site is archived by its own

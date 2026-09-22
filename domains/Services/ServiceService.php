@@ -36,6 +36,7 @@ use Onhost\Domain\Provisioning\Workflows\ProvisionMailDomainWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ProvisionVpsWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ProvisionWebsiteWorkflow;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
+use Onhost\Domain\Provisioning\Workflows\SiteWorkflow;
 use Onhost\Domain\Provisioning\Workflows\StagingWorkflow;
 use Onhost\Domain\Provisioning\Workflows\WordPressWorkflow;
 use Onhost\Domain\Services\Models\Backup;
@@ -45,6 +46,7 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\CronCommand;
 use Onhost\Domain\Services\Web\CustomDirectives;
+use Onhost\Domain\Services\Web\ServiceSites;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -599,6 +601,7 @@ final class ServiceService
             str_starts_with($action, 'wp.') => WordPressWorkflow::class,
             $action === 'import.run' => ImportWorkflow::class,
             str_starts_with($action, 'cdn.') => CdnWorkflow::class,
+            str_starts_with($action, 'site.') => SiteWorkflow::class,
             $action === 'ssl.wildcard' => CertificateWorkflow::class,
             default => ServiceActionWorkflow::class,
         };
@@ -1095,6 +1098,14 @@ final class ServiceService
             })()],
             'ssl.wildcard' => ['domain' => isset($params['domain']) && $params['domain'] !== '' ? strtolower($need('domain', $hostname, 'domain must be a valid host name')) : strtolower((string) $service->spec('domain', $service->hostname))],
             // ── platform features (workflows of their own) ────────────────────────────────────────────────────
+            // the further sites the plan sells: the whole refusal (number, name, PHP version, space) is decided here,
+            // so a site is never half-created on the node and the customer hears what is wrong before anything runs
+            'site.create' => (function () use ($service, $params) {
+                $plan = app(ServiceSites::class)->assertRoomFor($service, $params);
+
+                return ['domain' => $plan['domain'], 'php_version' => $plan['php_version'], 'nvme_gb' => $plan['share'], 'owner_nvme_gb' => $plan['owner_share']];
+            })(),
+            'site.delete' => ['site_id' => app(ServiceSites::class)->siteOf($service, (string) ($params['site_id'] ?? ''))->id],
             'staging.create', 'staging.refresh', 'staging.delete' => ['databases' => filter_var($params['databases'] ?? true, FILTER_VALIDATE_BOOLEAN)],
             'staging.push' => (function () use ($params, $action) {
                 if (! filter_var($params['confirm'] ?? false, FILTER_VALIDATE_BOOLEAN)) {

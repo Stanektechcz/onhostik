@@ -67,8 +67,8 @@ final class AssistantService
      * nor file contents. Whatever comes back still passes the redactor, and the plan's own feature gates apply.
      */
     private const READABLE = [
-        'web' => ['databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'deployments', 'wordpress', 'cdn', 'node_projects', 'backups'],
-        'managed' => ['databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'deployments', 'wordpress', 'cdn', 'node_projects', 'backups'],
+        'web' => ['sites', 'databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'deployments', 'wordpress', 'cdn', 'node_projects', 'backups'],
+        'managed' => ['sites', 'databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'deployments', 'wordpress', 'cdn', 'node_projects', 'backups'],
         'mail' => ['mailboxes', 'aliases', 'dkim', 'mail_forwards', 'mail_lists', 'mail_usage', 'backups'],
         'game' => ['status', 'schedules', 'allocations', 'backups'],
         'cloud' => ['snapshots', 'firewall', 'backups'],

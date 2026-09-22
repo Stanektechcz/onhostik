@@ -88,7 +88,7 @@ final class ServiceActionWorkflow implements Workflow
     ];
 
     /** Actions that run as sagas of their own (ServiceService::actionWorkflowFor); listed here so the API validates them alike. */
-    public const PLATFORM_ACTIONS = ['staging.create', 'staging.refresh', 'staging.push', 'staging.delete', 'deploy.run', 'deploy.rollback', 'wp.install', 'wp.update', 'wp.cache', 'wp.plugin', 'import.run', 'cdn.enable', 'cdn.disable', 'cdn.purge', 'ssl.wildcard'];
+    public const PLATFORM_ACTIONS = ['staging.create', 'staging.refresh', 'staging.push', 'staging.delete', 'deploy.run', 'deploy.rollback', 'wp.install', 'wp.update', 'wp.cache', 'wp.plugin', 'import.run', 'cdn.enable', 'cdn.disable', 'cdn.purge', 'ssl.wildcard', 'site.create', 'site.delete'];
 
     public const ACTIONS = [...self::CORE_ACTIONS, ...self::FEATURE_ACTIONS, ...self::PLATFORM_ACTIONS];
 

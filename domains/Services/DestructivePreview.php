@@ -30,7 +30,7 @@ final class DestructivePreview
     /** Actions that destroy or overwrite customer data. A confirmation of one of these can go stale. */
     public const ACTIONS = [
         'terminate', 'purge', 'restore', 'archive.restore', 'rollback_snapshot', 'reinstall',
-        'database.delete', 'backup.delete', 'gbackup.delete', 'snapshot.delete', 'staging.delete', 'staging.push',
+        'database.delete', 'backup.delete', 'gbackup.delete', 'snapshot.delete', 'staging.delete', 'staging.push', 'site.delete',
     ];
 
     public function __construct(private readonly ServiceFeatures $features, private readonly DeletionPolicy $policy) {}
@@ -102,6 +102,10 @@ final class DestructivePreview
         if (in_array($action, ['rollback_snapshot', 'snapshot.delete'], true)) {
             $out['snapshot'] = (string) ($params['name'] ?? '');
         }
+        if ($action === 'site.delete') {
+            $site = Service::query()->where('organization_id', $service->organization_id)->find((string) ($params['site_id'] ?? ''));
+            $out['site'] = $site === null ? null : (string) ($site->hostname ?: $site->name);
+        }
         if ($action === 'database.delete') {
             $out['database'] = (string) ($params['remote_id'] ?? '');
         }
@@ -146,6 +150,7 @@ final class DestructivePreview
             'database.delete' => $out[] = 'Databáze se smaže i s obsahem.',
             'backup.delete', 'gbackup.delete' => $out[] = 'Záloha se smaže; obnovit z ní už nepůjde.',
             'staging.delete' => $out[] = 'Testovací kopie webu se odstraní. Ostrý web zůstává.',
+            'site.delete' => $out[] = 'Web '.($target['site'] ?? '').' se vypne, zazálohuje a po ochranné lhůtě odstraní i se soubory a databázemi. Ostatní weby služby zůstávají.',
             'staging.push' => $out[] = 'Ostrý web se přepíše obsahem testovací kopie.',
             default => null,
         };

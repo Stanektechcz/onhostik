@@ -20,6 +20,7 @@ use Onhost\Domain\Services\Web\CdnService;
 use Onhost\Domain\Services\Web\CertificateService;
 use Onhost\Domain\Services\Web\DeployService;
 use Onhost\Domain\Services\Web\ImportService;
+use Onhost\Domain\Services\Web\ServiceSites;
 use Onhost\Domain\Services\Web\StagingService;
 use Onhost\Domain\Services\Web\UptimeMonitor;
 use Onhost\Domain\Services\Web\WordPressService;
@@ -68,7 +69,7 @@ final class ServiceFeatures
         'node_projects' => ['node.create', 'node.action'], 'proxy' => ['proxy.create', 'proxy.delete', 'proxies.set'], 'default_docs' => ['index.set'], 'ssl_wildcard' => ['ssl.wildcard'],
         // platform features around the site (workflows of their own): staging, git deploy, WordPress toolkit, CDN, imports
         'staging' => ['staging.create', 'staging.refresh', 'staging.push', 'staging.delete'], 'deploy' => ['deploy.run', 'deploy.rollback'], 'wordpress' => ['wp.install', 'wp.update', 'wp.cache', 'wp.plugin'],
-        'cdn' => ['cdn.enable', 'cdn.disable', 'cdn.purge'], 'import' => ['import.run'],
+        'cdn' => ['cdn.enable', 'cdn.disable', 'cdn.purge'], 'import' => ['import.run'], 'sites' => ['site.create', 'site.delete'],
         // mail tools (MailToolsProvider)
         'forwards' => ['forward.create', 'forward.delete'], 'catchall' => ['catchall.set'], 'autoresponder' => ['autoresponder.set'], 'spam' => ['spam.policy', 'spam.list.add', 'spam.list.delete'],
         'mail_filters' => ['filter.create', 'filter.delete'], 'mailing_lists' => ['list.create', 'list.delete'], 'fetchmail' => ['fetchmail.create', 'fetchmail.delete'], 'mail_backups' => ['mailbox.restore'], 'mail_backup_now' => ['mailbox.backup'],
@@ -86,7 +87,7 @@ final class ServiceFeatures
         'databases', 'ftp', 'cron', 'subdomains', 'certificate', 'redirect', 'php', 'snapshots', 'mailboxes', 'aliases', 'dkim', 'firewall', 'site_settings', 'protected_folders', 'db_users', 'shell_users', 'files', 'apps',
         'tools', 'php_settings', 'security', 'http_versions', 'cron_logs', 'database_access', 'quotas', 'node_projects', 'staging', 'deploy', 'deployments', 'wordpress', 'monitoring', 'monitoring_samples', 'certificates', 'cdn', 'imports',
         'mail_forwards', 'mail_catchall', 'mail_autoresponder', 'mail_spam', 'mail_spam_lists', 'mail_filters', 'mail_lists', 'mail_fetchmail', 'mail_backups', 'mail_usage', 'proxies', 'default_docs',
-        'status', 'server_detail', 'startup', 'schedules', 'game_databases', 'subusers', 'game_files', 'allocations', 'panel_access',
+        'status', 'server_detail', 'startup', 'schedules', 'game_databases', 'subusers', 'game_files', 'allocations', 'panel_access', 'sites',
     ];
 
     /** Game actions the customer may take (ServiceActionCommand risk): what is destructive needs a fresh step-up. */
@@ -176,7 +177,9 @@ final class ServiceFeatures
                 $out += [
                     'site' => $on(true), 'php' => $on($flag('php')), 'databases' => $on($flag('databases'), (int) ($ent['databases'] ?? 1)), 'ftp' => $on($flag('ftp'), (int) ($ent['ftp_accounts'] ?? 5)),
                     'ssl' => $on($flag('ssl')), 'https' => $on($flag('https')), 'cron' => $on($flag('cron'), (int) ($ent['cron_jobs'] ?? 10)), 'logs' => $on($flag('logs')),
-                    'backups' => $on($flag('backups'), (int) ($ent['backup_days'] ?? 7)), 'restore' => $on($flag('restore')), 'subdomains' => $on($flag('subdomains'), max(0, (int) ($ent['sites'] ?? 1) - 1)),
+                    'backups' => $on($flag('backups'), (int) ($ent['backup_days'] ?? 7)), 'restore' => $on($flag('restore')), 'subdomains' => $on($flag('subdomains'), (int) ($ent['aliases'] ?? 0) ?: null),
+                    // „10 webů“ on the price list means ten SITES of their own, not ten names on one site (`ServiceSites`)
+                    'sites' => $on(ServiceSites::limit($service) > 1 && ! IncludedServices::isIncluded($service), ServiceSites::limit($service)),
                     'redirects' => $on($flag('redirects')), 'ssh' => $on($flag('ssh') && ! empty($ent['ssh'])), 'mail' => $on($flag('mail') && (int) ($ent['mailboxes'] ?? 0) > 0, (int) ($ent['mailboxes'] ?? 0)),
                     'file_manager' => $on($flag('file_manager')),
                     'errpages' => $on($flag('errpages')), 'directives' => $on($flag('directives'), null, $executor === 'aapanel' ? ['rewrite'] : ['apache', 'nginx']), 'protected' => $on($flag('protected'), null, $executor === 'aapanel' ? 'site' : 'folders'),
@@ -273,7 +276,7 @@ final class ServiceFeatures
         $gate = [
             'protected_folders' => 'protected', 'db_users' => 'db_users', 'shell_users' => 'shell', 'files' => 'files', 'apps' => 'apps',
             'tools' => 'site', 'php_settings' => 'php_settings', 'security' => 'security', 'http_versions' => 'security', 'cron_logs' => 'cron_logs', 'database_access' => 'db_access', 'quotas' => 'quotas', 'node_projects' => 'node_projects', 'proxies' => 'proxy', 'default_docs' => 'default_docs',
-            'staging' => 'staging', 'deploy' => 'deploy', 'deployments' => 'deploy', 'wordpress' => 'wordpress', 'monitoring' => 'monitoring', 'monitoring_samples' => 'monitoring', 'certificates' => 'ssl', 'cdn' => 'cdn', 'imports' => 'import',
+            'sites' => 'sites', 'staging' => 'staging', 'deploy' => 'deploy', 'deployments' => 'deploy', 'wordpress' => 'wordpress', 'monitoring' => 'monitoring', 'monitoring_samples' => 'monitoring', 'certificates' => 'ssl', 'cdn' => 'cdn', 'imports' => 'import',
             'mail_forwards' => 'forwards', 'mail_catchall' => 'catchall', 'mail_autoresponder' => 'autoresponder', 'mail_spam' => 'spam', 'mail_spam_lists' => 'spam', 'mail_filters' => 'mail_filters', 'mail_lists' => 'mailing_lists', 'mail_fetchmail' => 'fetchmail', 'mail_backups' => 'mail_backups', 'mail_usage' => 'mail_usage',
             'status' => 'game_status', 'server_detail' => 'game_settings', 'startup' => 'startup', 'schedules' => 'schedule_tools', 'game_databases' => 'game_databases', 'subusers' => 'subusers', 'game_files' => 'game_files', 'allocations' => 'allocations', 'panel_access' => 'panel_access',
         ][$kind] ?? null;
@@ -351,6 +354,7 @@ final class ServiceFeatures
             'proxies' => $this->tools($adapter)->listProxies($ref),
             'default_docs' => ['names' => $this->tools($adapter)->defaultDocuments($ref)],
             // the platform's own records around the site
+            'sites' => app(ServiceSites::class)->listing($service),
             'staging' => app(StagingService::class)->status($service),
             'deploy' => app(DeployService::class)->status($service, ! empty($params['secrets'])), // the caller says whether the role may see values (H334)
             'deployments' => app(DeployService::class)->deployments($service),
