@@ -7,6 +7,8 @@ namespace Onhost\Domain\Services\Web;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Errors\ProviderErrorCode;
+use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\Secrets\SecretRef;
 use Onhost\Platform\Secrets\SecretStore;
 
@@ -156,7 +158,11 @@ final class AcmeClient
         return $this->accountUrl = $kid;
     }
 
-    private function signed(string $url, ?array $payload, string $accept = 'application/json', bool $useJwk = false): Response
+    /**
+     * `$accept` may be null — creating the account asks for it that way, and with a non-nullable parameter the very
+     * first certificate on a fresh ACME account died of a TypeError before it ever reached the authority.
+     */
+    private function signed(string $url, ?array $payload, ?string $accept = 'application/json', bool $useJwk = false): Response
     {
         $attempt = 0;
         while (true) {
@@ -169,12 +175,18 @@ final class AcmeClient
             $p = self::base64url(json_encode($protected, JSON_UNESCAPED_SLASHES) ?: '');
             $b = $payload === null ? '' : self::base64url(json_encode($payload === [] ? new \stdClass : $payload, JSON_UNESCAPED_SLASHES) ?: '');
             openssl_sign($p.'.'.$b, $signature, $this->accountKey()['private'], OPENSSL_ALGO_SHA256);
-            $response = Http::withHeaders(['Content-Type' => 'application/jose+json', 'Accept' => $accept])->timeout(30)->withBody((string) json_encode(['protected' => $p, 'payload' => $b, 'signature' => self::base64url($signature)]), 'application/jose+json')->post($url);
+            $response = Http::withHeaders(array_filter(['Content-Type' => 'application/jose+json', 'Accept' => $accept]))->timeout(30)->withBody((string) json_encode(['protected' => $p, 'payload' => $b, 'signature' => self::base64url($signature)]), 'application/jose+json')->post($url);
             $this->nonce = $response->header('Replay-Nonce') ?: null;
             if ($response->status() === 400 && str_contains((string) $response->json('type'), 'badNonce') && $attempt++ < 3) {
                 $this->nonce = null;
 
                 continue;
+            }
+            // the authority is telling us to stop asking (five of the same certificate a week, three hundred orders in
+            // three hours). Asking again is what the limit exists to prevent, so this is its own answer, with the time
+            // the authority itself named — the caller waits instead of spending the customer's attempts on a refusal.
+            if ($response->status() === 429 || str_contains((string) $response->json('type'), 'rateLimited')) {
+                throw new ProviderException('acme', ProviderErrorCode::RATE_LIMIT, 'Certificate authority is rate limiting us: '.((string) ($response->json('detail') ?? 'too many requests')), context: ['url' => $url], retryAfterSeconds: self::retryAfter($response));
             }
             if ($response->failed()) {
                 throw new DomainError('acme_request_failed', 'Certificate authority: '.((string) ($response->json('detail') ?? $response->status())), 502, ['url' => $url]);
@@ -182,6 +194,23 @@ final class AcmeClient
 
             return $response;
         }
+    }
+
+    /**
+     * How long the authority asked us to wait: `Retry-After` is either a number of seconds or an HTTP date, and
+     * some answers carry none at all. Bounded between a minute and a day, so neither a "0" nor a wild date decides
+     * when a customer's certificate is tried again.
+     */
+    public static function retryAfter(Response $response, int $default = 3600): int
+    {
+        $header = trim((string) $response->header('Retry-After'));
+        $seconds = match (true) {
+            $header === '' => $default,
+            is_numeric($header) => (int) $header,
+            default => (int) max(0, (strtotime($header) ?: 0) - time()),
+        };
+
+        return max(60, min(86400, $seconds ?: $default));
     }
 
     private function nonce(): string
@@ -222,9 +251,17 @@ final class AcmeClient
         if (! empty($stored['private'])) {
             return $key = ['private' => (string) $stored['private'], 'public' => (string) ($stored['public'] ?? '')];
         }
-        $res = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 2048]);
-        if ($res === false || ! openssl_pkey_export($res, $private)) {
-            throw new DomainError('acme_key_failed', 'Could not generate the ACME account key.', 500);
+        // with its own configuration file, exactly as the certificate request below: OpenSSL refuses to make a key on a
+        // host that has no openssl.cnf of its own, and the account key is the first thing every certificate needs
+        $config = tempnam(sys_get_temp_dir(), 'acme');
+        file_put_contents($config, "[req]\ndefault_bits = 2048\ndefault_md = sha256\ndistinguished_name = dn\n[dn]\n");
+        try {
+            $res = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 2048, 'config' => $config]);
+            if ($res === false || ! openssl_pkey_export($res, $private, null, ['config' => $config])) {
+                throw new DomainError('acme_key_failed', 'Could not generate the ACME account key: '.(string) openssl_error_string(), 500);
+            }
+        } finally {
+            @unlink($config);
         }
         $details = openssl_pkey_get_details($res) ?: [];
         $key = ['private' => (string) $private, 'public' => (string) ($details['key'] ?? '')];

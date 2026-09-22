@@ -4,13 +4,13 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| d1d0f72 | 2026-09-22 | A web node says how full it is, so a full one stops taking sites |
+| 732847e | 2026-09-22 | A used-up plan stops growing, and the customer hears why |
+| 083f043 | 2026-09-22 | A plan change fits what the service holds, and reaches the panel |
+| 89d1087 | 2026-09-22 | The sites a hosting plan sells are sites, not extra names on one site |
+| ecb5b30 | 2026-09-22 | A cancelled web hosting takes the sites it carries with it, archived first |
 | 0ffbb28 | 2026-09-22 | The assistant proposes what the platform learned since, and says why when it may not |
 | e562525 | 2026-09-22 | An upgraded panel's resources must still be themselves; maintenance names the panel's running tasks (H517, H519) |
 | cee007a | 2026-09-22 | Compare the order's lines in a fixed order (PostgreSQL CI flake) |
 | 624f8c0 | 2026-09-22 | The automatic drain judges the node, not its panel (H288) |
 | bd8d1d6 | 2026-09-22 | A panel on a version nobody verified takes no new orders (H530, H514, H521, H511) |
-| a56e19f | 2026-09-22 | A VM moved by HA is followed, once it proves to be the service's (H288) |
-| 7414f90 | 2026-09-22 | A panel's breaker trips for the panel, not for one guest or one node (H288) |
-| e434159 | 2026-09-22 | A resumed clone is waited for, not retried; a lock waits on the ordinary backoff |
-| ae1e13c | 2026-09-22 | A new VM never gets a number the platform gave before (H488, H505) |
-| 679ec04 | 2026-09-22 | An expired VPS archive is gone from the backup server too (H488) |

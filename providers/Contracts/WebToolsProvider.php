@@ -81,7 +81,12 @@ interface WebToolsProvider
     /** Stream one backup archive into a local file. */
     public function downloadBackup(ResourceRef $site, string $backupRemoteId, string $localFile): void;
 
-    /** @return array{disk_used_bytes:?int, disk_limit_bytes:?int, traffic_used_bytes:?int, traffic_limit_bytes:?int, inodes_used:?int, measured_at:string} */
+    /**
+     * What the site stores and has served, as far as the node can say. `traffic_used_bytes` is what it served in the
+     * period named by `traffic_period` (the current month); null means nobody could measure it, which is not zero.
+     *
+     * @return array{disk_used_bytes:?int, disk_limit_bytes:?int, traffic_used_bytes:?int, traffic_limit_bytes:?int, inodes_used:?int, traffic_period?:string, measured_at:string}
+     */
     public function quotas(ResourceRef $site): array;
 
     /** @return list<array{remote_id:string, name:string, path:string, port:?int, state:string, version:?string, domains:list<string>}> */

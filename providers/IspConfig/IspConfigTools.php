@@ -376,7 +376,7 @@ trait IspConfigTools
     public function quotas(ResourceRef $site): array
     {
         $clientId = (int) ($site->meta['client_id'] ?? 0);
-        $out = ['disk_used_bytes' => null, 'disk_limit_bytes' => null, 'traffic_used_bytes' => null, 'traffic_limit_bytes' => null, 'inodes_used' => null, 'measured_at' => now()->toIso8601String()];
+        $out = ['disk_used_bytes' => null, 'disk_limit_bytes' => null, 'traffic_used_bytes' => null, 'traffic_limit_bytes' => null, 'inodes_used' => null, 'traffic_period' => now()->format('Y-m'), 'measured_at' => now()->toIso8601String()];
         try {
             foreach ((array) $this->api->call('quota_get_by_user', ['client_id' => $clientId]) as $row) {
                 if (is_array($row) && (int) ($row['domain_id'] ?? 0) === (int) $site->remoteId) {

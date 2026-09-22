@@ -91,6 +91,15 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **Traffic is measured where the panel cannot:** aaPanel has no traffic counter, so a managed site's sold traffic
+  was measured against nothing; it is now summed from the site's own access log for the current month, and a log
+  format the platform cannot read reports "not measured" instead of zero.
+
+- **A rate limit from the certificate authority is its own answer:** 429 becomes `RATE_LIMIT` with the authority's own
+  `Retry-After`, the certificate carries `rate_limited_until` so the nightly renewal steps over it, and renewals are
+  spread by up to six days so a batch issued together does not come due together. (Two latent bugs fixed on the way:
+  the ACME account call passed null where a string was declared, and its key was generated without an OpenSSL config.)
+
 - **A web node says how full it is:** `NodeUsageSync` (`onhost:nodes:usage`, every 15 minutes) writes the disk of
   every ISPConfig and aaPanel node onto the node, so the scheduler's 85 % rule and the acceptance headroom finally
   have a number instead of a zero; a node below its own headroom is reported once a day (`node.disk.low`).

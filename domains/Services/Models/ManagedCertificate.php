@@ -22,6 +22,6 @@ final class ManagedCertificate extends Model
 
     protected function casts(): array
     {
-        return ['domains' => 'array', 'wildcard' => 'boolean', 'issued_at' => 'datetime', 'expires_at' => 'datetime', 'renew_after' => 'datetime'];
+        return ['domains' => 'array', 'wildcard' => 'boolean', 'issued_at' => 'datetime', 'expires_at' => 'datetime', 'renew_after' => 'datetime', 'rate_limited_until' => 'datetime'];
     }
 }

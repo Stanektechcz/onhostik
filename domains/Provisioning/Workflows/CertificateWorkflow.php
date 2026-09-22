@@ -13,6 +13,7 @@ use Onhost\Domain\Services\Models\ManagedCertificate;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\Web\AcmeClient;
 use Onhost\Domain\Services\Web\CertificateService;
+use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Providers\Contracts\AsyncStatus;
 use Onhost\Providers\Contracts\WebHostingProvider;
 use Throwable;
@@ -45,7 +46,11 @@ final class CertificateWorkflow implements Workflow
         $certs = $context->container->make(CertificateService::class);
         $cert = ManagedCertificate::query()->find((string) $context->get('certificate_id'));
         if ($cert !== null) {
-            $certs->fail($cert, (string) ($context->operation->error['message'] ?? 'certificate issuance failed'));
+            // a rate limit is not an ordinary failure: the authority said when it will hear about this certificate
+            // again, and until then the renewal sweep steps over it instead of asking every night for nothing
+            $error = (array) ($context->operation->error ?? []);
+            $limited = (string) data_get($error, 'detail.code') === ProviderErrorCode::RATE_LIMIT->value ? (int) (data_get($error, 'detail.retry_after') ?: 3600) : null;
+            $certs->fail($cert, (string) ($error['message'] ?? 'certificate issuance failed'), $limited);
         }
         try {
             $zone = $certs->zoneFor($context->service->organization_id, (string) $context->desired('domain'));

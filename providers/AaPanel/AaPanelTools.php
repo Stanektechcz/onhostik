@@ -503,10 +503,53 @@ trait AaPanelTools
         }
         $run = $this->shell($site)->run('du -sb '.Q::arg($this->sitePath($site)).' 2>/dev/null | cut -f1; find '.Q::arg($this->sitePath($site)).' 2>/dev/null | wc -l', ['timeout' => 120]);
         $lines = preg_split('/\r?\n/', trim($run->stdout)) ?: [];
-        $out = ['disk_used_bytes' => isset($lines[0]) && is_numeric(trim($lines[0])) ? (int) trim($lines[0]) : null, 'disk_limit_bytes' => null, 'traffic_used_bytes' => null, 'traffic_limit_bytes' => null, 'inodes_used' => isset($lines[1]) && is_numeric(trim($lines[1])) ? (int) trim($lines[1]) : null, 'measured_at' => now()->toIso8601String()];
+        $out = ['disk_used_bytes' => isset($lines[0]) && is_numeric(trim($lines[0])) ? (int) trim($lines[0]) : null, 'disk_limit_bytes' => null, 'traffic_used_bytes' => $this->trafficThisMonth($site), 'traffic_limit_bytes' => null, 'inodes_used' => isset($lines[1]) && is_numeric(trim($lines[1])) ? (int) trim($lines[1]) : null, 'traffic_period' => now()->format('Y-m'), 'measured_at' => now()->toIso8601String()];
         $this->cache->put($key, $out, 600);
 
         return $out;
+    }
+
+    /**
+     * What the site has served this month, in bytes. aaPanel has no traffic counter of its own — the plans sell an
+     * amount of traffic and on a managed site it was measured against nothing at all, for ever — but the node writes
+     * every answer into the site's access log with the bytes it sent, so that is where the number comes from.
+     *
+     * The sum runs over this month's log files only (the current one and whatever rotation left, compressed or not)
+     * and over the lines whose own timestamp says this month, so the tail of last month in a file rotated on the 1st
+     * is not counted twice. The field with the bytes is found by its place after the status code rather than by a
+     * fixed position, so a node with a slightly different log format still counts — and a format nobody recognises
+     * returns **nothing measured** instead of a confident zero, because "no traffic" and "we cannot read it" are not
+     * the same thing to a customer whose plan is being measured.
+     *
+     * It is asked for twice a day at most (its own cache): a month's logs are big, and a monthly quota does not need
+     * a fresher number than that.
+     */
+    private function trafficThisMonth(ResourceRef $site): ?int
+    {
+        $name = trim((string) ($site->meta['name'] ?? ''));
+        if ($name === '' || ! preg_match('/^[a-z0-9.\-]{1,190}$/i', $name)) {
+            return null;
+        }
+        $month = now()->format('Y-m');
+        $key = "onhost:aapanel:traffic:{$this->instance->id}:{$site->remoteId}:{$month}";
+        $cached = $this->cache->get($key);
+        if (is_int($cached)) {
+            return $cached;
+        }
+        if ($cached === 'unmeasured') {
+            return null;
+        }
+        $awk = 'index($4,m){for(i=5;i<=NF;i++){if($i ~ /^[1-5][0-9][0-9]$/ && $(i+1) ~ /^[0-9]+$/){s+=$(i+1);n++;break}}} END{printf "%d %d", s+0, n+0}';
+        $command = 'find /www/wwwlogs -maxdepth 1 -type f -name '.Q::arg($name.'.log*').' ! -name '.Q::arg('*error*')
+            .' -newermt '.Q::arg(now()->startOfMonth()->format('Y-m-d')).' -print0 2>/dev/null'
+            .' | xargs -0 -r zcat -f 2>/dev/null'
+            .' | awk -v m='.Q::arg('/'.now()->format('M').'/'.now()->format('Y')).' '.Q::arg($awk);
+        $run = $this->shell($site)->run($command, ['timeout' => 180]);
+        $parts = preg_split('/\s+/', trim($run->stdout)) ?: [];
+        $measured = $run->ok() && isset($parts[0], $parts[1]) && is_numeric($parts[0]) && (int) $parts[1] > 0 ? (int) $parts[0] : null;
+        $this->cache->put($key, $measured ?? 'unmeasured', 12 * 3600);
+
+        return $measured;
     }
 
     public function nodeProjects(ResourceRef $site): array

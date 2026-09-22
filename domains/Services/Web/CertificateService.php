@@ -68,13 +68,14 @@ final class CertificateService
         $info = AcmeClient::inspect($leaf);
         $this->secrets->write(SecretRef::parse((string) $cert->secret_ref), ['cert' => $leaf, 'chain' => $chain, 'key' => $key, 'fullchain' => $fullchain]);
         $expires = $info['not_after'] ? now()->setTimestamp($info['not_after']) : now()->addDays(90);
-        $cert->forceFill(['state' => 'issued', 'issuer' => $info['issuer'] ?: 'Let\'s Encrypt', 'issued_at' => $info['not_before'] ? now()->setTimestamp($info['not_before']) : now(), 'expires_at' => $expires, 'renew_after' => $expires->copy()->subDays((int) config('onhost.acme.renew_days_before', 30)), 'last_error' => null])->save();
+        $cert->forceFill(['state' => 'issued', 'issuer' => $info['issuer'] ?: 'Let\'s Encrypt', 'issued_at' => $info['not_before'] ? now()->setTimestamp($info['not_before']) : now(), 'expires_at' => $expires, 'renew_after' => $expires->copy()->subDays((int) config('onhost.acme.renew_days_before', 30))->addMinutes(self::spread($cert)), 'rate_limited_until' => null, 'last_error' => null])->save();
         $this->outbox->publish(GenericEvent::of('certificate.issued', 'service', $cert->service_id, ['certificate_id' => $cert->id, 'domains' => $cert->domains, 'expires_at' => $expires->toIso8601String()], $cert->organization_id));
     }
 
-    public function fail(ManagedCertificate $cert, string $error): void
+    public function fail(ManagedCertificate $cert, string $error, ?int $rateLimitedFor = null): void
     {
-        $cert->forceFill(['state' => $cert->issued_at ? 'issued' : 'failed', 'last_error' => mb_substr($error, 0, 400)])->save();
+        $cert->forceFill(['state' => $cert->issued_at ? 'issued' : 'failed', 'last_error' => mb_substr($error, 0, 400)]
+            + ($rateLimitedFor !== null ? ['rate_limited_until' => now()->addSeconds($rateLimitedFor)] : []))->save();
         $this->outbox->publish(GenericEvent::of('certificate.failed', 'service', $cert->service_id, ['certificate_id' => $cert->id, 'domains' => $cert->domains, 'error' => mb_substr($error, 0, 400), 'renewal' => $cert->issued_at !== null], $cert->organization_id));
     }
 
@@ -120,11 +121,26 @@ final class CertificateService
     }
 
     /** Scheduler: start renewals for certificates past their renew date. */
+    /**
+     * How long after the earliest renewal day this certificate waits, in minutes. A hundred sites set up in one
+     * afternoon get certificates that expire within minutes of each other, so they would all come due on the same
+     * day for ever — and a day's worth of renewals against one authority is how an account meets its rate limit.
+     * The offset is derived from the certificate's own id, so it is the same at every run (nothing wanders) and
+     * different for every certificate: up to six days, spread over the hours of the day.
+     */
+    public static function spread(ManagedCertificate $cert): int
+    {
+        return (int) (hexdec(substr(hash('sha256', (string) $cert->id), 0, 8)) % (6 * 24 * 60));
+    }
+
     public function renewDue(int $limit = 20): int
     {
         $started = 0;
         $context = CommandContext::system('certificate renewal');
-        foreach (ManagedCertificate::query()->where('state', 'issued')->whereNotNull('renew_after')->where('renew_after', '<=', now())->orderBy('renew_after')->limit($limit)->get() as $cert) {
+        $due = ManagedCertificate::query()->where('state', 'issued')->whereNotNull('renew_after')->where('renew_after', '<=', now())
+            ->where(fn ($q) => $q->whereNull('rate_limited_until')->orWhere('rate_limited_until', '<=', now())) // the authority named a time; it is kept
+            ->orderBy('renew_after')->limit($limit)->get();
+        foreach ($due as $cert) {
             $service = Service::query()->find($cert->service_id);
             if ($service === null || ! $service->isActive()) {
                 continue;
