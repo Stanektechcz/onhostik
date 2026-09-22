@@ -777,13 +777,16 @@ final class ServiceService
 
                 return ['name' => $need('name', '/^[\w .-]{1,40}$/u', 'name is required'), 'cron' => $need('cron', '/^(\S+\s+){4}\S+$/', 'cron must have five fields'), 'actions' => $actions];
             })(),
-            'mailbox.create' => (function () use ($need, $password, $params, $limit) {
+            'mailbox.create' => (function () use ($need, $password, $params, $limit, $service, $action) {
+                // whose domain it is, before the panel is asked to count anything: an address that is not this
+                // service's is refused without a call, and the plan's limit is counted only for a request we would make
+                $address = MailAddresses::assertOwn($service, $need('address', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'address must be an e-mail address'), 'address', $action);
                 $limit('mailboxes', 'mailboxes');
 
-                return ['address' => strtolower($need('address', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'address must be an e-mail address')), 'password' => $password(), 'name' => substr(trim((string) ($params['name'] ?? '')), 0, 80), 'quota_mb' => max(64, min(102400, (int) ($params['quota_mb'] ?? 2048)))];
+                return ['address' => $address, 'password' => $password(), 'name' => substr(trim((string) ($params['name'] ?? '')), 0, 80), 'quota_mb' => max(64, min(102400, (int) ($params['quota_mb'] ?? 2048)))];
             })(),
             'mailbox.update' => ['remote_id' => $remote(), 'changes' => array_filter(['password' => isset($params['password']) && $params['password'] !== '' ? $password() : null, 'name' => isset($params['name']) ? substr(trim((string) $params['name']), 0, 80) : null, 'quota_mb' => isset($params['quota_mb']) ? max(64, min(102400, (int) $params['quota_mb'])) : null], fn ($v) => $v !== null)],
-            'alias.create' => ['source' => strtolower($need('source', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'source must be an e-mail address')), 'destination' => strtolower($need('destination', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'destination must be an e-mail address'))],
+            'alias.create' => ['source' => MailAddresses::assertOwn($service, $need('source', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'source must be an e-mail address'), 'source', $action), 'destination' => strtolower($need('destination', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'destination must be an e-mail address'))],
             'sending.set' => ['enabled' => filter_var($params['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN)],
             'errpages.set' => ['enabled' => filter_var($params['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN)],
             'directives.set' => (function () use ($params, $action, $service, $features) {
@@ -1175,7 +1178,7 @@ final class ServiceService
                 return ['kind' => $kind, 'source' => $source, 'files' => filter_var($params['files'] ?? true, FILTER_VALIDATE_BOOLEAN), 'databases' => filter_var($params['databases'] ?? true, FILTER_VALIDATE_BOOLEAN), 'subdir' => trim(preg_replace('~[^\w\/.-]~', '', (string) ($params['subdir'] ?? '')) ?? '', '/')];
             })(),
             // ── mail tools ────────────────────────────────────────────────────────────────────────────────────
-            'forward.create' => ['source' => strtolower($need('source', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'source must be an e-mail address')), 'destination' => strtolower($need('destination', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'destination must be an e-mail address'))],
+            'forward.create' => ['source' => MailAddresses::assertOwn($service, $need('source', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'source must be an e-mail address'), 'source', $action), 'destination' => strtolower($need('destination', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'destination must be an e-mail address'))],
             'forward.delete', 'list.delete', 'fetchmail.delete' => ['remote_id' => $remote()],
             'filter.delete' => ['remote_id' => $remote(), 'mailbox_id' => $need('mailbox_id', '/^[A-Za-z0-9:_.-]{1,120}$/', 'mailbox_id is required.')],
             'catchall.set' => ['destination' => isset($params['destination']) && $params['destination'] !== '' ? strtolower($need('destination', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'destination must be an e-mail address')) : ''],
@@ -1208,7 +1211,7 @@ final class ServiceService
 
                 return ['remote_id' => $remote(), 'name' => $need('name', '/^[^\r\n]{1,60}$/', 'name is required'), 'source' => $source, 'op' => $op, 'term' => $need('term', '/^[^\r\n]{1,120}$/', 'term is required'), 'action' => $do, 'target' => substr(trim((string) ($params['target'] ?? '')), 0, 120)];
             })(),
-            'list.create' => ['name' => $need('name', '/^[a-z0-9][a-z0-9_-]{1,40}$/i', 'name may contain letters, digits, dashes and underscores'), 'email' => strtolower($need('email', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'email must be an e-mail address')), 'password' => $password()],
+            'list.create' => ['name' => $need('name', '/^[a-z0-9][a-z0-9_-]{1,40}$/i', 'name may contain letters, digits, dashes and underscores'), 'email' => MailAddresses::assertOwn($service, $need('email', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'email must be an e-mail address'), 'email', $action), 'password' => $password()],
             'fetchmail.create' => (function () use ($need, $password, $params, $action) {
                 $type = (string) ($params['type'] ?? 'imapssl');
                 if (! in_array($type, ['pop3', 'imap', 'pop3ssl', 'imapssl'], true)) {
