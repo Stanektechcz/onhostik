@@ -251,6 +251,45 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
         return $removed;
     }
 
+    /**
+     * The filesystem the sites live on, out of what `GetDiskInfo` lists. The panel answers human sizes („1.8T“,
+     * „500G“, „12%“), one entry per mount; `/www` is the one that matters when the node has it, otherwise the root.
+     *
+     * @param  mixed  $disks  the panel's answer
+     * @return array{pct:?float, total_gb:?float, used_gb:?float}
+     */
+    public static function rootDisk(mixed $disks): array
+    {
+        $rows = is_array($disks) ? array_values(array_filter($disks, 'is_array')) : [];
+        $pick = null;
+        foreach ($rows as $row) {
+            $path = rtrim((string) ($row['path'] ?? ''), '/');
+            if ($path === '/www') {
+                $pick = $row;
+                break;
+            }
+            if ($pick === null || $path === '') {
+                $pick ??= $row;
+            }
+        }
+        $size = is_array($pick['size'] ?? null) ? array_values($pick['size']) : [];
+        $bytes = static function (mixed $value): ?float {
+            if (! preg_match('/^\s*([\d.,]+)\s*([KMGTP]?)/i', (string) $value, $m)) {
+                return null;
+            }
+            $number = (float) str_replace(',', '.', $m[1]);
+            $factor = ['' => 1 / 1024 ** 3, 'K' => 1 / 1024 ** 2, 'M' => 1 / 1024, 'G' => 1, 'T' => 1024, 'P' => 1024 ** 2];
+
+            return $number * ($factor[strtoupper($m[2])] ?? 1);
+        };
+
+        return [
+            'pct' => isset($size[3]) && preg_match('/([\d.]+)\s*%/', (string) $size[3], $m) ? (float) $m[1] : null,
+            'total_gb' => isset($size[0]) ? $bytes($size[0]) : null,
+            'used_gb' => isset($size[1]) ? $bytes($size[1]) : null,
+        ];
+    }
+
     public function usage(ResourceRef $ref, ?string $periodStart = null, ?string $periodEnd = null): Usage
     {
         $total = $this->post('/system?action=GetSystemTotal', [], 'system.total');
@@ -618,11 +657,15 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
     {
         $total = $this->post('/system?action=GetSystemTotal', [], 'system.total');
         $sites = $this->post('/data?action=getData&table=sites', ['limit' => 1, 'p' => 1], 'sites.count');
+        // how full the node's own disk is: the placement rule that keeps a shared node from filling up needs a number,
+        // and this one used to be null, so the rule never fired and a nearly full node went on taking new sites
+        $disk = self::rootDisk($this->post('/system?action=GetDiskInfo', [], 'system.disk'));
 
         return [
             'cpu_pct' => isset($total['cpuRealUsed']) ? (float) $total['cpuRealUsed'] : null,
             'mem_pct' => isset($total['memRealUsed'], $total['memTotal']) && (float) $total['memTotal'] > 0 ? round((float) $total['memRealUsed'] / (float) $total['memTotal'] * 100, 2) : null,
-            'disk_pct' => null, 'load' => isset($total['load']['one']) ? (float) $total['load']['one'] : null,
+            'disk_pct' => $disk['pct'], 'disk_total_gb' => $disk['total_gb'], 'disk_used_gb' => $disk['used_gb'],
+            'load' => isset($total['load']['one']) ? (float) $total['load']['one'] : null,
             'sites' => isset($sites['page']) && preg_match('/共(\d+)|of (\d+)|(\d+) /', (string) $sites['page'], $m) ? (int) ($m[1] ?: ($m[2] ?? ($m[3] ?? 0))) : (is_array($sites['data'] ?? null) ? count($sites['data']) : null),
         ];
     }

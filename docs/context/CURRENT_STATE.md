@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **A web node says how full it is:** `NodeUsageSync` (`onhost:nodes:usage`, every 15 minutes) writes the disk of
+  every ISPConfig and aaPanel node onto the node, so the scheduler's 85 % rule and the acceptance headroom finally
+  have a number instead of a zero; a node below its own headroom is reported once a day (`node.disk.low`).
+
 - **A used-up plan stops growing:** at 100 % the customer is told (level `full`) and `UsageGuard` refuses the
   actions that would store more — while deleting, backups, restores and a plan change stay open. It reads the last
   measurement (no panel call) and only while it is fresh, so a stale number never blocks a site for ever.

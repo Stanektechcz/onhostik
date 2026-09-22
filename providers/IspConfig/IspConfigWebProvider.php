@@ -399,7 +399,12 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
         $data = (array) $this->api->call('monitor_get_server_data', ['server_id' => $serverId]);
         $sites = (int) collect((array) $this->api->call('sites_web_domain_get', ['primary_id' => ['server_id' => $serverId]]))->count();
 
-        return ['cpu_pct' => isset($data['cpu']) ? (float) $data['cpu'] : null, 'mem_pct' => isset($data['mem']) ? (float) $data['mem'] : null, 'disk_pct' => isset($data['disk']) ? (float) $data['disk'] : null, 'load' => isset($data['load']) ? (float) $data['load'] : null, 'sites' => $sites];
+        // the size of the disk, when the monitor gives it: the placement rule works in gigabytes, not in percent
+        $totalGb = isset($data['disk_total']) && is_numeric($data['disk_total']) ? (float) $data['disk_total'] / 1024 ** 3 : null;
+        $usedGb = isset($data['disk_used']) && is_numeric($data['disk_used']) ? (float) $data['disk_used'] / 1024 ** 3 : null;
+
+        return ['cpu_pct' => isset($data['cpu']) ? (float) $data['cpu'] : null, 'mem_pct' => isset($data['mem']) ? (float) $data['mem'] : null, 'disk_pct' => isset($data['disk']) ? (float) $data['disk'] : null,
+            'disk_total_gb' => $totalGb, 'disk_used_gb' => $usedGb, 'load' => isset($data['load']) ? (float) $data['load'] : null, 'sites' => $sites];
     }
 
     public function backup(ResourceRef $ref, array $policy): ProviderResult

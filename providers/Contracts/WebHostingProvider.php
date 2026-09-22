@@ -77,7 +77,12 @@ interface WebHostingProvider extends BackupCapable, InfrastructureProvider
     /** @return list<string> last lines of the requested log */
     public function tailLog(ResourceRef $site, string $log = 'access', int $lines = 200): array;
 
-    /** @return array{cpu_pct:float|null,mem_pct:float|null,disk_pct:float|null,load:float|null,sites:int|null} */
+    /**
+     * How busy and how full the node is. `NodeUsageSync` writes it onto the node every quarter of an hour, because
+     * the placement rule that keeps a shared node from filling up works in gigabytes of its disk.
+     *
+     * @return array{cpu_pct:float|null,mem_pct:float|null,disk_pct:float|null,disk_total_gb?:float|null,disk_used_gb?:float|null,load:float|null,sites:int|null}
+     */
     public function nodeLoad(?string $node = null): array;
 
     // ── extended site management: what the prototype's web workbench offers beyond the basics ──────────────────

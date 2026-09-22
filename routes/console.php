@@ -62,6 +62,7 @@ use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\NodePrerequisites;
 use Onhost\Domain\Provisioning\NodeQualification;
 use Onhost\Domain\Provisioning\NodeSampler;
+use Onhost\Domain\Provisioning\NodeUsageSync;
 use Onhost\Domain\Provisioning\OperationLatency;
 use Onhost\Domain\Provisioning\OperationsBoard;
 use Onhost\Domain\Provisioning\OperationSecrets;
@@ -503,6 +504,7 @@ Schedule::command('onhost:billing:renewal-guard')->dailyAt('07:35')->withoutOver
 Schedule::command('onhost:provisioning:board')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:digest:weekly')->weeklyOn(1, '07:00')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:nodes:check')->dailyAt('05:20')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:nodes:usage')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:digest:staff-daily')->dailyAt('07:15')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:ledger:verify')->dailyAt('05:00')->onOneServer();
 
@@ -617,6 +619,17 @@ Artisan::command('onhost:staging:report {--check : ask every panel now (onhost:n
     $this->info("written: {$path}");
     $this->line(sprintf('doctor: %s FAIL · %s WARN · %d panel instance(s) · %d slow action(s)', $report['doctor']['fail'] ?? '?', $report['doctor']['warn'] ?? '?', count($instances), count(array_filter($report['latency']['rows'], fn ($r) => $r['slow'] ?? false))));
 })->purpose('Write one redacted report of how this installation stands: doctor findings, what the panels really answer, latency, four eyes');
+
+Artisan::command('onhost:nodes:usage {--limit=200}', function (NodeUsageSync $usage, AutomationLedger $ledger) {
+    if ($ledger->off('nodes.usage')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    $result = $usage->run((int) $this->option('limit'));
+    $ledger->record('nodes.usage', $result);
+    $this->table(['checked', 'updated', 'low', 'errors'], [$result]);
+})->purpose('Ask every web node how full its disk is, so the placement rule that keeps a shared node from filling up has a number to work with');
 
 Artisan::command('onhost:nodes:check', function (NodePrerequisites $prerequisites, AutomationLedger $ledger) {
     if ($ledger->off('nodes.check')) {

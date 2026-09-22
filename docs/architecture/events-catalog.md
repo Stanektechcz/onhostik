@@ -89,6 +89,7 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 | `service.stopped_unexpectedly` / `service.running_again` | service | `family`, `label`, `hostname`, `since`, `status`, `passes`, `minutes`, `sla_class`, `notify` | AvailabilityWatch::observe (from the reconciler's reading) |
 | `monitoring.down` / `monitoring.up` | service | `monitor_id`, `incident_id`, `url`, `error`, `minutes`, `notify` | UptimeMonitor::check |
 | `deploy.started` / `deploy.succeeded` / `deploy.failed` | service | `deployment_id`, `ref`, `sha`, `release`, `trigger`, `error` | DeployService, DeployWorkflow |
+| `node.disk.low` | node | `node`, `role`, `region`, `free_pct`, `used_gb`, `disk_gb`, `headroom_pct` — a web node has less disk free than the headroom it keeps for itself; said once a day per node | NodeUsageSync |
 | `service.site.created` / `service.site.removed` / `service.site.failed` | service | `site_service_id`, `domain`, `nvme_gb`, `php_version`, `action`, `error` — a further site of the plan added to a web hosting service, taken away (through its own cancellation) or not created | ServiceSites, SiteWorkflow |
 | `staging.created` / `staging.synced` / `staging.pushed` / `staging.deleted` / `staging.failed` | service | `staging_service_id`, `domain`, `mode`, `action`, `error` | StagingService, StagingWorkflow |
 | `import.started` / `import.succeeded` / `import.failed` | service | `import_id`, `kind`, `stats`, `error` | ImportService |
