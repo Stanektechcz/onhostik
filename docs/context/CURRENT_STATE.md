@@ -95,6 +95,11 @@
   off `mailboxes`, the web branch only set `mail`), and there was nowhere to put one — the mail domain is now made at
   the first address, with DKIM and the mail records, and removed with the service.
 
+- **Every publisher of system DNS records names what it owns** (`web:<service>`, `mail:<domain>`): it removes only
+  its own records, records of the kind it publishes, and what cannot stand beside them (CNAME). Before this the mail
+  saga deleted the site's A records and the website saga deleted the domain's MX. `MailSettings::records()` is the one
+  builder for a domain's mail records, and a guard test validates everything the platform generates.
+
 - **Mail follows the domain of the address:** a web service can have mail in every domain it hosts, each with its
   own mail domain, DKIM and DNS (`MailDomains`). Listings, suspension, removal and the final archive walk all of
   them, and the chat can read a web hosting's mail settings.
