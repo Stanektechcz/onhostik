@@ -200,14 +200,24 @@ switch ($Action) {
     'start' {
         if (-not $Title -or -not $Owner -or $Paths.Count -eq 0) { Write-Error 'start needs -Title "..." -Owner <agent> -Paths a,b [-Type feat|fix|...] [-Risk] [-Priority]'; exit 1 }
         Assert-NoOverlap $Paths ''
-        $newId = Get-NextId
+        # Reserve the id atomically: creating the reservation file fails if a concurrent start took the same id.
+        $newId = $null
+        for ($attempt = 0; $attempt -lt 20 -and -not $newId; $attempt++) {
+            $candidate = Get-NextId
+            try {
+                [void][IO.File]::Open((Join-Path $idsDir $candidate), [IO.FileMode]::CreateNew).Dispose()
+                $newId = $candidate
+            } catch [IO.IOException] {
+                Start-Sleep -Milliseconds (50 * ($attempt + 1))
+            }
+        }
+        if (-not $newId) { Write-Error 'Could not reserve a task id after 20 attempts.'; exit 1 }
         $slug = ConvertTo-Slug $Title
         $branch = "$Type/$newId-$slug"
         $tree = Join-Path (Split-Path -Parent $main) "onhost-worktrees\$newId-$slug"
         if (@(Invoke-OnhostGit $here branch --list $branch).Count -gt 0) { Write-Error "Branch $branch already exists."; exit 1 }
         if (Test-Path -LiteralPath $tree) { Write-Error "Worktree path $tree already exists."; exit 1 }
 
-        [void](New-Item -ItemType File -Force -Path (Join-Path $idsDir $newId))
         $add = Invoke-GitChecked $here worktree add -b $branch $tree $Base
         if (-not $add.ok) { $add.output | Out-Host; Write-Error 'git worktree add failed.'; exit 1 }
 
