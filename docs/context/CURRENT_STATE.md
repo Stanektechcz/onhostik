@@ -95,6 +95,10 @@
   off `mailboxes`, the web branch only set `mail`), and there was nowhere to put one — the mail domain is now made at
   the first address, with DKIM and the mail records, and removed with the service.
 
+- **A number of the plan is the plan's, not each site's:** the databases, mailboxes, FTP accounts, cron jobs and
+  subdomains of a web hosting plan are counted across every site the plan carries (`PlanAllowance`), and a plan change
+  or an add-on reaches those sites (`ServiceSites::spread`). A site keeps its own share of the space and its shell user.
+
 - **A suspension reaches the mail too:** a suspended site stops sending and keeps receiving, and exactly the
   mailboxes the platform stopped come back. A mailbox update now reads the record and merges (ISPConfig takes an
   update as the whole record) and never sends the stored password hash back.

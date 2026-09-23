@@ -4,6 +4,8 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| b57e5dc | 2026-09-23 | A suspended site stops sending mail, and keeps receiving it |
+| 5c0b7fd | 2026-09-23 | The customer sees what the look at their site found |
 | 3f13a4c | 2026-09-23 | A site is looked at for the marks a compromise leaves |
 | 39da554 | 2026-09-23 | The customer can reach the mailboxes their plan sells |
 | 47a68b8 | 2026-09-23 | A mail client sets itself up from the address and the password |
@@ -12,5 +14,3 @@
 | a9d5c1e | 2026-09-23 | The mailboxes a web hosting plan sells can actually be made |
 | b8b7646 | 2026-09-22 | An address is only ever made in a domain the service hosts |
 | 98ce872 | 2026-09-22 | A WAF level is compared with what the site's own server does |
-| f5334ca | 2026-09-22 | A shared-hosting customer can read their own site log |
-| 90bba37 | 2026-09-22 | A quarantine ends: closing an abuse case says what happens to the service |

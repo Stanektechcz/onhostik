@@ -46,6 +46,7 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\CronCommand;
 use Onhost\Domain\Services\Web\CustomDirectives;
+use Onhost\Domain\Services\Web\PlanAllowance;
 use Onhost\Domain\Services\Web\ServiceSites;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -643,22 +644,30 @@ final class ServiceService
         // `_limit` and the step counts again before it touches anything, when the panel is back.
         $deferredLimit = null;
         $limit = function (string $feature, string $kind) use ($service, $features, $action, &$deferredLimit): void {
-            $limit = $features->features($service)[$feature]['limit'] ?? null;
+            // A number of the plan belongs to the plan and not to each site it carries: the databases, mailboxes, FTP
+            // accounts, cron jobs and subdomains of a plan with ten sites were sold once, and are counted over all of
+            // them against the number of the service the customer pays for (PlanAllowance).
+            $shared = PlanAllowance::shared($service, $feature);
+            $allowance = app(PlanAllowance::class);
+            $limit = $shared ? $allowance->limit($service, $feature) : ($features->features($service)[$feature]['limit'] ?? null);
             if ($limit === null || $limit <= 0) {
                 return;
             }
             try {
-                $count = count($features->resources($service, $kind, true));
+                $count = $shared ? $allowance->count($service, $kind) : count($features->resources($service, $kind, true));
             } catch (ProviderException $e) {
                 if (! $e->errorCode->isRetryable()) {
                     throw $e;
                 }
-                $deferredLimit = ['kind' => $kind, 'limit' => (int) $limit];
+                // the bag a queued change carries is the same as before unless the count is the group's (PanelOutage)
+                $deferredLimit = ['kind' => $kind, 'limit' => (int) $limit] + ($shared ? ['feature' => $feature, 'group' => true] : []);
 
                 return;
             }
             if ($count >= $limit) {
-                throw new DomainError('feature_limit_reached', "{$action}: the plan allows {$limit} of these.", 422, ['limit' => $limit]);
+                throw new DomainError('feature_limit_reached', $shared
+                    ? PlanAllowance::message($feature, (int) $limit, $count)
+                    : "{$action}: the plan allows {$limit} of these.", 422, ['limit' => $limit, 'used' => $count]);
             }
         };
 

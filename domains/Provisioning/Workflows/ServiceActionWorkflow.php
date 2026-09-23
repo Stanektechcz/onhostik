@@ -39,6 +39,7 @@ use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\DatabaseCredentials;
 use Onhost\Domain\Services\Web\DatabaseImport;
+use Onhost\Domain\Services\Web\PlanAllowance;
 use Onhost\Domain\Services\Web\RestoreTest;
 use Onhost\Domain\Services\Web\ServiceSites;
 use Onhost\Domain\Services\Web\StagingService;
@@ -281,8 +282,15 @@ final class ServiceActionWorkflow implements Workflow
                 $ref = ($mailAction ? $context->binding('mail_domain')?->ref() : null) ?? $this->ref($context);
                 $p = fn (string $k, mixed $d = null) => $context->desired($k, $d);
                 $owed = (array) $p('_limit', []); // the plan's limit could not be counted when the request came in: the panel was away (H02)
-                if (isset($owed['kind'], $owed['limit']) && count($context->container->make(ServiceFeatures::class)->resources($this->service($context), (string) $owed['kind'], true)) >= (int) $owed['limit']) {
-                    return StepResult::fail("{$this->action}: the plan allows {$owed['limit']} of these.", false, ['feature_limit_reached' => true, 'limit' => (int) $owed['limit']]);
+                if (isset($owed['kind'], $owed['limit'])) {
+                    $counted = empty($owed['group']) // a number of the plan is counted over every site of the plan, exactly as the request would have counted it
+                        ? count($context->container->make(ServiceFeatures::class)->resources($this->service($context), (string) $owed['kind'], true))
+                        : $context->container->make(PlanAllowance::class)->count($this->service($context), (string) $owed['kind']);
+                    if ($counted >= (int) $owed['limit']) {
+                        return StepResult::fail(empty($owed['group'])
+                            ? "{$this->action}: the plan allows {$owed['limit']} of these."
+                            : PlanAllowance::message((string) ($owed['feature'] ?? ''), (int) $owed['limit'], $counted), false, ['feature_limit_reached' => true, 'limit' => (int) $owed['limit']]);
+                    }
                 }
                 $result = match ($this->action) {
                     'php.set' => $this->capability($context, WebHostingProvider::class)->setPhpVersion($ref, (string) $p('version')),
@@ -784,6 +792,7 @@ final class ServiceActionWorkflow implements Workflow
                     $tags['sites'] = array_merge((array) ($tags['sites'] ?? []), ['quota_gb' => (int) $context->get('site_nvme_gb')]);
                 }
                 $service->forceFill(['tags' => $tags, 'entitlements' => array_replace((array) $service->entitlements, $target), 'desired_spec' => array_replace((array) $service->desired_spec, ['entitlements' => array_replace((array) $service->entitlements, $target)])])->save();
+                ServiceSites::spread($service); // the plan is the group's: the sites it carries change with it, each keeping its own share
                 $context->container->make(ServiceService::class)->settleTransient($service, ServiceStateMachine::ACTIVE, $context->actor, 'resized', $context->operation, $actual, 'service.resized');
 
                 return StepResult::done(['status' => $actual->status]);

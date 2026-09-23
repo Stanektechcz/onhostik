@@ -98,6 +98,39 @@ final class ServiceSites
     }
 
     /**
+     * The plan the customer pays for reaches every site it carries. A carried site keeps only what is its own — the
+     * single site it is and its share of the plan's space — and everything else of the plan travels to it: a paid
+     * upgrade used to stop at the service it was bought on, so half the customer's sites went on with the numbers
+     * and the features of the plan they had left behind.
+     *
+     * @return int how many sites the plan reached
+     */
+    public static function spread(Service $owner): int
+    {
+        if (IncludedServices::isIncluded($owner)) {
+            return 0; // a carried site hands a plan to nobody
+        }
+        $changed = 0;
+        foreach (self::of($owner) as $site) {
+            if ($site->id === $owner->id) {
+                continue;
+            }
+            $next = array_replace((array) $owner->entitlements, ['sites' => 1, 'nvme_gb' => self::share($site, $owner)]);
+            if ($next === (array) $site->entitlements) {
+                continue;
+            }
+            $spec = (array) $site->desired_spec;
+            if (is_array($spec['entitlements'] ?? null)) {
+                $spec['entitlements'] = $next; // so that a reconcile does not put the old plan back
+            }
+            $site->forceFill(['entitlements' => $next, 'desired_spec' => $spec])->save();
+            $changed++;
+        }
+
+        return $changed;
+    }
+
+    /**
      * What a new site of `$wantGb` would leave the others: the free part of the plan first, the rest taken from the
      * service's own site, which is the only one the customer is adding to.
      *

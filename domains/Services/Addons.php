@@ -8,6 +8,7 @@ use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Web\BackupScheduler;
+use Onhost\Domain\Services\Web\ServiceSites;
 use Onhost\Platform\Errors\DomainError;
 
 /**
@@ -74,6 +75,7 @@ final class Addons
         }
         if ($patch !== []) {
             $parent->forceFill(['entitlements' => array_replace((array) $parent->entitlements, $patch)])->save();
+            ServiceSites::spread($parent); // what the add-on adds is the plan's: every site the plan carries gets it too
         }
         $policy = self::backupPolicy((string) $addon->product_key, $entitlements);
         if ($policy !== null) {
@@ -114,6 +116,7 @@ final class Addons
             $restored[$key] = $was;
         }
         $parent->forceFill(['entitlements' => $entitlements])->save();
+        ServiceSites::spread($parent); // and what it took back leaves the carried sites with it
         $policy = false;
         if (($applied['backup_policy'] ?? false) === true) {
             // back to the schedule the parent's own plan sells (BackupScheduler falls back to the feature's options)
