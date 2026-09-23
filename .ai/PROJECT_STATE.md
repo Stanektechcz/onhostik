@@ -42,9 +42,10 @@ Pest 856/856 · Larastan 0 errors (1 013 suppressed by the baseline file) · Pin
 2. **`scripts/ai/tests/Config.Tests.ps1` fails on `development`** — it checks Brain config that exists only on the
    unmerged `origin/chore/onhost-brain` (7 ahead, 196 behind). Human decision: merge that config or adapt the test.
 3. `scripts/ai/test.ps1` labels its report with `origin/development` instead of the tested revision.
-4. The Brain vault's `Project-Docs` junction and `docs/development/DAILY_WORKFLOW.md` point at the second clone
-   `C:\Users\medion\Desktop\ONHOST-BRAIN\ONHOST-NEW\onhost-platform` (on `chore/onhost-brain`, 196 commits behind),
-   so the vault shows stale documentation.
+4. Stale path **text** (not links): `docs/development/DAILY_WORKFLOW.md:3` and the vault note `01-Start-here.md:11`
+   still name the old clone `C:\Users\medion\Desktop\ONHOST-BRAIN\ONHOST-NEW\onhost-platform` (on `chore/onhost-brain`).
+   The vault's `Project-Docs` junction itself already targets the canonical `Desktop\ONHOST-NEW\onhost-platform\docs`
+   (re-pointed 2026-09-16, vault `System/AUDIT-2026-09-16.md`), and all vault scripts use the canonical path.
 5. Dependency-direction exceptions: `providers/` → Provisioning (15), Payments (2); `platform/` → Compliance (1).
 6. Larastan baseline: 641 entries of typing debt (never add; remove when touched).
 

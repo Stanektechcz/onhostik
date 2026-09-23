@@ -67,7 +67,7 @@
     "providers/* import Onhost\\Domain\\Provisioning (15) and Payments (2); platform/ imports Compliance (1): dependency-direction exceptions, see .ai/DEPENDENCY_MAP.md",
     "Services <-> Provisioning are mutually dependent (109 / 55 imports); treated as one ownership unit",
     "scripts/ai/test.ps1 labels its report with origin/development, not the tested HEAD",
-    "docs/development/DAILY_WORKFLOW.md and the Brain vault's Project-Docs junction point at the clone C:/Users/medion/Desktop/ONHOST-BRAIN/ONHOST-NEW (branch chore/onhost-brain, 196 commits behind development)",
+    "docs/development/DAILY_WORKFLOW.md:3 (and the vault note 01-Start-here.md:11) still NAME the old clone C:/Users/medion/Desktop/ONHOST-BRAIN/ONHOST-NEW; the vault's Project-Docs junction itself targets the canonical Desktop/ONHOST-NEW/onhost-platform/docs",
     "origin/chore/onhost-brain (7 commits ahead, 196 behind) holds the only copy of the Brain's .claude agents/skills/hooks, .mcp.json, .gemini and .serena config"
   ]
 }
