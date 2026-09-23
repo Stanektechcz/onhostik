@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.backup)",
+      "Read(./.env.production)",
+      "Read(./.env.staging)",
+      "Read(./auth.json)",
+      "Read(./storage/app/private/**)",
+      "Read(./database/*.sqlite*)",
+      "Read(./infra/edge/*.generated)",
+      "Edit(./apps/surfaces/*.dc.html)",
+      "Write(./apps/surfaces/*.dc.html)",
+      "Edit(./apps/surfaces/onhost-*.js)",
+      "Write(./apps/surfaces/onhost-*.js)",
+      "Edit(./apps/surfaces/_ds/**)",
+      "Write(./apps/surfaces/_ds/**)"
+    ]
+  }
+}
