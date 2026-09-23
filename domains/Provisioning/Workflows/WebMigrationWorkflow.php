@@ -19,6 +19,7 @@ use Onhost\Domain\Provisioning\Workflow\StepResult;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\Website;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\Web\NodeAddresses;
@@ -62,7 +63,7 @@ final class WebMigrationWorkflow implements Workflow
 
     public function steps(Operation $operation): array
     {
-        return [$this->targetStep(), $this->readinessStep(), $this->archiveStep(), $this->createStep(), $this->dataStep(), $this->switchStep(), $this->certificateStep(), $this->cleanupStep()];
+        return [$this->targetStep(), $this->readinessStep(), $this->freezeStep(), $this->archiveStep(), $this->createStep(), $this->dataStep(), $this->switchStep(), $this->certificateStep(), $this->cleanupStep()];
     }
 
     /** The site the customer is served from now, from the facts recorded at the start (the binding is rewritten at the switch). */
@@ -95,6 +96,17 @@ final class WebMigrationWorkflow implements Workflow
         $service = $context->service ?? Service::query()->find($context->operation->service_id);
         if ($service === null || $context->get('swapped') === true) {
             return; // the customer is already served from the new node; only the old site is left, and the failure names it
+        }
+        if ($context->get('frozen') === true) {
+            // the customer stays on the source, so the source has to serve again — before anything else is tidied
+            try {
+                $adapter = $context->adapter();
+                if ($adapter instanceof InfrastructureProvider) {
+                    $adapter->resume(self::sourceRef($context));
+                }
+            } catch (Throwable $e) {
+                $context->operation->withContext(['thaw_error' => mb_substr($e->getMessage(), 0, 200)])->save();
+            }
         }
         $target = self::targetBinding($service->id);
         if ($target !== null) {
@@ -185,6 +197,40 @@ final class WebMigrationWorkflow implements Workflow
                 // only what an operator may read: the names and the numbers, never the passwords — those are read
                 // again from the secret store at the moment each database is made on the target
                 return StepResult::done(['databases' => array_map(fn (array $database) => ['remote_id' => $database['remote_id'], 'name' => $database['name']], $readiness['databases'])]);
+            }
+        };
+    }
+
+    /**
+     * The site stops serving before it is copied.
+     *
+     * A web hosting keeps writing while it runs — an order, a comment, an uploaded photo — and everything written
+     * between the copy and the switch would be on the old node when the customer is already served from the new one,
+     * that is to say lost, and nobody would know. The game migration stops its server for the same reason. The
+     * window is the customer's to choose (they move the start themselves), and the panel says plainly that the site
+     * is off while it moves.
+     */
+    private function freezeStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Zastavení webu před kopií';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                if ($service->state === ServiceStateMachine::SUSPENDED) {
+                    return StepResult::done(['frozen' => false]); // already off: nothing writes, and nothing is ours to switch back on
+                }
+                $adapter = $context->adapter();
+                if (! $adapter instanceof InfrastructureProvider) {
+                    return StepResult::fail('Panel zdroje neumí web zastavit', false);
+                }
+
+                return $this->settle($adapter->suspend($this->ref($context)), ['frozen' => true]);
             }
         };
     }

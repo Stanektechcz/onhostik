@@ -67,6 +67,16 @@ function migrationPanels(Service $service, Node $target, array &$log, array $opt
 
         return ProviderResult::completed(null, ['exported' => true]);
     });
+    $source->shouldReceive('suspend')->andReturnUsing(function (ResourceRef $ref) use (&$log) {
+        $log[] = ['suspend', $ref->remoteId];
+
+        return ProviderResult::completed(null, ['suspended' => true]);
+    });
+    $source->shouldReceive('resume')->andReturnUsing(function (ResourceRef $ref) use (&$log) {
+        $log[] = ['resume', $ref->remoteId];
+
+        return ProviderResult::completed(null, ['resumed' => true]);
+    });
     $source->shouldReceive('terminate')->andReturnUsing(function (ResourceRef $ref) use (&$log) {
         $log[] = ['terminate', $ref->remoteId];
 
@@ -148,7 +158,9 @@ it('carries the site to the other node, every database keeping its name, user an
 
     expect($operation->state)->toBe(Operation::SUCCEEDED, $operation->step_label.': '.(string) data_get($operation->error, 'message', ''));
     $kinds = array_column($log, 0);
-    expect(array_search('provision', $kinds, true))->toBeLessThan(array_search('database', $kinds, true))
+    expect(array_search('suspend', $kinds, true))->toBeLessThan(array_search('export', $kinds, true)) // nothing may be written between the copy and the switch
+        ->and($kinds)->not->toContain('resume')                                             // the old site is not started again; it is removed
+        ->and(array_search('provision', $kinds, true))->toBeLessThan(array_search('database', $kinds, true))
         ->and(array_search('import', $kinds, true))->toBeLessThan(array_search('terminate', $kinds, true)) // the old site goes last
         ->and(collect($log)->firstWhere(0, 'database'))->toBe(['database', 'shop_db', 'shop_user', 'Correct-Horse-Battery-9'])
         ->and(collect($log)->firstWhere(0, 'extract'))->not->toBeNull();
@@ -176,6 +188,7 @@ it('leaves the customer on the old node when the copy fails', function () {
     $operation = driveOperation(app(ServiceMigrationService::class)->start($service, $target->id, 'hardware swap', $this->contextFor($user, $org)));
 
     expect($operation->state)->toBe(Operation::FAILED)
+        ->and(array_column($log, 0))->toContain('resume')                     // the site the customer stays on serves again
         ->and(array_column($log, 0))->not->toContain('terminate')            // the site the customer is served from stays
         ->and($service->refresh()->node_id)->not->toBe($target->id)
         ->and($before->refresh()->remote_id)->toBe('41');

@@ -95,6 +95,9 @@
   off `mailboxes`, the web branch only set `mail`), and there was nowhere to put one — the mail domain is now made at
   the first address, with DKIM and the mail records, and removed with the service.
 
+- **A migrated site stops serving before it is copied** and starts again if anything fails before the switch, so
+  nothing written between the copy and the switch is lost; the panel says so in the customer's own words.
+
 - **A web hosting can be moved to another node** (`WebMigrationWorkflow`, so a shared node can be drained): target →
   readiness → fresh archive → site on the target → data → switch → certificate → remove the source. A database is
   carried only when the platform holds its password, and arrives with the same name, user and password.
