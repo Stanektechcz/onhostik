@@ -95,6 +95,10 @@
   off `mailboxes`, the web branch only set `mail`), and there was nowhere to put one — the mail domain is now made at
   the first address, with DKIM and the mail records, and removed with the service.
 
+- **What public DNS answers is compared with what the platform published** (`PublicDnsCheck`, daily): the site's
+  address, MX, SPF, DKIM and DMARC. A record missing from a zone the platform runs is repaired silently; what only
+  the customer can change is told once a day, in the panel and as a notification naming the records to set.
+
 - **Every publisher of system DNS records names what it owns** (`web:<service>`, `mail:<domain>`): it removes only
   its own records, records of the kind it publishes, and what cannot stand beside them (CNAME). Before this the mail
   saga deleted the site's A records and the website saga deleted the domain's MX. `MailSettings::records()` is the one
