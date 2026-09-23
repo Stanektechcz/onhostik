@@ -122,7 +122,15 @@ final class FinalArchive
                 $gaps[] = 'the resource no longer exists at the provider; only the service metadata is archived';
             } else {
                 match ($service->family) {
-                    'web', 'managed' => $this->web($adapter, $ref, $work, $gaps, $attempts, $freshOnly, isset($options['only_database']) ? (string) $options['only_database'] : null),
+                    // a web service's own mailboxes are archived with it: the plan sells them, the mail domain is made
+                    // for the site, and the removal takes that domain — so it may not be the one thing nobody kept
+                    'web', 'managed' => (function () use ($service, $adapter, $ref, $work, &$gaps, &$attempts, $freshOnly, $options) {
+                        $this->web($adapter, $ref, $work, $gaps, $attempts, $freshOnly, isset($options['only_database']) ? (string) $options['only_database'] : null);
+                        $mail = ProviderBinding::query()->where('service_id', $service->id)->where('remote_type', 'mail_domain')->first();
+                        if ($mail !== null) {
+                            $this->mail($adapter, $mail->ref(), $work, $gaps);
+                        }
+                    })(),
                     'game' => $this->game($adapter, $ref, $work, $gaps),
                     'mail' => $this->mail($adapter, $ref, $work, $gaps),
                     'cloud', 'data' => $snapshot = $this->snapshot($adapter, $ref, $gaps),

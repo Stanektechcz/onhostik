@@ -4,12 +4,20 @@ declare(strict_types=1);
 
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
+use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\MailDomain;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Providers\Contracts\ActualState;
+use Onhost\Providers\Contracts\FileTransport;
+use Onhost\Providers\Contracts\MailProvider;
+use Onhost\Providers\Contracts\WebHostingProvider;
+use Onhost\Providers\Contracts\WebToolsProvider;
 
 /*
  * „5 schránek“, „50 schránek“, „500 schránek“ — every web hosting plan states a number of mailboxes, the price list
@@ -92,4 +100,29 @@ it('does not offer mailboxes where the panel has no mail', function () {
     [, $org] = $this->customerWithOrganization();
 
     expect(app(ServiceFeatures::class)->features(featureWebService($org, 'aapanel'))['mailboxes']['enabled'] ?? false)->toBeFalse();
+});
+
+it('archives the mailboxes of a web service before anything of it is removed', function () {
+    Storage::fake('local');
+    [, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'ispconfig');
+    // the site already has its mail domain, as the first mailbox leaves it
+    ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $service->provider_instance_id, 'remote_type' => 'mail_domain', 'remote_id' => '909',
+        'remote_node' => '1', 'meta' => ['domain' => 'shop.cz', 'client_id' => 3], 'ownership' => ['managed_by' => 'onhost'], 'idempotency_key' => 'wm-mail:'.$service->id]);
+
+    $transport = Mockery::mock(FileTransport::class)->shouldIgnoreMissing();
+    $transport->shouldReceive('archive')->andReturnNull();
+    $transport->shouldReceive('download')->andReturnUsing(fn (string $path, string $local) => file_put_contents($local, gzencode(random_bytes(4096))));
+    $adapter = Mockery::mock(WebHostingProvider::class, WebToolsProvider::class, MailProvider::class)->shouldIgnoreMissing();
+    $adapter->shouldReceive('transport')->andReturn($transport);
+    $adapter->shouldReceive('listDatabases')->andReturn([]);
+    $adapter->shouldReceive('getActualState')->andReturn(new ActualState(true, ['domain' => 'shop.cz', 'system_user' => 'web7'], 'active', now()->toISOString()));
+    $adapter->shouldReceive('listMailboxes')->andReturn([['remote_id' => '5001', 'address' => 'info@shop.cz', 'name' => 'Info', 'quota_mb' => 2048, 'used_mb' => null, 'active' => true]]);
+    $adapter->shouldReceive('listAliases')->andReturn([]);
+    $adapter->shouldReceive('dkim')->andReturn(['selector' => 'onhost202609', 'public' => 'MIIBIjAN']);
+
+    $archive = app(FinalArchive::class)->create($service->refresh(), $adapter, $service->primaryBinding()->ref(), CommandContext::system('test'));
+
+    expect(array_keys($archive['parts']))->toContain('mail-domain.json')
+        ->and(json_decode((string) Storage::disk(app(FinalArchive::class)->disk()->getConfig()['driver'] ?? 'local')->get($archive['set'].'/mail-domain.json') ?: '{}', true)['mailboxes'][0]['address'] ?? null)->toBe('info@shop.cz');
 });
