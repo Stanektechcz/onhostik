@@ -85,11 +85,19 @@ try {
 
 # Classify every failing test against the baseline.
 $failed = @()
-if (Test-Path -LiteralPath $junit) {
-    [xml] $report = Get-Content -LiteralPath $junit -Raw
+$report = $null
+if ((Test-Path -LiteralPath $junit) -and (Get-Item -LiteralPath $junit).Length -gt 0) {
+    try { [xml] $report = Get-Content -LiteralPath $junit -Raw } catch { $report = $null }
+}
+if ($null -ne $report -and $null -ne $report.DocumentElement) {
     $failed = @($report.SelectNodes('//testcase[failure or error]') | ForEach-Object { ConvertTo-TestKey $_.GetAttribute('file') })
-} elseif ($pestCode -ne 0) {
-    $failed = @('<pest produced no JUnit report: the suite did not start; read the Pest output above>')
+} else {
+    # No report means no evidence, whatever the exit code said: never let that pass.
+    $failed = @("<pest produced no JUnit report (exit $pestCode); no test evidence - read the Pest output above>")
+}
+if ($pestCode -ne 0 -and $failed.Count -eq 0) {
+    # Pest failed without naming a failing test (bootstrap error, no tests matched, crash after the report started).
+    $failed = @("<pest exited $pestCode but the report names no failing test; read the Pest output above>")
 }
 $preexisting = @($failed | Where-Object { $known -contains $_ })
 $regressions = @($failed | Where-Object { $known -notcontains $_ })

@@ -16,6 +16,8 @@ function ConvertTo-OnhostSplat {
     $named = @{}
     $positional = @()
     for ($i = 0; $i -lt $Items.Count; $i++) {
+        # -Name:value always binds the value, even one that looks like a flag (e.g. -Title:-urgent).
+        if ($Items[$i] -match '^-([A-Za-z]+):(.*)$') { $named[$Matches[1]] = $Matches[2]; continue }
         if ($Items[$i] -match '^-([A-Za-z]+)$') {
             $name = $Matches[1]
             if ($i + 1 -lt $Items.Count -and $Items[$i + 1] -notmatch '^-[A-Za-z]+$') { $named[$name] = $Items[$i + 1]; $i++ }

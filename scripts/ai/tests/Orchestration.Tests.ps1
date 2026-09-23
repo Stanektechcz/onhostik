@@ -80,6 +80,11 @@ Assert-True ($deny -contains 'Read(./.env)') 'Claude cannot read .env'
 Assert-True ($deny -contains 'Read(./storage/app/private/**)') 'Claude cannot read private storage'
 Assert-True ($deny -contains 'Edit(./apps/surfaces/*.dc.html)' -and $deny -contains 'Write(./apps/surfaces/*.dc.html)') 'prototype surfaces are read-only'
 Assert-True ($null -eq $settings.permissions.defaultMode) 'project settings do not change the permission mode'
+$ask = @($settings.permissions.ask)
+Assert-True ($ask -contains 'Bash(git push:*)' -and $ask -contains 'Bash(gh pr merge:*)') 'pushes and merges always ask the human'
+$gate = Read-Text 'scripts\ai\gate.ps1'
+Assert-True ($gate -match '\$pestCode -ne 0 -and \$failed\.Count -eq 0' -and $gate -match 'produced no JUnit report \(exit') 'gate never passes without test evidence'
+Assert-True ((Read-Text 'scripts\ai\task.ps1') -match 'FileMode\]::CreateNew') 'task ids are reserved atomically'
 
 # Scripts parse and are wired into brain.ps1
 foreach ($script in @('scripts\ai\gate.ps1', 'scripts\ai\task.ps1', 'brain.ps1')) {
