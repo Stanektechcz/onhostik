@@ -141,6 +141,21 @@ it('stops every domain of a suspended service from sending', function () {
         ->and(collect($updates)->firstWhere('id', 21)['params']['disablesmtp'])->toBe('y');
 });
 
+it('switches sending off in every domain when the customer asks for it', function () {
+    [$made, $updates] = [[], []];
+    mailDomainsPanel($made, $updates);
+    [$user, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'ispconfig');
+    mailBindingFor($service, 'shop.cz', '909');
+    mailBindingFor($service, 'shop.sk', '910');
+
+    $operation = driveOperation(app(ServiceService::class)->requestAction($service, 'sending.set', $this->contextFor($user, $org), 'wmd-3', ['enabled' => false]));
+
+    expect($operation->state)->toBe(Operation::SUCCEEDED, $operation->step_label.': '.(string) data_get($operation->error, 'message', ''))
+        ->and(array_column($updates, 'id'))->toBe([11, 21]) // not only the first domain's mailboxes
+        ->and(collect($updates)->firstWhere('id', 21)['params']['disablesmtp'])->toBe('y');
+});
+
 it('archives every mail domain before the service is removed', function () {
     Storage::fake('local');
     [, $org] = $this->customerWithOrganization();

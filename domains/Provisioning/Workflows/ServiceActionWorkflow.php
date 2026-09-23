@@ -372,7 +372,17 @@ final class ServiceActionWorkflow implements Workflow
                     'mailbox.delete' => $this->capability($context, MailProvider::class)->deleteMailbox(new ResourceRef('mailbox', (string) $p('remote_id'), $ref->node, [], $ref->serviceId)),
                     'alias.create' => $this->capability($context, MailProvider::class)->createAlias($ref, ['source' => $p('source'), 'destination' => $p('destination')]),
                     'alias.delete' => $this->capability($context, MailProvider::class)->deleteAlias(new ResourceRef('mail_alias', (string) $p('remote_id'), $ref->node, [], $ref->serviceId)),
-                    'sending.set' => $this->capability($context, MailProvider::class)->setSendingEnabled($ref, (bool) $p('enabled', true)),
+                    'sending.set' => (function () use ($context, $ref, $p) {
+                        // in every domain the service has mail in: a receive-only mode that covers half of them is
+                        // still a relay, and the customer who switched sending off believes all of it stopped
+                        $mail = $this->capability($context, MailProvider::class);
+                        $result = null;
+                        foreach (MailDomains::refsOf($this->service($context)) ?: [$ref] as $domain) {
+                            $result = $mail->setSendingEnabled($domain, (bool) $p('enabled', true));
+                        }
+
+                        return $result;
+                    })(),
                     'errpages.set' => $this->capability($context, WebHostingProvider::class)->setErrorDocs($ref, (bool) $p('enabled', true)),
                     'directives.set' => $this->capability($context, WebHostingProvider::class)->setDirectives($ref, (string) $p('kind'), (string) $p('content', '')),
                     'folder.protect' => $this->capability($context, WebHostingProvider::class)->protectFolder($ref, ['path' => (string) $p('path', '/'), 'user' => (string) $p('user'), 'password' => (string) $p('password')]),
