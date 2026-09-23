@@ -7,6 +7,7 @@ namespace Onhost\Domain\Provisioning\Workflows;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Dns\DnsService;
+use Onhost\Domain\Dns\DomainPointing;
 use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Models\IpAddress;
@@ -299,6 +300,20 @@ final class ServiceActionWorkflow implements Workflow
                             : PlanAllowance::message((string) ($owed['feature'] ?? ''), (int) $owed['limit'], $counted), false, ['feature_limit_reached' => true, 'limit' => (int) $owed['limit']]);
                     }
                 }
+                // A certificate authority checks the name really is served here before it issues one. Asking for a name
+                // that points elsewhere costs a refusal the customer cannot read and one of the five checks an hour the
+                // authority allows that hostname — and one name that is not ready fails the whole certificate, taking
+                // the names that were ready with it (DomainPointing).
+                $certificate = [];
+                if ($this->action === 'ssl.issue') {
+                    $certService = $this->service($context);
+                    $wanted = (array) $p('domains', []) ?: array_values(array_unique(array_filter([$ref->meta['name'] ?? null, $certService->spec('domain'), $certService->hostname])));
+                    $certificate = $context->container->make(DomainPointing::class)->split($certService, $wanted);
+                    if ($certificate['ready'] === []) {
+                        return StepResult::fail('Certifikát zatím nevystavíme: '.implode(', ', $certificate['waiting']).' nemíří na '.implode(' ani ', $certificate['addresses'])
+                            .'. Jakmile se změna DNS rozšíří, vystavíme ho sami.', true, ['certificate_waiting' => $certificate['waiting']], 1800);
+                    }
+                }
                 $result = match ($this->action) {
                     'php.set' => $this->capability($context, WebHostingProvider::class)->setPhpVersion($ref, (string) $p('version')),
                     'database.create' => $this->capability($context, WebHostingProvider::class)->createDatabase($ref, ['name' => $p('name'), 'user' => $p('user'), 'password' => $p('password'), 'charset' => $p('charset', 'utf8mb4')]),
@@ -311,8 +326,8 @@ final class ServiceActionWorkflow implements Workflow
                     'subdomain.add' => $this->capability($context, WebHostingProvider::class)->addSubdomain($ref, array_filter(['domain' => $p('domain'), 'path' => $p('path')], fn ($v) => $v !== null && $v !== '')),
                     'subdomain.remove' => $this->capability($context, WebHostingProvider::class)->removeSubdomain($ref, (string) $p('remote_id')),
                     'redirect.set' => $this->capability($context, WebHostingProvider::class)->setRedirect($ref, ['target' => (string) $p('target', ''), 'type' => (string) $p('type', '301')]),
-                    'ssl.issue' => (function () use ($context, $ref, $p) {
-                        $result = $this->capability($context, WebHostingProvider::class)->issueCertificate($ref, (array) $p('domains', []) ?: array_values(array_filter([$ref->meta['name'] ?? null, $this->service($context)->spec('domain')])));
+                    'ssl.issue' => (function () use ($context, $ref, $certificate) {
+                        $result = $this->capability($context, WebHostingProvider::class)->issueCertificate($ref, $certificate['ready']);
                         $service = $this->service($context);
                         $service->forceFill(['tags' => array_replace_recursive((array) $service->tags, ['access' => ['certificate' => $result->isAsync() ? 'requested' : 'issued']])])->save(); // the panel and the auto-issuer read this
                         $context->container->make(ServiceFeatures::class)->forget($service);
@@ -598,7 +613,8 @@ final class ServiceActionWorkflow implements Workflow
                     $service->forceFill(['desired_spec' => array_diff_key((array) $service->desired_spec, ['site_password' => 1])])->save();
                 }
 
-                return $this->settle($result, ['action' => $this->action, 'ref' => $result->ref?->toArray()]);
+                return $this->settle($result, array_filter(['action' => $this->action, 'ref' => $result->ref?->toArray(),
+                    'certificate_waiting' => ($certificate['waiting'] ?? []) ?: null])); // the names the certificate does not cover yet
             }
         };
     }

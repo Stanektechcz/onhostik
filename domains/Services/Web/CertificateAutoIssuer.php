@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services\Web;
 
 use Closure;
+use Onhost\Domain\Dns\DomainPointing;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -23,11 +24,8 @@ final class CertificateAutoIssuer
 
     public function __construct(private readonly ServiceService $services)
     {
-        $this->resolver = static function (string $hostname): array {
-            $records = @dns_get_record($hostname, DNS_A) ?: [];
-
-            return array_values(array_filter(array_map(fn ($r) => (string) ($r['ip'] ?? ''), $records)));
-        };
+        // one resolver for the whole platform (cached, A and AAAA): what the certificate step asks is what this asks
+        $this->resolver = static fn (string $hostname): array => app(DomainPointing::class)->answers($hostname);
     }
 
     /** @param Closure(string): list<string> $resolver */

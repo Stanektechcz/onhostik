@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Onhost\Domain\Dns;
 
 use Onhost\Domain\Dns\Models\DnsZone;
-use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Services\Mail\MailSettings;
 use Onhost\Domain\Services\Models\MailDomain;
 use Onhost\Domain\Services\Models\Service;
@@ -40,6 +39,7 @@ final class PublicDnsCheck
 
     public function __construct(
         private readonly RecordResolver $dns,
+        private readonly DomainPointing $pointing,
         private readonly DnsService $zones,
         private readonly OutboxPublisher $outbox,
         private readonly AuditRecorder $audit,
@@ -109,15 +109,11 @@ final class PublicDnsCheck
         }
         $site = Website::query()->where('service_id', $service->id)->first();
         $domain = mb_strtolower((string) ($site->domain ?? $service->hostname ?? ''));
-        $node = $service->node_id === null ? null : Node::query()->find($service->node_id);
-        $addresses = array_values(array_filter([(string) ($node->tags['public_ipv4'] ?? ''), (string) ($node->tags['public_ipv6'] ?? '')]));
+        $addresses = DomainPointing::addressesOf($service);
         if ($domain === '' || $addresses === []) {
             return []; // nothing to compare against; the platform does not invent an address
         }
-        $answers = array_values(array_filter(array_merge(
-            array_map(fn (array $r) => (string) ($r['ip'] ?? ''), $this->dns->records($domain, 'A')),
-            array_map(fn (array $r) => (string) ($r['ipv6'] ?? ''), $this->dns->records($domain, 'AAAA')),
-        )));
+        $answers = $this->pointing->answers($domain);
         if ($answers === []) {
             return [['kind' => 'site_missing', 'domain' => $domain, 'detail' => 'doména zatím neodpovídá žádnou adresou', 'expected' => implode(', ', $addresses)]];
         }

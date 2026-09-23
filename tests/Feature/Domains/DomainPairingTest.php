@@ -12,6 +12,7 @@ use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Web\CertificateAutoIssuer;
+use Onhost\Platform\Dns\RecordResolver;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
 /*
@@ -80,8 +81,16 @@ it('pairs a mirrored domain with a web hosting plan and unpairs it again', funct
     expect(Notification::query()->where('organization_id', $org->id)->where('title', 'Doména eshop.cz spárována s webem shop.cz')->exists())->toBeTrue();
 
     // the certificate: once the paired name resolves to the node, ssl.issue runs for the resolving names only
+    // the world answers for everybody: the issuer decides by it, and the certificate step checks it again before the
+    // authority is asked (a name that points elsewhere would fail the whole certificate)
+    app()->bind(RecordResolver::class, fn () => new class implements RecordResolver
+    {
+        public function records(string $name, string $type): array
+        {
+            return $type === 'A' && in_array($name, ['eshop.cz', 'www.eshop.cz'], true) ? [['ip' => '192.0.2.11']] : [];
+        }
+    });
     $issuer = app(CertificateAutoIssuer::class);
-    $issuer->resolveWith(fn (string $hostname) => in_array($hostname, ['eshop.cz', 'www.eshop.cz'], true) ? ['192.0.2.11'] : []);
     expect($issuer->run())->toBe(['checked' => 1, 'resolved' => 1, 'requested' => 1]);
     $operation = Operation::query()->where('service_id', $service->id)->latest('created_at')->orderByDesc('id')->firstOrFail();
     expect(data_get($operation->desired, 'action'))->toBe('ssl.issue')->and(data_get($operation->desired, 'domains'))->toBe(['eshop.cz', 'www.eshop.cz']);
