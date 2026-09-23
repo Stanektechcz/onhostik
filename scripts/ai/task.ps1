@@ -24,6 +24,9 @@ $ErrorActionPreference = 'Stop'
 
 # powershell -File hands "a,b" over as one string: accept both forms.
 $Paths = @($Paths | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+# Scopes are repository-relative; '..' or '.' segments would let a scope slip past the overlap check.
+$badScope = @($Paths | Where-Object { ($_ -replace '\\', '/') -match '(^|/)\.\.?(/|$)' -or $_ -match '^([A-Za-z]:|/|\\)' })
+if ($badScope.Count -gt 0) { Write-Error ("Paths must be repository-relative without '.' or '..' segments: {0}" -f ($badScope -join ', ')); exit 1 }
 
 $here = Get-OnhostRepoRoot
 $mainLine = @(Invoke-OnhostGit $here worktree list --porcelain) | Where-Object { $_ -like 'worktree *' } | Select-Object -First 1
@@ -172,6 +175,13 @@ switch ($Action) {
         $merged = @(@($(if ($lock) { $lock.paths } else { @() })) + $Paths | Select-Object -Unique)
         # -Worktree records work that happens elsewhere (e.g. uncommitted work in the main checkout); default: here.
         $where = if ($Worktree) { (Resolve-Path -LiteralPath $Worktree).Path } elseif ($lock) { $lock.worktree } else { $here }
+        # One task worktree belongs to one lock; the main checkout may carry several claims (it is never removed by finish).
+        $isMain = $where.TrimEnd('\').ToLowerInvariant() -eq $main.TrimEnd('\').ToLowerInvariant()
+        $sharing = @(Get-Locks | Where-Object { $_.id -ne $Id -and $_.worktree -and $_.worktree.TrimEnd('\').ToLowerInvariant() -eq $where.TrimEnd('\').ToLowerInvariant() })
+        if (-not $isMain -and $sharing.Count -gt 0) {
+            Write-Host ("Worktree {0} is already held by {1}; claim paths under that task instead." -f $where, (($sharing | ForEach-Object { $_.id }) -join ', ')) -ForegroundColor Red
+            exit 2
+        }
         Save-Lock ([ordered]@{
             id = $Id
             title = $(if ($Title) { $Title } elseif ($lock) { $lock.title } else { '' })
@@ -233,6 +243,7 @@ switch ($Action) {
             else {
                 Push-Location $tree
                 try { & $php $phar install --no-interaction --no-progress | Out-Host } finally { Pop-Location }
+                if ($LASTEXITCODE -ne 0) { Write-Warning "composer install failed (exit $LASTEXITCODE) in $tree; rerun it there before testing - the task is started but its vendor/ is incomplete." }
             }
         }
 
