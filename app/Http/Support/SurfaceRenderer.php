@@ -535,6 +535,10 @@ HTML;
         if ($surface === 'panel' && ! $demo) {
             $html = (string) preg_replace('~(\n\s+services: )\{(\n\s+domain: \[)~', '$1(window.ONHOST_PANEL && window.ONHOST_PANEL.services) || {$2', $html, 1);
             $html = (string) preg_replace('~(\n\s+servers: )\[(\n\s+\{ id: \'app-prod\')~', '$1(window.ONHOST_PANEL && window.ONHOST_PANEL.servers) || [$2', $html, 1);
+            // the desk's state views (SurfaceDataController::stateGroups, listed through OnhostPanelNav.cats) hold the
+            // same rows as the category a service lives in: never counted twice, never found twice in the search
+            $html = str_replace('const svAll = SV.cats.reduce(', "const svAll = SV.cats.filter(function (c) { return String(c.key).indexOf('state:') !== 0; }).reduce(", $html);
+            $html = str_replace('return Object.keys(s).reduce((n, k) => n + s[k].length, 0);', "return Object.keys(s).reduce((n, k) => n + (k.indexOf('state:') === 0 ? 0 : s[k].length), 0);", $html);
             $html = str_replace('&quot;liveSimulation&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true', '&quot;liveSimulation&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false', $html);
             // account KPIs: wallet credit and 30-day availability come from window.ONHOST_PANEL.kpis (prototype literals stay as fallback)
             $kpi = 'window.ONHOST_PANEL && window.ONHOST_PANEL.kpis';

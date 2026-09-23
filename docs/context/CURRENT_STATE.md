@@ -103,6 +103,9 @@
   recorded as waiting, and when nothing points here the authority is never asked (its five checks an hour per
   hostname are not spent on a domain that has not moved yet). With no node address known, the panel decides as before.
 
+- **The panel lists services by state too** — „Vyžadují pozornost“, „Zřizují se“, „Rušené“ — through the category
+  seam the sidebar already had; a view appears only when it holds something and never counts a service twice.
+
 - **The address a node sends mail from is asked of the blocklists** every day (`BlocklistCheck`): one spammer on a
   shared node makes every other customer on it bounce. Operators hear it once a day per node with the list and the
   code; the customer never does, because the address and the delisting are both ours.

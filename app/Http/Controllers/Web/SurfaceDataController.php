@@ -624,8 +624,8 @@ final class SurfaceDataController extends Controller
         }
 
         return [
-            'services' => $groups, 'servers' => $servers, 'organization' => $organizationId, 'kpis' => $this->kpis($organizationId, $services, $cs), 'billing' => $this->billing($organizationId, $services, $cs),
-            'nav' => app(PanelNavigation::class)->effective($organizationId), 'catalog' => $this->panelCatalog($locale), 'regions' => Region::query()->where('state', 'active')->orderBy('code')->get()->map(fn ($r) => ['code' => $r->code, 'name' => $r->name, 'datacenter' => $r->datacenter])->all(),
+            'services' => $groups + self::stateGroups($groups), 'service_cats' => self::serviceCats($groups), 'servers' => $servers, 'organization' => $organizationId, 'kpis' => $this->kpis($organizationId, $services, $cs), 'billing' => $this->billing($organizationId, $services, $cs),
+            'nav' => self::navWithStateViews(app(PanelNavigation::class)->effective($organizationId), $groups), 'catalog' => $this->panelCatalog($locale), 'regions' => Region::query()->where('state', 'active')->orderBy('code')->get()->map(fn ($r) => ['code' => $r->code, 'name' => $r->name, 'datacenter' => $r->datacenter])->all(),
             'consents' => $this->consentVersions(), 'tlds' => $this->panelTlds($organizationId), 'game_config' => $this->gameConfigurator->offer($locale, 'CZK'), 'generated_at' => now()->toIso8601String(),
         ];
     }
@@ -650,6 +650,79 @@ final class SurfaceDataController extends Controller
         }
 
         return $out;
+    }
+
+    /**
+     * The service desk by what is happening to a service, not by what it is: a customer with thirty services and one
+     * suspended had to open every category to find it. A view holds the same service rows as the category it lives
+     * in (never a copy of the service, never a second count) and is offered only when it holds something.
+     */
+    private const STATE_VIEWS = [
+        'attention' => [['SUSPENDED', 'DEGRADED', 'FAILED'], 'Vyžadují pozornost', 'Need attention', 'Pozornost', 'Attention'],
+        'provisioning' => [['PROVISIONING', 'PAID', 'RESIZING', 'RESUMING', 'SUSPENDING'], 'Zřizují se', 'Being set up', 'Zřizování', 'Setup'],
+        'ending' => [[], 'Rušené', 'Ending', 'Rušené', 'Ending'], // by the cancellation date, not by a state
+    ];
+
+    /**
+     * @param  array<string, list<array<string,mixed>>>  $groups
+     * @return array<string, list<array<string,mixed>>>
+     */
+    private static function stateGroups(array $groups): array
+    {
+        $rows = array_merge(...array_values($groups)) ?: [];
+        $out = [];
+        foreach (self::STATE_VIEWS as $key => [$states]) {
+            $picked = array_values(array_filter($rows, fn (array $row) => $key === 'ending'
+                ? ($row['deletion'] ?? null) !== null
+                : in_array((string) ($row['apiState'] ?? ''), $states, true) && ($row['deletion'] ?? null) === null));
+            if ($picked !== []) {
+                $out['state:'.$key] = $picked;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The sidebar lists the state views next to the offer's categories, with their own count — so „Vyžadují
+     * pozornost (1)“ is visible without opening anything. They sell nothing, so they are never orderable.
+     *
+     * @param  array{categories: list<array<string,mixed>>, links: array<string,mixed>}  $nav
+     * @param  array<string, list<array<string,mixed>>>  $groups
+     * @return array{categories: list<array<string,mixed>>, links: array<string,mixed>}
+     */
+    private static function navWithStateViews(array $nav, array $groups): array
+    {
+        foreach (self::stateGroups($groups) as $key => $rows) {
+            [, $labelCs, $labelEn, $crumbCs, $crumbEn] = self::STATE_VIEWS[substr($key, 6)];
+            $nav['categories'][] = [
+                'key' => $key, 'label' => ['cs' => $labelCs, 'en' => $labelEn], 'crumb' => ['cs' => $crumbCs, 'en' => $crumbEn],
+                'enabled' => true, 'offered' => false, 'owned' => count($rows), 'visible' => true, 'orderable' => false,
+            ];
+        }
+
+        return $nav;
+    }
+
+    /**
+     * The desk's categories as the panel renders them: the offer's own first, in its order, then the state views
+     * that hold something.
+     *
+     * @param  array<string, list<array<string,mixed>>>  $groups
+     * @return list<array{key:string, label:array{cs:string,en:string}, crumb:array{cs:string,en:string}}>
+     */
+    private static function serviceCats(array $groups): array
+    {
+        $cats = [];
+        foreach (PanelNavigation::CATEGORIES as $key => [$labelCs, $labelEn, $crumbCs, $crumbEn]) {
+            $cats[] = ['key' => $key, 'label' => ['cs' => $labelCs, 'en' => $labelEn], 'crumb' => ['cs' => $crumbCs, 'en' => $crumbEn]];
+        }
+        foreach (array_keys(self::stateGroups($groups)) as $key) {
+            [, $labelCs, $labelEn, $crumbCs, $crumbEn] = self::STATE_VIEWS[substr($key, 6)];
+            $cats[] = ['key' => $key, 'label' => ['cs' => $labelCs, 'en' => $labelEn], 'crumb' => ['cs' => $crumbCs, 'en' => $crumbEn]];
+        }
+
+        return $cats;
     }
 
     /** Orderable products and plans for the panel's "Nová služba" wizard (api/onhost-panel-order.api.js): keys the cart accepts, monthly prices as decimals. */
