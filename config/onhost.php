@@ -365,6 +365,16 @@ return [
         'eager' => (bool) env('ONHOST_OUTBOX_EAGER', true),
     ],
 
+    /*
+    | Mail clients: what a mailbox is reached with. The ports are the node's (Dovecot and Postfix as ISPConfig sets
+    | them up); the panel, the password page and the automatic client configuration all read them from here.
+    */
+    'mail' => [
+        'imap_port' => (int) env('ONHOST_MAIL_IMAP_PORT', 993),
+        'pop3_port' => (int) env('ONHOST_MAIL_POP3_PORT', 995),
+        'smtp_port' => (int) env('ONHOST_MAIL_SMTP_PORT', 587),
+    ],
+
     'dns' => [
         'nameservers' => [
             'powerdns' => array_values(array_filter(array_map('trim', explode(',', (string) env('ONHOST_DNS_NAMESERVERS', 'ns1.onhost.cz,ns2.onhost.cz'))))),

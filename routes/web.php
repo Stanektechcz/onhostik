@@ -10,6 +10,7 @@ use App\Http\Controllers\Web\DataExportController;
 use App\Http\Controllers\Web\GameArtController;
 use App\Http\Controllers\Web\HealthController;
 use App\Http\Controllers\Web\LegalDocumentController;
+use App\Http\Controllers\Web\MailAutoconfigController;
 use App\Http\Controllers\Web\MailboxPasswordController;
 use App\Http\Controllers\Web\OrganizationStatusController;
 use App\Http\Controllers\Web\StaffConsoleController;
@@ -43,6 +44,12 @@ Route::get('export/{dataRequest}/{token}', [DataExportController::class, 'downlo
 // one-time mailbox password page (audit §5i-5): a signed link the account owner hands to the mailbox user; no session
 Route::get('mailbox/password/{token}', [MailboxPasswordController::class, 'show'])->middleware('signed')->name('mailbox.password');
 Route::post('mailbox/password/{token}', [MailboxPasswordController::class, 'store'])->middleware('signed')->name('mailbox.password.store');
+
+// automatic configuration of mail clients: the customer types their address and password, the client asks us for
+// the rest. Public by nature (the records are), so an answer is given only for a domain we really host mail for.
+Route::get('mail/config-v1.1.xml', [MailAutoconfigController::class, 'mozilla'])->name('mail.autoconfig');
+Route::match(['get', 'post'], 'autodiscover/autodiscover.xml', [MailAutoconfigController::class, 'microsoft'])->name('mail.autodiscover');
+Route::match(['get', 'post'], 'Autodiscover/Autodiscover.xml', [MailAutoconfigController::class, 'microsoft']); // Outlook asks with capitals
 
 // generated data scripts and static prototype assets
 Route::get('surfaces/game-art/{group}.jpg', [GameArtController::class, 'show'])->where('group', '[a-z0-9-]+')->name('surfaces.game-art');

@@ -22,6 +22,7 @@ use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\IncludedServices;
 use Onhost\Domain\Services\LegalHold;
+use Onhost\Domain\Services\Mail\MailSettings;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\MailDomain;
 use Onhost\Domain\Services\Models\RestoreJob;
@@ -1076,6 +1077,7 @@ final class ServiceActionWorkflow implements Workflow
                     ['name' => '@', 'type' => 'TXT', 'content' => 'v=spf1 mx include:'.config('onhost.dns.spf_include').' -all', 'ttl' => 3600],
                     ['name' => '_dmarc', 'type' => 'TXT', 'content' => 'v=DMARC1; p=quarantine; rua=mailto:dmarc@'.$domain, 'ttl' => 3600],
                 ];
+                $records = array_merge($records, MailSettings::autoconfigRecords($domain)); // Thunderbird and Outlook find the settings themselves
                 if (! empty($meta['dkim_selector']) && ! empty($meta['dkim_public'])) {
                     $records[] = ['name' => $meta['dkim_selector'].'._domainkey', 'type' => 'TXT', 'content' => 'v=DKIM1; k=rsa; p='.preg_replace('/\s+|-----[A-Z ]+-----/', '', (string) $meta['dkim_public']), 'ttl' => 3600];
                 }

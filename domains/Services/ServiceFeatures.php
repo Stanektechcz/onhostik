@@ -14,6 +14,7 @@ use Onhost\Domain\Provisioning\Models\IpAddress;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
+use Onhost\Domain\Services\Mail\MailSettings;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
@@ -87,7 +88,7 @@ final class ServiceFeatures
     public const RESOURCES = [
         'databases', 'ftp', 'cron', 'subdomains', 'certificate', 'redirect', 'php', 'snapshots', 'mailboxes', 'aliases', 'dkim', 'firewall', 'site_settings', 'protected_folders', 'db_users', 'shell_users', 'files', 'apps',
         'tools', 'php_settings', 'security', 'http_versions', 'cron_logs', 'database_access', 'quotas', 'node_projects', 'staging', 'deploy', 'deployments', 'wordpress', 'monitoring', 'monitoring_samples', 'certificates', 'cdn', 'imports',
-        'mail_forwards', 'mail_catchall', 'mail_autoresponder', 'mail_spam', 'mail_spam_lists', 'mail_filters', 'mail_lists', 'mail_fetchmail', 'mail_backups', 'mail_usage', 'proxies', 'default_docs',
+        'mail_forwards', 'mail_catchall', 'mail_autoresponder', 'mail_spam', 'mail_spam_lists', 'mail_filters', 'mail_lists', 'mail_fetchmail', 'mail_backups', 'mail_usage', 'mail_access', 'proxies', 'default_docs',
         'status', 'server_detail', 'startup', 'schedules', 'game_databases', 'subusers', 'game_files', 'allocations', 'panel_access', 'sites',
     ];
 
@@ -285,7 +286,7 @@ final class ServiceFeatures
         $gate = [
             'protected_folders' => 'protected', 'db_users' => 'db_users', 'shell_users' => 'shell', 'files' => 'files', 'apps' => 'apps',
             'tools' => 'site', 'php_settings' => 'php_settings', 'security' => 'security', 'http_versions' => 'security', 'cron_logs' => 'cron_logs', 'database_access' => 'db_access', 'quotas' => 'quotas', 'node_projects' => 'node_projects', 'proxies' => 'proxy', 'default_docs' => 'default_docs',
-            'sites' => 'sites', 'staging' => 'staging', 'deploy' => 'deploy', 'deployments' => 'deploy', 'wordpress' => 'wordpress', 'monitoring' => 'monitoring', 'monitoring_samples' => 'monitoring', 'certificates' => 'ssl', 'cdn' => 'cdn', 'imports' => 'import',
+            'sites' => 'sites', 'mail_access' => 'mailboxes', 'staging' => 'staging', 'deploy' => 'deploy', 'deployments' => 'deploy', 'wordpress' => 'wordpress', 'monitoring' => 'monitoring', 'monitoring_samples' => 'monitoring', 'certificates' => 'ssl', 'cdn' => 'cdn', 'imports' => 'import',
             'mail_forwards' => 'forwards', 'mail_catchall' => 'catchall', 'mail_autoresponder' => 'autoresponder', 'mail_spam' => 'spam', 'mail_spam_lists' => 'spam', 'mail_filters' => 'mail_filters', 'mail_lists' => 'mailing_lists', 'mail_fetchmail' => 'fetchmail', 'mail_backups' => 'mail_backups', 'mail_usage' => 'mail_usage',
             'status' => 'game_status', 'server_detail' => 'game_settings', 'startup' => 'startup', 'schedules' => 'schedule_tools', 'game_databases' => 'game_databases', 'subusers' => 'subusers', 'game_files' => 'game_files', 'allocations' => 'allocations', 'panel_access' => 'panel_access',
         ][$kind] ?? null;
@@ -384,6 +385,8 @@ final class ServiceFeatures
             'mail_fetchmail' => $this->mailTools($adapter)->listFetchmail($ref),
             'mail_backups' => $this->mailTools($adapter)->listMailboxBackups($ref),
             'mail_usage' => ['mailboxes' => $this->mailTools($adapter)->mailboxUsage($ref), 'webmail' => $this->mailTools($adapter)->webmailUrl($ref)],
+            // where a mailbox is reached: the platform could make one and then said nothing about the server or the ports
+            'mail_access' => MailSettings::of($service, $adapter instanceof MailToolsProvider ? $this->mailTools($adapter)->webmailUrl($ref) : null),
             'mailboxes' => $this->mail($adapter)->listMailboxes($ref),
             'aliases' => $this->mail($adapter)->listAliases($ref),
             'dkim' => $this->mail($adapter)->dkim($ref) ?? [],
