@@ -8,7 +8,7 @@
       "Bash(git reset --hard:*)",
       "Bash(git clean:*)",
       "Bash(git branch -D:*)",
-      "Bash(git worktree remove --force:*)"
+      "Bash(git worktree remove:*)"
     ],
     "deny": [
       "Read(./.env)",
