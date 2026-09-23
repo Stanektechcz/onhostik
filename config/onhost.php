@@ -373,6 +373,8 @@ return [
         'imap_port' => (int) env('ONHOST_MAIL_IMAP_PORT', 993),
         'pop3_port' => (int) env('ONHOST_MAIL_POP3_PORT', 995),
         'smtp_port' => (int) env('ONHOST_MAIL_SMTP_PORT', 587),
+        // the lists asked about every node's sending address (BlocklistCheck); zone => the name an operator knows it by
+        'blocklists' => ['zen.spamhaus.org' => 'Spamhaus ZEN', 'bl.spamcop.net' => 'SpamCop', 'b.barracudacentral.org' => 'Barracuda'],
     ],
 
     'dns' => [
