@@ -103,7 +103,7 @@
 
   /* ── tabs ────────────────────────────────────────────────────────────── */
   var TABS = {
-    web: [['cfg', 'site'], ['redirect', 'redirects'], ['errpages', 'errpages'], ['directives', 'directives'], ['run', 'php'], ['ssl', 'ssl'], ['dbs', 'databases'], ['dbusers', 'db_users'], ['dbadmin', 'db_admin'], ['ssh', 'shell'], ['ftpusers', 'ftp'], ['protected', 'protected'], ['cron', 'cron'], ['files', 'files'], ['apps', 'apps'], ['bkp', 'backups'], ['quota', 'usage'], ['stats', 'stats'], ['mon', 'logs'], ['noc', 'operations']],
+    web: [['cfg', 'site'], ['redirect', 'redirects'], ['errpages', 'errpages'], ['directives', 'directives'], ['run', 'php'], ['ssl', 'ssl'], ['dbs', 'databases'], ['dbusers', 'db_users'], ['dbadmin', 'db_admin'], ['ssh', 'shell'], ['ftpusers', 'ftp'], ['protected', 'protected'], ['cron', 'cron'], ['files', 'files'], ['apps', 'apps'], ['bkp', 'backups'], ['quota', 'usage'], ['stats', 'stats'], ['mon', 'logs'], ['boxes', 'mailboxes'], ['alias', 'aliases'], ['noc', 'operations']],
     cloud: [['console', 'console'], ['tasks', 'operations'], ['snap', 'snapshots'], ['disks', 'disks'], ['net', 'firewall'], ['bkp', 'backups'], ['mon', 'usage'], ['noc', 'operations']],
     game: [['console', 'console'], ['startup', 'startup'], ['sched', 'schedules'], ['settings', 'game_settings'], ['files', 'game_files'], ['world', 'backups'], ['bkp', 'backups'], ['dbs', 'game_databases'], ['net', 'network'], ['users', 'subusers'], ['plan', 'resize'], ['mon', 'usage'], ['noc', 'operations']],
     mail: [['boxes', 'mailboxes'], ['alias', 'aliases'], ['auth', 'dkim'], ['noc', 'operations']],
@@ -574,11 +574,22 @@
     if (fam === 'mail') {
       if (tab === 'boxes') {
         if (!on('mailboxes')) return unavailable(_('Schránky', 'Mailboxes'));
-        return listPanel('mailboxes', _('Schránky · ', 'Mailboxes · ') + sel.name, _('IMAP/SMTP s TLS; heslo zobrazíme jen při vytvoření', 'IMAP/SMTP with TLS; the password is shown only when created'),
+        // where the mailbox is reached: the platform used to make one, hand over the password and say nothing about the server
+        var acc = resource(cmp, sel, 'mail_access') || {};
+        var boxes = listPanel('mailboxes', _('Schránky · ', 'Mailboxes · ') + sel.name, _('IMAP/SMTP s TLS; heslo zobrazíme jen při vytvoření', 'IMAP/SMTP with TLS; the password is shown only when created'),
           [cell(_('Adresa', 'Address'), '1 1 220px'), cell(_('Jméno', 'Name'), '1 1 160px'), cell(_('Kvóta', 'Quota'), '0 0 90px')],
           function (d) { return { cells: [cell(d.address, '1 1 220px', 1), cell(d.name || '', '1 1 160px'), cell(d.quota_mb ? d.quota_mb + ' MB' : '—', '0 0 90px', 1)], note: d.active === false ? _('vypnutá', 'disabled') : '', actions: [A(_('Nové heslo', 'New password'), function () { var p = password(20); if (window.confirm(_('Nové heslo pro ' + d.address + ': ' + p, 'New password for ' + d.address + ': ' + p))) act(cmp, sel, 'mailbox.update', { remote_id: d.remote_id, password: p }, ['mailboxes']); }), A(_('Smazat', 'Delete'), function () { if (window.confirm(_('Smazat schránku ' + d.address + ' včetně pošty?', 'Delete mailbox ' + d.address + ' with its mail?'))) act(cmp, sel, 'mailbox.delete', { remote_id: d.remote_id }, ['mailboxes']); })] }; },
           { title: _('Nová schránka', 'New mailbox'), fields: [F('a', 'jmeno@' + sel.name, '0 0 200px'), passwordField('b'), F('c', _('jméno (volitelně)', 'name (optional)'), '0 0 140px')], submit: _('Vytvořit', 'Create'), on: function () { act(cmp, sel, 'mailbox.create', { address: (s.wbF.a || '').trim(), password: s.wbF.b || '', name: (s.wbF.c || '').trim() }, ['mailboxes']); } },
           [genExtra('b')]);
+        if (acc && acc.imap) {
+          boxes.rows = boxes.rows.concat([
+            { cells: [cell(_('Příchozí pošta (IMAP)', 'Incoming mail (IMAP)'), '1 1 220px'), cell(acc.imap.host + ' · ' + _('port ', 'port ') + acc.imap.port + ' · ' + acc.imap.security, '1 1 260px', 1)], note: _('uživatelské jméno je celá adresa', 'the user name is the whole address') },
+            { cells: [cell(_('Odchozí pošta (SMTP)', 'Outgoing mail (SMTP)'), '1 1 220px'), cell(acc.smtp.host + ' · ' + _('port ', 'port ') + acc.smtp.port + ' · ' + acc.smtp.security, '1 1 260px', 1)], note: _('vyžaduje přihlášení stejným heslem', 'needs the same login and password') },
+            { cells: [cell(_('Nastavení samo', 'Set up by itself'), '1 1 220px'), cell(_('Thunderbird i Outlook si nastavení stáhnou samy — stačí zadat adresu a heslo', 'Thunderbird and Outlook fetch the settings themselves — the address and the password are enough'), '1 1 260px', 1)], note: '' }
+          ]);
+          if (acc.webmail) boxes.extra = (boxes.extra || []).concat([{ label: _('Otevřít webmail', 'Open webmail'), on: function () { window.open(acc.webmail, '_blank', 'noopener'); } }]);
+        }
+        return boxes;
       }
       if (tab === 'alias') {
         if (!on('aliases')) return unavailable(_('Aliasy', 'Aliases'));
