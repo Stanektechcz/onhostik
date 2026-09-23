@@ -95,6 +95,10 @@
   off `mailboxes`, the web branch only set `mail`), and there was nowhere to put one — the mail domain is now made at
   the first address, with DKIM and the mail records, and removed with the service.
 
+- **A site is looked at for the marks of a compromise:** `SiteIntegrityCheck` (`onhost:sites:integrity`, daily) finds
+  code in upload folders and the fingerprints of ready-made web shells with one `find` and one `grep`, and tells the
+  operators once a day per site. It never acts: that stays with an abuse case, which has a way back.
+
 - **A quarantine ends:** an abuse case that suspended a service cannot be closed without saying whether the service
   comes back; `liftHold(ABUSE)` had no caller at all, so a customer who won the appeal stayed suspended for ever. A
   service another open case still holds is never released by closing this one.

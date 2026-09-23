@@ -90,6 +90,7 @@ use Onhost\Domain\Services\Web\CdnService;
 use Onhost\Domain\Services\Web\CertificateAutoIssuer;
 use Onhost\Domain\Services\Web\CertificateService;
 use Onhost\Domain\Services\Web\RestoreTest;
+use Onhost\Domain\Services\Web\SiteIntegrityCheck;
 use Onhost\Domain\Services\Web\UptimeMonitor;
 use Onhost\Domain\Services\Web\WebFileStore;
 use Onhost\Domain\Support\TicketService;
@@ -505,6 +506,7 @@ Schedule::command('onhost:provisioning:board')->everyFiveMinutes()->withoutOverl
 Schedule::command('onhost:digest:weekly')->weeklyOn(1, '07:00')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:nodes:check')->dailyAt('05:20')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:nodes:usage')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:sites:integrity')->dailyAt('04:40')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:digest:staff-daily')->dailyAt('07:15')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:ledger:verify')->dailyAt('05:00')->onOneServer();
 
@@ -630,6 +632,17 @@ Artisan::command('onhost:nodes:usage {--limit=200}', function (NodeUsageSync $us
     $ledger->record('nodes.usage', $result);
     $this->table(['checked', 'updated', 'low', 'errors'], [$result]);
 })->purpose('Ask every web node how full its disk is, so the placement rule that keeps a shared node from filling up has a number to work with');
+
+Artisan::command('onhost:sites:integrity {--limit=200}', function (SiteIntegrityCheck $sites, AutomationLedger $ledger) {
+    if ($ledger->off('sites.integrity')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    $result = $sites->run((int) $this->option('limit'));
+    $ledger->record('sites.integrity', $result);
+    $this->table(['checked', 'suspicious', 'skipped', 'errors'], [$result]);
+})->purpose('Look at every site for the marks a compromise leaves (code in upload folders, web-shell fingerprints) and tell the operators; it never acts on its own');
 
 Artisan::command('onhost:nodes:check', function (NodePrerequisites $prerequisites, AutomationLedger $ledger) {
     if ($ledger->off('nodes.check')) {

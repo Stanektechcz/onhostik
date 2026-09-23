@@ -4,13 +4,13 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 39da554 | 2026-09-23 | The customer can reach the mailboxes their plan sells |
+| 47a68b8 | 2026-09-23 | A mail client sets itself up from the address and the password |
+| 952e18d | 2026-09-23 | Mail on a web service runs in its own mail domain, with the panel's own tools |
+| 62bc3dd | 2026-09-23 | A web service's mailboxes are archived with it |
+| a9d5c1e | 2026-09-23 | The mailboxes a web hosting plan sells can actually be made |
 | b8b7646 | 2026-09-22 | An address is only ever made in a domain the service hosts |
 | 98ce872 | 2026-09-22 | A WAF level is compared with what the site's own server does |
 | f5334ca | 2026-09-22 | A shared-hosting customer can read their own site log |
 | 90bba37 | 2026-09-22 | A quarantine ends: closing an abuse case says what happens to the service |
 | acb0f10 | 2026-09-22 | Traffic is counted where the panel cannot, and the authority's limit is heard |
-| d1d0f72 | 2026-09-22 | A web node says how full it is, so a full one stops taking sites |
-| 732847e | 2026-09-22 | A used-up plan stops growing, and the customer hears why |
-| 083f043 | 2026-09-22 | A plan change fits what the service holds, and reaches the panel |
-| 89d1087 | 2026-09-22 | The sites a hosting plan sells are sites, not extra names on one site |
-| ecb5b30 | 2026-09-22 | A cancelled web hosting takes the sites it carries with it, archived first |
