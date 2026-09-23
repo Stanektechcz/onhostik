@@ -45,18 +45,43 @@ final class MailSettings
     }
 
     /**
+     * Everything a domain needs in DNS for its mail to arrive, to be accepted where it is sent, and to be found by a
+     * mail client without the customer looking anything up. One builder for both sagas — the mail service's own and
+     * the one a web service runs at its first mailbox — because a record that only one of them publishes is a
+     * difference nobody means to sell.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function records(string $domain, ?string $host = null, ?string $dkimSelector = null, ?string $dkimPublic = null): array
+    {
+        $host = $host !== null && $host !== '' ? $host : self::host();
+        $records = [
+            ['name' => '@', 'type' => 'MX', 'content' => $host.'.', 'ttl' => 3600, 'prio' => 10],
+            ['name' => '@', 'type' => 'TXT', 'content' => 'v=spf1 mx include:'.config('onhost.dns.spf_include').' -all', 'ttl' => 3600],
+            ['name' => '_dmarc', 'type' => 'TXT', 'content' => 'v=DMARC1; p=quarantine; rua=mailto:dmarc@'.$domain, 'ttl' => 3600],
+            ...self::autoconfigRecords($domain, $host),
+        ];
+        if ((string) $dkimSelector !== '' && (string) $dkimPublic !== '') {
+            $records[] = ['name' => $dkimSelector.'._domainkey', 'type' => 'TXT', 'content' => 'v=DKIM1; k=rsa; p='.preg_replace('/\s+|-----[A-Z ]+-----/', '', (string) $dkimPublic), 'ttl' => 3600];
+        }
+
+        return $records;
+    }
+
+    /**
      * The DNS records a mail client looks for before it asks anybody: Thunderbird reads `autoconfig.<domain>`,
      * Outlook asks `_autodiscover._tcp`. With these, a customer types their address and password and nothing else.
      *
      * @return list<array<string,mixed>>
      */
-    public static function autoconfigRecords(string $domain): array
+    public static function autoconfigRecords(string $domain, ?string $host = null): array
     {
-        $host = self::host();
+        $host = $host !== null && $host !== '' ? $host : self::host();
 
         return [
             ['name' => 'autoconfig', 'type' => 'CNAME', 'content' => $host.'.', 'ttl' => 3600],
-            ['name' => '_autodiscover._tcp', 'type' => 'SRV', 'content' => '0 1 443 '.$host.'.', 'ttl' => 3600],
+            // the priority of an SRV record is its own field here, as it is for MX: content is weight, port, target
+            ['name' => '_autodiscover._tcp', 'type' => 'SRV', 'content' => '1 443 '.$host.'.', 'ttl' => 3600, 'prio' => 0],
         ];
     }
 }

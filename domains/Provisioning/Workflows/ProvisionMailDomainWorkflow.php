@@ -11,6 +11,7 @@ use Onhost\Domain\Provisioning\Workflow\StepContext;
 use Onhost\Domain\Provisioning\Workflow\StepResult;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
 use Onhost\Domain\Provisioning\Workflows\Steps\ScheduleNodeStep;
+use Onhost\Domain\Services\Mail\MailSettings;
 use Onhost\Domain\Services\Models\MailDomain;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\ServiceService;
@@ -66,19 +67,14 @@ final class ProvisionMailDomainWorkflow implements Workflow
                     $zone = DnsZone::query()->where('name', $domain)->where('organization_id', $service->organization_id)->where('state', 'active')->first();
                     $meta = (array) $context->get('mail_domain_meta', []);
                     $dkim = $this->capability($context, MailProvider::class)->dkim($this->ref($context, 'mail_domain')) ?? ['selector' => $meta['dkim_selector'] ?? null, 'public' => $meta['dkim_public'] ?? null];
-                    $mailHost = (string) ($context->instance()->option('mail_host') ?: config('onhost.dns.mail_host'));
-                    $records = [
-                        ['name' => '@', 'type' => 'MX', 'content' => $mailHost.'.', 'ttl' => 3600, 'prio' => 10],
-                        ['name' => '@', 'type' => 'TXT', 'content' => 'v=spf1 mx include:'.config('onhost.dns.spf_include').' -all', 'ttl' => 3600],
-                        ['name' => '_dmarc', 'type' => 'TXT', 'content' => 'v=DMARC1; p=quarantine; rua=mailto:dmarc@'.$domain, 'ttl' => 3600],
-                    ];
-                    if (! empty($dkim['selector']) && ! empty($dkim['public'])) {
-                        $records[] = ['name' => $dkim['selector'].'._domainkey', 'type' => 'TXT', 'content' => 'v=DKIM1; k=rsa; p='.preg_replace('/\s+|-----[A-Z ]+-----/', '', (string) $dkim['public']), 'ttl' => 3600];
-                    }
+                    // one builder for both sagas (MailSettings): a mail service's customers looked their settings up by
+                    // hand, because the autoconfig records were published only for a web service's mail
+                    $records = MailSettings::records($domain, (string) ($context->instance()->option('mail_host') ?: config('onhost.dns.mail_host')),
+                        isset($dkim['selector']) ? (string) $dkim['selector'] : null, isset($dkim['public']) ? (string) $dkim['public'] : null);
                     if ($zone === null) {
                         return StepResult::done(['dns_records_required' => $records, 'dkim_selector' => $dkim['selector'] ?? null, 'dkim_public' => $dkim['public'] ?? null]); // external DNS: shown to the customer in the panel
                     }
-                    $version = $context->container->make(DnsService::class)->syncSystemRecords($zone, $records, $context->actor, "mail hosting {$service->id}");
+                    $version = $context->container->make(DnsService::class)->syncSystemRecords($zone, $records, $context->actor, "mail hosting {$service->id}", 'mail:'.$domain);
 
                     return StepResult::done(['dns_version' => $version?->version, 'dkim_selector' => $dkim['selector'] ?? null, 'dkim_public' => $dkim['public'] ?? null]);
                 }

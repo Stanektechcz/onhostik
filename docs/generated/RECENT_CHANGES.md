@@ -4,13 +4,13 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| 4bac165 | 2026-09-23 | docs: the receive-only mode in audit row 79 |
+| c0d7558 | 2026-09-23 | fix(mail): receive-only mode covers every domain of the service |
+| 0e44a37 | 2026-09-23 | feat(mail): a web service has mail in every domain it hosts |
+| 96b1465 | 2026-09-23 | feat(web): count a plan's numbers across every site of the plan |
 | b57e5dc | 2026-09-23 | A suspended site stops sending mail, and keeps receiving it |
 | 5c0b7fd | 2026-09-23 | The customer sees what the look at their site found |
 | 3f13a4c | 2026-09-23 | A site is looked at for the marks a compromise leaves |
 | 39da554 | 2026-09-23 | The customer can reach the mailboxes their plan sells |
 | 47a68b8 | 2026-09-23 | A mail client sets itself up from the address and the password |
 | 952e18d | 2026-09-23 | Mail on a web service runs in its own mail domain, with the panel's own tools |
-| 62bc3dd | 2026-09-23 | A web service's mailboxes are archived with it |
-| a9d5c1e | 2026-09-23 | The mailboxes a web hosting plan sells can actually be made |
-| b8b7646 | 2026-09-22 | An address is only ever made in a domain the service hosts |
-| 98ce872 | 2026-09-22 | A WAF level is compared with what the site's own server does |

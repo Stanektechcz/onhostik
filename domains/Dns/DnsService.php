@@ -239,7 +239,26 @@ final class DnsService
     public function syncSystemRecords(DnsZone $zone, array $records, CommandContext $actor, string $reason, ?string $owner = null): ?DnsZoneVersion
     {
         $desired = array_map(fn ($r) => $this->validator->normalize($r, $zone->name), $records);
-        $existing = $zone->records()->where('managed_by', 'system')->when($owner !== null, fn ($q) => $q->where('comment', $owner))->get();
+        // What a publisher may remove: its own records, and any record of the very kind it is publishing — a site
+        // that moves takes over the parking address, and a record written before publishers had names is replaced
+        // rather than doubled. What it never touches is a record of a kind it does not publish: the site's A record
+        // is not the mail saga's to delete, nor the domain's MX the website saga's, and each of them used to take
+        // the other off the internet.
+        $kinds = array_map(fn (array $d) => $d['name'].'|'.$d['type'], $desired);
+        $names = array_map(fn (array $d) => $d['name'], $desired);
+        $aliased = array_values(array_map(fn (array $d) => $d['name'], array_filter($desired, fn (array $d) => $d['type'] === 'CNAME')));
+        $existing = $zone->records()->where('managed_by', 'system')->get()
+            ->filter(function (DnsRecord $r) use ($owner, $kinds, $names, $aliased) {
+                $row = $r->normalized();
+
+                // and whatever cannot stand beside what is being published: a name is either a CNAME or everything
+                // else, so publishing `www A` takes the parked `www CNAME` with it — and the other way round
+                return $owner === null || (string) $r->comment === $owner
+                    || in_array($row['name'].'|'.$row['type'], $kinds, true)
+                    || ($row['type'] === 'CNAME' && in_array($row['name'], $names, true))
+                    || in_array($row['name'], $aliased, true);
+            })
+            ->values();
         foreach ($desired as $d) {
             if ($existing->first(fn (DnsRecord $r) => $this->same($r->normalized(), $d)) === null) {
                 $conflict = $zone->records()->where('name', $d['name'])->where('type', $d['type'])->where('managed_by', 'customer')->first();

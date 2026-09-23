@@ -1086,7 +1086,7 @@ final class ServiceActionWorkflow implements Workflow
                 $version = null;
                 $error = null;
                 try {
-                    $version = $zone === null ? null : $context->container->make(DnsService::class)->syncSystemRecords($zone, $records, $context->actor, "mail for {$service->id}");
+                    $version = $zone === null ? null : $context->container->make(DnsService::class)->syncSystemRecords($zone, $records, $context->actor, "mail for {$service->id}", 'mail:'.$domain);
                 } catch (Throwable $e) {
                     $error = mb_substr($e->getMessage(), 0, 200);
                 }
@@ -1103,18 +1103,8 @@ final class ServiceActionWorkflow implements Workflow
              */
             private static function mailRecords(StepContext $context, string $domain, array $meta): array
             {
-                $host = (string) ($context->instance()->option('mail_host') ?: config('onhost.dns.mail_host'));
-                $records = [
-                    ['name' => '@', 'type' => 'MX', 'content' => $host.'.', 'ttl' => 3600, 'prio' => 10],
-                    ['name' => '@', 'type' => 'TXT', 'content' => 'v=spf1 mx include:'.config('onhost.dns.spf_include').' -all', 'ttl' => 3600],
-                    ['name' => '_dmarc', 'type' => 'TXT', 'content' => 'v=DMARC1; p=quarantine; rua=mailto:dmarc@'.$domain, 'ttl' => 3600],
-                ];
-                $records = array_merge($records, MailSettings::autoconfigRecords($domain)); // Thunderbird and Outlook find the settings themselves
-                if (! empty($meta['dkim_selector']) && ! empty($meta['dkim_public'])) {
-                    $records[] = ['name' => $meta['dkim_selector'].'._domainkey', 'type' => 'TXT', 'content' => 'v=DKIM1; k=rsa; p='.preg_replace('/\s+|-----[A-Z ]+-----/', '', (string) $meta['dkim_public']), 'ttl' => 3600];
-                }
-
-                return $records;
+                return MailSettings::records($domain, (string) ($context->instance()->option('mail_host') ?: config('onhost.dns.mail_host')),
+                    isset($meta['dkim_selector']) ? (string) $meta['dkim_selector'] : null, isset($meta['dkim_public']) ? (string) $meta['dkim_public'] : null);
             }
         };
     }

@@ -118,7 +118,7 @@ final class ProvisionWebsiteWorkflow implements Workflow
                             $records[] = ['name' => $name, 'type' => 'AAAA', 'content' => $ipv6, 'ttl' => 600];
                         }
                     }
-                    $version = $dns->syncSystemRecords($zone, $records, $context->actor, "web hosting {$service->id}");
+                    $version = $dns->syncSystemRecords($zone, $records, $context->actor, "web hosting {$service->id}", 'web:'.$service->id);
 
                     return StepResult::done(['dns_version' => $version?->version, 'public_ipv4' => $ipv4 ?: null, 'public_ipv6' => $ipv6 ?: null]);
                 }
