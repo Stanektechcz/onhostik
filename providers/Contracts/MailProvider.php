@@ -20,7 +20,12 @@ interface MailProvider extends ProviderAdapter
     /** @param array{source:string,destination:string} $alias */
     public function createAlias(ResourceRef $domain, array $alias): ProviderResult;
 
-    /** @return list<array{remote_id:string,address:string,name:?string,quota_mb:?int,used_mb:?int,active:bool}> */
+    /**
+     * `active` is whether the mailbox receives, `sending` whether it may send — a suspension stops the second and
+     * leaves the first, so nothing of the customer's mail is lost while they are switched off.
+     *
+     * @return list<array{remote_id:string,address:string,name:?string,quota_mb:?int,used_mb:?int,active:bool,sending?:bool}>
+     */
     public function listMailboxes(ResourceRef $domain): array;
 
     /** @return list<array{remote_id:string,source:string,destination:string,active:bool}> */

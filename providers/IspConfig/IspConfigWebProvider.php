@@ -510,9 +510,32 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
     public function updateMailbox(ResourceRef $mailbox, array $changes): ProviderResult
     {
         $params = array_filter(['quota' => isset($changes['quota_mb']) ? (int) $changes['quota_mb'] * 1024 * 1024 : null, 'password' => $changes['password'] ?? null, 'name' => $changes['name'] ?? null, 'disablesmtp' => isset($changes['sending_enabled']) ? ($changes['sending_enabled'] ? 'n' : 'y') : null], fn ($v) => $v !== null);
-        $this->api->call('mail_user_update', ['client_id' => (int) ($mailbox->meta['client_id'] ?? 0), 'primary_id' => (int) $mailbox->remoteId, 'params' => $params], true);
+        $this->updateMailUser($mailbox, $params);
 
         return ProviderResult::accepted($this->jobqueueHandle((int) $mailbox->node), $mailbox);
+    }
+
+    /**
+     * One field of a mailbox, without losing the rest of it. ISPConfig takes what an update sends as the whole record
+     * — that is why a site update reads the row back and merges (`updateSite`) — and the mailbox path did not: turning
+     * sending off, or renaming a mailbox, sent that one field alone and left the panel to fill in the rest from its
+     * form defaults. The stored password is **never** sent back: what the panel returns is its hash, and a hash handed
+     * in as a password would be hashed again and lock the customer out of their own mail.
+     *
+     * @param  array<string,mixed>  $params
+     */
+    private function updateMailUser(ResourceRef $mailbox, array $params): void
+    {
+        $row = $this->api->call('mail_user_get', ['primary_id' => (int) $mailbox->remoteId]);
+        $current = is_array($row) && array_is_list($row) ? (array) ($row[0] ?? []) : (array) $row;
+        $base = [];
+        foreach ($current as $key => $value) {
+            if (in_array($key, ['mailuser_id', 'password'], true) || str_starts_with((string) $key, 'sys_')) {
+                continue;
+            }
+            $base[$key] = $value;
+        }
+        $this->api->call('mail_user_update', ['client_id' => (int) ($mailbox->meta['client_id'] ?? ($current['client_id'] ?? 0)), 'primary_id' => (int) $mailbox->remoteId, 'params' => array_merge($base, $params)], true);
     }
 
     public function deleteMailbox(ResourceRef $mailbox): ProviderResult
@@ -544,7 +567,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
     {
         $users = (array) $this->api->call('mail_user_get', ['primary_id' => ['email' => '%@'.($domain->meta['domain'] ?? '')]]);
         foreach ($users as $user) {
-            $this->api->call('mail_user_update', ['client_id' => (int) ($domain->meta['client_id'] ?? 0), 'primary_id' => (int) $user['mailuser_id'], 'params' => ['disablesmtp' => $enabled ? 'n' : 'y']], true);
+            $this->updateMailUser(new ResourceRef('mailbox', (string) $user['mailuser_id'], $domain->node, ['client_id' => $domain->meta['client_id'] ?? null], $domain->serviceId), ['disablesmtp' => $enabled ? 'n' : 'y']);
         }
 
         return ProviderResult::accepted($this->jobqueueHandle((int) $domain->node), $domain, ['mailboxes' => count($users), 'sending_enabled' => $enabled]);
@@ -841,7 +864,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
             if (! is_array($row) || empty($row['mailuser_id'])) {
                 continue;
             }
-            $out[] = ['remote_id' => (string) $row['mailuser_id'], 'address' => (string) $row['email'], 'name' => $row['name'] ?? null, 'quota_mb' => isset($row['quota']) ? (int) round((int) $row['quota'] / 1048576) : null, 'used_mb' => null, 'active' => ($row['postfix'] ?? 'y') === 'y' && ($row['disabledeliver'] ?? 'n') !== 'y'];
+            $out[] = ['remote_id' => (string) $row['mailuser_id'], 'address' => (string) $row['email'], 'name' => $row['name'] ?? null, 'quota_mb' => isset($row['quota']) ? (int) round((int) $row['quota'] / 1048576) : null, 'used_mb' => null, 'active' => ($row['postfix'] ?? 'y') === 'y' && ($row['disabledeliver'] ?? 'n') !== 'y', 'sending' => ($row['disablesmtp'] ?? 'n') !== 'y'];
         }
 
         return $out;

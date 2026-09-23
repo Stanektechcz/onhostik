@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
+use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\Contracts\GameToolsProvider;
+use Onhost\Providers\Contracts\MailProvider;
 use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\WebHostingProvider;
 use Onhost\Providers\Contracts\WebToolsProvider;
@@ -33,17 +35,17 @@ final class SuspensionDepth
     public const TAG = 'suspension_paused';
 
     /** Everything a suspension switches off, in the order it is switched off. */
-    public const KINDS = ['cron', 'ftp', 'schedule', 'app'];
+    public const KINDS = ['cron', 'ftp', 'schedule', 'app', 'mail'];
 
     /**
-     * @return array{cron:list<string>, ftp:list<string>, schedule:list<string>, app:list<string>, errors:list<string>, transient:bool}
+     * @return array{cron:list<string>, ftp:list<string>, schedule:list<string>, app:list<string>, mail:list<string>, errors:list<string>, transient:bool}
      */
     public function pause(Service $service, object $adapter, ResourceRef $ref): array
     {
         $paused = $this->remembered($service);
         $errors = [];
         $transient = false;
-        foreach ($this->switches($adapter, $ref) as $kind => $switch) {
+        foreach ($this->switches($adapter, $ref, self::mailRef($service)) as $kind => $switch) {
             foreach ($this->listing($switch['list'], $errors, $transient) as $row) {
                 if (! ($row['active'] ?? true)) {
                     continue;
@@ -61,12 +63,12 @@ final class SuspensionDepth
     }
 
     /**
-     * @return array{cron:list<string>, ftp:list<string>, schedule:list<string>, app:list<string>, errors:list<string>, transient:bool}
+     * @return array{cron:list<string>, ftp:list<string>, schedule:list<string>, app:list<string>, mail:list<string>, errors:list<string>, transient:bool}
      */
     public function resume(Service $service, object $adapter, ResourceRef $ref): array
     {
         $remembered = $this->remembered($service);
-        $switches = $this->switches($adapter, $ref);
+        $switches = $this->switches($adapter, $ref, self::mailRef($service));
         $left = $done = array_fill_keys(self::KINDS, []);
         $errors = [];
         $transient = false;
@@ -88,9 +90,24 @@ final class SuspensionDepth
      *
      * @return array<string, array{list:callable():array<int,array<string,mixed>>, set:callable(string,bool):mixed}>
      */
-    private function switches(object $adapter, ResourceRef $ref): array
+    /** The mail domain a service was given for its mailboxes, if it has one (a web service's mail is its own resource). */
+    private static function mailRef(Service $service): ?ResourceRef
+    {
+        return ProviderBinding::query()->where('service_id', $service->id)->where('remote_type', 'mail_domain')->first()?->ref();
+    }
+
+    private function switches(object $adapter, ResourceRef $ref, ?ResourceRef $mail = null): array
     {
         $out = [];
+        if ($adapter instanceof MailProvider && $mail !== null) {
+            // a suspended site must not keep sending mail — an unpaid customer's mailboxes are a spam relay with a
+            // bill attached, and a quarantined one is the reason the quarantine exists. Receiving stays on, so
+            // nothing addressed to the customer is lost while they are switched off.
+            $out['mail'] = [
+                'list' => fn () => array_map(fn (array $box) => array_merge($box, ['active' => (bool) ($box['sending'] ?? true)]), $adapter->listMailboxes($mail)),
+                'set' => fn (string $id, bool $on) => $adapter->updateMailbox(new ResourceRef('mailbox', $id, $mail->node, ['client_id' => $mail->meta['client_id'] ?? null], $mail->serviceId), ['sending_enabled' => $on]),
+            ];
+        }
         if ($adapter instanceof WebHostingProvider && $adapter instanceof WebToolsProvider) {
             $out['cron'] = ['list' => fn () => $adapter->listCron($ref), 'set' => fn (string $id, bool $on) => $adapter->setCronActive($ref, $id, $on)];
         }
