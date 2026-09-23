@@ -15,6 +15,19 @@ final class Lexicon
 {
     /** @var array<string,string> Czech phrase → English */
     public const EN = [
+        // what public DNS answers for a customer's domain against what the platform published (PublicDnsCheck)
+        'Nastavení DNS u domény ' => 'DNS of the domain ',
+        'DNS domény neodpovídá tomu, co jsme pro ni nastavili' => 'The domain\'s DNS does not match what we set up for it',
+        '. Záznamy k nastavení najdete u služby.' => '. The records to set are shown with the service.',
+        'doména zatím nikam nemíří' => 'the domain does not point anywhere yet',
+        'doména míří jinam než na váš web u nás' => 'the domain points somewhere other than your site with us',
+        'pošta nemá kam přijít (chybí MX)' => 'mail has nowhere to arrive (no MX record)',
+        'pošta domény chodí jinam' => "the domain's mail goes elsewhere",
+        'chybí SPF, odeslaná pošta skončí ve spamu' => 'no SPF, so the mail you send will be treated as spam',
+        'SPF nezahrnuje náš server' => 'SPF does not include our server',
+        'chybí podpis DKIM' => 'no DKIM signature',
+        'v DNS je jiný klíč DKIM' => 'a different DKIM key is in DNS',
+        'chybí DMARC' => 'no DMARC',
         // orders and provisioning
         'Zaplacená objednávka prochází krátkou kontrolou; služby zřídíme hned po jejím dokončení, obvykle do pár hodin.' => 'Your paid order is going through a short check; we will provision the services right after it, usually within a few hours.',
         'Služby se právě zřizují.' => 'Your services are being provisioned.',

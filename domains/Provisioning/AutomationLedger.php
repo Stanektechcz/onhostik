@@ -59,6 +59,9 @@ final class AutomationLedger
         ['key' => 'game.templates.verify', 'command' => 'onhost:game:templates:verify', 'name' => 'Kontrola herních šablon', 'does' => 'porovná namapované šablony s eggy panelu; chybějící odebere z nabídky a ohlásí provozu, povinné proměnné načte znovu', 'runs' => 'denně 05:10', 'switchable' => true],
         ['key' => 'files.scan', 'command' => 'onhost:files:scan', 'name' => 'Antivirová kontrola souborů', 'does' => 'znovu prověří soubory, které ClamAV při nahrání nestihl; infikované smaže a nahlásí bezpečnosti', 'runs' => 'každých 10 minut', 'switchable' => false],
         ['key' => 'files.prune', 'command' => 'onhost:files:prune', 'name' => 'Retence souborů', 'does' => 'maže důkazy z marketplace po retenční lhůtě a exporty dat po expiraci', 'runs' => 'denně 04:25', 'switchable' => true],
+        ['key' => 'nodes.usage', 'command' => 'onhost:nodes:usage', 'name' => 'Obsazenost disků uzlů', 'does' => 'zeptá se každého webového uzlu, jak plný má disk, aby umísťování mělo s čím počítat', 'runs' => 'každých 15 minut', 'switchable' => true],
+        ['key' => 'sites.integrity', 'command' => 'onhost:sites:integrity', 'name' => 'Kontrola napadení webů', 'does' => 'hledá kód ve složkách pro nahrané soubory a otisky webshellů; jen hlásí, nikdy nezasahuje', 'runs' => 'denně 04:40', 'switchable' => true],
+        ['key' => 'dns.check', 'command' => 'onhost:dns:check', 'name' => 'Kontrola DNS zákaznických domén', 'does' => 'porovná, co veřejné DNS odpovídá, s tím, co jsme pro doménu publikovali; vlastní zónu opraví, zbytek řekne zákazníkovi', 'runs' => 'denně 05:10', 'switchable' => true],
         ['key' => 'game.migration', 'command' => null, 'name' => 'Stěhování herních serverů', 'does' => 'záloha, nový server na jiném uzlu, přenos archivu, přepnutí adresy, úklid — bez zásahu do hry', 'runs' => 'na pokyn obsluhy', 'switchable' => false],
     ];
 

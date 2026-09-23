@@ -17,6 +17,7 @@ use Onhost\Domain\Compliance\ComplianceService;
 use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Dns\Models\DnsRecord;
 use Onhost\Domain\Dns\Models\DnsZone;
+use Onhost\Domain\Dns\PublicDnsCheck;
 use Onhost\Domain\Domains\DomainRenewalScheduler;
 use Onhost\Domain\Domains\DomainService;
 use Onhost\Domain\Domains\Models\RegistrarConnection;
@@ -507,6 +508,7 @@ Schedule::command('onhost:digest:weekly')->weeklyOn(1, '07:00')->withoutOverlapp
 Schedule::command('onhost:nodes:check')->dailyAt('05:20')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:nodes:usage')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:sites:integrity')->dailyAt('04:40')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:dns:check')->dailyAt('05:10')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:digest:staff-daily')->dailyAt('07:15')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:ledger:verify')->dailyAt('05:00')->onOneServer();
 
@@ -643,6 +645,17 @@ Artisan::command('onhost:sites:integrity {--limit=200}', function (SiteIntegrity
     $ledger->record('sites.integrity', $result);
     $this->table(['checked', 'suspicious', 'skipped', 'errors'], [$result]);
 })->purpose('Look at every site for the marks a compromise leaves (code in upload folders, web-shell fingerprints) and tell the operators; it never acts on its own');
+
+Artisan::command('onhost:dns:check {--limit=200}', function (PublicDnsCheck $check, AutomationLedger $ledger) {
+    if ($ledger->off('dns.check')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    $result = $check->run((int) $this->option('limit'));
+    $ledger->record('dns.check', $result);
+    $this->table(['checked', 'problems', 'repaired', 'told', 'errors'], [$result]);
+})->purpose('Compare what public DNS answers for every customer domain with what the platform published for it: repair our own zones, tell the customer about the DNS they hold elsewhere');
 
 Artisan::command('onhost:nodes:check', function (NodePrerequisites $prerequisites, AutomationLedger $ledger) {
     if ($ledger->off('nodes.check')) {

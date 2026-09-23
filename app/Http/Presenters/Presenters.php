@@ -87,8 +87,24 @@ final class Presenters
                 'grace_until' => $service->terminate_at->toIso8601String(), 'days_left' => max(0, (int) now()->diffInDays($service->terminate_at, false)),
                 'archive_backup_id' => data_get($service->tags, 'deletion.archive_backup_id'), 'reason' => data_get($service->tags, 'deletion.reason'),
             ],
+            // what the world answers for the customer's domain, against what the platform published for it (PublicDnsCheck)
+            'dns' => self::dnsCheck($service),
             'terminate_at' => $service->terminate_at?->toIso8601String(), 'subscription_id' => $service->subscription_id, 'project_id' => $service->project_id, 'created_at' => $service->created_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * The problems the daily look found in public DNS, so the panel can show them without asking a resolver while
+     * somebody waits. Null when the domain answers the way it should.
+     *
+     * @return array{problems:list<array<string,string>>, checked_at:?string}|null
+     */
+    private static function dnsCheck(Service $service): ?array
+    {
+        $check = (array) data_get($service->tags, 'dns_check', []);
+        $problems = array_values(array_filter((array) ($check['problems'] ?? []), 'is_array'));
+
+        return $problems === [] ? null : ['problems' => $problems, 'checked_at' => isset($check['checked_at']) ? (string) $check['checked_at'] : null];
     }
 
     /** @param bool $reveal whether the reader manages the service: only then is a secret the run generated shown, and only while its window lasts (OperationSecrets) */

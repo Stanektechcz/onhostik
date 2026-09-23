@@ -101,3 +101,14 @@ it('reports the scheduler and the worker heartbeat, alerts once when the worker 
     expect($checks->firstWhere('check', 'operation backlog'))->toMatchArray(['status' => 'WARN']);
     expect($this->get('/metrics')->assertOk()->getContent())->toContain('onhost_operations_backlog{queue="provider-pterodactyl"} 2')->toContain('onhost_operations_backlog_threshold 2');
 });
+
+it('lists every rule a scheduled command can be switched off by', function () {
+    $console = (string) file_get_contents(base_path('routes/console.php'));
+    preg_match_all("/->off\('([a-z0-9_.]+)'\)/", $console, $m);
+    $used = array_values(array_unique($m[1]));
+    $listed = array_column(AutomationLedger::RULES, 'key');
+
+    // a rule the console asks about but never lists is one staff cannot switch off — the console shows what it can
+    expect(count($used))->toBeGreaterThan(10)
+        ->and(array_values(array_diff($used, $listed)))->toBe([], 'add these to AutomationLedger::RULES: '.implode(', ', array_diff($used, $listed)));
+});

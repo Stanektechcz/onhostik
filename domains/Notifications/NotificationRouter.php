@@ -48,6 +48,9 @@ final class NotificationRouter
             'iam.approval.requested' => $this->internal($m, 'security', 'Žádost o schválení: '.($p['action'] ?? ''), trim((string) ($p['requester'] ?? '').' · '.(string) ($p['reason'] ?? ''), ' ·'), '/sprava/nastaveni/schvalovani', 'warn'),
             'iam.approval.decided' => $this->internal($m, 'security', (($p['decision'] ?? '') === 'approved' ? 'Žádost schválena: ' : 'Žádost zamítnuta: ').($p['action'] ?? ''), trim((string) ($p['decider'] ?? '').' · '.(string) ($p['note'] ?? ''), ' ·'), '/sprava/nastaveni/schvalovani'),
             // one service shared with another person: the organization sees who was let in and when that ended
+            // DNS the customer holds somewhere else is the one thing the platform cannot put right for them: what is
+            // ours the check repairs before it says anything, so a letter here always means something they must do
+            'service.dns.problem' => $this->customer($m, 'service', 'Nastavení DNS u domény '.(string) (data_get($p, 'problems.0.domain') ?? $p['hostname'] ?? ''), self::dnsProblems($p), '/panel/sluzby', 'warn'),
             'service.access.granted' => $this->customer($m, 'account', 'Služba sdílena: '.($p['service'] ?? ''), ($p['email'] ?? '').(($p['state'] ?? '') === 'pending' ? ' · čeká na přijetí pozvánky' : ' · přístup je aktivní').($until !== '' ? ' · do '.$until : ''), '/panel/sluzby'),
             'service.access.revoked' => $this->customer($m, 'account', 'Sdílení služby ukončeno: '.($p['service'] ?? ''), (string) ($p['email'] ?? ''), '/panel/sluzby'),
             'service.access.expired' => $this->customer($m, 'account', 'Sdílení služby vypršelo: '.($p['service'] ?? ''), (string) ($p['email'] ?? ''), '/panel/sluzby'),
@@ -327,6 +330,31 @@ final class NotificationRouter
             'tenant.sandbox' => $this->customer($m, 'account', ! empty($p['enabled']) ? 'Účet je v režimu sandbox' : 'Režim sandbox ukončen', ! empty($p['enabled']) ? 'Služby se zřizují v laboratorním prostředí; kredit '.$money(['minor' => (int) ($p['credit'] ?? 0), 'currency' => $org?->currency ?? 'CZK']).' je určen k testování.' : 'Nové objednávky jdou do produkce.', '/panel/nastaveni'),
             default => null,
         };
+    }
+
+    /** What is wrong with the domain, in the words the customer can act on. */
+    private static function dnsProblems(array $payload): string
+    {
+        $words = [
+            'site_missing' => 'doména zatím nikam nemíří',
+            'site_elsewhere' => 'doména míří jinam než na váš web u nás',
+            'mx_missing' => 'pošta nemá kam přijít (chybí MX)',
+            'mx_elsewhere' => 'pošta domény chodí jinam',
+            'spf_missing' => 'chybí SPF, odeslaná pošta skončí ve spamu',
+            'spf_without_us' => 'SPF nezahrnuje náš server',
+            'dkim_missing' => 'chybí podpis DKIM',
+            'dkim_mismatch' => 'v DNS je jiný klíč DKIM',
+            'dmarc_missing' => 'chybí DMARC',
+        ];
+        $said = [];
+        foreach ((array) ($payload['problems'] ?? []) as $problem) {
+            $kind = (string) ($problem['kind'] ?? '');
+            if (isset($words[$kind])) {
+                $said[$kind] = $words[$kind];
+            }
+        }
+
+        return ($said === [] ? 'DNS domény neodpovídá tomu, co jsme pro ni nastavili' : implode(' · ', $said)).'. Záznamy k nastavení najdete u služby.';
     }
 
     private function customer(OutboxMessage $m, string $kind, string $title, string $body, string $surface, string $severity = 'info', ?string $mailTo = null, ?string $template = null, array $vars = []): void

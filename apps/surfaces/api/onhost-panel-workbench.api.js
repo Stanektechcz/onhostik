@@ -193,6 +193,22 @@
             act(cmp, sel, 'resume', {}, [], _('Služba se obnovuje', 'The service is coming back'), _('Plánované odstranění jsme zrušili.', 'The planned removal is cancelled.'));
           })] });
       }
+      var dnsP = sel.dns && sel.dns.problems && sel.dns.problems.length ? sel.dns : null; // what the world answers for the domain, against what we published for it
+      if (dnsP) {
+        var dnsWords = {
+          site_missing: _('doména zatím nikam nemíří', 'the domain does not point anywhere yet'),
+          site_elsewhere: _('doména míří jinam než na web u nás', 'the domain points somewhere other than the site with us'),
+          mx_missing: _('pošta nemá kam přijít (chybí MX)', 'mail has nowhere to arrive (no MX)'),
+          mx_elsewhere: _('pošta domény chodí jinam', 'the mail of the domain goes elsewhere'),
+          spf_missing: _('chybí SPF', 'no SPF'), spf_without_us: _('SPF nezahrnuje náš server', 'SPF does not include our server'),
+          dkim_missing: _('chybí podpis DKIM', 'no DKIM signature'), dkim_mismatch: _('v DNS je jiný klíč DKIM', 'a different DKIM key is in DNS'),
+          dmarc_missing: _('chybí DMARC', 'no DMARC')
+        };
+        var said = dnsP.problems.map(function (p) { return (dnsWords[p.kind] || p.kind) + ' (' + p.domain + ')'; }).join(' · ');
+        var toSet = dnsP.problems.map(function (p) { return p.expected; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; }).join(' · ');
+        rows.unshift({ cells: [cell(_('Nastavení DNS', 'DNS settings'), '1 1 220px'), cell(said, '1 1 300px'), cell(dnsP.checked_at ? new Date(dnsP.checked_at).toLocaleDateString('cs-CZ') : '—', '0 0 130px', 1)],
+          note: _('Doménu spravuje DNS, které jsme nenastavili my — zadejte u svého poskytovatele: ', 'The domain is run by DNS we do not set — add these at your provider: ') + toSet });
+      }
       var cp = sel.control_plane && sel.control_plane.available === false ? sel.control_plane : null; // the panel API and the service fail independently (H324)
       if (cp) {
         var untilC = cp.until ? new Date(cp.until).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
