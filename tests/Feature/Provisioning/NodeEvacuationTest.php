@@ -18,18 +18,21 @@ use Onhost\Platform\Commands\CommandContext;
 beforeEach(fn () => Http::preventStrayRequests());
 
 it('names the services that stay on the node instead of leaving them out of the answer', function () {
+    Http::preventStrayRequests();
     [, $org] = $this->customerWithOrganization();
-    $service = featureWebService($org, 'aapanel');
+    $service = featureWebService($org, 'aapanel');           // a web hosting moves now (WebMigrationWorkflow)
+    $mail = featureMailService($org);                        // its family still has no saga: it stays, and says so
     $node = Node::query()->findOrFail($service->node_id);
+    $mail->forceFill(['node_id' => $node->id])->save();
 
     $result = app(ServiceMigrationService::class)->evacuate($node, null, 'hardware swap', CommandContext::system('test'));
 
     expect($result['drained'])->toBeTrue()
-        ->and($result['started'])->toBe([])
         ->and($result['staying'])->toBe(1)                       // the operator is told the node is not empty
-        ->and(array_column($result['skipped'], 'service_id'))->toBe([$service->id])
+        ->and(array_column($result['skipped'], 'service_id'))->toBe([$mail->id])
         ->and($result['skipped'][0]['error'])->toBe('migration_unsupported')
-        ->and($result['skipped'][0]['label'])->toBe($service->label ?: $service->name);
+        ->and($result['skipped'][0]['family'])->toBe('mail')
+        ->and(collect($result['started'])->pluck('service_id')->all())->toBe([$service->id]);
 });
 
 it('leaves a node with nothing on it saying nothing stays', function () {

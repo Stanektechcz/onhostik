@@ -28,8 +28,9 @@ final class ServiceIdentityCheck
 {
     /** Remote types a family may legitimately bind to; anything else is refused outright. */
     private const TYPES = [
-        'web' => ['web_domain', 'site'],
-        'managed' => ['web_domain', 'site'],
+        // the last one of each: the copy a migration is building (WebMigrationWorkflow::TARGET_BINDING)
+        'web' => ['web_domain', 'site', 'web_migration'],
+        'managed' => ['web_domain', 'site', 'web_migration'],
         'mail' => ['mail_domain'],
         'game' => ['server', 'game_server', 'server_migration'], // the last one: the copy a migration is building (GameMigrationWorkflow::TARGET_BINDING)
         'cloud' => ['qemu', 'lxc', 'vm', 'server'],

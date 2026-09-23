@@ -198,8 +198,8 @@ it('undoes a migration that fails before the switch: the half-built target is de
     expect(Notification::query()->where('audience', 'internal')->where('title', 'like', 'Stěhování serveru mc-liga selhalo%')->exists())->toBeTrue();
 
     // refusals: not a game service, a second migration while one is queued, a node of another panel
-    $web = featureWebService($org, 'aapanel');
-    $this->postJson("/v1/staff/services/{$web->id}/migrate", [])->assertStatus(422)->assertJsonPath('error', 'migration_unsupported');
+    $mail = featureMailService($org); // a family that still has no saga of its own — web hostings move now (WebMigrationWorkflow)
+    $this->postJson("/v1/staff/services/{$mail->id}/migrate", [])->assertStatus(422)->assertJsonPath('error', 'migration_unsupported');
     $this->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'nope'])->assertStatus(422)->assertJsonPath('error', 'node_unknown'); // refused before any saga starts
     Service::query()->whereKey($service->id)->update(['state' => 'SUSPENDED']);
     $this->postJson("/v1/staff/services/{$service->id}/migrate", [])->assertStatus(409)->assertJsonPath('error', 'service_state_invalid');

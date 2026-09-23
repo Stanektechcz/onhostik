@@ -43,6 +43,15 @@ final class ProviderRegistry
         return $this->adapters[$providerKey] ?? null;
     }
 
+    /**
+     * Test seam: the adapter to hand out for an instance, instead of building one from its credentials. The suite
+     * uses it to drive a saga that talks to two panels at once (`WebMigrationTest`); nothing in production calls it.
+     */
+    public function useAdapter(string $instanceId, ProviderAdapter $adapter): void
+    {
+        $this->instances[$instanceId] = $adapter;
+    }
+
     public function forInstance(ProviderInstance $instance): ProviderAdapter
     {
         if (isset($this->instances[$instance->id])) {

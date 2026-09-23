@@ -10,6 +10,7 @@ use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Workflows\GameMigrationWorkflow;
 use Onhost\Domain\Provisioning\Workflows\VpsMigrationWorkflow;
+use Onhost\Domain\Provisioning\Workflows\WebMigrationWorkflow;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -27,7 +28,7 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  */
 final class ServiceMigrationService
 {
-    public const WORKFLOWS = ['game' => GameMigrationWorkflow::class, 'cloud' => VpsMigrationWorkflow::class];
+    public const WORKFLOWS = ['game' => GameMigrationWorkflow::class, 'cloud' => VpsMigrationWorkflow::class, 'web' => WebMigrationWorkflow::class, 'managed' => WebMigrationWorkflow::class];
 
     public const EVACUATE_LIMIT = 50;
 
@@ -101,6 +102,14 @@ final class ServiceMigrationService
             $operation->forceFill(['next_run_at' => $startsAt])->save();
             $schedule += ['from' => $windowFrom->toIso8601String(), 'to' => $windowTo->toIso8601String(), 'starts_at' => $startsAt->toIso8601String(), 'chosen_at' => null];
             $this->outbox->publish(GenericEvent::of('service.migration.scheduled', 'service', $service->id, ['label' => $service->label ?: $service->name, 'from' => $schedule['from'], 'to' => $schedule['to'], 'starts_at' => $schedule['starts_at'], 'reason' => $reason], $service->organization_id));
+        }
+        // A worker can pick the operation up before this line runs — and in the suite the queue runs it inline — so
+        // the run may be already over by the time its own start writes the schedule down. What the saga recorded
+        // about its own end is never overwritten with `running`.
+        $service = $service->fresh() ?? $service;
+        $recorded = (array) data_get($service->tags, 'migration', []);
+        if ((string) ($recorded['operation_id'] ?? $operation->id) === $operation->id && in_array((string) ($recorded['state'] ?? ''), ['finished', 'failed'], true)) {
+            $schedule = array_replace($schedule, $recorded);
         }
         $service->forceFill(['tags' => array_replace((array) $service->tags, ['migration' => $schedule])])->save();
         $this->audit->record($scoped, 'service.migration.start', 'succeeded', ['target_node_id' => $targetNodeId, 'reason' => $reason, 'operation_id' => $operation->id, 'window' => $window ? [$windowFrom->toIso8601String(), $windowTo->toIso8601String()] : null], 'service', $service->id);

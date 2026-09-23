@@ -95,6 +95,10 @@
   off `mailboxes`, the web branch only set `mail`), and there was nowhere to put one — the mail domain is now made at
   the first address, with DKIM and the mail records, and removed with the service.
 
+- **A web hosting can be moved to another node** (`WebMigrationWorkflow`, so a shared node can be drained): target →
+  readiness → fresh archive → site on the target → data → switch → certificate → remove the source. A database is
+  carried only when the platform holds its password, and arrives with the same name, user and password.
+
 - **A certificate is asked for only the names that already point at the node** (`DomainPointing`): the rest are
   recorded as waiting, and when nothing points here the authority is never asked (its five checks an hour per
   hostname are not spent on a domain that has not moved yet). With no node address known, the panel decides as before.

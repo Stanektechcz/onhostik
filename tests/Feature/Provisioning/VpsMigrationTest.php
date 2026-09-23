@@ -67,7 +67,7 @@ it('migrates a running VM live to another node of its cluster and switches the b
     $this->actingAs($staff, 'sanctum');
     $this->withHeader('Idempotency-Key', 'vmig-2')->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'nope'])->assertStatus(422)->assertJsonPath('error', 'node_unknown');
     $this->flushHeaders();
-    $web = featureWebService($org, 'aapanel');
-    $this->withHeader('Idempotency-Key', 'vmig-3')->postJson("/v1/staff/services/{$web->id}/migrate", [])->assertStatus(422)->assertJsonPath('error', 'migration_unsupported');
+    $mail = featureMailService($org); // a family that still has no saga of its own — web hostings move now (WebMigrationWorkflow)
+    $this->withHeader('Idempotency-Key', 'vmig-3')->postJson("/v1/staff/services/{$mail->id}/migrate", [])->assertStatus(422)->assertJsonPath('error', 'migration_unsupported');
     $this->flushHeaders();
 });
