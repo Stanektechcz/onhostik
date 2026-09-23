@@ -149,16 +149,20 @@ final class ServiceMigrationService
             $this->board->setState($node, 'draining', $reason ?? 'evacuation', $context, false, [], true);
             $drained = true;
         }
-        $out = ['node' => $node->name, 'drained' => $drained, 'started' => [], 'skipped' => []];
-        $services = Service::query()->where('node_id', $node->id)->whereIn('family', array_keys(self::WORKFLOWS))->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->orderBy('created_at')->limit(self::EVACUATE_LIMIT)->get();
+        $out = ['node' => $node->name, 'drained' => $drained, 'started' => [], 'skipped' => [], 'staying' => 0];
+        // everything living on the node, not only the families with a saga of their own: a web hosting that cannot
+        // be moved was not moved, not refused and not even listed, so the operator read `skipped: 0` and believed the
+        // node was empty before they touched the hardware
+        $services = Service::query()->where('node_id', $node->id)->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->orderBy('created_at')->limit(self::EVACUATE_LIMIT)->get();
         foreach ($services as $service) {
             try {
                 $out['started'][] = Presenters::operation($this->start($service, $targetNodeId, $reason, $context, $windowFrom, $windowTo), true) + ['label' => $service->label ?: $service->name];
             } catch (DomainError $e) {
-                $out['skipped'][] = ['service_id' => $service->id, 'label' => $service->label ?: $service->name, 'error' => $e->error];
+                $out['skipped'][] = ['service_id' => $service->id, 'label' => $service->label ?: $service->name, 'family' => $service->family, 'error' => $e->error, 'reason' => $e->getMessage()];
+                $out['staying']++;
             }
         }
-        $this->audit->record($context, 'node.evacuate', 'succeeded', ['node' => $node->name, 'target_node_id' => $targetNodeId, 'started' => count($out['started']), 'skipped' => count($out['skipped'])], 'node', $node->id);
+        $this->audit->record($context, 'node.evacuate', 'succeeded', ['node' => $node->name, 'target_node_id' => $targetNodeId, 'started' => count($out['started']), 'staying' => $out['staying'], 'skipped' => count($out['skipped'])], 'node', $node->id);
 
         return $out;
     }
