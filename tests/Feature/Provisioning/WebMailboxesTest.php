@@ -126,3 +126,20 @@ it('archives the mailboxes of a web service before anything of it is removed', f
     expect(array_keys($archive['parts']))->toContain('mail-domain.json')
         ->and(json_decode((string) Storage::disk(app(FinalArchive::class)->disk()->getConfig()['driver'] ?? 'local')->get($archive['set'].'/mail-domain.json') ?: '{}', true)['mailboxes'][0]['address'] ?? null)->toBe('info@shop.cz');
 });
+
+it('offers the panel\'s mail tools on the web service too, and makes them in the mail domain', function () {
+    $calls = [];
+    webMailPanel($calls);
+    [$user, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'ispconfig');
+
+    $features = app(ServiceFeatures::class)->features($service);
+    foreach (['forwards', 'catchall', 'autoresponder', 'spam', 'mail_filters', 'mailing_lists', 'fetchmail', 'mail_usage'] as $tool) {
+        expect($features[$tool]['enabled'] ?? false)->toBeTrue("the web service should offer {$tool}");
+    }
+
+    // a mail call is made with the mail domain's own binding: on a separate mail server the site's number is not its number
+    driveOperation(app(ServiceService::class)->requestAction($service, 'alias.create', $this->contextFor($user, $org), 'wm-5', ['source' => 'sales@shop.cz', 'destination' => 'me@gmail.com']), 25);
+    $binding = ProviderBinding::query()->where('service_id', $service->id)->where('remote_type', 'mail_domain')->firstOrFail();
+    expect($binding->remote_id)->toBe('909')->and(in_array('mail_alias_add', $calls, true))->toBeTrue();
+});

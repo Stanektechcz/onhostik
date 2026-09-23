@@ -175,6 +175,7 @@ final class ServiceFeatures
             case 'managed':
                 $site = $adapter instanceof WebHostingProvider ? $adapter->siteFeatures() : self::fallbackSite($executor);
                 $flag = fn (string $k) => (bool) ($site[$k] ?? false);
+                $mailTools = $flag('mail') && (int) ($ent['mailboxes'] ?? 0) > 0 && $adapter instanceof MailToolsProvider;
                 $out += [
                     'site' => $on(true), 'php' => $on($flag('php')), 'databases' => $on($flag('databases'), (int) ($ent['databases'] ?? 1)), 'ftp' => $on($flag('ftp'), (int) ($ent['ftp_accounts'] ?? 5)),
                     'ssl' => $on($flag('ssl')), 'https' => $on($flag('https')), 'cron' => $on($flag('cron'), (int) ($ent['cron_jobs'] ?? 10)), 'logs' => $on($flag('logs')),
@@ -185,6 +186,10 @@ final class ServiceFeatures
                     // „5 schránek“ is a number the customer has to be able to use: the mail domain is made at the first address
                     'mailboxes' => $on($flag('mail') && (int) ($ent['mailboxes'] ?? 0) > 0 && $adapter instanceof MailProvider, (int) ($ent['mailboxes'] ?? 0)),
                     'aliases' => $on($flag('mail') && (int) ($ent['mailboxes'] ?? 0) > 0 && $adapter instanceof MailProvider),
+                    'sending' => $on($flag('mail') && (int) ($ent['mailboxes'] ?? 0) > 0 && $adapter instanceof MailProvider),
+                    // …and the tools of the panel that go with them, exactly as a mail service has them
+                    'forwards' => $on($mailTools), 'catchall' => $on($mailTools), 'autoresponder' => $on($mailTools), 'spam' => $on($mailTools),
+                    'mail_filters' => $on($mailTools), 'mailing_lists' => $on($mailTools), 'fetchmail' => $on($mailTools), 'mail_backups' => $on($mailTools), 'mail_usage' => $on($mailTools),
                     'file_manager' => $on($flag('file_manager')),
                     'errpages' => $on($flag('errpages')), 'directives' => $on($flag('directives'), null, $executor === 'aapanel' ? ['rewrite'] : ['apache', 'nginx']), 'protected' => $on($flag('protected'), null, $executor === 'aapanel' ? 'site' : 'folders'),
                     'db_users' => $on($flag('db_users')), 'shell' => $on($flag('ssh') && ! empty($ent['ssh']) && $executor !== 'aapanel', (int) ($ent['shell_users'] ?? 2)), 'stats' => $on($flag('stats')), 'ssl_upload' => $on($flag('ssl_upload')),

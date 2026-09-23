@@ -90,6 +90,16 @@ final class ServiceActionWorkflow implements Workflow
         ...ServiceFeatures::GAME_ACTIONS,
     ];
 
+    /**
+     * Everything that happens inside a mail domain. On a web service that domain is a resource of its own — possibly
+     * on a mail server of its own — so these actions are made with its binding and not with the site's.
+     */
+    public const MAIL_ACTIONS = [
+        'mailbox.create', 'mailbox.update', 'mailbox.delete', 'alias.create', 'alias.delete', 'sending.set',
+        'forward.create', 'forward.delete', 'catchall.set', 'autoresponder.set', 'spam.policy', 'spam.list.add', 'spam.list.delete',
+        'filter.create', 'filter.delete', 'list.create', 'list.delete', 'fetchmail.create', 'fetchmail.delete', 'mailbox.backup', 'mailbox.restore',
+    ];
+
     /** Actions that run as sagas of their own (ServiceService::actionWorkflowFor); listed here so the API validates them alike. */
     public const PLATFORM_ACTIONS = ['staging.create', 'staging.refresh', 'staging.push', 'staging.delete', 'deploy.run', 'deploy.rollback', 'wp.install', 'wp.update', 'wp.cache', 'wp.plugin', 'import.run', 'cdn.enable', 'cdn.disable', 'cdn.purge', 'ssl.wildcard', 'site.create', 'site.delete'];
 
@@ -264,7 +274,10 @@ final class ServiceActionWorkflow implements Workflow
 
             public function run(StepContext $context): StepResult
             {
-                $ref = $this->ref($context);
+                // mail on a web service happens in its own mail domain, which may live on a mail server of its own:
+                // the web binding's number and node are the site's, and a mail call made with them lands on the wrong one
+                $mailAction = in_array($this->action, ServiceActionWorkflow::MAIL_ACTIONS, true);
+                $ref = ($mailAction ? $context->binding('mail_domain')?->ref() : null) ?? $this->ref($context);
                 $p = fn (string $k, mixed $d = null) => $context->desired($k, $d);
                 $owed = (array) $p('_limit', []); // the plan's limit could not be counted when the request came in: the panel was away (H02)
                 if (isset($owed['kind'], $owed['limit']) && count($context->container->make(ServiceFeatures::class)->resources($this->service($context), (string) $owed['kind'], true)) >= (int) $owed['limit']) {
