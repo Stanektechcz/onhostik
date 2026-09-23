@@ -22,6 +22,7 @@ use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\IncludedServices;
 use Onhost\Domain\Services\LegalHold;
+use Onhost\Domain\Services\Mail\MailDomains;
 use Onhost\Domain\Services\Mail\MailSettings;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\MailDomain;
@@ -279,7 +280,13 @@ final class ServiceActionWorkflow implements Workflow
                 // mail on a web service happens in its own mail domain, which may live on a mail server of its own:
                 // the web binding's number and node are the site's, and a mail call made with them lands on the wrong one
                 $mailAction = in_array($this->action, ServiceActionWorkflow::MAIL_ACTIONS, true);
-                $ref = ($mailAction ? $context->binding('mail_domain')?->ref() : null) ?? $this->ref($context);
+                $mailRef = null;
+                if ($mailAction) { // and to the domain of ITS OWN address: a service can have mail in several of its domains
+                    $mailService = $this->service($context);
+                    $address = (string) ($context->desired('address') ?? $context->desired('source') ?? '');
+                    $mailRef = MailDomains::forDomain($mailService, MailDomains::domainOf($address))?->ref() ?? MailDomains::firstRefOf($mailService);
+                }
+                $ref = $mailRef ?? $this->ref($context);
                 $p = fn (string $k, mixed $d = null) => $context->desired($k, $d);
                 $owed = (array) $p('_limit', []); // the plan's limit could not be counted when the request came in: the panel was away (H02)
                 if (isset($owed['kind'], $owed['limit'])) {
@@ -1036,13 +1043,19 @@ final class ServiceActionWorkflow implements Workflow
             public function run(StepContext $context): StepResult
             {
                 $service = $this->service($context);
-                if (! in_array($service->family, ['web', 'managed'], true) || $context->binding('mail_domain') !== null) {
-                    return StepResult::skip(); // a mail service has its own; a web service that already has one keeps it
+                if (! in_array($service->family, ['web', 'managed'], true)) {
+                    return StepResult::skip(); // a mail service's domain is its own primary resource
                 }
                 $site = $this->binding($context);
-                $domain = mb_strtolower((string) ($site->meta['domain'] ?? $service->spec('domain', $service->hostname)));
+                // the domain of the address being made, not the site's name: a mail domain made for the wrong name is a
+                // node that never accepts mail for the address the customer was just handed (MailDomains)
+                $address = (string) ($context->desired('address') ?? $context->desired('source') ?? '');
+                $domain = MailDomains::domainOf($address) ?: mb_strtolower((string) ($site->meta['domain'] ?? $service->spec('domain', $service->hostname)));
                 if ($domain === '') {
                     return StepResult::fail('the service has no domain to make mail for', false);
+                }
+                if (MailDomains::forDomain($service, $domain) !== null) {
+                    return StepResult::skip(); // the service already has mail for this domain
                 }
                 $mail = $this->capability($context, MailProvider::class);
                 $result = $mail->createMailDomain($context->spec('mail_domain', ['domain' => $domain, 'entitlements' => (array) $service->entitlements]));
@@ -1109,15 +1122,19 @@ final class ServiceActionWorkflow implements Workflow
             public function run(StepContext $context): StepResult
             {
                 $service = $this->service($context);
-                $binding = $context->binding('mail_domain');
-                if (! in_array($service->family, ['web', 'managed'], true) || $binding === null) {
+                $bindings = MailDomains::bindingsOf($service);
+                if (! in_array($service->family, ['web', 'managed'], true) || $bindings->isEmpty()) {
                     return StepResult::skip(); // a mail service's own domain goes with its own terminate step
                 }
-                $result = $this->capability($context, MailProvider::class)->deleteMailDomain($binding->ref());
+                $mail = $this->capability($context, MailProvider::class);
+                $result = null;
+                foreach ($bindings as $binding) { // every domain the service has mail in, not only the first of them
+                    $result = $mail->deleteMailDomain($binding->ref());
+                    $binding->delete();
+                }
                 MailDomain::query()->where('service_id', $service->id)->update(['state' => 'deleted']);
-                $binding->delete();
 
-                return $this->settle($result, ['mail_domain_removed' => true]);
+                return $this->settle($result, ['mail_domains_removed' => $bindings->count()]);
             }
         };
     }

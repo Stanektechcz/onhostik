@@ -10,6 +10,7 @@ use Illuminate\Support\Str;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
+use Onhost\Domain\Services\Mail\MailDomains;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -126,9 +127,8 @@ final class FinalArchive
                     // for the site, and the removal takes that domain — so it may not be the one thing nobody kept
                     'web', 'managed' => (function () use ($service, $adapter, $ref, $work, &$gaps, &$attempts, $freshOnly, $options) {
                         $this->web($adapter, $ref, $work, $gaps, $attempts, $freshOnly, isset($options['only_database']) ? (string) $options['only_database'] : null);
-                        $mail = ProviderBinding::query()->where('service_id', $service->id)->where('remote_type', 'mail_domain')->first();
-                        if ($mail !== null) {
-                            $this->mail($adapter, $mail->ref(), $work, $gaps);
+                        foreach (MailDomains::bindingsOf($service) as $index => $mail) { // a service can have mail in several of its domains
+                            $this->mail($adapter, $mail->ref(), $work, $gaps, $index === 0 ? null : MailDomains::nameOf($mail));
                         }
                     })(),
                     'game' => $this->game($adapter, $ref, $work, $gaps),
@@ -652,7 +652,8 @@ final class FinalArchive
     }
 
     /** Mail domain, mailboxes, aliases and the DKIM public key; message content has no export in the panel API. */
-    private function mail(?object $adapter, ?ResourceRef $ref, string $work, array &$gaps): void
+    /** @param ?string $domain the name of a further mail domain: each one is kept as a part of its own, complete */
+    private function mail(?object $adapter, ?ResourceRef $ref, string $work, array &$gaps, ?string $domain = null): void
     {
         if (! $adapter instanceof MailProvider || $ref === null) {
             $gaps[] = 'mail: the panel offers no mail export';
@@ -660,7 +661,7 @@ final class FinalArchive
             return;
         }
         $data = ['mailboxes' => $adapter->listMailboxes($ref), 'aliases' => $adapter->listAliases($ref), 'dkim' => $adapter->dkim($ref)];
-        $this->write($work, 'mail-domain.json', (string) json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $this->write($work, $domain === null ? 'mail-domain.json' : 'mail-domain-'.$domain.'.json', (string) json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         $gaps[] = 'mail: mailbox contents are not exportable through the panel API (IMAP copy is a separate migration)';
     }
 

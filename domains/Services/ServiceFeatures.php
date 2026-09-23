@@ -14,6 +14,7 @@ use Onhost\Domain\Provisioning\Models\IpAddress;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
+use Onhost\Domain\Services\Mail\MailDomains;
 use Onhost\Domain\Services\Mail\MailSettings;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -303,6 +304,9 @@ final class ServiceFeatures
         }
         $adapter = $this->adapter($service, true);
         $ref = $this->ref($service);
+        // a web service's mail lives in a mail domain of its own: the site's number is not its mail domain's, and a
+        // listing read with the site's ref answered for a domain the customer does not have mail in (MailDomains)
+        $ref = (in_array($kind, MailDomains::KINDS, true) ? MailDomains::firstRefOf($service) : null) ?? $ref;
         $list = match ($kind) {
             'databases' => $this->web($adapter)->listDatabases($ref),
             'ftp' => $this->web($adapter)->listFtpAccounts($ref),
@@ -375,20 +379,21 @@ final class ServiceFeatures
             'cdn' => app(CdnService::class)->status($service),
             'imports' => app(ImportService::class)->list($service),
             // mail tools
-            'mail_forwards' => $this->mailTools($adapter)->listForwards($ref),
+            'mail_forwards' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mailTools($adapter)->listForwards($one)),
             'mail_catchall' => $this->mailTools($adapter)->catchAll($ref) ?? [],
             'mail_autoresponder' => $this->mailTools($adapter)->autoresponder(self::mailboxRef($ref, (string) ($params['remote_id'] ?? ''))),
             'mail_spam' => ['policies' => $this->mailTools($adapter)->spamPolicies($ref), 'mailbox' => ($params['remote_id'] ?? '') !== '' ? $this->mailTools($adapter)->mailboxSpamPolicy(self::mailboxRef($ref, (string) $params['remote_id'])) : null],
-            'mail_spam_lists' => $this->mailTools($adapter)->listSpamLists($ref),
+            'mail_spam_lists' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mailTools($adapter)->listSpamLists($one)),
             'mail_filters' => $this->mailTools($adapter)->listFilters(self::mailboxRef($ref, (string) ($params['remote_id'] ?? ''))),
-            'mail_lists' => $this->mailTools($adapter)->listMailingLists($ref),
-            'mail_fetchmail' => $this->mailTools($adapter)->listFetchmail($ref),
-            'mail_backups' => $this->mailTools($adapter)->listMailboxBackups($ref),
+            'mail_lists' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mailTools($adapter)->listMailingLists($one)),
+            'mail_fetchmail' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mailTools($adapter)->listFetchmail($one)),
+            'mail_backups' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mailTools($adapter)->listMailboxBackups($one)),
             'mail_usage' => ['mailboxes' => $this->mailTools($adapter)->mailboxUsage($ref), 'webmail' => $this->mailTools($adapter)->webmailUrl($ref)],
             // where a mailbox is reached: the platform could make one and then said nothing about the server or the ports
             'mail_access' => MailSettings::of($service, $adapter instanceof MailToolsProvider ? $this->mailTools($adapter)->webmailUrl($ref) : null),
-            'mailboxes' => $this->mail($adapter)->listMailboxes($ref),
-            'aliases' => $this->mail($adapter)->listAliases($ref),
+            // every domain the service has mail in, so that what the plan sells is counted over all of them
+            'mailboxes' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mail($adapter)->listMailboxes($one)),
+            'aliases' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mail($adapter)->listAliases($one)),
             'dkim' => $this->mail($adapter)->dkim($ref) ?? [],
             // game tools (GameToolsProvider)
             'status' => $this->gameTools($adapter)->status($ref),

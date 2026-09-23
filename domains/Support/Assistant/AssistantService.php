@@ -66,13 +66,54 @@ final class AssistantService
      * What the agent may read about ONE service, by family: listings that describe the service and carry neither secrets
      * nor file contents. Whatever comes back still passes the redactor, and the plan's own feature gates apply.
      */
-    private const READABLE = [
-        'web' => ['sites', 'databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'deployments', 'wordpress', 'cdn', 'node_projects', 'backups'],
-        'managed' => ['sites', 'databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'deployments', 'wordpress', 'cdn', 'node_projects', 'backups'],
-        'mail' => ['mailboxes', 'aliases', 'dkim', 'mail_forwards', 'mail_lists', 'mail_usage', 'backups'],
+    public const READABLE = [
+        // a web hosting holds mail now (MailDomains), and „jak si nastavím poštu“ is the question the chat is asked most
+        'web' => ['sites', 'databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'deployments', 'wordpress', 'cdn', 'node_projects', 'backups', 'mailboxes', 'aliases', 'mail_access', 'mail_forwards', 'mail_usage'],
+        'managed' => ['sites', 'databases', 'cron', 'subdomains', 'certificate', 'redirect', 'php_settings', 'quotas', 'monitoring', 'staging', 'deploy', 'deployments', 'wordpress', 'cdn', 'node_projects', 'backups', 'mailboxes', 'aliases', 'mail_access', 'mail_forwards', 'mail_usage'],
+        'mail' => ['mailboxes', 'aliases', 'dkim', 'mail_forwards', 'mail_lists', 'mail_usage', 'mail_access', 'backups'],
         'game' => ['status', 'schedules', 'allocations', 'backups'],
         'cloud' => ['snapshots', 'firewall', 'backups'],
         'data' => ['snapshots', 'backups'],
+    ];
+
+    /**
+     * And what it does not answer with, each with the reason. A listing the platform learns to serve is one the chat
+     * would serve too unless somebody decided otherwise, so a new kind has to be put in one list or the other before
+     * the suite is green again (`AssistantListingsTest`). What is here is the customer's to open in the panel, where
+     * they see what they are looking at and who is looking.
+     */
+    public const NOT_READABLE = [
+        'files' => 'file names and contents are read in the panel, not handed out by a chat',
+        'game_files' => 'file names and contents are read in the panel, not handed out by a chat',
+        'db_users' => 'accounts and who owns them',
+        'shell_users' => 'accounts and who owns them',
+        'database_access' => 'how to connect to a database, credentials and all',
+        'panel_access' => 'a sign-in to somebody else\'s panel',
+        'protected_folders' => 'who may open which part of the site',
+        'ftp' => 'accounts that let somebody into the site',
+        'site_settings' => 'the panel\'s own form; the chat answers what the setting does, not what it is set to',
+        'php' => 'php_settings already says the version and what the plan offers',
+        'security' => 'what protects the site is not a list to read out',
+        'http_versions' => 'part of the security listing',
+        'apps' => 'the node\'s applications, not the customer\'s question',
+        'tools' => 'what the panel offers, not what the service holds',
+        'proxies' => 'routing the customer does not set from a chat',
+        'default_docs' => 'a panel detail',
+        'cron_logs' => 'log lines belong on the screen that can page through them',
+        'monitoring_samples' => 'numbers by the thousand; monitoring says what they mean',
+        'certificates' => 'certificate says what the site has',
+        'imports' => 'a migration is followed on its own screen',
+        'mail_catchall' => 'a mail setting the customer changes in the panel',
+        'mail_autoresponder' => 'a mail setting the customer changes in the panel',
+        'mail_spam' => 'a mail setting the customer changes in the panel',
+        'mail_spam_lists' => 'addresses somebody decided to trust or refuse',
+        'mail_filters' => 'rules over the customer\'s own mail',
+        'mail_fetchmail' => 'sign-ins to mailboxes elsewhere',
+        'mail_backups' => 'backups says what there is',
+        'server_detail' => 'the game panel\'s own screen',
+        'startup' => 'the game panel\'s own screen',
+        'game_databases' => 'accounts and who owns them',
+        'subusers' => 'who has access to the game server',
     ];
 
     /** Extra system guidance when the LLM acts as the service-management agent (proposals become confirm buttons). */

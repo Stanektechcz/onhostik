@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
-use Onhost\Domain\Provisioning\Models\ProviderBinding;
+use Onhost\Domain\Services\Mail\MailDomains;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
@@ -45,7 +45,7 @@ final class SuspensionDepth
         $paused = $this->remembered($service);
         $errors = [];
         $transient = false;
-        foreach ($this->switches($adapter, $ref, self::mailRef($service)) as $kind => $switch) {
+        foreach ($this->switches($adapter, $ref, self::mailRefs($service)) as $kind => $switch) {
             foreach ($this->listing($switch['list'], $errors, $transient) as $row) {
                 if (! ($row['active'] ?? true)) {
                     continue;
@@ -68,7 +68,7 @@ final class SuspensionDepth
     public function resume(Service $service, object $adapter, ResourceRef $ref): array
     {
         $remembered = $this->remembered($service);
-        $switches = $this->switches($adapter, $ref, self::mailRef($service));
+        $switches = $this->switches($adapter, $ref, self::mailRefs($service));
         $left = $done = array_fill_keys(self::KINDS, []);
         $errors = [];
         $transient = false;
@@ -90,22 +90,40 @@ final class SuspensionDepth
      *
      * @return array<string, array{list:callable():array<int,array<string,mixed>>, set:callable(string,bool):mixed}>
      */
-    /** The mail domain a service was given for its mailboxes, if it has one (a web service's mail is its own resource). */
-    private static function mailRef(Service $service): ?ResourceRef
+    /** Every mail domain a service was given for its mailboxes (a web service's mail is a resource of its own). @return list<ResourceRef> */
+    private static function mailRefs(Service $service): array
     {
-        return ProviderBinding::query()->where('service_id', $service->id)->where('remote_type', 'mail_domain')->first()?->ref();
+        return MailDomains::refsOf($service);
     }
 
-    private function switches(object $adapter, ResourceRef $ref, ?ResourceRef $mail = null): array
+    /** @param list<ResourceRef> $mail */
+    private function switches(object $adapter, ResourceRef $ref, array $mail = []): array
     {
         $out = [];
-        if ($adapter instanceof MailProvider && $mail !== null) {
+        if ($adapter instanceof MailProvider && $mail !== []) {
             // a suspended site must not keep sending mail — an unpaid customer's mailboxes are a spam relay with a
             // bill attached, and a quarantined one is the reason the quarantine exists. Receiving stays on, so
-            // nothing addressed to the customer is lost while they are switched off.
+            // nothing addressed to the customer is lost while they are switched off. Every domain the service has
+            // mail in is switched, and each mailbox is written through the domain it actually belongs to.
+            $boxes = [];
+            $of = function () use ($adapter, $mail, &$boxes): array {
+                if ($boxes === []) {
+                    foreach ($mail as $domain) {
+                        foreach ($adapter->listMailboxes($domain) as $box) {
+                            $boxes[(string) $box['remote_id']] = [$domain, array_merge($box, ['active' => (bool) ($box['sending'] ?? true)])];
+                        }
+                    }
+                }
+
+                return $boxes;
+            };
             $out['mail'] = [
-                'list' => fn () => array_map(fn (array $box) => array_merge($box, ['active' => (bool) ($box['sending'] ?? true)]), $adapter->listMailboxes($mail)),
-                'set' => fn (string $id, bool $on) => $adapter->updateMailbox(new ResourceRef('mailbox', $id, $mail->node, ['client_id' => $mail->meta['client_id'] ?? null], $mail->serviceId), ['sending_enabled' => $on]),
+                'list' => fn () => array_values(array_map(fn (array $found) => $found[1], $of())),
+                'set' => function (string $id, bool $on) use ($adapter, $mail, $of) {
+                    $domain = $of()[$id][0] ?? $mail[0];
+
+                    return $adapter->updateMailbox(new ResourceRef('mailbox', $id, $domain->node, ['client_id' => $domain->meta['client_id'] ?? null], $domain->serviceId), ['sending_enabled' => $on]);
+                },
             ];
         }
         if ($adapter instanceof WebHostingProvider && $adapter instanceof WebToolsProvider) {
