@@ -3,11 +3,29 @@ param(
     [Parameter(Position = 0)][string] $Command = 'status',
     [switch] $Json,
     [switch] $Quick,
-    [switch] $E2E
+    [switch] $E2E,
+    [Parameter(ValueFromRemainingArguments = $true)][string[]] $Rest = @()
 )
 
 $ErrorActionPreference = 'Stop'
 $scripts = Join-Path $PSScriptRoot 'scripts\ai'
+
+# Array splatting would pass "-Title" as a value; forward the remaining arguments as positional + named splats.
+function ConvertTo-OnhostSplat {
+    param([string[]] $Items)
+    $named = @{}
+    $positional = @()
+    for ($i = 0; $i -lt $Items.Count; $i++) {
+        if ($Items[$i] -match '^-([A-Za-z]+)$') {
+            $name = $Matches[1]
+            if ($i + 1 -lt $Items.Count -and $Items[$i + 1] -notmatch '^-[A-Za-z]+$') { $named[$name] = $Items[$i + 1]; $i++ }
+            else { $named[$name] = $true }
+        } else {
+            $positional += $Items[$i]
+        }
+    }
+    return @{ named = $named; positional = $positional }
+}
 
 function Show-OnhostBrainHelp {
     @'
@@ -23,6 +41,8 @@ Usage: .\brain.ps1 <command> [-Quick] [-E2E] [-Json]
   context   Show the context loading order
   audit     Run doctor, full tests, and security checks
   release   Run release-readiness checks; never deploy
+  gate      Quality gate vs .ai/baseline (-Quick = critical flows; -Task TASK-0000 writes .ai/reports)
+  task      Parallel work: board | start | claim | release | finish (see .ai/DEVELOPMENT_RULES.md)
   help      Show this help
 '@ | Write-Host
 }
@@ -54,6 +74,18 @@ switch ($Command.ToLowerInvariant()) {
         & (Join-Path $scripts 'doctor.ps1'); if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         & (Join-Path $scripts 'test.ps1') -E2E; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         & (Join-Path $scripts 'security.ps1'); exit $LASTEXITCODE
+    }
+    'gate' {
+        $forward = ConvertTo-OnhostSplat $Rest
+        $named = $forward.named
+        $positional = $forward.positional
+        & (Join-Path $scripts 'gate.ps1') @positional @named -Quick:$Quick -Json:$Json; exit $LASTEXITCODE
+    }
+    'task' {
+        $forward = ConvertTo-OnhostSplat $Rest
+        $named = $forward.named
+        $positional = $forward.positional
+        & (Join-Path $scripts 'task.ps1') @positional @named -Json:$Json; exit $LASTEXITCODE
     }
     { $_ -in @('help', '-h', '--help') } { Show-OnhostBrainHelp; exit 0 }
     default {

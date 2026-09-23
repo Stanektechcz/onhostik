@@ -39,6 +39,12 @@ These rules are enforced by review and by the test suite.
 | New provider | `providers/<Vendor>`, registration in `PlatformServiceProvider::ADAPTERS`, doc in `docs/provider-adapters`, contract test |
 | Public content | `ContentService`, seeders from `database/seeders/data/prototype-content.json` (regenerate with the Node export script) |
 
+## Coordination between parallel agents
+
+Several AI clients work here at once. Before editing, check `.\brain.ps1 task board` (active tasks and locked paths)
+and work in a task worktree (`.\brain.ps1 task start …`), never on `development` directly and never on files another
+task has locked. Tasks, handoffs, gate reports and the process rules live in `.ai/` (start with `.ai/PROJECT_STATE.md`).
+
 ## Environment
 
 PHP 8.3 (`php -v`), Composer, Node ≥ 20 (content export, e2e), SQLite for tests. No Docker is required for
