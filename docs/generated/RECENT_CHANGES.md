@@ -4,13 +4,13 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
+| b8b7646 | 2026-09-22 | An address is only ever made in a domain the service hosts |
+| 98ce872 | 2026-09-22 | A WAF level is compared with what the site's own server does |
+| f5334ca | 2026-09-22 | A shared-hosting customer can read their own site log |
+| 90bba37 | 2026-09-22 | A quarantine ends: closing an abuse case says what happens to the service |
+| acb0f10 | 2026-09-22 | Traffic is counted where the panel cannot, and the authority's limit is heard |
 | d1d0f72 | 2026-09-22 | A web node says how full it is, so a full one stops taking sites |
 | 732847e | 2026-09-22 | A used-up plan stops growing, and the customer hears why |
 | 083f043 | 2026-09-22 | A plan change fits what the service holds, and reaches the panel |
 | 89d1087 | 2026-09-22 | The sites a hosting plan sells are sites, not extra names on one site |
 | ecb5b30 | 2026-09-22 | A cancelled web hosting takes the sites it carries with it, archived first |
-| 0ffbb28 | 2026-09-22 | The assistant proposes what the platform learned since, and says why when it may not |
-| e562525 | 2026-09-22 | An upgraded panel's resources must still be themselves; maintenance names the panel's running tasks (H517, H519) |
-| cee007a | 2026-09-22 | Compare the order's lines in a fixed order (PostgreSQL CI flake) |
-| 624f8c0 | 2026-09-22 | The automatic drain judges the node, not its panel (H288) |
-| bd8d1d6 | 2026-09-22 | A panel on a version nobody verified takes no new orders (H530, H514, H521, H511) |

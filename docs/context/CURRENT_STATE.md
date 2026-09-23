@@ -91,6 +91,10 @@
   (`docs/runbooks/service-sharing-and-assistant.md`). Services stranded in a transient state are released by the
   scheduler.
 
+- **The mailboxes a web plan sells can be used:** the web service offered no mailbox action at all (the actions hang
+  off `mailboxes`, the web branch only set `mail`), and there was nowhere to put one — the mail domain is now made at
+  the first address, with DKIM and the mail records, and removed with the service.
+
 - **A quarantine ends:** an abuse case that suspended a service cannot be closed without saying whether the service
   comes back; `liftHold(ABUSE)` had no caller at all, so a customer who won the appeal stayed suspended for ever. A
   service another open case still holds is never released by closing this one.

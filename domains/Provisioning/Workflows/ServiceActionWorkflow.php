@@ -7,6 +7,7 @@ namespace Onhost\Domain\Provisioning\Workflows;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Dns\DnsService;
+use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Models\IpAddress;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -22,6 +23,7 @@ use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\IncludedServices;
 use Onhost\Domain\Services\LegalHold;
 use Onhost\Domain\Services\Models\Backup;
+use Onhost\Domain\Services\Models\MailDomain;
 use Onhost\Domain\Services\Models\RestoreJob;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -123,7 +125,7 @@ final class ServiceActionWorkflow implements Workflow
             'resume' => [$this->resumeStep(), $this->resumeExtrasStep(), $this->holdIncludedServicesStep(false), $this->finishStateStep(ServiceStateMachine::ACTIVE)],
             'resize' => [$this->resizeStep(), $this->finishResizeStep()],
             'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->pauseExtrasStep(), $this->cancelAddonsStep(), $this->endIncludedServicesStep(), $this->revokeDelegationsStep(), $this->scheduleRemovalStep()],
-            'purge' => [$this->identityStep(), $this->finalArchiveStep(anyOperation: true), $this->endIncludedServicesStep(), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
+            'purge' => [$this->identityStep(), $this->finalArchiveStep(anyOperation: true), $this->endIncludedServicesStep(), $this->removeMailDomainStep(), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
             'backup' => [$this->backupStep()],
             'restore' => [$this->safetyCopyStep('pre_restore'), $this->restoreStep()],
             'restore.test' => [$this->restoreTestStep()], // restores into databases of its own: nothing live is touched, so no copy is needed
@@ -133,6 +135,8 @@ final class ServiceActionWorkflow implements Workflow
             'reinstall' => [$this->safetyCopyStep('pre_reinstall'), $this->featureStep('reinstall')], // rewrites the server files
             // a dump is written OVER a live database: room first, then a copy of exactly that database, then the import
             'database.import' => [$this->importRoomStep(), $this->safetyCopyStep('pre_import', onlyTargetDatabase: true), $this->featureStep('database.import')],
+            // a web hosting plan sells mailboxes; the panel puts one inside a mail domain, and the site saga never made one
+            'mailbox.create', 'alias.create' => [$this->ensureMailDomainStep(), $this->featureStep($action)],
             // `database.delete` deliberately keeps NO copy of its own: the customer asked for that data to go, they saw
             // the preview and confirmed the target, and a protected archive they cannot remove would be the platform
             // keeping deleted data for sixty days. What protects them there is the preview and the scheduled backups.
@@ -986,6 +990,110 @@ final class ServiceActionWorkflow implements Workflow
                 }
 
                 return StepResult::done(['addons_cancelled' => $cancelled]);
+            }
+        };
+    }
+
+    /**
+     * A web hosting plan sells mailboxes („5 schránek“, „50 schránek“) and the site saga never made a mail domain for
+     * them: the panel puts a mailbox inside one, so the first mailbox of a web service had nowhere to go. It is made
+     * here, once, when the customer asks for the first address — with the DKIM key the panel generates, and with the
+     * MX, SPF, DMARC and DKIM records published the same way the mail service publishes them, wherever the zone is
+     * ours. A domain another service already holds as its mail domain is used as it is, never taken over.
+     */
+    private function ensureMailDomainStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Poštovní doména webu';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                if (! in_array($service->family, ['web', 'managed'], true) || $context->binding('mail_domain') !== null) {
+                    return StepResult::skip(); // a mail service has its own; a web service that already has one keeps it
+                }
+                $site = $this->binding($context);
+                $domain = mb_strtolower((string) ($site->meta['domain'] ?? $service->spec('domain', $service->hostname)));
+                if ($domain === '') {
+                    return StepResult::fail('the service has no domain to make mail for', false);
+                }
+                $mail = $this->capability($context, MailProvider::class);
+                $result = $mail->createMailDomain($context->spec('mail_domain', ['domain' => $domain, 'entitlements' => (array) $service->entitlements]));
+                if ($result->ref === null) {
+                    return StepResult::fail('the panel returned no mail domain', true, [], 60);
+                }
+                $context->bind($context->instance(), 'mail_domain', $result->ref->remoteId, $result->ref->node, $result->ref->meta + ['domain' => $domain], ['managed_by' => 'onhost']);
+                $meta = (array) $result->ref->meta;
+                MailDomain::query()->updateOrCreate(['service_id' => $service->id, 'domain' => $domain], [
+                    'remote_client_id' => isset($meta['client_id']) ? (int) $meta['client_id'] : null,
+                    'remote_id' => (int) $result->ref->remoteId, 'remote_node' => $result->ref->node,
+                    'dkim_selector' => $meta['dkim_selector'] ?? null, 'dkim_public' => $meta['dkim_public'] ?? null, 'sending_enabled' => true, 'state' => 'active',
+                ]);
+                // the records are how mail finds the node, but they are not why the customer asked: a zone that is not
+                // ours, or a DNS that will not take them now, leaves the mailbox standing and the records on record
+                $records = self::mailRecords($context, $domain, $meta);
+                $zone = DnsZone::query()->where('name', $domain)->where('organization_id', $service->organization_id)->where('state', 'active')->first();
+                $version = null;
+                $error = null;
+                try {
+                    $version = $zone === null ? null : $context->container->make(DnsService::class)->syncSystemRecords($zone, $records, $context->actor, "mail for {$service->id}");
+                } catch (Throwable $e) {
+                    $error = mb_substr($e->getMessage(), 0, 200);
+                }
+
+                return $this->settle($result, array_filter([
+                    'mail_domain_id' => $result->ref->remoteId, 'mail_domain' => $domain, 'dns_version' => $version?->version,
+                    'dns_records_required' => $version === null ? $records : null, 'dns_error' => $error,
+                ], fn ($value) => $value !== null));
+            }
+
+            /**
+             * @param  array<string,mixed>  $meta
+             * @return list<array<string,mixed>>
+             */
+            private static function mailRecords(StepContext $context, string $domain, array $meta): array
+            {
+                $host = (string) ($context->instance()->option('mail_host') ?: config('onhost.dns.mail_host'));
+                $records = [
+                    ['name' => '@', 'type' => 'MX', 'content' => $host.'.', 'ttl' => 3600, 'prio' => 10],
+                    ['name' => '@', 'type' => 'TXT', 'content' => 'v=spf1 mx include:'.config('onhost.dns.spf_include').' -all', 'ttl' => 3600],
+                    ['name' => '_dmarc', 'type' => 'TXT', 'content' => 'v=DMARC1; p=quarantine; rua=mailto:dmarc@'.$domain, 'ttl' => 3600],
+                ];
+                if (! empty($meta['dkim_selector']) && ! empty($meta['dkim_public'])) {
+                    $records[] = ['name' => $meta['dkim_selector'].'._domainkey', 'type' => 'TXT', 'content' => 'v=DKIM1; k=rsa; p='.preg_replace('/\s+|-----[A-Z ]+-----/', '', (string) $meta['dkim_public']), 'ttl' => 3600];
+                }
+
+                return $records;
+            }
+        };
+    }
+
+    /** The mail domain a web service was given for its mailboxes goes with the service, like every other resource of it. */
+    private function removeMailDomainStep(): ServiceStep
+    {
+        return new class extends ServiceStep
+        {
+            public function label(): string
+            {
+                return 'Odstranění poštovní domény webu';
+            }
+
+            public function run(StepContext $context): StepResult
+            {
+                $service = $this->service($context);
+                $binding = $context->binding('mail_domain');
+                if (! in_array($service->family, ['web', 'managed'], true) || $binding === null) {
+                    return StepResult::skip(); // a mail service's own domain goes with its own terminate step
+                }
+                $result = $this->capability($context, MailProvider::class)->deleteMailDomain($binding->ref());
+                MailDomain::query()->where('service_id', $service->id)->update(['state' => 'deleted']);
+                $binding->delete();
+
+                return $this->settle($result, ['mail_domain_removed' => true]);
             }
         };
     }

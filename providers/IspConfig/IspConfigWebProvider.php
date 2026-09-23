@@ -1081,11 +1081,18 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
     /** @return array{selector:string, private:string, public:string} */
     private function generateDkim(): array
     {
-        $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
-        if ($key === false) {
-            throw new ProviderException('ispconfig', ProviderErrorCode::PROVIDER_BUG, 'Unable to generate DKIM key pair');
+        // with a configuration of its own: OpenSSL refuses to make a key on a host that has no openssl.cnf, and a mail
+        // domain cannot be created without one — the same trap the ACME account key was in
+        $config = tempnam(sys_get_temp_dir(), 'dkim');
+        file_put_contents($config, "[req]\ndefault_bits = 2048\ndefault_md = sha256\ndistinguished_name = dn\n[dn]\n");
+        try {
+            $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA, 'config' => $config]);
+            if ($key === false || ! openssl_pkey_export($key, $private, null, ['config' => $config])) {
+                throw new ProviderException('ispconfig', ProviderErrorCode::PROVIDER_BUG, 'Unable to generate DKIM key pair: '.(string) openssl_error_string());
+            }
+        } finally {
+            @unlink($config);
         }
-        openssl_pkey_export($key, $private);
         $details = openssl_pkey_get_details($key);
 
         return ['selector' => 'onhost'.date('Ym'), 'private' => (string) $private, 'public' => (string) ($details['key'] ?? '')];

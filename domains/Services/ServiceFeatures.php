@@ -182,6 +182,9 @@ final class ServiceFeatures
                     // „10 webů“ on the price list means ten SITES of their own, not ten names on one site (`ServiceSites`)
                     'sites' => $on(ServiceSites::limit($service) > 1 && ! IncludedServices::isIncluded($service), ServiceSites::limit($service)),
                     'redirects' => $on($flag('redirects')), 'ssh' => $on($flag('ssh') && ! empty($ent['ssh'])), 'mail' => $on($flag('mail') && (int) ($ent['mailboxes'] ?? 0) > 0, (int) ($ent['mailboxes'] ?? 0)),
+                    // „5 schránek“ is a number the customer has to be able to use: the mail domain is made at the first address
+                    'mailboxes' => $on($flag('mail') && (int) ($ent['mailboxes'] ?? 0) > 0 && $adapter instanceof MailProvider, (int) ($ent['mailboxes'] ?? 0)),
+                    'aliases' => $on($flag('mail') && (int) ($ent['mailboxes'] ?? 0) > 0 && $adapter instanceof MailProvider),
                     'file_manager' => $on($flag('file_manager')),
                     'errpages' => $on($flag('errpages')), 'directives' => $on($flag('directives'), null, $executor === 'aapanel' ? ['rewrite'] : ['apache', 'nginx']), 'protected' => $on($flag('protected'), null, $executor === 'aapanel' ? 'site' : 'folders'),
                     'db_users' => $on($flag('db_users')), 'shell' => $on($flag('ssh') && ! empty($ent['ssh']) && $executor !== 'aapanel', (int) ($ent['shell_users'] ?? 2)), 'stats' => $on($flag('stats')), 'ssl_upload' => $on($flag('ssl_upload')),
