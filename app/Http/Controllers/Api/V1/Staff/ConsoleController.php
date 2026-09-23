@@ -165,6 +165,21 @@ final class ConsoleController extends ApiController
         return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, "service.evacuate:{$instance}:{$node}:".now()->format('YmdHi')), ['op' => 'service.evacuate', 'instance_key' => $instance, 'node_id' => $node, 'target_node_id' => $data['target_node_id'] ?? null, 'reason' => $data['reason'] ?? null, 'window_from' => $data['window_from'] ?? null, 'window_to' => $data['window_to'] ?? null]), $this->api->context($request, null, $data['reason'] ?? null), 202);
     }
 
+    /**
+     * Every service of a node to another one, whatever the node runs: the node is drained first, each service that
+     * can move becomes its own saga and everything that cannot is named in the answer (`staying`). The game panel's
+     * own route stays where it was; this one belongs to the node.
+     */
+    public function evacuateNode(Request $request, string $node): JsonResponse
+    {
+        $data = $request->validate(['target_node_id' => ['nullable', 'string', 'max:60'], 'reason' => ['nullable', 'string', 'max:250'], 'window_from' => ['nullable', 'date'], 'window_to' => ['nullable', 'date']]);
+
+        return $this->dispatch(new ProvisioningCommand($this->idempotencyKey($request, "service.evacuate:{$node}:".now()->format('YmdHi')), [
+            'op' => 'service.evacuate', 'node_id' => $node, 'target_node_id' => $data['target_node_id'] ?? null, 'reason' => $data['reason'] ?? null,
+            'window_from' => $data['window_from'] ?? null, 'window_to' => $data['window_to'] ?? null,
+        ]), $this->api->context($request), 202);
+    }
+
     /** The weights and the hold threshold of the order intake check (audit §5h-4); `reset` returns to the defaults. */
     public function riskTuning(Request $request): JsonResponse
     {

@@ -510,7 +510,20 @@
     var rows = (b.nodes || []).map(function (n) {
       var bmc = n.bmc || null, bmcBad = !!(bmc && ((bmc.psu_failed || 0) > 0 || (bmc.fans_failed || 0) > 0)); // §5p-6: what the management controller reported
       var tone = n.state === 'draining' ? 'warn' : (n.suggest_drain || bmcBad ? 'hot' : (n.health && n.health.up === false ? 'hot' : 'ok'));
+      var evacuate = function () {
+        if (!window.confirm(tr(cmp, 'Přestěhovat z uzlu ' + n.name + ' všechno, co se přestěhovat dá? Uzel se zároveň odstaví.', 'Move everything that can be moved off ' + n.name + '? The node is drained as well.'))) return;
+        var reason = window.prompt(tr(cmp, 'Důvod (uvidí ho i zákazník u operace):', 'Reason (the customer sees it on the operation):'), tr(cmp, 'údržba uzlu', 'node maintenance'));
+        if (reason === null) return;
+        post('/staff/nodes/' + encodeURIComponent(n.id) + '/evacuate', { reason: reason || undefined }, null, function (r) {
+          var d = (r && r.data) || r || {};
+          var stays = (d.skipped || []).map(function (x) { return (x.label || x.service_id) + ' (' + (x.family || '') + ')'; });
+          window.alert(tr(cmp, 'Stěhuje se: ' + (d.started || []).length + '\nZůstává na uzlu: ' + (d.staying || 0) + (stays.length ? '\n· ' + stays.join('\n· ') : '') + '\n\nCo zůstává, nemá vlastní ságu stěhování — vyřešte ho ručně, než uzel vypnete.',
+            'Moving: ' + (d.started || []).length + '\nStaying on the node: ' + (d.staying || 0) + (stays.length ? '\n· ' + stays.join('\n· ') : '') + '\n\nWhat stays has no migration saga of its own — deal with it by hand before the node goes down.'));
+          reload();
+        });
+      };
       var acts = [[n.state === 'draining' ? tr(cmp, 'Vrátit do provozu', 'Resume') : tr(cmp, 'Odstavit', 'Drain'), tr(cmp, 'Odstavený uzel nedostává nové služby; běžící zůstávají.', 'A drained node gets no new services; running ones stay.'), 0, function () { if (!n.instance) return; var to = n.state === 'draining' ? 'active' : 'draining'; var reason = to === 'draining' ? window.prompt(tr(cmp, 'Důvod odstavení:', 'Reason:'), '') : null; if (to === 'draining' && reason === null) return; post('/staff/integrations/' + encodeURIComponent(n.instance.key) + '/nodes/' + encodeURIComponent(n.id) + '/state', { state: to, reason: reason || undefined, keep: to === 'draining' }, null, reload); }]];
+      acts.push([tr(cmp, 'Vyprázdnit uzel', 'Empty the node'), tr(cmp, 'Přestěhuje služby jinam a řekne, co se přestěhovat nedá.', 'Moves the services elsewhere and says what cannot be moved.'), 1, evacuate]);
       return [n.name + ' · ' + (n.role || '') + ' · ' + (n.region || ''), (n.instance ? n.instance.key + ' · ' : '') + (n.health ? (n.health.up ? tr(cmp, 'integrace odpovídá', 'integration up') : tr(cmp, 'integrace neodpovídá', 'integration down')) : tr(cmp, 'bez měření', 'no probe')) + ' · ' + tr(cmp, 'za ' + n.window_minutes + ' min: ' + n.succeeded + ' ok, ' + n.transient_failures + ' přechodných chyb', 'last ' + n.window_minutes + ' min: ' + n.succeeded + ' ok, ' + n.transient_failures + ' transient failures') + (n.auto_drained ? tr(cmp, ' · odstaveno automaticky', ' · drained automatically') : '') + (bmc ? ' · BMC ' + (bmc.temp_max_c != null ? bmc.temp_max_c + ' °C' : '—') + ((bmc.psu_failed || 0) > 0 ? ' · ' + tr(cmp, 'zdroj mimo OK', 'PSU not OK') : '') + ((bmc.fans_failed || 0) > 0 ? ' · ' + tr(cmp, 'ventilátor mimo OK', 'fan not OK') : '') : '') + (n.power_w != null ? ' · ' + n.power_w + ' W' : ''), [String(n.succeeded), String(n.transient_failures)], tone, n.state === 'draining' ? tr(cmp, 'odstavený', 'drained') : (n.state === 'maintenance' ? tr(cmp, 'údržba', 'maintenance') : (n.suggest_drain ? tr(cmp, 'k odstavení', 'drain suggested') : n.state)), acts];
     });
     var ops = (b.stalled || []).map(function (o) { return ['stalled', o]; }).concat((b.failed || []).map(function (o) { return ['failed', o]; })).concat((b.long_running || []).map(function (o) { return ['long', o]; }));

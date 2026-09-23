@@ -388,6 +388,8 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::post('integrations/{instance}/discover', [ProvisioningController::class, 'discoverNodes']);
         Route::post('integrations/{instance}/nodes', [ProvisioningController::class, 'upsertNode']);
         Route::post('integrations/{instance}/nodes/{node}/state', [ProvisioningController::class, 'nodeState']);
+        // emptying a node is an operator's job on ANY node: web hostings move now too (WebMigrationWorkflow)
+        Route::post('nodes/{node}/evacuate', [ConsoleController::class, 'evacuateNode']);
         Route::post('integrations/{instance}/prerequisites', [ProvisioningController::class, 'prerequisites']);
         // staff console views (audit §5f-2): game panels, automation rules, renewals ahead, the scheduler and bulk jobs
         Route::get('game', [ConsoleController::class, 'game']);

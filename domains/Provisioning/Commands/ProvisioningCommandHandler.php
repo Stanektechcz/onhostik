@@ -161,8 +161,10 @@ final class ProvisioningCommandHandler implements CommandHandler
                 return Presenters::operation(app(ServiceMigrationService::class)->start($service, $command->get('target_node_id') !== null ? (string) $command->get('target_node_id') : null, $command->get('reason') !== null ? (string) $command->get('reason') : null, $context, $window('window_from'), $window('window_to'), (string) $command->get('collaborator_policy', 'strict')), true);
             })(),
             'game.evacuate', 'service.evacuate' => (function () use ($command, $context) {
-                $instance = $this->findInstance($command);
-                $node = Node::query()->where('provider_instance_id', $instance->id)->whereKey((string) $command->get('node_id'))->first();
+                // the node's own route names no panel: the node itself knows which one it belongs to (web nodes
+                // are emptied from `staff/nodes/{node}/evacuate`, the game panel keeps its own route)
+                $named = (string) $command->get('instance_key', '');
+                $node = Node::query()->when($named !== '', fn ($q) => $q->where('provider_instance_id', $this->findInstance($command)->id))->whereKey((string) $command->get('node_id'))->first();
                 if ($node === null) {
                     throw DomainError::notFound('node');
                 }
