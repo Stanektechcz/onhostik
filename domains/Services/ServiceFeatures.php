@@ -197,7 +197,7 @@ final class ServiceFeatures
                     'files' => $on($flag('files')), 'apps' => $on($flag('apps')), 'db_admin' => $on($flag('db_admin')),
                     // tools on top of the panel (WebToolsProvider) — what the executor offers, gated by what the plan sells
                     'terminal' => $on($flag('terminal') && $adapter instanceof WebToolsProvider && (! empty($ent['ssh']) || ! empty($ent['terminal']))),
-                    'php_settings' => $on($flag('php_settings')), 'security' => $on($flag('security'), null, self::wafPromise((string) ($ent['waf'] ?? 'basic'), (bool) $flag('rate_limit'))), 'http3' => $on($flag('http3')),
+                    'php_settings' => $on($flag('php_settings')), 'security' => $on($flag('security'), null, self::wafPromise((string) ($ent['waf'] ?? 'basic'), (bool) $flag('rate_limit'), $service)), 'http3' => $on($flag('http3')),
                     'cron_edit' => $on($flag('cron_edit')), 'cron_logs' => $on($flag('cron_logs')), 'db_export' => $on($flag('db_export')), 'db_access' => $on($flag('db_access')),
                     // backups of a web service are the platform's own sets (ServiceBackups): downloading and deleting them does not depend on what the panel can do with its archives
                     'backup_download' => $on($flag('backup_download') || $adapter instanceof WebToolsProvider), 'backup_delete' => $on($flag('backup_delete') || $adapter instanceof WebToolsProvider),
@@ -626,11 +626,14 @@ final class ServiceFeatures
      *
      * @return array<string, mixed>
      */
-    private static function wafPromise(string $waf, bool $rate): array
+    private static function wafPromise(string $waf, bool $rate, Service $service): array
     {
         $supports = self::supportsFor($rate);
+        // what the daily look at the site found, so the person who can clean it up is the one who hears about it
+        $integrity = (array) data_get($service->tags, 'integrity', []);
 
-        return ['rate' => $rate, 'waf' => $waf, 'level' => WafLevels::levelOf($waf), 'promised' => WafLevels::promised($waf), 'delivered' => array_values(array_intersect(WafLevels::promised($waf), $supports)), 'missing' => WafLevels::missing($waf, $supports)];
+        return ['integrity' => array_filter(['findings' => $integrity['findings'] ?? null, 'checked_at' => $integrity['checked_at'] ?? null], fn ($v) => $v !== null),
+            'rate' => $rate, 'waf' => $waf, 'level' => WafLevels::levelOf($waf), 'promised' => WafLevels::promised($waf), 'delivered' => array_values(array_intersect(WafLevels::promised($waf), $supports)), 'missing' => WafLevels::missing($waf, $supports)];
     }
 
     private static function fallbackSite(string $executor): array

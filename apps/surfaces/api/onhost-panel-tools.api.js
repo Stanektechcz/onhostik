@@ -694,6 +694,13 @@
     if (supports.indexOf('rate') >= 0 || sec.rate) pairs.push([_('Limit požadavků (anti-DDoS)', 'Request limits (anti-DDoS)'), sec.rate ? sec.rate.perip + _(' spojení/IP · ', ' conn/IP · ') + sec.rate.perserver + _(' spojení celkem · ', ' conn total · ') + sec.rate.limit_rate + ' kB/s' : _('vypnuto', 'off'), '', [ctx.A(sec.rate ? _('Vypnout', 'Turn off') : _('Zapnout', 'Turn on'), function () { save({ rate: sec.rate ? null : { perip: 30, perserver: 300, limit_rate: 512 } }, _('Limit požadavků', 'Request limits')); })]]);
     // what the plan promised next to what this server does of it: a WAF level used to be a label nobody compared with the node
     var waf = ctx.opt('security') || {};
+    // and what the daily look at the site found: the customer is the one who can clean it up
+    var integ = (waf.integrity && waf.integrity.findings) || [];
+    if (integ.length) {
+        var files = [];
+        integ.forEach(function (f) { files = files.concat(f.files || []); });
+        pairs.push([_('Podezřelé soubory', 'Suspicious files'), files.slice(0, 6).join(', ') + (files.length > 6 ? ' …' : ''), _('kód tam, kam se jen nahrávají soubory, nebo otisky známých webshellů — projděte si je; nic jsme nevypnuli', 'code where only uploads belong, or fingerprints of known web shells — have a look; we switched nothing off')]);
+    }
     if (waf.waf) pairs.push([_('Úroveň WAF z tarifu', 'The plan\'s WAF level'), String(waf.waf) + (waf.missing && waf.missing.length ? ' · ' + _('na tomto serveru nelze: ', 'not available on this server: ') + waf.missing.join(', ') : ' · ' + _('vše z této úrovně je zapnutelné', 'everything of this level can be turned on')), waf.missing && waf.missing.length ? _('napište podpoře, pokud to potřebujete — přesuneme web na server, který to umí', 'write to support if you need it — we move the site to a server that does it') : '']);
     var panel = info(ctx, 'real:sec', title, _('pravidla vkládáme do konfigurace webserveru; blokace platí do minuty a nezasahují do vašich vlastních direktiv', 'rules go into the web server configuration; blocks apply within a minute and never touch your own directives'), pairs);
     panel.form = { title: _('IP pravidla a hotlink', 'IP rules and hotlink'), fields: [ctx.F('a', _('blokovat IP/CIDR (oddělte čárkou; prázdné = nic)', 'block IP/CIDR (comma separated; empty = none)'), '1 1 240px'), ctx.F('b', _('povolit jen IP/CIDR (prázdné = veřejný web)', 'allow only IP/CIDR (empty = public site)'), '1 1 240px'), ctx.F('c', _('hotlink povolen z domén (oddělte čárkou)', 'hotlink allowed from domains (comma separated)'), '1 1 220px')], submit: _('Uložit', 'Save'), on: function () {

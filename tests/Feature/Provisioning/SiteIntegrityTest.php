@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\Web\SiteIntegrityCheck;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
@@ -96,4 +97,17 @@ it('never acts on what it found: it is a reason to look, not a reason to switch 
 
     expect($service->fresh()->state)->toBe(ServiceStateMachine::ACTIVE)
         ->and($service->fresh()->suspended_at)->toBeNull();
+});
+
+it('shows the customer what was found, because they are the one who can clean it up', function () {
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok', 'data' => [['id' => 41, 'name' => 'shop.cz', 'path' => '/www/wwwroot/shop.cz']], 'page' => '']));
+    [, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'aapanel');
+    integrityNode("/www/wwwroot/shop.cz/uploads/x.php\n", '');
+
+    app(SiteIntegrityCheck::class)->run();
+    $security = app(ServiceFeatures::class)->features($service->fresh())['security']['options'];
+
+    expect($security['integrity']['findings'][0]['files'])->toBe(['uploads/x.php'])
+        ->and($security['integrity']['checked_at'])->not->toBeNull();
 });
