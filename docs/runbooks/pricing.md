@@ -143,4 +143,31 @@ limit of a hosting plan never applied to anything.
 After a deploy the seeded plans are only the starting point: plan versions already published on the server keep whatever
 they carried, so publish a new version (reason: "nikdo to neuplatňuje") to drop the old numbers. The doctor lists them.
 
-Tests: `tests/Feature/Catalog/PlanPromisesTest.php`.
+**"Read by code outside the catalogue" is not trusted by name alone any more (2026-09-25, TASK-0017, audit §5ad).**
+The price list itself (`CatalogPresentation`) names every key it sells, so the plain text-scan rule above was
+satisfied by the very file it should have caught: `products`, `connections` and `dedicated_outbound_ip` passed
+because only the price list ever said the word. The presentation/prototype-surface files
+(`app/Http/Support/CatalogPresentation.php`, `app/Http/Support/SurfaceRenderer.php`) are now excluded from the scan,
+and every **numeric** promise (an int, a float, or a numeric string such as `"500"` — `is_numeric()`, not the
+narrower `is_int()`/`is_float()` this used to check) is instead checked against a hand-verified table,
+`domains/Services/Metering/MetricRegistry.php`: what actually measures or enforces each entitlement/limit key today,
+with a source cited for every row that claims one. A non-numeric capability flag keeps the original text-scan rule.
+
+The registry check is **scoped to the plan's own product family** (`Plan → Product::family`, looked up from the
+version being checked): a row verified only for `families => ['mail']` must not pass for a web-hosting plan that
+happens to sell the same key name — `MetricRegistry::isKept($key, $family)` fails the family check before it ever
+looks at `status`. Family-scoping this way surfaced two rows that were simply incomplete (their real enforcement
+does reach a family the row hadn't listed yet — `nvme_gb` on the managed-database family and `mailboxes` sold
+through the `mail-hosting` add-on — both extended once the enforcing code was confirmed) and two genuinely new,
+honest gaps (`backup_days` sold on a managed database, which `BackupScheduler` never schedules for; `vcpu` sold on
+every game plan, which the Pterodactyl adapter never reads — only `cpu_pct`/`pids` size a game container).
+
+A key that is neither measured, enforced, fair use, nor read may still be listed once, honestly, in
+`PlanPromises::KNOWN_GAPS` — a ratchet that may only shrink (fixing a gap without removing the line, or a new gap
+appearing without one, both fail the guard test) — currently 15 entries, two of them boolean
+(`dedicated_outbound_ip`, `dedicated_db`) rather than numeric, because excluding the presentation files surfaced
+them as genuinely unbuilt rather than merely unmeasured. `onhost:doctor` shows the tracked list as a standing WARN
+(`catalog: no known metering gap`) and any *new*, untracked gap as a production FAIL
+(`catalog: the metering gap ratchet is not growing`).
+
+Tests: `tests/Feature/Catalog/PlanPromisesTest.php`, `tests/Feature/Platform/DoctorCommandTest.php`.

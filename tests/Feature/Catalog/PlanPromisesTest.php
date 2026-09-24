@@ -123,3 +123,55 @@ it('names an enforcer for every hard-limit metric and a source for every measure
         }
     }
 });
+
+/*
+ * Every ratchet entry has to be backed by the registry it claims to come from — a key named in KNOWN_GAPS with no
+ * matching MetricRegistry row, or a row that is not actually a GAP, would let the ratchet's own explanation drift
+ * from what the table says (QA finding, audit §5ad). Confirmed failing-first by deleting the `aliases` row from
+ * `MetricRegistry::REGISTRY` and re-running: "KNOWN_GAPS key 'aliases' has no MetricRegistry row at all" — restored
+ * afterwards.
+ */
+it('names a GAP row in MetricRegistry, with a reason, for every KNOWN_GAPS key', function () {
+    foreach (array_keys(PlanPromises::KNOWN_GAPS) as $key) {
+        $entry = MetricRegistry::get($key);
+        expect($entry)->not->toBeNull("KNOWN_GAPS key '{$key}' has no MetricRegistry row at all");
+        expect($entry['status'])->toBe(MetricRegistry::GAP, "KNOWN_GAPS key '{$key}' is not recorded as a GAP in MetricRegistry")
+            ->and((string) $entry['reason'])->not->toBe('', "KNOWN_GAPS key '{$key}' carries no MetricRegistry reason");
+    }
+});
+
+/*
+ * MetricRegistry::isKept() used to ignore a row's `families` entirely, so a key verified only for e.g. mail passed
+ * for any plan that happened to sell the same key name (reviewer finding, audit §5ad). `quota_gb_per_mailbox` is
+ * measured/enforced only for `families => ['mail']`; selling it on a web-hosting plan must not pass on the row's
+ * own status alone.
+ */
+it('reports a registry key sold on a product family its row never verified', function () {
+    $entry = MetricRegistry::get('quota_gb_per_mailbox');
+    expect($entry)->not->toBeNull()->and($entry['families'])->toBe(['mail'])
+        ->and(MetricRegistry::isKept('quota_gb_per_mailbox', 'mail'))->toBeTrue()
+        ->and(MetricRegistry::isKept('quota_gb_per_mailbox', 'web'))->toBeFalse();
+
+    $version = Plan::query()->where('key', 'start')->firstOrFail()->currentVersion(); // web-hosting/start, family "web"
+    $version->entitlements = array_merge((array) $version->entitlements, ['quota_gb_per_mailbox' => 5]);
+    expect(PlanPromises::rawUnkept($version, PlanPromises::readInSource()))->toContain('quota_gb_per_mailbox');
+});
+
+/*
+ * Only is_int()/is_float() routed a numeric promise through the registry; a numeric *string* such as "500" fell
+ * through to the generous text-scan rule meant for capability flags (QA finding, audit §5ad). "aliases" is a
+ * MetricRegistry GAP (ISPConfig has no limit_mailalias), but the bare word "aliases" also appears elsewhere in the
+ * codebase as an unrelated feature-flag key — exactly the false "read" the text scan used to produce.
+ */
+it('routes a numeric-string promise through the registry exactly like an int, not the text scan', function () {
+    $read = PlanPromises::readInSource();
+    expect($read)->toContain('aliases'); // proves the old text-scan rule would have waved this one through
+
+    $version = Plan::query()->where('key', 'start')->firstOrFail()->currentVersion();
+    $version->entitlements = array_merge((array) $version->entitlements, ['aliases' => '50']);
+    expect(PlanPromises::rawUnkept($version, $read))->toContain('aliases');
+
+    // and a kept key sold as a numeric string is not wrongly flagged either
+    $version->entitlements = array_merge((array) $version->entitlements, ['aliases' => 0, 'mailboxes' => '5']);
+    expect(PlanPromises::rawUnkept($version, $read))->not->toContain('mailboxes');
+});

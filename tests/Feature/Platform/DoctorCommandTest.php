@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
+use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Illuminate\Support\Facades\Artisan;
+use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 
 it('reports production readiness as warnings outside production and as a machine-readable JSON report', function () {
@@ -37,4 +39,44 @@ it('writes one redacted report of how the installation stands: doctor findings, 
     $isp = collect($report['instances'])->firstWhere('key', 'ispconfig-shared01');
     expect($isp['prereqs']['probes']['datalog_fields'])->toContain('status', 'error')->and($isp['prereqs']['backup_api'])->toBe('broken')->and($isp['prereqs'])->not->toHaveKey('secret_note'); // an allow-list of what is reported, not everything the instance carries
     expect(json_encode($report))->not->toContain('remote_password')->not->toContain('secret_ref');
+});
+
+/*
+ * The two `catalog` rows added by TASK-0017 (audit §5ad, brain card H278): the tracked backlog of metering gaps is
+ * a standing WARN — never hidden, never blocking a deploy — while a *new*, untracked gap is a production FAIL.
+ */
+it('shows the known metering gap ratchet as a standing WARN, never a FAIL, even forced into production', function () {
+    $this->seed([LegalEntitySeeder::class, CatalogSeeder::class]);
+
+    foreach ([false, true] as $production) {
+        if ($production) {
+            app()->instance('env', 'production');
+        }
+        Artisan::call('onhost:doctor', ['--json' => true]);
+        $report = json_decode(trim(Artisan::output()), true, 512, JSON_THROW_ON_ERROR);
+        $row = collect($report['checks'])->firstWhere('check', 'no known metering gap');
+
+        expect($row)->not->toBeNull("no 'no known metering gap' row (production={$production})")
+            ->and($row['status'])->toBe('WARN', "expected WARN, not {$row['status']} (production={$production})")
+            ->and($row['detail'])->toContain('known gap(s), tracked in PlanPromises::KNOWN_GAPS');
+    }
+});
+
+it('fails a production deploy when a plan starts selling a number the registry has never tracked', function () {
+    $this->seed([LegalEntitySeeder::class, CatalogSeeder::class]);
+    $version = Plan::query()->where('key', 'start')->firstOrFail()->currentVersion();
+    $version->forceFill(['entitlements' => array_merge((array) $version->entitlements, ['made_up_metric_xyz' => 42])])->save();
+
+    // outside production the very same new gap is only a WARN — the row is blocking, not the environment
+    Artisan::call('onhost:doctor', ['--json' => true]);
+    $report = json_decode(trim(Artisan::output()), true, 512, JSON_THROW_ON_ERROR);
+    $row = collect($report['checks'])->firstWhere('check', 'the metering gap ratchet is not growing');
+    expect($row['status'])->toBe('WARN')->and($row['detail'])->toContain('made_up_metric_xyz');
+
+    app()->instance('env', 'production');
+    Artisan::call('onhost:doctor', ['--json' => true]);
+    $report = json_decode(trim(Artisan::output()), true, 512, JSON_THROW_ON_ERROR);
+    $row = collect($report['checks'])->firstWhere('check', 'the metering gap ratchet is not growing');
+
+    expect($row['status'])->toBe('FAIL')->and($row['detail'])->toContain('made_up_metric_xyz');
 });
