@@ -38,6 +38,31 @@ pest()->extend(TestCase::class)
 // Contract tests must never reach a real vendor API.
 pest()->beforeEach(fn () => Http::preventStrayRequests())->in('Contract');
 
+// A credential a test puts into $_ENV or putenv() must not outlive it: the `env` secrets driver reads both, so a leftover
+// key made later tests see a configured gateway or panel depending on file order (CheckoutTest → RenewalGuardTest).
+// The snapshot is taken after the application booted (its .env is in place) and before the test file's own hooks run.
+pest()->beforeEach(function () {
+    $this->envBaseline = ['env' => $_ENV, 'process' => getenv()];
+})->afterEach(fn () => restoreEnvironment($this->envBaseline))->in('Feature', 'Contract', 'Unit');
+
+/** Undoes every $_ENV and putenv() key a test added or changed, leaving the rest of the process environment alone. */
+function restoreEnvironment(array $baseline): void
+{
+    foreach (array_diff_key($_ENV, $baseline['env']) as $key => $value) {
+        unset($_ENV[$key]);
+    }
+    foreach ($baseline['env'] as $key => $value) {
+        $_ENV[$key] = $value;
+    }
+    foreach (getenv() as $key => $value) {
+        if (! array_key_exists($key, $baseline['process'])) {
+            putenv($key);
+        } elseif ($baseline['process'][$key] !== $value) {
+            putenv($key.'='.$baseline['process'][$key]);
+        }
+    }
+}
+
 expect()->extend('toBeMoney', function (int $minor, string $currency) {
     return $this->minor->toBe($minor)->and($this->value->currency->value)->toBe($currency);
 });

@@ -34,12 +34,8 @@
     "brain_config_test": { "command": "powershell -File scripts/ai/tests/Config.Tests.ps1", "result": "PREEXISTING_FAILURE", "reason": "asserts .claude/settings.json, .gemini/, .mcp.json, .serena/, 6 agents and 7 skills that exist only on the unmerged branch origin/chore/onhost-brain; throws at the first missing file" },
     "brain_script_test": { "command": "powershell -File scripts/ai/tests/Brain.Tests.ps1", "result": "NOT_RUN", "reason": "rewrites tracked docs/generated/* and plants a .env fixture; not a read-only check" }
   },
-  "known_failing_tests": [
-    "tests/Feature/Billing/RenewalGuardTest.php::it warns a week ahead when renewals outrun the credit, stays quiet when the credit covers them, and manages the automatic top-up policy"
-  ],
-  "known_failing_notes": {
-    "tests/Feature/Billing/RenewalGuardTest.php": "ORDER-DEPENDENT, preexisting at 8e4614a. Passes alone and in the full suite (Billing/ runs before Orders/). Fails at line 50 ('supported' is true) whenever tests/Feature/Orders/CheckoutTest.php runs first in the same process: CheckoutTest sets COMGATE_MERCHANT/COMGATE_SECRET via putenv() and $_ENV and never removes them, so ComgatePaymentProvider::storedMethodsAvailable() turns true. Proven 2026-09-23 by running the two files in both orders. Remove this entry when CheckoutTest cleans up its environment."
-  },
+  "known_failing_tests": [],
+  "known_failing_notes": {},
   "known_flaky_tests": [
     {
       "test": "tests/Feature/Billing/DunningEnforcementTest.php",
