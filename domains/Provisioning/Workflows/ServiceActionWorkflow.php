@@ -9,6 +9,7 @@ use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Dns\DomainPointing;
 use Onhost\Domain\Dns\Models\DnsZone;
+use Onhost\Domain\Dns\ServiceDnsCleanup;
 use Onhost\Domain\Provisioning\Ipam\IpamService;
 use Onhost\Domain\Provisioning\Models\IpAddress;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -1445,7 +1446,12 @@ final class ServiceActionWorkflow implements Workflow
         };
     }
 
-    /** Hosting subdomains in a platform zone (<label>.web.onhost.cz) lose their A/AAAA rows when the service goes. */
+    /**
+     * What the service published into DNS goes with it: its hosting hostname in a platform zone
+     * (`<label>.web.onhost.cz`) and, in the customer's own zones, the site's A/AAAA and the mail records of every
+     * mail domain it was given. `ServiceDnsCleanup` knows which publisher wrote what; a record the customer made
+     * themselves is never touched.
+     */
     private function platformDnsStep(): ServiceStep
     {
         return new class extends ServiceStep
@@ -1458,19 +1464,21 @@ final class ServiceActionWorkflow implements Workflow
             public function run(StepContext $context): StepResult
             {
                 $service = $this->service($context);
-                $dns = $context->container->make(DnsService::class);
-                $platform = $dns->platformZoneFor((string) $service->hostname);
-                if ($platform === null) {
-                    return StepResult::skip();
-                }
-                [$zone, $relative] = $platform;
-                try {
-                    $version = $dns->syncHostname($zone, $relative, null, null, $context->actor, "service:{$service->id}", "service terminated {$service->id}");
-                } catch (Throwable $e) {
-                    return StepResult::done(['dns_cleanup' => 'failed', 'error' => mb_substr($e->getMessage(), 0, 200)]); // the reconciler retries; termination must not hang on DNS
+                $done = $context->container->make(ServiceDnsCleanup::class)->run($service, $context->actor, "service terminated {$service->id}");
+                // A zone that will not take the removal must not hold up a termination — but it used to be silent, with
+                // a comment claiming a reconciler would finish it. Nothing does: the nightly drift check compares the
+                // provider with what the platform holds, and a failed commit leaves both of them holding the record.
+                if ($done['failed'] !== []) {
+                    $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.purge.leftover', 'service', $service->id, [
+                        'name' => $service->hostname ?: ($service->label ?: $service->name), 'node' => '',
+                        'kinds' => ['dns'], 'leftover' => ['dns' => $done['failed']],
+                    ], (string) $service->organization_id));
                 }
 
-                return StepResult::done(['dns_cleanup' => $version === null ? 'nothing' : 'removed', 'dns_zone' => $zone->name]);
+                return StepResult::done(array_filter([
+                    'dns_cleanup' => $done['removed'] === [] ? 'nothing' : 'removed', 'dns_zones' => $done['zones'],
+                    'dns_removed' => $done['removed'], 'dns_left' => $done['failed'],
+                ], fn ($value) => $value !== []));
             }
         };
     }
