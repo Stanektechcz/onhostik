@@ -212,9 +212,21 @@ final class Doctor extends Command
         $this->add('catalog', 'every add-on on sale is one the platform delivers', $undelivered === [],
             $undelivered === [] ? implode(', ', Addons::handled()) : 'sold and never applied: '.implode(', ', $undelivered).' — Onhost\Domain\Services\Addons::handled()');
         // a version published in the administration can put a number back long after the guard test was written (audit §5ad)
-        $promises = PlanPromises::onSaleProblems(PlanPromises::readInSource());
+        $read = PlanPromises::readInSource();
+        $promises = PlanPromises::onSaleProblems($read);
         $this->add('catalog', 'no plan on sale promises a number nothing applies', $promises === [],
             $promises === [] ? 'every number is enforced, applied, measured, or declared fair use' : implode(' · ', array_map(fn (string $plan, array $keys) => $plan.': '.implode(', ', $keys), array_keys($promises), $promises)), false);
+        // the honest, tracked backlog (audit §5ad, brain card H278): every gap here is a documented promise nothing
+        // yet keeps. It is a standing WARN — never hidden, never blocking a deploy by itself — until the list shrinks.
+        $knownGaps = PlanPromises::knownGapKeys();
+        $this->add('catalog', 'no known metering gap', $knownGaps === [],
+            $knownGaps === [] ? '' : count($knownGaps).' known gap(s), tracked in PlanPromises::KNOWN_GAPS: '.implode(', ', $knownGaps), false);
+        // a gap NOT on that ratchet is new: either the platform started selling an unmeasured number, or a fixed gap
+        // was left on the list. Either way this is not a known, accepted state — it fails a production deploy.
+        $actualGaps = PlanPromises::actualGaps($read);
+        $newGaps = array_values(array_diff($actualGaps, $knownGaps));
+        $this->add('catalog', 'the metering gap ratchet is not growing', $newGaps === [],
+            $newGaps === [] ? 'every gap is on the known list' : 'new, untracked gap(s): '.implode(', ', $newGaps).' — add them to PlanPromises::KNOWN_GAPS with a reason, or fix them', true);
         // a WAF level is a line on the price list; the panels do not do the same things, and a level nobody defined
         // used to mean nothing at all (audit §5ad, the same rule as the numbers above)
         $waf = WafLevels::onSaleProblems(['ispconfig' => ServiceFeatures::securitySupports('ispconfig'), 'aapanel' => ServiceFeatures::securitySupports('aapanel')]);
