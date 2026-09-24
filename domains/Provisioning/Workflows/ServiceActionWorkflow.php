@@ -732,8 +732,28 @@ final class ServiceActionWorkflow implements Workflow
                 if ($paused['transient'] && (int) $context->operation->attempts < 4) { // a few tries; then the suspension stands and the errors are on record
                     return StepResult::fail('the panel did not answer while scheduled jobs and accesses were being paused: '.implode('; ', $paused['errors']), true, [], 60);
                 }
+                // The suspension stands — the site is stopped, which is better than leaving it up, and failing the
+                // step would put the service back to ACTIVE: serving AND running its cron. But what the panel refused
+                // to switch off keeps running on a service that is supposed to be stopped, and for an abuse
+                // quarantine that is exactly the thing this is here to prevent. It is recorded and said out loud.
+                $left = (array) ($paused['left'] ?? []);
+                $still = array_map('count', $left);
+                $service->refresh(); // `SuspensionDepth::pause` has just written the memory to the same row
+                $tags = (array) ($service->tags ?? []);
+                if ($still === []) {
+                    unset($tags[SuspensionDepth::LEFT_TAG]);
+                } else {
+                    $tags[SuspensionDepth::LEFT_TAG] = $still;
+                }
+                $service->forceFill(['tags' => $tags])->save();
+                if ($left !== []) {
+                    $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.suspend.incomplete', 'service', $service->id, [
+                        'name' => $service->hostname ?: ($service->label ?: $service->name), 'kinds' => array_keys($left), 'still_running' => $still,
+                        'reason' => mb_substr((string) $context->desired('reason', ''), 0, 120), 'errors' => array_slice($paused['errors'], 0, 5),
+                    ], (string) $service->organization_id));
+                }
 
-                return StepResult::done(['paused' => array_map('count', array_intersect_key($paused, array_flip(SuspensionDepth::KINDS))), 'pause_errors' => $paused['errors']]);
+                return StepResult::done(['paused' => array_map('count', array_intersect_key($paused, array_flip(SuspensionDepth::KINDS))), 'pause_errors' => $paused['errors'], 'still_running' => $still]);
             }
         };
     }
@@ -750,6 +770,14 @@ final class ServiceActionWorkflow implements Workflow
             public function run(StepContext $context): StepResult
             {
                 $service = $this->service($context);
+                // What the suspension could not switch off stops being a problem the moment the service runs again —
+                // it is meant to be running. The record goes first, before the skip below: the skip happens when the
+                // suspension switched nothing off, which is exactly the case where the panel refused everything.
+                if (data_get($service->tags, SuspensionDepth::LEFT_TAG) !== null) {
+                    $tags = (array) $service->tags;
+                    unset($tags[SuspensionDepth::LEFT_TAG]);
+                    $service->forceFill(['tags' => $tags])->save();
+                }
                 if (! in_array($service->family, ['web', 'managed', 'game'], true) || data_get($service->tags, SuspensionDepth::TAG) === null) {
                     return StepResult::skip(); // nothing was paused besides the service itself
                 }

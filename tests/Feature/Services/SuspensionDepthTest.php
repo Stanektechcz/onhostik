@@ -213,3 +213,60 @@ it('keeps and reports what it could not switch back on', function () {
         ->and($finding['cs'] ?? '')->toContain('naplánované úlohy')   // named the way a customer reads it, not `cron`
         ->and($finding['en'] ?? '')->toContain('scheduled jobs');
 });
+
+/*
+ * And the same on the way in: a suspension the panel partly refused is not a finished suspension.
+ *
+ * The whole reason this class exists is that a quarantined site went on sending mail from its cron. When the panel
+ * refuses to switch a job off — `status:false`, so `VALIDATION`, not a timeout — `pauseExtrasStep` still answered
+ * `StepResult::done` and the saga wrote SUSPENDED. The site was stopped, the customer was cut off, and the cron the
+ * quarantine exists to stop kept running. `pause_errors` went into the operation's context, which nobody reads.
+ *
+ * The suspension still stands: stopping the site is better than not stopping it, and failing the step would put the
+ * service back to ACTIVE — serving AND running its cron. What changes is that the platform records what is still
+ * running and tells the operators, because a half-done quarantine is theirs to finish.
+ */
+
+it('says out loud what a suspension could not switch off', function () {
+    [, $org] = $this->customerWithOrganization();
+    $site = featureWebService($org, 'aapanel');
+    $prefix = Naming::prefix($site->id);
+    $panel = ['cron' => [21 => 1], 'ftp' => [31 => 1]];
+    Http::fake(function (Request $r) use (&$panel, $site, $prefix) {
+        $path = (string) parse_url($r->url(), PHP_URL_PATH).'?'.(string) parse_url($r->url(), PHP_URL_QUERY);
+        $body = $r->data();
+
+        return Http::response(match (true) {
+            str_contains($path, 'site?action=SiteStop') => ['status' => true, 'msg' => 'stopped'],
+            str_contains($path, 'crontab?action=GetCrontab') => array_map(fn ($id) => ['id' => $id, 'name' => Naming::cronLabel($site->id, "job{$id}"), 'type' => 'minute-n', 'where1' => '5', 'where_hour' => '0', 'where_minute' => '5', 'sBody' => 'php artisan schedule:run', 'status' => $panel['cron'][$id]], array_keys($panel['cron'])),
+            str_contains($path, 'crontab?action=set_cron_status') => ['status' => false, 'msg' => 'cron service is not running'], // the panel will not switch it off
+            str_contains($path, 'data?action=getData&table=ftps') => ['data' => array_map(fn ($id) => ['id' => $id, 'name' => "{$prefix}_ftp{$id}", 'path' => '/www/wwwroot/shop.cz', 'status' => (string) $panel['ftp'][$id]], array_keys($panel['ftp']))],
+            str_contains($path, 'ftp?action=SetStatus') => (function () use (&$panel, $body) {
+                $panel['ftp'][(int) $body['id']] = (int) $body['status'];
+
+                return ['status' => true, 'msg' => 'ok'];
+            })(),
+            default => ['status' => true, 'msg' => 'ok', 'data' => []],
+        });
+    });
+
+    driveOperation(app(ServiceService::class)->requestAction($site, 'suspend', CommandContext::system('abuse quarantine')->withScope($org->id), 'still-running', ['reason' => 'zneužití']));
+
+    $site->refresh();
+    expect($site->state)->toBe(ServiceStateMachine::SUSPENDED)   // the site is stopped: better than leaving it up
+        ->and($panel['ftp'][31])->toBe(0)                        // what could be switched off is off
+        ->and($panel['cron'][21])->toBe(1)                       // and this one is still running
+        // what the platform did switch off is remembered for the resume; what it could NOT is not (it must not be
+        // switched "back" on), but it is no longer silent
+        ->and(data_get($site->tags, SuspensionDepth::TAG))->toBe(['ftp' => ['31']])
+        // a tag of its own: `tags.suspension` is replaced wholesale by the holds when the state is written
+        ->and(data_get($site->tags, SuspensionDepth::LEFT_TAG))->toBe(['cron' => 1])
+        ->and(OutboxMessage::query()->where('name', 'service.suspend.incomplete')->exists())->toBeTrue();
+
+    // and once the service runs again it is no longer "still running while stopped" — it is simply running. The
+    // record has to go, even here, where the resume step skips its work because the suspension switched nothing off.
+    driveOperation(app(ServiceService::class)->requestAction($site, 'resume', CommandContext::system('cleared')->withScope($org->id), 'still-running-resume', ['reason' => 'prověřeno', 'lift' => 'review']));
+
+    expect($site->refresh()->state)->toBe(ServiceStateMachine::ACTIVE)
+        ->and(data_get($site->tags, SuspensionDepth::LEFT_TAG))->toBeNull();
+});

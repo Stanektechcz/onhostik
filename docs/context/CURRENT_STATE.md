@@ -441,9 +441,19 @@
   (`suspension_left`, named the way a customer reads it). The service still returns to ACTIVE — the site serves and
   the customer paid; the rest is ours to finish.
 
+- **A suspension the panel partly refused is not a finished suspension** (audit row 97, TASK-0010). The same hole on
+  the way in: when the panel refused to switch a cron job off (`status:false` is `VALIDATION`, not a timeout), the
+  step still answered `done`, the saga wrote SUSPENDED and nobody knew — the site was stopped, the customer cut off,
+  and the cron the quarantine exists to stop kept running. `pause()` now returns what it could not switch off, the
+  step records it in a tag of its own (`tags.suspension_still_running`; `tags.suspension` belongs to the holds and is
+  rewritten when the state is written) and publishes `service.suspend.incomplete` to the operators. The suspension
+  stands — failing the step would put the service back to ACTIVE, serving *and* running its cron — the refused items
+  are deliberately not remembered as paused, and the record is dropped as soon as the service runs again. The health
+  check stays silent here on purpose: a suspended customer is not told what still runs for them.
+
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 916 tests, 14 860 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 917 tests, 14 868 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

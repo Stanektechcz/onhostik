@@ -34,6 +34,13 @@ final class SuspensionDepth
     /** A tag of its own: `tags.suspension` belongs to the holds (`SuspensionHold` reads its mere presence). */
     public const TAG = 'suspension_paused';
 
+    /**
+     * What a suspension could NOT switch off and is therefore still running on a stopped service — also a tag of its
+     * own, for the same reason: `ServiceService::suspensionPatch` replaces the whole `tags.suspension` with the holds
+     * when a service goes down, so anything parked there is lost the moment the state is written.
+     */
+    public const LEFT_TAG = 'suspension_still_running';
+
     /** Everything a suspension switches off, in the order it is switched off. */
     public const KINDS = ['cron', 'ftp', 'schedule', 'app', 'mail'];
 
@@ -52,21 +59,27 @@ final class SuspensionDepth
         $paused = $this->remembered($service);
         $errors = [];
         $transient = false;
+        $left = array_fill_keys(self::KINDS, []);
         foreach ($this->switches($adapter, $ref, self::mailRefs($service)) as $kind => $switch) {
             foreach ($this->listing($switch['list'], $errors, $transient) as $row) {
                 if (! ($row['active'] ?? true)) {
                     continue;
                 }
                 $id = (string) $row['remote_id'];
+                // what the panel refused is NOT remembered — the platform never switched it off, so a later resume
+                // must not switch it "back" on — but it is still running, and a quarantine that leaves the cron
+                // running is the thing this class exists to prevent. The caller says it out loud.
                 if ($this->attempt(fn () => ($switch['set'])($id, false), "{$kind} {$id}", $errors, $transient)) {
                     $paused[$kind][] = $id;
+                } else {
+                    $left[$kind][] = $id;
                 }
             }
         }
         $paused = array_map(fn (array $ids) => array_values(array_unique($ids)), $paused);
         $this->remember($service, $paused);
 
-        return $paused + ['errors' => $errors, 'transient' => $transient];
+        return $paused + ['errors' => $errors, 'transient' => $transient, 'left' => array_filter($left, fn (array $ids) => $ids !== [])];
     }
 
     /**
