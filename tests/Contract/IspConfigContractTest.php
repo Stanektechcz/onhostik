@@ -117,7 +117,8 @@ it('logs in once, creates client + web domain and awaits the job queue', functio
 it('reuses an existing site (idempotent) and maps remote_fault to typed errors', function () {
     Http::fake([
         'shared01.mgmt.test:8080/remote/json.php?login' => Http::response(ispResponse('sess-1')),
-        'shared01.mgmt.test:8080/remote/json.php?sites_web_domain_get' => Http::response(ispResponse([['domain_id' => 5, 'domain' => 'a.cz', 'sys_groupid' => 3, 'system_user' => 'web5']])),
+        // the site is owned by the organization's own ONhost client (client3): a retry finding what it made, not a stranger's site
+        'shared01.mgmt.test:8080/remote/json.php?sites_web_domain_get' => Http::response(ispResponse([['domain_id' => 5, 'domain' => 'a.cz', 'sys_groupid' => 3, 'system_user' => 'web5', 'system_group' => 'client3']])),
         'shared01.mgmt.test:8080/remote/json.php?client_get' => Http::response(ispResponse(false, 'remote_fault', 'You do not have the permissions to access this function.')),
         'shared01.mgmt.test:8080/remote/json.php?client_get_by_username' => Http::response(ispResponse(['client_id' => 3, 'username' => 'onh_1'])), // sys_groupid 3 of the site is a group id, the client is resolved by username
     ]);

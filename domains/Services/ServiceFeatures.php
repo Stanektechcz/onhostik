@@ -378,22 +378,23 @@ final class ServiceFeatures
             'certificates' => app(CertificateService::class)->status($service),
             'cdn' => app(CdnService::class)->status($service),
             'imports' => app(ImportService::class)->list($service),
-            // mail tools
-            'mail_forwards' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mailTools($adapter)->listForwards($one)),
+            // mail tools — the panel's capability is asked BEFORE the listing: a service with no mail domain lists
+            // nothing (MailDomains::across), and "this panel has no mail" must not turn into an empty list
+            'mail_forwards' => MailDomains::across($service, $ref, [$this->mailTools($adapter), 'listForwards']),
             'mail_catchall' => $this->mailTools($adapter)->catchAll($ref) ?? [],
             'mail_autoresponder' => $this->mailTools($adapter)->autoresponder(self::mailboxRef($ref, (string) ($params['remote_id'] ?? ''))),
             'mail_spam' => ['policies' => $this->mailTools($adapter)->spamPolicies($ref), 'mailbox' => ($params['remote_id'] ?? '') !== '' ? $this->mailTools($adapter)->mailboxSpamPolicy(self::mailboxRef($ref, (string) $params['remote_id'])) : null],
-            'mail_spam_lists' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mailTools($adapter)->listSpamLists($one)),
+            'mail_spam_lists' => MailDomains::across($service, $ref, [$this->mailTools($adapter), 'listSpamLists']),
             'mail_filters' => $this->mailTools($adapter)->listFilters(self::mailboxRef($ref, (string) ($params['remote_id'] ?? ''))),
-            'mail_lists' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mailTools($adapter)->listMailingLists($one)),
-            'mail_fetchmail' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mailTools($adapter)->listFetchmail($one)),
-            'mail_backups' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mailTools($adapter)->listMailboxBackups($one)),
+            'mail_lists' => MailDomains::across($service, $ref, [$this->mailTools($adapter), 'listMailingLists']),
+            'mail_fetchmail' => MailDomains::across($service, $ref, [$this->mailTools($adapter), 'listFetchmail']),
+            'mail_backups' => MailDomains::across($service, $ref, [$this->mailTools($adapter), 'listMailboxBackups']),
             'mail_usage' => ['mailboxes' => $this->mailTools($adapter)->mailboxUsage($ref), 'webmail' => $this->mailTools($adapter)->webmailUrl($ref)],
             // where a mailbox is reached: the platform could make one and then said nothing about the server or the ports
             'mail_access' => MailSettings::of($service, $adapter instanceof MailToolsProvider ? $this->mailTools($adapter)->webmailUrl($ref) : null),
             // every domain the service has mail in, so that what the plan sells is counted over all of them
-            'mailboxes' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mail($adapter)->listMailboxes($one)),
-            'aliases' => MailDomains::across($service, $ref, fn (ResourceRef $one) => $this->mail($adapter)->listAliases($one)),
+            'mailboxes' => MailDomains::across($service, $ref, [$this->mail($adapter), 'listMailboxes']),
+            'aliases' => MailDomains::across($service, $ref, [$this->mail($adapter), 'listAliases']),
             'dkim' => $this->mail($adapter)->dkim($ref) ?? [],
             // game tools (GameToolsProvider)
             'status' => $this->gameTools($adapter)->status($ref),

@@ -60,7 +60,10 @@ final class ProvisionWebsiteWorkflow implements Workflow
                     // a second ordinary hosting was refused by the panel after the customer had paid (ClientAllowance).
                     $result = $infra->provision($context->spec('website', ['domain' => $context->desired('domain'), 'php_version' => $context->desired('php_version', '8.3'), 'aliases' => (array) $context->desired('aliases', []), 'entitlements' => (array) $service->entitlements, 'client_entitlements' => ClientAllowance::of($service), 'limits' => (array) $context->desired('limits', [])]));
                     if ($result->ref !== null) {
-                        $context->bind($context->instance(), $result->ref->remoteType, $result->ref->remoteId, $result->ref->node, $result->ref->meta, ['managed_by' => 'onhost']);
+                        // `recovered`: the panel already had the site and proved it is ours (the adapter refuses a
+                        // historical one outright) — a retry found what the first attempt had made
+                        $context->bind($context->instance(), $result->ref->remoteType, $result->ref->remoteId, $result->ref->node, $result->ref->meta,
+                            ['managed_by' => 'onhost', 'provenance' => $result->alreadyExisted ? 'recovered' : 'created']);
                     }
 
                     return $this->settle($result, ['site_remote_id' => $result->ref?->remoteId, 'site_remote_type' => $result->ref?->remoteType, 'site_meta' => $result->ref?->meta ?? []]);

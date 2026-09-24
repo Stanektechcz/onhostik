@@ -28,7 +28,8 @@ function aaAdapter(): AaPanelWebProvider
 
 it('signs requests with md5(time + md5(key)) and creates a site once', function () {
     Http::fake([
-        'managed01.mgmt.test:8888/data?action=getData&table=sites' => Http::sequence()->push(['data' => [], 'page' => ''])->push(['data' => [['id' => 41, 'name' => 'shop.cz', 'path' => '/www/wwwroot/shop.cz', 'status' => '1']], 'page' => '']),
+        // the second listing shows the site the first call made — with the remark AddSite wrote, which is what makes it ours
+        'managed01.mgmt.test:8888/data?action=getData&table=sites' => Http::sequence()->push(['data' => [], 'page' => ''])->push(['data' => [['id' => 41, 'name' => 'shop.cz', 'path' => '/www/wwwroot/shop.cz', 'status' => '1', 'ps' => 'onhost:srv_m1']], 'page' => '']),
         'managed01.mgmt.test:8888/site?action=AddSite' => Http::response(['siteStatus' => true, 'ftpStatus' => false, 'databaseStatus' => false, 'siteId' => 41]),
     ]);
     $adapter = aaAdapter();

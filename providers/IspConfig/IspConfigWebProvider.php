@@ -186,8 +186,17 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
         $serverId = $this->serverId();
         $existing = $this->findSite($domain);
         if ($existing !== null) {
-            // sys_groupid is the client's *group*, not its client_id (remoting rejects it as "Invalid client_id"): resolve the client by username
-            return ProviderResult::completed(new ResourceRef('web_domain', (string) $existing['domain_id'], (string) $serverId, ['client_id' => $this->ensureClient($spec), 'system_user' => $existing['system_user'] ?? null], $spec->serviceId), $existing, alreadyExisted: true);
+            // A site of that name already on the node is ours only when the client the platform made for this
+            // organization owns it — found again on a retry. Anything else was made by hand before ONhost: a
+            // historical site, which the platform must never take over (the owner's rule, brain H304). Refused
+            // before a single write, with the client looked up read-only: `ensureClient` would create one and
+            // "bring its limits up to date" on the way.
+            $ours = $this->findClientId($spec);
+            if ($ours === null || ! self::siteOwnedBy($existing, $ours)) {
+                throw new ProviderException('ispconfig', ProviderErrorCode::CONFLICT, "The site {$domain} already exists on this node and was not created by ONhost. It is a historical site and is not taken over; adopting it is an explicit operator decision.");
+            }
+
+            return ProviderResult::completed(new ResourceRef('web_domain', (string) $existing['domain_id'], (string) $serverId, ['client_id' => $ours, 'system_user' => $existing['system_user'] ?? null], $spec->serviceId), $existing, alreadyExisted: true);
         }
         $clientId = $this->ensureClient($spec);
         $ent = (array) $spec->get('entitlements', []);
@@ -437,6 +446,12 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
         $name = (string) $spec['name'];
         $existing = collect((array) $this->api->call('sites_database_get', ['primary_id' => ['database_name' => $name]]))->first();
         if (is_array($existing) && ! empty($existing['database_id'])) {
+            // the name is unique on the database server, not on the site: a database of that name that hangs off
+            // another site is somebody else's, however familiar the name looks
+            if ((int) ($existing['parent_domain_id'] ?? 0) !== (int) $site->remoteId) {
+                throw new ProviderException('ispconfig', ProviderErrorCode::CONFLICT, "A database named {$name} already exists on this server and belongs to another site; it is not taken over.");
+            }
+
             return ProviderResult::completed(new ResourceRef('database', (string) $existing['database_id'], $site->node, ['name' => $name], $site->serviceId), alreadyExisted: true);
         }
         $userId = (int) $this->api->call('sites_database_user_add', ['client_id' => $clientId, 'params' => ['server_id' => (int) $site->node, 'database_user' => (string) $spec['user'], 'database_password' => (string) $spec['password']]], true);
@@ -561,11 +576,21 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
 
     public function createMailDomain(ResourceSpec $spec): ProviderResult
     {
-        $domain = (string) $spec->get('domain');
+        // lower-case and carried in the reference: the binding is written from it, and every mailbox query needs it
+        $domain = mb_strtolower(trim((string) $spec->get('domain')));
         $serverId = (int) ($this->instance->option('mail_server_id') ?: $this->serverId());
         $existing = collect((array) $this->api->call('mail_domain_get', ['primary_id' => ['domain' => $domain]]))->first();
         if (is_array($existing) && ! empty($existing['domain_id'])) {
-            return ProviderResult::completed(new ResourceRef('mail_domain', (string) $existing['domain_id'], (string) $serverId, ['client_id' => (int) $existing['sys_groupid'], 'dkim_selector' => $existing['dkim_selector'] ?? null, 'dkim_public' => $existing['dkim_public'] ?? null], $spec->serviceId), alreadyExisted: true);
+            // A mail domain carries no system group, only the group of the client that owns it: ours when that is the
+            // group of the organization's ONhost client. Anything else is somebody's historical mail — taking it over
+            // would switch off its sending on a suspension and delete it with its mailboxes at the end.
+            $ours = $this->findClientId($spec);
+            $group = $ours === null ? null : $this->groupOf($ours);
+            if ($group === null || (int) ($existing['sys_groupid'] ?? 0) !== $group) {
+                throw new ProviderException('ispconfig', ProviderErrorCode::CONFLICT, "The mail domain {$domain} already exists on this server and was not created by ONhost. It is historical mail and is not taken over; adopting it is an explicit operator decision.");
+            }
+
+            return ProviderResult::completed(new ResourceRef('mail_domain', (string) $existing['domain_id'], (string) $serverId, ['domain' => $domain, 'client_id' => $ours, 'dkim_selector' => $existing['dkim_selector'] ?? null, 'dkim_public' => $existing['dkim_public'] ?? null], $spec->serviceId), alreadyExisted: true);
         }
         $clientId = $this->ensureClient($spec);
         $dkim = $this->generateDkim();
@@ -573,7 +598,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
             'server_id' => $serverId, 'domain' => $domain, 'active' => 'y', 'dkim' => 'y', 'dkim_selector' => $dkim['selector'], 'dkim_private' => $dkim['private'], 'dkim_public' => $dkim['public'],
         ]], true);
 
-        return ProviderResult::accepted($this->jobqueueHandle($serverId), new ResourceRef('mail_domain', (string) $id, (string) $serverId, ['client_id' => $clientId, 'dkim_selector' => $dkim['selector'], 'dkim_public' => $dkim['public']], $spec->serviceId), ['domain_id' => $id, 'dkim_selector' => $dkim['selector'], 'dkim_public' => $dkim['public']]);
+        return ProviderResult::accepted($this->jobqueueHandle($serverId), new ResourceRef('mail_domain', (string) $id, (string) $serverId, ['domain' => $domain, 'client_id' => $clientId, 'dkim_selector' => $dkim['selector'], 'dkim_public' => $dkim['public']], $spec->serviceId), ['domain_id' => $id, 'dkim_selector' => $dkim['selector'], 'dkim_public' => $dkim['public']]);
     }
 
     public function deleteMailDomain(ResourceRef $domain): ProviderResult
@@ -657,7 +682,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
 
     public function setSendingEnabled(ResourceRef $domain, bool $enabled): ProviderResult
     {
-        $users = (array) $this->api->call('mail_user_get', ['primary_id' => ['email' => '%@'.($domain->meta['domain'] ?? '')]]);
+        $users = (array) $this->api->call('mail_user_get', ['primary_id' => ['email' => '%@'.$this->mailDomainName($domain)]]);
         foreach ($users as $user) {
             $this->updateMailUser(new ResourceRef('mailbox', (string) $user['mailuser_id'], $domain->node, ['client_id' => $domain->meta['client_id'] ?? null], $domain->serviceId), ['disablesmtp' => $enabled ? 'n' : 'y']);
         }
@@ -952,7 +977,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
     public function listMailboxes(ResourceRef $domain): array
     {
         $out = [];
-        foreach ((array) $this->api->call('mail_user_get', ['primary_id' => ['email' => '%@'.($domain->meta['domain'] ?? '')]]) as $row) {
+        foreach ((array) $this->api->call('mail_user_get', ['primary_id' => ['email' => '%@'.$this->mailDomainName($domain)]]) as $row) {
             if (! is_array($row) || empty($row['mailuser_id'])) {
                 continue;
             }
@@ -965,7 +990,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
     public function listAliases(ResourceRef $domain): array
     {
         $out = [];
-        foreach ((array) $this->api->call('mail_alias_get', ['primary_id' => ['source' => '%@'.($domain->meta['domain'] ?? '')]]) as $row) {
+        foreach ((array) $this->api->call('mail_alias_get', ['primary_id' => ['source' => '%@'.$this->mailDomainName($domain)]]) as $row) {
             if (! is_array($row) || empty($row['forwarding_id'])) {
                 continue;
             }
@@ -1086,17 +1111,88 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
         return $id;
     }
 
-    private function ensureClient(ResourceSpec $spec): int
+    /**
+     * The name of a mail domain, for the `LIKE '%@<name>'` every mailbox, alias and spam query is built on. Taken from
+     * the binding, else asked of the panel by the domain's own id — and never empty: `'%@'` is every mailbox on the
+     * shared mail server, historical customers' included. A mail service used to be bound without the name, so its
+     * suspension switched off sending for the whole server.
+     */
+    private function mailDomainName(ResourceRef $domain): string
     {
-        $username = 'onh_'.substr(preg_replace('/[^a-z0-9]/', '', strtolower((string) $spec->organizationId)) ?? '', 4, 20);
+        $name = mb_strtolower(trim((string) ($domain->meta['domain'] ?? '')));
+        if ($name === '' && $domain->remoteType === 'mail_domain' && (int) $domain->remoteId > 0) {
+            $row = $this->getMailDomain((int) $domain->remoteId);
+            $name = mb_strtolower(trim((string) ($row['domain'] ?? '')));
+        }
+        if ($name === '') {
+            throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'The mail domain has no name on record; refusing to query every mailbox on the mail server.');
+        }
+
+        return $name;
+    }
+
+    /** The ISPConfig client the platform made for this organization (`onh_…`), looked up without creating anything. */
+    private function findClientId(ResourceSpec $spec): ?int
+    {
+        $existing = $this->clientRecord(self::clientUsername($spec));
+
+        return is_array($existing) && ! empty($existing['client_id']) ? (int) $existing['client_id'] : null;
+    }
+
+    private static function clientUsername(ResourceSpec $spec): string
+    {
+        return 'onh_'.substr(preg_replace('/[^a-z0-9]/', '', strtolower((string) $spec->organizationId)) ?? '', 4, 20);
+    }
+
+    /** @return array<string,mixed>|null */
+    private function clientRecord(string $username): ?array
+    {
         try {
             $existing = $this->api->call('client_get_by_username', ['username' => $username]);
         } catch (ProviderException $e) {
             if (! str_contains(mb_strtolower($e->getMessage()), 'no user account')) {
                 throw $e;
             }
-            $existing = null; // ISPConfig 3.2 answers an unknown username with a fault instead of an empty result
+
+            return null; // ISPConfig 3.2 answers an unknown username with a fault instead of an empty result
         }
+
+        return is_array($existing) ? $existing : null;
+    }
+
+    /**
+     * Whether a web domain row belongs to the given client. ISPConfig names the site's system group after its client
+     * and roots the site under that client's directory (`client12`, `/var/www/clients/client12/web77`) — either one
+     * proves it, and a site made by hand under another client has neither.
+     *
+     * @param  array<string,mixed>  $site
+     */
+    private static function siteOwnedBy(array $site, int $clientId): bool
+    {
+        return (string) ($site['system_group'] ?? '') === "client{$clientId}"
+            || str_starts_with((string) ($site['document_root'] ?? ''), "/var/www/clients/client{$clientId}/");
+    }
+
+    /** The system group of a client — what a mail domain names as its owner. Null when the panel will not say. */
+    private function groupOf(int $clientId): ?int
+    {
+        try {
+            $group = $this->api->call('client_get_groupid', ['client_id' => $clientId]);
+        } catch (ProviderException $e) {
+            if ($e->isRetryable()) {
+                throw $e; // "not now" is asked again, not turned into a final "not yours"
+            }
+
+            return null; // the panel refuses to say: not proven is not ours, and the caller refuses
+        }
+
+        return is_numeric($group) && (int) $group > 0 ? (int) $group : null;
+    }
+
+    private function ensureClient(ResourceSpec $spec): int
+    {
+        $username = self::clientUsername($spec);
+        $existing = $this->clientRecord($username);
         // One client per organization, so its limits are the ORGANIZATION's — what it holds on this panel across all
         // of its services (`ClientAllowance`), not what the service that happens to be provisioning sells. Written
         // once from one plan they were wrong for everyone else: two ordinary hostings (`sites = 1` each) left the
