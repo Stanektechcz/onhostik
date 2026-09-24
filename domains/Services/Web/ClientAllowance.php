@@ -40,13 +40,18 @@ final class ClientAllowance
     /**
      * What the organization of this service holds on the panel it runs on.
      *
+     * `$override` is this service's own entitlements **after** a change that has not been written yet: a resize asks
+     * the panel for the new limits before `finishResizeStep` stores them, so the sum has to count the target, not
+     * what the row still says.
+     *
+     * @param  array<string,mixed>|null  $override
      * @return array<string,int|bool|mixed>
      */
-    public static function of(Service $service): array
+    public static function of(Service $service, ?array $override = null): array
     {
         $organizationId = (string) ($service->organization_id ?? '');
         $instanceId = (string) ($service->provider_instance_id ?? '');
-        $own = (array) $service->entitlements;
+        $own = $override ?? (array) $service->entitlements;
         if ($organizationId === '' || $instanceId === '') {
             return $own; // nothing to sum over: the service's own plan is the best answer there is
         }
@@ -61,7 +66,7 @@ final class ClientAllowance
         }
         $total = [];
         foreach ($services as $one) {
-            $entitlements = (array) $one->entitlements;
+            $entitlements = $one->id === $service->id ? $own : (array) $one->entitlements;
             foreach (self::SUMMED as $key) {
                 if (isset($entitlements[$key]) && is_numeric($entitlements[$key])) {
                     $total[$key] = (int) ($total[$key] ?? 0) + (int) $entitlements[$key];

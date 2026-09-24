@@ -38,6 +38,7 @@ use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\SshKeyLedger;
 use Onhost\Domain\Services\SuspensionDepth;
 use Onhost\Domain\Services\SuspensionHold;
+use Onhost\Domain\Services\Web\ClientAllowance;
 use Onhost\Domain\Services\Web\CommandRunner;
 use Onhost\Domain\Services\Web\DatabaseCredentials;
 use Onhost\Domain\Services\Web\DatabaseImport;
@@ -806,6 +807,10 @@ final class ServiceActionWorkflow implements Workflow
                 return $this->settle($infra->resize($this->ref($context), $context->spec($this->kindFor($service), [
                     'entitlements' => $target, 'vcpu' => (int) ($target['vcpu'] ?? 0) ?: null, 'ram_mb' => (int) ($target['ram_mb'] ?? 0) ?: null, 'nvme_gb' => (int) ($target['nvme_gb'] ?? 0) ?: null, 'cpu_limit' => ($target['cpu_class'] ?? 'shared') === 'dedicated' ? null : ((int) ($target['vcpu'] ?? 0) ?: null),
                     'limits' => (array) $context->desired('limits', []), 'php_version' => $context->desired('php_version'), 'site_nvme_gb' => $siteShare,
+                    // the panel's client account belongs to the ORGANIZATION, so its limits are the customer's total
+                    // on this panel with this service's TARGET counted in — sending this plan alone took the space
+                    // and the sites away from every other site of the same customer (ClientAllowance)
+                    'client_entitlements' => in_array($service->family, ['web', 'managed'], true) ? ClientAllowance::of($service, $target) : null,
                 ])), ['target_entitlements' => $target, 'site_nvme_gb' => $siteShare]);
             }
 

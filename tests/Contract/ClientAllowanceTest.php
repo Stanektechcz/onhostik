@@ -65,6 +65,20 @@ it('keeps counting a service that is on its way out, and stops at terminated', f
     expect(ClientAllowance::of($live)['sites'])->toBe(3); // gone for good, so the limit may come down
 });
 
+it('counts the target of a resize, not what the row still says', function () {
+    // a plan change asks the panel for the new limits before `finishResizeStep` stores them; sending this plan alone
+    // rewrote the client's limits down and took the space from every other site of the same customer
+    [, $org] = $this->customerWithOrganization();
+    $growing = featureWebService($org, 'ispconfig');                                   // sites 3, nvme 50
+    allowanceService($growing, ['sites' => 2, 'nvme_gb' => 30]);                        // a second hosting of the same customer
+
+    $before = ClientAllowance::of($growing);
+    $after = ClientAllowance::of($growing, ['sites' => 10, 'nvme_gb' => 200]);          // upgrading the first one
+
+    expect($before['sites'])->toBe(5)->and($before['nvme_gb'])->toBe(80)
+        ->and($after['sites'])->toBe(12)->and($after['nvme_gb'])->toBe(230);            // the neighbour's 2 and 30 stay
+});
+
 it('leaves a service of another organization or another panel out of the sum', function () {
     [, $org] = $this->customerWithOrganization();
     $mine = featureWebService($org, 'ispconfig');
