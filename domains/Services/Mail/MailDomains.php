@@ -99,4 +99,30 @@ final class MailDomains
 
         return $out;
     }
+
+    /**
+     * The row of one of the service's own mail domains whose `$field` is `$value` (compared without case), or null.
+     *
+     * A mailbox is named to the platform by an id or an address, and the panel behind a shared mail server answers one
+     * administrator session that never asks whose mailbox it was handed. The only proof that a mailbox is this
+     * service's is that the service's own domains list it — so every action and every read that targets ONE mailbox
+     * looks it up here first, and a value that is not found means "not yours", never "try the panel".
+     *
+     * @param  callable(ResourceRef): list<array<string,mixed>>  $read
+     * @return array<string,mixed>|null
+     */
+    public static function ownRow(Service $service, ResourceRef $fallback, callable $read, string $field, string $value): ?array
+    {
+        $value = mb_strtolower(trim($value));
+        if ($value === '') {
+            return null;
+        }
+        foreach (self::across($service, $fallback, $read) as $row) {
+            if (mb_strtolower(trim((string) ($row[$field] ?? ''))) === $value) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
 }

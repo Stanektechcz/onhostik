@@ -1246,7 +1246,7 @@ final class ServiceService
                 return ['remote_id' => $remote(), 'name' => $need('name', '/^[^\r\n]{1,60}$/', 'name is required'), 'source' => $source, 'op' => $op, 'term' => $need('term', '/^[^\r\n]{1,120}$/', 'term is required'), 'action' => $do, 'target' => substr(trim((string) ($params['target'] ?? '')), 0, 120)];
             })(),
             'list.create' => ['name' => $need('name', '/^[a-z0-9][a-z0-9_-]{1,40}$/i', 'name may contain letters, digits, dashes and underscores'), 'email' => MailAddresses::assertOwn($service, $need('email', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'email must be an e-mail address'), 'email', $action), 'password' => $password()],
-            'fetchmail.create' => (function () use ($need, $password, $params, $action) {
+            'fetchmail.create' => (function () use ($service, $need, $password, $params, $action) {
                 $type = (string) ($params['type'] ?? 'imapssl');
                 if (! in_array($type, ['pop3', 'imap', 'pop3ssl', 'imapssl'], true)) {
                     throw new DomainError('action_param_invalid', "{$action}: type must be pop3, imap, pop3ssl or imapssl.", 422, ['field' => 'type']);
@@ -1254,8 +1254,12 @@ final class ServiceService
 
                 $host = strtolower($need('host', '/^[a-z0-9.-]{3,253}$/i', 'host is required'));
                 app(EgressGuard::class)->checkHost($host); // the mail node connects there on the customer's word: a public server, not the management network
+                // fetched mail is DELIVERED into this address on the shared mail server: into somebody else's mailbox it
+                // is mail they never asked for (and the rule stays in no listing of ours to be removed). The domain is
+                // measured here; that it is one of the service's mailboxes, in the saga (OWN_MAIL_TARGETS)
+                $destination = MailAddresses::assertOwn($service, $need('destination', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'destination must be a mailbox'), 'destination', $action);
 
-                return ['type' => $type, 'host' => $host, 'user' => $need('user', '/^[^\r\n\s]{1,120}$/', 'user is required'), 'password' => (string) ($params['password'] ?? '') !== '' ? (string) $params['password'] : $password(), 'destination' => strtolower($need('destination', '/^[^@\s]{1,64}@[^@\s]{3,253}$/', 'destination must be a mailbox')), 'delete' => filter_var($params['delete'] ?? false, FILTER_VALIDATE_BOOLEAN)];
+                return ['type' => $type, 'host' => $host, 'user' => $need('user', '/^[^\r\n\s]{1,120}$/', 'user is required'), 'password' => (string) ($params['password'] ?? '') !== '' ? (string) $params['password'] : $password(), 'destination' => $destination, 'delete' => filter_var($params['delete'] ?? false, FILTER_VALIDATE_BOOLEAN)];
             })(),
             'mailbox.restore' => ['remote_id' => $remote(), 'backup_id' => $need('backup_id', '/^\d{1,12}$/', 'backup_id is required')],
             // ── game tools ─────────────────────────────────────────────────────────────────────────

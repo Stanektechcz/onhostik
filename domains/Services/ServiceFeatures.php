@@ -382,10 +382,11 @@ final class ServiceFeatures
             // nothing (MailDomains::across), and "this panel has no mail" must not turn into an empty list
             'mail_forwards' => MailDomains::across($service, $ref, [$this->mailTools($adapter), 'listForwards']),
             'mail_catchall' => $this->mailTools($adapter)->catchAll($ref) ?? [],
-            'mail_autoresponder' => $this->mailTools($adapter)->autoresponder(self::mailboxRef($ref, (string) ($params['remote_id'] ?? ''))),
-            'mail_spam' => ['policies' => $this->mailTools($adapter)->spamPolicies($ref), 'mailbox' => ($params['remote_id'] ?? '') !== '' ? $this->mailTools($adapter)->mailboxSpamPolicy(self::mailboxRef($ref, (string) $params['remote_id'])) : null],
+            // one mailbox's settings are read only once the mailbox is the service's own (ownMailboxRef)
+            'mail_autoresponder' => $this->mailTools($adapter)->autoresponder($this->ownMailboxRef($service, $ref, $adapter, (string) ($params['remote_id'] ?? ''))),
+            'mail_spam' => ['policies' => $this->mailTools($adapter)->spamPolicies($ref), 'mailbox' => ($params['remote_id'] ?? '') !== '' ? $this->mailTools($adapter)->mailboxSpamPolicy($this->ownMailboxRef($service, $ref, $adapter, (string) $params['remote_id'])) : null],
             'mail_spam_lists' => MailDomains::across($service, $ref, [$this->mailTools($adapter), 'listSpamLists']),
-            'mail_filters' => $this->mailTools($adapter)->listFilters(self::mailboxRef($ref, (string) ($params['remote_id'] ?? ''))),
+            'mail_filters' => $this->mailTools($adapter)->listFilters($this->ownMailboxRef($service, $ref, $adapter, (string) ($params['remote_id'] ?? ''))),
             'mail_lists' => MailDomains::across($service, $ref, [$this->mailTools($adapter), 'listMailingLists']),
             'mail_fetchmail' => MailDomains::across($service, $ref, [$this->mailTools($adapter), 'listFetchmail']),
             'mail_backups' => MailDomains::across($service, $ref, [$this->mailTools($adapter), 'listMailboxBackups']),
@@ -562,6 +563,24 @@ final class ServiceFeatures
         }
 
         return new ResourceRef('mailbox', $remoteId, $domain->node, ['client_id' => $domain->meta['client_id'] ?? null, 'domain' => $domain->meta['domain'] ?? null], $domain->serviceId);
+    }
+
+    /**
+     * The mailbox a listing is asked about, once one of the service's own mail domains lists it.
+     *
+     * `mailboxRef` builds a reference from whatever id it is given, and the panel reads any mailbox on the shared mail
+     * server by its number: a customer read a historical customer's autoresponder text, filters and spam policy
+     * through the listing just by counting. A mailbox that is not the service's is "not found" — the same answer as
+     * one that does not exist, so the listing does not even confirm the number is taken.
+     */
+    private function ownMailboxRef(Service $service, ResourceRef $ref, ?ProviderAdapter $adapter, string $remoteId): ResourceRef
+    {
+        $mailbox = self::mailboxRef($ref, $remoteId); // no id at all is still the caller's mistake (422)
+        if (MailDomains::ownRow($service, $ref, [$this->mail($adapter), 'listMailboxes'], 'remote_id', $remoteId) === null) {
+            throw new DomainError('mailbox_not_found', 'Tahle schránka k téhle službě nepatří nebo neexistuje.', 404, ['remote_id' => $remoteId]);
+        }
+
+        return $mailbox;
     }
 
     /**
