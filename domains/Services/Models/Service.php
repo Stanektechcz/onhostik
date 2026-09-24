@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
+use Onhost\Domain\Services\ServiceIdentityCheck;
 use Onhost\Platform\Eloquent\Model;
 use Onhost\Providers\Contracts\Naming;
 
@@ -65,14 +66,28 @@ final class Service extends Model
         ];
     }
 
+    /** @return HasMany<ProviderBinding, $this> */
     public function bindings(): HasMany
     {
         return $this->hasMany(ProviderBinding::class, 'service_id');
     }
 
+    /**
+     * The resource this service IS — not merely the first row that came back.
+     *
+     * A web hosting binds more than its site: the mail domain it was given for its mailboxes is a resource of its own,
+     * written by the same operation within the same second. Ordering by `created_at` alone left the winner to the
+     * database (SQLite answered with the row written first, PostgreSQL with either), and everything that asks which
+     * resource a service is hangs on that answer — the proof before a deletion, the reference an action is sent with,
+     * the reconciler, the features the panel offers. The service's own kind decides; `created_at` and the id only
+     * break a tie inside that kind.
+     */
     public function primaryBinding(): ?ProviderBinding
     {
-        return $this->bindings()->orderBy('created_at')->first();
+        $bindings = $this->bindings()->orderBy('created_at')->orderBy('id')->get();
+        $own = ServiceIdentityCheck::TYPES[(string) $this->family] ?? [];
+
+        return $bindings->first(fn (ProviderBinding $binding) => in_array($binding->remote_type, $own, true)) ?? $bindings->first();
     }
 
     public function spec(string $key, mixed $default = null): mixed

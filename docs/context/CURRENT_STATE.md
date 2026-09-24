@@ -451,9 +451,18 @@
   are deliberately not remembered as paused, and the record is dropped as soon as the service runs again. The health
   check stays silent here on purpose: a suspended customer is not told what still runs for them.
 
+- **The primary binding of a service is no longer a coin flip** (audit row 99, TASK-0012). A web hosting binds more
+  than its site: the mail domain it was given for its mailboxes is a resource of its own, written by the same
+  operation within the same second. `primaryBinding()` ordered by `created_at` alone, so on a tie the database chose
+  — PostgreSQL returned the mail domain twice in the nightly suite, and `ServiceIdentityCheck` then refused to
+  archive a service it could not recognise (`binding_type`, 9/5 points). Everything that asks which resource a
+  service *is* hangs on that answer: the proof before a deletion, the reference an action is sent to the panel with,
+  the reconciler, the features on offer. The service's own family now decides (`ServiceIdentityCheck::TYPES` is the
+  one answer to both questions); `created_at` and the id only break a tie inside that family.
+
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 917 tests, 14 868 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 918 tests, 14 872 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

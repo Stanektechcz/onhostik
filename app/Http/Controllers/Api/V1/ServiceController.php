@@ -13,6 +13,7 @@ use Onhost\Domain\Billing\Commands\ChargebackCommand;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Services\Commands\IssueConsoleTokenCommand;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
@@ -71,7 +72,7 @@ final class ServiceController extends ApiController
         $model = $this->resolve($request, $service);
         $manages = $this->api->can($request, 'service.manage', CommandScope::resource($model->id, $model->organization_id, $model->project_id)); // a secret a run generated is shown to whoever manages the service, never to a reader
         $operations = Operation::query()->where('service_id', $model->id)->orderByDesc('queued_at')->limit(10)->get()->map(fn (Operation $o) => Presenters::operation($o, false, $manages))->all();
-        $bindings = $model->bindings()->get()->map(fn ($b) => ['type' => $b->remote_type, 'node' => $b->remote_node, 'adapter_version' => $b->adapter_version, 'last_reconciled_at' => $b->last_reconciled_at?->toIso8601String()])->all();
+        $bindings = array_map(fn (ProviderBinding $b) => ['type' => $b->remote_type, 'node' => $b->remote_node, 'adapter_version' => $b->adapter_version, 'last_reconciled_at' => $b->last_reconciled_at?->toIso8601String()], $model->bindings()->get()->all());
 
         return response()->json(['data' => Presenters::service($model) + ['operations' => $operations, 'bindings' => $bindings, 'actual' => $model->actual_spec, 'summary' => app(ServiceSummary::class)->for($model)]]);
     }
