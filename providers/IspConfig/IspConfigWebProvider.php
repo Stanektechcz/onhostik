@@ -374,13 +374,14 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
         foreach ($logins as $id) {
             // a login whose database is still there stays with it, and one shared with another site's database is not
             // ours to take away. `deleteDbUser()` itself cannot be used here: it looks the login up through the
-            // databases, which are gone by now.
-            if ($this->databasesOfLogin((int) $id) !== []) {
-                $left['db_user'][] = (string) $id;
-
-                continue;
-            }
+            // databases, which are gone by now. The lookup is inside the try with the delete — a panel that will not
+            // answer which databases a login still has is one more thing left behind, not a reason to stop.
             try {
+                if ($this->databasesOfLogin((int) $id) !== []) {
+                    $left['db_user'][] = (string) $id;
+
+                    continue;
+                }
                 $this->api->call('sites_database_user_delete', ['primary_id' => (int) $id], true);
             } catch (ProviderException $e) {
                 $left['db_user'][] = (string) $id;
