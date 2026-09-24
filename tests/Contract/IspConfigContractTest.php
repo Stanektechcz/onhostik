@@ -65,7 +65,11 @@ function ispPanelFake(array &$panel): void
             'sites_web_domain_get' => ispResponse($panel['site']),
             'sites_web_aliasdomain_get' => ispResponse($matching($panel['alias'])),
             'sites_web_subdomain_get' => ispResponse($matching($panel['sub'])),
-            'sites_database_get' => ispResponse($matching($panel['db'])),
+            // `refuse_login_lookup` refuses only the question "which databases does this login still have?", which is
+            // asked with a `database_user_id` filter — the listing of the site's own databases still answers
+            'sites_database_get' => isset($key['database_user_id']) && ! empty($panel['refuse_login_lookup'])
+                ? ispResponse(false, 'remote_fault', 'the panel refused this')
+                : ispResponse($matching($panel['db'])),
             'sites_database_user_get' => ispResponse($panel['dbuser'][$id] ?? false),
             'sites_ftp_user_get' => ispResponse($matching($panel['ftp'])),
             'sites_shell_user_get' => ispResponse($matching($panel['shell'])),
@@ -370,5 +374,24 @@ it('deletes the site even when the panel refuses one of its children, and says e
         ->and(array_keys($panel['db']))->toBe([3])
         ->and(array_keys($panel['dbuser']))->toBe([2]) // the login still owns a database, so it is not deleted either
         ->and($result->data['leftover']['database'] ?? [])->toBe(['3'])
+        ->and($result->data['leftover']['db_user'] ?? [])->toBe(['2']);
+});
+
+it('does not let a panel that will not answer about a database login stop the termination', function () {
+    $panel = [
+        'site' => ['domain_id' => 77, 'domain' => 'shop.cz', 'system_user' => 'web77'],
+        'alias' => [], 'sub' => [], 'ftp' => [], 'shell' => [], 'cron' => [],
+        'db' => [3 => ['database_id' => 3, 'database_name' => 'c12_shop', 'database_user_id' => 2, 'parent_domain_id' => 77]],
+        'dbuser' => [2 => ['database_user_id' => 2, 'database_user' => 'c12_shop']],
+        'refuse_login_lookup' => true,
+    ];
+    ispPanelFake($panel);
+
+    $result = ispAdapter()->terminate(new ResourceRef('web_domain', '77', '1', ['domain' => 'shop.cz', 'system_user' => 'web77', 'client_id' => 12], 'srv_shop'));
+
+    // the database went; whether its login may go could not be established, so the login stays and is named
+    expect($panel['site_deleted'] ?? false)->toBeTrue()
+        ->and($panel['db'])->toBe([])
+        ->and(array_keys($panel['dbuser']))->toBe([2])
         ->and($result->data['leftover']['db_user'] ?? [])->toBe(['2']);
 });
