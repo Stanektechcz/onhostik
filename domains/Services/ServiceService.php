@@ -393,6 +393,26 @@ final class ServiceService
         return $patch;
     }
 
+    /**
+     * Take back a scheduled deletion on its own, without resuming the service.
+     *
+     * The two are different things and a site the platform ended together with its parent needs both taken apart: the
+     * cancellation is undone because the customer undid the parent's, while the suspension may still be held for a
+     * reason of its own (an abuse quarantine). Clearing the deletion first means the purge will never take the site,
+     * whatever happens to the resume afterwards.
+     */
+    public function undoScheduledDeletion(Service $service, CommandContext $context): bool
+    {
+        $patch = $this->cancellationCleared($service);
+        if ($patch === []) {
+            return false;
+        }
+        $service->forceFill($patch)->save();
+        $this->audit->record($context->withScope($service->organization_id), 'service.deletion.cancelled', 'succeeded', ['reason' => $context->reason], 'service', $service->id);
+
+        return true;
+    }
+
     private function cancellationCleared(Service $service): array
     {
         if ($service->terminate_at === null && ! isset(((array) $service->tags)['deletion'])) {

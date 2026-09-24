@@ -1202,6 +1202,12 @@ final class ServiceActionWorkflow implements Workflow
                             continue;
                         }
                         $services->requestAction($child, 'terminate', CommandContext::system('cancelled with '.$service->id), "included:terminate:{$context->operation->id}:{$child->id}", ['reason' => 'zrušena služba, ke které web patřil']);
+                        // marked the way the suspend branch marks what it held: a cancellation the customer takes back
+                        // has to reach these sites too, and only these — one the customer ended themselves is not ours
+                        $child->refresh();
+                        $tags = (array) ($child->tags ?? []);
+                        $tags['included'] = array_merge((array) ($tags['included'] ?? []), ['ended_by' => $service->id, 'ended_at' => now()->toIso8601String()]);
+                        $child->forceFill(['tags' => $tags])->save();
                         $ended[] = (string) ($child->hostname ?: $child->name);
                     } catch (Throwable $e) {
                         $errors[] = ($child->hostname ?: $child->id).': '.$e->getMessage();
@@ -1245,21 +1251,42 @@ final class ServiceActionWorkflow implements Workflow
                 $errors = [];
                 foreach (IncludedServices::of($service) as $child) {
                     $heldBy = (string) data_get($child->tags, 'included.held_by', '');
+                    // A cancellation the customer takes back has to reach the sites the service carried. They were
+                    // ended with it, so they hold `terminate_at` of their own and no `held_by` — both halves of the
+                    // condition below were false for them, and `cancellationCleared` only ever touched the service it
+                    // was called on. The hosting then ran, paid and live, while the purge took the sites on the day
+                    // their thirty days were up: files, databases and mailboxes gone.
+                    $endedByUs = ! $this->suspend
+                        && (string) data_get($child->tags, 'included.ended_by', '') === $service->id
+                        && $child->state === ServiceStateMachine::SUSPENDED
+                        && $child->terminate_at !== null && $child->terminate_at->isFuture();
+                    if ($endedByUs) {
+                        // the deletion goes first and on its own: whatever the resume does next, the purge must not
+                        // take a site whose cancellation was taken back (an abuse quarantine may still hold it down)
+                        $services->undoScheduledDeletion($child, CommandContext::system('cancellation of '.$service->id.' taken back'));
+                        $child->refresh();
+                    }
                     $wanted = $this->suspend
                         ? ($child->state === ServiceStateMachine::ACTIVE || $child->state === ServiceStateMachine::DEGRADED)
-                        : ($child->state === ServiceStateMachine::SUSPENDED && $heldBy !== '' && $child->terminate_at === null);
+                        : ($child->state === ServiceStateMachine::SUSPENDED && ($heldBy !== '' || $endedByUs) && $child->terminate_at === null);
                     if (! $wanted) {
                         continue;
                     }
                     try {
                         // the platform lifts exactly the hold it put on: a site the customer or an abuse case stopped stays stopped
-                        $lift = $this->suspend ? null : ((string) data_get($child->tags, 'included.held_hold', '') ?: null);
+                        $lift = (string) data_get($child->tags, 'included.held_hold', '') ?: null;
+                        if ($lift === null && $endedByUs) {
+                            // ending a site leaves a `review` hold; lift that one only, and only when it is the sole
+                            // hold — a site an abuse case also holds stays down, and now without a deletion pending
+                            $lift = SuspensionHold::holds($child) === [SuspensionHold::REVIEW] ? SuspensionHold::REVIEW : null;
+                        }
+                        $lift = $this->suspend ? null : $lift;
                         $services->requestAction($child, $this->suspend ? 'suspend' : 'resume', CommandContext::system(($this->suspend ? 'suspended' : 'resumed').' with '.$service->id), 'included:'.($this->suspend ? 'suspend' : 'resume').":{$context->operation->id}:{$child->id}", array_filter(['reason' => 'stav služby, ke které web patří', 'lift' => $lift]));
                         $child->refresh(); // its own operation may have run already (and written to the same row)
                         $tags = (array) ($child->tags ?? []);
                         $tags['included'] = array_filter(array_merge((array) ($tags['included'] ?? []), $this->suspend
                             ? ['held_by' => $service->id, 'held_hold' => SuspensionHold::holds($child)[0] ?? null]
-                            : ['held_by' => null, 'held_hold' => null]), fn ($v) => $v !== null);
+                            : ['held_by' => null, 'held_hold' => null, 'ended_by' => null, 'ended_at' => null]), fn ($v) => $v !== null);
                         $child->forceFill(['tags' => $tags])->save();
                         $touched[] = (string) ($child->hostname ?: $child->name);
                     } catch (Throwable $e) {

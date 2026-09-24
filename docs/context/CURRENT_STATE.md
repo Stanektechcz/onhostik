@@ -409,10 +409,18 @@
   database user. Mail had the same hole: `mailbox.update`, `mailbox.delete` and `alias.delete` built the ref straight
   from the parameter. The rule is one place now (`IspConfigWebProvider::ownRow`), mail resolves through
   `MailDomains::across` before the panel is touched, and aaPanel was already clean.
+- **Undoing a cancellation brings back the sites the service carried** (audit row 93, TASK-0006). A cancellation can
+  be taken back for the whole grace window, but `cancellationCleared` nulled `terminate_at` only on the service it was
+  called on. The carried sites had been ended with their own `terminate_at` and no `included.held_by`, so the resume
+  step skipped every one — the hosting ran on, paid and live, while the purge took the sites when their thirty days
+  were up, with the customer's files and databases. The end step now marks what it ended (`included.ended_by`), the
+  resume takes it back, and **the scheduled deletion is undone first and on its own**
+  (`ServiceService::undoScheduledDeletion`), so a site held down by an abuse case stays suspended but is no longer
+  waiting to be deleted. A site the customer had cancelled themselves is not marked and stays on its way out.
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 904 tests, 14 808 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 906 tests, 14 814 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
