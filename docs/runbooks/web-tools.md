@@ -615,8 +615,10 @@ suspend that never happened to ACTIVE, a resume that never happened to SUSPENDED
 to a panel; only services with no open operation and at least 15 minutes in the transient state are touched.
 
 **Reading is not getting in, and seeing a backup is not taking it (Brain cards H334, H344).** `service.read` is
-diagnostics: state, usage, logs, operations, listings, the list of backups. It does not open a console
-(`service.console`), run a command or create a shell account (`service.manage`), read the contents of a file
+diagnostics: state, usage, logs, operations, listings, the list of backups. It does not open a console, run a command
+or create a shell account (all three `service.console` — 2026-09-24: the terminal, the SSH accounts and the game
+console used to ask only for `service.manage`, so „Service: manage“, the role that exists to hand over the day-to-day
+work **without** a shell, handed over a shell), read the contents of a file
 (`GET …/files/download` needs `service.manage` — `wp-config.php` and `.env` are credentials), reveal stored passwords
 (`?reveal=1` needs `service.manage`) or show the values of the deploy environment (a read-only role gets the names and
 `env_hidden: true`). Taking the customer's data out of the platform is `backup.download`, a permission of its own:

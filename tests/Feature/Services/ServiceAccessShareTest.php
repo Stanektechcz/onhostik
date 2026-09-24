@@ -17,7 +17,9 @@ use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Access\ServiceAccessService;
+use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Models\ServiceAccessGrant;
+use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
@@ -195,4 +197,61 @@ it('keeps the role of somebody who became a member before they accepted the shar
     $colleague = $this->customer(['email' => 'uz-clen@example.cz']);
     app(OrganizationService::class)->attachMember($org, $colleague, 'viewer', CommandContext::system('test'), true);
     expect($access->share($org, $shop, 'uz-clen@example.cz', ['manage'], $this->contextFor($owner, $org, 'totp'))->state)->toBe('active');
+});
+
+/*
+ * "Service: manage" says what it gives: „Actions and settings: restart, PHP, databases, cron, files, deploys,
+ * mailboxes“. "Service: console" says „Terminal, VNC and game console“, and the catalogue's own comment states the
+ * order — a console is more than managing, never less (H334). That is the whole point of having two: a customer hands
+ * their agency the day-to-day work without handing over a shell on their site.
+ *
+ * `ServiceActionCommand::permissionFor` sent every action but a handful to `service.manage`, the web terminal
+ * (`command.run`), the SSH accounts (`shell.create`, `shell.key`, `shell.delete`) and the game console
+ * (`command.send`) among them. So the one role that exists to grant managing WITHOUT a shell granted a shell: the
+ * agency could open a terminal, read `wp-config.php` and with it the database, or put their own key on the site.
+ */
+
+it('shares managing a service without handing over a shell', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $shop = featureWebService($org, 'ispconfig'); // the panel that offers per-site shell users at all
+    $colleague = $this->customer(['email' => 'agentura@example.cz']);
+    app(OrganizationService::class)->attachMember($org, $colleague, 'viewer', CommandContext::system('test'), true);
+    shareService($this, $owner, $org, $shop->id, ['email' => 'agentura@example.cz', 'capabilities' => ['manage']], 'shell-1')->assertCreated();
+    $scope = CommandScope::resource($shop->id, $org->id, $shop->project_id);
+
+    expect(app(Authorizer::class)->can($colleague, 'service.manage', $scope))->toBeTrue()
+        ->and(app(Authorizer::class)->can($colleague, 'service.console', $scope))->toBeFalse();
+
+    // the terminal, the SSH accounts and the game console belong to the console, not to managing
+    expect(ServiceActionCommand::permissionFor('command.run'))->toBe('service.console')
+        ->and(ServiceActionCommand::permissionFor('shell.create'))->toBe('service.console')
+        ->and(ServiceActionCommand::permissionFor('shell.key'))->toBe('service.console')
+        ->and(ServiceActionCommand::permissionFor('shell.delete'))->toBe('service.console')
+        ->and(ServiceActionCommand::permissionFor('command.send'))->toBe('service.console')
+        // …and what the role does promise is untouched
+        ->and(ServiceActionCommand::permissionFor('php.set'))->toBe('service.manage')
+        ->and(ServiceActionCommand::permissionFor('database.create'))->toBe('service.manage')
+        ->and(ServiceActionCommand::permissionFor('file.save'))->toBe('service.manage')
+        ->and(ServiceActionCommand::permissionFor('terminate'))->toBe('service.delete');
+
+    // and the panel says the same as the bus: what the owner is offered, the manage-only colleague is not
+    $mine = app(ServiceFeatures::class)->features($shop, $owner);
+    $theirs = app(ServiceFeatures::class)->features($shop, $colleague);
+    expect($mine['shell']['enabled'] ?? false)->toBeTrue()
+        ->and($theirs['shell']['enabled'] ?? false)->toBeFalse()
+        ->and($theirs['shell']['reason'] ?? '')->toBe(ServiceFeatures::REASON_PERMISSION)
+        ->and($theirs['php']['enabled'] ?? false)->toBe($mine['php']['enabled'] ?? false); // what the role promises stays
+});
+
+it('gives the shell to a colleague who was given the console', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $shop = featureWebService($org, 'ispconfig');
+    $colleague = $this->customer(['email' => 'devops@example.cz']);
+    app(OrganizationService::class)->attachMember($org, $colleague, 'viewer', CommandContext::system('test'), true);
+    shareService($this, $owner, $org, $shop->id, ['email' => 'devops@example.cz', 'capabilities' => ['console']], 'shell-2')->assertCreated();
+
+    $mine = app(ServiceFeatures::class)->features($shop, $owner);
+    $theirs = app(ServiceFeatures::class)->features($shop, $colleague);
+    expect($mine['shell']['enabled'] ?? false)->toBeTrue()
+        ->and($theirs['shell']['enabled'] ?? false)->toBeTrue();
 });

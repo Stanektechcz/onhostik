@@ -324,6 +324,25 @@ Tests: `tests/Feature/Services/SiteNameClaimsTest.php`, `tests/Feature/Services/
 
 Tests: `tests/Contract/IspConfigOwnershipTest.php`, `tests/Feature/Provisioning/MailboxOwnershipTest.php`.
 
+## 20. Managing a shared service is not a shell on it
+
+* The catalogue draws the line itself. `svc_manage` — "Service: manage" — says what it gives: *actions and settings:
+  restart, PHP, databases, cron, files, deploys, mailboxes*. `svc_console` — "Service: console" — says *terminal, VNC
+  and game console*, and carries `service.manage` with it, because a console is more than managing, never less (H334).
+  Two roles exist so that a customer can hand an agency the day-to-day work **without** handing over a shell.
+* `ServiceActionCommand::permissionFor()` sent everything but a handful of actions to `service.manage` — the web
+  terminal (`command.run`), the SSH accounts (`shell.create`, `shell.key`, `shell.delete`) and the game console
+  (`command.send`) among them. So the one role that exists to grant managing without a shell granted a shell: the
+  agency could open a terminal on the site, read `wp-config.php` and with it the database, or put their own key on it.
+* Those five actions now ask for `service.console`. Nothing else moves, and no role loses anything it had:
+  owner and organization admin hold every customer permission, and `developer`, `cloud_operator` and `game_operator`
+  already carried both. The only role affected is `svc_manage`, which is the point.
+* `permissionFor()` is one map for the bus, for the operation row (a long run asks again before each privileged step,
+  H315) and for `ServiceFeatures::features($service, $actor)` — so the panel stops offering the terminal to a
+  colleague who may not use it, instead of showing a button that answers 403.
+
+Tests: `tests/Feature/Services/ServiceAccessShareTest.php`.
+
 ## What to look at on staging after deploying this
 
 * migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;
