@@ -1,6 +1,6 @@
 # Project state (AI team)
 
-**Updated:** 2026-09-24 by TASK-0001 · **Integration branch:** `development`
+**Updated:** 2026-09-24 by TASK-0003 · **Integration branch:** `development`
 
 ## What ONHOST is
 
@@ -24,11 +24,13 @@ The customer panel, public site and admin are a preserved HTML prototype made li
 
 ## Orchestration state
 
-- **TASK-0001 — AI orchestration bootstrap** (`.ai/tasks/TASK-0001.md`): branch `chore/TASK-0001-ai-orchestration`,
-  worktree `C:\Users\medion\Desktop\ONHOST-NEW\onhost-worktrees\TASK-0001-ai-orchestration`. Awaiting the human's
-  decision to integrate (push/PR). Until it is merged, `.ai/`, the `onhost-*` agents, the `/ai-*` skills and
-  `brain.ps1 gate|task` exist only on that branch.
-- No other task is open. Live locks: TASK-0001 only.
+- **TASK-0001 — AI orchestration bootstrap** (`.ai/tasks/TASK-0001.md`): **INTEGRATED**. PR #6 rebase-merged into
+  `development` on 2026-09-24 (`2d39dff`); post-integration gate PASS, CI green; worktree removed and lock released
+  (by hand, see the task log). `.ai/`, the `onhost-*` agents, the `/ai-*` skills and `brain.ps1 gate|task` are on
+  `development`.
+- **TASK-0003 — `task finish` recognizes rebase merges** (`.ai/tasks/TASK-0003.md`): `finish` also accepts a branch
+  whose every commit is patch-equivalent in `origin/<base>` (fetched first). Squash merges are still not recognised.
+- Live locks: `.\brain.ps1 task board` (TASK-0002 is an external claim on uncommitted work in the main checkout).
 
 ## Baseline (`8e4614a`, 2026-09-23)
 
@@ -51,6 +53,6 @@ Pest 856/856 · Larastan 0 errors (1 013 suppressed by the baseline file) · Pin
 
 ## Next safe steps
 
-1. Human: review TASK-0001 (`git diff development...chore/TASK-0001-ai-orchestration`) and decide integration.
-2. After merge: `.\brain.ps1 task finish -Id TASK-0001`; start the next change with `/ai-orchestrate` or `/ai-task`.
+1. Human: review and integrate TASK-0003; afterwards `.\brain.ps1 task finish -Id TASK-0003` works after a rebase merge.
+2. Start the next change with `/ai-orchestrate` or `/ai-task`.
 3. Fix known issue 1 (small test-isolation task) and decide on issue 2 and 4.
