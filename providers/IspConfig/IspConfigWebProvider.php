@@ -1005,10 +1005,17 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
             }
             $existing = null; // ISPConfig 3.2 answers an unknown username with a fault instead of an empty result
         }
+        // One client per organization, so its limits are the ORGANIZATION's — what it holds on this panel across all
+        // of its services (`ClientAllowance`), not what the service that happens to be provisioning sells. Written
+        // once from one plan they were wrong for everyone else: two ordinary hostings (`sites = 1` each) left the
+        // client at `limit_web_domain = 1`, and ISPConfig refused the second site **after the customer had paid**.
+        $ent = (array) ($spec->get('client_entitlements') ?: $spec->get('entitlements', []));
         if (is_array($existing) && ! empty($existing['client_id'])) {
-            return (int) $existing['client_id'];
+            $clientId = (int) $existing['client_id'];
+            $this->updateClientLimits($clientId, $ent); // it calls the panel only when something really differs
+
+            return $clientId;
         }
-        $ent = (array) $spec->get('entitlements', []);
         $clientId = (int) $this->api->call('client_add', ['reseller_id' => 0, 'params' => [
             'company_name' => (string) $spec->get('organization_name', $spec->organizationId), 'contact_name' => (string) $spec->get('contact_name', 'ONhost customer'), 'email' => (string) $spec->get('contact_email', ''),
             'username' => $username, 'password' => self::panelPassword(), 'language' => 'cz', 'usertheme' => 'default', 'country' => 'CZ',

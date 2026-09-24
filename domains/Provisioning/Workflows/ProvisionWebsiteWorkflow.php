@@ -15,6 +15,7 @@ use Onhost\Domain\Provisioning\Workflows\Steps\ScheduleNodeStep;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\Website;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\Web\ClientAllowance;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Providers\Contracts\InfrastructureProvider;
@@ -54,7 +55,10 @@ final class ProvisionWebsiteWorkflow implements Workflow
                 {
                     $service = $this->service($context);
                     $infra = $this->capability($context, InfrastructureProvider::class);
-                    $result = $infra->provision($context->spec('website', ['domain' => $context->desired('domain'), 'php_version' => $context->desired('php_version', '8.3'), 'aliases' => (array) $context->desired('aliases', []), 'entitlements' => (array) $service->entitlements, 'limits' => (array) $context->desired('limits', [])]));
+                    // `entitlements` is what THIS hosting sells; `client_entitlements` is what the customer holds on
+                    // this panel altogether. ISPConfig keeps one client per organization and enforces its limits, so
+                    // a second ordinary hosting was refused by the panel after the customer had paid (ClientAllowance).
+                    $result = $infra->provision($context->spec('website', ['domain' => $context->desired('domain'), 'php_version' => $context->desired('php_version', '8.3'), 'aliases' => (array) $context->desired('aliases', []), 'entitlements' => (array) $service->entitlements, 'client_entitlements' => ClientAllowance::of($service), 'limits' => (array) $context->desired('limits', [])]));
                     if ($result->ref !== null) {
                         $context->bind($context->instance(), $result->ref->remoteType, $result->ref->remoteId, $result->ref->node, $result->ref->meta, ['managed_by' => 'onhost']);
                     }
