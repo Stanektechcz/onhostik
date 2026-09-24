@@ -469,14 +469,25 @@ final class WebMigrationWorkflow implements Workflow
                 if (! $adapter instanceof InfrastructureProvider) {
                     return StepResult::done(['source_removed' => false]);
                 }
+                $source = WebMigrationWorkflow::sourceRef($context);
                 try {
-                    $adapter->terminate(WebMigrationWorkflow::sourceRef($context));
+                    $result = $adapter->terminate($source);
                 } catch (Throwable $e) {
                     // the customer already runs on the new node: a site left behind is an operator's job, not a failure
                     return StepResult::done(['source_removed' => false, 'source_error' => mb_substr($e->getMessage(), 0, 200)]);
                 }
+                // and neither is a site that went only in part: the copy on the new node is the customer's now, so what
+                // the old node would not give up is their data sitting where nothing serves it any more
+                $left = array_filter((array) ($result->data['leftover'] ?? []));
+                if ($left !== []) {
+                    $service = $this->service($context);
+                    $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.purge.leftover', 'service', $service->id, [
+                        'name' => $service->hostname ?: ($service->label ?: $service->name), 'node' => (string) $source->node,
+                        'kinds' => array_keys($left), 'leftover' => $left, 'after' => 'migration',
+                    ], (string) $service->organization_id));
+                }
 
-                return StepResult::done(['source_removed' => true]);
+                return StepResult::done(['source_removed' => true] + ($left === [] ? [] : ['leftover' => $left]));
             }
         };
     }

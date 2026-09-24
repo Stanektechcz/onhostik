@@ -29,6 +29,65 @@ function ispResponse(mixed $response, string $code = 'ok', string $message = '')
     return ['code' => $code, 'message' => $message, 'response' => $response];
 }
 
+/**
+ * An ISPConfig that answers out of a little panel of its own: `$panel` is the state and every write changes it, so a
+ * test can look at what is left on the node instead of at the calls. A function nothing here answers is a fault, so a
+ * call the adapter should not be making fails the test out loud. `$panel['refuse']` names functions that always refuse.
+ *
+ * @param  array<string,mixed>  $panel
+ */
+function ispPanelFake(array &$panel): void
+{
+    Http::fake(function ($request) use (&$panel) {
+        $function = (string) parse_url($request->url(), PHP_URL_QUERY);
+        $key = $request->data()['primary_id'] ?? null;
+        $id = is_array($key) ? 0 : (int) $key;
+        $matching = fn (array $bag) => array_values(array_filter($bag, function (array $row) use ($key) {
+            foreach (is_array($key) ? $key : [] as $column => $value) {
+                if ((int) ($row[$column] ?? 0) !== (int) $value) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
+        if (in_array($function, (array) ($panel['refuse'] ?? []), true)) {
+            return Http::response(ispResponse(false, 'remote_fault', 'the panel refused this'));
+        }
+        $drop = function (string $bag) use (&$panel, $id) {
+            unset($panel[$bag][$id]);
+
+            return ispResponse(1);
+        };
+
+        return Http::response(match ($function) {
+            'login' => ispResponse('sess-term'),
+            'sites_web_domain_get' => ispResponse($panel['site']),
+            'sites_web_aliasdomain_get' => ispResponse($matching($panel['alias'])),
+            'sites_web_subdomain_get' => ispResponse($matching($panel['sub'])),
+            'sites_database_get' => ispResponse($matching($panel['db'])),
+            'sites_database_user_get' => ispResponse($panel['dbuser'][$id] ?? false),
+            'sites_ftp_user_get' => ispResponse($matching($panel['ftp'])),
+            'sites_shell_user_get' => ispResponse($matching($panel['shell'])),
+            'sites_cron_get' => ispResponse($matching($panel['cron'])),
+            'sites_web_aliasdomain_delete' => $drop('alias'),
+            'sites_web_subdomain_delete' => $drop('sub'),
+            'sites_database_delete' => $drop('db'),
+            'sites_database_user_delete' => $drop('dbuser'),
+            'sites_ftp_user_delete' => $drop('ftp'),
+            'sites_shell_user_delete' => $drop('shell'),
+            'sites_cron_delete' => $drop('cron'),
+            'sites_web_domain_delete' => (function () use (&$panel) {
+                $panel['site_deleted'] = true;
+
+                return ispResponse(1);
+            })(),
+            'monitor_jobqueue_count' => ispResponse(0),
+            default => ispResponse(false, 'remote_fault', "nothing here answers {$function}"),
+        });
+    });
+}
+
 it('logs in once, creates client + web domain and awaits the job queue', function () {
     Http::fake([
         'shared01.mgmt.test:8080/remote/json.php?login' => Http::response(ispResponse('sess-123')),
@@ -248,4 +307,68 @@ it('falls back to the service plan when the platform sends no organization total
     ], organizationId: 'org_3'));
 
     Http::assertSent(fn ($r) => str_ends_with($r->url(), '?client_add') && (int) $r['params']['limit_web_domain'] === 5 && (int) $r['params']['limit_web_quota'] === 25600);
+});
+
+/*
+ * Deleting a site has to take the customer's data and their access with it.
+ *
+ * `sites_web_domain_delete` deletes one row: the vhost. The databases live in `web_database`, their users in
+ * `web_database_user`, the FTP accounts in `ftp_user`, the SSH accounts in `shell_user`, the jobs in `cron` and the
+ * further host names in `web_domain` rows of their own — each of them pointing at the site by `parent_domain_id`, none
+ * of them named in that one call. Whether the panel cleans them up behind the API is not something the platform may
+ * assume: what it created, it removes itself, and every delete below is scoped to this site's own children.
+ *
+ * What was left behind is a terminated customer's data on a live node long past every retention promise, their FTP,
+ * SSH and database passwords still working on a shared machine, the disk never freed — and an alias vhost still
+ * answering for a host name the platform believes nobody holds. The aaPanel adapter has always done this (it drops
+ * the cron jobs and the Node apps before `DeleteSite`, which itself takes the files, databases and FTP accounts).
+ */
+
+it('takes the customer\'s data and access with the site: databases, users, FTP, SSH, cron and further names', function () {
+    $panel = [
+        'site' => ['domain_id' => 77, 'domain' => 'shop.cz', 'system_user' => 'web77', 'document_root' => '/var/www/clients/client12/web77'],
+        'alias' => [5 => ['domain_id' => 5, 'domain' => 'shop-old.cz', 'parent_domain_id' => 77]],
+        'sub' => [9 => ['domain_id' => 9, 'domain' => 'blog.shop.cz', 'redirect_path' => '/blog/', 'parent_domain_id' => 77]],
+        'db' => [3 => ['database_id' => 3, 'database_name' => 'c12_shop', 'database_user_id' => 2, 'parent_domain_id' => 77]],
+        'dbuser' => [2 => ['database_user_id' => 2, 'database_user' => 'c12_shop']],
+        'ftp' => [4 => ['ftp_user_id' => 4, 'username' => 'web77_ftp', 'parent_domain_id' => 77, 'dir' => '/var/www/clients/client12/web77/web']],
+        'shell' => [6 => ['shell_user_id' => 6, 'username' => 'web77_ssh', 'parent_domain_id' => 77, 'ssh_rsa' => 'ssh-ed25519 AAAA']],
+        'cron' => [8 => ['id' => 8, 'command' => '/usr/bin/php /var/www/cron.php', 'parent_domain_id' => 77, 'run_min' => '5']],
+    ];
+    ispPanelFake($panel);
+
+    $result = ispAdapter()->terminate(new ResourceRef('web_domain', '77', '1', ['domain' => 'shop.cz', 'system_user' => 'web77', 'client_id' => 12], 'srv_shop'));
+
+    expect($panel['site_deleted'] ?? false)->toBeTrue()      // the site itself goes, as it always did
+        ->and($panel['db'])->toBe([])                        // and the customer's database with it
+        ->and($panel['dbuser'])->toBe([])                    // including the login that reached it
+        ->and($panel['ftp'])->toBe([])
+        ->and($panel['shell'])->toBe([])                     // a shell user is a system account on a shared node
+        ->and($panel['cron'])->toBe([])
+        ->and($panel['alias'])->toBe([])                     // an alias vhost went on answering for a name nobody claimed
+        ->and($panel['sub'])->toBe([])
+        ->and($result->data['leftover'] ?? [])->toBe([]);
+});
+
+it('deletes the site even when the panel refuses one of its children, and says exactly what is left', function () {
+    $panel = [
+        'site' => ['domain_id' => 77, 'domain' => 'shop.cz', 'system_user' => 'web77'],
+        'alias' => [], 'sub' => [],
+        'db' => [3 => ['database_id' => 3, 'database_name' => 'c12_shop', 'database_user_id' => 2, 'parent_domain_id' => 77]],
+        'dbuser' => [2 => ['database_user_id' => 2, 'database_user' => 'c12_shop']],
+        'ftp' => [4 => ['ftp_user_id' => 4, 'username' => 'web77_ftp', 'parent_domain_id' => 77]],
+        'shell' => [], 'cron' => [],
+        'refuse' => ['sites_database_delete'],
+    ];
+    ispPanelFake($panel);
+
+    $result = ispAdapter()->terminate(new ResourceRef('web_domain', '77', '1', ['domain' => 'shop.cz', 'system_user' => 'web77', 'client_id' => 12], 'srv_shop'));
+
+    // the service ends whatever the panel says — what is left is named, not swallowed, and stays findable by id
+    expect($panel['site_deleted'] ?? false)->toBeTrue()
+        ->and($panel['ftp'])->toBe([])
+        ->and(array_keys($panel['db']))->toBe([3])
+        ->and(array_keys($panel['dbuser']))->toBe([2]) // the login still owns a database, so it is not deleted either
+        ->and($result->data['leftover']['database'] ?? [])->toBe(['3'])
+        ->and($result->data['leftover']['db_user'] ?? [])->toBe(['2']);
 });

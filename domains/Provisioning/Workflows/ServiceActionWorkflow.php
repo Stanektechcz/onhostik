@@ -1426,8 +1426,21 @@ final class ServiceActionWorkflow implements Workflow
                 if ($context->get('identity_missing') === true) { // the panel already has no such resource; the rest of the cleanup still runs
                     return StepResult::done(['terminated' => true, 'already_gone' => true]);
                 }
+                $ref = $this->ref($context);
+                $result = $this->capability($context, InfrastructureProvider::class)->terminate($ref);
+                // a removal the panel refused in part leaves the customer's data and logins on a live node. The service
+                // still ends — it is theirs to be rid of — but what is left is named to the operators, with the ids that
+                // are the only handle on it once the site it hung from is gone.
+                $left = array_filter((array) ($result->data['leftover'] ?? []));
+                if ($left !== []) {
+                    $service = $this->service($context);
+                    $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.purge.leftover', 'service', $service->id, [
+                        'name' => $service->hostname ?: ($service->label ?: $service->name), 'node' => (string) $ref->node,
+                        'kinds' => array_keys($left), 'leftover' => $left,
+                    ], (string) $service->organization_id));
+                }
 
-                return $this->settle($this->capability($context, InfrastructureProvider::class)->terminate($this->ref($context)), ['terminated' => true]);
+                return $this->settle($result, ['terminated' => true] + ($left === [] ? [] : ['leftover' => $left]));
             }
         };
     }
