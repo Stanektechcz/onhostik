@@ -25,11 +25,20 @@ use Onhost\Domain\Services\Metering\MetricRegistry;
  *
  * The rule now: every key not declared **fair use** is checked against `MetricRegistry` — a hand-verified table of
  * what actually measures or enforces each number today — with the price-list/presentation files excluded from the
- * text scan (`readInSource()`) so they can no longer stand in for real code. A numeric key must have a registry row
- * whose `status` is `measured` or `enforced_only`; a non-numeric capability flag keeps the old text-scan rule. Either
- * way, a key that is neither may still be listed once, honestly, in `KNOWN_GAPS` — a ratchet that may only shrink:
- * fixing a gap without removing it here, or a new gap appearing, both fail the guard test
+ * text scan (`readInSource()`) so they can no longer stand in for real code. A numeric key (including a numeric
+ * *string* such as `"500"` — `is_numeric()`, not the narrower `is_int()`/`is_float()` this file used to check) must
+ * have a registry row whose `status` is `measured` or `enforced_only` **for the plan's own product family**
+ * (`MetricRegistry::isKept($key, $family)`): a row verified only for, say, mail must not pass for a web plan that
+ * happens to sell the same key name, and a numeric key's registry row is checked the same way whether the plan
+ * sells it as an int or a numeric string. A non-numeric capability flag keeps the old text-scan rule. Either way, a
+ * key that is neither may still be listed once, honestly, in `KNOWN_GAPS` — a ratchet that may only shrink: fixing a
+ * gap without removing it here, or a new gap appearing, both fail the guard test
  * (`tests/Feature/Catalog/PlanPromisesTest.php`), and `onhost:doctor` shows the current list as a standing WARN.
+ *
+ * Two entries in `KNOWN_GAPS` are boolean, not numeric — `dedicated_outbound_ip` and `dedicated_db` — because
+ * excluding the presentation files surfaced them as genuinely unbuilt, not merely unmeasured; labelling them
+ * `FAIR_USE` would misrepresent a real gap as an operational fact, so they ride the same ratchet (decided, not
+ * unilateral — see `.ai/tasks/TASK-0017.md` Findings).
  */
 final class PlanPromises
 {
@@ -101,6 +110,8 @@ final class PlanPromises
         'connections' => 'sold on managed database plans; nothing writes it into the engine config or measures live connections — see MetricRegistry',
         'pitr_days' => 'sold on managed database plans; only read as (bool) pitr_days — whether PITR is on — never as a retention window — see MetricRegistry',
         'pids' => 'sold in every game plan\'s limits bag; PterodactylGameProvider\'s resource limits (memory/swap/disk/io/cpu) never include a PID cap — see MetricRegistry',
+        'backup_days' => 'sold on db-s/db-m (managed database, family `data`); BackupScheduler only schedules and prunes backups for family web/managed/mail — a managed database\'s retention promise is enforced nowhere. Kept for web/managed/mail — see MetricRegistry (found by family-scoping the registry check, audit §5ad)',
+        'vcpu' => 'sold in every game plan\'s entitlements; PterodactylGameProvider never reads vcpu — only cpu_pct and pids size a game container. Kept for cloud/data (Proxmox) — see MetricRegistry (found by family-scoping the registry check, audit §5ad)',
     ];
 
     /**
@@ -141,16 +152,21 @@ final class PlanPromises
     public static function rawUnkept(PlanVersion $version, array $read): array
     {
         $entitlements = array_merge((array) $version->entitlements, (array) ($version->limits ?? []));
+        $family = Plan::query()->find($version->plan_id)?->product?->family;
         $problems = [];
         foreach ($entitlements as $key => $value) {
             $key = (string) $key;
             if (array_key_exists($key, self::FAIR_USE)) {
                 continue;
             }
-            if (is_int($value) || is_float($value)) {
-                // numeric promises are decided by the hand-verified registry, never by "does the word appear
-                // somewhere" — that question is exactly what let a price-list mention count as enforcement
-                if (MetricRegistry::isKept($key)) {
+            // numeric promises are decided by the hand-verified registry, never by "does the word appear
+            // somewhere" — that question is exactly what let a price-list mention count as enforcement. A numeric
+            // string ("500") is still a number to the customer and the panel; is_numeric() catches it where
+            // is_int()/is_float() alone used to let it skip the registry entirely.
+            if (is_numeric($value)) {
+                // scoped to the plan's own product family (audit §5ad, MEDIUM finding): a row verified only for
+                // e.g. mail must not pass for a web plan that happens to sell the same key name
+                if (MetricRegistry::isKept($key, $family)) {
                     continue;
                 }
                 $problems[] = $key;

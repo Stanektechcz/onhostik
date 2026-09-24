@@ -221,8 +221,11 @@ final class Doctor extends Command
         $knownGaps = PlanPromises::knownGapKeys();
         $this->add('catalog', 'no known metering gap', $knownGaps === [],
             $knownGaps === [] ? '' : count($knownGaps).' known gap(s), tracked in PlanPromises::KNOWN_GAPS: '.implode(', ', $knownGaps), false);
-        // a gap NOT on that ratchet is new: either the platform started selling an unmeasured number, or a fixed gap
-        // was left on the list. Either way this is not a known, accepted state — it fails a production deploy.
+        // a gap NOT on that ratchet is new — the platform started selling a number nothing measures or enforces —
+        // and that is not a known, accepted state: it fails a production deploy. The other half of the ratchet (a
+        // gap that was actually fixed but left on the list) is not this row's job — it is caught by the Pest test
+        // `PlanPromisesTest::'keeps KNOWN_GAPS equal to the gaps the platform actually has today'`, which compares
+        // the two lists for an exact match rather than a one-way diff.
         $actualGaps = PlanPromises::actualGaps($read);
         $newGaps = array_values(array_diff($actualGaps, $knownGaps));
         $this->add('catalog', 'the metering gap ratchet is not growing', $newGaps === [],

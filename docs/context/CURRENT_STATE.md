@@ -521,6 +521,18 @@
   `mailbox_not_found`, and a fetchmail destination must be an address in the service's domain (422) and one of its
   mailboxes.
 
+- **A plan promises only what is measured or enforced** (audit row 104, TASK-0017, brain H278) — `PlanPromises`
+  counted the price list (`CatalogPresentation`) as "code that reads this key", so `products`, `connections` and
+  `dedicated_outbound_ip` passed a guard that only the price list ever named. Presentation files are now excluded
+  from the scan, and every numeric promise is checked against `domains/Services/Metering/MetricRegistry.php` — a
+  hand-verified table of what actually measures or enforces each key, scoped to the plan's own product family (a
+  row verified only for mail must not pass a web plan selling the same key name) and to numeric strings as well as
+  ints/floats. Family-scoping itself surfaced two more honest gaps (`backup_days` never applied to a managed
+  database, `vcpu` never read by the Pterodactyl adapter) and two rows that were incomplete rather than wrong
+  (`nvme_gb`, `mailboxes`, extended once their real enforcement paths were confirmed). 15 tracked gaps remain in
+  `PlanPromises::KNOWN_GAPS` — a ratchet that may only shrink — shown as a standing WARN by `onhost:doctor`; any new,
+  untracked gap is a production FAIL.
+
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
 - Pest: 947 tests, 14 992 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing

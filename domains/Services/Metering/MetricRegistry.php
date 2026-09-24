@@ -59,8 +59,8 @@ final class MetricRegistry
             'interval_minutes' => null, 'drives_guard' => true, 'status' => self::ENFORCED_ONLY, 'reason' => null,
         ],
         'nvme_gb' => [
-            'entitlement' => ['nvme_gb'], 'unit' => 'bytes', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['web', 'managed', 'cloud', 'game'],
-            'sources' => ['web/managed' => 'UsageWatch::measure() disk metric against panel quotas.disk_used_bytes/disk_limit_bytes, falling back to nvme_gb', 'cloud' => 'ProxmoxComputeProvider disk sized to nvme_gb at provision/resize and drift-checked (disk_gb) — usage() has no used-bytes field, so no running percentage', 'game' => 'ProvisionGameServerWorkflow sizes the Pterodactyl allocation\'s disk_mb from nvme_gb'],
+            'entitlement' => ['nvme_gb'], 'unit' => 'bytes', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['web', 'managed', 'cloud', 'data', 'game'],
+            'sources' => ['web/managed' => 'UsageWatch::measure() disk metric against panel quotas.disk_used_bytes/disk_limit_bytes, falling back to nvme_gb', 'cloud/data' => 'ServiceService dispatches ProvisionVpsWorkflow by executor=proxmox, not family, so the managed-database product (family data, executor proxmox) sizes its disk from nvme_gb exactly like a VPS/VDS: ProxmoxComputeProvider disk sized at provision/resize and drift-checked (disk_gb) — usage() has no used-bytes field, so no running percentage', 'game' => 'ProvisionGameServerWorkflow sizes the Pterodactyl allocation\'s disk_mb from nvme_gb'],
             'interval_minutes' => 60, 'drives_guard' => true, 'status' => self::MEASURED, 'reason' => null,
         ],
         'php_workers' => [
@@ -75,8 +75,8 @@ final class MetricRegistry
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY, 'reason' => null,
         ],
         'mailboxes' => [
-            'entitlement' => ['mailboxes'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['web', 'managed', 'mail'],
-            'sources' => ['ispconfig' => 'IspConfigWebProvider::ensureClient sets limit_mailbox; mailbox.create runs ServiceService\'s generic $limit(\'mailboxes\',...) count check first'],
+            'entitlement' => ['mailboxes'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['web', 'managed', 'mail', 'addon'],
+            'sources' => ['ispconfig' => 'IspConfigWebProvider::ensureClient sets limit_mailbox; mailbox.create runs ServiceService\'s generic $limit(\'mailboxes\',...) count check first', 'addon' => 'Addons::patch()\'s mail-hosting case adds the addon\'s mailboxes onto the parent service\'s own mailboxes entitlement, which is then enforced exactly like any other mailboxes sale'],
             'interval_minutes' => null, 'drives_guard' => true, 'status' => self::ENFORCED_ONLY, 'reason' => null,
         ],
         'databases' => [
@@ -85,9 +85,10 @@ final class MetricRegistry
             'interval_minutes' => null, 'drives_guard' => true, 'status' => self::ENFORCED_ONLY, 'reason' => null,
         ],
         'backup_days' => [
-            'entitlement' => ['backup_days'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::SOFT, 'families' => ['web', 'managed'],
-            'sources' => ['scheduler' => 'BackupScheduler::schedule() reads backup_days as the retention window and prunes expired/surplus backups against it'],
-            'interval_minutes' => 1440, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY, 'reason' => null,
+            'entitlement' => ['backup_days'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::SOFT, 'families' => ['web', 'managed', 'mail', 'data'],
+            'sources' => ['scheduler' => 'BackupScheduler::tick() queries Service::whereIn(\'family\', [\'web\',\'managed\',\'mail\']) and schedule() reads backup_days as the retention window, pruning expired/surplus backups against it — never for family data'],
+            'interval_minutes' => 1440, 'drives_guard' => false, 'status' => self::GAP,
+            'reason' => 'kept for web/managed/mail (BackupScheduler, see sources); also sold on db-s/db-m (managed database, family data), where nothing ever reads backup_days — BackupScheduler\'s own family query excludes data, and no other code prunes or expires a managed database\'s backups by it — see KNOWN_GAPS.',
         ],
         'backup_generations' => [
             'entitlement' => ['backup_generations'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::SOFT, 'families' => ['web'],
@@ -147,9 +148,10 @@ final class MetricRegistry
         ],
         // ---- VPS / VDS (Proxmox) -----------------------------------------------------------------------------
         'vcpu' => [
-            'entitlement' => ['vcpu'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['cloud', 'data'],
-            'sources' => ['proxmox' => 'ProxmoxComputeProvider sets qemu cores at provision/resize and drift-checks it against vcpu'],
-            'interval_minutes' => null, 'drives_guard' => true, 'status' => self::ENFORCED_ONLY, 'reason' => null,
+            'entitlement' => ['vcpu'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['cloud', 'data', 'game'],
+            'sources' => ['proxmox' => 'ProxmoxComputeProvider sets qemu cores at provision/resize and drift-checks it against vcpu — cloud and data only', 'pterodactyl' => null],
+            'interval_minutes' => null, 'drives_guard' => true, 'status' => self::GAP,
+            'reason' => 'kept for cloud/data (ProxmoxComputeProvider, see sources); also sold in every game plan\'s entitlements, but PterodactylGameProvider never reads vcpu — only cpu_pct and pids (the limits bag) size a game container, so a game plan\'s vcpu number is never applied — see KNOWN_GAPS.',
         ],
         'ram_mb' => [
             'entitlement' => ['ram_mb'], 'unit' => 'bytes', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['cloud', 'data', 'game'],
@@ -266,32 +268,30 @@ final class MetricRegistry
         ],
     ];
 
-    /** @return list<string> */
-    public static function keys(): array
-    {
-        return array_keys(self::REGISTRY);
-    }
-
     /** @return array{entitlement:list<string>, unit:string, scope:string, limit_kind:string, families:list<string>, sources:array<string,string|null>, interval_minutes:int|null, drives_guard:bool, status:string, reason:string|null}|null */
     public static function get(string $key): ?array
     {
         return self::REGISTRY[$key] ?? null;
     }
 
-    public static function status(string $key): ?string
+    /**
+     * Whether the platform actually keeps this promise today (measured or enforced), as opposed to merely
+     * registered. `$family` scopes the check to the product family the key is being sold under (audit §5ad,
+     * MEDIUM finding): a row is verified for the families it lists, never for every family that happens to sell the
+     * same key name. A key sold on a family absent from its own `families` list is not kept, whatever its `status`
+     * says about the families it does list — `PlanPromises` passes the plan's product family for exactly this
+     * reason. `$family === null` skips the family check (used only where no plan context exists).
+     */
+    public static function isKept(string $key, ?string $family = null): bool
     {
-        return self::REGISTRY[$key]['status'] ?? null;
-    }
+        $entry = self::REGISTRY[$key] ?? null;
+        if ($entry === null) {
+            return false;
+        }
+        if ($family !== null && ! in_array($family, $entry['families'], true)) {
+            return false;
+        }
 
-    /** Whether the platform actually keeps this promise today (measured or enforced), as opposed to merely registered. */
-    public static function isKept(string $key): bool
-    {
-        return in_array(self::status($key), [self::MEASURED, self::ENFORCED_ONLY], true);
-    }
-
-    /** @return list<string> every key this table records as a gap today */
-    public static function gapKeys(): array
-    {
-        return array_keys(array_filter(self::REGISTRY, fn (array $entry) => $entry['status'] === self::GAP));
+        return in_array($entry['status'], [self::MEASURED, self::ENFORCED_ONLY], true);
     }
 }
