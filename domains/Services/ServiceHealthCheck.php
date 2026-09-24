@@ -111,7 +111,6 @@ final class ServiceHealthCheck
             : self::finding('backup', 'ok', "Poslední záloha: {$when}.", "Last backup: {$when}.");
     }
 
-    /** @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string} */
     /**
      * What a suspension switched off and the resume could not switch on again.
      *
@@ -137,6 +136,7 @@ final class ServiceHealthCheck
         return self::finding('suspension_left', 'warn', "Po obnovení služby se nepodařilo znovu zapnout: {$cs}. Zkoušíme to dál a řešíme to.", "After the service was resumed these could not be switched on again: {$en}. We keep trying and are on it.");
     }
 
+    /** @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string} */
     private function certificate(Service $service): array
     {
         $managed = ManagedCertificate::query()->where('service_id', $service->id)->where('state', 'issued')->orderByDesc('expires_at')->first();
