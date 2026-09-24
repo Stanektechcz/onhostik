@@ -163,3 +163,58 @@ it('does not end a service somebody pays for separately', function () {
     expect($paid->fresh()->state)->toBe(ServiceStateMachine::ACTIVE)
         ->and(Operation::query()->where('service_id', $paid->id)->exists())->toBeFalse();
 });
+
+/*
+ * Undoing the cancellation has to reach them too.
+ *
+ * A cancellation may be taken back for the whole grace window — a plain `resume` does it, and `cancellationCleared`
+ * nulls `terminate_at`. But it nulls it on the service it was called on, and nothing else: the carried sites were
+ * ended by `endIncludedServicesStep` with `terminate_at` of their own and no `included.held_by`, so the resume step
+ * skipped every one of them (its condition wants `held_by` set AND `terminate_at` null — both false here).
+ *
+ * The customer's hosting then runs, paid and live, while `onhost:services:purge` takes each carried site on the day
+ * its thirty days are up: files, databases and mailboxes deleted at the panel. On a "10 webů" plan that is nine
+ * websites destroyed after the customer already changed their mind — and they cannot rescue one by hand either, the
+ * name is still held by the site that is about to be purged.
+ */
+
+it('brings back the sites it carried when the customer undoes the cancellation', function () {
+    $blob = gzencode(str_repeat('site files', 50));
+    includedSitesPanel($blob);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^stat -c %s/' => [0, (string) strlen($blob)]]);
+    [$user, $org] = $this->customerWithOrganization();
+    $production = featureWebService($org, 'aapanel');
+    $staging = includedStagingSite($production);
+
+    driveOperation(app(ServiceService::class)->requestAction($production, 'terminate', $this->contextFor($user, $org, 'webauthn'), 'incl-undo-1', ['reason' => 'customer request']), 25);
+    $own = Operation::query()->where('service_id', $staging->id)->where('desired->action', 'terminate')->first();
+    driveOperation($own, 25);
+    expect($staging->fresh()->terminate_at)->not->toBeNull(); // it is on its way out with the parent
+
+    // two days later the customer changes their mind: a plain resume takes the cancellation back
+    driveOperation(app(ServiceService::class)->requestAction($production->fresh(), 'resume', $this->contextFor($user, $org), 'incl-undo-2', ['reason' => 'přeci jen pokračujeme']), 25);
+    foreach (Operation::query()->where('service_id', $staging->id)->where('desired->action', 'resume')->get() as $operation) {
+        driveOperation($operation, 25);
+    }
+
+    expect($production->fresh()->terminate_at)->toBeNull()
+        ->and($staging->fresh()->terminate_at)->toBeNull()                       // …and so is the site it carries
+        ->and($staging->fresh()->state)->toBe(ServiceStateMachine::ACTIVE);
+});
+
+it('leaves a site the customer had already cancelled on its own way out', function () {
+    $blob = gzencode(str_repeat('site files', 50));
+    includedSitesPanel($blob);
+    AaPanelWebProvider::$shellFactory = fn () => new ScriptedShell(['/^stat -c %s/' => [0, (string) strlen($blob)]]);
+    [$user, $org] = $this->customerWithOrganization();
+    $production = featureWebService($org, 'aapanel');
+    $staging = includedStagingSite($production);
+    // the customer cancelled the test copy themselves, before they cancelled the hosting
+    $staging->forceFill(['state' => ServiceStateMachine::SUSPENDED, 'terminate_at' => now()->addDays(30), 'tags' => array_merge((array) $staging->tags, ['deletion' => ['reason' => 'zrušil zákazník']])])->save();
+
+    driveOperation(app(ServiceService::class)->requestAction($production, 'terminate', $this->contextFor($user, $org, 'webauthn'), 'incl-undo-3', ['reason' => 'customer request']), 25);
+    driveOperation(app(ServiceService::class)->requestAction($production->fresh(), 'resume', $this->contextFor($user, $org), 'incl-undo-4', ['reason' => 'přeci jen pokračujeme']), 25);
+
+    expect($staging->fresh()->terminate_at)->not->toBeNull()   // not ours to undo: the customer ended this one
+        ->and($staging->fresh()->state)->toBe(ServiceStateMachine::SUSPENDED);
+});
