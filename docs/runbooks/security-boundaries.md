@@ -299,6 +299,31 @@ Tests: `tests/Feature/Identity/StaffReadAuditTest.php`, `tests/Feature/Identity/
 
 Tests: `tests/Feature/Services/SiteNameClaimsTest.php`, `tests/Feature/Services/SiteClaimProofTest.php`.
 
+## 19. An id that arrives with a customer's request is not proof of ownership
+
+* ISPConfig's remote API is reached through **one administrator session per instance** and never asks whose record a
+  `primary_id` names. The platform validates a customer's `remote_id` for its **shape only**
+  (`/^[A-Za-z0-9:_.-]{1,120}$/` in `ServiceService`). On a shared node the ids are consecutive integers, so the
+  neighbour's are one apart and cost nothing to guess.
+* Nine of the eleven id-taking methods in `IspConfigWebProvider` always resolved the id against the **site's own**
+  listing first and refused what they did not find — the comments say why ("a mail domain's id among web sites is a
+  stranger's site"). Three did not:
+  * `setShellKey` — install your own SSH key on a neighbour's jailed shell user (their files, and through
+    `wp-config.php` their database), or send an empty key and lock them out of their own;
+  * `setDbUserPassword` — reset a neighbour's MySQL password;
+  * `deleteDbUser` — the listing was read, but only to raise the "still owns databases" conflict, so an id that was
+    **not** ours (`$user === null`) fell through the `!== null` test and was deleted.
+* The same class ran through mail: `mailbox.update`, `mailbox.delete` and `alias.delete` built the `ResourceRef`
+  straight from `$p('remote_id')` in `ServiceActionWorkflow`, so any mailbox on the mail server could have its
+  password set (read the mail, send as them) or be deleted.
+* The rule now has one place — `IspConfigWebProvider::ownRow()` — and mail is resolved where the certificate check
+  already sits, before the `match` in the saga, through the existing `MailDomains::across` so every domain the
+  service holds is covered. A listing that fails is a provider error and retries; it never reads as "not yours".
+* **aaPanel was clean**: every method there resolves the id against the site's own listing, and the two it cannot do
+  (`deleteDbUser`, `setShellKey`) refuse outright. The defect was ISPConfig-only.
+
+Tests: `tests/Contract/IspConfigOwnershipTest.php`, `tests/Feature/Provisioning/MailboxOwnershipTest.php`.
+
 ## What to look at on staging after deploying this
 
 * migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;

@@ -401,10 +401,18 @@
   SNI, peer deliberately unverified, nothing sent afterwards. Below ten days left — the panel has demonstrably not
   renewed — the platform asks for the certificate itself through the ordinary `ssl.issue`; an expired certificate, or
   one that does not cover the site's name at all, goes to the operators once a day.
+- **An id from a customer is not proof of ownership** (audit row 92, `security-boundaries.md` §19, TASK-0005).
+  ISPConfig's remote API runs on one administrator session per instance and never asks whose `primary_id` it was
+  handed; the platform checks only the shape of the id. Nine of eleven adapter methods always resolved it against the
+  site's own listing — `setShellKey`, `setDbUserPassword` and `deleteDbUser` did not, so on a shared node a customer
+  could put their SSH key on a neighbour's shell user, reset a neighbour's database password, or delete a neighbour's
+  database user. Mail had the same hole: `mailbox.update`, `mailbox.delete` and `alias.delete` built the ref straight
+  from the parameter. The rule is one place now (`IspConfigWebProvider::ownRow`), mail resolves through
+  `MailDomains::across` before the panel is touched, and aaPanel was already clean.
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 895 tests, 14 790 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 904 tests, 14 808 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
