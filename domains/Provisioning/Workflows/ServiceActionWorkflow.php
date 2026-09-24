@@ -314,6 +314,18 @@ final class ServiceActionWorkflow implements Workflow
                             .'. Jakmile se změna DNS rozšíří, vystavíme ho sami.', true, ['certificate_waiting' => $certificate['waiting']], 1800);
                     }
                 }
+                // A mailbox or alias is named by an id, and the platform checks only its SHAPE. Every other resource is
+                // resolved against its own listing before the panel is touched (the adapters do it); mail was built
+                // straight from the parameter, and ISPConfig answers one administrator session that never asks whose
+                // `mailuser_id` it was handed — so on a shared mail server the neighbour's mailbox is one integer away.
+                if (in_array($this->action, ['mailbox.update', 'mailbox.delete', 'alias.delete'], true)) {
+                    $kind = $this->action === 'alias.delete' ? 'aliases' : 'mailboxes';
+                    $mail = $this->capability($context, MailProvider::class);
+                    $owned = MailDomains::across($this->service($context), $ref, fn (ResourceRef $one) => $kind === 'aliases' ? $mail->listAliases($one) : $mail->listMailboxes($one));
+                    if (collect($owned)->firstWhere('remote_id', (string) $p('remote_id')) === null) {
+                        return StepResult::fail($kind === 'aliases' ? 'Tenhle alias k téhle službě nepatří.' : 'Tahle schránka k téhle službě nepatří.', false, ['not_ours' => (string) $p('remote_id')]);
+                    }
+                }
                 $result = match ($this->action) {
                     'php.set' => $this->capability($context, WebHostingProvider::class)->setPhpVersion($ref, (string) $p('version')),
                     'database.create' => $this->capability($context, WebHostingProvider::class)->createDatabase($ref, ['name' => $p('name'), 'user' => $p('user'), 'password' => $p('password'), 'charset' => $p('charset', 'utf8mb4')]),

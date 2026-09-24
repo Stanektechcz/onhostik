@@ -1239,6 +1239,8 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
 
     public function setDbUserPassword(ResourceRef $site, string $remoteId, string $password): ProviderResult
     {
+        $this->assertWebDomain($site);
+        $this->ownRow($this->listDbUsers($site), $remoteId, 'Database user');
         $this->api->call('sites_database_user_update', ['client_id' => (int) ($site->meta['client_id'] ?? 0), 'primary_id' => (int) $remoteId, 'params' => ['database_password' => $password]], true);
 
         return ProviderResult::accepted($this->jobqueueHandle((int) $site->node), new ResourceRef('database_user', $remoteId, $site->node, [], $site->serviceId), ['password_changed' => true]);
@@ -1246,8 +1248,11 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
 
     public function deleteDbUser(ResourceRef $site, string $remoteId): ProviderResult
     {
-        $user = collect($this->listDbUsers($site))->firstWhere('remote_id', $remoteId);
-        if ($user !== null && $user['databases'] !== []) {
+        $this->assertWebDomain($site);
+        // the lookup used to feed only the conflict below, so an id that is NOT ours (`$user === null`) fell straight
+        // through to the delete — a neighbour's database user, gone
+        $user = $this->ownRow($this->listDbUsers($site), $remoteId, 'Database user');
+        if ($user['databases'] !== []) {
             throw new ProviderException('ispconfig', ProviderErrorCode::CONFLICT, 'The user still owns databases: '.implode(', ', $user['databases']));
         }
         $this->api->call('sites_database_user_delete', ['primary_id' => (int) $remoteId], true);
@@ -1286,8 +1291,32 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
         return ProviderResult::accepted($this->jobqueueHandle((int) $site->node), new ResourceRef('shell_user', (string) $id, $site->node, ['user' => $spec['user']], $site->serviceId), ['created' => true]);
     }
 
+    /**
+     * The row of this site's own listing that an id names — or a refusal.
+     *
+     * The panel is reached through ONE administrator session per instance and never asks whose record a `primary_id`
+     * is; the platform checks only the SHAPE of an id a customer sends. On a shared node the ids are consecutive, so
+     * an id that arrives from outside is not proof of anything until it is found in what this site owns. Nine of the
+     * methods here always did this inline; the three that did not let a customer reach a neighbour's shell user and
+     * database user.
+     *
+     * @param  list<array<string,mixed>>  $owned
+     * @return array<string,mixed>
+     */
+    private function ownRow(array $owned, string $remoteId, string $what): array
+    {
+        $row = collect($owned)->firstWhere('remote_id', $remoteId);
+        if (! is_array($row)) {
+            throw new ProviderException('ispconfig', ProviderErrorCode::NOT_FOUND, "{$what} not found on this site");
+        }
+
+        return $row;
+    }
+
     public function setShellKey(ResourceRef $site, string $remoteId, string $sshKey): ProviderResult
     {
+        $this->assertWebDomain($site);
+        $this->ownRow($this->listShellUsers($site), $remoteId, 'Shell user');
         $this->api->call('sites_shell_user_update', ['client_id' => (int) ($site->meta['client_id'] ?? 0), 'primary_id' => (int) $remoteId, 'params' => ['ssh_rsa' => $sshKey]], true);
 
         return ProviderResult::accepted($this->jobqueueHandle((int) $site->node), new ResourceRef('shell_user', $remoteId, $site->node, [], $site->serviceId), ['key_set' => $sshKey !== '']);
