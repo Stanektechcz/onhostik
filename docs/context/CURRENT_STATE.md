@@ -471,9 +471,22 @@
   the reconciler, the features on offer. The service's own family now decides (`ServiceIdentityCheck::TYPES` is the
   one answer to both questions); `created_at` and the id only break a tie inside that family.
 
+- **A hosting that ends stops pointing its DNS at the node** (audit row 100, TASK-0013). A hosting is written into
+  DNS by three publishers — the site's A/AAAA in the customer's own zone (`web:<service>`), what the pairing of a
+  further domain added (`service:<service>`), and the mail records of every mail domain it was given
+  (`mail:<domain>`) — and the removal took none of them. The customer's domain went on resolving to a node that no
+  longer served their site (on a shared node a visitor meets whatever it answers for an unknown name — another
+  customer's website), and their mail kept being delivered to a node that no longer accepts it, with SPF and DKIM
+  still authorising it. `ServiceDnsCleanup` now removes exactly what the service published, leaves a record the
+  customer made themselves alone, and leaves the domain pointing nowhere rather than at a parking page (parking is
+  an action of its own). Found on the way: the DNS cleanup step swallowed a failure with a comment claiming the
+  reconciler would finish it — it does not, because a failed commit leaves the platform and the provider holding
+  the same record and the drift check sees no difference. The termination still completes; what is left is named
+  to the operators (`service.purge.leftover`, kind `dns`).
+
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 921 tests, 14 891 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 923 tests, 14 896 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
