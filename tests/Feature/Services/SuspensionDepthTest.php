@@ -8,9 +8,11 @@ use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\ServiceHealthCheck;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\SuspensionDepth;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Providers\Contracts\Naming;
 
 /*
@@ -143,4 +145,71 @@ it('does not start a machine its owner had switched off when a suspension is lif
     // the lock is lifted (config), the machine stays as its owner left it: it used to be started
     expect(collect($calls)->contains(fn ($c) => str_ends_with($c, '/status/start')))->toBeFalse()
         ->and(collect($calls)->contains(fn ($c) => str_starts_with($c, 'PUT') && str_ends_with($c, '/qemu/1042/config')))->toBeTrue();
+});
+
+/*
+ * A resume that could not switch everything back on has to say so.
+ *
+ * `SuspensionDepth::resume()` kept what it could not switch on only when the failure was `TRANSIENT` or `UNKNOWN`;
+ * for every other refusal — and `status:false` from aaPanel is `VALIDATION` — it wrote an EMPTY memory. So the cron
+ * job stayed switched off at the panel, the platform forgot it had ever switched it off, and no later resume could
+ * put it back: the customer paid their overdue invoice, the site served again, and their scheduled jobs never ran
+ * again. `resume_errors` went into the operation's context, which nobody reads, and the service was reported ACTIVE.
+ *
+ * The site itself is up, so the service does become ACTIVE — that is right, the customer paid. What changes is that
+ * the platform keeps what is still off, says it out loud to the operators, and stops claiming the service is whole.
+ */
+
+it('keeps and reports what it could not switch back on', function () {
+    [, $org] = $this->customerWithOrganization();
+    $site = featureWebService($org, 'aapanel');
+    $prefix = Naming::prefix($site->id);
+    $panel = ['site' => 1, 'cron' => [21 => 1], 'ftp' => [31 => 1], 'refuse_cron' => false];
+    Http::fake(function (Request $r) use (&$panel, $site, $prefix) {
+        $path = (string) parse_url($r->url(), PHP_URL_PATH).'?'.(string) parse_url($r->url(), PHP_URL_QUERY);
+        $body = $r->data();
+
+        return Http::response(match (true) {
+            str_contains($path, 'site?action=SiteStop') => ['status' => true, 'msg' => 'stopped'],
+            str_contains($path, 'site?action=SiteStart') => ['status' => true, 'msg' => 'started'],
+            str_contains($path, 'crontab?action=GetCrontab') => array_map(fn ($id) => ['id' => $id, 'name' => Naming::cronLabel($site->id, "job{$id}"), 'type' => 'minute-n', 'where1' => '5', 'where_hour' => '0', 'where_minute' => '5', 'sBody' => 'php artisan schedule:run', 'status' => $panel['cron'][$id]], array_keys($panel['cron'])),
+            // the panel refuses the switch on the way back — not a timeout, a flat refusal (VALIDATION)
+            str_contains($path, 'crontab?action=set_cron_status') => $panel['refuse_cron']
+                ? ['status' => false, 'msg' => 'cron service is not running']
+                : (function () use (&$panel, $body) {
+                    $panel['cron'][(int) $body['id']] = $panel['cron'][(int) $body['id']] === 1 ? 0 : 1;
+
+                    return ['status' => true, 'msg' => 'ok'];
+                })(),
+            str_contains($path, 'data?action=getData&table=ftps') => ['data' => array_map(fn ($id) => ['id' => $id, 'name' => "{$prefix}_ftp{$id}", 'path' => '/www/wwwroot/shop.cz', 'status' => (string) $panel['ftp'][$id]], array_keys($panel['ftp']))],
+            str_contains($path, 'ftp?action=SetStatus') => (function () use (&$panel, $body) {
+                $panel['ftp'][(int) $body['id']] = (int) $body['status'];
+
+                return ['status' => true, 'msg' => 'ok'];
+            })(),
+            default => ['status' => true, 'msg' => 'ok', 'data' => []],
+        });
+    });
+    $services = app(ServiceService::class);
+    $system = CommandContext::system('dunning')->withScope($org->id);
+
+    driveOperation($services->requestAction($site, 'suspend', $system, 'left-suspend', ['reason' => 'dunning']));
+    expect(data_get($site->refresh()->tags, SuspensionDepth::TAG))->toBe(['cron' => ['21'], 'ftp' => ['31']]);
+
+    $panel['refuse_cron'] = true; // the invoice is paid, but the panel will not switch the job on again
+    driveOperation($services->requestAction($site->fresh(), 'resume', CommandContext::system('dunning resolved')->withScope($org->id), 'left-resume', ['reason' => 'zaplaceno', 'lift' => 'payment']));
+
+    $site->refresh();
+    expect($site->state)->toBe(ServiceStateMachine::ACTIVE)          // the site serves again: the customer paid
+        ->and($panel['ftp'][31])->toBe(1)                            // what could be switched on is on
+        ->and($panel['cron'][21])->toBe(0);                          // and this one is not
+
+    // …and the platform neither forgets it nor pretends the service is whole
+    expect(data_get($site->tags, SuspensionDepth::TAG))->toBe(['cron' => ['21']]) // the FTP account came back, so it is forgotten
+        ->and(OutboxMessage::query()->where('name', 'service.resume.incomplete')->exists())->toBeTrue();
+
+    $finding = collect(app(ServiceHealthCheck::class)->run($site)['findings'])->firstWhere('key', 'suspension_left');
+    expect($finding['level'] ?? '')->toBe('warn')
+        ->and($finding['cs'] ?? '')->toContain('naplánované úlohy')   // named the way a customer reads it, not `cron`
+        ->and($finding['en'] ?? '')->toContain('scheduled jobs');
 });

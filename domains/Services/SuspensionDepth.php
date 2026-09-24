@@ -38,6 +38,13 @@ final class SuspensionDepth
     public const KINDS = ['cron', 'ftp', 'schedule', 'app', 'mail'];
 
     /**
+     * The panel saying "not now", not "never": worth another round. A breaker that is open and a rate limit belong
+     * here as much as a timeout does — counting them as final used to end the retries and wipe the memory of what
+     * had been switched off.
+     */
+    private const RETRYABLE = [ProviderErrorCode::TRANSIENT, ProviderErrorCode::UNKNOWN, ProviderErrorCode::CIRCUIT_OPEN, ProviderErrorCode::RATE_LIMIT];
+
+    /**
      * @return array{cron:list<string>, ftp:list<string>, schedule:list<string>, app:list<string>, mail:list<string>, errors:list<string>, transient:bool}
      */
     public function pause(Service $service, object $adapter, ResourceRef $ref): array
@@ -79,9 +86,13 @@ final class SuspensionDepth
                 $ok ? $done[$kind][] = $id : $left[$kind][] = $id;
             }
         }
-        $this->remember($service, $transient ? $left : array_fill_keys(self::KINDS, [])); // what could not be switched on because the panel did not answer is tried again; what is gone is forgotten
+        // What is still off stays remembered, whatever the reason — the memory is the only record that the platform
+        // switched it off. Keeping it only for a timeout meant a flat refusal (aaPanel answers `status:false`, which
+        // is VALIDATION) wiped the memory: the cron job stayed off at the panel, nothing knew it ever had been on,
+        // and no later resume could put it back. What is genuinely gone is forgotten by `attempt(gone: true)`.
+        $this->remember($service, $left);
 
-        return $done + ['errors' => $errors, 'transient' => $transient];
+        return $done + ['errors' => $errors, 'transient' => $transient, 'left' => array_filter($left, fn (array $ids) => $ids !== [])];
     }
 
     /**
@@ -183,7 +194,7 @@ final class SuspensionDepth
             return $list();
         } catch (ProviderException $e) {
             $errors[] = 'listing: '.$e->errorCode->value;
-            $transient = $transient || in_array($e->errorCode, [ProviderErrorCode::TRANSIENT, ProviderErrorCode::UNKNOWN], true);
+            $transient = $transient || in_array($e->errorCode, self::RETRYABLE, true);
 
             return [];
         }
@@ -201,7 +212,7 @@ final class SuspensionDepth
                 return true; // deleted while the site was down: nothing to switch on, nothing to remember
             }
             $errors[] = "{$what}: ".$e->errorCode->value;
-            $transient = $transient || in_array($e->errorCode, [ProviderErrorCode::TRANSIENT, ProviderErrorCode::UNKNOWN], true);
+            $transient = $transient || in_array($e->errorCode, self::RETRYABLE, true);
 
             return false;
         }

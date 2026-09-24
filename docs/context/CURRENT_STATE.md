@@ -431,9 +431,19 @@
   specs carry it as `client_entitlements`. Clients already on the live panel keep their old limits until that
   customer's next provisioning — no sweep exists yet.
 
+- **A resume that could not switch everything back on says so** (audit row 96, TASK-0009). A suspension switches off
+  the cron jobs, FTP accounts, schedules, apps and outgoing mail around the service and remembers what it switched
+  off. `resume()` kept what it could not switch on only for a timeout — any other refusal (aaPanel's `status:false`
+  is `VALIDATION`) wiped the memory, so the cron stayed off at the panel, nothing knew it ever had been on, and no
+  later resume could put it back: the customer paid and their scheduled jobs never ran again. The memory now keeps
+  whatever is still off, `CIRCUIT_OPEN` and `RATE_LIMIT` count as "not now" rather than "never",
+  `service.resume.incomplete` goes to the operators, and the health check stops calling the service whole
+  (`suspension_left`, named the way a customer reads it). The service still returns to ACTIVE — the site serves and
+  the customer paid; the rest is ours to finish.
+
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 913 tests, 14 832 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 916 tests, 14 860 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
