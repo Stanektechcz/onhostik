@@ -1,6 +1,6 @@
 # Daily workflow
 
-Run commands from `C:\Users\medion\Desktop\ONHOST-BRAIN\ONHOST-NEW\onhost-platform`.
+Run commands from `C:\Users\medion\Desktop\ONHOST-NEW\onhost-platform`.
 
 ## Start work
 
