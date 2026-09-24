@@ -45,7 +45,7 @@ pest()->beforeEach(function () {
     $this->envBaseline = ['env' => $_ENV, 'process' => getenv()];
 })->afterEach(fn () => restoreEnvironment($this->envBaseline))->in('Feature', 'Contract', 'Unit');
 
-/** Undoes every $_ENV and putenv() key a test added or changed, leaving the rest of the process environment alone. */
+/** Undoes every $_ENV and putenv() key a test added, changed or removed, leaving the rest of the process environment alone. */
 function restoreEnvironment(array $baseline): void
 {
     foreach (array_diff_key($_ENV, $baseline['env']) as $key => $value) {
@@ -54,11 +54,12 @@ function restoreEnvironment(array $baseline): void
     foreach ($baseline['env'] as $key => $value) {
         $_ENV[$key] = $value;
     }
-    foreach (getenv() as $key => $value) {
-        if (! array_key_exists($key, $baseline['process'])) {
-            putenv($key);
-        } elseif ($baseline['process'][$key] !== $value) {
-            putenv($key.'='.$baseline['process'][$key]);
+    foreach (array_diff_key(getenv(), $baseline['process']) as $key => $value) {
+        putenv($key);
+    }
+    foreach ($baseline['process'] as $key => $value) {
+        if (getenv($key) !== $value) {
+            putenv($key.'='.$value);
         }
     }
 }
