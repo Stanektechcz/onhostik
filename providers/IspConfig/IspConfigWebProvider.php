@@ -316,12 +316,103 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
         if ($site !== null && $user !== '' && (string) ($site['system_user'] ?? '') !== $user) {
             throw new ProviderException('ispconfig', ProviderErrorCode::CONFLICT, "ISPConfig web domain {$ref->remoteId} ({$site['domain']}) belongs to another site user; refusing to delete it.");
         }
+        // everything of the site that is a row of its own goes first — and it goes whether the vhost is still there or
+        // not, so a site somebody deleted in the panel by hand does not leave the customer's data and logins behind
+        $left = $this->dropSiteChildren($ref);
         if ($site === null) {
-            return ProviderResult::completed(null, ['already_deleted' => true], alreadyExisted: true);
+            return ProviderResult::completed(null, ['already_deleted' => true] + ($left === [] ? [] : ['leftover' => $left]), alreadyExisted: true);
         }
         $this->api->call('sites_web_domain_delete', ['primary_id' => (int) $ref->remoteId], true);
 
-        return ProviderResult::accepted($this->jobqueueHandle((int) $ref->node), null);
+        return ProviderResult::accepted($this->jobqueueHandle((int) $ref->node), null, $left === [] ? [] : ['leftover' => $left]);
+    }
+
+    /**
+     * Everything of a site that ISPConfig keeps as a row of its own, removed before the site itself.
+     *
+     * `sites_web_domain_delete` deletes one row: the vhost. The databases live in `web_database`, their logins in
+     * `web_database_user`, the FTP accounts in `ftp_user`, the SSH accounts in `shell_user`, the jobs in `cron`, and
+     * every further host name in a `web_domain` row of its own — each pointing at the site by `parent_domain_id`,
+     * none of them named in that one call. Whether the panel tidies up behind the remote API is not something the
+     * platform may assume: what it created, it removes itself. What was left behind is a terminated customer's data
+     * on a live node long past every retention promise, their FTP, SSH and database passwords still working on a
+     * shared machine, the disk never freed, and an alias vhost still answering for a name the platform believes
+     * nobody holds. The aaPanel adapter has always done this (`terminate()` drops the cron jobs and the Node apps
+     * first, and `DeleteSite` takes the files, databases and FTP accounts with it).
+     *
+     * Every listing is scoped by `parent_domain_id` to this very site, so nothing of a neighbour is ever in reach,
+     * and the final archive has already been taken by the time the workflow calls this. A refusal does not stop the
+     * termination — the service must end — but it is named and given back, so nothing is left silently.
+     *
+     * @return array<string, list<string>> what is still on the node, by kind
+     */
+    private function dropSiteChildren(ResourceRef $ref): array
+    {
+        $left = [];
+        // the database logins are collected BEFORE their databases: `listDbUsers` finds them through the databases,
+        // so once those are gone the login rows cannot be found at all — and a login without its database is still a
+        // login into the database server. For the same reason they are deleted last: ISPConfig (and this adapter)
+        // refuse a login that still owns a database.
+        $logins = array_column($this->listing('db_user', fn () => $this->listDbUsers($ref), $left), 'remote_id');
+        $kinds = [
+            'domain' => [fn () => $this->listSubdomains($ref), fn (string $id) => $this->removeSubdomain($ref, $id)],
+            'database' => [fn () => $this->listDatabases($ref), fn (string $id) => $this->deleteDatabase($ref, $id)],
+            'ftp' => [fn () => $this->listFtpAccounts($ref), fn (string $id) => $this->deleteFtpAccount($ref, $id)],
+            'shell' => [fn () => $this->listShellUsers($ref), fn (string $id) => $this->deleteShellUser($ref, $id)],
+            'cron' => [fn () => $this->listCron($ref), fn (string $id) => $this->deleteCron($ref, $id)],
+        ];
+        foreach ($kinds as $kind => [$list, $delete]) {
+            foreach ($this->listing($kind, $list, $left) as $row) {
+                $id = (string) ($row['remote_id'] ?? '');
+                try {
+                    $delete($id);
+                } catch (ProviderException $e) {
+                    $left[$kind][] = $id;
+                }
+            }
+        }
+        foreach ($logins as $id) {
+            // a login whose database is still there stays with it, and one shared with another site's database is not
+            // ours to take away. `deleteDbUser()` itself cannot be used here: it looks the login up through the
+            // databases, which are gone by now.
+            if ($this->databasesOfLogin((int) $id) !== []) {
+                $left['db_user'][] = (string) $id;
+
+                continue;
+            }
+            try {
+                $this->api->call('sites_database_user_delete', ['primary_id' => (int) $id], true);
+            } catch (ProviderException $e) {
+                $left['db_user'][] = (string) $id;
+            }
+        }
+
+        return $left;
+    }
+
+    /** @return list<array<string,mixed>> every database that still belongs to this login, wherever that database belongs */
+    private function databasesOfLogin(int $loginId): array
+    {
+        return array_values(array_filter((array) $this->api->call('sites_database_get', ['primary_id' => ['database_user_id' => $loginId]]), 'is_array'));
+    }
+
+    /**
+     * A listing that cannot be read is not a reason to stop a termination — but the kind is named in what is left,
+     * with the panel's own word for the refusal, because nothing of it was removed.
+     *
+     * @param  callable():array<int,array<string,mixed>>  $list
+     * @param  array<string, list<string>>  $left
+     * @return array<int,array<string,mixed>>
+     */
+    private function listing(string $kind, callable $list, array &$left): array
+    {
+        try {
+            return $list();
+        } catch (ProviderException $e) {
+            $left[$kind][] = 'listing:'.$e->errorCode->value;
+
+            return [];
+        }
     }
 
     public function usage(ResourceRef $ref, ?string $periodStart = null, ?string $periodEnd = null): Usage

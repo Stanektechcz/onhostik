@@ -451,6 +451,17 @@
   are deliberately not remembered as paused, and the record is dropped as soon as the service runs again. The health
   check stays silent here on purpose: a suspended customer is not told what still runs for them.
 
+- **A deleted ISPConfig site leaves nothing of the customer behind** (audit row 98, TASK-0011). `sites_web_domain_delete`
+  deletes one row — the vhost. The databases, their logins, the FTP and SSH accounts, the cron jobs and every further
+  host name are rows of their own, hanging off the site by `parent_domain_id` and named in no part of that call. What
+  stayed was a terminated customer's data on a live node past every retention promise, their FTP, SSH and database
+  passwords still working on a shared machine, the disk never freed, and an alias vhost still answering for a name the
+  platform believed nobody held. `dropSiteChildren()` now removes them first, in an order the panel accepts and scoped
+  by `parent_domain_id` so no neighbour is in reach; a refusal does not stop the termination (the customer is entitled
+  to be rid of the service, and the final archive is already taken) but comes back as `leftover` and reaches the
+  operators as `service.purge.leftover`, ids and all. The same holds for the old node after a web migration. aaPanel
+  always did this; only ISPConfig did not.
+
 - **The primary binding of a service is no longer a coin flip** (audit row 99, TASK-0012). A web hosting binds more
   than its site: the mail domain it was given for its mailboxes is a resource of its own, written by the same
   operation within the same second. `primaryBinding()` ordered by `created_at` alone, so on a tie the database chose
