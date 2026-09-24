@@ -757,8 +757,19 @@ final class ServiceActionWorkflow implements Workflow
                 if ($resumed['transient'] && (int) $context->operation->attempts < 4) {
                     return StepResult::fail('the panel did not answer while scheduled jobs and accesses were being switched on again: '.implode('; ', $resumed['errors']), true, [], 60);
                 }
+                // The site itself is up — the customer paid, so the service does come back. But what the platform
+                // switched off and could not switch on again stays off at the panel, and `resume_errors` in an
+                // operation's context is read by nobody: the customer's cron simply never ran again. It is ours to
+                // finish, so the operators hear it; the memory of what is still off is kept by `SuspensionDepth`.
+                $left = (array) ($resumed['left'] ?? []);
+                if ($left !== []) {
+                    $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.resume.incomplete', 'service', $service->id, [
+                        'name' => $service->hostname ?: ($service->label ?: $service->name), 'kinds' => array_keys($left),
+                        'left' => array_map('count', $left), 'errors' => array_slice($resumed['errors'], 0, 5),
+                    ], (string) $service->organization_id));
+                }
 
-                return StepResult::done(['resumed' => array_map('count', array_intersect_key($resumed, array_flip(SuspensionDepth::KINDS))), 'resume_errors' => $resumed['errors']]);
+                return StepResult::done(['resumed' => array_map('count', array_intersect_key($resumed, array_flip(SuspensionDepth::KINDS))), 'resume_errors' => $resumed['errors'], 'resume_left' => array_map('count', $left)]);
             }
         };
     }

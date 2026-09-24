@@ -37,6 +37,7 @@ final class ServiceHealthCheck
             $findings[] = $this->certificate($service);
             $findings[] = $this->monitor($service);
         }
+        $findings[] = $this->suspensionLeft($service);
         $findings[] = $this->operations($service);
         $findings[] = $this->usage($service);
         $findings = array_values(array_filter($findings));
@@ -111,6 +112,31 @@ final class ServiceHealthCheck
     }
 
     /** @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string} */
+    /**
+     * What a suspension switched off and the resume could not switch on again.
+     *
+     * A running service whose `suspension_paused` memory is not empty is not whole: the panel refused to switch those
+     * cron jobs, FTP accounts, schedules or mailboxes back on, so the site serves but the customer's scheduled jobs
+     * do not run. It used to be invisible — the memory was wiped and the service reported ACTIVE.
+     *
+     * @return array{key:string, level:'ok'|'warn'|'bad', cs:string, en:string}|null
+     */
+    private function suspensionLeft(Service $service): ?array
+    {
+        if (! in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
+            return null; // a suspended service is meant to have things switched off
+        }
+        $left = array_filter((array) data_get($service->tags, SuspensionDepth::TAG, []), fn ($ids) => (array) $ids !== []);
+        if ($left === []) {
+            return null;
+        }
+        $names = ['cron' => ['naplánované úlohy', 'scheduled jobs'], 'ftp' => ['FTP účty', 'FTP accounts'], 'schedule' => ['plány serveru', 'server schedules'], 'app' => ['aplikace', 'apps'], 'mail' => ['odesílání pošty', 'outgoing mail']];
+        $cs = implode(', ', array_map(fn (string $kind) => $names[$kind][0] ?? $kind, array_keys($left)));
+        $en = implode(', ', array_map(fn (string $kind) => $names[$kind][1] ?? $kind, array_keys($left)));
+
+        return self::finding('suspension_left', 'warn', "Po obnovení služby se nepodařilo znovu zapnout: {$cs}. Zkoušíme to dál a řešíme to.", "After the service was resumed these could not be switched on again: {$en}. We keep trying and are on it.");
+    }
+
     private function certificate(Service $service): array
     {
         $managed = ManagedCertificate::query()->where('service_id', $service->id)->where('state', 'issued')->orderByDesc('expires_at')->first();
