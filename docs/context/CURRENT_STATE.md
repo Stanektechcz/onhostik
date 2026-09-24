@@ -418,9 +418,22 @@
   (`ServiceService::undoScheduledDeletion`), so a site held down by an abuse case stays suspended but is no longer
   waiting to be deleted. A site the customer had cancelled themselves is not marked and stays on its way out.
 
+- **Managing a shared service is not a shell on it** (audit row 94, `security-boundaries.md` §20, TASK-0007).
+  `svc_manage` promises *actions and settings*; `svc_console` promises *terminal, VNC and game console*. But
+  `permissionFor()` sent the web terminal, the per-site SSH accounts and the game console to `service.manage`, so the
+  one role that exists to hand over the day-to-day work **without** a shell handed over a shell. Those five actions
+  ask for `service.console` now; the permission catalogue is untouched and no role loses anything it had.
+- **An ISPConfig client's limits are the organization's** (audit row 95, TASK-0008). One client account per customer
+  carries the limits the panel enforces, and they were written from whichever service provisioned first — so a second
+  ordinary hosting was **refused by the panel after the customer paid**, and a plan change on a small service took the
+  space and the sites away from every other site of the same customer. `ClientAllowance` sums what the organization
+  holds on that panel (carried sites counted once, everything but TERMINATED counted) and the provisioning and resize
+  specs carry it as `client_entitlements`. Clients already on the live panel keep their old limits until that
+  customer's next provisioning — no sweep exists yet.
+
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 906 tests, 14 814 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 913 tests, 14 832 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
