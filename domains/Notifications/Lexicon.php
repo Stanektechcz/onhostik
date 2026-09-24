@@ -95,6 +95,7 @@ final class Lexicon
         'Dobijte kredit nebo prodlužte ručně, doména jinak expiruje.' => 'Top up credit or renew manually, otherwise the domain expires.',
         'Registr prodloužení nepřijal. Řešíme to a zkoušíme to každý den znovu; pokud je potřeba něco od vás, ozveme se. Z kreditu jsme nic nestrhli.' => 'The registry did not accept the renewal. We are on it and try again every day; if we need anything from you, we will be in touch. Nothing was taken from your credit.',
         'SLA kredit připsán' => 'SLA credit added', 'Export dat je připraven' => 'Data export is ready', 'Ke stažení ' => 'Available for download for ',
+        'Účet bude smazán' => 'The account will be erased', 'Smazání účtu proběhne ' => 'The account will be erased on ', '. Do té doby ho můžete zrušit v nastavení.' => '. Until then you can cancel it in the settings.',
         // domains
         ' domén · automatická synchronizace, upozornění na expirace a párování s hostingem' => ' domains · automatic sync, expiry alerts and pairing with hosting',
         'Obnovy domén v účtu ' => 'Domain renewals in account ', ' by nemusely projít; dobijte kredit u registrátora.' => ' may not go through; top up credit at the registrar.',

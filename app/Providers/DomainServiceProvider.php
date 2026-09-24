@@ -15,6 +15,8 @@ use Onhost\Domain\Catalog\Commands\CatalogCommand;
 use Onhost\Domain\Catalog\Commands\CatalogCommandHandler;
 use Onhost\Domain\Compliance\Commands\ComplianceCommand;
 use Onhost\Domain\Compliance\Commands\ComplianceCommandHandler;
+use Onhost\Domain\Compliance\Commands\DataRequestCommand;
+use Onhost\Domain\Compliance\Commands\DataRequestCommandHandler;
 use Onhost\Domain\Dns\Commands\DnsCommand;
 use Onhost\Domain\Dns\Commands\DnsCommandHandler;
 use Onhost\Domain\Domains\Commands\DomainCommand;
@@ -137,6 +139,7 @@ final class DomainServiceProvider extends ServiceProvider
         WorkOfferDecisionCommand::class => WorkOfferCommandHandler::class,
         OnCallCommand::class => OnCallCommandHandler::class,
         ComplianceCommand::class => ComplianceCommandHandler::class,
+        DataRequestCommand::class => DataRequestCommandHandler::class,
         ServiceAccessCommand::class => ServiceAccessCommandHandler::class,
         ApprovalDecisionCommand::class => ApprovalDecisionCommandHandler::class,
         PartnerCommand::class => PartnersCommandHandler::class,

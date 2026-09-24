@@ -8,10 +8,10 @@ info:
     Generated from routes by `php artisan onhost:openapi` — do not edit by hand.
   contact:
     name: 'ONhost API'
-    url: 'http://127.0.0.1:8001'
+    url: 'http://localhost:8000'
 servers:
   -
-    url: 'http://127.0.0.1:8001/v1'
+    url: 'http://localhost:8000/v1'
 tags:
   -
     name: compliance
@@ -2459,6 +2459,82 @@ paths:
         - compliance
       summary: 'POST /data-requests'
       parameters:
+        -
+          $ref: '#/components/parameters/IdempotencyKey'
+        -
+          $ref: '#/components/parameters/Organization'
+      responses:
+        201:
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/Envelope'
+                  -
+                    $ref: '#/components/schemas/List'
+        422:
+          description: 'Validation or domain rule violation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        429:
+          description: 'Rate limited'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        200:
+          description: 'Success (idempotent replay or synchronous result)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        403:
+          description: 'Forbidden — `access_not_approved`, `step_up_required` (fresh MFA) or `approval_required` (four-eyes)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        404:
+          description: 'Not found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security:
+        -
+          session: []
+        -
+          bearer: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  '/data-requests/{dataRequest}/cancel':
+    post:
+      operationId: complianceCancel
+      tags:
+        - compliance
+      summary: 'POST /data-requests/{dataRequest}/cancel'
+      parameters:
+        -
+          name: dataRequest
+          in: path
+          required: true
+          schema:
+            type: string
         -
           $ref: '#/components/parameters/IdempotencyKey'
         -

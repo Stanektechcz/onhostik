@@ -498,9 +498,20 @@
   shown every mailbox on the server and passed the ownership check for any of them. The mail domain now carries its
   name, a web hosting without one has no mailboxes, and an empty name is refused before any query.
 
+- **Erasing a customer account is the owner's deliberate act** (audit row 102, TASK-0015) — the owner's rule of
+  2026-09-24: the client account stays in the ONhost panel after its services end. Nothing closed it automatically;
+  the one path that does — the customer's GDPR erasure request — was open to any administrator (`organization.manage`),
+  bypassed the CommandBus and ran within half an hour, anonymising every member including the owner, closing the
+  organization and erasing the archives of its cancelled services. It now goes through the bus
+  (`DataRequestCommand`) and takes the owner's `organization.close` plus a fresh step-up — deliberately not four-eyes,
+  an organization of one has nobody to ask. What stands in for the second person is time: the erasure waits
+  `onhost.compliance.deletion_grace_days` (14) and anybody who manages the organization can cancel it
+  (`POST /v1/data-requests/{id}/cancel`). An account still holding a registered domain is not erased
+  (`active_domains`).
+
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 932 tests, 14 922 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 937 tests, 14 945 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

@@ -6,6 +6,8 @@ namespace App\Http\Controllers\Api\V1;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
+use Onhost\Domain\Compliance\Commands\DataRequestCommand;
 use Onhost\Domain\Compliance\ComplianceService;
 use Onhost\Domain\Compliance\Models\AbuseCase;
 use Onhost\Domain\Compliance\Models\DataRequest;
@@ -62,14 +64,39 @@ final class ComplianceController extends ApiController
         return $this->api->paginate($request, DataRequest::query()->where('organization_id', $organization->id), fn (DataRequest $r) => Presenters::dataRequest($r));
     }
 
-    public function requestData(Request $request, ComplianceService $compliance): JsonResponse
+    /**
+     * Through the bus, like every other write: an erasure of the whole account takes the owner's `organization.close`
+     * and a fresh step-up (DataRequestCommand), and it used to take the permission to edit the organization's profile.
+     */
+    public function requestData(Request $request): JsonResponse
     {
         $organization = $this->api->organization($request);
-        $this->api->authorize($request, 'organization.manage', CommandScope::organization($organization->id));
         $data = $request->validate(['kind' => ['required', 'in:export,deletion,switching'], 'reason' => ['nullable', 'string', 'max:250']]);
-        $model = $compliance->requestData($organization, $data['kind'], $this->api->context($request, $organization, $data['reason'] ?? null), $data['reason'] ?? null);
 
-        return response()->json(['data' => Presenters::dataRequest($model)], 202);
+        return $this->dispatch(new DataRequestCommand($organization->id, $this->requestKey($request, 'data-request:'.$data['kind']), ['op' => 'request'] + $data),
+            $this->api->context($request, $organization, $data['reason'] ?? null), 202);
+    }
+
+    /**
+     * A request is a fresh intention each time unless the client names it: the key derived from the body would replay
+     * the first answer — a second export would not hear "one is already running", and a new erasure asked for after
+     * the first one was cancelled would get the cancelled one back. A client that sends `Idempotency-Key` still gets
+     * the same answer for the same key.
+     */
+    private function requestKey(Request $request, string $prefix): string
+    {
+        $header = $request->headers->get('Idempotency-Key');
+
+        return is_string($header) && $header !== '' ? $this->idempotencyKey($request, $prefix) : $prefix.':'.Str::uuid()->toString();
+    }
+
+    /** Stopping a scheduled erasure while its grace period runs. */
+    public function cancel(Request $request, string $dataRequest): JsonResponse
+    {
+        $organization = $this->api->organization($request);
+
+        return $this->dispatch(new DataRequestCommand($organization->id, $this->idempotencyKey($request, 'data-request.cancel:'.$dataRequest), ['op' => 'cancel', 'data_request_id' => $dataRequest]),
+            $this->api->context($request, $organization));
     }
 
     /** A signed link for the export (audit §5j-7): seven days at most, one active link per export. */
