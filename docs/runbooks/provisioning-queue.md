@@ -99,3 +99,8 @@ released when the service fails or is terminated, and disappears by itself once 
   automatic). A drained or locked node sells nothing. `ONHOST_CAPACITY_GATE=false` accepts such orders again and lets
   provisioning wait for capacity. Known limits: a plan pinned to one panel is judged against the whole region, and a
   migration in flight does not hold space on its target node.
+* A **web or mail hosting for a name another service already serves** is refused in the same place, for the same
+  reason: `site_name_taken` (409), before an order or a payment exists. A web vhost and a mail domain are separate
+  namespaces (one name is normally both), the alias list of a web line is validated with it, and one cart cannot order
+  one name twice. `ServiceService::desiredSpec` asks again inside the transaction that creates the service, so two
+  carts racing for one name end there. See `security-boundaries.md` §18.

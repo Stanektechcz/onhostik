@@ -22,6 +22,7 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\PlanChangeService;
 use Onhost\Domain\Services\PlanFit;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\Web\SiteNames;
 use Onhost\Domain\Tax\TaxEngine;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Currency;
@@ -154,6 +155,7 @@ final class QuoteService
         };
 
         $lines = [];
+        $claimed = []; // the web names this one cart asks for: two lines cannot order one name either
         $versions = ['plans' => [], 'prices' => [], 'domain_prices' => []];
         $subtotal = Money::zero($currency);
         $discount = Money::zero($currency);
@@ -292,6 +294,7 @@ final class QuoteService
             }
             if ($change === null) { // a server that no node can take is refused while it is a cart, not after it was paid (H04)
                 $this->assertCapacity($product, app(ServiceService::class)->entitlementsFor($resolved['version'], (array) ($config['options'] ?? []), $product), $config, $organization);
+                $this->assertNamesFree($product, $config, $organization, $claimed); // and neither is a name somebody else already serves
             }
             $versions['plans'][] = $resolved['version']->id;
             $versions['prices'][] = $price->id;
@@ -396,6 +399,37 @@ final class QuoteService
         ]);
         if ($fits === false) {
             throw new DomainError('capacity_sold_out', "{$product->key} of this size is sold out in {$region} right now. Nothing was ordered or charged; a smaller plan or another location may be available.", 409, ['field' => 'items', 'product' => $product->key, 'region' => $region]);
+        }
+    }
+
+    /**
+     * A web hosting is the name it serves. Ordering one for a name another customer already serves used to be quoted,
+     * paid and then either refused by the panel (an order stuck after the money) or — on a node the neighbour does not
+     * share — built, at which point two vhosts claimed one name and the certificate followed whoever asked first.
+     * The cart is where that is caught, for the same reason a sold-out server is (H04): before anybody pays.
+     *
+     * @param  array<string,mixed>  $config
+     * @param  list<string>  $claimed  the names earlier lines of this same cart already asked for
+     */
+    private function assertNamesFree(Product $product, array $config, ?Organization $organization, array &$claimed): void
+    {
+        if (! in_array($product->family, array_merge(SiteNames::WEB, SiteNames::MAIL), true)) {
+            return;
+        }
+        $mail = in_array($product->family, SiteNames::MAIL, true);
+        $families = $mail ? SiteNames::MAIL : SiteNames::WEB;
+        $wanted = trim((string) ($config['fqdn'] ?? $config['domain'] ?? ''));
+        if ($wanted === '') {
+            return; // no name yet: the platform gives the site a preview name of its own when it is created
+        }
+        $domain = SiteNames::assertFree($wanted, $organization?->id, null, 'domain', $families);
+        $names = $mail ? [$domain] : array_merge([$domain], SiteNames::aliases($config['aliases'] ?? [], $domain, $organization?->id));
+        foreach ($names as $name) {
+            $key = ($mail ? 'mail:' : 'web:').$name; // a website and a mailbox domain of one name are two different orders
+            if (in_array($key, $claimed, true)) {
+                throw new DomainError('site_name_taken', "Doména {$name} je v objednávce dvakrát; jedno jméno obsluhuje jedna služba.", 409, ['field' => 'items', 'domain' => $name]);
+            }
+            $claimed[] = $key;
         }
     }
 

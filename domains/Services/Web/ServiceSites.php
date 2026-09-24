@@ -169,16 +169,12 @@ final class ServiceSites
         if ($held >= self::limit($owner)) {
             throw new DomainError('site_limit_reached', 'Tarif nabízí '.self::limit($owner).' '.(self::limit($owner) === 1 ? 'web' : 'webů').' a tolik jich služba má. Vyšší tarif přidá další.', 409, ['limit' => self::limit($owner), 'held' => $held]);
         }
-        $domain = strtolower(trim((string) ($spec['domain'] ?? '')));
-        if ($domain === '' || ! preg_match('/^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/', $domain) || strlen($domain) > 190) {
-            throw new DomainError('action_param_invalid', 'Zadejte doménu webu, například muj-web.cz.', 422, ['field' => 'domain']);
-        }
+        $domain = SiteNames::normalize((string) ($spec['domain'] ?? ''));
         if (self::of($owner)->contains(fn (Service $site) => strtolower((string) ($site->hostname ?? '')) === $domain)) {
             throw new DomainError('site_exists', 'Web pro tuto doménu už ve službě je.', 409, ['domain' => $domain]);
         }
-        if (Service::query()->where('hostname', $domain)->whereNotIn('state', [ServiceStateMachine::TERMINATED])->exists()) {
-            throw new DomainError('site_exists', 'Tuto doménu už na ONhostu hostuje jiná služba.', 409, ['domain' => $domain]);
-        }
+        // one name, one site — counting the further names other sites already serve and the domains of other customers
+        SiteNames::assertFree($domain, (string) $owner->organization_id, $owner->id);
         $php = (string) ($spec['php_version'] ?? data_get($owner->desired_spec, 'php_version', '8.3'));
         $offered = array_map('strval', (array) data_get($owner->entitlements, 'php_versions', []));
         if ($offered !== [] && ! in_array($php, $offered, true)) {

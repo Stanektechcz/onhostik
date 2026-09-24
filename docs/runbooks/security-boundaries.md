@@ -252,6 +252,39 @@ Tests: `tests/Contract/PterodactylToolsContractTest.php`.
 
 Tests: `tests/Feature/Identity/StaffReadAuditTest.php`, `tests/Feature/Identity/PermissionMatrixTest.php`.
 
+## 18. The domain a site serves belongs to one service too
+
+* Section 14 is about the names a service owns **on the node** (databases, FTP, the unix user). This is about the name
+  the world uses: on a shared node a web server picks the site that answers a request purely by the host name in it,
+  so whoever holds the name gets the requests, the certificate and everything that follows.
+* Only one place enforced it — `ServiceSites::assertRoomFor`, where a further site is added to an existing hosting.
+  Everywhere else a customer could name somebody else's domain:
+  * **`ssl.issue`** took whatever host names the request carried. `DomainPointing` (audit row 82) then checks each name
+    really answers at the node — and a neighbour's domain **does**, because they share the node, so the guard that
+    exists for exactly this cannot tell them apart. The platform therefore asked a certificate authority for a
+    certificate for another customer's domain: every failed validation spends one of the five an hour that authority
+    allows **that hostname**, so a customer could keep a neighbour (or a competitor hosted here) from getting a
+    certificate at all, and a name that does validate lands on somebody else's certificate. `ssl.wildcard` was the
+    same, one field further on.
+  * **`subdomain.add`** took any host name, so a customer could write a neighbour's domain into their own vhost's
+    server names — the textbook shared-hosting hijack — and spend their own plan's subdomain allowance on it.
+  * **The order**, which is how every hosting is really created, copied `config.domain` (or `fqdn`) and
+    `config.aliases` out of the cart into `desired_spec` unread: `items.*.config` is validated as `array` and nothing
+    more. Two services could claim one name, and the alias list was not even checked for being host names — whatever
+    the cart sent went into the panel's `server_name`.
+* `domains/Services/Web/SiteNames.php` is now the one place that answers it, and `ServiceSites` uses it too:
+  a name another **live** service in the same namespace holds is that service's; a name **under** a name another
+  organization holds is that organization's (their wildcard would hand it to whoever serves it here); a name under one
+  of your own names is always yours; anything else is free and left to the layers that already answer for it. A web
+  vhost and a mail domain are **two namespaces** — one customer's `muj-web.cz` is normally both a website and a mailbox
+  domain — and inside each the name belongs to one service, which also ends two mail hostings for one domain.
+* The cart refuses before anybody pays (`site_name_taken`, 409 — the same place a sold-out server is refused), naming
+  the customer's **own** service when the name is already theirs so they can act on it, and never naming somebody
+  else's. `ServiceService::desiredSpec` refuses again inside the transaction that creates the service, so a race
+  between two carts for one name ends there instead of at two vhosts.
+
+Tests: `tests/Feature/Services/SiteNameClaimsTest.php`.
+
 ## What to look at on staging after deploying this
 
 * migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;
@@ -261,4 +294,5 @@ Tests: `tests/Feature/Identity/StaffReadAuditTest.php`, `tests/Feature/Identity/
 * order items whose `config.options` hold keys the product does not sell or values above the option's range;
 * orders/invoices of EU organizations with reverse charge whose `vat_status` was never verified by VIES;
 * uptime monitors, webhooks and proxies pointing at private addresses (they now fail with `destination_not_allowed`);
-* promo codes with `max_uses`: their `uses` start from zero now — set the real count by hand if a campaign is running.
+* promo codes with `max_uses`: their `uses` start from zero now — set the real count by hand if a campaign is running;
+* web and mail services that already share one name: `select hostname, family, count(*) from services where state <> 'TERMINATED' and hostname is not null group by hostname, family having count(*) > 1` — the refusal only stops new ones, and whichever vhost the node loads first is serving that name today.

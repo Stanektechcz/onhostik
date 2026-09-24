@@ -48,6 +48,7 @@ use Onhost\Domain\Services\Web\CronCommand;
 use Onhost\Domain\Services\Web\CustomDirectives;
 use Onhost\Domain\Services\Web\PlanAllowance;
 use Onhost\Domain\Services\Web\ServiceSites;
+use Onhost\Domain\Services\Web\SiteNames;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -692,10 +693,12 @@ final class ServiceService
 
                 return ['schedule' => $schedule, 'command' => CronCommand::assert('cron.create', $params['command'] ?? ''), 'label' => substr(trim((string) ($params['label'] ?? '')), 0, 40) ?: null];
             })(),
-            'subdomain.add' => (function () use ($need, $params, $hostname, $limit) {
+            'subdomain.add' => (function () use ($need, $params, $hostname, $limit, $service) {
                 $limit('subdomains', 'subdomains');
 
-                return ['domain' => strtolower($need('domain', $hostname, 'domain must be a valid host name')), 'path' => isset($params['path']) ? trim(preg_replace('/[^\w\/.-]/', '', (string) $params['path']) ?? '', '/') : null];
+                // a name written into this site's server names must be this site's to write: one of its own, one under
+                // its own, or one nobody here holds — otherwise it is the neighbour's traffic (SiteNames)
+                return ['domain' => SiteNames::assertAllowed($service, $need('domain', $hostname, 'domain must be a valid host name')), 'path' => isset($params['path']) ? trim(preg_replace('/[^\w\/.-]/', '', (string) $params['path']) ?? '', '/') : null];
             })(),
             'redirect.set' => (function () use ($params, $action) {
                 $target = trim((string) ($params['target'] ?? ''));
@@ -708,7 +711,9 @@ final class ServiceService
 
                 return ['target' => $target, 'type' => in_array((string) ($params['type'] ?? '301'), ['301', '302'], true) ? (string) ($params['type'] ?? '301') : '301'];
             })(),
-            'ssl.issue' => ['domains' => array_values(array_filter(array_map(fn ($d) => strtolower(trim((string) $d)), (array) ($params['domains'] ?? [])), fn ($d) => preg_match($hostname, $d) === 1))],
+            // a certificate is asked for names this site serves. A neighbour's domain answers at this very node, so
+            // "does it point at us" (DomainPointing) cannot tell them apart — only who holds the name can (SiteNames).
+            'ssl.issue' => ['domains' => array_values(array_unique(array_map(fn ($d) => SiteNames::assertAllowed($service, (string) $d, 'domains'), array_filter((array) ($params['domains'] ?? []), fn ($d) => is_string($d) || is_int($d)))))],
             'https.force' => ['enabled' => filter_var($params['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN)],
             'snapshot.delete' => ['name' => $need('name', '/^[A-Za-z0-9_-]{1,40}$/', 'name is required')],
             'firewall.apply' => (function () use ($params, $action) {
@@ -1109,7 +1114,7 @@ final class ServiceService
 
                 return $op;
             })()],
-            'ssl.wildcard' => ['domain' => isset($params['domain']) && $params['domain'] !== '' ? strtolower($need('domain', $hostname, 'domain must be a valid host name')) : strtolower((string) $service->spec('domain', $service->hostname))],
+            'ssl.wildcard' => ['domain' => isset($params['domain']) && $params['domain'] !== '' ? SiteNames::assertAllowed($service, $need('domain', $hostname, 'domain must be a valid host name')) : strtolower((string) $service->spec('domain', $service->hostname))],
             // ── platform features (workflows of their own) ────────────────────────────────────────────────────
             // the further sites the plan sells: the whole refusal (number, name, PHP version, space) is decided here,
             // so a site is never half-created on the node and the customer hears what is wrong before anything runs
@@ -1443,8 +1448,21 @@ final class ServiceService
                 'hostname' => Str::lower((string) ($config['hostname'] ?? "vm-{$shortId}.".config('onhost.provisioning.hostname_suffix', 'cust.onhost.cz'))), 'image' => (string) ($config['image'] ?? ($product->family === 'data' ? (string) ($config['engine'] ?? ($meta['engines'][0] ?? 'postgresql-16')) : ($meta['images'][0] ?? 'debian-13'))),
                 'engine' => $config['engine'] ?? ($product->family === 'data' ? ($meta['engines'][0] ?? null) : null), 'ssh_keys' => array_values((array) ($config['ssh_keys'] ?? [])), 'admin_user' => (string) ($config['admin_user'] ?? 'onhost'), 'firewall' => $config['firewall'] ?? config('onhost.provisioning.default_firewall', []),
             ],
-            'web', 'managed' => ['domain' => Str::lower((string) ($config['fqdn'] ?? $config['domain'] ?? "{$shortId}.".config('onhost.provisioning.web_preview_suffix', 'web.onhost.cz'))), 'php_version' => (string) ($config['php_version'] ?? '8.3'), 'aliases' => array_values((array) ($config['aliases'] ?? []))],
-            'mail' => ['domain' => Str::lower((string) ($config['fqdn'] ?? $config['domain'] ?? '')), 'mailboxes' => (array) ($config['mailboxes'] ?? [])],
+            // The name is the service: whoever holds it gets the requests, the certificate and the mail. The cart
+            // refused a name another service holds before anybody paid (QuoteService); this is where a race between
+            // two carts for one name ends, inside the transaction that creates the service, instead of at two vhosts.
+            'web', 'managed' => (function () use ($config, $shortId, $service) {
+                $domain = SiteNames::assertFree((string) ($config['fqdn'] ?? $config['domain'] ?? "{$shortId}.".config('onhost.provisioning.web_preview_suffix', 'web.onhost.cz')), (string) $service->organization_id, $service->id);
+
+                return ['domain' => $domain, 'php_version' => (string) ($config['php_version'] ?? '8.3'), 'aliases' => SiteNames::aliases($config['aliases'] ?? [], $domain, (string) $service->organization_id, $service->id)];
+            })(),
+            // a mail domain is its own namespace (a website and a mailbox domain of one name are the ordinary case),
+            // but inside it the same rule holds: one domain, one mail service
+            'mail' => (function () use ($config, $service) {
+                $domain = Str::lower(trim((string) ($config['fqdn'] ?? $config['domain'] ?? '')));
+
+                return ['domain' => $domain === '' ? '' : SiteNames::assertFree($domain, (string) $service->organization_id, $service->id, 'domain', SiteNames::MAIL), 'mailboxes' => (array) ($config['mailboxes'] ?? [])];
+            })(),
             'game' => (function () use ($config, $meta) { // the wizard's "system image" of a game server is the template key
                 $eggs = array_values(array_map('strval', (array) ($meta['eggs'] ?? [])));
                 $wanted = (string) ($config['egg'] ?? $config['image'] ?? '');

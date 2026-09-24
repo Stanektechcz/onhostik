@@ -375,10 +375,20 @@
   (a `backup` on a mail service reached a stranger's web site on ISPConfig), the ISPConfig backup calls sent the
   site's id where the panel expects the backup's. The ISPConfig calls are written from the API's documentation, not
   checked against a live panel — staging checks are in the runbook.
+- **A web name belongs to one service** (`docs/runbooks/security-boundaries.md` §18, audit row 89). On a shared node
+  the web server picks the site by the host name alone, and only one place checked who holds it. `ssl.issue` and
+  `ssl.wildcard` took any name — and because a neighbour's domain answers at the same node, the pointing check from
+  audit row 82 could not tell them apart, so the platform asked a certificate authority for certificates on other
+  customers' domains (five failed validations an hour per hostname is enough to keep the owner from getting one);
+  `subdomain.add` wrote any name into the customer's own `server_name`; and the order copied `config.domain` and
+  `config.aliases` out of the cart unread. `SiteNames` answers it in one place now — a live service's name is its
+  own, a name under another organization's name is theirs, a name under your own is yours, the rest is free — with
+  web vhosts and mail domains as separate namespaces. The cart refuses before payment (`site_name_taken`), and
+  `desiredSpec` refuses again inside the creating transaction so two carts racing for one name end there.
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 648 tests, 13 366 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 882 tests, 14 746 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
