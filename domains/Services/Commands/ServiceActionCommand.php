@@ -37,6 +37,13 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
         return match ($action) {
             'terminate', 'purge' => 'service.delete',
             'restore', 'rollback_snapshot', 'archive.restore' => 'backup.restore',
+            // A shell is not managing. „Service: manage“ promises actions and settings — restart, PHP, databases,
+            // cron, files, deploys, mailboxes — and „Service: console“ promises the terminal, VNC and the game
+            // console; the catalogue's own rule is that a console is more than managing, never less (H334). Sending
+            // these to `service.manage` meant the one role that exists to hand over the day-to-day work WITHOUT a
+            // shell handed over a shell: the agency could open a terminal, read `wp-config.php` and with it the
+            // database, or put their own key on the site.
+            'command.run', 'shell.create', 'shell.key', 'shell.delete', 'command.send' => 'service.console',
             default => 'service.manage',
         };
     }
