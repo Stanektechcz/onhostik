@@ -13,6 +13,7 @@ use Onhost\Domain\Compliance\Models\AbuseCase;
 use Onhost\Domain\Compliance\Models\ComplianceTimer;
 use Onhost\Domain\Compliance\Models\CyberIncident;
 use Onhost\Domain\Compliance\Models\DataRequest;
+use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\IncidentService;
@@ -446,16 +447,40 @@ final class ComplianceService
         if (DataRequest::query()->where('organization_id', $organization->id)->where('kind', $kind)->whereIn('state', ['requested', 'processing'])->exists()) {
             throw new DomainError('data_request_pending', 'A request of this kind is already in progress.', 409);
         }
+        $meta = [];
         if ($kind === 'deletion') {
             $this->assertDeletable($organization);
+            // it cannot be taken back, so it does not happen at once: a grace period in which anybody who manages the
+            // organization can stop it stands in for a second person, whom an organization of one does not have
+            $meta['execute_after'] = now()->addDays(self::deletionGraceDays())->toIso8601String();
         }
-        $request = DataRequest::query()->create(['organization_id' => $organization->id, 'kind' => $kind, 'state' => 'requested', 'requested_by' => $context->actorId, 'reason' => $reason, 'meta' => []]);
+        $request = DataRequest::query()->create(['organization_id' => $organization->id, 'kind' => $kind, 'state' => 'requested', 'requested_by' => $context->actorId, 'reason' => $reason, 'meta' => $meta]);
         if ($kind === 'switching') {
             $this->startTimer('data_request', $request->id, 'DATA_ACT_SWITCHING', now(), null);
         }
-        $this->audit->record($context->withScope($organization->id), "compliance.data_request.{$kind}", 'succeeded', ['request' => $request->id, 'reason' => $reason], 'data_request', $request->id);
+        $this->audit->record($context->withScope($organization->id), "compliance.data_request.{$kind}", 'succeeded', ['request' => $request->id, 'reason' => $reason] + $meta, 'data_request', $request->id);
+        if ($kind === 'deletion') {
+            $this->outbox->publish(GenericEvent::of('compliance.data_request.deletion_scheduled', 'data_request', $request->id, ['execute_after' => $meta['execute_after'], 'days' => self::deletionGraceDays()], $organization->id));
+        }
 
         return $request;
+    }
+
+    /** Stopping a scheduled erasure — possible until it runs, for anybody who manages the organization. */
+    public function cancelDataRequest(DataRequest $request, CommandContext $context): DataRequest
+    {
+        if ($request->kind !== 'deletion' || $request->state !== 'requested') {
+            throw new DomainError('data_request_not_cancellable', 'Only a scheduled erasure that has not run yet can be cancelled.', 409, ['state' => $request->state, 'kind' => $request->kind]);
+        }
+        $request->forceFill(['state' => 'cancelled', 'completed_at' => now(), 'meta' => array_merge((array) $request->meta, ['cancelled_by' => $context->actorId])])->save();
+        $this->audit->record($context->withScope($request->organization_id), 'compliance.data_request.deletion_cancelled', 'succeeded', ['request' => $request->id], 'data_request', $request->id);
+
+        return $request;
+    }
+
+    public static function deletionGraceDays(): int
+    {
+        return max(1, (int) config('onhost.compliance.deletion_grace_days', 14));
     }
 
     /**
@@ -513,6 +538,11 @@ final class ComplianceService
         if (Invoice::query()->where('organization_id', $organization->id)->whereIn('state', [Invoice::ISSUED])->where('type', 'invoice')->exists()) {
             $blocks[] = 'open_invoices';
         }
+        // a registered domain is not a service, but it renews, bills and mails the owner: erased under it, it would go
+        // on renewing for a closed organization whose address nobody reads. It is transferred out or left to lapse first.
+        if (Domain::query()->where('organization_id', $organization->id)->whereNotIn('state', [DomainStateMachine::TRANSFERRED_OUT, DomainStateMachine::DELETED, DomainStateMachine::FAILED])->exists()) {
+            $blocks[] = 'active_domains';
+        }
         if ($blocks !== []) {
             throw new DomainError('deletion_blocked', 'Deletion is blocked: '.implode(', ', $blocks), 409, ['blocks' => $blocks]);
         }
@@ -539,6 +569,10 @@ final class ComplianceService
         $now ??= now();
         $stats = ['exported' => 0, 'deleted' => 0, 'expired' => 0, 'switching' => 0];
         foreach (DataRequest::query()->where('state', 'requested')->orderBy('created_at')->get() as $request) {
+            $due = $request->meta['execute_after'] ?? null;
+            if ($request->kind === 'deletion' && is_string($due) && Carbon::parse($due)->isAfter($now)) {
+                continue; // an erasure waits out its grace period, and may still be cancelled
+            }
             $request->forceFill(['state' => 'processing'])->save();
             $organization = Organization::query()->find($request->organization_id);
             if ($organization === null) {

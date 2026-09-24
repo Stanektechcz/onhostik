@@ -461,6 +461,9 @@ return [
             'GDPR_72H' => 72, 'DSA_ART18_PROMPT' => 24, 'DATA_ACT_SWITCHING' => 720,
         ],
         'data_export_grace_days' => 30,
+        // an erasure of the whole account waits this long after the owner asked for it; anybody who manages the
+        // organization can stop it meanwhile (it cannot be taken back once it has run)
+        'deletion_grace_days' => (int) env('ONHOST_DELETION_GRACE_DAYS', 14),
         'retention_after_termination_days' => (int) env('ONHOST_RETENTION_AFTER_TERMINATION_DAYS', 30),
     ],
 

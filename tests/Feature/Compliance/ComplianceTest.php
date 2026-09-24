@@ -117,6 +117,8 @@ it('builds GDPR data exports and blocks deletion while services are live or a le
     expect(AuditEvent::query()->where('action', 'compliance.data_export.download')->count())->toBe(1);
     $this->actingAs($customer, 'sanctum');
 
+    // erasing the account is the owner's own act and takes a fresh step-up (AccountErasureTest)
+    app(StepUpService::class)->grant($customer, 'totp', null, '127.0.0.1');
     $this->withHeaders($headers)->postJson('/v1/data-requests', ['kind' => 'deletion'])->assertStatus(409)->assertJsonPath('error', 'deletion_blocked')->assertJsonPath('blocks.0', 'active_services');
     $service->forceFill(['state' => ServiceStateMachine::TERMINATED, 'terminated_at' => now()])->save();
 
@@ -139,7 +141,8 @@ it('builds GDPR data exports and blocks deletion while services are live or a le
     $this->postJson("/v1/staff/customers/{$org->id}/legal-hold", $lift + ['approval_ids' => [secondPersonApproves($request)]])->assertOk()->assertJsonPath('legal_hold', false);
     $this->actingAs($customer, 'sanctum');
     $this->withHeaders($headers)->postJson('/v1/data-requests', ['kind' => 'deletion'])->assertStatus(202);
-    expect(app(ComplianceService::class)->processDataRequests()['deleted'])->toBe(1);
+    expect(app(ComplianceService::class)->processDataRequests()['deleted'])->toBe(0); // it waits out its grace period
+    expect(app(ComplianceService::class)->processDataRequests(now()->addDays(ComplianceService::deletionGraceDays())->addHour())['deleted'])->toBe(1);
     expect($org->fresh()->name)->toBe('Smazaná organizace')->and($customer->fresh()->email)->toStartWith('deleted+')->and($customer->fresh()->state)->toBe('deleted');
 });
 

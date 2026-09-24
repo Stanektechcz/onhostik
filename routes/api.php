@@ -129,6 +129,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::post('abuse-cases/{case}/appeal', [ComplianceController::class, 'appeal']);
     Route::get('data-requests', [ComplianceController::class, 'dataRequests']);
     Route::post('data-requests', [ComplianceController::class, 'requestData']);
+    Route::post('data-requests/{dataRequest}/cancel', [ComplianceController::class, 'cancel']); // stops a scheduled erasure during its grace period
     Route::get('data-requests/{dataRequest}/download', [ComplianceController::class, 'download']);
     Route::post('data-requests/{dataRequest}/link', [ComplianceController::class, 'link']); // signed download link (audit §5j-7)
 
