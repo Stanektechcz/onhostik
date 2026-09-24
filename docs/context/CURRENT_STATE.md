@@ -484,9 +484,23 @@
   the same record and the drift check sees no difference. The termination still completes; what is left is named
   to the operators (`service.purge.leftover`, kind `dns`).
 
+- **A resource the platform did not create is not ours to touch** (audit row 101, TASK-0014) — the owner's rule of
+  2026-09-24: historical sites on the live ISPConfig and aaPanel instances must never be touched; everything the
+  platform creates stays fully manageable. Provisioning used to be idempotent by name: a site (or an ISPConfig mail
+  domain) already on the node was answered "already exists" and bound as `managed_by: onhost`, after which the
+  platform could suspend it, change its limits and, at the end of the service, delete it with its databases. Now a
+  pre-existing resource is ours only when the panel says so — the `onhost:<service>` remark on aaPanel, the
+  organization's `onh_…` client as owner on ISPConfig — and anything else is refused (`CONFLICT`) before a single
+  write, no client created, no binding written. Adoption of a historical site is an explicit operator decision of its
+  own (brain H304), never a side effect of an order. Found on the way, and worse: a mail service was bound without
+  its domain name, so every mailbox query (`LIKE '%@<domain>'`) read `'%@'` — every mailbox on the shared mail
+  server. A suspended mail customer switched off sending for all of them, and a web hosting with no mail domain was
+  shown every mailbox on the server and passed the ownership check for any of them. The mail domain now carries its
+  name, a web hosting without one has no mailboxes, and an empty name is refused before any query.
+
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 923 tests, 14 896 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 932 tests, 14 922 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

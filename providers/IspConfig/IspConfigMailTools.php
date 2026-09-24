@@ -337,8 +337,12 @@ trait IspConfigMailTools
             $row = $this->api->call('mail_domain_get', ['primary_id' => (int) $domain->remoteId]);
             $name = is_array($row) ? (string) ($row['domain'] ?? '') : '';
         }
+        // never empty: every query here is `LIKE '%@<name>'`, and `'%@'` is every mailbox on the shared mail server
+        if (trim($name) === '') {
+            throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'The mail domain has no name on record; refusing to query every mailbox on the mail server.');
+        }
 
-        return $name;
+        return mb_strtolower(trim($name));
     }
 
     /** @return list<int> spamfilter user ids of the domain (the `@domain` policy holder and every mailbox) */

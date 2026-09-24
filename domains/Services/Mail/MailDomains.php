@@ -77,15 +77,19 @@ final class MailDomains
 
     /**
      * A listing read from every mail domain of the service at once: what the customer has is what all of their
-     * domains hold together, and a number the plan sells is counted over all of them. A service whose mail the
-     * platform has not bound yet is read where it has always been read — its own resource.
+     * domains hold together, and a number the plan sells is counted over all of them.
+     *
+     * The fallback is read only when it IS a mail domain — a mail service's own resource. A web hosting that has no
+     * mail domain yet has no mailboxes: reading its site as if it were one asked the mail server for `%@` + a name
+     * the site's binding did not carry, which is every mailbox on the shared server. The customer was shown all of
+     * them, and the ownership check that compares a mailbox id with this listing passed for any of them.
      *
      * @param  callable(ResourceRef): list<array<string,mixed>>  $read
      * @return list<array<string,mixed>>
      */
     public static function across(Service $service, ResourceRef $fallback, callable $read): array
     {
-        $refs = self::refsOf($service) ?: [$fallback];
+        $refs = self::refsOf($service) ?: ($fallback->remoteType === 'mail_domain' ? [$fallback] : []);
         $out = [];
         foreach ($refs as $ref) {
             foreach ($read($ref) as $row) {

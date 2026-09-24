@@ -91,6 +91,14 @@ final class AaPanelWebProvider implements SelfProbing, WebHostingProvider, WebTo
         $domain = (string) $spec->get('domain');
         $existing = $this->findSite($domain);
         if ($existing !== null) {
+            // Every site the platform creates carries its remark (`ps` below, written since the first version of this
+            // adapter). A site of that name without THIS service's remark was made by hand before ONhost, or belongs
+            // to another service: a historical site is never taken over (the owner's rule, brain H304), and another
+            // service's site is not this one's to manage. Refused before a single write.
+            if ((string) ($existing['ps'] ?? '') !== "onhost:{$spec->serviceId}") {
+                throw new ProviderException('aapanel', ProviderErrorCode::CONFLICT, "The site {$domain} already exists on this node and was not created by ONhost for this service. It is not taken over; adopting a historical site is an explicit operator decision.");
+            }
+
             return ProviderResult::completed(new ResourceRef('site', (string) $existing['id'], $this->instance->key, ['name' => $existing['name'], 'path' => $existing['path']], $spec->serviceId), $existing, alreadyExisted: true);
         }
         $php = str_replace('.', '', (string) $spec->get('php_version', '8.3'));
