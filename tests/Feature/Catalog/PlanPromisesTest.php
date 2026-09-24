@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\PlanPromises;
 use Onhost\Domain\Catalog\PlanVersioning;
+use Onhost\Domain\Services\Metering\MetricRegistry;
 use Onhost\Domain\Services\UsageWatch;
 use Onhost\Platform\Errors\DomainError;
 
@@ -83,4 +84,42 @@ it('lets a number leave a plan: the schema could only grow', function () {
     // a key the plan never had is still refused — a version may change the plan, not invent its schema
     expect(fn () => $versions->publish('web-hosting', 'start', ['entitlements' => ['vymyslene' => 5], 'reason' => 'nový klíč'], $context))
         ->toThrow(DomainError::class, 'is not part of this plan');
+});
+
+/*
+ * The guard used to trust "the word appears somewhere under domains/providers/platform/app" as proof a key was
+ * applied — and the price list itself (`CatalogPresentation`) names every key it sells, so it satisfied its own
+ * guard. `products`, `connections` and `dedicated_outbound_ip` passed that way (audit §5ad, brain card H278).
+ */
+it('does not count a key the price list only names as read code', function () {
+    $read = PlanPromises::readInSource();
+
+    // "connections" (managed database) and "dedicated_outbound_ip" (mail) are named only by
+    // app/Http/Support/CatalogPresentation.php — nothing else in the platform ever reads either literal
+    expect($read)->not->toContain('connections')
+        ->and($read)->not->toContain('dedicated_outbound_ip');
+});
+
+it('keeps KNOWN_GAPS equal to the gaps the platform actually has today', function () {
+    $read = PlanPromises::readInSource();
+    $actual = collect(PlanPromises::actualGaps($read))->sort()->values()->all();
+    $known = collect(array_keys(PlanPromises::KNOWN_GAPS))->sort()->values()->all();
+
+    // fails the moment a gap is fixed and the line is left behind (the ratchet may only shrink), and just the same
+    // the moment a new sold number keeps no promise and is not yet named here
+    expect($actual)->toBe($known);
+});
+
+it('names an enforcer for every hard-limit metric and a source for every measured one', function () {
+    foreach (MetricRegistry::REGISTRY as $key => $entry) {
+        if ($entry['status'] === MetricRegistry::ENFORCED_ONLY && $entry['limit_kind'] === MetricRegistry::HARD) {
+            expect(array_filter($entry['sources']))->not->toBe([], "{$key}: enforced_only + hard names no enforcer in its sources");
+        }
+        if ($entry['status'] === MetricRegistry::MEASURED) {
+            expect(array_filter($entry['sources']))->not->toBe([], "{$key}: measured names no source");
+        }
+        if ($entry['status'] === MetricRegistry::GAP) {
+            expect((string) $entry['reason'])->not->toBe('', "{$key}: gap carries no reason");
+        }
+    }
 });
