@@ -509,9 +509,21 @@
   (`POST /v1/data-requests/{id}/cancel`). An account still holding a registered domain is not erased
   (`active_domains`).
 
+- **A mailbox tool acts only on the service's own mailboxes** (audit row 103, TASK-0016) — the owner's rule of
+  2026-09-24 again: the shared ISPConfig mail server holds historical customers' mailboxes. The ownership check on
+  `mailbox.update`/`mailbox.delete`/`alias.delete` did not cover the tools that act on ONE mailbox:
+  `autoresponder.set`, `spam.policy`, `filter.create`, `filter.delete` (`mailbox_id`), `mailbox.backup` and
+  `mailbox.restore` took the mailbox id as the customer sent it, so a neighbour's mailbox could get a `delete` filter,
+  an autoresponder, another spam policy or an old backup restored over it; the `mail_autoresponder`, `mail_filters`
+  and `mail_spam` listings read its settings; `fetchmail.create` delivered into any address. Now the saga looks the
+  mailbox up in the service's own mail domains before any panel write (`ServiceActionWorkflow::OWN_MAIL_TARGETS`,
+  `MailDomains::ownRow`, non-retryable "nepatří"), a listing of a mailbox that is not the service's answers 404
+  `mailbox_not_found`, and a fetchmail destination must be an address in the service's domain (422) and one of its
+  mailboxes.
+
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 937 tests, 14 945 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 947 tests, 14 992 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

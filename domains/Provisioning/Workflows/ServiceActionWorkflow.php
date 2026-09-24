@@ -106,6 +106,21 @@ final class ServiceActionWorkflow implements Workflow
         'filter.create', 'filter.delete', 'list.create', 'list.delete', 'fetchmail.create', 'fetchmail.delete', 'mailbox.backup', 'mailbox.restore',
     ];
 
+    /**
+     * Mail actions that name ONE mailbox or alias of the service: action → [listing, parameter, field of the listing].
+     * The value must stand in the service's own listing before the panel is touched (MailDomains::ownRow): a panel on a
+     * shared mail server answers for every customer's mailbox, the historical ones included.
+     *
+     * @var array<string, array{0: 'mailboxes'|'aliases', 1: string, 2: string}>
+     */
+    public const OWN_MAIL_TARGETS = [
+        'mailbox.update' => ['mailboxes', 'remote_id', 'remote_id'], 'mailbox.delete' => ['mailboxes', 'remote_id', 'remote_id'], 'alias.delete' => ['aliases', 'remote_id', 'remote_id'],
+        'autoresponder.set' => ['mailboxes', 'remote_id', 'remote_id'], 'spam.policy' => ['mailboxes', 'remote_id', 'remote_id'],
+        'filter.create' => ['mailboxes', 'remote_id', 'remote_id'], 'filter.delete' => ['mailboxes', 'mailbox_id', 'remote_id'], // the filter's own id is checked by the adapter, in THIS mailbox's list
+        'mailbox.backup' => ['mailboxes', 'remote_id', 'remote_id'], 'mailbox.restore' => ['mailboxes', 'remote_id', 'remote_id'],
+        'fetchmail.create' => ['mailboxes', 'destination', 'address'], // fetched mail is delivered into a mailbox of the service, by its address
+    ];
+
     /** Actions that run as sagas of their own (ServiceService::actionWorkflowFor); listed here so the API validates them alike. */
     public const PLATFORM_ACTIONS = ['staging.create', 'staging.refresh', 'staging.push', 'staging.delete', 'deploy.run', 'deploy.rollback', 'wp.install', 'wp.update', 'wp.cache', 'wp.plugin', 'import.run', 'cdn.enable', 'cdn.disable', 'cdn.purge', 'ssl.wildcard', 'site.create', 'site.delete'];
 
@@ -320,12 +335,23 @@ final class ServiceActionWorkflow implements Workflow
                 // resolved against its own listing before the panel is touched (the adapters do it); mail was built
                 // straight from the parameter, and ISPConfig answers one administrator session that never asks whose
                 // `mailuser_id` it was handed — so on a shared mail server the neighbour's mailbox is one integer away.
-                if (in_array($this->action, ['mailbox.update', 'mailbox.delete', 'alias.delete'], true)) {
-                    $kind = $this->action === 'alias.delete' ? 'aliases' : 'mailboxes';
+                // The tools that act on ONE mailbox — its autoresponder, spam policy, filters, backups — were left out of
+                // that check and still took the id as it came: a `delete` filter, an autoresponder or an old backup
+                // restored over a historical customer's mailbox on the shared server. Every action that names a mailbox
+                // (or the mailbox fetchmail delivers into) is measured against the service's own domains here, before
+                // the panel is written; the adapters' own checks (a filter or backup in "this mailbox's" list) proved
+                // nothing while the mailbox itself was the customer's word.
+                $target = ServiceActionWorkflow::OWN_MAIL_TARGETS[$this->action] ?? null;
+                if ($target !== null) {
+                    [$kind, $param, $field] = $target;
                     $mail = $this->capability($context, MailProvider::class);
-                    $owned = MailDomains::across($this->service($context), $ref, fn (ResourceRef $one) => $kind === 'aliases' ? $mail->listAliases($one) : $mail->listMailboxes($one));
-                    if (collect($owned)->firstWhere('remote_id', (string) $p('remote_id')) === null) {
-                        return StepResult::fail($kind === 'aliases' ? 'Tenhle alias k téhle službě nepatří.' : 'Tahle schránka k téhle službě nepatří.', false, ['not_ours' => (string) $p('remote_id')]);
+                    $named = (string) $p($param, '');
+                    if (MailDomains::ownRow($this->service($context), $ref, fn (ResourceRef $one) => $kind === 'aliases' ? $mail->listAliases($one) : $mail->listMailboxes($one), $field, $named) === null) {
+                        return StepResult::fail(match (true) {
+                            $kind === 'aliases' => 'Tenhle alias k téhle službě nepatří.',
+                            $param === 'destination' => 'Poštu lze stahovat jen do schránky této služby; '.$named.' mezi ně nepatří.',
+                            default => 'Tahle schránka k téhle službě nepatří.',
+                        }, false, ['not_ours' => $named]);
                     }
                 }
                 $result = match ($this->action) {
