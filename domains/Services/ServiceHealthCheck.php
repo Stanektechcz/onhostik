@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
+use Carbon\CarbonImmutable;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\ManagedCertificate;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\UptimeMonitor;
+use Onhost\Domain\Services\Web\CertificateWatch;
 
 /**
  * "Is my service all right?" — answered from what the platform already knows, in one pass and without asking a panel:
@@ -119,6 +121,23 @@ final class ServiceHealthCheck
             return match (true) {
                 $left < 0 => self::finding('certificate', 'bad', "Certifikát HTTPS vypršel {$until}.", "The HTTPS certificate expired on {$until}."),
                 $left <= 10 => self::finding('certificate', 'warn', "Certifikát HTTPS vyprší za {$left} dní ({$until}); obnova probíhá automaticky.", "The HTTPS certificate expires in {$left} days ({$until}); it renews by itself."),
+                default => self::finding('certificate', 'ok', "Certifikát HTTPS platí do {$until}.", "The HTTPS certificate is valid until {$until}."),
+            };
+        }
+        // What the node really serves, as the daily watch last saw it (`CertificateWatch`). Before that existed this
+        // answered from `access.certificate` — a flag written once, at the first issue — so the platform kept saying
+        // "the certificate is issued" on the day after it expired.
+        $seen = (array) data_get($service->tags, 'tls', []);
+        if (($seen['expires_at'] ?? null) !== null) {
+            $expires = CarbonImmutable::parse((string) $seen['expires_at']);
+            $left = (int) floor(now()->diffInDays($expires, false));
+            $until = $expires->format('j. n. Y');
+            $names = implode(', ', array_slice(array_map('strval', (array) ($seen['names'] ?? [])), 0, 3));
+
+            return match (true) {
+                ! empty($seen['mismatch']) => self::finding('certificate', 'bad', "Certifikát, kterým se web hlásí, neplatí pro tuhle doménu (je vystavený na {$names}); prohlížeč návštěvníka ukáže varování.", "The certificate the site presents is not valid for this domain (it covers {$names}); a visitor's browser shows a warning."),
+                $left < 0 => self::finding('certificate', 'bad', "Certifikát HTTPS vypršel {$until}; obnovu jsme si vyžádali.", "The HTTPS certificate expired on {$until}; a new one has been requested."),
+                $left <= CertificateWatch::renewAtDays() => self::finding('certificate', 'warn', "Certifikát HTTPS vyprší za {$left} dní ({$until}); obnovu jsme si vyžádali.", "The HTTPS certificate expires in {$left} days ({$until}); a new one has been requested."),
                 default => self::finding('certificate', 'ok', "Certifikát HTTPS platí do {$until}.", "The HTTPS certificate is valid until {$until}."),
             };
         }

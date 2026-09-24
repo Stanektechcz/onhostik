@@ -14,6 +14,8 @@ use Onhost\Platform\Dns\RecordResolver;
 use Onhost\Platform\Dns\SystemRecordResolver;
 use Onhost\Platform\Http\DnsHostResolver;
 use Onhost\Platform\Http\HostResolver;
+use Onhost\Platform\Tls\CertificateReader;
+use Onhost\Platform\Tls\PeerCertificateReader;
 
 final class AppServiceProvider extends ServiceProvider
 {
@@ -21,6 +23,7 @@ final class AppServiceProvider extends ServiceProvider
     {
         $this->app->bind(HostResolver::class, DnsHostResolver::class); // what a customer-named destination resolves to (EgressGuard)
         $this->app->bind(RecordResolver::class, SystemRecordResolver::class); // what the internet answers for a customer's domain (PublicDnsCheck)
+        $this->app->bind(CertificateReader::class, PeerCertificateReader::class); // what a node really serves for a site (CertificateWatch)
         $this->app->singleton(SurfaceRenderer::class, fn () => new SurfaceRenderer((string) config('onhost.ui.surfaces_path', base_path('apps/surfaces'))));
     }
 

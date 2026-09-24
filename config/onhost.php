@@ -28,6 +28,10 @@ return [
         'directory' => env('ONHOST_ACME_DIRECTORY', 'https://acme-v02.api.letsencrypt.org/directory'),
         'contact' => env('ONHOST_ACME_CONTACT'), // mailto: address registered with the ACME account
         'renew_days_before' => (int) env('ONHOST_ACME_RENEW_DAYS', 30),
+        // below this many days left the panel has demonstrably not renewed a site's certificate and the platform asks
+        // for one itself (CertificateWatch); above it the panel is still renewing and asking too would only spend the
+        // authority's duplicate-certificate allowance
+        'watch_renew_days' => (int) env('ONHOST_CERT_WATCH_RENEW_DAYS', 10),
     ],
     'egress' => [ // destinations a CUSTOMER names (uptime checks, webhooks, import URLs): public addresses only (EgressGuard)
         'node_service_ports' => [22, 25, 80, 443, 2022, 3306, 5432, 6379, 8006, 8080, 8081, 8443, 8888, 9000, 11211, 27017], // loopback ports of a node a customer's reverse proxy may not point at (panels, databases, caches)

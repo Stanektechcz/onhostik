@@ -1487,3 +1487,36 @@ followed from that (H505, H500, H440):
   on resume — an app the customer had stopped stays stopped. ISPConfig lists no Node.js apps, so it is untouched.
 
 Tests: `tests/Feature/Services/SiteAppsTest.php`.
+
+## A certificate that quietly expired (2026-09-24)
+
+A site certificate lasts ninety days and the panel renews it — until it does not: the domain is moved away, a
+redirect the customer added swallows `/.well-known/acme-challenge`, the panel's own client breaks, the authority
+rate-limits the name. The renewal fails, nothing anywhere says so, and one morning every visitor gets a browser
+security warning.
+
+* **The platform said the opposite.** `ServiceHealthCheck` answered from `tags.access.certificate`, a flag written
+  **once, at the first issue** — so the panel, the assistant and support all kept saying "the HTTPS certificate is
+  issued" on the day after it expired. Managed **wildcard** certificates had real expiry logic (`ManagedCertificate`,
+  `onhost:certificates:renew`); the ordinary per-site certificate nearly every web hosting has had none, and nothing
+  swept them.
+* **What is read, and from where.** `CertificateWatch` (`onhost:certificates:watch`, daily 04:40, switchable as
+  `certificates.watch`) opens **one TLS handshake to the node's own address** with the site's name for SNI and reads
+  the certificate the node really serves (`platform/Tls/CertificateReader`). Not the panel's opinion: aaPanel reports
+  `notAfter` but ISPConfig reports nothing at all, and for a Let's Encrypt site ISPConfig keeps the certificate on
+  disk rather than in the row the API returns. The handshake is safe to run from the control plane because the
+  address is **ours** (never wherever a customer's DNS points) and the peer is deliberately **not** verified — an
+  expired or wrong certificate is the thing being looked for. Nothing is sent after the handshake.
+* **What happens with the answer.** Between ninety and ten days the panel is renewing and is left alone: asking too
+  would spend the authority's duplicate-certificate allowance for nothing. At ten days or fewer the panel has
+  demonstrably not renewed, so the platform asks once a day through the ordinary `ssl.issue` action — which already
+  refuses to burn the authority's limit on a name that no longer points here (audit row 82) and only asks for names
+  this service holds (row 89). An expired certificate, or one that does not cover the site's name at all (the vhost
+  fell through to the node's default site — something no panel can see), is told to the **operators** once a day
+  (`service.certificate.problem`). The customer is not told: renewing is ours, and when the cause is their DNS the
+  daily DNS check already says so.
+* **Where it shows.** `services.tags.tls` (`expires_at`, `issuer`, `names`, `mismatch`, `checked_at`, `told_on`), and
+  through it the health check, the panel, the assistant and a ticket draft — all four now say the same true thing.
+  Silence from the handshake (node down, port closed) writes nothing and says nothing.
+
+Tests: `tests/Feature/Services/CertificateExpiryTest.php`.

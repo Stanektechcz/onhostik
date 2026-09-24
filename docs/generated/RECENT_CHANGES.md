@@ -4,13 +4,13 @@
 
 | Commit | Date | Subject |
 | --- | --- | --- |
-| 4bac165 | 2026-09-23 | docs: the receive-only mode in audit row 79 |
-| c0d7558 | 2026-09-23 | fix(mail): receive-only mode covers every domain of the service |
-| 0e44a37 | 2026-09-23 | feat(mail): a web service has mail in every domain it hosts |
-| 96b1465 | 2026-09-23 | feat(web): count a plan's numbers across every site of the plan |
-| b57e5dc | 2026-09-23 | A suspended site stops sending mail, and keeps receiving it |
-| 5c0b7fd | 2026-09-23 | The customer sees what the look at their site found |
-| 3f13a4c | 2026-09-23 | A site is looked at for the marks a compromise leaves |
-| 39da554 | 2026-09-23 | The customer can reach the mailboxes their plan sells |
-| 47a68b8 | 2026-09-23 | A mail client sets itself up from the address and the password |
-| 952e18d | 2026-09-23 | Mail on a web service runs in its own mail domain, with the panel's own tools |
+| 2d39dff | 2026-09-24 | fix(ai): close the pre-merge review findings on PR #6 |
+| fe9ab0c | 2026-09-24 | docs(ai): correct the Project-Docs finding - the junction is canonical, two docs name the old clone |
+| df4feaf | 2026-09-24 | docs(ai): TASK-0001 gate rerun on development 4430b6f |
+| 5a7a7ca | 2026-09-24 | docs(ai): TASK-0001 gate report, handoff and integration status |
+| 1f3b013 | 2026-09-24 | fix(ai): close review findings on the gate, task ids and argument forwarding |
+| 2fd5ecd | 2026-09-24 | chore(ai): bootstrap the multi-agent development system (TASK-0001) |
+| 017670b | 2026-09-24 | feat(web): a claim on a host name has to be proved, or the operators hear about it |
+| 2014b92 | 2026-09-24 | fix(web): a host name belongs to one service, everywhere it can be claimed |
+| dbbed6a | 2026-09-24 | fix(web): a migrated site stops serving before it is copied |
+| 434a29b | 2026-09-24 | feat(panel): the service desk lists services by state as well |

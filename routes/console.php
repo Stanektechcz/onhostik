@@ -91,6 +91,7 @@ use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Services\Web\CdnService;
 use Onhost\Domain\Services\Web\CertificateAutoIssuer;
 use Onhost\Domain\Services\Web\CertificateService;
+use Onhost\Domain\Services\Web\CertificateWatch;
 use Onhost\Domain\Services\Web\RestoreTest;
 use Onhost\Domain\Services\Web\SiteIntegrityCheck;
 use Onhost\Domain\Services\Web\UptimeMonitor;
@@ -1296,6 +1297,19 @@ Schedule::command('onhost:monitoring:check')->everyMinute()->withoutOverlapping(
 Schedule::command('onhost:monitoring:prune')->dailyAt('04:20')->onOneServer();
 Schedule::command('onhost:backups:run')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:certificates:renew')->dailyAt('03:10')->withoutOverlapping()->onOneServer();
+
+Artisan::command('onhost:certificates:watch {--limit=200}', function (CertificateWatch $watch, AutomationLedger $ledger) {
+    if ($ledger->off('certificates.watch')) {
+        $this->warn('switched off by staff (console → automation)');
+
+        return;
+    }
+    $result = $watch->run((int) $this->option('limit'));
+    $ledger->record('certificates.watch', $result);
+    $this->table(['checked', 'renewed', 'told', 'errors'], [$result]);
+})->purpose('Read the certificate every site really serves (one handshake to its own node): tell the operators about one that expired or covers somebody else, and ask for a new one when the panel has not renewed in time');
+
+Schedule::command('onhost:certificates:watch')->dailyAt('04:40')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:services:purge')->dailyAt('03:40')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:access:review')->weeklyOn(1, '04:50')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:access:expire')->everyFiveMinutes()->withoutOverlapping()->onOneServer();

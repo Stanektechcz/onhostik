@@ -393,10 +393,18 @@
   raises `service.name_unproved` to the operators when a claim stays unproved past 30 days
   (`ONHOST_SITE_CLAIM_GRACE_DAYS`). Nothing is taken away automatically. The refusal now says to write to support,
   and when the refused party can prove the name while the holder cannot, `service.name_disputed` records it.
+- **A certificate that quietly expired** (audit row 91, `docs/runbooks/web-tools.md`). A site certificate lasts
+  ninety days and the panel renews it — until it does not, and then nothing said so: the health check answered from
+  `tags.access.certificate`, a flag written once at the first issue, so the panel, the assistant and support all kept
+  saying "the certificate is issued" on the day after it expired. `CertificateWatch` (`onhost:certificates:watch`,
+  daily 04:40) believes nobody and looks: one TLS handshake to the node's **own** address with the site's name for
+  SNI, peer deliberately unverified, nothing sent afterwards. Below ten days left — the panel has demonstrably not
+  renewed — the platform asks for the certificate itself through the ordinary `ssl.issue`; an expired certificate, or
+  one that does not cover the site's name at all, goes to the operators once a day.
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 889 tests, 14 766 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 895 tests, 14 790 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
