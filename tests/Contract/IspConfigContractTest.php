@@ -166,3 +166,86 @@ it('does not fail a plan change when the panel refuses the client functions', fu
     Http::assertSent(fn ($r) => str_ends_with($r->url(), '?sites_web_domain_update') && (int) $r['params']['hd_quota'] === 51200);
     Http::assertNotSent(fn ($r) => str_ends_with($r->url(), '?client_update'));
 });
+
+/*
+ * One ISPConfig client per organization, so its limits are the ORGANIZATION's.
+ *
+ * `ensureClient` keys the client on the organization and, when it finds one, hands back its id and touches nothing.
+ * The limits were therefore whatever the FIRST service of that customer happened to sell. Two ordinary web hostings
+ * (`sites = 1` each) leave the client at `limit_web_domain = 1`, so ISPConfig refuses the second
+ * `sites_web_domain_add` — **the customer paid and the order fails at the panel**. The same arithmetic applies to the
+ * quota, the databases and the mailboxes.
+ *
+ * The platform therefore sends what the organization holds on this panel (`client_entitlements`) beside what this one
+ * service sells (`entitlements`), and the client is brought up to it before a site is added.
+ */
+
+it('raises the client limits to what the organization holds before adding the second hosting', function () {
+    Http::fake([
+        'shared01.mgmt.test:8080/remote/json.php?login' => Http::response(ispResponse('sess-second')),
+        'shared01.mgmt.test:8080/remote/json.php?client_get_by_username' => Http::response(ispResponse(['client_id' => 12, 'username' => 'onh_1'])),
+        'shared01.mgmt.test:8080/remote/json.php?client_get' => Http::response(ispResponse([
+            'client_id' => 12, 'username' => 'onh_1', 'password' => '$1$hashed', 'contact_name' => 'ONhost customer', 'sys_userid' => 1,
+            'limit_web_domain' => 1, 'limit_web_quota' => 10240, 'limit_database' => 1, 'limit_mailbox' => 5, 'limit_cron' => 1, 'limit_shell_user' => 0,
+        ])),
+        'shared01.mgmt.test:8080/remote/json.php?client_update' => Http::response(ispResponse(1)),
+        'shared01.mgmt.test:8080/remote/json.php?sites_web_domain_get' => Http::sequence()
+            ->push(ispResponse([]))                                                                   // findSite: the name is not there yet
+            ->push(ispResponse(['domain_id' => 78, 'domain' => 'druhy.cz', 'system_user' => 'web78'])),
+        'shared01.mgmt.test:8080/remote/json.php?sites_web_domain_add' => Http::response(ispResponse(78)),
+        'shared01.mgmt.test:8080/remote/json.php?monitor_jobqueue_count' => Http::response(ispResponse(0)),
+    ]);
+
+    ispAdapter()->provision(new ResourceSpec('srv_second', 'website', 'prov:second', [
+        'domain' => 'druhy.cz', 'php_version' => '8.3',
+        'entitlements' => ['sites' => 1, 'nvme_gb' => 10, 'databases' => 1, 'mailboxes' => 5],           // what THIS hosting sells
+        'client_entitlements' => ['sites' => 2, 'nvme_gb' => 20, 'databases' => 2, 'mailboxes' => 10],   // what the organization holds here
+    ], organizationId: 'org_1'));
+
+    Http::assertSent(fn ($r) => str_ends_with($r->url(), '?client_update') && (int) $r['client_id'] === 12
+        && (int) $r['params']['limit_web_domain'] === 2 && (int) $r['params']['limit_web_quota'] === 20480
+        && (int) $r['params']['limit_database'] === 2 && (int) $r['params']['limit_mailbox'] === 10);
+    Http::assertSent(fn ($r) => str_ends_with($r->url(), '?sites_web_domain_add') && (int) $r['client_id'] === 12);
+});
+
+it('creates a new client with what the organization holds, not with one plan', function () {
+    Http::fake([
+        'shared01.mgmt.test:8080/remote/json.php?login' => Http::response(ispResponse('sess-new')),
+        'shared01.mgmt.test:8080/remote/json.php?client_get_by_username' => Http::response(ispResponse(false, 'remote_fault', 'There is no user account for this user name.')),
+        'shared01.mgmt.test:8080/remote/json.php?client_add' => Http::response(ispResponse(44)),
+        'shared01.mgmt.test:8080/remote/json.php?sites_web_domain_get' => Http::sequence()
+            ->push(ispResponse([]))
+            ->push(ispResponse(['domain_id' => 79, 'domain' => 'prvni.cz', 'system_user' => 'web79'])),
+        'shared01.mgmt.test:8080/remote/json.php?sites_web_domain_add' => Http::response(ispResponse(79)),
+        'shared01.mgmt.test:8080/remote/json.php?monitor_jobqueue_count' => Http::response(ispResponse(0)),
+    ]);
+
+    ispAdapter()->provision(new ResourceSpec('srv_first', 'website', 'prov:first', [
+        'domain' => 'prvni.cz', 'php_version' => '8.3',
+        'entitlements' => ['sites' => 1, 'nvme_gb' => 10, 'databases' => 1],
+        'client_entitlements' => ['sites' => 3, 'nvme_gb' => 40, 'databases' => 6, 'mailboxes' => 20],
+    ], organizationId: 'org_2'));
+
+    Http::assertSent(fn ($r) => str_ends_with($r->url(), '?client_add')
+        && (int) $r['params']['limit_web_domain'] === 3 && (int) $r['params']['limit_web_quota'] === 40960
+        && (int) $r['params']['limit_database'] === 6 && (int) $r['params']['limit_mailbox'] === 20);
+});
+
+it('falls back to the service plan when the platform sends no organization totals', function () {
+    Http::fake([
+        'shared01.mgmt.test:8080/remote/json.php?login' => Http::response(ispResponse('sess-fallback')),
+        'shared01.mgmt.test:8080/remote/json.php?client_get_by_username' => Http::response(ispResponse(false, 'remote_fault', 'There is no user account for this user name.')),
+        'shared01.mgmt.test:8080/remote/json.php?client_add' => Http::response(ispResponse(45)),
+        'shared01.mgmt.test:8080/remote/json.php?sites_web_domain_get' => Http::sequence()
+            ->push(ispResponse([]))
+            ->push(ispResponse(['domain_id' => 80, 'domain' => 'stary.cz', 'system_user' => 'web80'])),
+        'shared01.mgmt.test:8080/remote/json.php?sites_web_domain_add' => Http::response(ispResponse(80)),
+        'shared01.mgmt.test:8080/remote/json.php?monitor_jobqueue_count' => Http::response(ispResponse(0)),
+    ]);
+
+    ispAdapter()->provision(new ResourceSpec('srv_old', 'website', 'prov:old', [
+        'domain' => 'stary.cz', 'php_version' => '8.3', 'entitlements' => ['sites' => 5, 'nvme_gb' => 25, 'databases' => 4],
+    ], organizationId: 'org_3'));
+
+    Http::assertSent(fn ($r) => str_ends_with($r->url(), '?client_add') && (int) $r['params']['limit_web_domain'] === 5 && (int) $r['params']['limit_web_quota'] === 25600);
+});
