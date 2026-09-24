@@ -26,8 +26,12 @@ use Throwable;
  */
 final class ServiceIdentityCheck
 {
-    /** Remote types a family may legitimately bind to; anything else is refused outright. */
-    private const TYPES = [
+    /**
+     * Remote types a family may legitimately bind to; anything else is refused outright. Public because it is also
+     * how a service knows which of its bindings IS the service (`Service::primaryBinding`) — the two questions have
+     * one answer, and letting them drift apart is how a proof came to look at the wrong resource.
+     */
+    public const TYPES = [
         // the last one of each: the copy a migration is building (WebMigrationWorkflow::TARGET_BINDING)
         'web' => ['web_domain', 'site', 'web_migration'],
         'managed' => ['web_domain', 'site', 'web_migration'],
