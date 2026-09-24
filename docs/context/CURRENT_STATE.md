@@ -385,10 +385,18 @@
   own, a name under another organization's name is theirs, a name under your own is yours, the rest is free — with
   web vhosts and mail domains as separate namespaces. The cart refuses before payment (`site_name_taken`), and
   `desiredSpec` refuses again inside the creating transaction so two carts racing for one name end there.
+- **A claim has to be proved, or it is a squat** (audit row 90, the counterweight to row 89). Once a name belongs to
+  one service, ordering the cheapest hosting for somebody else's domain and never pointing it anywhere would keep
+  its real owner from ever being hosted here. Nothing new is asked of an honest customer: the platform already knows
+  three proofs (the domain is registered here, its DNS zone is here, or the name answers with the node), and the
+  daily DNS check computes the third anyway — so `SiteClaim` rides along with it, writes `tags.name_claim`, and
+  raises `service.name_unproved` to the operators when a claim stays unproved past 30 days
+  (`ONHOST_SITE_CLAIM_GRACE_DAYS`). Nothing is taken away automatically. The refusal now says to write to support,
+  and when the refused party can prove the name while the holder cannot, `service.name_disputed` records it.
 
 ## Verified baseline
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 882 tests, 14 746 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
+- Pest: 889 tests, 14 766 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
   debt, new code passes without it).
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
   over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.

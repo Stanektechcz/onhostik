@@ -10,6 +10,7 @@ use Onhost\Domain\Services\Models\MailDomain;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\Website;
+use Onhost\Domain\Services\Web\SiteClaim;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Dns\RecordResolver;
@@ -43,6 +44,7 @@ final class PublicDnsCheck
         private readonly DnsService $zones,
         private readonly OutboxPublisher $outbox,
         private readonly AuditRecorder $audit,
+        private readonly SiteClaim $claims,
     ) {}
 
     /** @return array{checked:int, problems:int, repaired:int, told:int, errors:int} */
@@ -75,7 +77,9 @@ final class PublicDnsCheck
                     $stats['told']++;
                 }
             }
-            $service->forceFill(['tags' => $tags])->save();
+            // the same look answers a second question: has anything ever proved this name is really this customer's
+            // (audit row 90). It rides along here so the resolver is asked once, and lands in the same write.
+            $service->forceFill(['tags' => $this->claims->stamp($service, $tags)])->save();
         }
 
         return $stats;

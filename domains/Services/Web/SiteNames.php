@@ -5,9 +5,15 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services\Web;
 
 use InvalidArgumentException;
+use Onhost\Domain\Dns\DomainPointing;
+use Onhost\Domain\Dns\Models\DnsZone;
+use Onhost\Domain\Domains\DomainStateMachine;
+use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\Website;
+use Onhost\Platform\Audit\AuditRecorder;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Support\Hostname;
 
@@ -108,9 +114,20 @@ final class SiteNames
         $holder = self::holder($name, $exceptServiceId, $families);
         if ($holder !== null) {
             // the customer's own service is named, so they can act on it; somebody else's never is
-            throw new DomainError('site_name_taken', $organizationId !== null && $holder->organization_id === $organizationId
-                ? "Doménu {$name} už obsluhuje vaše služba ".($holder->label ?: $holder->name).'. Zrušte ji, nebo zvolte jiné jméno.'
-                : "Doménu {$name} už na ONhostu obsluhuje jiná služba.", 409, ['field' => $field, 'domain' => $name]);
+            if ($organizationId !== null && $holder->organization_id === $organizationId) {
+                throw new DomainError('site_name_taken', "Doménu {$name} už obsluhuje vaše služba ".($holder->label ?: $holder->name).'. Zrušte ji, nebo zvolte jiné jméno.', 409, ['field' => $field, 'domain' => $name]);
+            }
+            // a claim nobody proved, refusing somebody who can prove the name, is a squat — support decides, and gets
+            // the evidence in the audit trail instead of a customer's word against a customer's word
+            $mine = self::organizationProof($organizationId, $name);
+            if ($mine !== null && self::recordedProof($holder, $name) === null) {
+                app(AuditRecorder::class)->record(CommandContext::system('site.claim')->withScope((string) $organizationId), 'service.name_disputed', 'succeeded',
+                    ['domain' => $name, 'claimed_by' => $holder->id, 'claimed_since' => (string) (data_get($holder->tags, 'name_claim.unproved_since') ?? $holder->created_at), 'asked_by_proof' => $mine], 'service', $holder->id);
+            }
+
+            throw new DomainError('site_name_taken', "Doménu {$name} u nás zatím obsluhuje jiná služba. ".($mine !== null
+                ? 'Vedeme ji pro vás, takže jméno uvolníme — napište prosím podpoře.'
+                : 'Pokud je vaše, napište podpoře a vlastnictví ověříme.'), 409, ['field' => $field, 'domain' => $name]);
         }
         $parent = self::coveringOther($name, $organizationId, $exceptServiceId, $families);
         if ($parent !== null) {
@@ -118,6 +135,63 @@ final class SiteNames
         }
 
         return $name;
+    }
+
+    /**
+     * What proves this service may hold this name, or null when nothing does.
+     *
+     * A claim that nothing has to prove is a weapon: order the cheapest hosting for somebody else's domain, never
+     * point it anywhere, and its real owner can never be hosted here. Nothing new is asked of an honest customer —
+     * the platform already knows three things that prove a name, and the daily DNS check works the third one out
+     * anyway. Order matters only for the answer's wording: the two cheap database answers come before the resolver.
+     */
+    public static function proof(Service $service, ?string $name = null): ?string
+    {
+        $name = mb_strtolower(rtrim(trim($name ?? (string) ($service->hostname ?? '')), '.'));
+        if ($name === '') {
+            return null;
+        }
+        $held = self::organizationProof((string) $service->organization_id, $name);
+        if ($held !== null) {
+            return $held;
+        }
+        $addresses = DomainPointing::addressesOf($service);
+
+        return $addresses !== [] && app(DomainPointing::class)->pointsAt($name, $addresses) ? 'dns' : null;
+    }
+
+    /**
+     * What an **organization** can show for a name without asking DNS: the domain is registered here, or its zone
+     * is run here. A parent counts — holding `firma.cz` proves `blog.firma.cz`.
+     */
+    public static function organizationProof(?string $organizationId, string $name): ?string
+    {
+        if ($organizationId === null || $organizationId === '') {
+            return null;
+        }
+        $name = mb_strtolower(rtrim(trim($name), '.'));
+        $parts = explode('.', $name);
+        $names = [];
+        for ($i = 0; $i < max(1, count($parts) - 1); $i++) {
+            $names[] = implode('.', array_slice($parts, $i));
+        }
+        if (Domain::query()->whereIn('fqdn_ascii', $names)->where('organization_id', $organizationId)
+            ->whereNotIn('state', [DomainStateMachine::DELETED, DomainStateMachine::TRANSFERRED_OUT, DomainStateMachine::FAILED])->exists()) {
+            return 'domain';
+        }
+
+        return DnsZone::query()->whereIn('name', $names)->where('organization_id', $organizationId)->where('state', 'active')->exists() ? 'zone' : null;
+    }
+
+    /**
+     * What a holder can show, without asking DNS again: the daily check has already written its answer down
+     * (`tags.name_claim`), and a refusal is no place to wait for a resolver.
+     */
+    public static function recordedProof(Service $holder, string $name): ?string
+    {
+        $held = self::organizationProof((string) $holder->organization_id, $name);
+
+        return $held ?? (($proof = data_get($holder->tags, 'name_claim.proof')) === null ? null : (string) $proof);
     }
 
     /**

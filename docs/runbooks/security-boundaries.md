@@ -283,7 +283,21 @@ Tests: `tests/Feature/Identity/StaffReadAuditTest.php`, `tests/Feature/Identity/
   else's. `ServiceService::desiredSpec` refuses again inside the transaction that creates the service, so a race
   between two carts for one name ends there instead of at two vhosts.
 
-Tests: `tests/Feature/Services/SiteNameClaimsTest.php`.
+* **A claim has to be proved, or it is a squat** (audit row 90). Giving a name to one service hands anyone a weapon
+  as long as nothing has to be true for a claim to stick: order the cheapest hosting for `firma.cz`, never point it
+  anywhere, and its real owner can never be hosted here. Nothing new is asked of an honest customer — the platform
+  already knows three proofs (the domain is registered here by that organization, its DNS zone is here, or the name
+  already answers with the node that serves it), and the daily DNS check works the third one out anyway, so
+  `SiteClaim` rides along with it and asks the resolver nothing extra. The answer is written to
+  `services.tags.name_claim`; a claim unproved past `ONHOST_SITE_CLAIM_GRACE_DAYS` (30) raises
+  `service.name_unproved` to the operators once a day. **The platform never takes a live site's name away on its
+  own** — a customer cannot undo somebody else's squat, and neither should a cron job.
+* The refusal is no longer a dead end: it says to write to support, and when the person being refused can prove the
+  name while the holder cannot, `service.name_disputed` lands in the audit trail with the evidence, so support is
+  not deciding on one customer's word against another's. Both sides are answered without a DNS lookup — the holder's
+  proof is the one the daily check already wrote down.
+
+Tests: `tests/Feature/Services/SiteNameClaimsTest.php`, `tests/Feature/Services/SiteClaimProofTest.php`.
 
 ## What to look at on staging after deploying this
 

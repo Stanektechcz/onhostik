@@ -46,6 +46,8 @@ return [
         'download_ttl_minutes' => 30,
         'wp_cli_url' => 'https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar',
         'staging_suffix' => env('ONHOST_STAGING_SUFFIX', 'web.onhost.cz'),
+        // how long a site may hold a host name that nothing proves is its customer's before the operators hear (SiteClaim)
+        'claim_grace_days' => (int) env('ONHOST_SITE_CLAIM_GRACE_DAYS', 30),
     ],
     'platform_backup' => [ // backups of the control plane itself: database dump + private file store (go-live checklist §1)
         'disk' => env('ONHOST_PLATFORM_BACKUP_DISK', 'local'),      // a filesystems.disks entry; S3-compatible and off the server in production
