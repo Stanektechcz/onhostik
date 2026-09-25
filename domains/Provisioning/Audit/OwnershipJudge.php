@@ -51,13 +51,19 @@ final class OwnershipJudge
 
     /**
      * @param  array<string,mixed>  $owner
-     * @return array{0:string, 1:?string}
+     * @return array{0:string, 1:?string, 2?:string} verdict, owner service, why the owner is not known
      */
     private function reading(?string $acting, string $kind, array $owner): array
     {
-        $services = in_array($kind, ['mailbox', 'mail_alias'], true) ? $this->mailServices($owner) : $this->webServices($owner);
+        $mail = in_array($kind, ['mailbox', 'mail_alias'], true);
+        $services = $mail ? $this->mailServices($owner) : $this->webServices($owner);
         if ($services === null) {
             return [self::FOREIGN_UNMANAGED, null];
+        }
+        if (! $mail && count($services) > 1) {
+            // a web record is one service's; several only share a legacy name prefix (a null name_prefix falls back to
+            // the id's last six characters), so the name cannot say whose it is — never clear it as the acting service's
+            return [self::FOREIGN_PLATFORM, null, 'shared_prefix'];
         }
         if ($acting !== null && in_array($acting, $services, true)) {
             return [self::OWN, $acting];
@@ -101,7 +107,7 @@ final class OwnershipJudge
     }
 
     /**
-     * @param  list<array{0:string, 1:?string}>  $readings
+     * @param  list<array{0:string, 1:?string, 2?:string}>  $readings
      * @param  list<array<string,mixed>>  $owners
      */
     private function worst(?string $acting, array $readings, array $owners): array
@@ -120,7 +126,7 @@ final class OwnershipJudge
         }
         $notes = count(array_unique(array_map(fn (array $r) => $r[0].'|'.$r[1], $readings))) > 1 ? ['conflicting_evidence'] : [];
         if ($readings[$pick][0] === self::FOREIGN_PLATFORM && $readings[$pick][1] === null) {
-            $notes[] = 'owner_service_unknown';
+            $notes[] = $readings[$pick][2] ?? 'owner_service_unknown';
         }
 
         return self::verdict($readings[$pick][0], $readings[$pick][1], $owners[$pick], array_values(array_filter(array_column($owners, 'call'))), $notes, $this->map->organizationOf($readings[$pick][1]));

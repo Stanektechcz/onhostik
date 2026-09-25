@@ -71,6 +71,9 @@ final class ProviderCallsAuditReport
         foreach ($data['meta']['method'] as $line) {
             $lines[] = '- '.$line;
         }
+        if (($data['meta']['skipped'] ?? []) !== []) {
+            $lines[] = '- **Not audited** (service actions naming a record that ran elsewhere): '.implode(', ', array_map(fn (string $reason, int $n) => "{$reason} {$n}", array_keys($data['meta']['skipped']), $data['meta']['skipped'])).'.';
+        }
         $lines = array_merge($lines, ['', '## Summary', '', self::table(['severity', 'rows'], array_map(fn (string $s) => [$s, $data['summary'][$s] ?? 0], self::SEVERITIES))]);
         $lines = array_merge($lines, ['', '## Coverage', '', self::table(['instance', 'oldest', 'newest', 'calls', 'unreadable', 'warning'], array_map(fn (array $c) => [$c['instance_key'], $c['oldest'], $c['newest'], $c['calls'], $c['unparseable'], $c['warning']], $data['coverage']))]);
         $lines = array_merge($lines, ['', '## Actions on a named record', '', self::table(
@@ -82,8 +85,8 @@ final class ProviderCallsAuditReport
             array_map(fn (array $p) => [$p['severity'], $p['actor'], $p['count'], $p['consecutive'] ? 'yes' : 'no', $p['targets'], $p['organization_ids'], $p['operation_ids'], $p['first_at'], $p['last_at']], $data['probes']),
         )]);
         $lines = array_merge($lines, ['', '## Writes no operation explains', '', self::table(
-            ['severity', 'verdict', 'call', 'instance', 'function', 'id', 'body code', 'at', 'owner service', 'owner', 'evidence', 'sys_datalog', 'nearest operation'],
-            array_map(fn (array $u) => [$u['severity'], $u['verdict'], $u['provider_call_id'], $u['instance_key'], $u['function'], $u['primary_id'], $u['body_code'], $u['created_at'], $u['owner_service_id'], self::ownerOf($u), $u['evidence_call_ids'], $u['sys_datalog'], $u['nearest_operation'] === null ? null : implode(' ', array_filter($u['nearest_operation']))], $data['unattributed']),
+            ['severity', 'verdict', 'call', 'instance', 'function', 'id', 'body code', 'at', 'owner service', 'owner', 'evidence', 'sys_datalog', 'nearest operation', 'notes'],
+            array_map(fn (array $u) => [$u['severity'], $u['verdict'], $u['provider_call_id'], $u['instance_key'], $u['function'], $u['primary_id'], $u['body_code'], $u['created_at'], $u['owner_service_id'], self::ownerOf($u), $u['evidence_call_ids'], $u['sys_datalog'], $u['nearest_operation'] === null ? null : implode(' ', array_filter($u['nearest_operation'])), $u['notes']], $data['unattributed']),
         )]);
 
         return implode("\n", $lines)."\n";
@@ -104,7 +107,8 @@ final class ProviderCallsAuditReport
         if ($rows === []) {
             return '_none_';
         }
-        $cell = fn (mixed $v): string => str_replace(['|', "\r", "\n"], ['\|', ' ', ' '], is_array($v) ? implode(', ', array_map('strval', $v)) : (string) ($v ?? '—'));
+        // a cell is text, never markup: no table break, no raw HTML, no code span a value could open
+        $cell = fn (mixed $v): string => str_replace(['|', "\r", "\n", '<', '>', '`'], ['\|', ' ', ' ', '&lt;', '&gt;', '\`'], is_array($v) ? implode(', ', array_map('strval', $v)) : (string) ($v ?? '—'));
         $out = ['| '.implode(' | ', $head).' |', '|'.str_repeat(' --- |', count($head))];
         foreach ($rows as $row) {
             $out[] = '| '.implode(' | ', array_map($cell, $row)).' |';
@@ -132,7 +136,19 @@ final class ProviderCallsAuditReport
             default => $value,
         };
 
-        return $mask->text($value);
+        return self::printable($mask->text($value));
+    }
+
+    /**
+     * A customer-supplied value (a fetchmail destination passes a regex that allows ESC) must not reach the operator's
+     * terminal as ANSI/OSC sequences that clear the screen or hide rows, nor turn the text around with a bidi override:
+     * C0/C1 controls, DEL and the bidi controls become `?`, and so does a byte that is not UTF-8.
+     */
+    public static function printable(string $value): string
+    {
+        $utf8 = mb_scrub($value, 'UTF-8');
+
+        return preg_replace('/[\x{0000}-\x{001F}\x{007F}-\x{009F}\x{061C}\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]/u', '?', $utf8) ?? '?';
     }
 
     /** `oh1yz8n6_shop` → `oh1yz8n6_s***`; a name without a platform prefix keeps its first character only. */

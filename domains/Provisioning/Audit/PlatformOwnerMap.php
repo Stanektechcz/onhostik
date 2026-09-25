@@ -27,6 +27,8 @@ final class PlatformOwnerMap
      * @param  array<string, array<string, true>>  $mailDomains  domain => services
      * @param  array<string, list<string>>  $serviceInstances  service => instance keys of its bindings
      * @param  array<string, string>  $instanceKeys  instance id => key
+     * @param  array<string, string>  $homes  service => the instance key the service itself names (services.provider_instance_id)
+     * @param  array<string, string>  $providers  instance key => provider
      */
     private function __construct(
         private readonly array $organizations,
@@ -35,17 +37,25 @@ final class PlatformOwnerMap
         private readonly array $mailDomains,
         private readonly array $serviceInstances,
         private readonly array $instanceKeys,
+        private readonly array $homes,
+        private readonly array $providers,
     ) {}
 
     public static function load(): self
     {
+        $instances = DB::table('provider_instances')->get(['id', 'key', 'provider']);
+        $instanceKeys = $instances->pluck('key', 'id')->map(fn ($key) => (string) $key)->all();
+        $providers = $instances->pluck('provider', 'key')->map(fn ($provider) => (string) $provider)->all();
         $organizations = [];
         $prefixes = [];
-        foreach (DB::table('services')->select(['id', 'organization_id', 'name_prefix'])->lazyById(1000, 'id') as $service) {
+        $homes = [];
+        foreach (DB::table('services')->select(['id', 'organization_id', 'name_prefix', 'provider_instance_id'])->lazyById(1000, 'id') as $service) {
             $organizations[(string) $service->id] = $service->organization_id === null ? null : (string) $service->organization_id;
             $prefixes[(string) ($service->name_prefix ?: Naming::prefix((string) $service->id))][] = (string) $service->id;
+            if (isset($instanceKeys[$service->provider_instance_id ?? ''])) {
+                $homes[(string) $service->id] = $instanceKeys[$service->provider_instance_id];
+            }
         }
-        $instanceKeys = DB::table('provider_instances')->pluck('key', 'id')->map(fn ($key) => (string) $key)->all();
         $sites = [];
         $mailDomains = [];
         $serviceInstances = [];
@@ -67,7 +77,7 @@ final class PlatformOwnerMap
             $mailDomains[mb_strtolower(trim((string) $row->domain))][(string) $row->service_id] = true;
         }
 
-        return new self($organizations, $prefixes, $sites, $mailDomains, array_map('array_values', $serviceInstances), $instanceKeys);
+        return new self($organizations, $prefixes, $sites, $mailDomains, array_map('array_values', $serviceInstances), $instanceKeys, $homes, $providers);
     }
 
     public function organizationOf(?string $service): ?string
@@ -100,10 +110,22 @@ final class PlatformOwnerMap
         return array_keys($this->mailDomains[mb_strtolower(trim($domain))] ?? []);
     }
 
-    /** @return list<string> instance keys the service has resources on */
+    /**
+     * @return list<string> instance keys the service has resources on: its bindings, and the instance the service row
+     *                      itself names — which survives the cleanup that deletes a terminated service's bindings
+     */
     public function instancesOf(?string $service): array
     {
-        return $service === null ? [] : ($this->serviceInstances[$service] ?? []);
+        if ($service === null) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter([...($this->serviceInstances[$service] ?? []), $this->homes[$service] ?? null])));
+    }
+
+    public function providerOf(string $instanceKey): ?string
+    {
+        return $this->providers[$instanceKey] ?? null;
     }
 
     public function instanceKey(?string $instanceId): ?string

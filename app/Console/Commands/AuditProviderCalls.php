@@ -29,7 +29,8 @@ final class AuditProviderCalls extends Command
         {--until= : end of the window (ISO date), default now}
         {--instance=* : ISPConfig instance keys, default every ISPConfig instance}
         {--format=md : md or json}
-        {--output= : file on the private local disk under reports/, default reports/provider-calls-audit-<time>.<ext>}
+        {--output= : file on the private local disk under reports/, ending in .md or .json as --format says, default reports/provider-calls-audit-<time>.<ext>}
+        {--force : replace an existing report file (an earlier report is never overwritten otherwise)}
         {--stdout : print the report instead of writing a file}
         {--include-clean : also list the actions that touched the service\'s own records}';
 
@@ -45,7 +46,8 @@ final class AuditProviderCalls extends Command
             is_string($window) => $window,
             ! in_array($format, ['md', 'json'], true) => '--format must be md or json.',
             is_string($instances) => $instances,
-            $path === null => '--output must be a relative path under reports/ (letters, digits, . _ - /).',
+            $path === null => '--output must be a relative path under reports/ (letters, digits, . _ - /) ending in .'.$format.'.',
+            ! $this->option('stdout') && ! $this->option('force') && Storage::disk('local')->exists($path) => "storage/app/private/{$path} already exists: choose another --output, or add --force to replace it.",
             default => null,
         };
         if ($problem !== null || ! is_array($window) || ! is_array($instances) || $path === null) {
@@ -96,13 +98,19 @@ final class AuditProviderCalls extends Command
         return $unknown === [] ? array_values(array_unique($asked)) : 'Not an ISPConfig instance: '.implode(', ', $unknown).'. Available: '.(implode(', ', $known) ?: 'none').'.';
     }
 
+    /** reports/… with safe characters, no `.`/`..`/empty path segment, and the extension of the format. */
     private function outputPath(string $format): ?string
     {
+        $extension = $format === 'json' ? 'json' : 'md';
         $path = (string) ($this->option('output') ?? '');
         if ($path === '') {
-            return 'reports/provider-calls-audit-'.CarbonImmutable::now()->format('Ymd-His').'.'.($format === 'json' ? 'json' : 'md');
+            return 'reports/provider-calls-audit-'.CarbonImmutable::now()->format('Ymd-His').'.'.$extension;
         }
+        $segments = explode('/', $path);
+        $safe = preg_match('#^reports/[A-Za-z0-9._/-]+$#', $path) === 1
+            && array_filter($segments, fn (string $segment) => in_array($segment, ['', '.', '..'], true)) === []
+            && str_ends_with($path, '.'.$extension) && strlen(basename($path)) > strlen($extension) + 1;
 
-        return preg_match('#^reports/[A-Za-z0-9._/-]+$#', $path) === 1 && ! str_contains($path, '..') ? $path : null;
+        return $safe ? $path : null;
     }
 }

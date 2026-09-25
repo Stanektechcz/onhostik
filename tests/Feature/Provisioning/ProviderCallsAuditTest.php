@@ -15,6 +15,7 @@ use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Redaction\Redactor;
+use Onhost\Providers\Contracts\Naming;
 
 /*
  * TASK-0020 — did anybody use the TASK-0005 hole before it was closed?
@@ -369,5 +370,226 @@ it('refuses bad options', function (array $options) {
     'unknown instance' => [['--instance' => ['nope']]],
     'not an ISPConfig instance' => [['--instance' => ['aapanel-managed01']]],
     'output outside reports' => [['--stdout' => false, '--output' => '../escape.md']],
+    'a dot segment' => [['--stdout' => false, '--output' => 'reports/../escape.md']],
+    'another extension' => [['--stdout' => false, '--output' => 'reports/x.txt']],
+    'extension not matching the format' => [['--stdout' => false, '--format' => 'json', '--output' => 'reports/x.md']],
     'since after until' => [['--since' => '2026-09-01', '--until' => '2026-08-01']],
 ]);
+
+/*
+ * Review round 1 (TASK-0020): the cases the first version got wrong or never exercised.
+ */
+
+it('does not silently drop an action whose service instance can no longer be resolved', function () {
+    [, $orgA] = $this->customerWithOrganization();
+    [, $orgB] = $this->customerWithOrganization();
+    [$mine, , $operation] = pcauditNeighbourShellKey($orgA, $orgB);
+    Operation::query()->whereKey($operation->id)->update(['provider_instance_id' => null]);
+    ProviderBinding::query()->where('service_id', $mine->id)->delete(); // the service was terminated and its bindings cleaned up
+
+    [$code, $report] = pcauditRun();
+
+    expect($code)->toBe(1)
+        ->and(collect($report['actions'] ?? [])->pluck('operation_id'))->toContain($operation->id)
+        ->and($report['actions'][0]['severity'])->toBe('CRITICAL');
+});
+
+it('reports an action whose instance cannot be determined at all instead of dropping it', function () {
+    [, $org] = $this->customerWithOrganization();
+    $mine = featureWebService($org, 'ispconfig');
+    $operation = pcauditSeedOperation($mine, 'dbuser.password', ['remote_id' => '44'], now()->subDays(5));
+    Operation::query()->whereKey($operation->id)->update(['provider_instance_id' => null]);
+    DB::table('services')->where('id', $mine->id)->update(['provider_instance_id' => null]);
+    ProviderBinding::query()->where('service_id', $mine->id)->delete();
+
+    [, $report] = pcauditRun();
+    $row = collect($report['actions'])->firstWhere('operation_id', $operation->id);
+
+    expect($row)->not->toBeNull()
+        ->and($row['severity'])->toBe('REVIEW')
+        ->and($row['notes'])->toContain('instance_guessed');
+});
+
+it('counts a targeted action on another provider as skipped, not as audited', function () {
+    [, $org] = $this->customerWithOrganization();
+    featureWebService($org, 'ispconfig');
+    $aapanel = featureWebService($org, 'aapanel');
+    pcauditSeedOperation($aapanel, 'shell.key', ['remote_id' => '3'], now()->subDays(5));
+
+    [$code, $report] = pcauditRun(['--include-clean' => true]);
+
+    expect($code)->toBe(0)
+        ->and($report['actions'])->toBe([])
+        ->and($report['meta']['skipped'])->toBe(['not_ispconfig' => 1]);
+});
+
+it('ties each guarded mail action to its own write', function (string $action, array $params, string $function, array $body, ?array $decoy, bool $byTime) {
+    [, $orgA] = $this->customerWithOrganization();
+    [, $orgB] = $this->customerWithOrganization();
+    $mine = featureMailService($orgA, 'shop.cz');
+    pcauditNeighbourMailDomain($orgB, 'other.cz', '6');
+    pcauditSeedCall('mail_user_get', ['primary_id' => 55], ['mailuser_id' => 55, 'email' => 'boss@other.cz'], now()->subDays(9));
+    $operation = pcauditSeedOperation($mine, $action, $params, now()->subDays(3));
+    $write = pcauditSeedCall($function, $body, 1, now()->subDays(3)->addSecond());
+    if ($decoy !== null) {
+        pcauditSeedCall($function, $decoy, 1, now()->subDays(3)->addSeconds(2)); // same function, same moment, another record
+    }
+
+    [$code, $report] = pcauditRun();
+    $row = collect($report['actions'])->firstWhere('operation_id', $operation->id);
+
+    expect($code)->toBe(1)
+        ->and($row)->not->toBeNull()
+        ->and($row['sent'])->toBe('accepted')
+        ->and($row['provider_call_ids'])->toBe([$write])
+        ->and($row['severity'])->toBe('CRITICAL')
+        ->and($row['owner_organization_id'])->toBe($orgB->id)
+        ->and(in_array('tied_by_time_only', $row['notes'], true))->toBe($byTime);
+})->with([
+    'mailbox.restore by the backup id' => ['mailbox.restore', ['remote_id' => '55', 'backup_id' => '900'], 'mail_user_backup', ['primary_id' => 900, 'action_type' => 'backup_restore_mail'], ['primary_id' => 901, 'action_type' => 'backup_restore_mail'], false],
+    'filter.create by params.mailuser_id' => ['filter.create', ['remote_id' => '55', 'name' => 'x'], 'mail_user_filter_add', ['client_id' => 3, 'params' => ['mailuser_id' => 55, 'rulename' => 'x']], ['client_id' => 3, 'params' => ['mailuser_id' => 56, 'rulename' => 'x']], false],
+    'filter.delete by the filter id, judged by the mailbox' => ['filter.delete', ['mailbox_id' => '55', 'remote_id' => '700'], 'mail_user_filter_delete', ['primary_id' => 700], ['primary_id' => 701], false],
+    'fetchmail.create by the destination address' => ['fetchmail.create', ['destination' => 'boss@other.cz', 'host' => 'pop.example.net'], 'mail_fetchmail_add', ['client_id' => 3, 'params' => ['destination' => 'boss@other.cz', 'source_server' => 'pop.example.net']], ['client_id' => 3, 'params' => ['destination' => 'info@shop.cz', 'source_server' => 'pop.example.net']], false],
+    'autoresponder.set by the mailbox id' => ['autoresponder.set', ['remote_id' => '55'], 'mail_user_update', ['client_id' => 3, 'primary_id' => 55, 'params' => ['autoresponder' => 'y']], ['client_id' => 3, 'primary_id' => 56, 'params' => ['autoresponder' => 'y']], false],
+    'spam.policy by time only' => ['spam.policy', ['remote_id' => '55', 'policy_id' => '2'], 'mail_spamfilter_user_update', ['client_id' => 3, 'primary_id' => 12, 'params' => ['policy_id' => 2]], null, true],
+]);
+
+it('does not flag two non-consecutive refusals as a probe', function () {
+    [, $org] = $this->customerWithOrganization();
+    $mine = featureMailService($org, 'shop.cz');
+    foreach (['10', '50'] as $i => $id) {
+        pcauditSeedOperation($mine, 'mailbox.update', ['remote_id' => $id], now()->subHours(5 - $i), Operation::FAILED, ['message' => 'Tahle schránka k téhle službě nepatří.', 'retryable' => false, 'detail' => ['not_ours' => $id]], 'usr_typo');
+    }
+
+    [$code, $report] = pcauditRun();
+
+    expect($code)->toBe(0)
+        ->and($report['probes'])->toHaveCount(1)
+        ->and($report['probes'][0]['count'])->toBe(2)
+        ->and($report['probes'][0]['consecutive'])->toBeFalse()
+        ->and($report['probes'][0]['severity'])->toBe('INFO');
+});
+
+it('grades a platform-made record whose owner service is gone as REVIEW with owner_service_unknown', function () {
+    [, $org] = $this->customerWithOrganization();
+    $mine = featureWebService($org, 'ispconfig');
+    pcauditSeedCall('sites_database_user_get', ['primary_id' => 45], ['database_user_id' => 45, 'database_user' => 'ohzzzzzz_shop'], now()->subDays(20)); // a platform prefix no service carries
+    $operation = pcauditSeedOperation($mine, 'dbuser.password', ['remote_id' => '45'], now()->subDays(6));
+    pcauditSeedCall('sites_database_user_update', ['client_id' => 3, 'primary_id' => 45, 'params' => ['database_password' => '[redacted]']], 1, now()->subDays(6)->addSecond());
+
+    [, $report] = pcauditRun();
+    $row = collect($report['actions'])->firstWhere('operation_id', $operation->id);
+
+    expect($row['verdict'])->toBe('FOREIGN_PLATFORM')
+        ->and($row['severity'])->toBe('REVIEW')
+        ->and($row['owner_service_id'])->toBeNull()
+        ->and($row['notes'])->toContain('owner_service_unknown')
+        ->and($row['owner_name'])->toBe('ohzzzzzz_s***');
+});
+
+it('lets the worst of two disagreeing sightings win and says so', function () {
+    [, $orgA] = $this->customerWithOrganization();
+    [, $orgB] = $this->customerWithOrganization();
+    $mine = featureWebService($orgA, 'ispconfig');
+    $theirs = pcauditNeighbourWebSite($orgB, '8');
+    pcauditSeedCall('sites_shell_user_get', ['primary_id' => ['parent_domain_id' => 7]], [['shell_user_id' => 21, 'parent_domain_id' => 7, 'username' => $mine->name_prefix.'_deploy']], now()->subDays(30));
+    pcauditSeedCall('sites_shell_user_get', ['primary_id' => ['parent_domain_id' => 8]], [['shell_user_id' => 21, 'parent_domain_id' => 8, 'username' => $theirs->name_prefix.'_deploy']], now()->subDays(10));
+    $operation = pcauditSeedOperation($mine, 'shell.key', ['remote_id' => '21'], now()->subDays(5));
+    pcauditSeedCall('sites_shell_user_update', ['client_id' => 3, 'primary_id' => 21, 'params' => ['ssh_rsa' => 'ssh-ed25519 AAAAboth']], 1, now()->subDays(5)->addSecond());
+
+    [, $report] = pcauditRun();
+    $row = collect($report['actions'])->firstWhere('operation_id', $operation->id);
+
+    expect($row['severity'])->toBe('CRITICAL')
+        ->and($row['owner_service_id'])->toBe($theirs->id)
+        ->and($row['owner_site'])->toBe(8)
+        ->and($row['notes'])->toContain('conflicting_evidence');
+});
+
+it('never lets a customer-supplied value carry terminal or HTML control sequences into the report', function () {
+    [, $org] = $this->customerWithOrganization();
+    $mine = featureMailService($org, 'shop.cz');
+    $destination = "a\e[2J\e[H@evil\e]0;pwned\x07<b>\u{202E}`x`.cz";
+    foreach ([1, 2, 3] as $i) {
+        pcauditSeedOperation($mine, 'fetchmail.create', ['destination' => $destination], now()->subHours(6 - $i), Operation::FAILED, ['message' => 'refused', 'retryable' => false, 'detail' => ['not_ours' => $destination]], 'usr_ansi');
+    }
+
+    [, $report] = pcauditRun();
+    [, , $markdown] = pcauditRun(['--format' => 'md']);
+    $strings = [];
+    array_walk_recursive($report, function ($value) use (&$strings) {
+        if (is_string($value)) {
+            $strings[] = $value;
+        }
+    });
+
+    expect($report['probes'])->toHaveCount(1)
+        ->and(implode("\n", $strings))->not->toContain("\e")->not->toContain("\x07")->not->toContain("\u{202E}")
+        ->and($markdown)->not->toContain("\e")->not->toContain("\x07")->not->toContain("\u{202E}")
+        ->and($markdown)->not->toContain('<b>')
+        ->and($markdown)->not->toContain('`x`');
+});
+
+it('raises a write on a neighbour\'s record to REVIEW when another organization\'s action ran next to it', function () {
+    [, $orgA] = $this->customerWithOrganization();
+    [, $orgB] = $this->customerWithOrganization();
+    $mine = featureMailService($orgA, 'shop.cz');
+    pcauditNeighbourMailDomain($orgB, 'other.cz', '6');
+    pcauditSeedCall('mail_user_get', ['primary_id' => 32], ['mailuser_id' => 32, 'email' => 'info@other.cz'], now()->subDays(20));
+    pcauditSeedCall('mail_user_get', ['primary_id' => 33], ['mailuser_id' => 33, 'email' => 'sales@other.cz'], now()->subDays(20));
+    $near = pcauditSeedOperation($mine, 'mailbox.password', ['remote_id' => '31'], now()->subDays(3)); // an action the tie did not catch
+    $suspect = pcauditSeedCall('mail_user_delete', ['primary_id' => 32], 1, now()->subDays(3)->addSeconds(10));
+    $quiet = pcauditSeedCall('mail_user_delete', ['primary_id' => 33], 1, now()->subDays(10)); // nothing ran near it
+
+    [$code, $report] = pcauditRun();
+    [, $withClean] = pcauditRun(['--include-clean' => true]);
+    $all = collect($withClean['unattributed'])->keyBy('provider_call_id');
+
+    expect($code)->toBe(0)
+        ->and($report['unattributed'])->toHaveCount(1)
+        ->and($report['unattributed'][0]['provider_call_id'])->toBe($suspect)
+        ->and($report['unattributed'][0]['verdict'])->toBe('PLATFORM')
+        ->and($report['unattributed'][0]['severity'])->toBe('REVIEW')
+        ->and($report['unattributed'][0]['notes'])->toContain('nearest_op_other_org')
+        ->and($report['unattributed'][0]['nearest_operation']['operation_id'])->toBe($near->id)
+        ->and($all[$quiet]['severity'])->toBe('INFO')
+        ->and($all[$quiet]['notes'])->toBe([]);
+});
+
+it('does not clear an action on a name whose prefix several services share', function () {
+    [, $org] = $this->customerWithOrganization();
+    $mine = featureWebService($org, 'ispconfig');
+    $other = pcauditNeighbourWebSite($org, '9');
+    $shared = Naming::prefix($other->id);
+    DB::table('services')->where('id', $other->id)->update(['name_prefix' => null]); // a legacy row: its prefix is derived from the id
+    DB::table('services')->where('id', $mine->id)->update(['name_prefix' => $shared]);
+    pcauditSeedCall('sites_database_user_get', ['primary_id' => 46], ['database_user_id' => 46, 'database_user' => $shared.'_shop'], now()->subDays(20));
+    $operation = pcauditSeedOperation($mine, 'dbuser.password', ['remote_id' => '46'], now()->subDays(6));
+    pcauditSeedCall('sites_database_user_update', ['client_id' => 3, 'primary_id' => 46, 'params' => ['database_password' => '[redacted]']], 1, now()->subDays(6)->addSecond());
+
+    [, $report] = pcauditRun();
+    $row = collect($report['actions'])->firstWhere('operation_id', $operation->id);
+
+    expect($row)->not->toBeNull()
+        ->and($row['severity'])->toBe('REVIEW')
+        ->and($row['notes'])->toContain('shared_prefix');
+});
+
+it('files the report only under a matching extension and never over an earlier report', function () {
+    [, $org] = $this->customerWithOrganization();
+    featureWebService($org, 'ispconfig');
+    Storage::fake('local');
+    Storage::disk('local')->put('reports/earlier.md', 'incident 1');
+
+    $overwrite = Artisan::call('onhost:audit:provider-calls', ['--output' => 'reports/earlier.md']);
+    $kept = Storage::disk('local')->get('reports/earlier.md');
+    $forced = Artisan::call('onhost:audit:provider-calls', ['--output' => 'reports/earlier.md', '--force' => true]);
+    $dots = Artisan::call('onhost:audit:provider-calls', ['--output' => 'reports/report..final.md']);
+
+    expect($overwrite)->toBe(2)
+        ->and($kept)->toBe('incident 1')
+        ->and($forced)->toBe(0)
+        ->and(Storage::disk('local')->get('reports/earlier.md'))->toStartWith('# Provider calls audit')
+        ->and($dots)->toBe(0)
+        ->and(Storage::disk('local')->exists('reports/report..final.md'))->toBeTrue();
+});

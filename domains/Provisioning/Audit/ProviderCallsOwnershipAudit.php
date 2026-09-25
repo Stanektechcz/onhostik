@@ -9,6 +9,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Platform\Redaction\Redactor;
+use stdClass;
 
 /**
  * Did anybody use the TASK-0005 hole before it was closed? (TASK-0020)
@@ -42,16 +43,22 @@ final class ProviderCallsOwnershipAudit
         $targets = OwnershipAuditTargets::targets();
         $actions = [];
         $refusals = [];
+        $skipped = [];
         Operation::query()->where('kind', 'service.action')->whereBetween('created_at', [$since, $until])
             ->select(['id', 'organization_id', 'service_id', 'state', 'actor_type', 'actor_id', 'desired', 'error', 'provider_instance_id', 'started_at', 'finished_at', 'created_at'])
             ->lazyById(500)
-            ->each(function (Operation $operation) use (&$actions, &$refusals, $targets, $map, $judge, $instanceKeys): void {
+            ->each(function (Operation $operation) use (&$actions, &$refusals, &$skipped, $targets, $map, $judge, $instanceKeys): void {
                 $target = $targets[(string) data_get($operation->desired, 'action', '')] ?? null;
-                $instances = $target === null ? [] : $this->instancesOf($operation, $map, $instanceKeys);
-                if ($instances === []) {
+                if ($target === null) {
                     return;
                 }
-                $actions[] = $this->action($operation, $target, $instances, $judge);
+                [$instances, $guessed, $skip] = $this->instancesOf($operation, $map, $instanceKeys);
+                if ($skip !== null) {
+                    $skipped[$skip] = ($skipped[$skip] ?? 0) + 1; // said in the report, never silently dropped
+
+                    return;
+                }
+                $actions[] = $this->action($operation, $target, $instances, $judge, $guessed);
                 $refusal = $this->refusal($operation, $target);
                 if ($refusal !== null) {
                     $refusals[$refusal['actor']][] = $refusal;
@@ -65,7 +72,7 @@ final class ProviderCallsOwnershipAudit
         ];
 
         return new ProviderCallsAuditReport(
-            ['generated_at' => CarbonImmutable::now()->toIso8601String(), 'since' => $since->toIso8601String(), 'until' => $until->toIso8601String(), 'instances' => $instanceKeys, 'include_clean' => $includeClean],
+            ['generated_at' => CarbonImmutable::now()->toIso8601String(), 'since' => $since->toIso8601String(), 'until' => $until->toIso8601String(), 'instances' => $instanceKeys, 'include_clean' => $includeClean, 'skipped' => $skipped],
             self::summary($sections),
             $includeClean ? $sections['actions'] : array_values(array_filter($sections['actions'], fn (array $row) => ! in_array($row['severity'], ['CLEAN', 'INFO'], true))),
             $sections['probes'],
@@ -79,7 +86,7 @@ final class ProviderCallsOwnershipAudit
      * @param  list<string>  $instances
      * @return array<string,mixed>
      */
-    private function action(Operation $operation, array $target, array $instances, OwnershipJudge $judge): array
+    private function action(Operation $operation, array $target, array $instances, OwnershipJudge $judge, bool $guessed): array
     {
         $value = (string) data_get($operation->desired, $target['target'], '');
         $sent = $this->sent($operation, $target, $instances);
@@ -89,10 +96,11 @@ final class ProviderCallsOwnershipAudit
             $id === null => ['verdict' => OwnershipJudge::UNKNOWN, 'owner_service_id' => null, 'owner_organization_id' => null, 'owner_site' => null, 'owner_name' => null, 'owner_address' => null, 'evidence_call_ids' => [], 'notes' => ['non_canonical_id']],
             default => $judge->record($operation->service_id, $sent['instance'] !== null ? [$sent['instance']] : $instances, $target['kind'], $id),
         };
-        $notes = array_merge($verdict['notes'], $id !== null && (string) $id !== $value ? ['non_canonical_id'] : [], $sent['by_time'] ? ['tied_by_time_only'] : []);
+        $notes = array_merge($verdict['notes'], $id !== null && (string) $id !== $value ? ['non_canonical_id'] : [], $sent['by_time'] ? ['tied_by_time_only'] : [], $guessed ? ['instance_guessed'] : []);
+        $severity = self::severity($verdict, $operation->organization_id, $sent['state']);
 
         return [
-            'severity' => self::severity($verdict, $operation->organization_id, $sent['state']), 'verdict' => $verdict['verdict'],
+            'severity' => $guessed ? self::atLeast($severity, 'REVIEW') : $severity, 'verdict' => $verdict['verdict'],
             'operation_id' => $operation->id, 'action' => (string) data_get($operation->desired, 'action'), 'state' => $operation->state,
             'service_id' => $operation->service_id, 'organization_id' => $operation->organization_id, 'actor' => $operation->actor_type.':'.($operation->actor_id ?? '-'),
             'created_at' => $operation->created_at?->toIso8601String(), 'instance_key' => $sent['instance'] ?? $instances[0],
@@ -120,6 +128,14 @@ final class ProviderCallsOwnershipAudit
         };
     }
 
+    /** The more severe of the two (SEVERITIES runs from the worst down). */
+    private static function atLeast(string $severity, string $floor): string
+    {
+        $order = array_flip(ProviderCallsAuditReport::SEVERITIES);
+
+        return $order[$severity] <= $order[$floor] ? $severity : $floor;
+    }
+
     /**
      * The write the platform sent for the operation: the mapped function, on one of its instances, inside the time its
      * attempts ran, naming the same id. accepted = the panel said `ok` in the body (HTTP 200 alone proves nothing); uncertain = no
@@ -136,6 +152,9 @@ final class ProviderCallsOwnershipAudit
         }
         [$from, $to] = $this->attemptWindow($operation);
         $expected = $target['match'] === null ? null : (string) data_get($operation->desired, $target['match'][1], '');
+        // The id is compared in PHP: the JSON path differs per driver, and the rows are already narrowed to one instance
+        // set, the audited functions and an attempt window of seconds to minutes. On a panel busy enough for that to
+        // matter, push the primary_id match into SQL (json path) or add an index on (instance_key, action, created_at).
         $hits = DB::table('provider_calls')->where('provider', 'ispconfig')->whereIn('instance_key', $instances)->whereIn('action', $target['functions'])
             ->whereBetween('created_at', [$from, $to])->orderBy('created_at')->orderBy('id')->get(['id', 'instance_key', 'body_code', 'http_status', 'request'])
             ->filter(fn (object $call) => $target['match'] === null || self::same(ProviderCallRow::requestOf($call)->get($target['match'][0]), (string) $expected))->values();
@@ -180,14 +199,27 @@ final class ProviderCallsOwnershipAudit
     }
 
     /**
+     * Where the operation ran: its own instance, the instances of its service's bindings, the instance the service row
+     * names. When none of these is known any more (the bindings of a terminated service are deleted), every selected
+     * instance is searched — the function + id + time tie still narrows the write — and the row says `instance_guessed`.
+     * An operation that ran elsewhere is counted as skipped with its reason, never dropped without a trace.
+     *
      * @param  list<string>  $selected
-     * @return list<string> the selected ISPConfig instances the operation's service has resources on
+     * @return array{0:list<string>, 1:bool, 2:?string} [instances to search, guessed, reason it is skipped]
      */
     private function instancesOf(Operation $operation, PlatformOwnerMap $map, array $selected): array
     {
-        $own = array_filter([$map->instanceKey($operation->provider_instance_id), ...$map->instancesOf($operation->service_id)]);
+        $own = array_values(array_unique(array_filter([$map->instanceKey($operation->provider_instance_id), ...$map->instancesOf($operation->service_id)])));
+        if ($own === []) {
+            return $selected === [] ? [[], false, 'instance_unknown'] : [$selected, true, null];
+        }
+        $hit = array_values(array_intersect($selected, $own));
+        if ($hit !== []) {
+            return [$hit, false, null];
+        }
+        $ispConfig = array_filter($own, fn (string $key) => $map->providerOf($key) === 'ispconfig') !== [];
 
-        return array_values(array_intersect($selected, array_unique($own)));
+        return [[], false, $ispConfig ? 'instance_not_selected' : 'not_ispconfig'];
     }
 
     /**
@@ -236,7 +268,8 @@ final class ProviderCallsOwnershipAudit
 
     /**
      * Writes on a record that no operation above explains, judged by their owner. A write the platform made on its own
-     * (a site's leftovers removed, sending switched for a whole domain) lands on a platform record and stays INFO.
+     * (a site's leftovers removed, sending switched for a whole domain) lands on a platform record and stays INFO —
+     * unless a service action of another organization ran within a minute of it on that instance (REVIEW).
      *
      * @param  list<string>  $instanceKeys
      * @param  array<string,true>  $explained
@@ -266,30 +299,45 @@ final class ProviderCallsOwnershipAudit
         $verdict = $id === null ? ['verdict' => OwnershipJudge::UNKNOWN, 'owner_service_id' => null, 'owner_organization_id' => null, 'owner_name' => null, 'owner_address' => null, 'owner_site' => null, 'evidence_call_ids' => [], 'notes' => []]
             : $judge->record(null, [(string) $call->instance_key], $kind, $id);
         $name = $verdict['verdict'] === OwnershipJudge::FOREIGN_PLATFORM ? 'PLATFORM' : $verdict['verdict'];
+        $at = CarbonImmutable::parse((string) $call->created_at);
+        $near = $this->operationsNear((string) $call->instance_key, $at, $map);
+        // A write on another customer's platform record that no tie explains, with a service action of a DIFFERENT
+        // organization running next to it, is what a missed tie on an exploit looks like — not the platform's own work.
+        $notes = $name === 'PLATFORM' && $verdict['owner_service_id'] !== null
+            && $near->contains(fn (object $o) => $o->service_id !== $verdict['owner_service_id'] && $o->organization_id !== $verdict['owner_organization_id'])
+            ? ['nearest_op_other_org'] : [];
         $severity = match ($name) {
             OwnershipJudge::FOREIGN_UNMANAGED => 'HIGH',
             OwnershipJudge::UNKNOWN => $call->body_code === null || (string) $call->body_code === 'ok' ? 'REVIEW' : 'INFO', // done or never answered
-            default => 'INFO',
+            default => $notes !== [] ? 'REVIEW' : 'INFO',
         };
 
         return [
             'severity' => $severity, 'verdict' => $name, 'provider_call_id' => (string) $call->id, 'instance_key' => (string) $call->instance_key, 'function' => (string) $call->action,
-            'primary_id' => $id, 'body_code' => $call->body_code, 'http_status' => $call->http_status, 'created_at' => CarbonImmutable::parse((string) $call->created_at)->toIso8601String(),
+            'primary_id' => $id, 'body_code' => $call->body_code, 'http_status' => $call->http_status, 'created_at' => $at->toIso8601String(),
             'owner_service_id' => $verdict['owner_service_id'], 'owner_organization_id' => $verdict['owner_organization_id'], 'owner_site' => $verdict['owner_site'],
             'owner_name' => $verdict['owner_name'], 'owner_address' => $verdict['owner_address'], 'evidence_call_ids' => $verdict['evidence_call_ids'],
             'sys_datalog' => $id === null ? null : OwnershipAuditTargets::datalogKey($kind, (string) $id),
-            'nearest_operation' => $severity !== 'INFO' || $includeClean ? $this->nearestOperation((string) $call->instance_key, CarbonImmutable::parse((string) $call->created_at), $map) : null,
+            'nearest_operation' => $severity !== 'INFO' || $includeClean ? self::nearest($near, $at) : null, 'notes' => $notes,
         ];
     }
 
-    /** @return array{operation_id:string, action:?string, service_id:?string}|null the service action that ran closest in time on the instance */
-    private function nearestOperation(string $instanceKey, CarbonImmutable $at, PlatformOwnerMap $map): ?array
+    /** @return Collection<int, stdClass> the service actions whose attempt started within a minute of the write, on its instance */
+    private function operationsNear(string $instanceKey, CarbonImmutable $at, PlatformOwnerMap $map): Collection
     {
-        $candidates = DB::table('operation_attempts as a')->join('operations as o', 'o.id', '=', 'a.operation_id')
+        return DB::table('operation_attempts as a')->join('operations as o', 'o.id', '=', 'a.operation_id')
             ->where('o.kind', 'service.action')->where('o.provider_instance_id', $map->instanceId($instanceKey))
             ->whereBetween('a.started_at', [$at->subSeconds(self::NEAREST_OPERATION_SECONDS), $at->addSeconds(self::NEAREST_OPERATION_SECONDS)])
-            ->get(['o.id', 'o.service_id', 'o.desired', 'a.started_at']);
-        $nearest = $candidates->sortBy(fn (object $row) => abs(CarbonImmutable::parse((string) $row->started_at)->diffInSeconds($at, false)))->first();
+            ->get(['o.id', 'o.service_id', 'o.organization_id', 'o.desired', 'a.started_at']);
+    }
+
+    /**
+     * @param  Collection<int, stdClass>  $near
+     * @return array{operation_id:string, action:?string, service_id:?string}|null the one that ran closest in time
+     */
+    private static function nearest(Collection $near, CarbonImmutable $at): ?array
+    {
+        $nearest = $near->sortBy(fn (object $row) => abs(CarbonImmutable::parse((string) $row->started_at)->diffInSeconds($at, false)))->first();
 
         return $nearest === null ? null : ['operation_id' => (string) $nearest->id, 'action' => (json_decode((string) $nearest->desired, true)['action'] ?? null), 'service_id' => $nearest->service_id];
     }

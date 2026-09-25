@@ -10,10 +10,11 @@ are consecutive. The fix is described in `security-boundaries.md` §19; this run
 ```
 php artisan onhost:audit:provider-calls [--days=90 | --since=2026-06-01 [--until=2026-09-25]]
                                         [--instance=ispconfig-shared01 ...] [--format=md|json]
-                                        [--output=reports/<name>] [--stdout] [--include-clean]
+                                        [--output=reports/<name>.md|.json [--force]] [--stdout] [--include-clean]
 ```
 
-Exit code 0 = nothing CRITICAL or HIGH, 1 = at least one such row, 2 = bad options.
+Exit code 0 = nothing CRITICAL or HIGH, 1 = at least one such row, 2 = bad options. `--output` must end in the
+extension of `--format` and never replaces an earlier report unless `--force` is given.
 
 ## What it does — and what it never does
 
@@ -29,7 +30,11 @@ Exit code 0 = nothing CRITICAL or HIGH, 1 = at least one such row, 2 = bad optio
 
 1. **The actions.** Every `service.action` operation in the window whose action is one of the list above
    (`Onhost\Domain\Provisioning\Audit\OwnershipAuditTargets`; the mail half is derived from the guard
-   `ServiceActionWorkflow::OWN_MAIL_TARGETS`, so the two cannot drift).
+   `ServiceActionWorkflow::OWN_MAIL_TARGETS`, so the two cannot drift). The instance it ran on comes from the
+   operation, the service's bindings or the service row itself (bindings of a terminated service are deleted); when
+   none of them is known any more, every selected instance is searched and the row carries `instance_guessed` and is
+   at least REVIEW. An action that ran on another provider (aaPanel) or on an instance not selected with `--instance`
+   is not audited but **counted** in the report header (`meta.skipped`: `not_ispconfig`, `instance_not_selected`).
 2. **Was the write sent?** ISPConfig calls are logged with `operation_id` NULL (no call site passes it), so the write
    is tied to the operation by **time** (its attempts' window ± 2 s), the **same function** and the **same id**.
    `sent` = `accepted` (the panel answered body code `ok` — HTTP 200 alone proves nothing, ISPConfig refuses inside a
@@ -53,13 +58,17 @@ Exit code 0 = nothing CRITICAL or HIGH, 1 = at least one such row, 2 = bad optio
    | FOREIGN_PLATFORM, owner unknown | the platform made it but no longer knows for whom (note `owner_service_unknown`) | REVIEW |
    | UNKNOWN | no evidence in the logs | REVIEW when the panel was asked, INFO when nothing was sent |
 
-   Evidence that disagrees takes the worst reading (note `conflicting_evidence`).
+   Evidence that disagrees takes the worst reading (note `conflicting_evidence`). A database or shell user whose name
+   prefix several services share (a legacy service without `name_prefix` falls back to its id's last six characters)
+   is never cleared as the acting service's: FOREIGN_PLATFORM, owner unknown, note `shared_prefix`, REVIEW.
 5. **Probing.** Operations that FAILED with the guard's `error.detail.not_ours` or the adapter's "not found on this
    site" — someone still trying after the fix. Grouped per actor; HIGH at three refusals or consecutive ids.
 6. **Writes no operation explains.** `sites_shell_user_update/delete`, `sites_database_user_update/delete`,
    `mail_user_update/delete`, `mail_alias_delete` in the window that no action above accounts for. HIGH when the
    record is FOREIGN_UNMANAGED, REVIEW when there is no evidence and the panel accepted, INFO for platform records
-   (a site's leftovers removed, sending switched for a whole domain). Each listed row names the service action that
+   (a site's leftovers removed, sending switched for a whole domain) — unless a service action of **another
+   organization** than the record's owner started within ± 60 s on that instance: then REVIEW with note
+   `nearest_op_other_org` (what a tie that missed an exploit looks like). Each listed row names the service action that
    ran nearest in time on the instance (± 60 s) as a hint.
 7. **Coverage.** Per instance: the oldest and newest logged call, the number of rows, rows that could not be read
    (cut at 16 KB or not JSON — never guessed at) and a warning when the log starts after the window start.
@@ -88,7 +97,9 @@ rows written before the H12 masks may still hold passwords and keys. Names keep 
 rest (`oh1yz8n6_s***`), addresses keep their domain (`i***@other.cz`), a planted SSH key appears only as its
 fingerprint (`Redactor::fingerprint` of the key string as it was sent: the first 16 hex characters of the SHA-256 of
 its JSON form — not the `ssh-keygen -l` fingerprint; compute it the same way on a key found on the node to compare),
-and every string passes `Redactor` and `SecretMask`.
+and every string passes `Redactor` and `SecretMask`. Customer-supplied text (a fetchmail destination may carry ESC)
+loses control characters, DEL and bidi overrides (`?` instead), so `--stdout` cannot drive the operator's terminal;
+in the Markdown a cell escapes `|`, `<`, `>` and backticks.
 
 ## A CRITICAL or HIGH row — incident steps (owner / legal)
 
