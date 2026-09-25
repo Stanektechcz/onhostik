@@ -80,8 +80,10 @@ state is `offline` for the whole restore and used to read as "finished" at the f
 * `mail_user_backup(session, primary_id, action_type)`: `backup_restore_mail` | `backup_delete_mail`, same ownership
   check against `mail_user_backup_list`. There is no "back up this mailbox now": the feature key `mail_backup_now` is
   off, the button is hidden, `backupMailbox()` says so.
-* The nightly ISPConfig archives stay on the node as before (`backup_interval`, `backup_copies` from provisioning);
-  existing rows with a `remote_id` keep working through the panel (download, restore).
+* The nightly ISPConfig archives stay on the node as before; a **site** gets `backup_interval`/`backup_copies` from
+  provisioning (`backup_generations`). A **mailbox** got neither until TASK-0024 — the panel kept its own form default —
+  and gets them now only under the rule `mail.backup_retention` (see "Mailbox backups follow the plan" below).
+  Existing rows with a `remote_id` keep working through the panel (download, restore).
 
 Staging checks: (1) manual backup of an ISPConfig site → a set with the files and the database appears, the panel's
 list is untouched; (2) restore it → the site shows the old content, the database too; (3) restore a **panel** archive
@@ -403,6 +405,7 @@ Tests: `tests/Feature/Services/ComputeBackupScheduleTest.php`.
 | backups: the backup tick ran within 30 min and inside its budget | the last `backups.run` is younger than 30 min, took at most `TICK_BUDGET_SECONDS` (720 s, 80 % of the cadence) and had no errors; also warns when `backups.run` is switched off | no |
 | backups: every plan is backed up as often and as long as sold | `backups.as_sold` is on, or no web/managed service sells a sub-daily frequency | no |
 | every server sold backups has one from the last N days | only while `backups.compute` is on: every server sold backups older than `coverage_days` has a completed backup in that window | no |
+| mail backups: mailboxes keep the backups the plan sells | no live mail service sells `backup_days`, or `mail.backup_retention` is on and every one is at its plan (`tags.mail_backup`); otherwise names how many are behind, how many hold a downgrade, how many had a mailbox the panel refused | no |
 
 `onhost:backups:run` is `withoutOverlapping`: a tick that runs longer than fifteen minutes makes the next one skip in
 silence and a 15m plan loses slots nobody counts. The tick now records its `seconds` in the automation ledger; the
@@ -457,3 +460,51 @@ nothing was changed`. Check the estimate against the capacity of `ONHOST_PLATFOR
 meaning (frequency for the generations + one a day for `backup_days`; every sub-daily copy for the whole `backup_days`
 would be 8 640 full archives per site on shop-peak). New plan versions should also spell `hourly` instead of `1h`
 (catalogue task); the alias stays for existing services.
+
+## Mailbox backups follow the plan — `mail.backup_retention` (owner decision 3, TASK-0024)
+
+**The hole.** Mail Business sells `backup_days` 14, Mail Enterprise 30. ISPConfig backs mailboxes up on its own nightly
+run and keeps `backup_copies` of them only where `backup_interval` is set — and `mail_user_add` never sent either, so
+every mailbox the platform made kept whatever the panel's form default is (ASSUMED `none`: then no mailbox has had a
+backup at all; check on staging). `BackupScheduler` selects mail services and skips them (no `backup_schedule`); it stays
+out of mail on purpose, because the panel keeps the retention itself. An autoresponder change also sent a partial
+`mail_user_update` that could reset the backup fields to form defaults; it now goes through the same merge as every other
+mailbox update.
+
+**The rule — off until the owner switches it on** (`mail.backup_retention`, `default_off`, "Zálohy schránek podle tarifu"):
+
+* a new mailbox of a **mail** plan is created with `backup_interval=daily`, `backup_copies=backup_days`
+  (`MailboxBackupPolicy::onCreate`, read from the service, never from the request); web plans' mailboxes are not touched
+  (a web plan's `backup_days` means its site sets);
+* a **paid plan change** of a mail service (`PlanChangeService` sets `apply_mailbox_backup`) ends its resize with
+  `MailboxBackupRetentionStep`: more copies are applied to the service's own mailboxes at once; **fewer copies are held**
+  (the panel would delete the difference at its next run) until an operator applies them with `--allow-prune`. The step
+  never fails the plan change — a refused mailbox lands in `tags.mail_backup.failed` and the audit
+  (`service.mail_backup.retention`). A drift repair or an add-on resize never carries the flag and never touches mailboxes;
+* a mail domain made while the rule is on is recorded as at its plan (`tags.mail_backup.source = provision`).
+
+While it is off, mailboxes are created and plans changed exactly as before (tests assert it). Switching it off stops new
+mailboxes and plan changes from setting retention; what the panel already keeps stays as it is.
+
+**Existing mailboxes** reach it only through `php artisan onhost:mail:backup-retention`:
+
+* without options it only **reads** the panels and lists every mailbox of every live mail service — `now`
+  (interval/copies), `plan` (daily/backup_days) and a status: `would_set`, `ok`, `not_ours` (never written),
+  `would_prune — will prune N existing copies (--allow-prune)`, `unreadable` — and ends with
+  `N service(s) behind · … · rule mail.backup_retention: on|off · nothing was changed`;
+* `--apply` (refused while the rule is off) asks for one `mailbox.backup_retention` operation per service that is behind
+  (system actor, audited); a service holding a downgrade is skipped unless `--allow-prune` is given too;
+  `--service=<id>` (repeatable) limits the run. The operation proves every mailbox again before it writes.
+
+**Ownership.** Nothing is written in a mail domain the adapter cannot prove is the platform's: the binding names the
+organisation's client, `client_get` says it is an `onh_…` client, `client_get_groupid` gives its group and the
+`mail_domain_get` row is this domain and carries that group (CONFLICT otherwise). Each mailbox must carry the same group
+and an address inside the domain, or it is `not_ours`. A customer cannot run the action (`operator_only`, 403); staff
+through the API need HIGH risk (step-up).
+
+**Before switching on (operator):** on a **staging** ISPConfig check that `mail_user_add`/`mail_user_update` accept
+`backup_interval=daily` and `backup_copies` up to 30, that `mail_user_get` returns `sys_groupid`, and after a night that
+`mail_user_backup_list` shows backups and a restore works; size the mail server's backup directory for the worst case
+(Mail Enterprise: 30 daily copies of up to 100 × 25 GB mailboxes) and monitor it. Then switch the rule on, run the
+command without `--apply`, apply to one or two services with `--apply --service=<id>`, then to the rest, and check the
+doctor row. Downgrades: tell the customer before `--allow-prune` — it deletes backups.

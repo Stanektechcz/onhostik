@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services\Metering;
 
+use Onhost\Domain\Provisioning\AutomationLedger;
+
 /**
  * Ground truth for every number a plan sells (audit §5ad, brain card H278): a plan must never promise a limit the
  * backend does not enforce. `PlanPromises` used to believe a key was kept the moment its own text appeared anywhere
@@ -49,6 +51,7 @@ final class MetricRegistry
      *     drives_guard: bool,
      *     status: string,
      *     reason: string|null,
+     *     kept_under?: array<string, string>,
      * }>
      */
     public const REGISTRY = [
@@ -86,9 +89,14 @@ final class MetricRegistry
         ],
         'backup_days' => [
             'entitlement' => ['backup_days'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::SOFT, 'families' => ['web', 'managed', 'mail', 'data'],
-            'sources' => ['scheduler' => 'BackupScheduler::tick() queries Service::whereIn(\'family\', [\'web\',\'managed\',\'mail\']), and scheduleFor() only runs where ServiceFeatures offers backup_schedule (web/managed); there it reads backup_days as the retention window and prunes against it'],
+            'sources' => [
+                'scheduler' => 'BackupScheduler::tick() schedules web/managed (backup_schedule) and, under backups.compute, data; under backups.as_sold web/managed keep one backup a day for backup_days beyond their generations (BackupDailyKeepers), and data prunes by backup_days',
+                'ispconfig-mail' => 'under mail.backup_retention a mail plan\'s new mailbox is created with backup_interval=daily/backup_copies=backup_days, a paid plan change applies it to the service\'s own mailboxes, existing ones via onhost:mail:backup-retention --apply (MailboxBackupPolicy); the doctor lists services behind',
+            ],
             'interval_minutes' => 1440, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'kept for web/managed only (BackupScheduler, see sources). Mail plans sell it too, but mail services are selected and then skipped — ServiceFeatures gives mail no backup_schedule and no mail config sets the panel\'s retention from it; managed databases (db-s/db-m, family data) are not even selected, and nothing else backs them up on a schedule or prunes by it — see KNOWN_GAPS.',
+            // TASK-0024: kept for a family only while the owner's default-off rule that delivers it is on (isKept)
+            'kept_under' => ['web' => 'backups.as_sold', 'managed' => 'backups.as_sold', 'mail' => 'mail.backup_retention', 'data' => 'backups.compute'],
+            'reason' => 'kept only behind default-off rules (kept_under): web/managed keep backup_days as daily backups under backups.as_sold (otherwise pruned to the generation count), mail mailboxes get backup_copies=backup_days under mail.backup_retention (existing ones after onhost:mail:backup-retention --apply), managed databases (db-s/db-m, family data) are backed up and pruned by it under backups.compute. With the rules off nothing keeps the number as sold — see KNOWN_GAPS.',
         ],
         'backup_generations' => [
             'entitlement' => ['backup_generations'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::SOFT, 'families' => ['web'],
@@ -291,6 +299,24 @@ final class MetricRegistry
             return false;
         }
 
-        return in_array($entry['status'], [self::MEASURED, self::ENFORCED_ONLY], true);
+        if (in_array($entry['status'], [self::MEASURED, self::ENFORCED_ONLY], true)) {
+            return true;
+        }
+        // a promise delivered only while the owner's default-off rule for it is on (TASK-0024): kept for that family then, never before
+        $rule = $family === null ? null : ($entry['kept_under'][$family] ?? null);
+
+        return $rule !== null && self::ruleOn($rule);
+    }
+
+    /** Whether an automation rule is on; a settings store that cannot be read counts as off — the promise is then not kept. */
+    private static function ruleOn(string $rule): bool
+    {
+        try {
+            return app(AutomationLedger::class)->enabled($rule);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return false;
+        }
     }
 }

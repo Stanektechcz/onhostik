@@ -110,7 +110,7 @@ final class PlanPromises
         'connections' => 'sold on managed database plans; nothing writes it into the engine config or measures live connections — see MetricRegistry',
         'pitr_days' => 'sold on managed database plans; only read as (bool) pitr_days — whether PITR is on — never as a retention window — see MetricRegistry',
         'pids' => 'sold in every game plan\'s limits bag; PterodactylGameProvider\'s resource limits (memory/swap/disk/io/cpu) never include a PID cap — see MetricRegistry',
-        'backup_days' => 'sold on mail plans and on db-s/db-m (managed database, family `data`); BackupScheduler only ever schedules web/managed (mail is selected but has no backup_schedule, data is not selected), so neither retention promise is kept. Kept for web/managed — see MetricRegistry (found by family-scoping the registry check, audit §5ad)',
+        'backup_days' => 'sold on web/managed, mail and db-s/db-m plans; kept only behind the owner\'s default-off rules — backups.as_sold (web/managed daily backups), mail.backup_retention (mailbox copies, TASK-0024) and backups.compute (managed databases, family `data`) — so with the rules off (the default) no family keeps it as sold — see MetricRegistry kept_under (found by family-scoping the registry check, audit §5ad)',
     ];
 
     /**

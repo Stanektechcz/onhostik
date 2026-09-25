@@ -45,6 +45,10 @@ final class CustomerActionParams
             throw new DomainError('resize_requires_plan_change', 'The resources of a service follow its plan. Change the plan to change them.', 403, ['hint' => 'order a plan change (cart line with config.upgrade_of)']);
         }
 
+        if ($action === 'mailbox.backup_retention') { // what the server keeps, and whether it deletes backups, is the operator's (onhost:mail:backup-retention)
+            throw new DomainError('operator_only', 'Zálohy schránek nastavuje provoz podle tarifu.', 403, ['action' => $action]);
+        }
+
         return array_intersect_key($params, array_flip(self::keysFor($action)));
     }
 

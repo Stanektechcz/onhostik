@@ -12,7 +12,8 @@ password come from `env://ISPCONFIG_<KEY>`; options: `server_id`, `mail_server_i
 | | `resize` | `sites_web_domain_update` (quota, traffic, php version) |
 | | `suspend` / `resume` | `sites_web_domain_update` `active = n|y` |
 | | `destroy` | `sites_web_domain_delete` + database/ftp cleanup |
-| Mail | `createMailDomain` / `createMailbox` | `mail_domain_add`, `mail_user_add`, `mail_user_update` quotas |
+| Mail | `createMailDomain` / `createMailbox` | `mail_domain_add`, `mail_user_add` (with `backup_interval=daily`/`backup_copies` only when the platform passes `backup_copies`), `mail_user_update` quotas |
+| Mailbox backup retention | `mailboxBackupRetention` / `setMailboxBackupRetention` (`MailboxBackupRetention`, trait `IspConfigMailBackups`) | proof: `client_get` (`onh_…`), `client_get_groupid`, `mail_domain_get` (`sys_groupid`, domain); `mail_user_get` (`%@domain`, per mailbox `sys_groupid` + suffix); write: merged `mail_user_update` with `backup_interval=daily`, `backup_copies` 1–365 — contract `tests/Contract/IspConfigMailBackupRetentionContractTest.php` |
 | Usage | `usage()` | `sites_web_domain_get` + `client_get_sites_by_user` traffic |
 
 Async: ISPConfig applies changes through the server job queue; the adapter returns an `AsyncHandle` with the
@@ -34,7 +35,7 @@ SFTP (`SftpTransport`, rooted at `<home>/web`); `ensureAgent()` is asynchronous 
 `SecurityRules::PHP_EDITABLE`), `nginx_directives`/`apache_directives` managed block, `sites_cron_update`,
 `sites_database_update` (`remote_access`, `remote_ips`), `quota_get_by_user`/`trafficquota_get_by_user`,
 `sites_web_domain_backup` (`primary_id` = the **backup's** id, `backup_download` / `backup_restore`, only ids from the site's own list — docs/runbooks/backups.md; the panel has no "back up now", `siteFeatures()['backup_on_demand']` is false) downloads, `client_login_get` for the staff panel link, and the mail functions
-`mail_forward_*`, `mail_catchall_*`, `mail_user_get/update` (autoresponder), `mail_policy_get`,
+`mail_forward_*`, `mail_catchall_*`, `mail_user_get/update` (autoresponder — merged into the stored record, so the backup fields survive), `mail_policy_get`,
 `mail_spamfilter_user_*`, `mail_spamfilter_whitelist/blacklist_*`, `mail_user_filter_*`, `mail_mailinglist_*`,
 `mail_fetchmail_*`, `mail_user_backup*`, `mailquota_get_by_user`. Instance options: `agent_chroot`, `webmail_url`,
 `deploy_strategy` (`symlink` | `rsync`), `redis_host`/`redis_port`. The remote user needs the corresponding function

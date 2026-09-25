@@ -6,6 +6,7 @@ namespace Onhost\Domain\Services\Web;
 
 use Carbon\CarbonImmutable;
 use Onhost\Domain\Provisioning\AutomationLedger;
+use Onhost\Domain\Services\Mail\MailboxBackupPolicy;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -14,8 +15,8 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
  * The doctor's rows about backups the platform takes for its customers (TASK-0024): whether servers and managed databases
  * sold backups get them (`backups.compute`), whether their Proxmox instance has somewhere to put them, server backups whose
  * volume could not be removed or that left a second volume behind, whether the backup tick itself runs inside its fifteen
- * minutes, and whether plans are backed up as often and as long as sold (`backups.as_sold`). Read-only: nothing is
- * written, no provider is asked. `onhost:doctor` adds the rows; the logic lives here to keep the doctor small.
+ * minutes, whether plans are backed up as often and as long as sold (`backups.as_sold`), and whether mail plans' mailboxes
+ * keep the backups sold (`mail.backup_retention`). Read-only: nothing is written, no provider is asked. `onhost:doctor` adds the rows; the logic lives here to keep the doctor small.
  */
 final class BackupOperationsCheck
 {
@@ -35,6 +36,7 @@ final class BackupOperationsCheck
         if ($ready['rule_on']) {
             $rows[] = $this->coverageRow($ready['services']);
         }
+        $rows[] = MailboxBackupPolicy::doctorRow(); // mailboxes of mail plans keep the backups sold (mail.backup_retention)
 
         return $rows;
     }

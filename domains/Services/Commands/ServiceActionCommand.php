@@ -55,7 +55,7 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
 
     public function riskLevel(): string
     {
-        return in_array((string) $this->get('action'), ['terminate', 'purge', 'restore', 'rollback_snapshot', 'resize', 'reinstall', 'panel.password', 'access.reset', 'rescue.start', 'site.delete'], true) ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
+        return in_array((string) $this->get('action'), ['terminate', 'purge', 'restore', 'rollback_snapshot', 'resize', 'reinstall', 'panel.password', 'access.reset', 'rescue.start', 'site.delete', 'mailbox.backup_retention'], true) ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
     }
 
     public function requiresStepUp(): bool

@@ -14,6 +14,7 @@ use Onhost\Providers\Contracts\ActualState;
 use Onhost\Providers\Contracts\AsyncHandle;
 use Onhost\Providers\Contracts\AsyncStatus;
 use Onhost\Providers\Contracts\FileTransport;
+use Onhost\Providers\Contracts\MailboxBackupRetention;
 use Onhost\Providers\Contracts\MailProvider;
 use Onhost\Providers\Contracts\MailToolsProvider;
 use Onhost\Providers\Contracts\ProviderHealth;
@@ -33,8 +34,9 @@ use Onhost\Providers\Shell\SecurityRules;
  * (§15). One ISPConfig client per ONhost organization, one Unix user + PHP-FPM
  * pool per site, real per-site limits from the plan entitlements.
  */
-final class IspConfigWebProvider implements MailProvider, MailToolsProvider, SelfProbing, WebHostingProvider, WebToolsProvider
+final class IspConfigWebProvider implements MailboxBackupRetention, MailProvider, MailToolsProvider, SelfProbing, WebHostingProvider, WebToolsProvider
 {
+    use IspConfigMailBackups;
     use IspConfigMailTools;
     use IspConfigTools;
 
@@ -619,7 +621,7 @@ final class IspConfigWebProvider implements MailProvider, MailToolsProvider, Sel
             'server_id' => (int) $domain->node, 'email' => $mailbox['address'], 'login' => $mailbox['address'], 'password' => $mailbox['password'], 'name' => $mailbox['name'] ?? $local,
             'quota' => (int) ($mailbox['quota_mb'] ?? 2048) * 1024 * 1024, 'cc' => '', 'maildir' => '', 'homedir' => '', 'uid' => 5000, 'gid' => 5000,
             'postfix' => 'y', 'access' => 'y', 'disableimap' => 'n', 'disablepop3' => 'n', 'disablesmtp' => 'n', 'disabledeliver' => 'n', 'disablesieve' => 'n', 'move_junk' => 'y',
-        ]], true);
+        ] + ((int) ($mailbox['backup_copies'] ?? 0) > 0 ? ['backup_interval' => 'daily', 'backup_copies' => (int) $mailbox['backup_copies']] : [])], true); // the plan's mailbox backups, only when the platform asks (MailboxBackupPolicy, TASK-0024)
 
         return ProviderResult::accepted($this->jobqueueHandle((int) $domain->node), new ResourceRef('mailbox', (string) $id, $domain->node, ['email' => $mailbox['address']], $domain->serviceId), ['mailuser_id' => $id]);
     }

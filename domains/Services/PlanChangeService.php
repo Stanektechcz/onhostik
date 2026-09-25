@@ -161,7 +161,8 @@ final class PlanChangeService
 
         // the node first: a busy or non-active service refuses the resize and the line fails without touching billing (a period change on the same plan touches no node)
         if (! ($periodChange && $from === $to)) {
-            $this->services->requestAction($service, 'resize', $context, "plan-change:{$item->id}", ['entitlements' => $entitlements, 'limits' => (array) ($version->limits ?? []), 'reason' => "plan change {$from} → {$to}"]);
+            $this->services->requestAction($service, 'resize', $context, "plan-change:{$item->id}", ['entitlements' => $entitlements, 'limits' => (array) ($version->limits ?? []), 'reason' => "plan change {$from} → {$to}"]
+                + ($service->family === 'mail' ? ['apply_mailbox_backup' => true] : [])); // the mailboxes follow the paid plan's backup_days (TASK-0024); a drift repair never carries this
         }
 
         $service->forceFill(['plan_version_id' => $version->id, 'sla_class' => (string) ($version->plan?->sla_class ?? $service->sla_class)])->save();

@@ -583,6 +583,7 @@ final class ServiceService
             'restore.test' => ['web', 'managed'], // a set of database dumps is what can be restored into a copy and compared
             'snapshot', 'rollback_snapshot' => ['cloud', 'data'],
             'power' => ['cloud', 'data', 'game'],
+            'mailbox.backup_retention' => ['mail'], // a mail plan's mailbox backups (TASK-0024)
             default => null,
         };
         if ($families !== null && ! in_array($service->family, $families, true)) {

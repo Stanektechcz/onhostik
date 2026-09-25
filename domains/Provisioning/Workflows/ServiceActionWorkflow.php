@@ -24,6 +24,7 @@ use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\IncludedServices;
 use Onhost\Domain\Services\LegalHold;
+use Onhost\Domain\Services\Mail\MailboxBackupPolicy;
 use Onhost\Domain\Services\Mail\MailDomains;
 use Onhost\Domain\Services\Mail\MailSettings;
 use Onhost\Domain\Services\Models\Backup;
@@ -79,7 +80,7 @@ use Throwable;
  */
 final class ServiceActionWorkflow implements Workflow
 {
-    public const CORE_ACTIONS = ['power', 'suspend', 'resume', 'resize', 'terminate', 'purge', 'backup', 'restore', 'restore.test', 'archive.restore', 'snapshot', 'rollback_snapshot'];
+    public const CORE_ACTIONS = ['power', 'suspend', 'resume', 'resize', 'terminate', 'purge', 'backup', 'restore', 'restore.test', 'archive.restore', 'snapshot', 'rollback_snapshot', 'mailbox.backup_retention'];
 
     /** Feature actions: one provider call each, validated by ServiceService::featureParams, no service state change. */
     public const FEATURE_ACTIONS = [
@@ -155,7 +156,9 @@ final class ServiceActionWorkflow implements Workflow
             'power' => [$this->powerStep(), $this->verifyPowerStep()],
             'suspend' => [$this->suspendStep(), $this->pauseExtrasStep(), $this->holdIncludedServicesStep(true), $this->finishStateStep(ServiceStateMachine::SUSPENDED)],
             'resume' => [$this->resumeStep(), $this->resumeExtrasStep(), $this->holdIncludedServicesStep(false), $this->finishStateStep(ServiceStateMachine::ACTIVE)],
-            'resize' => [$this->resizeStep(), $this->finishResizeStep()],
+            // a paid plan change of a mail plan brings its mailboxes to the new backup_days, after the plan is saved (TASK-0024)
+            'resize' => [$this->resizeStep(), $this->finishResizeStep(), ...MailboxBackupRetentionStep::afterResize($operation)],
+            'mailbox.backup_retention' => [new MailboxBackupRetentionStep], // operator only: onhost:mail:backup-retention --apply
             'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->pauseExtrasStep(), $this->cancelAddonsStep(), $this->endIncludedServicesStep(), $this->revokeDelegationsStep(), $this->scheduleRemovalStep()],
             'purge' => [$this->identityStep(), $this->finalArchiveStep(anyOperation: true), $this->endIncludedServicesStep(), $this->removeMailDomainStep(), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
             'backup' => [$this->backupStep()],
@@ -423,7 +426,7 @@ final class ServiceActionWorkflow implements Workflow
                     })(),
                     'command.send' => $this->capability($context, GameProvider::class)->sendCommand($ref, (string) $p('command')),
                     'schedule.create' => $this->capability($context, GameProvider::class)->createSchedule($ref, ['name' => $p('name'), 'cron' => $p('cron'), 'actions' => (array) $p('actions', [])]),
-                    'mailbox.create' => $this->capability($context, MailProvider::class)->createMailbox($ref, ['address' => $p('address'), 'password' => $p('password'), 'name' => $p('name'), 'quota_mb' => $p('quota_mb', 2048)]),
+                    'mailbox.create' => $this->capability($context, MailProvider::class)->createMailbox($ref, ['address' => $p('address'), 'password' => $p('password'), 'name' => $p('name'), 'quota_mb' => $p('quota_mb', 2048)] + MailboxBackupPolicy::onCreate($this->service($context))),
                     'mailbox.update' => $this->capability($context, MailProvider::class)->updateMailbox(new ResourceRef('mailbox', (string) $p('remote_id'), $ref->node, ['client_id' => $ref->meta['client_id'] ?? null], $ref->serviceId), (array) $p('changes', [])),
                     'mailbox.delete' => $this->capability($context, MailProvider::class)->deleteMailbox(new ResourceRef('mailbox', (string) $p('remote_id'), $ref->node, [], $ref->serviceId)),
                     'alias.create' => $this->capability($context, MailProvider::class)->createAlias($ref, ['source' => $p('source'), 'destination' => $p('destination')]),
