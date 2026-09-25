@@ -180,5 +180,8 @@ it('runs the toolkit on an aaPanel-backed site: terminal, PHP settings, monitori
 
     // 8. staff single sign-on into the panel: not available on this executor, and never for customers
     $this->getJson("/v1/staff/services/{$service->id}/panel-login")->assertStatus(403);
-    $this->actingAs($this->staff(), 'sanctum')->getJson("/v1/staff/services/{$service->id}/panel-login")->assertStatus(409)->assertJsonPath('error', 'panel_login_unavailable');
+    $staff = $this->staff();
+    $this->actingAs($staff, 'sanctum')->getJson("/v1/staff/services/{$service->id}/panel-login")->assertStatus(403)->assertJsonPath('error', 'step_up_required'); // a login into the customer's panel (TASK-0030 WP-B)
+    app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1');
+    $this->getJson("/v1/staff/services/{$service->id}/panel-login")->assertStatus(409)->assertJsonPath('error', 'panel_login_unavailable');
 });

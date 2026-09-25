@@ -301,7 +301,7 @@ final class ProvisioningController extends ApiController
     /** The daily capacity pass on demand (audit §5o): warnings, proposals, orders per the rule, deliveries. */
     public function runCapacityForecast(Request $request, CapacityForecast $forecast, CapacityPlanner $planner): JsonResponse
     {
-        $this->api->authorize($request, 'capacity.manage', CommandScope::global());
+        $this->api->authorizeAction($request, 'capacity.manage', CommandScope::global()); // may order nodes from a vendor: a fresh step-up
 
         return response()->json(['data' => ['warned' => $forecast->warn(), 'plan' => $planner->run(), 'forecast' => $forecast->forecast()]]);
     }

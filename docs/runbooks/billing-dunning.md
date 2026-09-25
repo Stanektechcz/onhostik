@@ -5,7 +5,8 @@
 DUE → OVERDUE_NOTICE (day 3, 7, 14 notices) → GRACE → SUSPENDED (day 30) → TERMINATION_SCHEDULED (day 60)
 → TERMINATED, or RESOLVED as soon as the invoice is paid or the wallet covers the renewal.
 
-* `onhost:billing:dunning` runs daily 06:00; `POST /v1/staff/dunning/run` runs it on demand.
+* `onhost:billing:dunning` runs daily 06:00; `POST /v1/staff/dunning/run` runs it on demand (fresh step-up: the run can
+  suspend and terminate, so it asks for the same step-up the bus would — TASK-0030 WP-B).
 * Suspension runs the regular suspend saga per service (provider-side, reversible); resume is automatic on
   payment (`SettleBillingAfterPayment`) — for a *suspension* only. Once the case is TERMINATED the service is
   cancelled (deactivated, restore window running) and a later payment brings it back only through "Pay and restore"

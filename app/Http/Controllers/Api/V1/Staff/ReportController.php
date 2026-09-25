@@ -57,7 +57,7 @@ final class ReportController extends ApiController
 
     public function runDunning(Request $request, DunningService $dunning): JsonResponse
     {
-        $this->api->authorize($request, 'billing.dunning.manage', CommandScope::global());
+        $this->api->authorizeAction($request, 'billing.dunning.manage', CommandScope::global()); // suspends and terminates: the step-up the bus would ask
 
         return response()->json(['data' => $dunning->tick($this->api->context($request))]);
     }

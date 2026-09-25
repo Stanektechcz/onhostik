@@ -9,7 +9,9 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
+use LogicException;
 use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\Models\User;
@@ -108,6 +110,30 @@ final class ApiContext
             throw DomainError::forbidden("Missing permission {$permission}");
         }
         $this->assertTokenScope($request, $permission);
+    }
+
+    /**
+     * authorize() for a write that does its work WITHOUT the bus: a HIGH permission asks for the same fresh step-up the bus
+     * would, with the same answer the console's step-up dialog repeats the request on (audit §4 "Step-up is not enforced on
+     * non-bus staff triggers" — dunning by hand, the capacity pass, staff SSO into a panel ran on a bare session). Reads keep
+     * authorize(). A CRITICAL write never comes here: it goes through the bus, where the second person is asked.
+     */
+    public function authorizeAction(Request $request, string $permission, ?CommandScope $scope = null): void
+    {
+        if (PermissionCatalog::requiresFourEyes($permission)) {
+            throw new LogicException("{$permission} is CRITICAL: dispatch a command, the bus asks for the second person.");
+        }
+        $this->authorize($request, $permission, $scope);
+        if (! PermissionCatalog::requiresStepUp($permission)) {
+            return;
+        }
+        $user = $request->user();
+        if (! $user instanceof User) {
+            throw DomainError::forbidden('Step-up authentication is only possible for a person.');
+        }
+        if ($this->stepUp->activeGrant($user, $this->sessionId($request)) === null) {
+            throw new DomainError('step_up_required', 'Step-up authentication required for this action', 403, ['requirement' => 'step_up', 'help' => '/v1/auth/step-up']);
+        }
     }
 
     /**

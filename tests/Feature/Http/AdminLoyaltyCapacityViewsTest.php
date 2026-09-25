@@ -6,6 +6,7 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 
 /*
  * Campaign forecast and capacity requests in the console (audit §5o-5, §5o-7): two prototype table views are repurposed
@@ -27,7 +28,11 @@ it('relabels the two views, ships their tables and runs the capacity pass on dem
         ->toContain("'/staff/capacity/requests?state=all'")->toContain('Založit herní server')->toContain("action: 'command.send'")->toContain("window.open('/sprava/konzole/' + sid")->toContain("'X-Organization': org");
 
     // the pass on demand: the forecast rows come back with the plan (nothing short in a fresh lab)
-    $this->actingAs($this->staff('infrastructure_admin'), 'sanctum');
+    $admin = $this->staff('infrastructure_admin');
+    $this->actingAs($admin, 'sanctum');
+    // the pass may order nodes from a vendor: it runs outside the bus, so it asks for the bus's fresh step-up itself (TASK-0030 WP-B)
+    $this->withHeader('Idempotency-Key', 'cap-run-1')->postJson('/v1/staff/capacity/forecast/run')->assertStatus(403)->assertJsonPath('error', 'step_up_required');
+    app(StepUpService::class)->grant($admin, 'totp', null, '127.0.0.1');
     $run = $this->withHeader('Idempotency-Key', 'cap-run-1')->postJson('/v1/staff/capacity/forecast/run')->assertOk()->json('data');
     expect($run)->toHaveKeys(['warned', 'plan', 'forecast'])->and($run['plan'])->toHaveKeys(['proposed', 'ordered', 'delivered']);
     $this->actingAs($this->staff('support_agent'), 'sanctum');

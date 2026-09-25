@@ -58,7 +58,7 @@ is merged into the stored mailbox record like every other mailbox update, so the
 | CDN | `cdn.enable/disable/purge` (settings) ; resource `cdn` | `CdnService` + `CloudflareCdnProvider` (`ONHOST_CDN_CLOUDFLARE_SECRET_REF` → secret with `token`, `account_id`): zone per apex, records mirrored from the platform DNS (web hosts proxied), settings, purge, nameserver switch when the domain is ours; `onhost:cdn:refresh` hourly |
 | Import | `import.run` (kind cpanel/plesk/url/upload, source, files, databases, subdir) ; resource `imports` | `ImportService` + `ImportWorkflow`: unpack on the control plane, detect document root and SQL dumps, upload through the transport, create databases, re-point WordPress; a historical site (not created by ONhost) only via docs/runbooks/historical-site-import.md, as an import into a NEW site |
 | Node.js projects | `node.create`, `node.action` ; resource `node_projects` | aaPanel Node project API |
-| Staff panel login | staff `GET /v1/staff/services/{id}/panel-login` | ISPConfig `client_login_get` (permission `staff.console`, audited) |
+| Staff panel login | staff `GET /v1/staff/services/{id}/panel-login` | ISPConfig `client_login_get` (permission `staff.console`, fresh step-up, audited) |
 
 ## Executors on the nodes (what a live check taught us)
 
@@ -1097,7 +1097,7 @@ with a one-time token (kept hashed on the request) and the host's facts (hostnam
 stores the facts on the node's `tags.bootstrap`, spends the token and tells operations *Uzel je připraven na
 instalaci* with the playbook line. *Kapacita a nákup uzlů* (the prototype's `nodecost` table, `#/nodecost`) shows the
 forecast pools and every request with *Schválit / Dodáno / Zrušit / Zkusit znovu* and *Spustit forecast*
-(`POST /v1/staff/capacity/forecast/run`).
+(`POST /v1/staff/capacity/forecast/run`; it may order nodes from a vendor, so it asks for a fresh step-up — TASK-0030 WP-B).
 
 **Spigot and the staff quick action.** The template `minecraft-spigot` maps onto a Spigot egg when the panel has one
 and onto the Paper egg otherwise (`via_fallback`), with `DL_PATH=https://download.getbukkit.org/spigot/spigot-{version}.jar`
