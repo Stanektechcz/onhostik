@@ -10,6 +10,7 @@ use Onhost\Domain\Billing\Models\ChargebackRequest;
 use Onhost\Domain\Billing\Models\DunningCase;
 use Onhost\Domain\Billing\Models\RatedUsage;
 use Onhost\Domain\Billing\Models\Subscription;
+use Onhost\Domain\Billing\Models\Withdrawal;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\Models\Invoice;
@@ -60,6 +61,8 @@ final class ServiceReinstatement
         'held' => 'Službu drží blokace, kterou platba nezruší (porušení podmínek nebo zásah našeho týmu). Napište prosím podpoře.',
         'no_subscription' => 'Služba nemá předplatné, které by šlo obnovit; napište prosím podpoře.',
         'operation_in_progress' => 'Na službě právě běží jiná operace; zkuste to prosím za chvíli.',
+        'withdrawn' => 'Od této smlouvy bylo odstoupeno; službu nelze obnovit platbou. Novou si můžete kdykoli objednat.',
+        'chargeback' => 'Služba byla zrušena s vrácením kreditu (chargeback) a obnovení by nic nové nestálo; obnovit ji může jen podpora.',
     ];
 
     public function __construct(
@@ -86,6 +89,9 @@ final class ServiceReinstatement
         if ($service->trashed() || in_array($service->state, [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING], true)) {
             return 'window_closed'; // purged: only the archive is left, restored into a new service
         }
+        if (Withdrawal::query()->where('service_id', $service->id)->exists()) {
+            return 'withdrawn'; // the consumer left the contract and was refunded: no payment undoes that, however far the unwinding got
+        }
         if ($service->terminate_at === null || ! is_array(data_get($service->tags, 'deletion'))) {
             return 'not_cancelled';
         }
@@ -109,6 +115,9 @@ final class ServiceReinstatement
         }
         if ($this->subscriptionOf($service) === null) {
             return 'no_subscription';
+        }
+        if ($this->chargebackEndedThisCancellation($service) && ! $this->newPeriodCharged($service)) {
+            return 'chargeback'; // a metered service owes no new period: restoring it would keep the refund and the service for nothing
         }
         if (Operation::query()->where('service_id', $service->id)->whereIn('state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING])->exists()) {
             return 'operation_in_progress';
@@ -248,7 +257,10 @@ final class ServiceReinstatement
      * (TASK-0025): a chargeback returned the unused period, so resuming would keep both the refund and the service; and a
      * resume after the period ended would run unbilled. Staff and the platform are not asked here.
      *
-     * @throws DomainError `chargeback_cancelled` (409) with the rule off, `reinstatement_payment_required` (402) with it on
+     * A chargeback-cancelled service is refused whether the rule is on or off; with the rule on the one way back is to pay a
+     * whole new period (402 with the quote) — and where no new period would be charged (a metered product) there is none.
+     *
+     * @throws DomainError `chargeback_cancelled` (409), or `reinstatement_payment_required` (402) with the rule on
      */
     public function assertCustomerMayResume(Service $service, CommandContext $context): void
     {
@@ -258,6 +270,9 @@ final class ServiceReinstatement
         if (in_array(SuspensionHold::WITHDRAWAL, SuspensionHold::holds($service), true)) {
             return; // withdrawn and refunded: no price brings it back — the hold refuses the resume with its own message
         }
+        if ($this->chargebackEndedThisCancellation($service) && ! ($this->enabled() && $this->newPeriodCharged($service))) {
+            throw new DomainError('chargeback_cancelled', 'Služba byla zrušena s vrácením kreditu (chargeback); obnovit ji může jen podpora.', 409, ['grace_until' => $service->terminate_at->toIso8601String()]);
+        }
         if ($this->enabled()) {
             $quote = $this->quote($service);
             if ($quote['total_due']->isPositive()) {
@@ -265,9 +280,6 @@ final class ServiceReinstatement
             }
 
             return;
-        }
-        if ($this->chargebackEndedThisCancellation($service)) {
-            throw new DomainError('chargeback_cancelled', 'Služba byla zrušena s vrácením kreditu (chargeback); obnovit ji může jen podpora.', 409, ['grace_until' => $service->terminate_at->toIso8601String()]);
         }
     }
 
@@ -435,6 +447,17 @@ final class ServiceReinstatement
         }
 
         return $this->refundedSinceCancellation($service) ? (self::cancellationStarted($service) ?? now())->min($end) : $end;
+    }
+
+    /** Bringing the service back would charge a new, positive period: it has a subscription, is not metered and its price is above zero. */
+    private function newPeriodCharged(Service $service): bool
+    {
+        $subscription = $this->subscriptionOf($service);
+        if ($subscription === null || SubscriptionService::isMetered(Product::query()->where('key', $service->product_key)->first())) {
+            return false;
+        }
+
+        return $this->subscriptions->restartPrice($subscription, $service)['gross']->isPositive();
     }
 
     private function chargebackEndedThisCancellation(Service $service): bool

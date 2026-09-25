@@ -175,7 +175,7 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 | `capacity.budget.exceeded` | the capacity request row + `cost`, `budget`, `spent` (formatted) — an order that would cross the monthly cap on vendor node orders waits for a person (audit §5q-5) | finance inbox `#/nodecost` (hot) |
 | `rebalance.plan` / `chargeback.cluster` | the nightly dry-run rebalancing plan from the measured load (audit §5j-4: `basis`, `moves`, `hot[]`, `summary[]`) and a cluster of chargeback reasons that opened an internal incident (audit §5j-6: `number`, `cluster`, `count`, `theme`, `label`) | operations inbox `#/fleet`, finance inbox `#/incidents` |
 | `service.reinstatement.failed` | the money for a restore was taken and the scheduled removal called off, but the resume was refused (`label`, `error`, `billing`, `document_id`); no hold is left, staff resume by hand (TASK-0025) | admin inbox (`service`, hot) |
-| `withdrawal.stalled` | a step of a consumer withdrawal was refused (`service_id`, `label`, `step` suspend/terminate, `error`, `refunded`); told once per new reason, retried hourly by `onhost:withdrawals:finish` (TASK-0025) | finance inbox (hot) |
+| `withdrawal.stalled` | a step of a consumer withdrawal was refused (`service_id`, `label`, `step` suspend/refund/terminate, `error`, `refunded`; for `refund` also `documents[]` — the documents that refused their credit note, the withdrawal stays `suspending` and nothing is cancelled until they are done); told once per new reason, retried hourly by `onhost:withdrawals:finish` (TASK-0025) | finance inbox (hot) |
 
 ## Consumers
 

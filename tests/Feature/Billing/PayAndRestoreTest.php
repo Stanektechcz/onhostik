@@ -257,6 +257,52 @@ it('does not let the customer undo a cancellation that was refunded through a ch
     expect($subscription->state)->toBe(Subscription::ACTIVE)->and($subscription->next_renewal_at->toDateString())->toBe(now()->toDateString());
 });
 
+it('never resumes a chargeback-cancelled metered service for free, the switch on or off', function () {
+    reinstateSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization();
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
+    $service = reinstateCancelled($org, ['hold' => null, 'reason' => 'chargeback cb_2', 'period_end' => now()->addDays(20), 'operation_id' => 'op_chargeback_2']);
+    $service->forceFill(['product_key' => 'vps'])->save(); // billed by the hour: a restore owes no new period, so its quote can be nothing
+    ChargebackRequest::query()->create(['organization_id' => $org->id, 'service_id' => $service->id, 'requested_by' => $owner->id, 'state' => ChargebackRequest::REFUNDED, 'reason' => 'Odcházíme jinam.', 'percent' => 70, 'currency' => 'CZK',
+        'unused_minor' => 24200, 'refund_minor' => 16940, 'operation_id' => 'op_chargeback_2', 'cancelled_at' => now()->subDays(5), 'refunded_at' => now()->subDays(5)]);
+    $services = app(ServiceService::class);
+    expect(app(ServiceReinstatement::class)->quote($service->fresh())['total_due']->minor)->toBe(0);
+
+    try {
+        $services->requestAction($service->fresh(), 'resume', $this->contextFor($owner, $org), 'cb-metered-resume');
+        $this->fail('a free resume of a chargeback-cancelled metered service');
+    } catch (DomainError $e) {
+        expect($e->error)->toBe('chargeback_cancelled')->and($e->status)->toBe(409);
+    }
+    $this->actingAs($owner, 'sanctum');
+    $this->withHeader('Idempotency-Key', 'cb-metered-pay')->postJson("/v1/services/{$service->id}/reinstate")->assertStatus(409)->assertJsonPath('error', 'reinstatement_refused')->assertJsonPath('reason', 'chargeback');
+    $this->flushHeaders();
+
+    $fresh = Service::query()->findOrFail($service->id);
+    expect($fresh->state)->toBe(ServiceStateMachine::SUSPENDED)->and($fresh->terminate_at)->not->toBeNull()->and(reinstateCharges())->toBe(0)
+        ->and(Operation::query()->where('service_id', $service->id)->count())->toBe(0);
+});
+
+it('makes a customer who restores a chargeback-cancelled service pay a whole new period, not the refunded one', function () {
+    reinstateSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization();
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
+    $service = reinstateCancelled($org, ['hold' => null, 'reason' => 'chargeback cb_3', 'period_end' => now()->addDays(20), 'operation_id' => 'op_chargeback_3']);
+    ChargebackRequest::query()->create(['organization_id' => $org->id, 'service_id' => $service->id, 'requested_by' => $owner->id, 'state' => ChargebackRequest::REFUNDED, 'reason' => 'Odcházíme jinam.', 'percent' => 70, 'currency' => 'CZK',
+        'unused_minor' => 24200, 'refund_minor' => 16940, 'operation_id' => 'op_chargeback_3', 'cancelled_at' => now()->subDays(5), 'refunded_at' => now()->subDays(5)]);
+    $this->actingAs($owner, 'sanctum');
+
+    // the pay endpoint itself, not only the plain resume: the paid period that the chargeback gave back does not cover it
+    $this->withHeader('Idempotency-Key', 'cb-pay-1')->postJson("/v1/services/{$service->id}/reinstate")->assertStatus(202)->assertJsonPath('state', 'restoring')->assertJsonPath('charged.minor', 36300);
+    $this->withHeader('Idempotency-Key', 'cb-pay-2')->postJson("/v1/services/{$service->id}/reinstate")->assertStatus(409); // a second click is not a second restore
+    $this->flushHeaders();
+
+    expect(reinstateCharges())->toBe(1)->and(Invoice::query()->where('type', 'statement')->where('meta->reinstatement', true)->sole()->total_minor)->toBe(36300)
+        ->and(app(WalletService::class)->spendable($org, 'CZK')->minor)->toBe(100000 - 36300);
+    $subscription = Subscription::query()->where('service_id', $service->id)->firstOrFail();
+    expect($subscription->current_period_start->toDateString())->toBe(now()->toDateString());
+});
+
 it('never lifts an abuse or staff hold for money', function () {
     reinstateSwitchOn();
     [$owner, $org] = $this->customerWithOrganization();

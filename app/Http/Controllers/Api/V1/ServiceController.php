@@ -260,6 +260,7 @@ final class ServiceController extends ApiController
     public function withdrawal(Request $request, WithdrawalPolicy $policy, WithdrawalService $withdrawals, string $service): JsonResponse
     {
         $model = $this->resolve($request, $service);
+        $this->api->authorize($request, 'billing.wallet.read', CommandScope::organization($model->organization_id)); // the refund, the paid lines and the order are the organization's money, not a service guest's
         $record = Withdrawal::query()->where('service_id', $model->id)->orderByDesc('created_at')->first();
 
         return response()->json(['data' => $policy->check($model) + ['enabled' => $policy->enabled(), 'estimate' => $withdrawals->estimate($model, CarbonImmutable::now()), 'withdrawal' => $record ? $withdrawals->present($record) : null, 'terms_url' => WithdrawalPolicy::TERMS_URL]]);

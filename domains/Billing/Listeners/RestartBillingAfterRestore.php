@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Billing\Listeners;
 
+use Onhost\Domain\Billing\Models\Withdrawal;
 use Onhost\Domain\Billing\ServiceReinstatement;
 use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Services\Models\Service;
@@ -29,6 +30,9 @@ final class RestartBillingAfterRestore
         $service = Service::query()->find((string) $message->aggregate_id);
         if ($service === null || $service->family === 'addon' || data_get($service->tags, 'billing') === 'included' || $service->terminate_at !== null) {
             return; // gone, not billed on its own, or scheduled for deletion again since
+        }
+        if (Withdrawal::query()->where('service_id', $service->id)->exists()) {
+            return; // the consumer withdrew and was refunded: staff who bring it back restart its billing deliberately, it never charges them by itself
         }
         try {
             $this->subscriptions->restartAfterRestore($service, CommandContext::system('cancellation taken back')->withScope($service->organization_id), ! $this->reinstatement->refundedSinceCancellation($service));

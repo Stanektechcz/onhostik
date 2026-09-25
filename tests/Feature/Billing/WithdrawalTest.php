@@ -8,10 +8,15 @@ use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+use Onhost\Domain\Billing\Listeners\RestartBillingAfterRestore;
 use Onhost\Domain\Billing\Models\ChargebackRequest;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Billing\Models\Withdrawal;
+use Onhost\Domain\Billing\WithdrawalPolicy;
+use Onhost\Domain\Billing\WithdrawalService;
 use Onhost\Domain\Catalog\CatalogService;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\InvoiceLine;
@@ -22,15 +27,18 @@ use Onhost\Domain\Orders\CheckoutService;
 use Onhost\Domain\Orders\Models\Consent;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
+use Onhost\Domain\Orders\OrderSettlement;
 use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\WalletLedger\LedgerService;
+use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Money\Money;
@@ -386,23 +394,62 @@ it('keeps the refund when the cancellation is refused (legal hold) and requests 
     expect($withdrawal->refresh()->state)->toBe(Withdrawal::COMPLETED)->and(Invoice::query()->where('type', 'credit_note')->count())->toBe(1);
 });
 
-it('cancels a paid order nothing of which was delivered, crediting every line', function () {
-    withdrawalSwitchOn();
-    [$owner, $org] = $this->customerWithOrganization(['email' => 'x@mailinator.com'], ['type' => 'person', 'name' => 'Jana Nováková', 'billing_email' => 'x@mailinator.com']);
-    $ctx = $this->contextFor($owner, $org);
+/** A consumer's wallet order the intake risk check held for staff review (a disposable mailbox): paid, documented, nothing delivered. */
+function withdrawalHeldOrder(User $owner, Organization $org, CommandContext $ctx, string $key): Order
+{
     app(WalletService::class)->topup($org, Money::decimal('5000', 'CZK'), 'card', 'seed', $ctx, bankProvider: 'comgate');
     $quote = app(QuoteService::class)->quote([['product_key' => 'web-hosting', 'plan_key' => 'start']], 'CZK', ['country' => 'CZ', 'customer_class' => 'b2c', 'vat_status' => 'unknown'], 1, null, $org);
-    $held = app(CheckoutService::class)->placeOrder($quote, $org, $owner, ['terms' => [], 'privacy' => [], 'withdrawal_waiver' => []], ['mode' => 'wallet'], 'wd-order-1', $ctx)['order']->refresh();
-    expect($held->state)->toBe(OrderStateMachine::PAID)->and($held->meta['customer_class'] ?? null)->toBe('b2c'); // the class is kept with the order
+
+    return app(CheckoutService::class)->placeOrder($quote, $org, $owner, ['terms' => [], 'privacy' => [], 'withdrawal_waiver' => []], ['mode' => 'wallet'], $key, $ctx)['order']->refresh();
+}
+
+it('leaves a paid order held for the staff risk review to staff, and cancels a paid undelivered one, recording what really came back', function () {
+    withdrawalSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'x@mailinator.com'], ['type' => 'person', 'name' => 'Jana Nováková', 'billing_email' => 'x@mailinator.com']);
+    $held = withdrawalHeldOrder($owner, $org, $this->contextFor($owner, $org), 'wd-order-1');
+    expect($held->state)->toBe(OrderStateMachine::PAID)->and($held->meta['customer_class'] ?? null)->toBe('b2c')->and($held->meta['review']['state'] ?? null)->toBe('pending');
     $this->actingAs($owner, 'sanctum');
     app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
 
-    expect($this->getJson("/v1/orders/{$held->id}/withdrawal")->assertOk()->json('data.eligible'))->toBeTrue();
+    // the review is the staff's: withdrawing would end it, free the credit and teach the risk check nothing
+    expect($this->getJson("/v1/orders/{$held->id}/withdrawal")->assertOk()->json('data'))->toMatchArray(['eligible' => false, 'reason' => 'withdrawal_under_review']);
+    $this->withHeader('Idempotency-Key', 'wd-ord-review')->postJson("/v1/orders/{$held->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(409)->assertJsonPath('error', 'withdrawal_under_review');
+    $this->flushHeaders();
+    expect($held->refresh()->state)->toBe(OrderStateMachine::PAID)->and(Withdrawal::query()->count())->toBe(0);
+
+    // released, and nothing delivered yet: the consumer may leave it
+    $held->forceFill(['meta' => array_replace_recursive((array) $held->meta, ['review' => ['state' => 'released']])])->save();
     $done = $this->withHeader('Idempotency-Key', 'wd-ord')->postJson("/v1/orders/{$held->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(202)->json();
     $this->flushHeaders();
 
     expect($done['state'])->toBe(Withdrawal::COMPLETED)->and($held->refresh()->state)->toBe(OrderStateMachine::CANCELLED)
         ->and(Invoice::query()->where('type', 'credit_note')->where('order_id', $held->id)->exists())->toBeTrue()
+        ->and(app(WalletService::class)->balances($org, 'CZK')['available']->minor)->toBe(500000);
+    // what came back is the reservation the cancellation released — once, not again as the credit note of the same document
+    expect($done['to_credit']['minor'])->toBe((int) $held->total_minor)->and($done['refund']['minor'])->toBe((int) $held->total_minor)->and($done['off_documents']['minor'])->toBe(0);
+});
+
+it('records nothing returned for a failed order the settlement had already given back', function () {
+    withdrawalSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'x@mailinator.com'], ['type' => 'person', 'name' => 'Jana Nováková', 'billing_email' => 'x@mailinator.com']);
+    $order = withdrawalHeldOrder($owner, $org, $this->contextFor($owner, $org), 'wd-order-failed');
+    // released by staff, then every line failed and the settlement gave the money back
+    $order->forceFill(['state' => OrderStateMachine::FAILED, 'meta' => array_replace_recursive((array) $order->meta, ['review' => ['state' => 'released']])])->save();
+    OrderItem::query()->where('order_id', $order->id)->update(['state' => 'failed']);
+    app(OrderSettlement::class)->settle($order, CommandContext::system('test')->withScope($org->id));
+    $notesBefore = Invoice::query()->where('type', 'credit_note')->count();
+    expect(app(WalletService::class)->balances($org, 'CZK')['available']->minor)->toBe(500000);
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+
+    $done = $this->withHeader('Idempotency-Key', 'wd-ord-failed')->postJson("/v1/orders/{$order->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(202)->json();
+    $this->flushHeaders();
+
+    $withdrawal = Withdrawal::query()->sole();
+    expect($done['state'])->toBe(Withdrawal::COMPLETED)->and($withdrawal->refund_minor)->toBe(0)->and($withdrawal->to_credit_minor)->toBe(0)->and($withdrawal->off_document_minor)->toBe(0)
+        ->and(data_get($withdrawal->basis, 'already_returned.by'))->toBe('order settlement')
+        ->and(Invoice::query()->where('type', 'credit_note')->count())->toBe($notesBefore)
+        ->and(OutboxMessage::query()->where('name', 'withdrawal.refunded')->count())->toBe(0) // nobody is told money moved now
         ->and(app(WalletService::class)->balances($org, 'CZK')['available']->minor)->toBe(500000);
 });
 
@@ -453,4 +500,190 @@ it('tells the doctor when the mechanism runs without a lawyer having reviewed it
     $on = collect(json_decode(Artisan::output(), true)['checks'])->firstWhere('check', 'consumer withdrawal reviewed by a lawyer');
 
     expect($off['status'])->toBe('OK')->and($on['status'])->toBe('WARN')->and($on['detail'])->toContain('ONHOST_WITHDRAWAL_LEGAL_REVIEWED');
+});
+
+/*
+ * Review round 1 (TASK-0025): the refund is never called done while part of it is missing, a staff-held order stays the
+ * staff's, the guest of one service sees no money, the config list of excluded products works on its own, withdrawal and
+ * pay-and-restore never run over each other, and the hold, the billing and the past-due renewal stay shut behind it.
+ */
+
+it('does not call the refund done while one document refuses its credit note, and the finish command makes only the rest', function () {
+    withdrawalSwitchOn();
+    withdrawalPteroFake();
+    [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    $service = withdrawalConsumerService($org);
+    $addon = Service::query()->create(['organization_id' => $org->id, 'product_key' => 'game-backup', 'family' => 'addon', 'name' => 'Zálohy navíc', 'state' => ServiceStateMachine::ACTIVE, 'region_code' => 'cz1', 'entitlements' => [], 'sla_class' => 'standard', 'activated_at' => now(), 'tags' => ['parent_service_id' => $service->id]]);
+    $addonDocument = chargebackPaidStatement($org, $addon, 12100, 2100, -4, 25);
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+
+    $queue = app('queue');
+    Queue::fake(); // the suspension waits in the queue: the notice is taken, nothing is given back yet
+    $this->withHeader('Idempotency-Key', 'wd-part')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(202);
+    $this->flushHeaders();
+    Queue::swap($queue);
+    $state = $addonDocument->state;
+    $addonDocument->forceFill(['state' => Invoice::CANCELLED])->save(); // meanwhile the add-on's document stops taking a credit note (invoice_not_creditable)
+    withdrawalSettle();
+
+    $withdrawal = Withdrawal::query()->sole();
+    $fresh = Service::query()->findOrFail($service->id);
+    expect($withdrawal->state)->toBe(Withdrawal::SUSPENDING)->and($withdrawal->refunded_at)->toBeNull()->and($withdrawal->error)->toBe('refund:invoice_not_creditable')
+        ->and($withdrawal->to_credit_minor)->toBe(30250)->and(Invoice::query()->where('type', 'credit_note')->count())->toBe(1)
+        ->and($withdrawal->terminate_operation_id)->toBeNull()->and($fresh->state)->toBe(ServiceStateMachine::SUSPENDED)->and($fresh->terminate_at)->toBeNull() // nothing is cancelled meanwhile
+        ->and(SuspensionHold::holds($fresh))->toContain(SuspensionHold::WITHDRAWAL);
+    $stalled = OutboxMessage::query()->where('name', 'withdrawal.stalled')->get();
+    expect($stalled)->toHaveCount(1)->and($stalled->first()->payload['step'] ?? null)->toBe('refund')->and($stalled->first()->payload['documents'] ?? [])->toBe([(string) $addonDocument->number])
+        ->and(OutboxMessage::query()->where('name', 'withdrawal.refunded')->count())->toBe(0);
+
+    Artisan::call('onhost:withdrawals:finish'); // still refused: finance was told once, nothing is given twice
+    expect(OutboxMessage::query()->where('name', 'withdrawal.stalled')->count())->toBe(1)->and(Invoice::query()->where('type', 'credit_note')->count())->toBe(1);
+
+    $addonDocument->forceFill(['state' => $state])->save();
+    Artisan::call('onhost:withdrawals:finish');
+    withdrawalSettle();
+
+    $full = 30250 + (int) round(12100 * 25 / 30);
+    expect($withdrawal->refresh()->state)->toBe(Withdrawal::COMPLETED)->and($withdrawal->refund_minor)->toBe($full)->and($withdrawal->to_credit_minor)->toBe($full)->and($withdrawal->error)->toBeNull()
+        ->and(Invoice::query()->where('type', 'credit_note')->count())->toBe(2)->and(count((array) data_get($withdrawal->basis, 'credit_notes')))->toBe(2)
+        ->and(app(WalletService::class)->balances($org, 'CZK')['posted']->minor)->toBe($full)->and(app(LedgerService::class)->verifyInvariant()['balanced'])->toBeTrue();
+});
+
+it('shows the refund, the paid lines and the order only to who may read the organization\'s money', function () {
+    withdrawalSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    $service = withdrawalConsumerService($org);
+    $contact = $this->customer();
+    app(OrganizationService::class)->attachMember($org, $contact, 'support_contact', CommandContext::system('test'), true); // may read the service, not the money
+
+    $this->actingAs($contact, 'sanctum')->getJson("/v1/services/{$service->id}")->assertOk();
+    $this->getJson("/v1/services/{$service->id}/withdrawal")->assertForbidden();
+    $this->actingAs($owner, 'sanctum')->getJson("/v1/services/{$service->id}/withdrawal")->assertOk();
+});
+
+it('refuses a product put on the excluded list in the configuration alone', function () {
+    withdrawalSwitchOn();
+    config(['onhost.withdrawal.excluded_products' => ['domain', 'game']]); // a game server is not a domain: only the list excludes it
+    [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    $service = withdrawalConsumerService($org);
+    expect($service->family)->not->toBe('domain');
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+
+    $this->withHeader('Idempotency-Key', 'wd-cfg')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(422)->assertJsonPath('error', 'withdrawal_not_applicable')->assertJsonPath('why', 'domain_registered');
+    $this->flushHeaders();
+    expect(Withdrawal::query()->count())->toBe(0);
+});
+
+/** The service cancelled by dunning: switched off with the `payment` hold, its removal scheduled, the restore window running. */
+function withdrawalDunningCancelled(Service $service): Service
+{
+    $tags = (array) $service->tags;
+    $tags['suspension'] = ['holds' => [SuspensionHold::PAYMENT => ['reason' => 'unpaid after dunning', 'by' => 'system', 'at' => now()->subDay()->toIso8601String()]]];
+    $tags['deletion'] = ['requested_at' => now()->subDay()->toIso8601String(), 'grace_until' => now()->addDays(20)->toIso8601String(), 'grace_days' => 30, 'reason' => 'unpaid after dunning',
+        'operation_id' => 'op_dun_'.substr(uniqid(), -6), 'subscription' => ['state' => 'active', 'auto_renew' => true]];
+    $service->forceFill(['state' => ServiceStateMachine::SUSPENDED, 'suspended_at' => now()->subDay(), 'suspended_reason' => 'unpaid after dunning', 'terminate_at' => now()->addDays(20), 'tags' => $tags])->save();
+
+    return $service->refresh();
+}
+
+it('never lets a withdrawal and a pay-and-restore run over each other on one service', function () {
+    withdrawalSwitchOn();
+    app(AutomationLedger::class)->setEnabled('services.reinstate', true);
+    withdrawalPteroFake();
+    Queue::fake(); // nothing the panel does has finished while the two requests meet
+    [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
+    $restoredFirst = withdrawalDunningCancelled(withdrawalConsumerService($org));
+    $withdrawnFirst = withdrawalDunningCancelled(withdrawalConsumerService($org, ['remote_id' => 78, 'identifier' => 'e4c1abce']));
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+
+    // restore first: while its resume runs, the withdrawal waits (the next try, once it is back, is an ordinary one)
+    $this->withHeader('Idempotency-Key', 'mix-re-1')->postJson("/v1/services/{$restoredFirst->id}/reinstate")->assertStatus(202)->assertJsonPath('state', 'restoring');
+    $this->withHeader('Idempotency-Key', 'mix-wd-1')->postJson("/v1/services/{$restoredFirst->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(409)->assertJsonPath('error', 'service_state_invalid');
+    expect(Withdrawal::query()->where('service_id', $restoredFirst->id)->exists())->toBeFalse();
+
+    // withdrawal first: no payment brings the service back, whatever stage the unwinding is at
+    $this->withHeader('Idempotency-Key', 'mix-wd-2')->postJson("/v1/services/{$withdrawnFirst->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(202);
+    $this->withHeader('Idempotency-Key', 'mix-re-2')->postJson("/v1/services/{$withdrawnFirst->id}/reinstate")->assertStatus(409)->assertJsonPath('error', 'reinstatement_refused')->assertJsonPath('reason', 'withdrawn');
+    $this->flushHeaders();
+    $fresh = Service::query()->findOrFail($withdrawnFirst->id);
+    expect($fresh->state)->toBe(ServiceStateMachine::SUSPENDED)->and($fresh->terminate_at)->not->toBeNull()->and(SuspensionHold::holds($fresh))->toContain(SuspensionHold::WITHDRAWAL)
+        ->and(LedgerTransaction::query()->where('idempotency_key', 'like', 'ledger:sub_reinstate:%')->count())->toBe(0);
+});
+
+it('never takes a withdrawal on the contract of another organization', function () {
+    withdrawalSwitchOn();
+    [, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    $service = withdrawalConsumerService($org);
+    [$newOwner, $other] = $this->customerWithOrganization(['email' => 'novy@example.test'], ['type' => 'person', 'name' => 'Nový majitel']);
+    $service->forceFill(['organization_id' => $other->id])->save(); // the service changed hands; its order stays the first organization's
+
+    expect(app(WithdrawalPolicy::class)->check($service->refresh()))->toMatchArray(['eligible' => false, 'reason' => 'withdrawal_not_applicable', 'why' => 'owner_changed']);
+    $this->actingAs($newOwner, 'sanctum');
+    app(StepUpService::class)->grant($newOwner, 'totp', null, '127.0.0.1');
+    $this->withHeader('Idempotency-Key', 'wd-owner')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(422)->assertJsonPath('why', 'owner_changed');
+    $this->flushHeaders();
+    expect(Withdrawal::query()->count())->toBe(0)->and(Invoice::query()->where('type', 'credit_note')->count())->toBe(0);
+});
+
+it('sets the withdrawal hold again while the cancellation is still running', function () {
+    withdrawalSwitchOn();
+    withdrawalPteroFake();
+    [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    $service = withdrawalConsumerService($org);
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+    $queue = app('queue');
+    Queue::fake();
+    $this->withHeader('Idempotency-Key', 'wd-term')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(202);
+    $this->flushHeaders();
+    Queue::swap($queue);
+    driveOperations(); // the suspension is done; the event that moves the withdrawal on is not delivered yet
+    Queue::fake(); // the cancellation will be asked for and not run
+    $withdrawals = app(WithdrawalService::class);
+    $withdrawal = $withdrawals->advance(Withdrawal::query()->sole()); // refund made, cancellation asked for and not run yet
+    expect($withdrawal->state)->toBe(Withdrawal::TERMINATING);
+
+    // the running saga rewrites the suspension record without the hold
+    $running = Service::query()->findOrFail($service->id);
+    $tags = (array) $running->tags;
+    unset($tags['suspension']['holds'][SuspensionHold::WITHDRAWAL]);
+    $running->forceFill(['tags' => $tags])->save();
+    expect(SuspensionHold::holds($running->refresh()))->not->toContain(SuspensionHold::WITHDRAWAL);
+
+    $withdrawals->advance($withdrawal);
+
+    expect(SuspensionHold::holds(Service::query()->findOrFail($service->id)))->toContain(SuspensionHold::WITHDRAWAL);
+    $this->withHeader('Idempotency-Key', 'wd-term-resume')->postJson("/v1/services/{$service->id}/actions", ['action' => 'resume'])->assertStatus(409);
+    $this->flushHeaders();
+});
+
+it('closes a renewal already past due at the notice, and never restarts the billing of a withdrawn service by itself', function () {
+    withdrawalSwitchOn();
+    app(AutomationLedger::class)->setEnabled('services.reinstate', true);
+    withdrawalPteroFake();
+    [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    $service = withdrawalConsumerService($org);
+    Subscription::query()->where('service_id', $service->id)->update(['state' => Subscription::PAST_DUE]);
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+
+    $queue = app('queue');
+    Queue::fake(); // the notice alone, before the cancellation saga closes the subscription anyway
+    $this->withHeader('Idempotency-Key', 'wd-pastdue')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(202);
+    $this->flushHeaders();
+    Queue::swap($queue);
+    $subscription = Subscription::query()->where('service_id', $service->id)->firstOrFail();
+    expect($subscription->state)->toBe(Subscription::CANCELLED)->and($subscription->auto_renew)->toBeFalse(); // the next top-up retries nothing the refund does not cover
+    withdrawalSettle();
+    expect(Withdrawal::query()->sole()->state)->toBe(Withdrawal::COMPLETED);
+
+    // staff bring it back (deletion taken back): its billing is theirs to restart, it does not start charging the consumer by itself
+    $back = Service::query()->findOrFail($service->id);
+    $back->forceFill(['terminate_at' => null])->save();
+    app(RestartBillingAfterRestore::class)->handle((new OutboxMessage)->forceFill(['name' => 'service.deletion.cancelled', 'aggregate_type' => 'service', 'aggregate_id' => $service->id]));
+    expect(Subscription::query()->where('service_id', $service->id)->value('state'))->toBe(Subscription::CANCELLED);
 });

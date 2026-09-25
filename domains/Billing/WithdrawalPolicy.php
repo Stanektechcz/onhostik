@@ -71,6 +71,9 @@ final class WithdrawalPolicy
         if ($item === null || $order === null || $order->placed_at === null) {
             throw self::notApplicable('no_order', 'Služba nevznikla objednávkou na dálku; napište prosím podpoře.');
         }
+        if ($order->organization_id !== $service->organization_id) { // a service that changed hands: the contract (and any refund) is the ordering organization's, not the new owner's
+            throw self::notApplicable('owner_changed', 'Službu objednala jiná organizace; od její smlouvy může odstoupit jen ona. Napište prosím podpoře.');
+        }
         $terms = $this->assertOrder($order, $sentAt);
         if (Withdrawal::query()->where('subject_key', 'item:'.$item->id)->exists()) {
             throw new DomainError('withdrawal_already_recorded', 'Odstoupení od této smlouvy už bylo přijato.', 409, ['withdrawal_id' => Withdrawal::query()->where('subject_key', 'item:'.$item->id)->value('id')]);
@@ -97,8 +100,11 @@ final class WithdrawalPolicy
             throw new DomainError('withdrawal_not_applicable', in_array($order->state, [OrderStateMachine::NEW, OrderStateMachine::PENDING_PAYMENT], true)
                 ? 'Nezaplacenou objednávku zrušíte přímo, bez odstoupení.' : 'Z objednávky už běží služby; odstoupit lze od každé služby zvlášť.', 422, ['why' => 'order_state', 'state' => $order->state]);
         }
-        if (OrderItem::query()->where('order_id', $order->id)->where(fn ($q) => $q->whereNotNull('service_id')->orWhereNotIn('state', ['pending', 'failed']))->exists()) {
+        if (OrderItem::query()->where('order_id', $order->id)->where(fn ($q) => $q->whereNotNull('service_id')->orWhereNotIn('state', ['pending', 'failed', 'refunded']))->exists()) { // `refunded`: an undelivered line the settlement already gave back
             throw new DomainError('withdrawal_not_applicable', 'Z objednávky už běží služby; odstoupit lze od každé služby zvlášť.', 422, ['why' => 'delivered']);
+        }
+        if (($order->meta['review']['state'] ?? null) === 'pending') { // held for the staff risk review (audit §5f-8): the review decides, the customer cannot end it by withdrawing
+            throw new DomainError('withdrawal_under_review', 'Objednávku právě kontroluje náš tým a rozhodne o ní on; pokud ji zamítne, peníze se vrátí samy. Odstoupení odeslané e-mailem nebo dopisem ve lhůtě platí i nyní.', 409, ['why' => 'under_review', 'terms_url' => self::TERMS_URL]);
         }
         $terms = $this->assertOrder($order, $sentAt);
         if (Withdrawal::query()->where('subject_key', 'order:'.$order->id)->exists()) {
