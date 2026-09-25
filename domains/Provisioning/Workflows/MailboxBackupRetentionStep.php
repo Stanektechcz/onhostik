@@ -129,8 +129,20 @@ final class MailboxBackupRetentionStep extends ServiceStep
         return match (true) {
             ! $row['owned'] => 'foreign',
             $row['interval'] === MailboxBackupPolicy::INTERVAL && $row['copies'] === $copies => 'unchanged',
-            $row['interval'] === MailboxBackupPolicy::INTERVAL && $row['copies'] > $copies && ! $allowPrune => 'held',
+            self::isDowngrade($row, $copies) && ! $allowPrune => 'held',
             default => 'set',
         };
+    }
+
+    /**
+     * Whether writing the plan's copies would make the panel delete backups: the mailbox keeps more copies than the plan,
+     * whatever its interval now. Weekly/60 staff set by hand becomes daily/30 and loses the older half at the next run; a
+     * mailbox switched to `none` may still hold the copies of when it was not (review round 1, TASK-0024).
+     *
+     * @param  array{remote_id:string, address:string, interval:string, copies:int, owned:bool}  $row
+     */
+    public static function isDowngrade(array $row, int $copies): bool
+    {
+        return $row['owned'] && $row['copies'] > $copies;
     }
 }

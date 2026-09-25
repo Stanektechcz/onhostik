@@ -20,7 +20,7 @@ final class MailBackupRetention extends Command
 {
     protected $signature = 'onhost:mail:backup-retention
         {--apply : ask for the change; without it only the list}
-        {--allow-prune : also apply fewer copies than a mailbox keeps now (the panel deletes the difference)}
+        {--allow-prune : also apply fewer copies than a mailbox keeps now (the panel deletes the difference) — to EVERY held service of the run; scope it with --service}
         {--service=* : only these service ids}
         {--chunk=200 : services read per chunk; every one is listed}';
 
@@ -40,6 +40,10 @@ final class MailBackupRetention extends Command
         $this->table(['service', 'mailbox', 'now', 'plan', 'status'], array_map(fn (array $r) => array_values($r), $review['rows']));
 
         $behind = array_values(array_filter($review['services'], fn (array $s) => $s['apply']));
+        $pruning = count(array_filter($behind, fn (array $s) => $s['prune'] > 0));
+        if ($apply && $allowPrune && $pruning > 0 && (array) $this->option('service') === []) {
+            $this->warn("--allow-prune without --service: the downgrade of all {$pruning} service(s) holding one is applied in this run (docs/runbooks/backups.md)");
+        }
         $requested = 0;
         foreach ($apply ? $behind : [] as $service) {
             try {

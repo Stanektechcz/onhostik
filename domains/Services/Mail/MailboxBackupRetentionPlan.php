@@ -103,7 +103,7 @@ final class MailboxBackupRetentionPlan
         $out = [];
         foreach ($listed as $row) {
             $decision = MailboxBackupRetentionStep::decide($row, $target, true);
-            $downgrade = $row['owned'] && $row['interval'] === MailboxBackupPolicy::INTERVAL && $row['copies'] > $target;
+            $downgrade = MailboxBackupRetentionStep::isDowngrade($row, $target);
             $status = match (true) {
                 $decision === 'foreign' => 'not_ours',
                 $decision === 'unchanged' => 'ok',

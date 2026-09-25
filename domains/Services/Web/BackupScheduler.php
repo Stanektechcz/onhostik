@@ -498,9 +498,13 @@ final class BackupScheduler
         })
             // on a server only what this schedule made: a manual backup or a safety copy at the hypervisor was never its to take
             ->when($compute, fn ($q) => $q->where('kind', 'scheduled'))->get();
-        $surplus = ! empty($schedule['as_sold']) && in_array($service->family, self::DAILY_KEEPER_FAMILIES, true)
+        $keepers = ! empty($schedule['as_sold']) && in_array($service->family, self::DAILY_KEEPER_FAMILIES, true);
+        if ($keepers) {
+            BackupDailyKeepers::markKept($service, $schedule['days']); // so switching the rule off cannot take them all at once
+        }
+        $surplus = $keepers
             ? BackupDailyKeepers::surplus($service, $schedule['generations'], $schedule['days'], 50)
-            : Backup::query()->where('service_id', $service->id)->where('state', 'completed')->where('protected', false)->where('kind', 'scheduled')->orderByDesc('started_at')->skip($schedule['generations'])->take(50)->get();
+            : BackupDailyKeepers::beyondGenerations($service, $schedule['generations'], 50);
         foreach ($expired->merge($surplus)->unique('id') as $backup) {
             if ($this->deleteOnNode($service, $backup)) {
                 $backup->forceFill(['state' => 'deleted', 'meta' => array_merge((array) $backup->meta, ['deleted_at' => now()->toIso8601String(), 'deleted_by' => 'retention'])])->save();

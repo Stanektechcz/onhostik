@@ -443,8 +443,13 @@ configurator's `backup-30`/`backup-90` set only `backup_days`, so history stayed
   to the days).
 
 While it is off `scheduleFor()`, the customer's schedule check and the prune behave exactly as before (tests assert it).
-Switching it off again stops new hourly slots and the daily keepers; nothing is deleted at the switch, the rows kept
-beyond the generations are pruned at the next ticks down to today's cap (50 per tick).
+Switching it off again stops new hourly slots and new daily keepers, and **deletes nothing en masse**: while the rule is
+on, the prune stamps the keeper of every ended day (`backups.meta.kept_as_sold`), and with the rule off the generation
+prune (`BackupDailyKeepers::beyondGenerations`) passes stamped rows by — they leave only through their own
+`retention_until` (at most `backup_days` after they were made), like any expired backup. Backups the rule did not keep
+are still trimmed to the generation cap at 50 per tick. (Before review round 1 the switch-off deleted every keeper of
+every web/managed customer at the next ticks, with no way back; `automation.toggle` is NORMAL risk with no dry run.)
+To free the disk sooner, delete individual backups as staff, never by switching rules.
 
 | Plan | Sold | Today (rule off) | As sold (rule on) |
 | --- | --- | --- | --- |
@@ -494,7 +499,15 @@ mailboxes and plan changes from setting retention; what the panel already keeps 
   `N service(s) behind · … · rule mail.backup_retention: on|off · nothing was changed`;
 * `--apply` (refused while the rule is off) asks for one `mailbox.backup_retention` operation per service that is behind
   (system actor, audited); a service holding a downgrade is skipped unless `--allow-prune` is given too;
-  `--service=<id>` (repeatable) limits the run. The operation proves every mailbox again before it writes.
+  `--service=<id>` (repeatable) limits the run. The operation proves every mailbox again before it writes;
+* **`--allow-prune` is all-or-nothing for the run.** Without `--service=` it applies every held downgrade the run finds,
+  across all customers, in one go (a test holds this). Always scope it: list first, then
+  `--apply --allow-prune --service=<id>` per service whose customer was told — never a bare `--apply --allow-prune`;
+* a downgrade is any owned mailbox keeping **more copies than the plan, whatever its interval** (`weekly`/`monthly` set by
+  hand, or `none` that may still hold older copies) — rewriting it to `daily/<plan>` would make the panel delete the
+  rest, so it is `would_prune` and held like a daily one;
+* a second `--apply` while a service's operation is still in flight is refused for that service
+  (`operation_in_progress`, printed as a warning) — never a second write; run it again once the first settled.
 
 **Ownership.** Nothing is written in a mail domain the adapter cannot prove is the platform's: the binding names the
 organisation's client, `client_get` says it is an `onh_…` client, `client_get_groupid` gives its group and the

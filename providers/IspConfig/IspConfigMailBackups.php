@@ -21,7 +21,13 @@ use Onhost\Providers\Contracts\ResourceRef;
  */
 trait IspConfigMailBackups
 {
-    /** @var array<string,int> mail domain id → the group of the ONhost client proven to own it (one adapter = one request) */
+    /**
+     * "domain id|client id|name" → the group of the ONhost client proven to own it. The adapter lives as long as the queue
+     * worker (ProviderRegistry caches it), so a proof holds only for the very reference it was made for: the same id
+     * handed over under another name or client is proven again.
+     *
+     * @var array<string,int>
+     */
     private array $provenMailGroups = [];
 
     public function mailboxBackupRetention(ResourceRef $domain): array
@@ -71,14 +77,15 @@ trait IspConfigMailBackups
      */
     private function provenMailGroup(ResourceRef $domain): int
     {
-        if (isset($this->provenMailGroups[$domain->remoteId])) {
-            return $this->provenMailGroups[$domain->remoteId];
-        }
         $clientId = (int) ($domain->meta['client_id'] ?? 0);
         if ($domain->remoteType !== 'mail_domain' || $clientId <= 0 || ! ctype_digit($domain->remoteId)) {
             throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'The mail domain names no ONhost client; its mailboxes are not proven ours and are not touched.');
         }
         $name = $this->mailDomainName($domain);
+        $key = $domain->remoteId.'|'.$clientId.'|'.$name;
+        if (isset($this->provenMailGroups[$key])) {
+            return $this->provenMailGroups[$key];
+        }
         $client = $this->api->call('client_get', ['client_id' => $clientId]);
         $client = is_array($client) && array_is_list($client) ? (array) ($client[0] ?? []) : (array) $client;
         $group = str_starts_with((string) ($client['username'] ?? ''), 'onh_') ? $this->groupOf($clientId) : null;
@@ -87,7 +94,7 @@ trait IspConfigMailBackups
             throw new ProviderException('ispconfig', ProviderErrorCode::CONFLICT, "The mail domain {$name} is not proven to be ONhost's own; it is historical mail and its mailboxes are not touched.");
         }
 
-        return $this->provenMailGroups[$domain->remoteId] = $group;
+        return $this->provenMailGroups[$key] = $group;
     }
 
     /** @param  array<string,mixed>  $row */

@@ -20,6 +20,8 @@ use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Services\Mail\MailboxBackupPolicy;
+use Onhost\Domain\Services\Mail\MailboxBackupRetentionPlan;
+use Onhost\Domain\Services\Mail\MailDomains;
 use Onhost\Domain\Services\Metering\MetricRegistry;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -57,14 +59,19 @@ afterEach(function () {
  * @param  array<int, array<string,mixed>>  $boxes
  * @param  list<int>  $refuse
  * @param  list<array<string,mixed>>  $updates
+ * @param  (Closure(string, array<string,mixed>): mixed)|null  $fault  answers a call itself when it returns a response (a slow queue, a 5xx, a second domain)
  */
-function mbrtPanel(array &$calls, array &$boxes, array &$updates = [], array $refuse = [], int $stored = 3): void
+function mbrtPanel(array &$calls, array &$boxes, array &$updates = [], array $refuse = [], int $stored = 3, ?Closure $fault = null): void
 {
-    Http::fake(function (Request $request) use (&$calls, &$boxes, &$updates, $refuse, $stored) {
+    Http::fake(function (Request $request) use (&$calls, &$boxes, &$updates, $refuse, $stored, $fault) {
         $function = (string) parse_url($request->url(), PHP_URL_QUERY);
         $body = $request->data();
         $calls[] = $function;
         $primary = $body['primary_id'] ?? null;
+        $answered = $fault?->__invoke($function, $body);
+        if ($answered !== null) {
+            return $answered;
+        }
         if ($function === 'mail_user_update' && in_array((int) $primary, $refuse, true)) {
             return Http::response(['code' => 'remote_fault', 'message' => 'backup_copies is invalid', 'response' => false]);
         }
@@ -495,4 +502,150 @@ it('limits the run to the services it is given', function () {
     expect($code)->toBe(0)
         ->and(Operation::query()->where('service_id', $second->id)->count())->toBe(1)
         ->and(Operation::query()->where('service_id', $first->id)->exists())->toBeFalse();
+});
+
+/*
+ * Review round 1 (TASK-0024).
+ */
+
+/** @param  list<array<string,mixed>>  $updates @return array<int,int> mailbox id => retention writes it received */
+function mbrtWritesPerMailbox(array $updates): array
+{
+    return array_count_values(array_map(fn (array $u) => (int) $u['id'], mbrtRetentionWrites($updates)));
+}
+
+it('asks once when --apply runs again while the first operation is still in flight', function () {
+    $calls = [];
+    $boxes = mbrtBoxes();
+    $updates = [];
+    $reads = 0; // the first run's list reads fine; its operation's own read times out, so the operation waits for a retry
+    mbrtPanel($calls, $boxes, $updates, fault: function (string $function, array $body) use (&$reads) {
+        if ($function !== 'mail_user_get' || ! is_array($body['primary_id'] ?? null)) {
+            return null;
+        }
+
+        return ++$reads === 2 ? Http::response('Gateway Timeout', 504) : null;
+    });
+    mbrtRule(true);
+    [, $org] = $this->customerWithOrganization();
+    $service = mbrtService($org, 14);
+
+    [$code, $out] = mbrcRun(['--apply' => true]);
+    $first = Operation::query()->where('service_id', $service->id)->sole();
+    expect($code)->toBe(0, $out)->and($first->isTerminal())->toBeFalse()->and($first->state)->not->toBe(Operation::FAILED)
+        ->and($boxes[31]['backup_copies'])->toBe(1);
+
+    $this->travel(5)->seconds(); // a new second: a new idempotency key, so only the busy-service guard can stop a second write
+    [$again, $out2] = mbrcRun(['--apply' => true]);
+
+    expect($again)->toBe(0)
+        ->and($out2)->toContain('Another operation is still running')->toContain('0 operation(s) requested')
+        ->and(Operation::query()->where('service_id', $service->id)->count())->toBe(1);
+
+    driveOperations();
+    expect($first->fresh()->state)->toBe(Operation::SUCCEEDED, (string) data_get($first->fresh()->error, 'message', ''))
+        ->and(mbrtWritesPerMailbox($updates))->toBe([31 => 1]);
+});
+
+it('finishes every mail domain of a service after a panel timeout, writing each mailbox once', function (string $failing) {
+    $calls = [];
+    $boxes = mbrtBoxes() + [41 => ['mailuser_id' => 41, 'email' => 'info@eshop.cz', 'name' => 'Eshop', 'password' => '$6$e', 'sys_groupid' => 7, 'backup_interval' => 'none', 'backup_copies' => 1]];
+    $updates = [];
+    $timeouts = 1;
+    mbrtPanel($calls, $boxes, $updates, fault: function (string $function, array $body) use (&$timeouts, $failing) {
+        if ($function === 'mail_domain_get' && (int) ($body['primary_id'] ?? 0) === 2001) {
+            return Http::response(['code' => 'ok', 'message' => '', 'response' => ['domain_id' => 2001, 'domain' => 'eshop.cz', 'sys_groupid' => 7, 'active' => 'y']]);
+        }
+        if ($function === 'mail_user_get' && is_array($body['primary_id'] ?? null) && ($body['primary_id']['email'] ?? '') === '%@'.$failing && $timeouts > 0) {
+            $timeouts--;
+
+            return Http::response('Service Unavailable', 503);
+        }
+
+        return null;
+    });
+    mbrtRule(true);
+    [, $org] = $this->customerWithOrganization();
+    $service = mbrtService($org, 14);
+    $first = MailDomains::bindingsOf($service)->sole();
+    ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $first->provider_instance_id, 'ownership' => ['managed_by' => 'onhost'], 'idempotency_key' => "mbrt-second:{$service->id}",
+        'adapter_version' => '1.0.0', 'remote_type' => 'mail_domain', 'remote_id' => '2001', 'remote_node' => '1', 'meta' => ['client_id' => 3, 'domain' => 'eshop.cz'], 'created_at' => now()->addSecond()]);
+
+    $operation = driveOperation(app(MailboxBackupRetentionPlan::class)->apply($service, 14, false));
+
+    $tag = $service->fresh()->tags['mail_backup'];
+    expect($operation->state)->toBe(Operation::SUCCEEDED, (string) data_get($operation->error, 'message', ''))
+        ->and($timeouts)->toBe(0) // the timeout really happened
+        ->and($boxes[31])->toMatchArray(['backup_interval' => 'daily', 'backup_copies' => 14])
+        ->and($boxes[41])->toMatchArray(['backup_interval' => 'daily', 'backup_copies' => 14])
+        ->and($boxes[33]['backup_copies'])->toBe(1)
+        ->and(mbrtWritesPerMailbox($updates))->toBe([31 => 1, 41 => 1]) // nothing written twice on the retry
+        ->and($tag['failed'])->toBe([])
+        ->and($tag['set'] + $tag['unchanged'])->toBe(2)
+        ->and(MailboxBackupPolicy::behind($service->fresh()))->toBeFalse();
+})->with(['the first domain times out' => 'shop.cz', 'the second domain times out after the first was written' => 'eshop.cz']);
+
+it('prunes every held downgrade of the run with --allow-prune and no --service', function () {
+    $calls = [];
+    $boxes = mbrtBoxes('daily', 30);
+    $updates = [];
+    mbrtPanel($calls, $boxes, $updates);
+    mbrtRule(true);
+    [, $org] = $this->customerWithOrganization();
+    [, $otherOrg] = $this->customerWithOrganization();
+    $first = mbrtService($org, 14, ['mail_backup' => ['interval' => 'daily', 'copies' => 30]]);
+    $second = mbrtService($otherOrg, 14, ['mail_backup' => ['interval' => 'daily', 'copies' => 30]]);
+
+    // all-or-nothing by design: one flag covers every service the run finds behind (docs/runbooks/backups.md says to scope it)
+    [$code, $out] = mbrcRun(['--apply' => true, '--allow-prune' => true]);
+    driveOperations();
+
+    $ops = Operation::query()->where('desired->action', 'mailbox.backup_retention')->get();
+    expect($code)->toBe(0, $out)
+        ->and($out)->toContain('2 operation(s) requested')->toContain('--allow-prune without --service: the downgrade of all 2 service(s)')
+        ->and($ops->pluck('service_id')->sort()->values()->all())->toBe(collect([$first->id, $second->id])->sort()->values()->all())
+        ->and($ops->every(fn (Operation $op) => data_get($op->desired, 'allow_prune') === true))->toBeTrue()
+        ->and($boxes[31]['backup_copies'])->toBe(14);
+});
+
+it('holds a downgrade whatever interval the mailbox keeps now', function (string $interval) {
+    $calls = [];
+    $boxes = mbrtBoxes($interval, 60);
+    $updates = [];
+    mbrtPanel($calls, $boxes, $updates, stored: 45);
+    mbrtRule(true);
+    [, $org] = $this->customerWithOrganization();
+    $service = mbrtService($org, 30, ['mail_backup' => ['interval' => 'daily', 'copies' => 30]]);
+
+    [, $dry] = mbrcRun();
+    expect($dry)->toContain('would_prune')->toContain('will prune 15 existing copies')->not->toContain('would_set');
+
+    [$code, $out] = mbrcRun(['--apply' => true]);
+    driveOperations();
+    expect($code)->toBe(0, $out)
+        ->and(Operation::query()->where('service_id', $service->id)->exists())->toBeFalse()
+        ->and($calls)->not->toContain('mail_user_update');
+
+    // a paid plan change never prunes either
+    $operation = driveOperation(app(ServiceService::class)->requestAction($service->fresh(), 'resize', CommandContext::system('test plan change'), 'mbrt-resize-'.$interval,
+        ['entitlements' => (array) $service->entitlements, 'apply_mailbox_backup' => true]));
+    expect($operation->state)->toBe(Operation::SUCCEEDED, (string) data_get($operation->error, 'message', ''))
+        ->and($calls)->not->toContain('mail_user_update')
+        ->and($boxes[31])->toMatchArray(['backup_interval' => $interval, 'backup_copies' => 60])
+        ->and($service->fresh()->tags['mail_backup'])->toMatchArray(['held' => 1, 'set' => 0]);
+})->with(['weekly', 'monthly', 'none']);
+
+it('keeps what another writer put in the service tags while the retention is recorded', function () {
+    [, $org] = $this->customerWithOrganization();
+    $service = mbrtService($org, 14, ['backup_schedule' => ['paused' => false]]);
+    $stale = Service::query()->findOrFail($service->id); // loaded before the panel round-trips
+
+    Service::query()->findOrFail($service->id)->forceFill(['tags' => ['backup_schedule' => ['paused' => false], 'suspension' => ['cron' => ['7' => true]]]])->save();
+    MailboxBackupPolicy::record($stale, ['copies' => 14, 'set' => 1]);
+
+    $tags = $service->fresh()->tags;
+    expect($tags['suspension'] ?? null)->toBe(['cron' => ['7' => true]])
+        ->and($tags['backup_schedule'])->toBe(['paused' => false])
+        ->and($tags['mail_backup'])->toMatchArray(['copies' => 14, 'set' => 1])
+        ->and($stale->tags['mail_backup']['copies'] ?? null)->toBe(14);
 });

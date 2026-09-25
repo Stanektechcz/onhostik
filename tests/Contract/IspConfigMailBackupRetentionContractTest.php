@@ -159,6 +159,19 @@ it('touches nothing in a mail domain it cannot prove is the platform\'s', functi
     'the binding names no client' => [[], ['domain' => 'shop.cz'], ProviderErrorCode::VALIDATION],
 ]);
 
+it('proves a mail domain again when the same adapter is handed the same id under another name', function () {
+    $calls = [];
+    mbrContractFake($calls); // the panel's row 5 is shop.cz
+    $adapter = mbrContractAdapter(); // one adapter for the whole queue worker (ProviderRegistry caches it)
+
+    expect($adapter->mailboxBackupRetention(mbrContractDomain()))->toHaveCount(3);
+    $other = mbrContractDomain(['client_id' => 3, 'domain' => 'jiny.cz']);
+
+    expect(fn () => $adapter->mailboxBackupRetention($other))->toThrow(fn (ProviderException $e) => expect($e->errorCode)->toBe(ProviderErrorCode::CONFLICT));
+    expect(fn () => $adapter->setMailboxBackupRetention($other, '31', 14))->toThrow(fn (ProviderException $e) => expect($e->errorCode)->toBe(ProviderErrorCode::CONFLICT));
+    expect(mbrContractBodies($calls, 'mail_user_update'))->toBe([]);
+});
+
 it('keeps the backup settings when an autoresponder is switched on', function () {
     $calls = [];
     mbrContractFake($calls, ['mail_user_get' => ['mailuser_id' => 31, 'email' => 'info@shop.cz', 'name' => 'Info', 'password' => '$6$hash', 'sys_groupid' => 7, 'backup_interval' => 'daily', 'backup_copies' => 14, 'autoresponder' => 'n']]);

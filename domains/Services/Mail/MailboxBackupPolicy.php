@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services\Mail;
 
+use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -94,12 +95,30 @@ final class MailboxBackupPolicy
         self::record($service, ['copies' => $copies, 'source' => 'provision']);
     }
 
-    /** @param  array<string,mixed>  $summary */
+    /**
+     * Writes `tags.mail_backup` and nothing else. The caller's model was loaded before several panel round-trips; saving its
+     * whole `tags` would drop what another writer put there meanwhile (a suspension's memory, the backup schedule), so the
+     * row is read again under a lock and only this key replaced. The caller's model is brought in step afterwards.
+     *
+     * @param  array<string,mixed>  $summary
+     */
     public static function record(Service $service, array $summary): void
     {
-        $tags = (array) $service->tags;
-        $tags['mail_backup'] = ['interval' => self::INTERVAL, 'applied_at' => now()->toIso8601String()] + $summary;
-        $service->forceFill(['tags' => $tags])->save();
+        $entry = ['interval' => self::INTERVAL, 'applied_at' => now()->toIso8601String()] + $summary;
+        $tags = DB::transaction(function () use ($service, $entry) {
+            $fresh = Service::query()->whereKey($service->id)->lockForUpdate()->first();
+            if ($fresh === null) {
+                return null;
+            }
+            $tags = (array) $fresh->tags;
+            $tags['mail_backup'] = $entry;
+            $fresh->forceFill(['tags' => $tags])->save();
+
+            return $tags;
+        });
+        if ($tags !== null) {
+            $service->forceFill(['tags' => $tags])->syncOriginalAttribute('tags');
+        }
     }
 
     /**

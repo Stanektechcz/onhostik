@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Database\Seeders\CatalogSeeder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -152,6 +153,51 @@ it('prunes to the generation cap exactly as before while the rule is off', funct
     app(BackupScheduler::class)->tick();
 
     expect(Backup::query()->where('service_id', $wp->id)->where('state', 'completed')->count())->toBe(7);
+});
+
+/** The next tick, with the backups the last one asked for settled (the queue is faked, so they would stay in flight). */
+function backupAsSoldTickAgain(): void
+{
+    Operation::query()->whereIn('state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING])->update(['state' => Operation::SUCCEEDED]);
+    app(BackupScheduler::class)->tick();
+}
+
+it('lets the daily keepers kept under the rule live out their retention once it is switched off', function () {
+    [, $org] = $this->customerWithOrganization();
+    $wp = backupAsSoldService($org, ['backup_frequency' => '6h', 'backup_days' => 30], 'managed');
+    backupAsSoldHistory($wp);
+    $completed = fn () => Backup::query()->where('service_id', $wp->id)->where('state', 'completed');
+    backupAsSoldSwitch(true);
+    app(BackupScheduler::class)->tick();
+    expect($completed()->count())->toBe(15);
+
+    // switched off: nothing that was kept as sold goes at once, however many rows sit beyond the generation cap
+    backupAsSoldSwitch(false);
+    backupAsSoldTickAgain();
+    expect($completed()->count())->toBe(15);
+
+    // what the rule did not keep is still trimmed to the cap, at most 50 a tick: 60 new backups today push 59 rows beyond it
+    foreach (range(0, 59) as $i) {
+        $at = now()->startOfDay()->addMinutes(3 * $i);
+        Backup::query()->create(['service_id' => $wp->id, 'organization_id' => $org->id, 'kind' => 'scheduled', 'state' => 'completed', 'protected' => false,
+            'started_at' => $at, 'finished_at' => $at->copy()->addMinute(), 'retention_until' => $at->copy()->addDays(30), 'size_bytes' => 1000]);
+    }
+    backupAsSoldTickAgain();
+    expect($completed()->count())->toBe(75 - 50);
+    backupAsSoldTickAgain();
+    // the seven newest and the keepers of the ten past days beyond them
+    expect($completed()->count())->toBe(17)
+        ->and($completed()->orderByDesc('started_at')->get()->skip(7)->every(fn (Backup $b) => $b->started_at->hour === 18))->toBeTrue();
+
+    // and they leave through their own retention date, never earlier
+    $this->travel(25)->days();
+    backupAsSoldTickAgain();
+    $left = $completed()->orderByDesc('started_at')->get()->skip(7);
+    $goneKeepers = Backup::query()->where('service_id', $wp->id)->where('state', 'deleted')->get()->filter(fn (Backup $b) => $b->started_at->hour === 18);
+    expect($left)->toHaveCount(5)
+        ->and($left->every(fn (Backup $b) => $b->retention_until->isFuture()))->toBeTrue()
+        ->and($goneKeepers)->toHaveCount(5)
+        ->and($goneKeepers->every(fn (Backup $b) => Carbon::parse((string) $b->meta['deleted_at'])->gte($b->retention_until)))->toBeTrue();
 });
 
 it('resolves every backup_frequency on sale to a frequency the scheduler knows', function () {
