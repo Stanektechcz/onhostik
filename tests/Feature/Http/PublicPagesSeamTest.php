@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Database\Seeders\CatalogSeeder;
+use Illuminate\Support\Facades\Artisan;
 
 /** Public product pages and the web hosting landing sell the catalogue (seam #23): plans, specs, comparison and SKUs come from the data layer. */
 it('generates catalogue-driven plans, comparison tables and SKUs for the public product pages', function () {
@@ -69,4 +70,28 @@ it('generates catalogue-driven plans, comparison tables and SKUs for the public 
     expect($html)->toContain('const __x = Math.round(n * c.rate * 100) / 100, __d = Number.isInteger(__x) ? c.dec : Math.max(c.dec, 2);')
         ->toContain('const __x = Math.round(n * 1.21 * c.rate * 100) / 100, __d = Number.isInteger(__x) ? c.dec : Math.max(c.dec, 2);')
         ->not->toContain('{ minimumFractionDigits: c.dec, maximumFractionDigits: c.dec }).format(n * c.rate);');
+});
+
+/*
+ * TASK-0022 catalog-versions (owner decisions 2, 4, 5, 6, 11, 21): once the catalogue revision is applied the public pages
+ * stop promising PITR and a connection count, the e-shop product count reads as a recommendation, the web plans name their
+ * scheduled tasks in words, the database page's chips are the engines the product really runs, and the page with the free
+ * student and school programmes is withdrawn until after launch.
+ */
+it('shows the revised catalogue on the public pages and withdraws the student programmes page', function () {
+    $this->seed([CatalogSeeder::class]);
+    Artisan::call('onhost:catalog:revise', ['--apply' => true, '--yes' => true]);
+    $js = $this->get('/surfaces/onhost-data.js')->assertOk()->getContent();
+    preg_match('/var D = (\{.*\});\n  function L/s', $js, $m);
+    $pages = json_decode($m[1] ?? '{}', true)['cs']['pages'];
+
+    $database = json_encode([$pages['database']['plans'], $pages['database']['cmp'], $pages['database']['details']], JSON_UNESCAPED_UNICODE);
+    expect($database)->not->toMatch('/PITR|spojení/iu')->and($pages['database']['chips'])->toBe(['PostgreSQL 16', 'MariaDB 11.4', 'Redis 7']);
+    expect($pages['eshop']['plans'][0]['specs'])->toContain('Doporučeno do 1 000 produktů')->and($pages['eshop']['plans'][2]['specs'][0])->toBe('Bez limitu produktů');
+    expect(collect($pages['web-hosting']['details']['rows'])->keyBy(0)->get('Naplánované úlohy'))->toBe(['Naplánované úlohy', '1 naplánovaná úloha', '2 naplánované úlohy', '4 naplánované úlohy']);
+    expect(collect($pages['wordpress']['details']['rows'])->keyBy(0)->get('Interval záloh'))->toBe(['Interval záloh', '6 h', '1 h']);
+
+    expect($pages['sol-edu'])->toMatchArray(['withdrawn' => true])->and(json_encode($pages['sol-edu'], JSON_UNESCAPED_UNICODE))->not->toMatch('/zdarma|ISIC|grant/iu');
+    $module = (string) file_get_contents((string) $this->get('/surfaces/api/onhost-svc-pages.api.js')->assertOk()->baseResponse->getFile());
+    expect($module)->toContain('o.withdrawn');
 });

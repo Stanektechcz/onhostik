@@ -45,6 +45,7 @@ final class CatalogPreflight
             'option.upsert' => self::option((string) $command->get('product_key'), (array) $command->get('option', [])),
             'option.delete' => self::product((string) $command->get('product_key')),
             'product.state' => self::productState((string) $command->get('state'), (array) $command->get('products', [])),
+            'product.describe' => self::description((string) $command->get('product_key'), (array) $command->get('description', [])),
             'plan.publish' => $this->plans->check((string) $command->get('product_key'), (string) $command->get('plan_key'), $command->payload),
             'plan.activate_version' => $this->plans->checkActivate((string) $command->get('product_key'), (string) $command->get('plan_key'), (int) $command->get('version')),
             'pricing.domain_discount.delete', 'promo.delete', 'lifecycle.set', 'panel_nav.set' => null, // nothing to refuse: a withdrawal, a clamped setting, the sidebar
@@ -156,6 +157,24 @@ final class CatalogPreflight
         return Product::query()->where('key', $key)->first() ?? throw DomainError::notFound("Product {$key}");
     }
 
+    /**
+     * A product description as the handler stores it: Czech required, English falls back to it, each at most 300 characters.
+     *
+     * @param  array<string,mixed>  $in
+     * @return array{product: Product, description: array{cs: string, en: string}}
+     */
+    public static function description(string $productKey, array $in): array
+    {
+        $product = self::product($productKey);
+        $cs = trim((string) ($in['cs'] ?? ''));
+        $en = trim((string) ($in['en'] ?? ''));
+        if ($cs === '' || mb_strlen($cs) > 300 || mb_strlen($en) > 300) {
+            throw new DomainError('description_invalid', 'A description needs the Czech text, each language at most 300 characters.', 422, ['field' => 'description']);
+        }
+
+        return ['product' => $product, 'description' => ['cs' => $cs, 'en' => $en === '' ? $cs : $en]];
+    }
+
     /** @param list<string> $keys @return list<Product> */
     public static function productState(string $state, array $keys): array
     {
@@ -208,6 +227,7 @@ final class CatalogPreflight
             'promo.upsert', 'promo.delete' => self::promoRow(strtoupper(trim((string) ($command->op() === 'promo.upsert' ? $command->get('promo.code') : $command->get('code'))))),
             'option.upsert' => self::optionRow((string) $command->get('product_key'), (string) $command->get('option.key')),
             'option.delete' => self::optionRow((string) $command->get('product_key'), (string) $command->get('key')),
+            'product.describe' => Product::query()->where('key', (string) $command->get('product_key'))->value('description'),
             default => false,
         };
         if ($value === false) {

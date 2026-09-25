@@ -119,7 +119,7 @@ final class CatalogPresentation
             'domains' => ['Domény', 'Domains'], 'relay_per_hour' => ['Odesílání za hodinu', 'Sending per hour'], 'spam_filter' => ['Antispam', 'Antispam'], 'imap' => ['IMAP', 'IMAP'], 'dedicated_outbound_ip' => ['Dedikovaná odchozí IP', 'Dedicated outbound IP'],
             'connections' => ['Spojení', 'Connections'], 'pitr_days' => ['Obnova k okamžiku (PITR)', 'Point-in-time recovery'], 'ha' => ['Vysoká dostupnost', 'High availability'], 'external_access' => ['Přístup zvenku', 'External access'],
             'cpu_limit' => ['CPU limit', 'CPU limit'], 'replicas' => ['Repliky', 'Replicas'], 'builds_per_day' => ['Buildů denně', 'Builds per day'], 'custom_domains' => ['Vlastní domény', 'Custom domains'], 'workers' => ['Workery', 'Workers'],
-            'cron' => ['Cron úlohy', 'Cron jobs'], 'logs_retention_days' => ['Logy', 'Logs'], 'zero_downtime' => ['Nasazení bez výpadku', 'Zero-downtime deploys'], 'tls' => ['TLS', 'TLS'],
+            'cron' => ['Cron úlohy', 'Cron jobs'], 'cron_concurrency' => ['Naplánované úlohy', 'Scheduled tasks'], 'logs_retention_days' => ['Logy', 'Logs'], 'zero_downtime' => ['Nasazení bez výpadku', 'Zero-downtime deploys'], 'tls' => ['TLS', 'TLS'],
             'daily' => ['Denní zálohy', 'Daily backups'], 'weekly' => ['Týdenní zálohy', 'Weekly backups'], 'monthly' => ['Měsíční zálohy', 'Monthly backups'], 'interval_hours' => ['Interval', 'Interval'], 'retention_days' => ['Historie', 'Retention'],
             'offsite' => ['Kopie mimo lokalitu', 'Off-site copy'], 'restore_test' => ['Test obnovy', 'Restore test'], 'l7' => ['L7 filtr', 'L7 filtering'], 'game_profiles' => ['Herní profily', 'Game profiles'], 'capacity_gbps' => ['Kapacita', 'Capacity'],
             'pops' => ['PoP lokality', 'PoP locations'], 'validation' => ['Ověření', 'Validation'], 'warranty' => ['Pojištění', 'Warranty'], 'issuance' => ['Vystavení', 'Issuance'], 'wildcard' => ['Wildcard', 'Wildcard'], 'bot_management' => ['Bot management', 'Bot management'], 'anycast' => ['Anycast', 'Anycast'],
@@ -147,7 +147,9 @@ final class CatalogPresentation
         return match ($key) {
             'nvme_gb', 'quota_gb_per_mailbox' => $v.' GB', 'php_memory_mb' => $v.' MB', 'ram_mb' => (is_numeric($v) ? (int) $v >= 1024 ? rtrim(rtrim(number_format((int) $v / 1024, 1, '.', ''), '0'), '.').' GB' : $v.' MB' : $v),
             'backup_days', 'pitr_days', 'retention_days', 'logs_retention_days' => $v.' '.self::days((int) $v, $cs), 'traffic_tb' => $v.' TB', 'traffic_gb' => $v.' GB', 'inodes' => number_format((int) $v, 0, ',', ' '), 'capacity_gbps' => $v.' Gbps', 'interval_hours' => $v.' h',
-            'sites', 'products', 'mailboxes', 'databases', 'aliases', 'domains', 'connections', 'snapshots', 'backups', 'allocations', 'replicas', 'builds_per_day', 'custom_domains', 'workers', 'cron', 'daily', 'weekly', 'monthly' => is_numeric($v) && (int) $v >= 999999 ? ($cs ? 'neomezeně' : 'unlimited') : $v,
+            'products' => is_numeric($v) && (int) $v >= 999999 ? ($cs ? 'neomezeně' : 'unlimited') : ($cs ? 'doporučeno do '.number_format((int) $v, 0, ',', ' ') : 'recommended up to '.number_format((int) $v, 0, '.', ',')),
+            'cron_concurrency' => self::scheduledTasks((int) $v, $cs), 'backup_frequency' => self::backupInterval($v, $cs, false),
+            'sites', 'mailboxes', 'databases', 'aliases', 'domains', 'connections', 'snapshots', 'backups', 'allocations', 'replicas', 'builds_per_day', 'custom_domains', 'workers', 'cron', 'daily', 'weekly', 'monthly' => is_numeric($v) && (int) $v >= 999999 ? ($cs ? 'neomezeně' : 'unlimited') : $v,
             'php_workers' => $v, default => $v,
         };
     }
@@ -165,11 +167,13 @@ final class CatalogPresentation
 
         return match ($key) {
             'sites' => $unlimited ? ($cs ? 'Neomezeně webů' : 'Unlimited sites') : ($cs ? $n.' '.$plural($n, 'web', 'weby', 'webů') : $n.' '.($n === 1 ? 'site' : 'sites')),
-            'products' => $unlimited ? ($cs ? 'Bez limitu produktů' : 'No product limit') : ($cs ? 'do '.number_format($n, 0, ',', ' ').' produktů' : 'up to '.number_format($n, 0, '.', ',').' products'),
+            // a recommendation, not a limit (owner decision 5: fair use, PlanPromises::FAIR_USE)
+            'products' => $unlimited ? ($cs ? 'Bez limitu produktů' : 'No product limit') : ($cs ? 'Doporučeno do '.number_format($n, 0, ',', ' ').' produktů' : 'Recommended up to '.number_format($n, 0, '.', ',').' products'),
+            'cron_concurrency' => self::scheduledTasks($n, $cs),
             'nvme_gb' => $n.' GB NVMe', 'php_workers' => ($cs ? $n.' PHP '.$plural($n, 'worker', 'workery', 'workerů') : $n.' PHP '.($n === 1 ? 'worker' : 'workers')).(! empty($all['php_workers_dedicated']) ? ($cs ? ' (dedikované)' : ' (dedicated)') : ''),
             'php_memory_mb' => 'PHP '.$n.' MB', 'mailboxes' => $unlimited ? ($cs ? 'Neomezeně schránek' : 'Unlimited mailboxes') : ($cs ? $n.' '.$plural($n, 'schránka', 'schránky', 'schránek') : $n.' '.($n === 1 ? 'mailbox' : 'mailboxes')),
             'databases' => $unlimited ? ($cs ? 'Neomezeně databází' : 'Unlimited databases') : ($cs ? $n.' '.$plural($n, 'databáze', 'databáze', 'databází') : $n.' '.($n === 1 ? 'database' : 'databases')),
-            'backup_days' => $cs ? 'Zálohy '.$n.' '.self::days($n, true) : $n.'-day backups', 'backup_frequency' => $cs ? 'Zálohy každých '.$value : 'Backups every '.$value, 'staging' => $cs ? 'Staging na klik' : 'One-click staging',
+            'backup_days' => $cs ? 'Zálohy '.$n.' '.self::days($n, true) : $n.'-day backups', 'backup_frequency' => self::backupInterval((string) $value, $cs, true), 'staging' => $cs ? 'Staging na klik' : 'One-click staging',
             'ssh' => $cs ? 'SSH a WP-CLI' : 'SSH and WP-CLI', 'waf' => is_string($value) ? 'WAF '.$value : 'WAF',
             'traffic_gb' => $cs ? 'Přenos '.($n >= 1024 ? rtrim(rtrim(number_format($n / 1024, 1, '.', ''), '0'), '.').' TB' : $n.' GB').' měsíčně (fair use)' : 'Transfer '.($n >= 1024 ? rtrim(rtrim(number_format($n / 1024, 1, '.', ''), '0'), '.').' TB' : $n.' GB').' a month (fair use)',
             'inodes' => $cs ? 'Až '.number_format($n, 0, ',', ' ').' souborů' : 'Up to '.number_format($n, 0, '.', ',').' files', 'object_cache' => $cs ? 'Cache '.$value : ucfirst((string) $value).' cache',
@@ -189,6 +193,34 @@ final class CatalogPresentation
             'issuance' => $cs ? 'Vystavení '.$value : 'Issuance '.$value, 'wildcard' => $cs ? 'Neomezeně subdomén' : 'Unlimited subdomains', 'bot_management' => 'Bot management', 'anycast' => 'Anycast '.$value,
             default => null,
         };
+    }
+
+    /** "1 naplánovaná úloha", "2 naplánované úlohy", "5 naplánovaných úloh" — the panel's limit_cron, in words (owner decision 11). */
+    private static function scheduledTasks(int $n, bool $cs): string
+    {
+        if (! $cs) {
+            return $n.' scheduled '.($n === 1 ? 'task' : 'tasks');
+        }
+
+        return $n.' '.($n === 1 ? 'naplánovaná úloha' : ($n < 5 ? 'naplánované úlohy' : 'naplánovaných úloh'));
+    }
+
+    /**
+     * The backup interval of a plan (BackupScheduler::FREQUENCIES keys; "1h" is what older versions say for hourly) as a bullet
+     * ("Zálohy každou hodinu") or a table cell ("1 h"); a value it does not know is shown as written.
+     */
+    private static function backupInterval(string $value, bool $cs, bool $bullet): string
+    {
+        [$cell, $csBullet, $enBullet] = match ($value) {
+            '15m' => ['15 min', 'Zálohy každých 15 minut', 'Backups every 15 minutes'],
+            'hourly', '1h' => ['1 h', 'Zálohy každou hodinu', 'Hourly backups'],
+            '6h' => ['6 h', 'Zálohy každých 6 hodin', 'Backups every 6 hours'],
+            'daily' => [$cs ? 'denně' : 'daily', 'Zálohy denně', 'Daily backups'],
+            'weekly' => [$cs ? 'týdně' : 'weekly', 'Zálohy týdně', 'Weekly backups'],
+            default => [$value, 'Zálohy každých '.$value, 'Backups every '.$value],
+        };
+
+        return $bullet ? ($cs ? $csBullet : $enBullet) : $cell;
     }
 
     private static function days(int $n, bool $cs): string

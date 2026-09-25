@@ -139,20 +139,20 @@ final class MetricRegistry
             'entitlement' => ['dedicated_outbound_ip'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['mail'],
             'sources' => ['ispconfig' => null],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'Only app/Http/Support/CatalogPresentation.php ever names it; no workflow allocates a dedicated sending IP for mail-enterprise.',
+            'reason' => 'Only app/Http/Support/CatalogPresentation.php ever names it; no workflow allocates a dedicated sending IP for mail-enterprise. No longer sold from catalogue revision 2026-09-honest-promises (owner decision 6, CatalogRevisions / onhost:catalog:revise); still carried by the versions customers hold — see PlanPromises::grandfatheredGaps().',
         ],
         'dedicated_db' => [
             'entitlement' => ['dedicated_db'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['managed'],
             'sources' => ['aapanel' => null],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'Only CatalogPresentation names it (managed-woo, shop-peak); no workflow provisions a single-tenant database for these plans.',
+            'reason' => 'Only CatalogPresentation names it (managed-woo, shop-peak); no workflow provisions a single-tenant database for these plans. No longer sold from catalogue revision 2026-09-honest-promises (owner decision 6, CatalogRevisions / onhost:catalog:revise); still carried by the versions customers hold — see PlanPromises::grandfatheredGaps().',
         ],
         // ---- e-shop -----------------------------------------------------------------------------------------
         'products' => [
-            'entitlement' => ['products'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::SOFT, 'families' => ['managed'],
+            'entitlement' => ['products'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['managed'],
             'sources' => ['aapanel' => null],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'A WooCommerce/PrestaShop product count is never read back from the store or capped by the platform; only the price list mentions the number. (The bare word "products" elsewhere — Product.php\'s $table, CatalogCommandHandler.php, PlacementService.php — is an unrelated identifier, not this entitlement, which is exactly the false "read" the old text scan produced.)',
+            'reason' => 'Declared fair use (PlanPromises::FAIR_USE, owner decision 5): a recommended catalogue size worded "Doporučeno do N produktů", not a limit. A WooCommerce/PrestaShop product count is never read back from the store or capped by the platform; only the price list mentions the number. (The bare word "products" elsewhere — Product.php\'s $table, CatalogCommandHandler.php, PlacementService.php — is an unrelated identifier, not this entitlement, which is exactly the false "read" the old text scan produced.)',
         ],
         // ---- VPS / VDS (Proxmox) -----------------------------------------------------------------------------
         'vcpu' => [
@@ -223,13 +223,13 @@ final class MetricRegistry
             'entitlement' => ['connections'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['data'],
             'sources' => ['proxmox' => null],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'Only CatalogPresentation names it; no engine config (PostgreSQL max_connections / MariaDB max_connections) is written from it, and nothing measures the live connection count.',
+            'reason' => 'Only CatalogPresentation names it; no engine config (PostgreSQL max_connections / MariaDB max_connections) is written from it, and nothing measures the live connection count. No longer sold from catalogue revision 2026-09-honest-promises (owner decision 4, CatalogRevisions / onhost:catalog:revise); still carried by the versions customers hold — see PlanPromises::grandfatheredGaps().',
         ],
         'pitr_days' => [
             'entitlement' => ['pitr_days'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::SOFT, 'families' => ['data'],
             'sources' => ['service' => null],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'ServiceService::activate() only reads it as (bool) pitr_days — whether PITR is on at all — never as the number of days retained, so a "7" and a "14"-day plan keep the same (unspecified) retention.',
+            'reason' => 'Point-in-time recovery is not provided: nothing archives WAL, and since TASK-0022 a new DatabaseInstance never claims pitr (ServiceService::activate no longer reads this key). No longer sold from catalogue revision 2026-09-honest-promises (owner decision 2, CatalogRevisions / onhost:catalog:revise); still carried by the versions customers hold — see PlanPromises::grandfatheredGaps().',
         ],
         // ---- backup add-ons (PBS) -----------------------------------------------------------------------------
         'daily' => [

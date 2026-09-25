@@ -55,6 +55,13 @@ final class CatalogCommandHandler implements CommandHandler
                 return ['plan' => app(PlanVersioning::class)->history((string) $command->get('product_key'), (string) $command->get('plan_key'))];
             })(),
             'product.state' => ['products' => $this->productState((string) $command->get('state'), (array) $command->get('products', []))], // on sale or off sale (audit §5z)
+            // the product's public description (a catalogue revision withdraws a promise from it, CatalogRevisions)
+            'product.describe' => (function () use ($command) {
+                ['product' => $product, 'description' => $description] = CatalogPreflight::description((string) $command->get('product_key'), (array) $command->get('description', []));
+                $product->forceFill(['description' => $description])->save();
+
+                return ['product_key' => $product->key, 'description' => $description];
+            })(),
             // the deletion lifecycle: how long a cancelled service can come back, how long the archive lives, what its download costs (audit §5ab)
             'lifecycle.set' => ['lifecycle' => app(DeletionPolicy::class)->set((array) $command->get('config', []), $by)],
             // the customer panel's sidebar: category switches, order and labels (domains/Catalog/PanelNavigation.php)

@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Catalog;
 
+use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Services\Metering\MetricRegistry;
+use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceStateMachine;
 
 /**
  * What a plan may promise (audit §5ad, brain card H278). A plan version carries two machine-read bags —
@@ -35,10 +38,13 @@ use Onhost\Domain\Services\Metering\MetricRegistry;
  * gap without removing it here, or a new gap appearing, both fail the guard test
  * (`tests/Feature/Catalog/PlanPromisesTest.php`), and `onhost:doctor` shows the current list as a standing WARN.
  *
- * Two entries in `KNOWN_GAPS` are boolean, not numeric — `dedicated_outbound_ip` and `dedicated_db` — because
- * excluding the presentation files surfaced them as genuinely unbuilt, not merely unmeasured; labelling them
- * `FAIR_USE` would misrepresent a real gap as an operational fact, so they ride the same ratchet (decided, not
- * unilateral — see `.ai/tasks/TASK-0017.md` Findings).
+ * `dedicated_outbound_ip` and `dedicated_db` (boolean) were two such gaps, and `pitr_days` and `connections` two numeric ones;
+ * the owner decided (2026-09-25, decisions 2/4/6) that they are not provided, so the catalogue revision
+ * `2026-09-honest-promises` (`CatalogRevisions`, applied with `onhost:catalog:revise`) publishes versions without them and
+ * they left `KNOWN_GAPS`. Until the operator applies it, the doctor names the command instead of reporting a new gap. The
+ * versions customers already hold keep the promises they were sold (a version is never edited): `grandfatheredGaps()` lists
+ * them so support can answer honestly. `products` (the e-shop product count) became fair use: a recommendation, worded
+ * "Doporučeno do N produktů" (decision 5).
  */
 final class PlanPromises
 {
@@ -64,6 +70,7 @@ final class PlanPromises
         'validation' => 'the validation level of the certificate authority',
         'support' => 'the response time of the support team',
         'tls' => 'which certificate authority the free certificate comes from',
+        'products' => 'a recommended catalogue size for the shop plan (owner decision 5, 2026-09-25): nothing reads back or caps a store\'s product count; worded "Doporučeno do N produktů"',
     ];
 
     /** Where a key has to be read for the promise to be kept. */
@@ -100,15 +107,10 @@ final class PlanPromises
         'php_workers' => 'sold on wordpress/eshop (aaPanel); AaPanelWebProvider returns applied=false for every PHP-worker change — see MetricRegistry',
         'php_workers_dedicated' => 'sold on web-hosting/profi and eshop/shop-peak; only the price list adds "(dedicated)" to the wording, nothing isolates a dedicated FPM pool — see MetricRegistry',
         'aliases' => 'sold on mail plans; ISPConfig has no limit_mailalias and alias.create runs no count check — see MetricRegistry',
-        'dedicated_outbound_ip' => 'sold on mail-enterprise; only the price list names it, no workflow allocates a dedicated sending IP — see MetricRegistry',
-        'dedicated_db' => 'sold on managed-woo/shop-peak; only the price list names it, no workflow provisions a single-tenant database — see MetricRegistry',
         'spam_filter' => 'sold on mail plans; only the price list names the antispam tier, no mail config sets an rspamd policy from it — see MetricRegistry',
-        'products' => 'sold on e-shop plans; nothing reads back or caps a store\'s product count — see MetricRegistry',
         'traffic_tb' => 'sold on VPS/VDS and the CDN add-on; UsageWatch only measures traffic for web/managed families — see MetricRegistry',
         'bot_management' => 'sold on the CDN add-on, whose product has no executor at all — nothing in the platform configures bot management — see MetricRegistry',
         'snapshots' => 'sold on VPS/VDS; the "snapshots" feature limit is display-only, no count check gates snapshot.create — see MetricRegistry',
-        'connections' => 'sold on managed database plans; nothing writes it into the engine config or measures live connections — see MetricRegistry',
-        'pitr_days' => 'sold on managed database plans; only read as (bool) pitr_days — whether PITR is on — never as a retention window — see MetricRegistry',
         'pids' => 'sold in every game plan\'s limits bag; PterodactylGameProvider\'s resource limits (memory/swap/disk/io/cpu) never include a PID cap — see MetricRegistry',
         'backup_days' => 'sold on web/managed, mail and db-s/db-m plans; kept only behind the owner\'s default-off rules — backups.as_sold (web/managed daily backups), mail.backup_retention (mailbox copies, TASK-0024) and backups.compute (managed databases, family `data`) — so with the rules off (the default) no family keeps it as sold — see MetricRegistry kept_under (found by family-scoping the registry check, audit §5ad)',
     ];
@@ -225,6 +227,36 @@ final class PlanPromises
                 $out[(string) $products->search($plan->product_id).'/'.$plan->key] = $problems;
             }
         }
+
+        return $out;
+    }
+
+    /**
+     * The promises a version customers still hold makes and the version on sale no longer does: a revision (or staff) took a
+     * number off the plan because the platform does not keep it, and the customers who bought the old version keep it on
+     * paper (a version is never edited). Held = a service on it that has not ended, or an active/past-due subscription.
+     * Informational (the doctor shows it as a WARN): support knows what those customers were sold.
+     *
+     * @param  list<string>  $read
+     * @return array<string, list<string>> 'product/plan@vN' => keys
+     */
+    public static function grandfatheredGaps(array $read): array
+    {
+        $held = Service::query()->whereNotNull('plan_version_id')->whereNotIn('state', [ServiceStateMachine::TERMINATED, ServiceStateMachine::FAILED])->distinct()->pluck('plan_version_id')
+            ->merge(Subscription::query()->whereNotNull('plan_version_id')->whereIn('state', ['active', 'past_due'])->distinct()->pluck('plan_version_id'))->unique()->values()->all();
+        $out = [];
+        foreach (PlanVersion::query()->whereIn('id', $held)->get() as $version) {
+            $plan = Plan::query()->with('product')->find($version->plan_id);
+            if ($plan === null || (int) $plan->current_version === (int) $version->version) {
+                continue;
+            }
+            $current = $plan->currentVersion();
+            $gaps = array_values(array_diff(self::rawUnkept($version, $read), $current === null ? [] : self::rawUnkept($current, $read)));
+            if ($gaps !== []) {
+                $out[($plan->product->key ?? '?').'/'.$plan->key.'@v'.$version->version] = $gaps;
+            }
+        }
+        ksort($out);
 
         return $out;
     }

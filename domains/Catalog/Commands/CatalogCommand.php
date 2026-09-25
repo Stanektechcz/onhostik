@@ -14,7 +14,8 @@ use Onhost\Platform\Commands\GlobalCommand;
  *  pricing.domain_discount.delete{tld} · pricing.addon_products.set{product_key,addon_products} · promo.upsert{promo,reason?} · promo.delete{code} ·
  *  option.upsert{product_key,option,reason?} · option.delete{product_key,key,reason?} · product.state{state: active|draft, products: list} ·
  *  plan.publish{product_key,plan_key,base_version?,entitlements?,limits?,features?,prices?,reason,confirm_large_change?} ·
- *  plan.activate_version{product_key,plan_key,version,base_version?,reason} · lifecycle.set{config,base?,reason?} · panel_nav.set{config}
+ *  plan.activate_version{product_key,plan_key,version,base_version?,reason} · lifecycle.set{config,base?,reason?} · panel_nav.set{config} ·
+ *  product.describe{product_key,description{cs,en},base?}
  *
  * Who it takes (owner decision 13, 2026-09-25; docs/runbooks/approvals.md): HIGH is a fresh step-up and nothing more, but every
  * change of a price or a plan takes a second person as well, although catalog.manage itself is only HIGH. Withdrawing an offer
@@ -25,10 +26,13 @@ use Onhost\Platform\Commands\GlobalCommand;
  */
 final class CatalogCommand extends GlobalCommand implements RiskAwareCommand
 {
-    public const OPS = ['pricing.commit_discounts.set', 'pricing.regions.set', 'pricing.domain_discount.set', 'pricing.domain_discount.delete', 'pricing.addon_products.set', 'promo.upsert', 'promo.delete', 'option.upsert', 'option.delete', 'panel_nav.set', 'product.state', 'plan.publish', 'plan.activate_version', 'lifecycle.set'];
+    public const OPS = ['pricing.commit_discounts.set', 'pricing.regions.set', 'pricing.domain_discount.set', 'pricing.domain_discount.delete', 'pricing.addon_products.set', 'promo.upsert', 'promo.delete', 'option.upsert', 'option.delete', 'panel_nav.set', 'product.state', 'plan.publish', 'plan.activate_version', 'lifecycle.set', 'product.describe'];
 
-    /** Withdrawals and the composition of an offer from products already on sale at approved prices: one person, a step-up. */
-    public const STEP_UP_OPS = ['pricing.domain_discount.delete', 'promo.delete', 'pricing.addon_products.set'];
+    /**
+     * Withdrawals and the composition of an offer from products already on sale at approved prices: one person, a step-up.
+     * A product's description is customer-facing copy, neither a price nor a plan (TASK-0022 catalog-versions): a step-up.
+     */
+    public const STEP_UP_OPS = ['pricing.domain_discount.delete', 'promo.delete', 'pricing.addon_products.set', 'product.describe'];
 
     /** Neither a price nor an offer. */
     public const ORDINARY_OPS = ['panel_nav.set'];

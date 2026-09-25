@@ -23,6 +23,13 @@
     Object.keys(ov).forEach(function (slug) {
       var page = pages[slug], o = ov[slug];
       if (!page || !o) return;
+      if (o.withdrawn) { // an offer the platform does not make (e.g. the school/student programmes, owner decision 21): a short notice instead of the advert
+        page.kicker = o.kicker || ''; page.title = o.title || page.title; page.lead = o.lead || '';
+        page.kpis = []; page.chips = []; page.plans = []; page.plansTitle = o.kicker || page.plansTitle; page.plansNote = o.lead || '';
+        page.feats = []; page.tech = []; page.bench = []; page.benchNote = ''; page.cases = []; page.faq = []; page.config = false; page.roi = false;
+        delete page.cmp; delete page.hourly;
+        return;
+      }
       if (o.unavailable) { // the product exists but is not on sale: no prices, no order buttons, a contact request instead
         page.kicker = o.kicker || page.kicker;
         page.plansNote = o.note || page.plansNote;

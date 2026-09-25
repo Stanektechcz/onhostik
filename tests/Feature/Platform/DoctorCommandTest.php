@@ -80,3 +80,31 @@ it('fails a production deploy when a plan starts selling a number the registry h
 
     expect($row['status'])->toBe('FAIL')->and($row['detail'])->toContain('made_up_metric_xyz');
 });
+
+/*
+ * TASK-0022 catalog-versions: the gaps a code-defined catalogue revision retires leave PlanPromises::KNOWN_GAPS in the same
+ * commit, but production only loses them when the operator applies the revision after the deploy. Until then the doctor
+ * says so as a WARN naming the command — it must not turn the deploy red as an "untracked gap".
+ */
+it('shows a catalogue revision not yet applied as a WARN naming the command, not as a new gap', function () {
+    $this->seed([LegalEntitySeeder::class, CatalogSeeder::class]);
+    Artisan::call('onhost:doctor', ['--json' => true]); // outside production first, as the other production cases do: the secret store is built by then
+    app()->instance('env', 'production');
+    $row = function (string $check): array {
+        Artisan::call('onhost:doctor', ['--json' => true]);
+        $report = json_decode(trim(Artisan::output()), true, 512, JSON_THROW_ON_ERROR);
+
+        return (array) collect($report['checks'])->firstWhere('check', $check);
+    };
+
+    expect($row('the metering gap ratchet is not growing')['status'])->toBe('OK');
+    $pending = $row('every catalogue revision is applied');
+    expect($pending['status'])->toBe('WARN')->and($pending['detail'])->toContain('onhost:catalog:revise')->toContain('database/db-s');
+
+    app()->instance('env', 'testing'); // the operator applies it; the production boot checks are not the subject here
+    Artisan::call('onhost:catalog:revise', ['--apply' => true, '--yes' => true]);
+    app()->instance('env', 'production');
+    expect($row('every catalogue revision is applied')['status'])->toBe('OK')
+        ->and($row('the metering gap ratchet is not growing')['status'])->toBe('OK')
+        ->and($row('no customer holds a version promising an unkept number')['status'])->toBe('OK');
+});

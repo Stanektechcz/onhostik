@@ -211,9 +211,14 @@ final class ServiceService
         if ($fresh->family === 'data') {
             $engine = (string) data_get($fresh->desired_spec, 'engine', 'postgresql-16');
             [$name, $ver] = array_pad(explode('-', $engine, 2), 2, null);
-            DatabaseInstance::query()->updateOrCreate(['service_id' => $fresh->id], ['engine' => $name, 'version' => $ver, 'host' => $access['ipv6'] ?? $access['ipv4'] ?? $fresh->hostname, 'port' => match ($name) {
+            $instance = DatabaseInstance::query()->firstOrNew(['service_id' => $fresh->id]);
+            $instance->fill(['engine' => $name, 'version' => $ver, 'host' => $access['ipv6'] ?? $access['ipv4'] ?? $fresh->hostname, 'port' => match ($name) {
                 'mariadb' => 3306, 'redis' => 6379, default => 5432
-            }, 'pitr' => (bool) $fresh->entitlement('pitr_days'), 'external_access' => false, 'allowlist' => [], 'state' => 'active']);
+            }, 'external_access' => false, 'allowlist' => [], 'state' => 'active']);
+            if (! $instance->exists) {
+                $instance->pitr = false; // point-in-time recovery is not provided (owner decision 2): a new instance never claims it; an existing row keeps its flag
+            }
+            $instance->save();
         }
         $item = $operation->order_item_id !== null ? OrderItem::query()->find($operation->order_item_id) : null;
         if ($item !== null) {

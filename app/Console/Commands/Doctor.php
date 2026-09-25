@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\TldPolicy;
@@ -232,9 +233,19 @@ final class Doctor extends Command
         // `PlanPromisesTest::'keeps KNOWN_GAPS equal to the gaps the platform actually has today'`, which compares
         // the two lists for an exact match rather than a one-way diff.
         $actualGaps = PlanPromises::actualGaps($read);
-        $newGaps = array_values(array_diff($actualGaps, $knownGaps));
+        // a gap a catalogue revision retires left KNOWN_GAPS in the same commit; until the operator applies the revision it is
+        // pending work with a named command (the row below), not an untracked gap (TASK-0022 catalog-versions)
+        $revisions = app(CatalogRevisions::class);
+        $newGaps = array_values(array_diff($actualGaps, $knownGaps, $revisions->pendingKeys()));
         $this->add('catalog', 'the metering gap ratchet is not growing', $newGaps === [],
             $newGaps === [] ? 'every gap is on the known list' : 'new, untracked gap(s): '.implode(', ', $newGaps).' — add them to PlanPromises::KNOWN_GAPS with a reason, or fix them', true);
+        $pending = $revisions->pending();
+        $this->add('catalog', 'every catalogue revision is applied', $pending === [], $pending === [] ? implode(', ', CatalogRevisions::ids())
+            : CatalogRevisions::summary($pending).' — php artisan onhost:catalog:revise (dry run), then --apply', false);
+        // the versions customers hold keep what they were sold; support must know which of those promises nothing keeps
+        $grandfathered = PlanPromises::grandfatheredGaps($read);
+        $this->add('catalog', 'no customer holds a version promising an unkept number', $grandfathered === [], $grandfathered === [] ? ''
+            : implode(' · ', array_map(fn (string $version, array $keys) => $version.': '.implode(', ', $keys), array_keys($grandfathered), $grandfathered)).' — sold before the revision; the customers keep their version', false);
         // a WAF level is a line on the price list; the panels do not do the same things, and a level nobody defined
         // used to mean nothing at all (audit §5ad, the same rule as the numbers above)
         $waf = WafLevels::onSaleProblems(['ispconfig' => ServiceFeatures::securitySupports('ispconfig'), 'aapanel' => ServiceFeatures::securitySupports('aapanel')]);

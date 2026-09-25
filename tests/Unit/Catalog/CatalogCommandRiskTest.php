@@ -44,6 +44,7 @@ it('classifies every catalogue operation: price and plan changes take a second p
         [['op' => 'promo.upsert', 'promo' => ['code' => 'JARO', 'state' => 'retired']], $stepUp],
         [['op' => 'product.state', 'state' => 'draft'], $stepUp], // the one-person emergency stop
         [['op' => 'pricing.addon_products.set'], $stepUp],
+        [['op' => 'product.describe'], $stepUp], // customer-facing copy, neither a price nor a plan (TASK-0022 catalog-versions)
         [['op' => 'panel_nav.set'], $ordinary],
     ];
     foreach ($table as [$payload, $expected]) {

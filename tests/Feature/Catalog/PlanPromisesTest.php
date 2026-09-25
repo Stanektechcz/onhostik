@@ -2,13 +2,18 @@
 
 declare(strict_types=1);
 
+use App\Http\Support\CatalogPresentation;
 use Database\Seeders\CatalogSeeder;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\PlanPromises;
 use Onhost\Domain\Catalog\PlanVersioning;
 use Onhost\Domain\Services\Metering\MetricRegistry;
+use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\UsageWatch;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 
 /*
@@ -23,6 +28,9 @@ use Onhost\Platform\Errors\DomainError;
 
 beforeEach(function () {
     $this->seed([CatalogSeeder::class]);
+    // the catalogue as production has it once the operator applied the code-defined revisions (onhost:catalog:revise --apply):
+    // the seeder only writes version 1, the revisions publish the versions without the promises the platform does not keep
+    app(CatalogRevisions::class)->apply(null, CommandContext::system('test:plan-promises'));
     Http::preventStrayRequests();
 });
 
@@ -174,4 +182,40 @@ it('routes a numeric-string promise through the registry exactly like an int, no
     // and a kept key sold as a numeric string is not wrongly flagged either
     $version->entitlements = array_merge((array) $version->entitlements, ['aliases' => 0, 'mailboxes' => '5']);
     expect(PlanPromises::rawUnkept($version, $read))->not->toContain('mailboxes');
+});
+
+/*
+ * Owner decision 5 (2026-09-25): the product count of an e-shop plan is a recommendation, not a limit — nothing reads a
+ * store's product count back and nothing caps it. It is declared fair use and worded as one on the price list.
+ */
+it('treats the e-shop product count as fair use: never a gap, worded as a recommendation', function () {
+    expect(PlanPromises::FAIR_USE)->toHaveKey('products')->and(PlanPromises::KNOWN_GAPS)->not->toHaveKey('products');
+    $start = Plan::query()->where('key', 'shop-start')->firstOrFail()->currentVersion();
+    expect($start?->entitlements['products'] ?? null)->toBe(1000)
+        ->and(PlanPromises::rawUnkept($start, PlanPromises::readInSource()))->not->toContain('products')
+        ->and(CatalogPresentation::bullets(['products' => 1000], 'managed', 'cs'))->toBe(['Doporučeno do 1 000 produktů'])
+        ->and(CatalogPresentation::bullets(['products' => 1000], 'managed', 'en'))->toBe(['Recommended up to 1,000 products'])
+        ->and(CatalogPresentation::bullets(['products' => 999999], 'managed', 'cs'))->toBe(['Bez limitu produktů']);
+});
+
+/*
+ * A revision stops selling a promise; the customers who bought the old version still hold it (owner rule: existing versions
+ * are never edited). Support has to see which versions in the hands of customers promise something the platform does not
+ * provide, so it can answer them honestly — the doctor lists them.
+ */
+it('reports the promises a version customers still hold keeps no longer', function () {
+    [, $org] = $this->customerWithOrganization();
+    $plan = Plan::query()->where('key', 'db-s')->firstOrFail();
+    $v1 = $plan->versions()->where('version', 1)->sole();
+    expect($plan->current_version)->toBe(2);
+    $read = PlanPromises::readInSource();
+    expect(PlanPromises::grandfatheredGaps($read))->toBe([]); // nobody holds v1 yet
+
+    $service = Service::query()->create(['organization_id' => $org->id, 'product_key' => 'database', 'family' => 'data', 'name' => 'DB S', 'state' => ServiceStateMachine::ACTIVE, 'region_code' => 'cz1',
+        'plan_version_id' => $v1->id, 'entitlements' => (array) $v1->entitlements, 'desired_spec' => ['family' => 'data'], 'sla_class' => 'standard', 'tags' => []]);
+    $gaps = PlanPromises::grandfatheredGaps($read);
+    expect(array_keys($gaps))->toBe(['database/db-s@v1'])->and($gaps['database/db-s@v1'])->toEqualCanonicalizing(['pitr_days', 'connections']);
+
+    $service->forceFill(['state' => ServiceStateMachine::TERMINATED])->save(); // an ended service holds nothing
+    expect(PlanPromises::grandfatheredGaps($read))->toBe([]);
 });
