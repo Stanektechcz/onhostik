@@ -22,7 +22,7 @@ use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxPublisher;
-use Onhost\Providers\Contracts\ExpiringBackups;
+use Onhost\Providers\Contracts\RetainedBackups;
 use Throwable;
 
 /**
@@ -42,6 +42,12 @@ final class BackupScheduler
     /** Families whose backups are the hypervisor's own (vzdump to the instance's `backup_storage`). */
     public const COMPUTE_FAMILIES = ['cloud', 'data'];
 
+    /** Families the scheduler has always looked at. */
+    public const WEB_FAMILIES = ['web', 'managed', 'mail'];
+
+    /** How many services a tick used to look at before TASK-0019 (the first hundred by id, never the rest). */
+    public const OLD_WINDOW = 100;
+
     public function __construct(private readonly ServiceService $services, private readonly ServiceFeatures $features, private readonly OutboxPublisher $outbox, private readonly FinalArchive $archives, private readonly AutomationLedger $ledger) {}
 
     /**
@@ -55,7 +61,7 @@ final class BackupScheduler
     {
         $stats = ['started' => 0, 'skipped' => 0, 'deleted' => 0, 'offsite' => 0, 'errors' => 0, 'missed' => 0, 'paused' => 0];
         $context = CommandContext::system('backup scheduler');
-        $services = $this->eligible(['web', 'managed', 'mail'], false, $limit);
+        $services = $this->eligible(self::WEB_FAMILIES, false, $limit);
         if ($this->ledger->enabled(self::COMPUTE_RULE)) {
             // only what the platform provisioned (an instance AND a binding): a server it merely found is not its to back up
             $services = (function () use ($services, $limit) {
@@ -259,6 +265,17 @@ final class BackupScheduler
         $minutes = self::FREQUENCIES[$frequency] ?? self::FREQUENCIES['daily'];
         $days = max(1, (int) ($policy?->retention['days'] ?? $options['days'] ?? 7));
         $generations = max(1, (int) ($policy?->retention['generations'] ?? $options['generations'] ?? 7));
+        if (in_array($service->family, self::COMPUTE_FAMILIES, true)) {
+            // on a server the options ARE the ceiling sold (plan or active add-ons), so a stored policy never goes above them: a
+            // downgrade or a cancelled add-on does not keep an old hourly/long policy in force. (On the web a backup add-on's
+            // policy is legitimately above the plan's own options, which do not know it — not capped there.)
+            $ceiling = self::FREQUENCIES[(string) ($options['frequency'] ?? 'daily')] ?? self::FREQUENCIES['daily'];
+            if ($minutes < $ceiling) {
+                [$frequency, $minutes] = [(string) ($options['frequency'] ?? 'daily'), $ceiling];
+            }
+            $days = min($days, max(1, (int) ($options['days'] ?? $days)));
+            $generations = min($generations, max(1, (int) ($options['generations'] ?? $generations)));
+        }
         $offsite = (bool) ($policy?->offsite ?? data_get($service->entitlements, 'backup_offsite', false));
         $now = now();
         $windowStart = match ($frequency) {
@@ -324,6 +341,32 @@ final class BackupScheduler
         return $rows;
     }
 
+    /**
+     * What visiting every service (instead of the first hundred) changes for web, managed and mail — read-only, for the owner's
+     * decision: how many are eligible, how many lie beyond the old window and so are newly visited (new backups, pruning of
+     * expired backups, off-site copies), and how many of those have a backup schedule at all.
+     *
+     * @return array{eligible:int, beyond_old_window:int, beyond_with_schedule:int}
+     */
+    public function webWindow(int $chunk = 500): array
+    {
+        $out = ['eligible' => 0, 'beyond_old_window' => 0, 'beyond_with_schedule' => 0];
+        foreach ($this->eligible(self::WEB_FAMILIES, false, $chunk) as $service) {
+            $out['eligible']++;
+            if ($out['eligible'] <= self::OLD_WINDOW) {
+                continue;
+            }
+            $out['beyond_old_window']++;
+            try {
+                $out['beyond_with_schedule'] += self::pausedAt($service) === null && $this->scheduleFor($service) !== null ? 1 : 0;
+            } catch (Throwable) {
+                // a service whose features cannot be read right now is counted as newly visited, not as scheduled
+            }
+        }
+
+        return $out;
+    }
+
     private function due(Service $service, array $schedule): bool
     {
         // a failed attempt counts as this slot having been tried: the operation runner has already retried it, and
@@ -380,30 +423,51 @@ final class BackupScheduler
     }
 
     /**
-     * A vzdump backup of a server past its retention, removed from the backup storage itself (`ExpiringBackups`, as the
-     * final archive's expiry does it). Only a volume of this service's own VM on this service's own instance: anything
-     * else is kept and the row says why. Until the volume is gone the row stays `completed` and the next tick tries again.
+     * A backup volume id in one of the two shapes Proxmox names them — a vzdump file
+     * (`<storage>:backup/vzdump-qemu-<vmid>-YYYY_MM_DD-HH_MM_SS.<ext>`) or a PBS snapshot (`<storage>:backup/vm/<vmid>/<ISO time>`).
+     * Kept here as well as in the adapter on purpose: the scheduler decides what it asks to delete, the adapter what it deletes.
+     */
+    private const VOLID = '~^([A-Za-z0-9][A-Za-z0-9._-]*):backup/(?:vzdump-qemu-(\d+)-\d{4}_\d{2}_\d{2}-\d{2}_\d{2}_\d{2}\.[A-Za-z0-9.]+|vm/(\d+)/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)$~';
+
+    /**
+     * A scheduled backup of a server past its retention, removed from the backup storage (`RetainedBackups`) — never through
+     * `expireBackup()`, which unprotects first and is the final archive's alone. Asked only for a volume whose id names the
+     * service's own VMID on the instance's own `backup_storage`; the adapter then reads the volume and refuses it unless it
+     * is unprotected, of that guest and marked with this row's id. Until the volume is gone the row stays `completed`; why
+     * it could not go is written once (`meta.delete_blocked`), not again at every tick.
      */
     private function expireAtProvider(Service $service, Backup $backup): bool
     {
         $volid = (string) $backup->remote_id;
         $binding = $service->primaryBinding();
         $vmid = $binding === null ? '' : (string) $binding->remote_id;
-        $ours = (string) $backup->provider_instance_id === (string) $service->provider_instance_id && $vmid !== ''
-            && (str_contains($volid, '/'.$vmid.'/') || str_contains($volid, '-'.$vmid.'-'));
+        $storage = (string) data_get(ProviderInstance::query()->find($service->provider_instance_id)?->options, 'backup_storage', '');
+        $volume = preg_match(self::VOLID, $volid, $m) === 1 ? ['storage' => $m[1], 'vmid' => ($m[2] ?? '') !== '' ? $m[2] : (string) ($m[3] ?? '')] : null;
+        if ((string) $backup->provider_instance_id !== (string) $service->provider_instance_id || $vmid === '' || $volume === null
+            || $volume['vmid'] !== $vmid || $storage === '' || $volume['storage'] !== $storage) {
+            return $this->deleteBlocked($backup, 'the volume is not proven to belong to this service\'s VM on its backup storage');
+        }
         try {
-            $adapter = $ours ? $this->features->adapterFor($service) : null;
-            if (! $adapter instanceof ExpiringBackups) {
-                throw new DomainError('backup_not_ours', $ours ? 'the provider of this backup cannot remove it' : 'the volume is not proven to belong to this service\'s VM', 409);
+            $adapter = $this->features->adapterFor($service);
+            if (! $adapter instanceof RetainedBackups) {
+                return $this->deleteBlocked($backup, 'the provider of this backup cannot remove it by retention');
             }
-            $adapter->expireBackup($volid);
+            $adapter->deleteRetainedBackup($volid, $vmid, RetainedBackups::MARKER_PREFIX.$backup->id);
         } catch (Throwable $e) {
-            $backup->forceFill(['meta' => array_merge((array) $backup->meta, ['delete_blocked' => ['at' => now()->toIso8601String(), 'why' => mb_substr($e->getMessage(), 0, 200)]])])->save();
-
-            return false;
+            return $this->deleteBlocked($backup, mb_substr($e->getMessage(), 0, 200));
         }
 
         return true;
+    }
+
+    /** Writes down why a backup is still there — once per reason, so a volume that is never ours is not rewritten every tick. */
+    private function deleteBlocked(Backup $backup, string $why): bool
+    {
+        if (data_get($backup->meta, 'delete_blocked.why') !== $why) {
+            $backup->forceFill(['meta' => array_merge((array) $backup->meta, ['delete_blocked' => ['at' => now()->toIso8601String(), 'why' => $why]])])->save();
+        }
+
+        return false;
     }
 
     /** Copy the newest completed backup to the off-site disk once. */

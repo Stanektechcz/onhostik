@@ -783,6 +783,9 @@ Artisan::command('onhost:backups:compute-plan {--limit=500 : services read per c
     $rows = $scheduler->computePlan(max(1, (int) $this->option('limit')));
     $this->table(['service', 'family', 'plan', 'frequency', 'days', 'generations', 'backup storage'], array_map(fn (array $r) => array_values($r), $rows));
     $this->info(sprintf('%d service(s) would be backed up · rule %s: %s · nothing was changed', count($rows), BackupScheduler::COMPUTE_RULE, $ledger->enabled(BackupScheduler::COMPUTE_RULE) ? 'on' : 'off'));
+    // OWNER DECISION: since TASK-0019 every tick visits every web/managed/mail service, not only the first hundred by id
+    $web = $scheduler->webWindow(max(1, (int) $this->option('limit')));
+    $this->info(sprintf('web/managed/mail: %d eligible · %d beyond the old first-%d window (newly visited by every tick) · %d of them with a backup schedule', $web['eligible'], $web['beyond_old_window'], BackupScheduler::OLD_WINDOW, $web['beyond_with_schedule']));
 })->purpose('Dry run: servers and managed databases the backups.compute rule would start backing up (writes nothing)');
 
 /*

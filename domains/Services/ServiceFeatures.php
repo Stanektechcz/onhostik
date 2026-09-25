@@ -665,7 +665,7 @@ final class ServiceFeatures
      * this too). A managed database carries it in its plan (`backup_days`, 14 on db-s, 30 on db-m). A VPS sells none of
      * its own: only an ACTIVE backup add-on does, together with the policy it wrote — a policy row that outlived its
      * add-on (re-saved under the plan's key, which the add-on's cancellation does not remove) must not go on taking
-     * backups nobody pays for. The ceiling is what the add-on sells, not what the row says now.
+     * backups nobody pays for. The ceiling is what the add-ons sell, not what the row says now (`BackupScheduler::scheduleFrom` caps the row to it).
      *
      * @return array{frequency:string, days:int, generations:int}|null
      */
@@ -682,14 +682,23 @@ final class ServiceFeatures
         }
         $addons = Service::query()->where('family', 'addon')->where('tags->parent_service_id', $service->id)
             ->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->orderBy('created_at')->orderBy('id')->get();
+        // two backup add-ons on one server (a daily one and an hourly one): the customer pays for both, so the ceiling is the
+        // most generous of them in each dimension — the most frequent schedule, the longest history, the most copies
+        $best = null;
         foreach ($addons as $addon) {
             $policy = Addons::backupPolicy((string) $addon->product_key, (array) $addon->entitlements);
-            if ($policy !== null) {
-                return ['frequency' => (string) $policy['schedule']['frequency'], 'days' => (int) $policy['retention']['days'], 'generations' => (int) $policy['retention']['generations']];
+            if ($policy === null) {
+                continue;
             }
+            $frequency = (string) $policy['schedule']['frequency'];
+            $best = $best === null ? ['frequency' => $frequency, 'days' => (int) $policy['retention']['days'], 'generations' => (int) $policy['retention']['generations']] : [
+                'frequency' => (BackupScheduler::FREQUENCIES[$frequency] ?? PHP_INT_MAX) < (BackupScheduler::FREQUENCIES[$best['frequency']] ?? PHP_INT_MAX) ? $frequency : $best['frequency'],
+                'days' => max($best['days'], (int) $policy['retention']['days']),
+                'generations' => max($best['generations'], (int) $policy['retention']['generations']),
+            ];
         }
 
-        return null;
+        return $best;
     }
 
     private static function wafPromise(string $waf, bool $rate, Service $service): array

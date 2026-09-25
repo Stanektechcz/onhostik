@@ -318,7 +318,7 @@ mechanism as `capacity.auto_order`). While it is off nothing changes for anybody
 written on it, and its feature list is the same as before.
 
 1. **Look first:** `php artisan onhost:backups:compute-plan` lists, read-only, every server the rule would start
-   backing up — service, family, product/plan, frequency, days, generations, and the Proxmox instance's
+   backing up (and, on its last line, what visiting every web service changes — below) — service, family, product/plan, frequency, days, generations, and the Proxmox instance's
    `backup_storage` (`MISSING` means the backups would have nowhere to go: set the instance option first). It writes
    nothing and asks no provider anything.
 2. **Switch on** in the staff console (Automations → "Zálohy serverů a databází podle plánu"), which lands in the
@@ -330,20 +330,35 @@ written on it, and its feature list is the same as before.
   platform provisioned), after the web services of the same tick;
 * what is sold: a managed database — `backup_days` from its plan (`backup_frequency` or daily, `backup_generations` or
   one per day); a VPS — only while an **active** backup add-on belongs to it and its policy row exists (a policy left
-  behind by a cancelled add-on takes no more backups). The customer may set the schedule within that ceiling as on the
-  web (`PUT /v1/services/{id}/backups/schedule`) — the `backup_schedule` feature appears for these servers only while
-  the rule is on;
+  behind by a cancelled add-on takes no more backups); with two active add-ons the most generous of them in each
+  dimension. The customer may set the schedule within that ceiling as on the web
+  (`PUT /v1/services/{id}/backups/schedule`) — the `backup_schedule` feature appears for these servers only while the
+  rule is on. A stored policy is always **capped** to the ceiling sold now (frequency, days, generations), so a
+  downgrade or a cancelled add-on does not keep an old hourly/long policy in force;
 * how: one ordinary `backup` operation per slot (`backup:auto:{service}:{slot}`, `kind = scheduled`,
-  `retention_days` = the plan's days): a vzdump to the instance's `backup_storage`, adopted as today;
-* retention: an expired or surplus **scheduled** backup is removed from the backup storage through
-  `ExpiringBackups::expireBackup()` (unprotect, delete; a volume already gone counts as gone), and only a volume of the
-  service's own VM on its own instance. Never touched: `kind = final` (the final archive is `FinalArchive`'s alone),
-  `protected` rows (safety copies), manual backups at the hypervisor, anything under a legal hold. When the storage
-  cannot remove a volume the row stays `completed` with `meta.delete_blocked` saying why, and the next tick tries again.
+  `retention_days` = the plan's days): a vzdump to the instance's `backup_storage`. The volume's notes carry
+  `onhost backup:<backup row id>` (every server backup through the `backup` action, manual ones too); a caller's label
+  keeps only plain characters, so it cannot forge another row's marker. Where the storage reports notes, the step adopts
+  **only** the new volume with this row's marker — an operator's own vzdump of the same guest that finished meanwhile
+  is never taken for ours (no marked volume → `backup_unconfirmed`, retried). A storage that reports no notes at all
+  falls back to "the newest volume that was not there before", as before;
+* retention: an expired or surplus **scheduled** backup is removed through `RetainedBackups::deleteRetainedBackup()` —
+  never `expireBackup()`, which unprotects first and stays the final archive's alone. The scheduler asks only for a
+  volume whose id is exactly `<backup_storage>:backup/vzdump-qemu-<vmid>-…` or `<backup_storage>:backup/vm/<vmid>/…` of
+  the service's own VMID; the adapter then **reads** the volume and refuses it unless it is unprotected, of that guest
+  and carries this row's marker — nothing but the read is sent then. A volume an operator protected in the Proxmox UI
+  is kept. Never touched either: `kind = final`, `protected` rows (safety copies), manual backups at the hypervisor,
+  anything under a legal hold. A row whose volume cannot go stays `completed` with `meta.delete_blocked` saying why —
+  written once per reason, not at every tick.
 
-**Every service, every tick.** `onhost:backups:run --limit=100` used to look at the first 100 services by id and never
-at the rest: from the 101st web hosting on, nobody got a scheduled backup. `--limit` is now the size of one chunk; the
-tick walks all eligible services by id (keyset), web/managed/mail first, then the servers under the rule.
+**Every service, every tick — OWNER DECISION before merge.** `onhost:backups:run --limit=100` used to look at the first
+100 services by id and never at the rest: from the 101st web hosting on, nobody got a scheduled backup. `--limit` is
+now the size of one chunk; the tick walks all eligible services by id (keyset), web/managed/mail first, then the
+servers under the rule. This is the sold behaviour, but for every web/managed/mail service beyond the old window it is
+a change on the day of deploy: new scheduled backups, the prune of their expired backups and off-site copies start.
+There is deliberately no switch for it; `onhost:backups:compute-plan` ends with one read-only line for the decision:
+
+    web/managed/mail: <eligible> eligible · <n> beyond the old first-100 window (newly visited by every tick) · <m> of them with a backup schedule
 
 The `final` guard applies to web services too: before, an **unprotected** final archive past its date on a service
 the scheduler looked at could be deleted by the generation/retention prune instead of by `FinalArchive::prune()`.

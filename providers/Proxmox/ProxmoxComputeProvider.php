@@ -20,6 +20,7 @@ use Onhost\Providers\Contracts\ProviderHealth;
 use Onhost\Providers\Contracts\ProviderResult;
 use Onhost\Providers\Contracts\ResourceRef;
 use Onhost\Providers\Contracts\ResourceSpec;
+use Onhost\Providers\Contracts\RetainedBackups;
 use Onhost\Providers\Contracts\SelfProbing;
 use Onhost\Providers\Contracts\Usage;
 use Throwable;
@@ -30,7 +31,7 @@ use Throwable;
  * Idempotency: VMs are tagged `onhost;<service id>;idem-<hash>` and looked up
  * through /cluster/resources before any clone.
  */
-final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, SelfProbing
+final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, RetainedBackups, SelfProbing
 {
     /** The drive a rescue image is attached to; never used for anything else, so detaching it can never take a disk away. */
     private const RESCUE_DRIVE = 'ide2';
@@ -710,6 +711,77 @@ final class ProxmoxComputeProvider implements ComputeProvider, ExpiringBackups, 
         }
 
         return ProviderResult::completed(null, ['deleted' => true, 'volid' => $backupRemoteId]);
+    }
+
+    /**
+     * Remove a scheduled backup whose retention has passed — and only one the platform can prove is its own.
+     *
+     * Unlike `expireBackup()` (a final archive the platform itself protected) this never unprotects: the volume's
+     * attributes are read first and a protected volume, a volume of another guest or one whose notes lack the
+     * platform's marker is refused with nothing sent but that read. An operator who protected a backup in the Proxmox
+     * UI keeps it.
+     */
+    public function deleteRetainedBackup(string $volid, string $vmid, string $marker): ProviderResult
+    {
+        $volume = self::backupVolume($volid);
+        $storage = (string) $this->instance->option('backup_storage', '');
+        if ($volume === null || $storage === '' || $volume['storage'] !== $storage || $volume['vmid'] !== $vmid || ! str_starts_with($marker, RetainedBackups::MARKER_PREFIX)) {
+            throw new ProviderException('proxmox', ProviderErrorCode::VALIDATION, 'Not a backup volume of guest '.$vmid.' on the backup storage: '.mb_substr($volid, 0, 80));
+        }
+        $node = collect($this->clusterNodes())->firstWhere('status', 'online')['node'] ?? null;
+        if ($node === null) {
+            throw new ProviderException('proxmox', ProviderErrorCode::TRANSIENT, 'No node of the cluster is online to reach the backup storage');
+        }
+        $path = "/nodes/{$node}/storage/{$storage}/content/".rawurlencode($volid);
+        try {
+            $attributes = (array) $this->api->get($path, [], 'backup.attributes');
+        } catch (ProviderException $e) {
+            if ($e->errorCode === ProviderErrorCode::NOT_FOUND) {
+                return ProviderResult::completed(null, ['deleted' => false], alreadyExisted: true);
+            }
+            throw $e;
+        }
+        $refusal = match (true) {
+            isset($attributes['vmid']) && (string) $attributes['vmid'] !== $vmid => 'the volume belongs to another guest',
+            ! empty($attributes['protected']) => 'the volume is protected',
+            ! self::notesCarry((string) ($attributes['notes'] ?? ''), $marker) => 'the volume does not carry the platform\'s marker',
+            default => null,
+        };
+        if ($refusal !== null) {
+            throw new ProviderException('proxmox', ProviderErrorCode::CONFLICT, 'Refused to delete '.mb_substr($volid, 0, 80).': '.$refusal);
+        }
+        try {
+            $this->api->delete($path, [], 'backup.delete', true);
+        } catch (ProviderException $e) {
+            if ($e->errorCode === ProviderErrorCode::NOT_FOUND) {
+                return ProviderResult::completed(null, ['deleted' => false], alreadyExisted: true);
+            }
+            throw $e;
+        }
+
+        return ProviderResult::completed(null, ['deleted' => true, 'volid' => $volid]);
+    }
+
+    /**
+     * The storage and guest of a backup volume id, for the two shapes Proxmox names them in — a vzdump file
+     * (`<storage>:backup/vzdump-qemu-<vmid>-YYYY_MM_DD-HH_MM_SS.<ext>`) and a PBS snapshot
+     * (`<storage>:backup/vm/<vmid>/<ISO time>`) — or null for anything else.
+     *
+     * @return array{storage:string, vmid:string}|null
+     */
+    public static function backupVolume(string $volid): ?array
+    {
+        if (preg_match('~^([A-Za-z0-9][A-Za-z0-9._-]*):backup/(?:vzdump-qemu-(\d+)-\d{4}_\d{2}_\d{2}-\d{2}_\d{2}_\d{2}\.[A-Za-z0-9.]+|vm/(\d+)/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)$~', $volid, $m) !== 1) {
+            return null;
+        }
+
+        return ['storage' => $m[1], 'vmid' => ($m[2] ?? '') !== '' ? $m[2] : (string) ($m[3] ?? '')];
+    }
+
+    /** Whether backup notes carry the marker as a word of their own (`onhost backup:bkp_1` is not `…bkp_12`). */
+    public static function notesCarry(string $notes, string $marker): bool
+    {
+        return $marker !== '' && preg_match('~(^|\s)'.preg_quote($marker, '~').'(\s|$)~', $notes) === 1;
     }
 
     public function listBackups(ResourceRef $vm): array

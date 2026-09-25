@@ -66,6 +66,7 @@ use Onhost\Providers\Contracts\MailToolsProvider;
 use Onhost\Providers\Contracts\PowerCapable;
 use Onhost\Providers\Contracts\ProviderResult;
 use Onhost\Providers\Contracts\ResourceRef;
+use Onhost\Providers\Contracts\RetainedBackups;
 use Onhost\Providers\Contracts\WebHostingProvider;
 use Onhost\Providers\Contracts\WebToolsProvider;
 use Onhost\Providers\Shell\Q;
@@ -1569,7 +1570,14 @@ final class ServiceActionWorkflow implements Workflow
 
                 // what the panel already holds is written down first: the backup of this run is the one that was not there before
                 $before = array_map(fn (array $b) => (string) $b['remote_id'], $adapter->listBackups($this->ref($context)));
-                $result = $adapter->backup($this->ref($context), (array) $context->desired('policy', []));
+                $policy = (array) $context->desired('policy', []);
+                if ($adapter instanceof RetainedBackups) {
+                    // the volume names its own row: it is adopted — and one day pruned — as THIS backup, never as an operator's own
+                    // vzdump of the same guest. The caller's label keeps only plain words, so it can never forge another row's marker.
+                    $label = mb_substr(trim((string) preg_replace('~[^A-Za-z0-9 ._-]~', '', (string) ($policy['notes'] ?? ''))), 0, 40);
+                    $policy['notes'] = trim('{{guestname}} {{vmid}} '.RetainedBackups::MARKER_PREFIX.$backup->id.' '.$label);
+                }
+                $result = $adapter->backup($this->ref($context), $policy);
                 $known = ['backup_id' => $backup->id, 'backup_before' => $before, 'backup_named' => (string) ($result->data['backup_uuid'] ?? '')];
                 if (! $result->isAsync()) { // panels that archive synchronously: the row is complete right away
                     return $this->adopt($context, $backup, $before, $known['backup_named']) ?? StepResult::done($known + ['backup_remote_id' => $backup->remote_id]);
@@ -1596,7 +1604,15 @@ final class ServiceActionWorkflow implements Workflow
             private function adopt(StepContext $context, Backup $backup, array $before, string $named, array $finished = []): ?StepResult
             {
                 $list = collect($this->capability($context, BackupCapable::class)->listBackups($this->ref($context)));
-                $made = $named !== '' ? $list->firstWhere('remote_id', $named) : $list->reject(fn (array $b) => in_array((string) $b['remote_id'], $before, true))->sortByDesc('created_at')->first();
+                $fresh = $list->reject(fn (array $b) => in_array((string) $b['remote_id'], $before, true));
+                $marker = $this->capability($context, BackupCapable::class) instanceof RetainedBackups ? RetainedBackups::MARKER_PREFIX.$backup->id : null;
+                $made = match (true) {
+                    $named !== '' => $list->firstWhere('remote_id', $named),
+                    // where the storage reports notes, only the volume that names this row is ours: the newest new one may be an
+                    // operator's own vzdump job of the same guest that happened to finish meanwhile
+                    $marker !== null && $fresh->contains(fn (array $b) => data_get($b, 'meta.notes') !== null) => $fresh->first(fn (array $b) => preg_match('~(^|\s)'.preg_quote($marker, '~').'(\s|$)~', (string) data_get($b, 'meta.notes', '')) === 1),
+                    default => $fresh->sortByDesc('created_at')->first(),
+                };
                 if (! is_array($made) && $named !== '' && (string) ($finished['uuid'] ?? '') === $named) { // a long list shows one page; the finished task named the archive itself
                     $made = ['remote_id' => $named, 'size_bytes' => $finished['bytes'] ?? null, 'verified' => true];
                 }
