@@ -1,4 +1,4 @@
-# Tech stack (verified 2026-09-23)
+# Tech stack (verified 2026-09-23, counts re-measured 2026-09-25 on the stack tip `edb635b`)
 
 Facts below were read from the repository or measured by commands; see `.ai/baseline/baseline.json` for the numbers.
 
@@ -11,10 +11,10 @@ Facts below were read from the repository or measured by commands; see `.ai/base
 | Autoload | `App\`→`app/`, `Onhost\Domain\`→`domains/` (23 modules), `Onhost\Providers\`→`providers/`, `Onhost\Platform\`→`platform/` | `composer.json` |
 | Key packages | Sanctum 4 (auth), dompdf (invoices), firebase/php-jwt, phpseclib 3 (SSH), symfony/yaml (OpenAPI) | `composer.json` |
 | Database | Production PostgreSQL 16; local dev SQLite `database/database.sqlite`; tests SQLite `:memory:` | `.env.example`, `phpunit.xml`, CI `pest-postgres` |
-| Migrations | 59+, one sequence `0001_01_01_000NNN_*` in steps of 10 (parallel tasks collide on numbers) | `database/migrations` |
+| Migrations | 61 (last `0001_01_01_000870_create_withdrawals_table`), one sequence `0001_01_01_000NNN_*` in steps of 10 (parallel tasks collide on numbers) | `database/migrations` |
 | Cache / session / queue | Production Redis (phpredis) for all three; local dev file cache/session + database queue; tests array/sync | `.env.example`, `phpunit.xml` |
 | Queues | `default`, `mails`, `provider-{proxmox,ispconfig,aapanel,pterodactyl,powerdns,registrar,kubernetes}` | `infra/systemd/onhost-queue@.service`, `routes/console.php` |
-| Scheduler | ~83 `Schedule::` entries in `routes/console.php`; `infra/systemd/onhost-scheduler.service` | `routes/console.php` |
+| Scheduler | 88 `Schedule::` entries in `routes/console.php`; `infra/systemd/onhost-scheduler.service` | `routes/console.php` |
 | Frontend | Prototype surfaces `apps/surfaces/*.dc.html` (kept byte-identical) + integration modules `apps/surfaces/api/*.js` + `app/Http/Support/SurfaceRenderer.php` seams; Blade in `resources/views` (admin, auth, legal, mail, invoices); Vite 8 + Tailwind 4. **No React, Vue or Livewire.** | `package.json`, `docs/ui/template-inventory.md` |
 | Payments | `providers/Payments/{Comgate,GoPay,Stripe,Bank}` behind `providers/Contracts/PaymentProvider.php` | `providers/` |
 | External systems | Proxmox, PBS, ISPConfig, aaPanel, Pterodactyl, PowerDNS, WEDOS, Subreg, Kubernetes, Cloudflare, Hetzner, Redfish, IpGeo, OnCall, AI, SSH shell | `providers/`, `docs/provider-adapters/` |
@@ -23,7 +23,7 @@ Facts below were read from the repository or measured by commands; see `.ai/base
 
 | Tool | Command (from the worktree root) | Notes |
 | --- | --- | --- |
-| Tests | `php artisan test --compact` | Pest 4; suites Unit, Feature, Contract (`phpunit.xml`); ~290 files, 856 tests at `8e4614a` |
+| Tests | `php artisan test --compact` | Pest 4; suites Unit, Feature, Contract (`phpunit.xml`); 337 files, 1 364 tests / 18 258 assertions at `edb635b` (856 at `8e4614a`) |
 | Style | `vendor/bin/pint --test` | CI fails on style |
 | Static analysis | `vendor/bin/phpstan analyse --memory-limit=2G` | Larastan level 5 + `phpstan-baseline.neon` (typing debt; never add entries) |
 | Frontend build | `npm run build` | Vite |
@@ -42,4 +42,6 @@ Every PHP command needs the explicit binary on this machine: `C:/Users/medion/ph
 - Integration (default) branch: **`development`** (`origin/HEAD`). There is no `main` branch; CI also triggers on `main`.
 - Remote: `origin` = `github.com/Stanektechcz/onhostik`. Dependabot opens branches under `dependabot/`.
 - Commit subjects: conventional (`feat(scope): …`, `fix(…)`, `docs: …`, `chore: …`) plus some plain-sentence subjects.
-- Unmerged `origin/chore/onhost-brain` (7 ahead / 196 behind) holds the Brain's original `.claude`, `.gemini`, `.mcp.json`, `.serena` config.
+- Open pull requests on 2026-09-25: #20–#23 (TASK-0018, TASK-0003, TASK-0017, TASK-0019 pushed separately; the stack
+  branch of TASK-0027 contains all of them) and Dependabot #3–#5. Merged task PRs: #6–#19 (TASK-0001, TASK-0005 … TASK-0016).
+- Unmerged `origin/chore/onhost-brain` (7 ahead / 196 behind at 2026-09-23) holds the Brain's original `.claude`, `.gemini`, `.mcp.json`, `.serena` config.

@@ -1,6 +1,6 @@
 # AI-0001: How the ONHOST AI team coordinates
 
-- **Status:** proposed with TASK-0001 (accepted when integrated into `development`)
+- **Status:** accepted — TASK-0001 integrated into `development` on 2026-09-24 (PR #6, `2d39dff`)
 - **Date:** 2026-09-24
 
 ## Context

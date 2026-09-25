@@ -1,69 +1,225 @@
 {
-  "schema": 1,
-  "recorded_at": "2026-09-23T21:43:00Z",
-  "recorded_by": "TASK-0001 (AI orchestration bootstrap)",
-  "revision": {
-    "commit": "8e4614a",
-    "branch": "development",
-    "subject": "fix(nodes): an evacuation counts everything that stays on the node",
-    "measured_in": "clean worktree of development HEAD (no uncommitted changes)"
-  },
-  "environment": {
-    "os": "Windows 10 (19045)",
-    "php": "8.3.33 ZTS at C:/Users/medion/php83/php.exe (php is not on PATH)",
-    "composer": "C:/Users/medion/php83/composer.phar",
-    "node": "24.16.0",
-    "npm": "11.13.0",
-    "laravel": "13.30.1",
-    "claude_code": "2.1.175",
-    "database_for_tests": "sqlite :memory: (phpunit.xml); PostgreSQL 16 only in CI job pest-postgres"
-  },
-  "checks": {
-    "pint": { "command": "vendor/bin/pint --test", "result": "PASS" },
-    "composer_validate": { "command": "composer validate --no-check-publish", "result": "PASS" },
-    "composer_audit": { "command": "composer audit --locked", "result": "PASS", "advisories": 0 },
-    "npm_audit": { "command": "npm audit --audit-level=high", "result": "PASS", "vulnerabilities": 0 },
-    "app_boot": { "command": "php artisan about", "result": "PASS" },
-    "routes": { "command": "php artisan route:list --json", "result": "PASS", "total": 532, "under_v1": 481 },
-    "migrations": { "command": "php artisan migrate --force (fresh scratch SQLite file, never a shared DB)", "result": "PASS", "ran": 59, "pending": 0 },
-    "larastan": { "command": "vendor/bin/phpstan analyse --memory-limit=2G", "result": "PASS", "errors": 0, "duration_s": 38, "baseline_entries": 641, "baseline_suppressed_occurrences": 1013 },
-    "pest": { "command": "php artisan test --compact", "result": "PASS", "tests": 856, "passed": 856, "failed": 0, "skipped": 0, "assertions": 14646, "duration_s": 188 },
-    "frontend_build": { "command": "npm run build", "result": "PASS" },
-    "e2e": { "command": "npm run e2e", "result": "NOT_RUN", "reason": "needs a running app + browsers; CI workflow e2e.yml runs it" },
-    "pest_postgres": { "result": "NOT_RUN_LOCALLY", "reason": "no PostgreSQL on this machine; CI job pest-postgres is the source of truth" },
-    "brain_config_test": { "command": "powershell -File scripts/ai/tests/Config.Tests.ps1", "result": "PREEXISTING_FAILURE", "reason": "asserts .claude/settings.json, .gemini/, .mcp.json, .serena/, 6 agents and 7 skills that exist only on the unmerged branch origin/chore/onhost-brain; throws at the first missing file" },
-    "brain_script_test": { "command": "powershell -File scripts/ai/tests/Brain.Tests.ps1", "result": "NOT_RUN", "reason": "rewrites tracked docs/generated/* and plants a .env fixture; not a read-only check" }
-  },
-  "known_failing_tests": [],
-  "known_failing_notes": {},
-  "known_flaky_tests": [
-    {
-      "test": "tests/Feature/Billing/DunningEnforcementTest.php",
-      "note": "historically failed 00:00-06:00 UTC (fixed in 6904cb0 by travelling to 07:00); run time-driven tests once inside that window after touching schedules"
-    }
-  ],
-  "known_warnings": [
-    "Larastan baseline suppresses 1013 typing-debt occurrences (phpstan-baseline.neon); new code must not add entries",
-    "Vite build: @tailwindcss/vite takes ~87% of build time (informational)"
-  ],
-  "critical_flows": [
-    { "flow": "registration, login, password reset, step-up", "tests": ["tests/Feature/Http/AuthApiTest.php", "tests/Feature/Http/AuthPagesTest.php"] },
-    { "flow": "authorization and tenant isolation", "tests": ["tests/Feature/Http/TenantIsolationSweepTest.php", "tests/Feature/Identity/PermissionMatrixTest.php", "tests/Feature/Identity/AuthorizationTest.php", "tests/Feature/Identity/FourEyesApprovalTest.php"] },
-    { "flow": "catalog, cart, quote, order (incl. guest checkout)", "tests": ["tests/Feature/Orders/CheckoutTest.php", "tests/Feature/Orders/GuestCheckoutTest.php", "tests/Feature/Orders/DuplicateOrderTest.php", "tests/Feature/Orders/PaidForIsWhatYouGetTest.php", "tests/Feature/Orders/PricingRulesTest.php"] },
-    { "flow": "payment, invoice, wallet ledger, tax", "tests": ["tests/Feature/Finance/InvoiceTest.php", "tests/Feature/Finance/InvoiceBankPaymentTest.php", "tests/Feature/Finance/BankImportTest.php", "tests/Feature/Finance/WalletLedgerTest.php", "tests/Feature/Finance/TaxEngineTest.php"] },
-    { "flow": "order fulfilment and provisioning", "tests": ["tests/Feature/Orders/OrderFulfillmentTest.php", "tests/Feature/Provisioning/VpsProvisioningTest.php", "tests/Feature/Provisioning/ServiceActionTest.php", "tests/Feature/Provisioning/OperationSafetyTest.php", "tests/Feature/Provisioning/CompensationGuardTest.php"] },
-    { "flow": "service lifecycle: suspend, cancel, delete", "tests": ["tests/Feature/Services/SuspensionHoldTest.php", "tests/Feature/Services/DeletionLifecycleTest.php", "tests/Feature/Services/CustomerActionParamsTest.php", "tests/Feature/Orders/OrderCancellationTest.php"] },
-    { "flow": "renewal and dunning", "tests": ["tests/Feature/Billing/BillingTest.php", "tests/Feature/Billing/RenewalGuardTest.php", "tests/Feature/Billing/DunningEnforcementTest.php"] },
-    { "flow": "domains and registrars", "tests": ["tests/Feature/Domains/DomainLifecycleTest.php", "tests/Feature/Domains/RegistrarSelectionTest.php", "tests/Feature/Domains/TransferCodeSecrecyTest.php"] },
-    { "flow": "staff/admin actions", "tests": ["tests/Feature/Http/StaffApiTest.php", "tests/Feature/Identity/StaffReadAuditTest.php"] },
-    { "flow": "secrets, outbox, egress", "tests": ["tests/Feature/Platform/SecretsInLogsTest.php", "tests/Feature/Platform/OutboxPayloadKeysTest.php", "tests/Feature/Platform/EgressGuardTest.php", "tests/Feature/Platform/CommandBusTest.php"] },
-    { "flow": "every /v1 route answers sanely; surfaces render", "tests": ["tests/Feature/Http/EndpointSweepTest.php", "tests/Feature/Http/SurfaceTest.php"] }
-  ],
-  "technical_debt_observed": [
-    "providers/* import Onhost\\Domain\\Provisioning (15) and Payments (2); platform/ imports Compliance (1): dependency-direction exceptions, see .ai/DEPENDENCY_MAP.md",
-    "Services <-> Provisioning are mutually dependent (109 / 55 imports); treated as one ownership unit",
-    "scripts/ai/test.ps1 labels its report with origin/development, not the tested HEAD",
-    "docs/development/DAILY_WORKFLOW.md:3 (and the vault note 01-Start-here.md:11) still NAME the old clone C:/Users/medion/Desktop/ONHOST-BRAIN/ONHOST-NEW; the vault's Project-Docs junction itself targets the canonical Desktop/ONHOST-NEW/onhost-platform/docs",
-    "origin/chore/onhost-brain (7 commits ahead, 196 behind) holds the only copy of the Brain's .claude agents/skills/hooks, .mcp.json, .gemini and .serena config"
-  ]
+    "schema": 1,
+    "recorded_at": "2026-09-25T10:06:31Z",
+    "recorded_by": "TASK-0027 (stack coherence and docs), re-measured on the stack tip",
+    "revision": {
+        "commit": "edb635b",
+        "branch": "fix/TASK-0027-stack-coherence-and-the-docs-that-descri",
+        "subject": "chore(ai): TASK-0027 C1-C4 whole verification recorded",
+        "measured_in": "the TASK-0027 worktree, clean (0 uncommitted paths), before the docs commits of TASK-0027 (which change no code)",
+        "stack": "development @ 2426c17 (PR #19, TASK-0016) + TASK-0019, TASK-0017, TASK-0020, TASK-0026, TASK-0024, TASK-0021, TASK-0022, TASK-0023, TASK-0025, cherry-picked TASK-0018 and TASK-0003, TASK-0027 C1-C4; one pull request into development, not merged on 2026-09-25",
+        "previous": "8e4614a on development (2026-09-23, TASK-0001): Pest 856 / 14 646, 532 routes, 59 migrations"
+    },
+    "environment": {
+        "os": "Windows 10 (19045)",
+        "php": "8.3.33 ZTS at C:/Users/medion/php83/php.exe (php is not on PATH)",
+        "composer": "C:/Users/medion/php83/composer.phar",
+        "node": "24.16.0",
+        "npm": "11.13.0",
+        "laravel": "13.30.1",
+        "claude_code": "2.1.282",
+        "database_for_tests": "sqlite :memory: (phpunit.xml); PostgreSQL 16 only in CI job pest-postgres"
+    },
+    "checks": {
+        "pint": {
+            "command": "vendor/bin/pint --test",
+            "result": "PASS"
+        },
+        "composer_validate": {
+            "command": "composer validate --no-check-publish",
+            "result": "PASS"
+        },
+        "composer_audit": {
+            "command": "composer audit --locked",
+            "result": "PASS",
+            "advisories": 0
+        },
+        "npm_audit": {
+            "command": "npm audit --audit-level=high",
+            "result": "PASS",
+            "vulnerabilities": 0
+        },
+        "app_boot": {
+            "command": "php artisan about",
+            "result": "PASS"
+        },
+        "routes": {
+            "command": "php artisan route:list --json",
+            "result": "PASS",
+            "total": 543,
+            "under_v1": 493
+        },
+        "migrations": {
+            "command": "php artisan migrate --force (fresh scratch SQLite file, never a shared DB)",
+            "result": "PASS",
+            "ran": 61,
+            "pending": 0
+        },
+        "larastan": {
+            "command": "vendor/bin/phpstan analyse --memory-limit=2G",
+            "result": "PASS",
+            "errors": 0,
+            "baseline_entries": 641,
+            "baseline_suppressed_occurrences": 1013,
+            "note": "phpstan-baseline.neon unchanged since 8e4614a"
+        },
+        "pest": {
+            "command": "php artisan test --compact (inside .\\brain.ps1 gate -Task TASK-0027)",
+            "result": "PASS",
+            "tests": 1364,
+            "passed": 1364,
+            "failed": 0,
+            "skipped": 0,
+            "assertions": 18258,
+            "duration_s": 363,
+            "test_files": 337
+        },
+        "frontend_build": {
+            "command": "npm run build",
+            "result": "PASS"
+        },
+        "e2e": {
+            "command": "npm run e2e",
+            "result": "NOT_RUN",
+            "reason": "needs a running app + browsers; CI workflow e2e.yml runs it"
+        },
+        "pest_postgres": {
+            "result": "NOT_RUN_LOCALLY",
+            "reason": "no PostgreSQL on this machine; CI job pest-postgres is the source of truth. It ran green on the separately pushed TASK-0017, TASK-0018, TASK-0019 and TASK-0003 branches (open PRs #20-#23), not on the whole stack"
+        },
+        "brain_config_test": {
+            "command": "powershell -File scripts/ai/tests/Config.Tests.ps1",
+            "result": "PREEXISTING_FAILURE",
+            "reason": "asserts .claude/settings.json, .gemini/, .mcp.json, .serena/, 6 agents and 7 skills that exist only on the unmerged branch origin/chore/onhost-brain; throws at the first missing file"
+        },
+        "brain_script_test": {
+            "command": "powershell -File scripts/ai/tests/Brain.Tests.ps1",
+            "result": "NOT_RUN",
+            "reason": "rewrites tracked docs/generated/* and plants a .env fixture; not a read-only check"
+        },
+        "gate": {
+            "command": ".\\brain.ps1 gate -Task TASK-0027 (full: Pint, Larastan, Pest, frontend build)",
+            "result": "PASS",
+            "report": ".ai/reports/TASK-0027-gate.md"
+        },
+        "orchestration_test": {
+            "command": "powershell -File scripts/ai/tests/Orchestration.Tests.ps1",
+            "result": "PASS"
+        }
+    },
+    "known_failing_tests": [],
+    "known_failing_notes": [],
+    "known_flaky_tests": [
+        {
+            "test": "tests/Feature/Billing/DunningEnforcementTest.php",
+            "note": "historically failed 00:00-06:00 UTC (fixed in 6904cb0 by travelling to 07:00); run time-driven tests once inside that window after touching schedules"
+        }
+    ],
+    "known_warnings": [
+        "Larastan baseline suppresses 1013 typing-debt occurrences (phpstan-baseline.neon); new code must not add entries",
+        "Vite build: @tailwindcss/vite takes almost all of the build time (informational)"
+    ],
+    "critical_flows": [
+        {
+            "flow": "registration, login, password reset, step-up",
+            "tests": [
+                "tests/Feature/Http/AuthApiTest.php",
+                "tests/Feature/Http/AuthPagesTest.php"
+            ]
+        },
+        {
+            "flow": "authorization and tenant isolation",
+            "tests": [
+                "tests/Feature/Http/TenantIsolationSweepTest.php",
+                "tests/Feature/Identity/PermissionMatrixTest.php",
+                "tests/Feature/Identity/AuthorizationTest.php",
+                "tests/Feature/Identity/FourEyesApprovalTest.php"
+            ]
+        },
+        {
+            "flow": "catalog, cart, quote, order (incl. guest checkout)",
+            "tests": [
+                "tests/Feature/Orders/CheckoutTest.php",
+                "tests/Feature/Orders/GuestCheckoutTest.php",
+                "tests/Feature/Orders/DuplicateOrderTest.php",
+                "tests/Feature/Orders/PaidForIsWhatYouGetTest.php",
+                "tests/Feature/Orders/PricingRulesTest.php"
+            ]
+        },
+        {
+            "flow": "payment, invoice, wallet ledger, tax",
+            "tests": [
+                "tests/Feature/Finance/InvoiceTest.php",
+                "tests/Feature/Finance/InvoiceBankPaymentTest.php",
+                "tests/Feature/Finance/BankImportTest.php",
+                "tests/Feature/Finance/WalletLedgerTest.php",
+                "tests/Feature/Finance/TaxEngineTest.php"
+            ]
+        },
+        {
+            "flow": "order fulfilment and provisioning",
+            "tests": [
+                "tests/Feature/Orders/OrderFulfillmentTest.php",
+                "tests/Feature/Provisioning/VpsProvisioningTest.php",
+                "tests/Feature/Provisioning/ServiceActionTest.php",
+                "tests/Feature/Provisioning/OperationSafetyTest.php",
+                "tests/Feature/Provisioning/CompensationGuardTest.php"
+            ]
+        },
+        {
+            "flow": "service lifecycle: suspend, cancel, delete",
+            "tests": [
+                "tests/Feature/Services/SuspensionHoldTest.php",
+                "tests/Feature/Services/DeletionLifecycleTest.php",
+                "tests/Feature/Services/CustomerActionParamsTest.php",
+                "tests/Feature/Orders/OrderCancellationTest.php"
+            ]
+        },
+        {
+            "flow": "renewal and dunning",
+            "tests": [
+                "tests/Feature/Billing/BillingTest.php",
+                "tests/Feature/Billing/RenewalGuardTest.php",
+                "tests/Feature/Billing/DunningEnforcementTest.php"
+            ]
+        },
+        {
+            "flow": "domains and registrars",
+            "tests": [
+                "tests/Feature/Domains/DomainLifecycleTest.php",
+                "tests/Feature/Domains/RegistrarSelectionTest.php",
+                "tests/Feature/Domains/TransferCodeSecrecyTest.php"
+            ]
+        },
+        {
+            "flow": "staff/admin actions",
+            "tests": [
+                "tests/Feature/Http/StaffApiTest.php",
+                "tests/Feature/Identity/StaffReadAuditTest.php"
+            ]
+        },
+        {
+            "flow": "secrets, outbox, egress",
+            "tests": [
+                "tests/Feature/Platform/SecretsInLogsTest.php",
+                "tests/Feature/Platform/OutboxPayloadKeysTest.php",
+                "tests/Feature/Platform/EgressGuardTest.php",
+                "tests/Feature/Platform/CommandBusTest.php"
+            ]
+        },
+        {
+            "flow": "every /v1 route answers sanely; surfaces render",
+            "tests": [
+                "tests/Feature/Http/EndpointSweepTest.php",
+                "tests/Feature/Http/SurfaceTest.php"
+            ]
+        }
+    ],
+    "technical_debt_observed": [
+        "providers/* import Onhost\\Domain\\Provisioning (15) and Payments (2); platform/ imports Compliance (1): dependency-direction exceptions, see .ai/DEPENDENCY_MAP.md (counted at 8e4614a, not re-counted)",
+        "Services <-> Provisioning are mutually dependent; treated as one ownership unit",
+        "scripts/ai/test.ps1 labels its report with origin/development, not the tested HEAD",
+        "origin/chore/onhost-brain holds the only copy of the Brain's original .claude agents/skills/hooks, .mcp.json, .gemini and .serena config (Config.Tests.ps1 depends on it)",
+        "stale clone path: fixed in docs/development/DAILY_WORKFLOW.md (TASK-0027, cherry-pick of 37ba9e9) and in the vault note 01-Start-here.md:11 (canonical Desktop/ONHOST-NEW/onhost-platform/docs)"
+    ]
 }

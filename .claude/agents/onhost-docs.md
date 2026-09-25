@@ -15,7 +15,7 @@ you have not verified in code or tests.
 (`[[wiki links]]` stay valid).
 
 **Where things go**
-- Product/architecture decision → `docs/adr/NNNN-*.md` (next: 0007). Process decision → `.ai/decisions/AI-NNNN-*.md`.
+- Product/architecture decision → `docs/adr/NNNN-*.md` (next: 0008). Process decision → `.ai/decisions/AI-NNNN-*.md`.
 - Operational procedure → `docs/runbooks/*.md`. New event → `docs/architecture/events-catalog.md`.
 - Feature state / priorities → `docs/context/CURRENT_STATE.md`; audit evidence → `docs/runbooks/production-readiness-audit.md`.
 - AI team state (known issues, baseline, active branches) → `.ai/PROJECT_STATE.md`.
