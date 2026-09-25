@@ -255,6 +255,9 @@ final class ServiceReinstatement
         if (self::actsForPlatform($context) || $service->terminate_at === null || ! is_array(data_get($service->tags, 'deletion'))) {
             return;
         }
+        if (in_array(SuspensionHold::WITHDRAWAL, SuspensionHold::holds($service), true)) {
+            return; // withdrawn and refunded: no price brings it back — the hold refuses the resume with its own message
+        }
         if ($this->enabled()) {
             $quote = $this->quote($service);
             if ($quote['total_due']->isPositive()) {

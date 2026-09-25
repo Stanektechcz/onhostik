@@ -138,6 +138,8 @@ final class CheckoutService
                 'idempotency_key' => $idempotencyKey,
                 'placed_at' => now(),
                 'meta' => array_filter(['tax_review_required' => (bool) ($quote->versions['tax_review_required'] ?? false), 'renewal_total_minor' => $quote->renewal_total_minor, 'fingerprint' => $fingerprint,
+                    'customer_class' => (string) ($organization->customer_class ?: 'b2c'), // TASK-0025: the class the contract was concluded as decides a later withdrawal
+
                     'risk' => ['score' => $risk['score'], 'reasons' => $risk['reasons']], 'review' => $risk['hold'] ? ['state' => 'pending', 'score' => $risk['score'], 'reasons' => $risk['reasons'], 'opened_at' => now()->toIso8601String()] : null,
                     'approval' => $awaitApproval ? CreditOrderApprovals::opened($context) : null, 'renewal_consent' => $standingDefault ? 'organization_default' : null], fn ($v) => $v !== null),
             ]);

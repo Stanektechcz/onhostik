@@ -47,6 +47,7 @@ use App\Http\Controllers\Api\V1\Staff\ProvisioningController;
 use App\Http\Controllers\Api\V1\Staff\RegistrarController;
 use App\Http\Controllers\Api\V1\Staff\ReportController;
 use App\Http\Controllers\Api\V1\Staff\SupportController as StaffSupportController;
+use App\Http\Controllers\Api\V1\Staff\WithdrawalController as StaffWithdrawalController;
 use App\Http\Controllers\Api\V1\StatusController;
 use App\Http\Controllers\Api\V1\SupportController;
 use App\Http\Controllers\Api\V1\WalletController;
@@ -202,6 +203,10 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::get('orders/{order}', [OrderController::class, 'show']);
     Route::post('orders/{order}/transition', [OrderController::class, 'transition']);
     Route::post('orders/{order}/approval', [OrderController::class, 'approval']); // TASK-0021: the owner or a billing admin decides a held credit order
+    // ── TASK-0025 consumer withdrawal from a paid order nothing of which was delivered (rule billing.withdrawal) ──
+    Route::get('orders/{order}/withdrawal', [OrderController::class, 'withdrawal']);
+    Route::post('orders/{order}/withdrawal', [OrderController::class, 'requestWithdrawal']);
+    // ── end TASK-0025 ──
 
     Route::get('monitors', [InsightsController::class, 'monitors'])->middleware('shed');
     Route::get('backups', [InsightsController::class, 'backups'])->middleware('shed');
@@ -286,6 +291,9 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     // ── TASK-0025 pay and restore: the quote and the paid restore of a cancelled service inside its window (rule services.reinstate) ──
     Route::get('services/{service}/reinstatement', [ServiceController::class, 'reinstatement']);
     Route::post('services/{service}/reinstate', [ServiceController::class, 'reinstate']);
+    // TASK-0025 consumer withdrawal within 14 days (rule billing.withdrawal): off first, the unused part back to the credit, then cancelled
+    Route::get('services/{service}/withdrawal', [ServiceController::class, 'withdrawal']);
+    Route::post('services/{service}/withdrawal', [ServiceController::class, 'requestWithdrawal']);
     // ── end TASK-0025 ──
     Route::get('services/{service}/ssh-keys', [ServiceController::class, 'sshKeys']); // whose key sits on which shell account, and revocations the panel has not taken yet (H185)
     Route::get('services/{service}/actions/{action}/preview', [ServiceController::class, 'preview'])->where('action', '[a-z_.]+'); // what a destructive action would really do (H414)
@@ -408,6 +416,10 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::post('chargebacks/analyse', [ChargebackController::class, 'analyse']);
         Route::put('chargebacks/settings', [ChargebackController::class, 'updateSettings']);
         Route::post('chargebacks/{chargeback}/decide', [ChargebackController::class, 'decide']);
+        // ── TASK-0025 consumer withdrawals: the list for finance and the record of a notice sent by e-mail or letter ──
+        Route::get('withdrawals', [StaffWithdrawalController::class, 'index']);
+        Route::post('withdrawals', [StaffWithdrawalController::class, 'store']);
+        // ── end TASK-0025 ──
         // loyalty programme: the level table and manual awards
         Route::get('loyalty/levels', [RewardsController::class, 'levels']);
         Route::put('loyalty/levels', [RewardsController::class, 'setLevels']);

@@ -78,11 +78,11 @@ final class ChargebackService
      *
      * @return array{currency:string, period_end:?string, unused_minor:int, percent:int, refund_minor:int, subscription_id:?string, lines:list<array{line_id:string, invoice_id:string, number:?string, paid:bool, period_from:string, period_to:string, days:int, days_left:int, left_minor:int, unused_minor:int, refund_minor:int}>}
      */
-    public function estimate(Service $service, ?int $percent = null): array
+    public function estimate(Service $service, ?int $percent = null, ?CarbonImmutable $asOf = null): array
     {
         $percent ??= $this->percent();
         $subscription = Subscription::query()->where('service_id', $service->id)->whereNotIn('state', [Subscription::CANCELLED])->orderByDesc('created_at')->first();
-        $today = CarbonImmutable::parse(AccountingClock::date());
+        $today = $asOf?->startOfDay() ?? CarbonImmutable::parse(AccountingClock::date()); // a withdrawal counts from the day the notice was sent (TASK-0025)
         $items = OrderItem::query()->where('service_id', $service->id)->get();
         $itemIds = $items->pluck('id')->all();
         // a change of the billing period was priced MINUS the unused rest of the period before it (PlanChangeService): every line

@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Onhost\Domain\Billing\WithdrawalHealth;
 use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\Product;
@@ -96,6 +97,9 @@ final class Doctor extends Command
         $this->deletionLifecycle();
         $this->authorizationCatalog();
         $this->controlPoints();
+        foreach (app(WithdrawalHealth::class)->checks() as $check) { // TASK-0025: the lawyer's review and stuck withdrawals
+            $this->add($check['area'], $check['check'], $check['ok'], $check['detail'], $check['blocking']);
+        }
 
         $fails = count(array_filter($this->rows, fn ($r) => $r['status'] === 'FAIL'));
         $warns = count(array_filter($this->rows, fn ($r) => $r['status'] === 'WARN'));

@@ -1335,3 +1335,7 @@ Schedule::command('onhost:web-tools:prune')->hourlyAt(50)->onOneServer();
 Schedule::command('onhost:metering:rollup')->dailyAt('00:20')->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:metering:prune')->dailyAt('04:35')->withoutOverlapping()->onOneServer();
 // ── end TASK-0023 metering-core ──────────────────────────────────────────────────────────────────────────────────
+
+// ── TASK-0025 consumer withdrawal: finish what consumers asked for (a refused suspension/cancellation again, a refund once the service is off); never starts one ──
+Schedule::command('onhost:withdrawals:finish')->hourlyAt(25)->withoutOverlapping()->onOneServer();
+// ── end TASK-0025 ──

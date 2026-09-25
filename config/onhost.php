@@ -244,6 +244,10 @@ return [
 
     // chargeback in credit: the share of the unused paid period returned when a customer leaves early (staff change it in the console; this is the default)
     'chargeback' => ['percent' => (int) env('ONHOST_CHARGEBACK_PERCENT', 70), 'cluster_threshold' => (int) env('ONHOST_CHARGEBACK_CLUSTER_THRESHOLD', 3), 'cluster_days' => (int) env('ONHOST_CHARGEBACK_CLUSTER_DAYS', 30)], // clusters of requests per node/product open an internal incident (audit §5j-6)
+    // ── TASK-0025 consumer withdrawal (switched on by the default-off automation rule `billing.withdrawal`): the statutory period has no
+    // override; a registered domain is fully performed; `legal_reviewed` is set on the server once a lawyer has reviewed the mechanism (doctor row) ──
+    'withdrawal' => ['days' => 14, 'excluded_products' => ['domain'], 'legal_reviewed' => (bool) env('ONHOST_WITHDRAWAL_LEGAL_REVIEWED', false)],
+    // ── end TASK-0025 ──
 
     // loyalty programme: points per action, levels with a promo-credit reward on reaching them (staff override the levels in system settings)
     'loyalty' => [

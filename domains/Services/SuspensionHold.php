@@ -26,7 +26,10 @@ final class SuspensionHold
 
     public const REVIEW = 'review';
 
-    public const KINDS = [self::ABUSE, self::PAYMENT, self::REVIEW];
+    /** the consumer withdrew from the contract and got the unused part back (TASK-0025): nothing brings it back but staff */
+    public const WITHDRAWAL = 'withdrawal';
+
+    public const KINDS = [self::ABUSE, self::PAYMENT, self::REVIEW, self::WITHDRAWAL];
 
     /** The hold a suspension carries, judged by who imposed it and why; null = the customer's own pause. */
     public static function kindFor(CommandContext $context, string $reason): ?string
@@ -97,6 +100,7 @@ final class SuspensionHold
                 self::ABUSE => 'Služba je pozastavená kvůli porušení podmínek. Odpovězte prosím na tiket, který jsme vám k tomu poslali; obnovit ji může jen náš tým.',
                 self::PAYMENT => self::paymentMessage($service),
                 self::REVIEW => 'Službu pozastavil náš tým. Napište prosím podpoře — obnovit ji může jen ona.',
+                self::WITHDRAWAL => 'Služba byla ukončena odstoupením od smlouvy a nevyužitá část vám byla vrácena na kredit; obnovit ji nelze. Novou službu si můžete kdykoli objednat.',
                 default => null,
             },
         ];
@@ -124,6 +128,7 @@ final class SuspensionHold
         $reason = mb_strtolower(trim($reason));
 
         return match (true) {
+            str_starts_with($reason, 'withdrawal') => self::WITHDRAWAL, // only the platform's own withdrawal steps say so; a customer's own pause never carries a hold (kindFor)
             str_starts_with($reason, 'abuse') => self::ABUSE,
             str_starts_with($reason, 'dunning'), str_contains($reason, 'subscription ended'), str_contains($reason, 'subscription expired'), str_contains($reason, 'unpaid') => self::PAYMENT,
             str_starts_with($reason, 'risk'), str_starts_with($reason, 'security'), str_starts_with($reason, 'legal') => self::REVIEW,

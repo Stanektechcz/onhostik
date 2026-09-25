@@ -5,13 +5,18 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Presenters\Presenters;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\ChargebackService;
 use Onhost\Domain\Billing\Commands\ChargebackCommand;
 use Onhost\Domain\Billing\Commands\ReinstateServiceCommand;
+use Onhost\Domain\Billing\Commands\WithdrawalCommand;
+use Onhost\Domain\Billing\Models\Withdrawal;
 use Onhost\Domain\Billing\ServiceReinstatement;
+use Onhost\Domain\Billing\WithdrawalPolicy;
+use Onhost\Domain\Billing\WithdrawalService;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -249,6 +254,24 @@ final class ServiceController extends ApiController
         $model = $this->resolve($request, $service);
 
         return $this->dispatch(new ReinstateServiceCommand($model->organization_id, $this->idempotencyKey($request, "service.reinstate:{$model->id}"), ['service_id' => $model->id]), $this->api->context($request, Organization::query()->find($model->organization_id)), 202);
+    }
+
+    /** Consumer withdrawal (TASK-0025): whether the contract can still be withdrawn from, until when, and what would come back. */
+    public function withdrawal(Request $request, WithdrawalPolicy $policy, WithdrawalService $withdrawals, string $service): JsonResponse
+    {
+        $model = $this->resolve($request, $service);
+        $record = Withdrawal::query()->where('service_id', $model->id)->orderByDesc('created_at')->first();
+
+        return response()->json(['data' => $policy->check($model) + ['enabled' => $policy->enabled(), 'estimate' => $withdrawals->estimate($model, CarbonImmutable::now()), 'withdrawal' => $record ? $withdrawals->present($record) : null, 'terms_url' => WithdrawalPolicy::TERMS_URL]]);
+    }
+
+    /** The consumer withdraws (fresh step-up): the service is switched off, the unused part comes back to the credit, the service is cancelled. */
+    public function requestWithdrawal(Request $request, string $service): JsonResponse
+    {
+        $model = $this->resolve($request, $service, 'service.delete');
+        $data = $request->validate(['confirm_refund_to_credit' => ['accepted'], 'statement' => ['nullable', 'string', 'max:2000']]);
+
+        return $this->dispatch(new WithdrawalCommand($model->organization_id, $this->idempotencyKey($request, "withdrawal:{$model->id}"), ['op' => 'service', 'service_id' => $model->id, 'statement' => $data['statement'] ?? null]), $this->api->context($request, Organization::query()->find($model->organization_id)), 202);
     }
 
     /** The customer moves a scheduled migration inside the window staff gave (audit §5h-3). */

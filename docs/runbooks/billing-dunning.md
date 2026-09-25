@@ -291,3 +291,36 @@ already paid, (c) services in the window held for payment, (d) undone cancellati
 from today, without billing the free time back — one service at a time, the owner decides each. Not restored: add-ons
 cancelled with the parent (the quote lists them in `addons_not_restored`) and delegated panel logins removed at the
 deactivation.
+
+## Consumer withdrawal within 14 days (owner decision 17, TASK-0025)
+
+Off until the owner switches on the automation rule `billing.withdrawal` (staff console → automation). Before that a lawyer
+reviews the mechanism (`resources/legal/LEGAL_REVIEW_withdrawal.md`); afterwards set `ONHOST_WITHDRAWAL_LEGAL_REVIEWED=true`
+on the server — until then the doctor row "consumer withdrawal reviewed by a lawyer" warns while the rule is on.
+
+- **Who:** consumers only — the class the order was placed as (`orders.meta.customer_class`, older orders: a recorded
+  `withdrawal_waiver` consent means a consumer). An IČO added later keeps the right; a business order never had it.
+- **Until when:** 14 days from the order day (`orders.placed_at`, accounting day), to the end of the 14th day. The day the
+  notice was **sent** decides. A registered domain is never withdrawn (`withdrawal_not_applicable`, `why=domain_registered`);
+  the cart says so (`withdrawal_notice` in the quote). An add-on goes with its service; a carried site has no contract.
+- **Panel:** `GET /v1/services/{id}/withdrawal` (eligibility, deadline, estimate); `POST` with
+  `confirm_refund_to_credit: true` (the consumer's express agreement to a refund to the credit, recorded as a consent),
+  `service.delete`, HIGH, fresh step-up. A paid order nothing of which was delivered: `GET/POST /v1/orders/{id}/withdrawal`
+  (the order is cancelled, every line credited, the reserved credit freed).
+- **Letter or e-mail:** finance records it with the day it was sent: `POST /v1/staff/withdrawals`
+  (`organization_id`, `service_id` or `order_id`, `sent_at`, `refund_to_credit_agreed`, `reason`), `billing.refund.execute`,
+  step-up and a second person. Without the consumer's agreement to a credit refund the old manual path stands: a refund by
+  the original payment method through the finance tools.
+- **What happens, in this order:** the service is suspended (hold `withdrawal`), then a credit note for exactly the unused
+  part of each paid line (prorated by days, the notice day counts as used; add-on lines included; an unpaid invoice is
+  reduced instead of money being paid out) goes back to the credit with `returnToCredit`, then the service is cancelled
+  through the ordinary terminate saga with its final backup. Auto-renewal is switched off at the notice; an open chargeback
+  request becomes `withdrawn`; one cancelling blocks the withdrawal (`chargeback_in_progress`).
+- **Once:** one withdrawal per order line (`withdrawals.subject_key` unique); the refund is made once under a row lock; the
+  operations carry fixed keys (`withdrawal:{id}:suspend|terminate`).
+- **Stuck:** a refused step (legal hold, frozen provisioning, panel refusal) is kept on the row (`error`), sent once to the
+  finance inbox (`withdrawal.stalled`) and retried hourly by `onhost:withdrawals:finish` (`--dry-run` lists). The refund is
+  never taken back because the cancellation waits. `GET /v1/staff/withdrawals?state=open` lists them; the doctor row
+  "consumer withdrawals move on" counts refused steps and notices not refunded after 7 days.
+- **Afterwards:** the customer cannot resume the service (`service_suspension_held`, hold `withdrawal`) and pay and restore
+  refuses it (`held`); staff can resume it with a reason — the refund stays, so that is a deliberate decision.

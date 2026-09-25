@@ -11,9 +11,13 @@ use Onhost\Domain\Billing\Commands\ChargebackCommandHandler;
 use Onhost\Domain\Billing\Commands\ChargebackStaffCommand;
 use Onhost\Domain\Billing\Commands\ReinstateServiceCommand;
 use Onhost\Domain\Billing\Commands\ReinstateServiceCommandHandler;
+use Onhost\Domain\Billing\Commands\WithdrawalCommand;
+use Onhost\Domain\Billing\Commands\WithdrawalCommandHandler;
+use Onhost\Domain\Billing\Commands\WithdrawalStaffCommand;
 use Onhost\Domain\Billing\Listeners\ChargebackSettlement;
 use Onhost\Domain\Billing\Listeners\RestartBillingAfterRestore;
 use Onhost\Domain\Billing\Listeners\SettleBillingAfterPayment;
+use Onhost\Domain\Billing\Listeners\WithdrawalProgress;
 use Onhost\Domain\Catalog\Commands\CatalogCommand;
 use Onhost\Domain\Catalog\Commands\CatalogCommandHandler;
 use Onhost\Domain\Compliance\Commands\ComplianceCommand;
@@ -118,6 +122,8 @@ final class DomainServiceProvider extends ServiceProvider
         ChargebackCommand::class => ChargebackCommandHandler::class,
         ChargebackStaffCommand::class => ChargebackCommandHandler::class,
         ReinstateServiceCommand::class => ReinstateServiceCommandHandler::class, // TASK-0025 pay and restore
+        WithdrawalCommand::class => WithdrawalCommandHandler::class, // TASK-0025 consumer withdrawal
+        WithdrawalStaffCommand::class => WithdrawalCommandHandler::class, // TASK-0025 consumer withdrawal (a letter finance records)
         LoyaltyCommand::class => LoyaltyCommandHandler::class,
         AccountLoyaltyCommand::class => LoyaltyCommandHandler::class,
         MarketplaceCommand::class => MarketplaceCommandHandler::class,
@@ -172,6 +178,9 @@ final class DomainServiceProvider extends ServiceProvider
         Event::listen(OutboxEventDispatched::class, OnCallService::class); // operational events page the on-call (audit §5q-1)
         Event::listen(OutboxEventDispatched::class, ChargebackSettlement::class); // credit back once the service is gone
         Event::listen('onhost.service.deletion.cancelled', RestartBillingAfterRestore::class); // TASK-0025: an undone cancellation is billed again (rule services.reinstate)
+        foreach (['onhost.service.suspended', 'onhost.service.deactivated', 'onhost.service.terminated'] as $withdrawalEvent) { // TASK-0025: a withdrawn service went off or was cancelled, the withdrawal moves on
+            Event::listen($withdrawalEvent, WithdrawalProgress::class);
+        }
         Event::listen('onhost.organization.member.removed', CloseServiceAccessGrants::class); // whoever left has nothing shared any more
         Event::listen(OutboxEventDispatched::class, RevokeDelegatedAccess::class); // a removed member loses the panel accounts that were theirs (H333)
         Event::listen(OutboxEventDispatched::class, LoyaltyRouter::class); // points for what customers do

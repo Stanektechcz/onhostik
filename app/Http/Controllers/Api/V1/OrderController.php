@@ -7,6 +7,10 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Presenters\Presenters;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Onhost\Domain\Billing\Commands\WithdrawalCommand;
+use Onhost\Domain\Billing\Models\Withdrawal;
+use Onhost\Domain\Billing\WithdrawalPolicy;
+use Onhost\Domain\Billing\WithdrawalService;
 use Onhost\Domain\Orders\Commands\CancelOrderCommand;
 use Onhost\Domain\Orders\Commands\DecideOrderApprovalCommand;
 use Onhost\Domain\Orders\Commands\PlaceOrderCommand;
@@ -79,6 +83,24 @@ final class OrderController extends ApiController
         $organization = Organization::query()->findOrFail($model->organization_id);
 
         return $this->dispatch(new DecideOrderApprovalCommand($organization->id, $this->idempotencyKey($request, "order.approval:{$model->id}"), ['order_id' => $model->id, 'decision' => $data['decision'], 'reason' => $data['reason'] ?? null]), $this->api->context($request, $organization, $data['reason'] ?? null));
+    }
+
+    /** Consumer withdrawal from a paid order nothing of which was delivered yet (TASK-0025): whether it is still possible and until when. */
+    public function withdrawal(Request $request, WithdrawalPolicy $policy, WithdrawalService $withdrawals, string $order): JsonResponse
+    {
+        $model = $this->resolve($request, $order);
+        $record = Withdrawal::query()->where('subject_key', 'order:'.$model->id)->first();
+
+        return response()->json(['data' => $policy->check($model) + ['enabled' => $policy->enabled(), 'withdrawal' => $record ? $withdrawals->present($record) : null, 'terms_url' => WithdrawalPolicy::TERMS_URL]]);
+    }
+
+    /** The consumer withdraws from the order (fresh step-up): it is cancelled, every line credited and the credit freed. */
+    public function requestWithdrawal(Request $request, string $order): JsonResponse
+    {
+        $model = $this->resolve($request, $order);
+        $data = $request->validate(['confirm_refund_to_credit' => ['accepted'], 'statement' => ['nullable', 'string', 'max:2000']]);
+
+        return $this->dispatch(new WithdrawalCommand($model->organization_id, $this->idempotencyKey($request, "withdrawal:{$model->id}"), ['op' => 'order', 'order_id' => $model->id, 'statement' => $data['statement'] ?? null]), $this->api->context($request, Organization::query()->find($model->organization_id)), 202);
     }
 
     /** @return array{to:string, reason?:?string} */
