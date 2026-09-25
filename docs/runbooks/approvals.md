@@ -37,6 +37,33 @@ such a permission down to "high" (`riskLevel()` is ignored for them). Commands m
 operations under a HIGH permission needs no step-up (a draft, a note) — those per-operation decisions are listed in
 `production-readiness-audit.md` §7 for the owner's review.
 
+### Prices and plans (owner decision 13, 2026-09-25)
+
+HIGH means a fresh step-up and nothing more. **Every change of a price or a plan in the admin configuration takes a second
+person as well**, although `catalog.manage` is only HIGH: `CatalogCommand::requiresApproval()` asks for it. A catalogue
+operation the command does not classify is treated as a price change (fail closed).
+
+| Takes a step-up and a second person | Takes a step-up (one person) | Ordinary |
+| --- | --- | --- |
+| commitment discounts, regional pricing, a domain discount, an **active** promo code, an option or add-on unit price and deleting an option, publishing a plan version, rolling back to an earlier version, putting a product on sale, the deletion lifecycle (archive download fee, windows) | deleting a domain discount, deleting a promo code, **pausing or retiring** a promo code, taking a product off sale, a product's add-on list | the customer panel sidebar |
+
+- **Emergency brakes stay with one person**: pause or delete the promo code, delete the discount, or take the product off
+  sale — in the console with a step-up, or on the server with `php artisan onhost:catalog:state draft <product>` (the
+  system actor; no approval exists there). Putting it back on sale is a price change again.
+- **Who approves**: somebody else holding `iam.approval.decide` **and** `catalog.manage` — `billing_finance_admin` or
+  `platform_owner`. A `product_manager` may ask, not approve; an `iam_admin` may approve other things, not prices
+  (`approver_lacks_permission`). `onhost:doctor` shows `price changes have a second person` (WARN with fewer than two such
+  people: the only one of them can never have their own price change approved).
+- **Checked first, bound to its base**: a change that would be refused (a wrong key, a slipped decimal place without
+  `confirm_large_change`, nothing changed) is refused before a request is opened. A plan change carries `base_version`
+  (the version on sale when it was asked), a whole-value setting carries `base` (a digest of the value it replaces); when
+  somebody else changes it in between, repeating the approved request opens a new one, and a stale binding that reaches
+  the handler is `409 catalog_changed_since_request`. The approved request is repeated **unchanged** (the pages keep the
+  form as it was and say so).
+- The approver reads why: the price endpoints take an optional `reason` (plan versions require one).
+- Automation switches (`PUT /v1/staff/automation/{rule}`) take a fresh step-up: switching on a rule that ships default-off
+  reaches every existing service at once.
+
 ## One operator alone
 
 Four eyes need two heads. With fewer than two people who may decide approvals the page says so, `onhost:doctor`
@@ -51,7 +78,12 @@ ONHOST_FOUR_EYES=false        # /etc/onhost/app.env, then: php artisan config:ca
 
 The step-up stays, every critical action is audited with `approval_ids: ["waived:single-operator"]`, the doctor
 reports the mode. Switch it back on the day a second person joins and grant them a role with `iam.approval.decide`
-(`iam_admin`, `platform_owner`).
+(`iam_admin`, `platform_owner`; for price changes one that also holds `catalog.manage`: `billing_finance_admin`,
+`platform_owner`).
+
+**Before deploying owner decision 13 with one operator: set `ONHOST_FOUR_EYES=false` first.** Otherwise every price,
+discount, promo code and plan change of the only operator waits for a second person who does not exist — the price
+list freezes (withdrawals and `onhost:catalog:state draft` keep working).
 
 ## Staging checks
 
@@ -59,6 +91,11 @@ reports the mode. Switch it back on the day a second person joins and grant them
 2. As another person (`platform_owner`): approve after the step-up dialog → the first person repeats the hold with
    `approval_ids` → it is placed; the request shows „použito".
 3. With one staff account only: the page warns; decide whether staging runs `ONHOST_FOUR_EYES=false`.
+4. Prices (decision 13): as `product_manager` with a step-up, publish a plan version and create a promo code → both
+   refused with an approval id; approve both as `billing_finance_admin`; send them again unchanged → applied, the audit rows
+   carry the approval ids. Ask for another version, publish a different one in between with its own approval, send the
+   first again → a new request (the old approval is not spent). Pause and delete a promo code as `product_manager` → a
+   step-up alone. `onhost:doctor` → `price changes have a second person` is OK.
 
 ## A role reads what it may change (2026-09-20)
 
