@@ -39,6 +39,7 @@ use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Provisioning\Workflows\SiteWorkflow;
 use Onhost\Domain\Provisioning\Workflows\StagingWorkflow;
 use Onhost\Domain\Provisioning\Workflows\WordPressWorkflow;
+use Onhost\Domain\Services\Access\OwnerOnlyActions;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\DatabaseInstance;
 use Onhost\Domain\Services\Models\Service;
@@ -482,6 +483,7 @@ final class ServiceService
         if ($action === 'power' && ! in_array($params['power_action'] ?? '', ['start', 'stop', 'shutdown', 'reboot', 'reset', 'kill'], true)) {
             throw new DomainError('power_action_invalid', 'power_action must be one of start, stop, shutdown, reboot, reset, kill.', 422);
         }
+        OwnerOnlyActions::assert($service, $action, $context); // TASK-0021: the panel account password is the organization owner's alone
         if (in_array($action, LegalHold::DESTRUCTIVE_ACTIONS, true) && LegalHold::coversService($service)) {
             throw new DomainError('legal_hold', 'The service is under legal hold: backups and snapshots cannot be deleted and the server cannot be reinstalled until it is lifted.', 423, ['action' => $action]);
         }

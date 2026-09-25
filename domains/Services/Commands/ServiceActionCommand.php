@@ -44,6 +44,9 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
             // shell handed over a shell: the agency could open a terminal, read `wp-config.php` and with it the
             // database, or put their own key on the site.
             'command.run', 'shell.create', 'shell.key', 'shell.delete', 'command.send' => 'service.console',
+            // The game panel account opens every server of that account, not only this service: the organization owner alone
+            // sets its password (owner decision 15; left open by TASK-0007). Services\Access\OwnerOnlyActions checks the owner too.
+            'panel.password' => 'service.panel_account.manage',
             default => 'service.manage',
         };
     }

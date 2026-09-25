@@ -17,6 +17,14 @@ final class PermissionCatalog
 
     public const CRITICAL = 'critical';
 
+    // ── TASK-0021 ──
+    /**
+     * Customer permissions that belong to the organization owner alone (owner decisions 14/15): no admin, operator, shared
+     * (svc_*) or staff role holds them. RoleCatalog withholds them from org_admin; PermissionMatrixTest keeps it that way.
+     */
+    public const OWNER_ONLY = ['organization.close', 'service.panel_account.manage'];
+    // ── end TASK-0021 ──
+
     /**
      * @return array<string, array{description:string, risk:string, audience:string}>
      */
@@ -51,6 +59,8 @@ final class PermissionCatalog
             'service.delete' => $c('Terminate services (with retention grace)', self::HIGH),
             'service.console' => $c('Open consoles and shells for own services'),
             'service.credentials.rotate' => $c('Rotate service credentials', self::HIGH),
+            // TASK-0021 (owner decision 15): the panel account opens every server of the account — the organization owner alone
+            'service.panel_account.manage' => $c('Set the password of the service panel account (game panel); organization owner only', self::HIGH),
             'compute.vm.manage' => $c('Manage VPS/VDS: power, resize, snapshots, firewall'),
             'compute.vm.delete' => $c('Delete VMs and snapshots', self::HIGH),
             'apps.deploy' => $c('Deploy, roll back and configure applications'),

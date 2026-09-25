@@ -21,7 +21,7 @@ final class RoleCatalog
         return [
             // ── customer organization roles ────────────────────────────────
             'owner' => self::role('Owner', 'Full control of the organization', 'organization', false, $allCustomer),
-            'org_admin' => self::role('Organization admin', 'Everything except closing the organization', 'organization', false, array_values(array_diff($allCustomer, ['organization.close']))),
+            'org_admin' => self::role('Organization admin', 'Everything except what the owner alone may do (closing the organization, the panel account password)', 'organization', false, array_values(array_diff($allCustomer, self::orgAdminWithheld()))),
             'billing_admin' => self::role('Billing admin', 'Wallet, invoices, payment methods, budgets', 'organization', false, array_merge($customerRead, ['billing.wallet.topup', 'billing.payment_method.manage', 'billing.budget.manage', 'catalog.order.create'])),
             'domain_manager' => self::role('Domain manager', 'Domains, contacts, renewals, transfers', 'organization', false, array_merge($customerRead, ['domain.manage', 'domain.transfer_out.execute', 'domain.registrant.change', 'dns.zone.write'])),
             'dns_manager' => self::role('DNS manager', 'DNS zones and DNSSEC', 'organization', false, array_merge($customerRead, ['dns.zone.write', 'dns.dnssec.manage'])),
@@ -45,7 +45,7 @@ final class RoleCatalog
             'svc_restore' => self::role('Service: restore', 'Restore the service from a backup', 'resource', false, ['service.read', 'backup.read', 'backup.restore']),
             'svc_assistant' => self::role('Service: assistant', 'Use the AI assistant for the shared service', 'resource', false, ['service.read', 'support.chat.use']),
             // ── staff roles ──────────────────────────────────────────────────
-            'platform_owner' => self::role('PlatformOwner / SuperAdmin', 'Break-glass only; never a daily account', 'global', true, array_merge($allStaff, $allCustomer)),
+            'platform_owner' => self::role('PlatformOwner / SuperAdmin', 'Break-glass only; never a daily account', 'global', true, array_merge($allStaff, array_values(array_diff($allCustomer, self::STAFF_NEVER)))),
             'iam_admin' => self::role('IAMAdmin', 'Users, roles, SSO, JIT approvals; no refunds', 'global', true, ['iam.user.manage', 'iam.role.manage', 'iam.mfa.reset', 'iam.jit.approve', 'iam.approval.decide', 'iam.access_review.manage', 'audit.read.global', 'security.event.read', 'staff.customer.read']),
             'infrastructure_admin' => self::role('InfrastructureAdmin', 'Proxmox, resources, capacity, operations queue', 'global', true, ['provider.instance.read', 'provider.instance.manage', 'capacity.read', 'capacity.manage', 'node.manage', 'provisioning.operation.read', 'provisioning.operation.retry', 'provisioning.operation.cancel', 'provisioning.drift.resolve', 'provisioning.freeze', 'staff.service.manage', 'staff.console', 'backup.policy.manage', 'staff.customer.read', 'iam.jit.request']),
             'network_admin' => self::role('NetworkAdmin', 'IPAM/BGP/VLAN/firewall/rDNS', 'global', true, ['ipam.manage', 'capacity.read', 'provider.instance.read', 'provisioning.operation.read', 'staff.customer.read', 'iam.jit.request']),
@@ -77,6 +77,23 @@ final class RoleCatalog
             'partner' => self::role('Partner / Reseller', 'Sub-customers, commissions, white-label', 'organization', false, array_merge($customerRead, ['catalog.order.create', 'support.ticket.write', 'support.chat.use'])),
         ];
     }
+
+    // ── TASK-0021 ──
+    /** Customer permissions no staff account holds, not even the break-glass one (owner decision 15): they are the organization owner's. */
+    public const STAFF_NEVER = ['service.panel_account.manage'];
+
+    /**
+     * What an organization admin is NOT given — the one place the org_admin line is decided: the owner-only permissions
+     * (PermissionCatalog::OWNER_ONLY). Anything else the admin must not do on the organization's behalf (spending the
+     * organization's credit, TASK-0021's credit part) is added to this list, not to the role line.
+     *
+     * @return list<string>
+     */
+    public static function orgAdminWithheld(): array
+    {
+        return array_values(array_unique(PermissionCatalog::OWNER_ONLY));
+    }
+    // ── end TASK-0021 ──
 
     /** @param list<string> $permissions */
     private static function role(string $name, string $description, string $scope, bool $staff, array $permissions): array
