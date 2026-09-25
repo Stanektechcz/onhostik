@@ -9,6 +9,7 @@ use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\PlanPromises;
 use Onhost\Domain\Catalog\PlanVersioning;
+use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
 use Onhost\Domain\Services\Metering\MetricRegistry;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -218,4 +219,24 @@ it('reports the promises a version customers still hold keeps no longer', functi
 
     $service->forceFill(['state' => ServiceStateMachine::TERMINATED])->save(); // an ended service holds nothing
     expect(PlanPromises::grandfatheredGaps($read))->toBe([]);
+});
+
+/*
+ * TASK-0027 C4 (owner decision 7): `php_workers_dedicated` is a capability flag, so the text scan counts it as kept the moment
+ * PlacementRules names it — although only a panel with a PHP pool per site keeps it, and eshop/shop-peak sold it on aaPanel.
+ * Its MetricRegistry row is scoped to the web family; this ratchet holds every plan on sale to that row once the revisions are
+ * applied, so a plan that sells the flag where nothing keeps it fails here instead of passing the scan.
+ */
+it('sells dedicated PHP workers only where a pool per site keeps them, once the catalogue revisions are applied', function () {
+    $sold = [];
+    foreach (Plan::query()->where('state', 'active')->with('product')->get() as $plan) {
+        $entitlements = (array) $plan->currentVersion()?->entitlements;
+        if (! PlacementRules::dedicatedPhp($entitlements) || $plan->product === null) {
+            continue;
+        }
+        $sold[] = $plan->product->key.'/'.$plan->key;
+        expect(MetricRegistry::isKept('php_workers_dedicated', (string) $plan->product->family))->toBeTrue("{$plan->product->key}/{$plan->key} sells dedicated PHP workers in a family no pool keeps them for")
+            ->and(PlacementRules::undelivered((string) $plan->product->executor, $entitlements))->toBeFalse("{$plan->product->key}/{$plan->key} sells dedicated PHP workers on a node-wide pool");
+    }
+    expect($sold)->toBe(['web-hosting/profi']);
 });

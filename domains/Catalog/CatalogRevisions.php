@@ -10,6 +10,7 @@ use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Price;
 use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Commands\CommandBus;
@@ -33,6 +34,9 @@ use Onhost\Platform\Errors\DomainError;
  * Shape of a revision:
  *  - `reason`: kept with every version it publishes (finance and the audit read it);
  *  - `plans`: 'product/plan' => keys the new version drops (from `entitlements` or `limits`, wherever the current version has them);
+ *  - `drop_undelivered` (optional): keys the new version drops from EVERY plan whose current version sells them where the platform
+ *    cannot deliver them (`undeliverable()`: today `php_workers_dedicated` on a panel without a PHP pool per site, PlacementRules)
+ *    — a plan list the code cannot know in advance (TASK-0027);
  *  - `rewrite`: key => [old value => new value], applied to every plan whose current version still carries the old value;
  *  - `products`: product key => ['match' => regex on the current description, 'description' => {cs, en}] — replaced only while
  *    the current description still says what the revision withdraws, so a text staff wrote since is left alone;
@@ -60,6 +64,14 @@ final class CatalogRevisions
                     'description' => ['cs' => 'PostgreSQL, MariaDB a Redis jako služba — single-tenant KVM a zálohy.', 'en' => 'PostgreSQL, MariaDB and Redis as a service — single-tenant KVM and backups.'],
                 ],
             ],
+        ],
+        // TASK-0027 C4: decision 7 for the plans PlacementRules cannot put on a panel with a PHP pool per site (eshop/shop-peak on aaPanel)
+        '2026-09-shared-php-workers' => [
+            'reason' => 'Rozhodnutí vlastníka 7 (2026-09-25): na aaPanelu obsluhuje jeden PHP pool celý uzel, vyhrazené PHP workery tam nic nedrží — nové verze tarifů, které je slibují na panelu bez vlastního poolu pro web, je nemají a ceník uvádí „Sdílené PHP workery“; ceny beze změny, stávající smlouvy beze změny.',
+            'plans' => [],
+            'rewrite' => [],
+            'products' => [],
+            'drop_undelivered' => ['php_workers_dedicated'],
         ],
         '2026-09-limit-raise' => [
             'reason' => 'Rozhodnutí vlastníka 8 (2026-09-25): placené navýšení jednoho limitu jedné služby za cenu volby jejího produktu, účtované každé období (TASK-0022 limit-raise).',
@@ -176,7 +188,13 @@ final class CatalogRevisions
     {
         $bus = app(CommandBus::class); // resolved here: the doctor reads what is pending without building the bus
         $done = [];
-        foreach ($this->pending($id) as $revision => $pending) {
+        // what a revision still has to do is read just before it runs: two revisions may change the same plan, and the second
+        // publishes on top of the version the first one just made (a list read up front was bound to the version before it)
+        foreach ($id === null ? self::ids() : [$this->known($id)] as $revision) {
+            $pending = $this->pending($revision)[$revision] ?? null;
+            if ($pending === null) {
+                continue;
+            }
             $reason = (string) self::REVISIONS[$revision]['reason'];
             foreach ($pending['create'] ?? [] as $key) { // a product the code defines, as the four-eyes catalogue operation (system actor on the CLI)
                 try {
@@ -257,7 +275,7 @@ final class CatalogRevisions
     /**
      * A revision as the code reads it (the constant's literal types are narrower than what a revision may hold).
      *
-     * @return array{reason: string, plans: array<string, list<string>>, rewrite: array<string, array<string, mixed>>, products: array<string, array{match: string, description: array{cs: string, en: string}}>, create?: list<string>}
+     * @return array{reason: string, plans: array<string, list<string>>, rewrite: array<string, array<string, mixed>>, products: array<string, array{match: string, description: array{cs: string, en: string}}>, create?: list<string>, drop_undelivered?: list<string>}
      */
     private static function definition(string $revision): array
     {
@@ -272,7 +290,8 @@ final class CatalogRevisions
         foreach (array_keys($definition['plans']) as $target) {
             $targets[$target] = true;
         }
-        if ($definition['rewrite'] !== []) { // a rewrite looks at every plan: the old value is wrong wherever it is
+        $undelivered = array_values(array_map('strval', (array) ($definition['drop_undelivered'] ?? [])));
+        if ($definition['rewrite'] !== [] || $undelivered !== []) { // a rewrite (or an undeliverable key) looks at every plan: the old value is wrong wherever it is
             foreach (Plan::query()->with('product')->get() as $plan) {
                 if ($plan->product !== null) {
                     $targets[$plan->product->key.'/'.$plan->key] = true;
@@ -287,7 +306,9 @@ final class CatalogRevisions
             }
             $bags = ['entitlements' => (array) $version->entitlements, 'limits' => (array) ($version->limits ?? [])];
             $drop = [];
-            foreach ($definition['plans'][$target] ?? [] as $key) {
+            $executor = (string) Product::query()->where('key', explode('/', $target, 2)[0])->value('executor');
+            $keys = array_merge($definition['plans'][$target] ?? [], array_values(array_filter($undelivered, fn (string $key) => self::undeliverable($key, $executor, $bags['entitlements']))));
+            foreach (array_unique($keys) as $key) {
                 foreach ($bags as $bag => $values) {
                     if (array_key_exists($key, $values)) {
                         $drop[$key] = $bag;
@@ -311,6 +332,20 @@ final class CatalogRevisions
         ksort($out);
 
         return $out;
+    }
+
+    /**
+     * Whether a plan of a product on this executor sells the key where the platform cannot deliver it. Only keys whose delivery
+     * depends on where the plan runs are known here; any other key is never dropped this way.
+     *
+     * @param  array<string,mixed>  $entitlements
+     */
+    private static function undeliverable(string $key, string $executor, array $entitlements): bool
+    {
+        return match ($key) {
+            'php_workers_dedicated' => PlacementRules::undelivered($executor, $entitlements), // decision 7: no PHP pool per site on this panel
+            default => false,
+        };
     }
 
     /** @return list<string> products of `PRODUCTS` this revision creates that the catalogue does not have yet */

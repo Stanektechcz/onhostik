@@ -118,6 +118,15 @@ still names PITR, connections or a dedicated IP/DB is only reported — edit it 
 `onhost:doctor` shows *every catalogue revision is applied* OK and lists, under *no customer holds a version promising an
 unkept number*, the old versions customers still hold (support answers them; nothing about them changes).
 
+**`2026-09-shared-php-workers`** (owner decision 7, TASK-0027): every plan whose current version sells
+`php_workers_dedicated` on a product whose panel runs one PHP pool for the whole node (`PlacementRules::undelivered()`:
+today `eshop/shop-peak` on aaPanel) gets a new version without it — found at run time (`drop_undelivered`), not from a fixed
+list. The price list then says *Sdílené PHP workery* instead of *24 PHP workerů (dedikované)*; `php_workers` itself stays.
+`web-hosting/profi` keeps the promise (ISPConfig, one PHP-FPM pool per site). Versions customers hold keep it; the services
+on them are listed by `onhost:capacity:basis` and the doctor's capacity rows (never moved). Run together with
+`2026-09-honest-promises`, `shop-peak` goes v1 → v2 (−`dedicated_db`) → v3 (−`php_workers_dedicated`): each revision reads
+what is pending just before it publishes, on top of the version the one before it made.
+
 **`2026-09-limit-raise`** (owner decision 8): creates the product `limit-raise` (family `addon`, no executor, `meta.listed:
 false`) when the catalogue does not have it — a revision's `create` list, one `CatalogCommand product.create` per product
 (only a product `CatalogRevisions::PRODUCTS` defines; four eyes in the console, the system actor on the CLI). It has **no plan
@@ -227,8 +236,10 @@ A key that is neither measured, enforced, fair use, nor read may still be listed
 appearing without one, both fail the guard test) — currently 8 entries. The boolean `dedicated_outbound_ip` and
 `dedicated_db`, the numeric `pitr_days` and `connections` left it with the revision `2026-09-honest-promises` (the owner
 decided they are not provided), `products` became fair use, and `php_workers_dedicated` left it once placement binds a
-dedicated-PHP web plan to ISPConfig, one PHP-FPM pool per site (`PlacementRules`, decision 7; the managed-family gap is
-recorded in its `MetricRegistry` row and the doctor, not in the ratchet). `onhost:doctor` shows the tracked list as a standing WARN
+dedicated-PHP web plan to ISPConfig, one PHP-FPM pool per site (`PlacementRules`, decision 7). Its `MetricRegistry` row is
+kept for the web family only; the managed-family promise (`eshop/shop-peak`) is retired by the revision
+`2026-09-shared-php-workers`, and `PlanPromisesTest` holds every plan on sale to that row once the revisions are applied
+(a capability flag otherwise passes the text scan as soon as any code names it). `onhost:doctor` shows the tracked list as a standing WARN
 (`catalog: no known metering gap`) and any *new*, untracked gap as a production FAIL
 (`catalog: the metering gap ratchet is not growing`) — except a key a revision not yet applied still has to remove,
 which is the WARN `catalog: every catalogue revision is applied` naming `onhost:catalog:revise`.

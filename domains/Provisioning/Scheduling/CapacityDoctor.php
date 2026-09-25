@@ -32,7 +32,8 @@ final class CapacityDoctor
 
         return [
             ['check' => 'dedicated PHP workers are sold only where a site has its own pool', 'ok' => $undelivered === [],
-                'detail' => $undelivered === [] ? 'every plan that sells them runs on a panel with a pool per site' : implode(', ', $undelivered).' sell(s) them on a panel with one pool per node — owner decision pending (TASK-0023)'],
+                // decision 7 (TASK-0027): the catalogue revision 2026-09-shared-php-workers publishes their versions without the promise
+                'detail' => $undelivered === [] ? 'every plan that sells them runs on a panel with a pool per site' : implode(', ', $undelivered).' sell(s) them on a panel with one pool per node — php artisan onhost:catalog:revise 2026-09-shared-php-workers (dry run), then --apply: new versions say "Sdílené PHP workery", held versions stay'],
             ['check' => 'no service with dedicated PHP workers runs on a node-wide pool', 'ok' => $running === [],
                 'detail' => $running === [] ? 'none' : count($running).' service(s), not moved — php artisan onhost:capacity:basis lists them'],
             ['check' => 'no placement sends a dedicated-PHP plan to a node-wide pool', 'ok' => $ignored === [],

@@ -104,7 +104,7 @@ final class PlanPromises
      * @var array<string,string>
      */
     public const KNOWN_GAPS = [
-        'php_workers' => 'sold on wordpress/eshop (aaPanel); AaPanelWebProvider returns applied=false for every PHP-worker change — see MetricRegistry',
+        'php_workers' => 'sold on wordpress/eshop (aaPanel), where the price list words it as the shared pool ("Sdílené PHP workery", decision 7); AaPanelWebProvider returns applied=false for every PHP-worker change, so the number itself is kept nowhere — see MetricRegistry',
         'aliases' => 'sold on mail plans; ISPConfig has no limit_mailalias and alias.create runs no count check — see MetricRegistry',
         'spam_filter' => 'sold on mail plans; only the price list names the antispam tier, no mail config sets an rspamd policy from it — see MetricRegistry',
         'traffic_tb' => 'sold on VPS/VDS and the CDN add-on; UsageWatch only measures traffic for web/managed families — see MetricRegistry',

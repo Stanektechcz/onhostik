@@ -182,7 +182,7 @@ final class MetricRegistry
             'entitlement' => ['php_workers_dedicated'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['web'],
             'sources' => ['ispconfig' => 'IspConfigWebProvider gives every site its own FPM pool (pm=ondemand, pm_max_children = php_workers) and drift-checks it; PlacementRules keeps a plan that sells it on ISPConfig at the placement, the staff pin, the cart, the scheduler and a plan change', 'aapanel' => null],
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY,
-            'reason' => 'Not kept for the managed family: eshop/shop-peak runs on aaPanel (one pool per PHP version for the whole node) and is not moved to ISPConfig, where its WAF rate limit and the client-wide site count would break. Listed by onhost:doctor (capacity) and onhost:capacity:basis until the owner decides.',
+            'reason' => 'Not kept for the managed family: eshop/shop-peak runs on aaPanel (one pool per PHP version for the whole node) and is not moved to ISPConfig, where its WAF rate limit and the client-wide site count would break. Owner decision 7 (TASK-0027): the catalogue revision 2026-09-shared-php-workers (onhost:catalog:revise) publishes new versions of every such plan without it — the price list says "Sdílené PHP workery"; versions customers already hold keep it (onhost:capacity:basis and the doctor capacity rows list those services). PlanPromisesTest holds every plan on sale to this row.',
         ],
         'spam_filter' => [
             'entitlement' => ['spam_filter'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['mail'],

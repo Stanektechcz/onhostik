@@ -19,7 +19,8 @@ use Onhost\Domain\Provisioning\PlacementService;
  * (`DEDICATED_PHP_PROVIDERS`). eshop/shop-peak is a managed product on aaPanel and is deliberately NOT moved:
  * ISPConfig applies no WAF rate limit (its "pro" level promises one) and the client-wide site count ISPConfig enforces
  * does not count a plan that sells no `sites` number. Such a plan is reported by `undelivered()` (doctor,
- * onhost:capacity:basis) instead of being moved; nothing already running is touched by any of this.
+ * onhost:capacity:basis) instead of being moved, and the catalogue revision `2026-09-shared-php-workers` publishes its
+ * next version without the promise (TASK-0027, `CatalogRevisions`); nothing already running is touched by any of this.
  */
 final class PlacementRules
 {

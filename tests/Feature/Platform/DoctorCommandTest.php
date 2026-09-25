@@ -99,12 +99,17 @@ it('shows a catalogue revision not yet applied as a WARN naming the command, not
 
     expect($row('the metering gap ratchet is not growing')['status'])->toBe('OK');
     $pending = $row('every catalogue revision is applied');
-    expect($pending['status'])->toBe('WARN')->and($pending['detail'])->toContain('onhost:catalog:revise')->toContain('database/db-s');
+    expect($pending['status'])->toBe('WARN')->and($pending['detail'])->toContain('onhost:catalog:revise')->toContain('database/db-s')
+        ->toContain('2026-09-shared-php-workers: eshop/shop-peak (−php_workers_dedicated)');
+    // TASK-0027 C4 (decision 7): the capacity row names the way out, not an owner decision still pending
+    $dedicated = $row('dedicated PHP workers are sold only where a site has its own pool');
+    expect($dedicated['status'])->toBe('WARN')->and($dedicated['detail'])->toContain('eshop/shop-peak')->toContain('onhost:catalog:revise')->not->toContain('owner decision pending');
 
     app()->instance('env', 'testing'); // the operator applies it; the production boot checks are not the subject here
     Artisan::call('onhost:catalog:revise', ['--apply' => true, '--yes' => true]);
     app()->instance('env', 'production');
     expect($row('every catalogue revision is applied')['status'])->toBe('OK')
         ->and($row('the metering gap ratchet is not growing')['status'])->toBe('OK')
-        ->and($row('no customer holds a version promising an unkept number')['status'])->toBe('OK');
+        ->and($row('no customer holds a version promising an unkept number')['status'])->toBe('OK')
+        ->and($row('dedicated PHP workers are sold only where a site has its own pool')['status'])->toBe('OK');
 });

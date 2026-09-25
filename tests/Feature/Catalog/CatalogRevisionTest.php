@@ -101,7 +101,7 @@ it('previews the revision without publishing anything: the plans, the keys each 
         ->expectsOutputToContain('Dry run: nothing was published');
 
     expect(PlanVersion::query()->count())->toBe($versions)
-        ->and(app(CatalogRevisions::class)->pendingKeys())->toEqualCanonicalizing(['pitr_days', 'connections', 'dedicated_outbound_ip', 'dedicated_db']);
+        ->and(app(CatalogRevisions::class)->pendingKeys())->toEqualCanonicalizing(['pitr_days', 'connections', 'dedicated_outbound_ip', 'dedicated_db', 'php_workers_dedicated']);
 });
 
 it('publishes new versions without the promises, with the prices of the old ones, and leaves every customer on the version they bought', function () {
@@ -135,7 +135,8 @@ it('publishes new versions without the promises, with the prices of the old ones
         ->and($mail->entitlements)->toBe(array_diff_key((array) $previous($mail)->entitlements, ['dedicated_outbound_ip' => 1]))
         ->and($woo->entitlements)->toBe(array_replace(array_diff_key((array) $previous($woo)->entitlements, ['dedicated_db' => 1]), ['backup_frequency' => 'hourly']))
         ->and($growth->entitlements)->toBe(array_replace((array) $previous($growth)->entitlements, ['backup_frequency' => 'hourly']))
-        ->and($peak->entitlements)->toBe(array_diff_key((array) $previous($peak)->entitlements, ['dedicated_db' => 1]))
+        // every revision ran: 2026-09-shared-php-workers (TASK-0027) took the dedicated PHP workers off on top of it
+        ->and($peak->entitlements)->toBe(array_diff_key((array) $previous($peak)->entitlements, ['dedicated_db' => 1, 'php_workers_dedicated' => 1]))
         ->and($peak->entitlements['backup_frequency'])->toBe('15m') // only the value the scheduler never knew is corrected
         ->and(catalogRevisionPrices($peak))->toBe(catalogRevisionPrices($previous($peak)));
     // a plan the revision does not name keeps its version
@@ -146,7 +147,7 @@ it('goes through the command bus: one audited publish and one finance event per 
     // the description a running installation has (a fresh seed already writes the new one)
     Product::query()->where('key', 'database')->update(['description' => json_encode(['cs' => 'PostgreSQL, MariaDB a Redis jako služba — single-tenant KVM, zálohy a PITR.', 'en' => 'PostgreSQL, MariaDB and Redis as a service — single-tenant KVM, backups and PITR.'], JSON_UNESCAPED_UNICODE)]);
     expect(app(CatalogRevisions::class)->pending()['2026-09-honest-promises']['products'])->toHaveKey('database');
-    Artisan::call('onhost:catalog:revise', ['--apply' => true, '--yes' => true]);
+    Artisan::call('onhost:catalog:revise', ['revision' => '2026-09-honest-promises', '--apply' => true, '--yes' => true]);
 
     expect(AuditEvent::query()->where('action', 'catalog.plan.publish')->where('result', 'succeeded')->where('actor_type', 'system')->where('resource_type', 'plan')->count())->toBe(6)
         ->and(OutboxMessage::query()->where('name', 'catalog.plan.version_published')->count())->toBe(6)
@@ -225,4 +226,46 @@ it('does not rewrite a plan version somebody holds when the catalogue is seeded 
     expect($held->fresh()->entitlements['connections'])->toBe(150)
         ->and(Price::query()->where('plan_version_id', $held->id)->where('currency', 'CZK')->where('period', 'month')->sole()->amount_minor)->toBe(17900)
         ->and($free->fresh()->entitlements['connections'])->toBe(300); // a version nobody holds still follows the seeder
+});
+
+/*
+ * TASK-0027 C4 (owner decision 7): a plan that sells dedicated PHP workers on a product whose panel runs one PHP pool for the
+ * whole node (aaPanel) promised what nothing keeps — eshop/shop-peak "24 PHP workerů (dedikované)". The revision
+ * `2026-09-shared-php-workers` publishes versions without `php_workers_dedicated` for every such plan (PlacementRules), so the
+ * price list says "Sdílené PHP workery"; web-hosting/profi, which runs on ISPConfig with a pool per site, keeps it, and every
+ * version customers hold stays as it was sold.
+ */
+it('withdraws dedicated PHP workers from every plan whose panel has no pool per site, and the price list says shared workers', function () {
+    [, $org] = $this->customerWithOrganization();
+    $peak = catalogRevisionPlan('eshop', 'shop-peak');
+    $v1 = $peak->currentVersion();
+    $sold = (array) $v1->entitlements;
+    catalogRevisionHolder($org, $v1);
+    $profi = catalogRevisionPlan('web-hosting', 'profi')->currentVersion();
+    // an installation whose catalogue sells them on another aaPanel plan too: the revision finds every such plan, not a fixed list
+    $wp = catalogRevisionPlan('wordpress', 'managed-wp')->currentVersion();
+    $wp->forceFill(['entitlements' => (array) $wp->entitlements + ['php_workers_dedicated' => true]])->save();
+
+    $this->artisan('onhost:catalog:revise', ['revision' => '2026-09-shared-php-workers'])->assertSuccessful()
+        ->expectsOutputToContain('eshop/shop-peak v1 → v2: − entitlements.php_workers_dedicated')
+        ->expectsOutputToContain('wordpress/managed-wp v1 → v2: − entitlements.php_workers_dedicated');
+    expect(app(CatalogRevisions::class)->pending('2026-09-shared-php-workers')['2026-09-shared-php-workers']['plans'])->not->toHaveKey('web-hosting/profi');
+
+    // every revision at once: two revisions change shop-peak one after the other, each on top of the version before it
+    $this->artisan('onhost:catalog:revise', ['--apply' => true, '--yes' => true])->assertSuccessful();
+
+    $now = $peak->refresh()->currentVersion();
+    expect($now->version)->toBe(3)->and($now->entitlements)->toBe(array_diff_key($sold, ['dedicated_db' => 1, 'php_workers_dedicated' => 1]))
+        ->and($now->entitlements['php_workers'])->toBe(24)
+        ->and(catalogRevisionPrices($now))->toBe(catalogRevisionPrices($v1->fresh()))
+        ->and($v1->fresh()->entitlements)->toBe($sold) // the version a customer holds is never edited
+        ->and(catalogRevisionPlan('wordpress', 'managed-wp')->currentVersion()->entitlements)->not->toHaveKey('php_workers_dedicated')
+        ->and(catalogRevisionPlan('web-hosting', 'profi')->currentVersion()->id)->toBe($profi->id)
+        ->and(app(CatalogRevisions::class)->pending())->toBe([]);
+
+    $js = $this->get('/surfaces/onhost-data.js')->assertOk()->getContent();
+    preg_match('/var D = (\{.*\});\n  function L/s', $js, $m);
+    $eshop = json_decode($m[1] ?? '{}', true)['cs']['pages']['eshop'];
+    expect($eshop['plans'][2]['specs'])->toContain('Sdílené PHP workery')->not->toContain('24 PHP workerů (dedikované)')
+        ->and(collect($eshop['cmp']['rows'])->keyBy(0)->get('PHP workery'))->toBe(['PHP workery', 'sdílené', 'sdílené', 'sdílené']);
 });
