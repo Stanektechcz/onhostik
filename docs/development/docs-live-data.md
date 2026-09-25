@@ -1,5 +1,7 @@
 # Napojení konzole a logů na reálná data
 
+> **Historický dokument — stav k 14. 9. 2026 (převzato do repozitáře, psáno pro prototyp); aktuální stav: `docs/context/CURRENT_STATE.md`.** Kontrakt napojení konzole a logů psaný pro prototyp. Aktuální platforma: Laravel 13 (13.30.1, modulární monolit `onhost-platform`), PHP 8.3, PostgreSQL 16 v produkci; živý aaPanel běží ve verzi 8.0.6 (ověřeno 2026-09-13, `docs/runbooks/preproduction-audit.md` §4). Živou konzoli dnes nese relay (`docs/runbooks/console-relay.md`).
+
 Panel dnes běží na ukázkových datech. Tenhle dokument je kontrakt, aby napojení
 na skutečný provoz bylo jen výměna zdroje, ne přepis obrazovek.
 

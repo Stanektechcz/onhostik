@@ -1,5 +1,7 @@
 # Onhost — předání frontendu do backendu
 
+> **Historický dokument — stav k 6. 9. 2026; aktuální stav: `docs/context/CURRENT_STATE.md`.** Předání prototypu do backendu. Aktuální platforma: Laravel 13 (13.30.1, modulární monolit `onhost-platform`), PHP 8.3, PostgreSQL 16 v produkci; živý aaPanel běží ve verzi 8.0.6 (ověřeno 2026-09-13, `docs/runbooks/preproduction-audit.md` §4). Plochy se nemění (ADR-0005); napojení na data je v `app/Http/Support/SurfaceRenderer.php` a `apps/surfaces/api/*`, soupis švů v `docs/ui/data-seams.md` a `docs/ui/template-inventory.md`.
+
 Stav k 6. 9. 2026. Prototyp je **pět ploch**: `Onhost.dc.html` (prezentační web včetně
 stavu služeb, změnového logu, SLA, API, dokumentace a lidí), `Onhost-app.dc.html` (klientská
 zóna), `Onhost-admin.dc.html` (administrace pro všechny interní role), `Onhost-partner.dc.html`

@@ -1,5 +1,7 @@
 # Onhost — pět cizích API v produkci
 
+> **Historický dokument — stav k 14. 9. 2026 (převzato do repozitáře, psáno pro prototyp); aktuální stav: `docs/context/CURRENT_STATE.md`.** Kontrakt integrací psaný podle dokumentace dodavatelů před stavbou adaptérů. Aktuální platforma: Laravel 13 (13.30.1, modulární monolit `onhost-platform`), PHP 8.3, PostgreSQL 16 v produkci; živý aaPanel běží ve verzi 8.0.6 (ověřeno 2026-09-13, `docs/runbooks/preproduction-audit.md` §4). Platí adaptéry a jejich dokumentace v `docs/provider-adapters/*.md`; cesty aaPanelu jsou připnuté pro 8.x v `providers/AaPanel` a hlídá je `tests/Contract/AaPanelContractTest.php`. Prototypový `onhost-integrations.js` už není zdroj pravdy pro backend.
+
 Kontrakt integrační vrstvy pro Laravel backend. Strojově čitelná verze (cesty, jména jobů,
 oprávnění, rozpočty) je v `onhost-integrations.js` — administrace (`Onhost-admin.dc.html#/sluzby`) i tento
 dokument z ní vycházejí. Kdo mění endpoint, mění ho tam, ne na dvou místech.

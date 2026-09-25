@@ -1,4 +1,9 @@
-# Pre-production audit (closed 2026-09-07)
+# Pre-production audit (closed 2026-09-07, extended through block §5u on 2026-09-14)
+
+> **Historický dokument — stav k 2026-09-14; aktuální stav: `docs/context/CURRENT_STATE.md`.** The numbers below are those of
+> their day: the suite then had 155 tests / 2 819 assertions (on 2026-09-25 the stack tip of TASK-0027 runs
+> 1 364 tests / 18 258 assertions, `.ai/baseline/baseline.json`). The operator checklist of §6 is superseded by
+> `docs/runbooks/go-live-checklist.md`; open findings after 2026-09-14 live in `docs/runbooks/production-readiness-audit.md`.
 
 What the control plane does end to end, how each part is verified, what was found and fixed during the audit, and the
 short list an operator still has to do before the first paying customer. "Verified" means a test in the suite
