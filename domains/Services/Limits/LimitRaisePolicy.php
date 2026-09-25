@@ -4,15 +4,20 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services\Limits;
 
+use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
+use Onhost\Domain\Identity\Authorization\ApprovalService;
 use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Authorization\Models\Approval;
 use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Services\Metering\MetricRegistry;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Platform\Audit\HashChain;
+use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
@@ -134,6 +139,78 @@ final class LimitRaisePolicy
     public static function assertWithinPlan(array $target, array $plan): void
     {
         self::assertNotAbove($target, $plan, 'what its plan sells');
+    }
+
+    /**
+     * The plan version a staff service without an order is measured against (review round 3). Fails closed: a product that sells
+     * plans takes one with a current version — without it nothing says what the service may have, and the configurator's options
+     * became entitlements nothing bills. A product without any plans gets null: every number it has is priced by an order.
+     */
+    public static function staffCreateVersion(Product $product, ?Plan $plan): ?PlanVersion
+    {
+        if ($plan === null && ! Plan::query()->where('product_id', $product->id)->exists()) {
+            return null;
+        }
+        $version = $plan?->currentVersion();
+        if ($version === null) {
+            throw new DomainError('plan_required', 'Služba bez objednávky dostává tarif: zvolte tarif produktu s platnou verzí.', 422, ['field' => 'plan_key', 'product' => $product->key]);
+        }
+
+        return $version;
+    }
+
+    /**
+     * A staff service without an order gets its plan and nothing more (entitlements, fair-use limits, configurator options).
+     * A product without plans has nothing to measure against, so it takes no number at all — its options are priced by an order.
+     *
+     * @param  array<string,mixed>  $config
+     * @param  (callable(PlanVersion, array<string,mixed>): array<string,mixed>)  $withOptions  what the options would make of the plan
+     */
+    public static function assertStaffCreateWithinPlan(?PlanVersion $version, array $config, callable $withOptions): void
+    {
+        $plan = $version === null ? [] : (array) $version->entitlements;
+        self::assertWithinPlan((array) ($config['entitlements'] ?? []), $plan);
+        self::assertWithinPlan((array) ($config['limits'] ?? []), $version === null ? [] : (array) $version->limits); // the fair-use bag too
+        $options = (array) ($config['options'] ?? []);
+        if ($options === []) {
+            return;
+        }
+        if ($version === null) {
+            throw new DomainError('limit_raise_required', 'Produkt bez tarifu oceňuje každou volbu objednávkou; služba bez objednávky volby nedostane (nebo je schválí zdarma druhá osoba).', 403, ['keys' => array_map('strval', array_keys($options))]);
+        }
+        self::assertWithinPlan($withOptions($version, $options), $plan);
+    }
+
+    /**
+     * The proof that a staff service may get more than its plan at no charge: the approval the bus consumed for THIS command
+     * (never an id the caller merely offered), requested by this person, decided by somebody else, for exactly this payload —
+     * or the single-operator waiver the server's configuration allows. The one who asks must also be allowed to create services.
+     */
+    public static function staffCreateWaiver(Command $command, CommandContext $context, string $note): LimitRaiseWaiver
+    {
+        $note = trim($note);
+        if ($note === '') {
+            throw new DomainError('note_required', 'Uveďte, proč služba dostává víc, než tarif prodává (tiket, kompenzace).', 422, ['field' => 'note']);
+        }
+        $actor = (string) $context->actorId;
+        $staff = $context->actorType === 'user' ? User::query()->find($actor) : null;
+        $ids = $context->verifiedApprovalIds;
+        $proven = [];
+        if ($staff !== null && app(Authorizer::class)->can($staff, 'staff.service.manage', CommandScope::global())) {
+            if (! ApprovalService::enabled()) {
+                $proven = $ids === ['waived:single-operator'] ? $ids : [];
+            } else {
+                $hash = HashChain::hashPayload($command->toAudit());
+                $approval = Approval::query()->whereIn('id', $ids)->get()->first(fn (Approval $a) => $a->state === 'consumed' && $a->action === $command->name()
+                    && $a->payload_hash === $hash && $a->requested_by === $actor && $a->decided_by !== null && $a->decided_by !== $actor);
+                $proven = $approval === null ? [] : [(string) $approval->id];
+            }
+        }
+        if ($proven === []) {
+            throw new DomainError('limit_raise_waiver_unproven', 'Víc, než tarif prodává, dostane služba zdarma jen se schválením druhé osoby právě pro tento požadavek.', 403, ['requirement' => 'approval']);
+        }
+
+        return new LimitRaiseWaiver($proven, $actor, $note);
     }
 
     /** Customers order a raise only once `onhost.limit_raise.customer_orders` is on; a raise at no charge is staff's alone. */

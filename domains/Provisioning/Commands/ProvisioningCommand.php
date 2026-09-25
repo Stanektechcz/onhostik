@@ -24,8 +24,18 @@ final class ProvisioningCommand extends GlobalCommand implements RiskAwareComman
         return (string) $this->get('op');
     }
 
+    /** A staff service that is to get more than its plan sells at no charge (review round 3): money given away takes a second person. */
+    public function waivesLimits(): bool
+    {
+        return $this->op() === 'service.create' && filter_var($this->get('waive_limits', false), FILTER_VALIDATE_BOOLEAN);
+    }
+
     public function permission(): ?string
     {
+        if ($this->waivesLimits()) {
+            return 'billing.limit_raise.waive'; // the handler also asks for staff.service.manage: a waiver does not make a creator
+        }
+
         return match ($this->op()) {
             'retry' => 'provisioning.operation.retry',
             'cancel' => 'provisioning.operation.cancel',
@@ -46,6 +56,10 @@ final class ProvisioningCommand extends GlobalCommand implements RiskAwareComman
 
     public function riskLevel(): string
     {
+        if ($this->waivesLimits()) {
+            return PermissionCatalog::CRITICAL;
+        }
+
         return in_array($this->op(), ['freeze', 'thaw', 'cancel', 'instance.upsert', 'instance.state', 'game.operator_variable.set', 'automation.toggle'], true) ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
     }
 
@@ -55,11 +69,11 @@ final class ProvisioningCommand extends GlobalCommand implements RiskAwareComman
      */
     public function requiresStepUp(): bool
     {
-        return in_array($this->op(), ['freeze', 'thaw', 'instance.upsert', 'instance.state', 'game.operator_variable.set', 'automation.toggle'], true); // §5t-1: the Steam account behind a template
+        return $this->waivesLimits() || in_array($this->op(), ['freeze', 'thaw', 'instance.upsert', 'instance.state', 'game.operator_variable.set', 'automation.toggle'], true); // §5t-1: the Steam account behind a template
     }
 
     public function requiresApproval(): bool
     {
-        return false;
+        return $this->waivesLimits();
     }
 }

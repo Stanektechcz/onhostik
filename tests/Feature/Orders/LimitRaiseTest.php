@@ -18,6 +18,7 @@ use Onhost\Domain\Catalog\CatalogPreflight;
 use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Commands\CatalogCommand;
+use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
@@ -1073,4 +1074,130 @@ it('refuses a raise priced in another currency than the service is billed in', f
     $parent = limitRaiseParent($org); // billed in CZK
     expect(limitRaiseRefusal(fn () => app(QuoteService::class)->quote([limitRaiseItem(['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5])], 'EUR', [], 1, null, $org)))->toBe('limit_raise_currency')
         ->and(limitRaiseRefusal(fn () => limitRaiseQuoteLine($org, ['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5])))->toBe('accepted');
+});
+
+/*
+ * Review round 3 (security HIGH): a staff `service.create` without a plan (no plan_key, a plan without a current version) skipped
+ * the options check, so the configurator's options became entitlements nothing bills. A product that sells plans takes one with a
+ * current version; a product without plans prices every option through an order; more than the plan sells takes a second
+ * person's waiver bound to exactly this request.
+ */
+function limitRaiseStaffCreate(CommandContext $context, array $payload, ?string $key = null): string
+{
+    return limitRaiseRefusal(fn () => app(CommandBus::class)->dispatch(new ProvisioningCommand($key ?? 'lr-sc-'.Str::random(10), ['op' => 'service.create'] + $payload), $context));
+}
+
+it('refuses a staff service without a plan, with a plan that has no current version, or a plan-less product with options', function () {
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [, $org] = $this->customerWithOrganization();
+    $staff = limitRaiseStaff('platform_owner', false);
+    app(StepUpService::class)->grant($staff, 'totp', 'test-session', '127.0.0.1');
+    $context = $this->contextFor($staff, $org, 'totp');
+    $web = ['organization_id' => $org->id, 'product_key' => 'web-hosting'];
+
+    // the product sells plans: none named is no service, with or without options (the options were given for free before)
+    expect(limitRaiseStaffCreate($context, $web + ['config' => ['options' => ['mailboxes' => 50, 'nvme_gb' => 500]]]))->toBe('plan_required')
+        ->and(limitRaiseStaffCreate($context, $web + ['plan_key' => '', 'config' => ['options' => ['mailboxes' => 50]]]))->toBe('plan_required')
+        ->and(limitRaiseStaffCreate($context, $web + ['config' => []]))->toBe('plan_required');
+
+    // a plan whose current version is gone is not a plan to measure against
+    $other = Plan::query()->where('product_id', Product::query()->where('key', 'web-hosting')->value('id'))->where('key', '!=', 'start')->orderBy('key')->firstOrFail();
+    $other->forceFill(['current_version' => 99])->save();
+    expect(limitRaiseStaffCreate($context, $web + ['plan_key' => $other->key, 'config' => ['options' => ['mailboxes' => 50]]]))->toBe('plan_required')
+        ->and(limitRaiseStaffCreate($context, $web + ['plan_key' => $other->key, 'config' => []]))->toBe('plan_required');
+
+    // a product without any plans: every option is priced by an order, a staff service carries none of them
+    $template = Product::query()->where('key', 'web-hosting')->firstOrFail();
+    $bespoke = $template->replicate()->fill(['key' => 'web-bespoke']);
+    $bespoke->save();
+    $option = ProductOption::query()->where('product_id', $template->id)->where('key', 'mailboxes')->firstOrFail()->replicate()->fill(['product_id' => $bespoke->id]);
+    $option->save();
+    $planless = ['organization_id' => $org->id, 'product_key' => 'web-bespoke'];
+    expect(limitRaiseStaffCreate($context, $planless + ['config' => ['options' => ['mailboxes' => 50]]]))->toBe('limit_raise_required')
+        ->and(limitRaiseStaffCreate($context, $planless + ['config' => ['options' => ['mailboxes' => 0]]]))->toBe('limit_raise_required')
+        ->and(limitRaiseStaffCreate($context, $planless + ['config' => ['entitlements' => ['mailboxes' => 50]]]))->toBe('limit_raise_required')
+        ->and(limitRaiseStaffCreate($context, $planless + ['config' => ['limits' => ['cpu_pct' => 400]]]))->toBe('limit_raise_required');
+    expect(Service::query()->where('organization_id', $org->id)->count())->toBe(0)
+        ->and(Approval::query()->count())->toBe(0); // nobody was asked to approve what nobody asked to waive
+
+    // the resize twin has no such hole: a service with no plan version holds what it holds, and nothing more
+    $orphan = limitRaiseParent($org);
+    $orphan->forceFill(['plan_version_id' => null, 'desired_spec' => array_diff_key((array) $orphan->desired_spec, ['limits' => true])])->save();
+    $resize = fn (array $params) => limitRaiseRefusal(fn () => app(CommandBus::class)->dispatch(new ServiceActionCommand($org->id, 'lr-rs-'.Str::random(8), ['service_id' => $orphan->id, 'action' => 'resize', 'params' => $params]), $context));
+    expect($resize(['entitlements' => ['mailboxes' => (int) $orphan->entitlements['mailboxes'] + 1]]))->toBe('limit_raise_required')
+        ->and($resize(['limits' => ['cpu_pct' => 400]]))->toBe('limit_raise_required');
+});
+
+it('creates a staff service above its plan only with a second person\'s waiver bound to exactly that request', function () {
+    [, $org] = $this->customerWithOrganization();
+    featureGameService($org); // the lab game panel, its node and placement
+    $staff = limitRaiseStaff('platform_owner', false);
+    app(StepUpService::class)->grant($staff, 'totp', 'test-session', '127.0.0.1');
+    $context = $this->contextFor($staff, $org, 'totp');
+    $game = ['organization_id' => $org->id, 'product_key' => 'game', 'plan_key' => 'game-8', 'config' => ['egg' => 'minecraft-paper', 'label' => 'Turnaj', 'options' => ['ram_gb' => 16]]];
+    $waived = $game + ['waive_limits' => true, 'note' => 'Turnajový server, tiket #901'];
+    $services = fn () => Service::query()->where('organization_id', $org->id)->where('label', 'Turnaj')->count();
+
+    // more RAM than game-8 sells is a raise; asking for a waiver is its own, explicit request
+    $terminal = CommandContext::system('game.create'); // the bus lets the system through: the handler's own checks answer
+    expect(limitRaiseStaffCreate($context, $game))->toBe('limit_raise_required')
+        ->and(limitRaiseStaffCreate($terminal, ['note' => ' '] + $waived))->toBe('note_required')
+        ->and(limitRaiseStaffCreate($terminal, $waived))->toBe('limit_raise_waiver_unproven') // the terminal has no second person
+        ->and(limitRaiseStaffCreate($this->contextFor(limitRaiseStaff('game_admin'), $org, 'totp'), $waived))->toBe('access_not_approved') // may create services, may not waive a price
+        ->and(limitRaiseStaffCreate($finance = $this->contextFor(limitRaiseStaff('billing_finance_admin'), $org, 'totp'), $waived))->toBe('approval_required');
+    // …and a waiver does not make a creator: approved or not, who may not create services creates none
+    secondPersonApproves((string) Approval::query()->where('requested_by', $finance->actorId)->sole()->id);
+    expect(limitRaiseStaffCreate($finance, $waived))->toBe('limit_raise_waiver_unproven');
+    // a product that sells plans still takes one: a waiver does not stand in for the plan
+    expect(limitRaiseStaffCreate($terminal, array_diff_key($waived, ['plan_key' => true])))->toBe('plan_required')
+        ->and($services())->toBe(0);
+
+    // the request opens an approval that carries the numbers; nothing is created until somebody else approves exactly them
+    $approvalId = (string) (function () use ($context, $waived) {
+        try {
+            app(CommandBus::class)->dispatch(new ProvisioningCommand('lr-sc-w1', ['op' => 'service.create'] + $waived), $context);
+        } catch (DomainError $e) {
+            expect($e->error)->toBe('approval_required');
+
+            return $e->extra['approval_id'] ?? '';
+        }
+
+        return '';
+    })();
+    expect($approvalId)->not->toBe('')->and($services())->toBe(0)
+        ->and(data_get(Approval::query()->findOrFail($approvalId)->payload, 'command.payload.config.options'))->toBe(['ram_gb' => 16]);
+    secondPersonApproves($approvalId);
+    // the approval is for 16 GB, not for 32
+    expect(limitRaiseStaffCreate($context, array_replace_recursive($waived, ['config' => ['options' => ['ram_gb' => 32]]])))->toBe('approval_required')
+        ->and($services())->toBe(0);
+
+    expect(limitRaiseStaffCreate($context, $waived))->toBe('accepted');
+    $service = Service::query()->where('organization_id', $org->id)->where('label', 'Turnaj')->sole();
+    expect($service->entitlements['ram_mb'])->toBe(16384)
+        ->and(data_get($service->tags, 'limit_waiver'))->toBe(['approval_ids' => [$approvalId], 'by' => $staff->id, 'reason' => 'Turnajový server, tiket #901'])
+        ->and(Approval::query()->findOrFail($approvalId)->state)->toBe('consumed')
+        ->and(AuditEvent::query()->where('action', 'provisioning.service.create')->where('result', 'succeeded')->sole()->approval_ids)->toBe([$approvalId]);
+
+    // one operator alone (ONHOST_FOUR_EYES=false): the step-up stays, the record says nobody else signed
+    config()->set('onhost.identity.four_eyes', false);
+    expect(limitRaiseStaffCreate($context, array_replace_recursive($waived, ['config' => ['label' => 'Turnaj 2']])))->toBe('accepted');
+    expect(data_get(Service::query()->where('label', 'Turnaj 2')->sole()->tags, 'limit_waiver.approval_ids'))->toBe(['waived:single-operator']);
+});
+
+it('refuses the console\'s service without a plan, and carries no configurator numbers from the console at all', function () {
+    [, $org] = $this->customerWithOrganization();
+    featureGameService($org);
+    $uri = "/v1/staff/customers/{$org->id}/services";
+    $owner = limitRaiseStaff('platform_owner');
+
+    // the reviewer's case through the console: no plan_key — no service, with or without the configurator's numbers
+    limitRaiseSend($this, $owner, 'POST', $uri, ['product_key' => 'web-hosting', 'config' => ['options' => ['mailboxes' => 50]]])->assertStatus(422)->assertJsonPath('error', 'plan_required');
+    limitRaiseSend($this, $owner, 'POST', $uri, ['product_key' => 'game', 'config' => ['egg' => 'minecraft-paper', 'label' => 'Bez tarifu']])->assertStatus(422)->assertJsonPath('error', 'plan_required');
+    expect(Service::query()->where('organization_id', $org->id)->where('label', 'Bez tarifu')->exists())->toBeFalse();
+
+    // with a plan the console's service is the plan: options, entitlements, limits and a waiver flag never pass its validation
+    $created = limitRaiseSend($this, $owner, 'POST', $uri, ['product_key' => 'game', 'plan_key' => 'game-8', 'waive_limits' => true, 'note' => 'x', 'config' => ['egg' => 'minecraft-paper', 'label' => 'Konzole', 'options' => ['ram_gb' => 16], 'entitlements' => ['ram_mb' => 65536], 'limits' => ['cpu_pct' => 3200]]])->assertCreated();
+    $service = Service::query()->findOrFail((string) $created->json('service.id'));
+    expect($service->entitlements['ram_mb'])->toBe(8192)->and(data_get($service->desired_spec, 'limits.cpu_pct'))->toBe(300)
+        ->and(data_get($service->tags, 'limit_waiver'))->toBeNull()->and(Approval::query()->count())->toBe(0);
 });
