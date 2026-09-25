@@ -156,6 +156,9 @@ final class ServiceService
             throw new DomainError('addon_parent_required', "Addon {$product->key} needs a parent service in the same organization.", 422);
         }
         Addons::assertSellable($product->key); // an add-on the platform cannot deliver is not billed for nothing (audit §5ac)
+        if ($product->key === LimitRaises::PRODUCT) {
+            LimitRaises::assertParentTakesRaise($parent, atDelivery: true); // paid after the service was cancelled: the line fails, the money goes back
+        }
         $entitlements = (array) ($config['entitlements'] ?? $version?->entitlements ?? []);
         $service = Service::query()->create([
             'organization_id' => $organization->id, 'product_key' => $product->key, 'plan_version_id' => $version?->id, 'family' => 'addon', 'name' => $item->name, 'state' => ServiceStateMachine::ACTIVE, 'activated_at' => now(),

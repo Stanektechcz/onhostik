@@ -76,7 +76,7 @@ final class CatalogRevise extends Command
             $this->line("  {$row['target']} v{$row['from']} → v{$row['to']}: ".implode('; ', $changes));
             $this->line("    {$row['services']} service(s) and {$row['subscriptions']} subscription(s) keep v{$row['from']}; prices carried over unchanged");
             foreach ($row['promos'] as $promo) {
-                $this->warn("    promo price {$promo} ends for new orders (not carried into a new version) — set it again on v{$row['to']} if it should stay");
+                $this->line("    promo price {$promo} carried over to v{$row['to']} unchanged");
             }
             foreach ($row['features'] as $line) {
                 $this->warn("    a features line still says „{$line}“ — edit it in Nastavení systému → Tarify a verze");

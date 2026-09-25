@@ -153,7 +153,7 @@ final class CatalogRevisions
                 'drop' => $change['drop'], 'set' => $change['set'],
                 'services' => Service::query()->where('plan_version_id', $version->id)->whereNotIn('state', [ServiceStateMachine::TERMINATED, ServiceStateMachine::FAILED])->count(),
                 'subscriptions' => Subscription::query()->where('plan_version_id', $version->id)->whereIn('state', ['active', 'past_due'])->count(),
-                // PlanVersioning does not carry a promo price into a new version: an introductory price ends for new orders
+                // promo prices of the current version: a revision carries them into the new one (`keep_promos`), the preview says so
                 'promos' => Price::query()->where('plan_version_id', $version->id)->where('state', 'active')->whereNotNull('promo_amount_minor')->get()
                     ->map(fn (Price $p) => $p->currency.'/'.$p->period)->sort()->values()->all(),
                 'features' => self::withdrawnWording($version),
@@ -188,7 +188,8 @@ final class CatalogRevisions
             }
             foreach ($pending['plans'] as $target => $change) {
                 [$product, $plan] = explode('/', $target, 2);
-                $payload = ['op' => 'plan.publish', 'product_key' => $product, 'plan_key' => $plan, 'base_version' => $change['version'], 'reason' => $reason];
+                // keep_promos: a revision changes no price, so an introductory price on sale stays on sale (review round 1)
+                $payload = ['op' => 'plan.publish', 'product_key' => $product, 'plan_key' => $plan, 'base_version' => $change['version'], 'reason' => $reason, 'keep_promos' => true];
                 foreach ($change['drop'] as $key => $bag) {
                     $payload[$bag][$key] = null; // PlanVersioning: a null takes the key off the new version
                 }

@@ -14,6 +14,7 @@ use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
@@ -92,7 +93,9 @@ final class SubscriptionService
         $due = Subscription::query()->whereNotNull('service_id')->whereIn('state', [Subscription::ACTIVE, Subscription::PAST_DUE])->where('next_renewal_at', '<=', now())->orderBy('next_renewal_at')->limit(500)->get();
         foreach ($due as $subscription) {
             $service = Service::query()->find($subscription->service_id);
-            if ($service === null || in_array($service->state, [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING, ServiceStateMachine::FAILED], true)) {
+            // an add-on whose service is gone or ending renews no more than that service does (TASK-0022: a raise delivered after
+            // the service's add-ons were cancelled billed on for a service that was gone)
+            if ($service === null || in_array($service->state, [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING, ServiceStateMachine::FAILED], true) || Addons::parentEnded($service)) {
                 $subscription->forceFill(['state' => Subscription::CANCELLED])->save();
                 $stats['cancelled']++;
 

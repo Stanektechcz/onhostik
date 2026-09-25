@@ -36,7 +36,8 @@ final class PlanVersioning
 
     /**
      * @param  array<string,mixed>  $in  entitlements?{key:value}, limits?{key:value}, features?{cs:[],en:[]},
-     *                                   prices?[{currency, period, amount, renewal_amount?, setup?, monthly_cap?}], reason, confirm_large_change?
+     *                                   prices?[{currency, period, amount, renewal_amount?, setup?, monthly_cap?}], reason, confirm_large_change?,
+     *                                   keep_promos? (a promo price of an unchanged price row stays — `CatalogRevisions` publishes with it)
      */
     public function publish(string $productKey, string $planKey, array $in, CommandContext $context): PlanVersion
     {
@@ -146,7 +147,7 @@ final class PlanVersioning
         $limits = $this->merged((array) ($current->limits ?? []), (array) ($in['limits'] ?? []), 'limits');
         $features = array_key_exists('features', $in) && $in['features'] !== null ? $this->features((array) $in['features']) : $current->features;
         $currentPrices = $current->prices()->where('state', 'active')->get();
-        $prices = $this->prices($currentPrices->all(), (array) ($in['prices'] ?? []), (bool) ($in['confirm_large_change'] ?? false));
+        $prices = $this->prices($currentPrices->all(), (array) ($in['prices'] ?? []), (bool) ($in['confirm_large_change'] ?? false), (bool) ($in['keep_promos'] ?? false));
 
         $changed = [
             'entitlements' => self::diff((array) $current->entitlements, $entitlements),
@@ -271,13 +272,15 @@ final class PlanVersioning
      * @param  array<int, array<string,mixed>>  $changes
      * @return list<array<string,mixed>>
      */
-    private function prices(array $current, array $changes, bool $confirmedLarge): array
+    private function prices(array $current, array $changes, bool $confirmedLarge, bool $keepPromos = false): array
     {
         $rows = [];
         foreach ($current as $price) {
+            // a promo price is a campaign of its version and is not carried over — except by a revision that changes no price
+            // (`keep_promos`): taking it off there would raise the price for new orders without anybody deciding it
             $rows[$price->currency.'/'.$price->period] = [
                 'currency' => $price->currency, 'period' => $price->period, 'amount_minor' => $price->amount_minor, 'renewal_amount_minor' => $price->renewal_amount_minor ?? $price->amount_minor, 'setup_minor' => $price->setup_minor,
-                'promo_amount_minor' => null, 'promo_periods' => null, 'monthly_cap_minor' => $price->monthly_cap_minor, 'included' => $price->included, 'changed' => false, // a promo price is a campaign of its version, it is not carried over
+                'promo_amount_minor' => $keepPromos ? $price->promo_amount_minor : null, 'promo_periods' => $keepPromos ? $price->promo_periods : null, 'monthly_cap_minor' => $price->monthly_cap_minor, 'included' => $price->included, 'changed' => false,
             ];
         }
         foreach ($changes as $i => $change) {
@@ -306,7 +309,8 @@ final class PlanVersioning
             }
             $renewal = $minor('renewal_amount') ?? $amount; // unless said otherwise the renewal follows the new amount
             $patch = ['amount_minor' => $amount, 'renewal_amount_minor' => $renewal, 'setup_minor' => $minor('setup') ?? $rows[$key]['setup_minor'], 'monthly_cap_minor' => $minor('monthly_cap') ?? $rows[$key]['monthly_cap_minor']];
-            $rows[$key] = array_replace($rows[$key], $patch, ['changed' => array_intersect_key($rows[$key], $patch) != $patch]);
+            $changed = array_intersect_key($rows[$key], $patch) != $patch;
+            $rows[$key] = array_replace($rows[$key], $patch, ['changed' => $changed], $changed ? ['promo_amount_minor' => null, 'promo_periods' => null] : []); // a promo of an old amount is not a promo of the new one
         }
 
         return array_values($rows);

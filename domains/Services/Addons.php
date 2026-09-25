@@ -8,6 +8,7 @@ use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Services\Web\ServiceSites;
 use Onhost\Platform\Errors\DomainError;
@@ -39,6 +40,21 @@ final class Addons
     public static function handled(): array
     {
         return ['ipv4', 'backup-plus', 'backup-hourly', 'mail-hosting', 'cdn', LimitRaises::PRODUCT];
+    }
+
+    /**
+     * The service an add-on belongs to is gone, ending (in its deletion grace window) or failed: nothing is delivered through it
+     * any more, so the add-on's own subscription must not renew (`SubscriptionService::tick`), as the parent's own does not.
+     */
+    public static function parentEnded(Service $addon): bool
+    {
+        if ($addon->family !== 'addon') {
+            return false;
+        }
+        $parent = Service::query()->find((string) data_get($addon->tags, 'parent_service_id', ''));
+
+        return $parent === null || $parent->terminate_at !== null
+            || in_array($parent->state, [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING, ServiceStateMachine::FAILED], true);
     }
 
     public static function sellable(string $productKey): bool

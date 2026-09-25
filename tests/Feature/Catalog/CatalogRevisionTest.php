@@ -64,7 +64,23 @@ function catalogRevisionHolder(Organization $org, PlanVersion $version, string $
     return $service;
 }
 
-it('previews the revision without publishing anything: the plans, the keys each loses, who keeps the old version, a promo that would end', function () {
+it('carries an introductory price into the version a revision publishes: a revision never changes what anything costs', function () {
+    $v1 = catalogRevisionPlan('database', 'db-s')->currentVersion();
+    Price::query()->where('plan_version_id', $v1->id)->where('currency', 'CZK')->where('period', 'month')->update(['promo_amount_minor' => 9900, 'promo_periods' => 3]);
+
+    $this->artisan('onhost:catalog:revise')->assertSuccessful()->expectsOutputToContain('promo price CZK/month carried over');
+    $this->artisan('onhost:catalog:revise', ['--apply' => true, '--yes' => true])->assertSuccessful();
+
+    $v2 = catalogRevisionPlan('database', 'db-s')->currentVersion();
+    $promo = Price::query()->where('plan_version_id', $v2->id)->where('currency', 'CZK')->where('period', 'month')->sole();
+    expect($v2->version)->toBe(2)->and($promo->promo_amount_minor)->toBe(9900)->and($promo->promo_periods)->toBe(3)
+        ->and(Price::query()->where('plan_version_id', $v2->id)->where('currency', 'EUR')->where('period', 'month')->sole()->promo_amount_minor)->toBeNull();
+    // a staff publish in the console still ends a promo (a campaign of its version), as before
+    $v3 = app(PlanVersioning::class)->publish('database', 'db-s', ['features' => ['cs' => ['Nový text']], 'reason' => 'nový text tarifu'], CommandContext::system('test'));
+    expect(Price::query()->where('plan_version_id', $v3->id)->whereNotNull('promo_amount_minor')->exists())->toBeFalse();
+});
+
+it('previews the revision without publishing anything: the plans, the keys each loses, who keeps the old version, a promo that carries over', function () {
     [, $org] = $this->customerWithOrganization();
     $v1 = catalogRevisionPlan('database', 'db-s')->currentVersion();
     catalogRevisionHolder($org, $v1);
@@ -81,7 +97,7 @@ it('previews the revision without publishing anything: the plans, the keys each 
         ->expectsOutputToContain('eshop/shop-growth v1 → v2: backup_frequency 1h → hourly')
         ->expectsOutputToContain('eshop/shop-peak v1 → v2: − entitlements.dedicated_db')
         ->expectsOutputToContain('1 service(s) and 1 subscription(s) keep v1')
-        ->expectsOutputToContain('promo price CZK/month ends for new orders')
+        ->expectsOutputToContain('promo price CZK/month carried over')
         ->expectsOutputToContain('Dry run: nothing was published');
 
     expect(PlanVersion::query()->count())->toBe($versions)

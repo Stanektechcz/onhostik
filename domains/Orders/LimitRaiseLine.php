@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Onhost\Domain\Orders;
 
 use Onhost\Domain\Billing\Models\Subscription;
+use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\Limits\LimitRaisePolicy;
 use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Limits\LimitRaiseWaiver;
 use Onhost\Domain\Services\Models\Service;
-use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Currency;
 use Onhost\Platform\Money\Money;
@@ -40,13 +40,8 @@ final class LimitRaiseLine
         if ($service === null) {
             throw DomainError::notFound('service');
         }
-        if (! in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
-            throw new DomainError('limit_raise_state', 'Navýšit lze limit jen běžící služby.', 409, ['state' => $service->state]);
-        }
-        $subscription = Subscription::query()->where('service_id', $service->id)->where('state', Subscription::ACTIVE)->first();
-        if ($subscription === null) {
-            throw new DomainError('limit_raise_no_subscription', 'Služba nemá aktivní předplatné, ke kterému by se navýšení účtovalo.', 409);
-        }
+        LimitRaises::assertParentTakesRaise($service); // running, billed, and not ending before the raise's period does
+        $subscription = Subscription::query()->where('service_id', $service->id)->where('state', Subscription::ACTIVE)->firstOrFail();
         $units = filter_var($raise['units'] ?? null, FILTER_VALIDATE_INT);
         $maxUnits = max(1, (int) config('onhost.limit_raise.max_units', 100));
         if ($units === false || $units < 1 || $units > $maxUnits) {
@@ -59,7 +54,8 @@ final class LimitRaiseLine
         }
         $delta = $units * $spec['scale'];
         $claim = $service->id.':'.$metric;
-        $current = (int) (((array) $service->entitlements)[$metric] ?? 0) + ($claimed[$claim] ?? 0);
+        // what the service holds, what this cart already raises, and what orders placed before (not delivered yet) will add
+        $current = (int) (((array) $service->entitlements)[$metric] ?? 0) + ($claimed[$claim] ?? 0) + self::ordered($service, $metric);
         if ($spec['ceiling'] !== null && $current + $delta > $spec['ceiling']) {
             throw new DomainError('limit_raise_above_max', 'Tolik produkt služby neprodává: nejvýš '.$spec['ceiling'].' (teď '.$current.').', 422, ['field' => 'units', 'max' => $spec['ceiling'], 'current' => $current]);
         }
@@ -88,5 +84,20 @@ final class LimitRaiseLine
             ], fn ($value) => $value !== null)],
             'entitlements' => ['limit_raise' => ['metric' => $metric, 'delta' => $delta]],
         ];
+    }
+
+    /**
+     * Units of this number that orders already placed will add once delivered (unpaid or paid, not fulfilled yet): two orders
+     * could each pass the product's maximum alone and exceed it together.
+     */
+    private static function ordered(Service $service, string $metric): int
+    {
+        $open = OrderItem::query()->where('product_key', LimitRaises::PRODUCT)->where('state', 'pending')->whereNull('service_id')
+            ->whereHas('order', fn ($q) => $q->where('organization_id', $service->organization_id)
+                ->whereIn('state', [OrderStateMachine::NEW, OrderStateMachine::PENDING_PAYMENT, OrderStateMachine::PAID, OrderStateMachine::PROVISIONING]))
+            ->get(['id', 'config']);
+
+        return (int) $open->filter(fn (OrderItem $item) => data_get($item->config, 'limit_raise.service_id') === $service->id && data_get($item->config, 'limit_raise.metric') === $metric)
+            ->sum(fn (OrderItem $item) => max(0, (int) data_get($item->config, 'limit_raise.delta', 0)));
     }
 }

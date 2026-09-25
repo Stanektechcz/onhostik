@@ -79,8 +79,9 @@ final class CommandBus
         }
 
         $handler = $this->resolveHandler($command);
-        // the handler learns which second person (or which waiver) this very run consumed — never what the caller merely offered
-        $handlerContext = $decision->approvalIds === [] ? $context : $context->withVerifiedApprovals($decision->approvalIds);
+        // the handler learns which second person (or which waiver) this very run consumed — never what the caller merely offered,
+        // and never what an outer command consumed: a command dispatched from inside a handler starts from nothing (also when empty)
+        $handlerContext = $context->withVerifiedApprovals($decision->approvalIds);
 
         Context::add('command', $command->name()); // the error tracker and the trace tag the command (audit §5q-2)
         try {

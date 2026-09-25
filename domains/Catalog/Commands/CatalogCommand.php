@@ -13,7 +13,7 @@ use Onhost\Platform\Commands\GlobalCommand;
  *  pricing.commit_discounts.set{config,base?,reason?} · pricing.regions.set{regions,base?,reason?} · pricing.domain_discount.set{tld,discount,reason?} ·
  *  pricing.domain_discount.delete{tld} · pricing.addon_products.set{product_key,addon_products} · promo.upsert{promo,reason?} · promo.delete{code} ·
  *  option.upsert{product_key,option,reason?} · option.delete{product_key,key,reason?} · product.state{state: active|draft, products: list} ·
- *  plan.publish{product_key,plan_key,base_version?,entitlements?,limits?,features?,prices?,reason,confirm_large_change?} ·
+ *  plan.publish{product_key,plan_key,base_version?,entitlements?,limits?,features?,prices?,reason,confirm_large_change?,keep_promos? (CLI revisions only; the console API does not accept it)} ·
  *  plan.activate_version{product_key,plan_key,version,base_version?,reason} · lifecycle.set{config,base?,reason?} · panel_nav.set{config} ·
  *  product.describe{product_key,description{cs,en},base?} · product.create{product_key,reason?} (only a product CatalogRevisions::PRODUCTS defines)
  *

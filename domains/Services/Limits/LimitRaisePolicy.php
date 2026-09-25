@@ -73,7 +73,12 @@ final class LimitRaisePolicy
         }
         [, $scale, $mode] = self::targetOf($option);
         $max = $option->max !== null ? (int) floor((float) $option->max) : null;
+        // an extra is sold on top of the PLAN (the product's max is "this much more than the plan"), not on top of whatever the
+        // service holds now — raises already bought count against the max, they do not move it
         $version = $mode === 'absolute' ? null : PlanVersion::query()->find($parent->plan_version_id);
+        if ($mode !== 'absolute' && $version === null) { // a dangling plan reference would silently shrink the ceiling to the option alone
+            throw new DomainError('limit_raise_plan_version_missing', 'Služba nemá dohledatelnou verzi tarifu, ke které by se navýšení měřilo; ozvěte se prosím podpoře.', 409, ['plan_version_id' => $parent->plan_version_id]);
+        }
         $base = $version === null ? 0 : (int) (((array) $version->entitlements)[$metric] ?? 0);
         $label = ['cs' => (string) data_get($option->label, 'cs', $option->key)];
         $label['en'] = (string) data_get($option->label, 'en', $label['cs']);

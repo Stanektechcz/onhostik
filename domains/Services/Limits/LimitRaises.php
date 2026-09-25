@@ -10,6 +10,7 @@ use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\PlanFit;
@@ -23,7 +24,8 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  * A limit raise after it was paid for (owner decision 8, TASK-0022 limit-raise).
  *
  * A raise is an add-on (`Addons`) whose whole job is `+delta` on one number of its parent. On top of what every add-on does:
- *  • it is billed every period, like the service (its own subscription; a raise given at no charge ends with its first period),
+ *  • it is billed every period, like the service (its own subscription; a raise given at no charge ends with its first period,
+ *    and its subscription carries the list price, so a renewal switched back on is never free),
  *  • the panel hears the new number at once, through the parent's ordinary `resize` with ALL its numbers (a resize with one
  *    number would reset the others); when the panel cannot be asked, the raise says so (`tags.addon.panel`) and the operator
  *    pushes it again (`onhost:limit-raise:push`),
@@ -41,13 +43,40 @@ final class LimitRaises
         return $service->family === 'addon' && $service->product_key === self::PRODUCT;
     }
 
+    /**
+     * A raise goes only onto a service that runs and keeps running: quoted (`LimitRaiseLine`) and again when it is delivered
+     * (`ServiceService::attachAddon`) — an order paid by bank transfer can arrive after the service was cancelled, and a raise
+     * delivered then renewed on a service that was gone. A refusal at delivery fails the order line, and the settlement returns
+     * the money to credit. At delivery a service that is busy (a resize of an earlier raise still running) or behind on a payment
+     * still takes it — only one that is ending or gone does not.
+     */
+    public static function assertParentTakesRaise(Service $parent, bool $atDelivery = false): void
+    {
+        $ended = $parent->terminate_at !== null || in_array($parent->state, [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING, ServiceStateMachine::FAILED], true);
+        if ($ended || (! $atDelivery && ! in_array($parent->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true))) {
+            throw new DomainError('limit_raise_state', 'Navýšit lze limit jen běžící služby.', 409, ['state' => $parent->state]);
+        }
+        $states = $atDelivery ? [Subscription::ACTIVE, Subscription::PAST_DUE] : [Subscription::ACTIVE];
+        $subscription = Subscription::query()->where('service_id', $parent->id)->whereIn('state', $states)->first();
+        if ($subscription === null) {
+            throw new DomainError('limit_raise_no_subscription', 'Služba nemá aktivní předplatné, ke kterému by se navýšení účtovalo.', 409);
+        }
+        // a raise is priced for a whole period of its own: on a service that ends sooner it would be paid for and not delivered
+        if ($subscription->cancel_at_period_end || ! $subscription->auto_renew) {
+            throw new DomainError('limit_raise_parent_ending', 'Služba na konci období končí (nebo se neprodlužuje); navýšení by se zaplatilo i za dobu, kdy už nepoběží. Nejdřív zapněte její prodlužování.', 409, ['subscription_id' => $subscription->id]);
+        }
+    }
+
     /** Called by `ServiceService::attachAddon` once the delta is on the parent. */
     public function afterAttach(Service $parent, Service $addon, OrderItem $item, CommandContext $context): void
     {
         $subscription = app(SubscriptionService::class)->ensureForService($addon, $item, $context);
         $waived = data_get($item->config, 'limit_raise.waived');
-        if (is_array($waived)) { // given at no charge: one period, never renewed (and never billed: its price is 0)
-            $subscription->forceFill(['cancel_at_period_end' => true, 'auto_renew' => false, 'next_renewal_at' => $subscription->current_period_end])->save();
+        if (is_array($waived)) {
+            // given at no charge: one period, never renewed. The subscription still carries the list price (never 0): the waiver
+            // is for this period only, and a customer who switches renewal back on pays what the option costs from the next one
+            $subscription->forceFill(['cancel_at_period_end' => true, 'auto_renew' => false, 'next_renewal_at' => $subscription->current_period_end,
+                'amount_minor' => (int) data_get($item->config, 'limit_raise.list_net_minor', $subscription->amount_minor)])->save();
         }
         $operation = $this->pushPanel($parent, $addon, "limit-raise:{$item->id}");
         [$metric, $delta] = self::deltaOf($addon);
@@ -161,7 +190,9 @@ final class LimitRaises
             $item = $addon->order_item_id !== null ? OrderItem::query()->find($addon->order_item_id) : null;
             $approved = (array) data_get($item?->config, 'limit_raise.waived.approval_ids', []) !== [];
             $billed = Subscription::query()->where('service_id', $addon->id)->whereIn('state', [Subscription::ACTIVE, Subscription::PAST_DUE])->exists();
-            if (! $billed && ! $approved) {
+            if (Addons::parentEnded($addon)) { // it arrived after the service's add-ons were cancelled: nothing takes it along
+                $out[] = "{$addon->id}: the service it raises is cancelled or gone — end the raise (terminate the add-on)";
+            } elseif (! $billed && ! $approved) {
                 $out[] = "{$addon->id}: no subscription and no approval";
             } elseif (data_get($addon->tags, 'addon.panel.state') === 'pending') {
                 $out[] = "{$addon->id}: not on the panel yet (".(string) data_get($addon->tags, 'addon.panel.error', '').') — onhost:limit-raise:push';

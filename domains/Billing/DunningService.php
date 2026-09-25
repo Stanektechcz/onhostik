@@ -167,7 +167,11 @@ final class DunningService
                 app(ServiceService::class)->imposeHold($service, SuspensionHold::PAYMENT, 'dunning', CommandContext::system('dunning')->withScope($service->organization_id));
             }
             if ($service !== null && $this->endsUnpaid($service) && in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
-                $this->endAddon($case, $service, "dunning_end:{$case->id}", $context); // an add-on cannot be suspended: an unpaid one ends
+                // an add-on has nothing to suspend (every action but the cancellation is refused on it). It is not ended here
+                // either: a service suspended now comes back when paid, and a paid renewal must keep the add-on it paid for.
+                // The termination stage ends it, as it ends every unpaid service (TASK-0022 review: a raise ended on day 30
+                // stayed ended when the invoice was paid on day 45)
+                $this->act($case, 'addon_kept', ['service_id' => $service->id, 'ends_at_termination' => true], $context);
 
                 return;
             }
@@ -191,25 +195,10 @@ final class DunningService
     }
 
     /**
-     * An add-on (a paid limit raise; an add-on sold renewing under ONHOST_ADDON_RENEWALS — see endsUnpaid()) has nothing of its own to suspend: every action but
-     * the cancellation is refused on it, so the suspension failed with `addon_action_unsupported` every day and the raise stayed.
-     * Unpaid, it ends: its units come off the service it raised (TASK-0022 limit-raise).
-     */
-    private function endAddon(DunningCase $case, Service $service, string $key, CommandContext $context): void
-    {
-        $meta = ['service_id' => $service->id];
-        try {
-            app(ServiceService::class)->requestAction($service, 'terminate', CommandContext::system('dunning')->withScope($service->organization_id), $key, ['reason' => 'dunning']);
-        } catch (DomainError $e) {
-            $meta['error'] = $e->error;
-        }
-        $this->act($case, 'terminate_addon', $meta, $context);
-    }
-
-    /**
-     * Only an add-on sold as renewing ends when unpaid: a limit raise, or another add-on that got its renewal subscription
-     * under ONHOST_ADDON_RENEWALS. An add-on sold before (paid once, no subscription) keeps the old behaviour — this change
-     * never ends an existing customer's add-on (owner rule: no mass change to existing services).
+     * Only an add-on sold as renewing is dunned as one (kept through the suspension stage, ended at the termination stage): a
+     * limit raise, or another add-on whose renewal subscription (created under ONHOST_ADDON_RENEWALS) still bills. An add-on
+     * sold before (paid once, no subscription) or one whose subscription already ended keeps the old behaviour — this change
+     * never touches an existing customer's add-on (owner rule: no mass change to existing services).
      */
     private function endsUnpaid(Service $service): bool
     {
@@ -220,7 +209,7 @@ final class DunningService
             return true;
         }
 
-        return (bool) config('onhost.addon_renewals', false) && Subscription::query()->where('service_id', $service->id)->exists();
+        return (bool) config('onhost.addon_renewals', false) && Subscription::query()->where('service_id', $service->id)->whereIn('state', [Subscription::ACTIVE, Subscription::PAST_DUE])->exists();
     }
 
     /**
@@ -236,9 +225,7 @@ final class DunningService
             return;
         }
         if ($this->endsUnpaid($service)) {
-            $this->endAddon($case, $service, "dunning_end:{$case->id}:".now()->format('Ymd'), $context);
-
-            return;
+            return; // an add-on is not suspended: it stays until the termination stage (see suspend())
         }
         $meta = ['service_id' => $service->id, 'attempt' => $case->actions()->whereIn('action', ['suspend', 'suspend_retry'])->count() + 1];
         try {

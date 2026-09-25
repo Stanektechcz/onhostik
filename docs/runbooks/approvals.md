@@ -84,7 +84,8 @@ no charge** is money given away:
   (`CommandContext::verifiedApprovalIds`) and checks that it names the organization, the service, the number, the units and
   the price. If the option price moved after the approval, the repeat is refused (`409 limit_raise_price_changed`) — ask again.
 - What is given lasts **one period**: an order of total 0 (the invoice shows the price and the waiver as its discount), a
-  subscription of 0 that ends with its period. Staff see every free raise (`Navýšení limitu zdarma: …`).
+  subscription that ends with its period and carries the **list price** — a customer who switches its renewal back on pays
+  the option price from the next period (it used to renew at 0 Kč for ever, with nobody's second signature). Staff see every free raise (`Navýšení limitu zdarma: …`).
 - One operator (`ONHOST_FOUR_EYES=false`): the step-up stays, the order records `waived:single-operator`.
 - No other way gives more for nothing: a staff `resize` above what the service holds and a staff `service.create` above its
   plan are refused with `limit_raise_required` (a repair or a lower number still runs).

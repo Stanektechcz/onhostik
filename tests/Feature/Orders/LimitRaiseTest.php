@@ -32,6 +32,7 @@ use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Orders\CheckoutService;
 use Onhost\Domain\Orders\Commands\StaffCustomerCommand;
+use Onhost\Domain\Orders\Listeners\FulfillPaidOrder;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\Models\Quote;
@@ -53,6 +54,7 @@ use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
+use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Tests\TestCase;
 
@@ -401,24 +403,64 @@ it('keeps the active raises on top of a new plan', function () {
     expect($parent->fresh()->entitlements['mailboxes'])->toBe((int) $standard->entitlements['mailboxes'] + 5);
 });
 
-it('ends an unpaid raise in dunning instead of trying to suspend an add-on', function () {
+/** An overdue postpaid renewal invoice of a raise, due `$daysAgo` days ago, and its dunning case. */
+function limitRaiseOverdue(Organization $org, Service $raise, int $daysAgo): array
+{
+    $invoice = Invoice::query()->create(['legal_entity' => 'onhost-cz', 'series' => 'FV', 'type' => 'invoice', 'number' => 'FV-2026-0'.random_int(200, 99999), 'organization_id' => $org->id, 'currency' => 'CZK', 'state' => Invoice::OVERDUE,
+        'subtotal_minor' => 2500, 'discount_minor' => 0, 'tax_minor' => 525, 'total_minor' => 3025, 'paid_minor' => 0, 'issued_at' => now()->subDays($daysAgo + 15), 'due_at' => now()->subDays($daysAgo), 'meta' => ['postpaid' => true]]);
+
+    return [$invoice, app(DunningService::class)->open($org->id, $invoice->id, $raise->id, $invoice->due_at)];
+}
+
+it('keeps an unpaid raise through the suspension stage and ends it at the termination stage, never trying to suspend an add-on', function () {
     Event::fake(['onhost.order.paid']);
     Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
     [, $org] = $this->customerWithOrganization();
     $parent = limitRaiseParent($org);
     $base = (int) $parent->entitlements['mailboxes'];
     [$raise] = limitRaiseDeliver($org, $parent, 'mailboxes', 5);
-    $invoice = Invoice::query()->create(['legal_entity' => 'onhost-cz', 'series' => 'FV', 'type' => 'invoice', 'number' => 'FV-2026-0'.random_int(200, 999), 'organization_id' => $org->id, 'currency' => 'CZK', 'state' => Invoice::OVERDUE,
-        'subtotal_minor' => 2500, 'discount_minor' => 0, 'tax_minor' => 525, 'total_minor' => 3025, 'paid_minor' => 0, 'issued_at' => now()->subDays(60), 'due_at' => now()->subDays(45), 'meta' => ['postpaid' => true]]);
+    [, $case] = limitRaiseOverdue($org, $raise, 45);
     $dunning = app(DunningService::class);
-    $case = $dunning->open($org->id, $invoice->id, $raise->id, $invoice->due_at);
 
+    // day 45: other services are suspended here and come back when paid; a raise has nothing to suspend, so it stays
     $dunning->tick();
-    $actions = $case->actions()->where('action', 'terminate_addon')->get();
-    expect($actions)->toHaveCount(1)->and(data_get($actions->first()->meta, 'error'))->toBeNull()
-        ->and(data_get($raise->fresh()->tags, 'addon.revoked_at'))->not->toBeNull()
+    expect($case->fresh()->state)->toBe('SUSPENDED')
+        ->and($case->actions()->where('action', 'addon_kept')->count())->toBe(1)
+        ->and($case->actions()->where('action', 'terminate_addon')->exists())->toBeFalse()
+        ->and(data_get($raise->fresh()->tags, 'addon.revoked_at'))->toBeNull()
+        ->and($parent->fresh()->entitlements['mailboxes'])->toBe($base + 5)
+        ->and($case->actions()->whereIn('action', ['suspend', 'suspend_retry'])->exists())->toBeFalse();
+
+    // day 61: the termination stage ends it, as it ends every unpaid service
+    $this->travel(16)->days();
+    $dunning->tick();
+    $dunning->tick();
+    expect(data_get($raise->fresh()->tags, 'addon.revoked_at'))->not->toBeNull()
         ->and($parent->fresh()->entitlements['mailboxes'])->toBe($base)
-        ->and($case->actions()->where('action', 'suspend')->whereNotNull('meta->error')->exists())->toBeFalse();
+        ->and($case->actions()->where('action', 'terminate')->whereNull('meta->error')->exists())->toBeTrue()
+        ->and($case->actions()->whereIn('action', ['suspend', 'suspend_retry'])->exists())->toBeFalse();
+});
+
+it('keeps a yearly raise whose overdue renewal is paid after the suspension stage', function () {
+    Event::fake(['onhost.order.paid']);
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org, 'aapanel', 'start', 'year');
+    $base = (int) $parent->entitlements['mailboxes'];
+    [$raise] = limitRaiseDeliver($org, $parent, 'mailboxes', 5);
+    expect(Subscription::query()->where('service_id', $raise->id)->sole()->period)->toBe('year');
+    [$invoice, $case] = limitRaiseOverdue($org, $raise, 40);
+    $dunning = app(DunningService::class);
+
+    $dunning->tick(); // day 40: past the suspension stage
+    $invoice->forceFill(['state' => Invoice::PAID, 'paid_minor' => $invoice->total_minor])->save(); // paid in full before day 60
+    $this->travel(1)->days();
+    $dunning->tick();
+
+    expect($case->fresh()->state)->toBe('RESOLVED')
+        ->and(data_get($raise->fresh()->tags, 'addon.revoked_at'))->toBeNull() // what was paid for is still delivered
+        ->and($raise->fresh()->state)->toBe(ServiceStateMachine::ACTIVE)
+        ->and($parent->fresh()->entitlements['mailboxes'])->toBe($base + 5);
 });
 
 it('leaves an add-on sold today alone in dunning while the add-on renewals switch is off', function () {
@@ -452,12 +494,16 @@ it('leaves an add-on sold today alone in dunning while the add-on renewals switc
     expect($todayCase->actions()->where('action', 'terminate_addon')->exists())->toBeFalse() // an existing add-on is not ended by this change
         ->and(data_get($today->fresh()->tags, 'addon.revoked_at'))->toBeNull();
 
-    config()->set('onhost.addon_renewals', true); // switched on: only an add-on sold renewing (with its subscription) ends unpaid
+    config()->set('onhost.addon_renewals', true); // switched on: only an add-on sold renewing (with a live subscription) is dunned as renewing
     $renewing = $sellMailAddon();
     $renewingCase = $openCase($renewing);
+    $cancelled = $sellMailAddon(); // renewing once, but its subscription already ended: nothing is billed any more
+    Subscription::query()->where('service_id', $cancelled->id)->update(['state' => Subscription::CANCELLED, 'auto_renew' => false]);
+    $cancelledCase = $openCase($cancelled);
     app(DunningService::class)->tick();
-    expect($renewingCase->actions()->where('action', 'terminate_addon')->exists())->toBeTrue()
-        ->and($todayCase->actions()->where('action', 'terminate_addon')->exists())->toBeFalse()
+    expect($renewingCase->actions()->where('action', 'addon_kept')->exists())->toBeTrue()
+        ->and($cancelledCase->actions()->where('action', 'addon_kept')->exists())->toBeFalse()
+        ->and($todayCase->actions()->where('action', 'addon_kept')->exists())->toBeFalse()
         ->and(data_get($today->fresh()->tags, 'addon.revoked_at'))->toBeNull();
 });
 
@@ -495,7 +541,7 @@ it('grants a raise at no charge only with a second person, bound to the service,
         ->and((int) $item->discount_minor)->toBe(2500); // the invoice shows what was waived
     $addon = Service::query()->where('order_item_id', $item->id)->sole();
     $subscription = Subscription::query()->where('service_id', $addon->id)->sole();
-    expect($subscription->amount_minor)->toBe(0)->and($subscription->cancel_at_period_end)->toBeTrue() // one period only
+    expect($subscription->amount_minor)->toBe(2500)->and($subscription->cancel_at_period_end)->toBeTrue() // one period only; a renewal would cost the list price
         ->and($parent->fresh()->entitlements['mailboxes'])->toBe($base + 5)
         ->and(Approval::query()->findOrFail($approvalId)->state)->toBe('consumed')
         ->and(AuditEvent::query()->where('action', 'staff.customer.limit_raise.free')->where('result', 'succeeded')->sole()->approval_ids)->toBe([$approvalId]);
@@ -710,4 +756,155 @@ it('does not let a resize that was still running undo a raise delivered meanwhil
     driveOperation($push);
     expect($parent->fresh()->entitlements['mailboxes'])->toBe($base + 8)
         ->and(data_get($first->fresh()->tags, 'addon.revoked_at'))->toBeNull();
+});
+
+/*
+ * Review round 1 (TASK-0022): a free raise could be switched back on at 0 Kč, an unpaid raise ended before the customer's
+ * last chance to pay, a raise paid after its service ended was delivered and billed on, and a raise was priced for months
+ * its parent would never run.
+ */
+
+it('renews a free raise the customer switches back on at the list price, never at zero', function () {
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [$owner, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org);
+    config()->set('onhost.identity.four_eyes', false); // one operator: the waiver is recorded as single-operator
+    $finance = limitRaiseStaff('billing_finance_admin');
+    $done = limitRaiseSend($this, $finance, 'POST', "/v1/staff/customers/{$org->id}/limit-raises/free", ['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5, 'note' => 'Kompenzace, tiket #9'])->assertCreated();
+    $item = OrderItem::query()->where('order_id', (string) $done->json('order_id'))->sole();
+    $addon = Service::query()->where('order_item_id', $item->id)->sole();
+    $subscription = Subscription::query()->where('service_id', $addon->id)->sole();
+    expect($subscription->cancel_at_period_end)->toBeTrue()->and($subscription->auto_renew)->toBeFalse();
+
+    // the customer takes back the cancellation and switches renewal on — the endpoints the client area calls
+    $context = $this->contextFor($owner, $org);
+    app(SubscriptionService::class)->cancelAtPeriodEnd($subscription->fresh(), false, $context);
+    app(SubscriptionService::class)->setAutoRenew($subscription->fresh(), true, $context);
+    app(WalletService::class)->topup($org, Money::decimal('5000', 'CZK'), 'bank', 'lr-free-renew-seed', CommandContext::system('test')->withScope($org->id));
+    Subscription::query()->where('service_id', $parent->id)->update(['next_renewal_at' => now()->addYears(2)]);
+    $this->travelTo($subscription->current_period_end->copy()->addHour());
+
+    app(SubscriptionService::class)->tick();
+    $statement = Invoice::query()->where('meta->subscription_id', $subscription->id)->sole();
+    expect((int) $statement->subtotal_minor)->toBe(2500) // the waiver covered one period; the next one costs what the option costs
+        ->and($subscription->fresh()->amount_minor)->toBe(2500);
+});
+
+it('cancels active raises and their subscriptions when the parent is terminated', function () {
+    Event::fake(['onhost.order.paid']);
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org);
+    [$raise] = limitRaiseDeliver($org, $parent, 'mailboxes', 5);
+    $subscription = Subscription::query()->where('service_id', $raise->id)->sole();
+    foreach (Operation::query()->where('service_id', $parent->id)->whereNotIn('state', [Operation::SUCCEEDED, Operation::FAILED])->get() as $pending) {
+        driveOperation($pending); // the raise's own resize first: one operation at a time per service
+    }
+
+    $operation = app(ServiceService::class)->requestAction($parent->fresh(), 'terminate', CommandContext::system('test')->withScope($org->id), 'lr-parent-end', ['reason' => 'konec']);
+    driveOperation($operation);
+
+    expect($subscription->fresh()->state)->toBe(Subscription::CANCELLED)
+        ->and($subscription->fresh()->auto_renew)->toBeFalse()
+        ->and($raise->fresh()->state)->not->toBe(ServiceStateMachine::ACTIVE);
+});
+
+it('does not deliver a raise paid after its service was cancelled, and gives the money back', function () {
+    Event::fake(['onhost.order.paid']);
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org);
+    $base = (int) $parent->entitlements['mailboxes'];
+    $context = CommandContext::system('limit raise test')->withScope($org->id);
+    app(WalletService::class)->topup($org, Money::decimal('50000', 'CZK'), 'bank', 'lr-late-seed', $context);
+    $quote = app(QuoteService::class)->quote([limitRaiseItem(['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5])], 'CZK', [], 1, null, $org);
+    $consents = [];
+    foreach (app(CheckoutService::class)->requiredDocuments($quote, $org) as $key) {
+        $consents[$key] = ['person' => 'test'];
+    }
+    $order = app(CheckoutService::class)->placeOrder($quote, $org, null, $consents, ['mode' => 'wallet'], 'lr-late-'.Str::random(6), $context, 'staff')['order'];
+    // meanwhile the service was cancelled: it waits out its grace window, its own subscription is gone
+    $parent->forceFill(['state' => ServiceStateMachine::SUSPENDED, 'terminate_at' => now()->addDays(14)])->save();
+    Subscription::query()->where('service_id', $parent->id)->update(['state' => Subscription::CANCELLED, 'auto_renew' => false]);
+
+    app(FulfillPaidOrder::class)->handle((new OutboxMessage)->forceFill(['aggregate_id' => $order->id, 'name' => 'onhost.order.paid']));
+
+    $item = OrderItem::query()->where('order_id', $order->id)->sole();
+    expect($item->state)->toBe('refunded')
+        ->and(Service::query()->where('order_item_id', $item->id)->exists())->toBeFalse()
+        ->and(Subscription::query()->where('organization_id', $org->id)->where('state', Subscription::ACTIVE)->exists())->toBeFalse()
+        ->and($parent->fresh()->entitlements['mailboxes'])->toBe($base);
+});
+
+it('stops billing a raise whose service ended without taking it along, and tells the doctor', function () {
+    Event::fake(['onhost.order.paid']);
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org);
+    [$raise] = limitRaiseDeliver($org, $parent, 'mailboxes', 5);
+    $subscription = Subscription::query()->where('service_id', $raise->id)->sole();
+    // the service went into its deletion grace window and the raise stayed behind (it arrived after the add-ons were cancelled)
+    $parent->forceFill(['state' => ServiceStateMachine::SUSPENDED, 'terminate_at' => now()->addDays(14)])->save();
+    Subscription::query()->where('service_id', $parent->id)->update(['state' => Subscription::CANCELLED, 'auto_renew' => false]);
+    expect(implode(' ', LimitRaises::problems()))->toContain($raise->id)->toContain('service it raises');
+
+    $subscription->forceFill(['next_renewal_at' => now()->subMinute()])->save();
+    $stats = app(SubscriptionService::class)->tick();
+    expect($stats['renewed'] + $stats['invoiced'] + $stats['failed'])->toBe(0)
+        ->and($subscription->fresh()->state)->toBe(Subscription::CANCELLED)
+        ->and(Invoice::query()->where('meta->subscription_id', $subscription->id)->exists())->toBeFalse();
+});
+
+it('refuses a raise of a service whose subscription ends at the period end or does not renew', function () {
+    [, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org);
+    $subscription = Subscription::query()->where('service_id', $parent->id)->sole();
+
+    $subscription->forceFill(['cancel_at_period_end' => true, 'auto_renew' => false])->save();
+    expect(limitRaiseRefusal(fn () => limitRaiseQuoteLine($org, ['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5])))->toBe('limit_raise_parent_ending');
+
+    $subscription->forceFill(['cancel_at_period_end' => false, 'auto_renew' => false])->save();
+    expect(limitRaiseRefusal(fn () => limitRaiseQuoteLine($org, ['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5])))->toBe('limit_raise_parent_ending');
+
+    $subscription->forceFill(['auto_renew' => true])->save();
+    expect(limitRaiseRefusal(fn () => limitRaiseQuoteLine($org, ['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5])))->toBe('accepted');
+});
+
+it('counts raises already ordered and not yet delivered against the product maximum', function () {
+    Event::fake(['onhost.order.paid']); // the first order waits for fulfilment
+    [, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org);
+    $context = CommandContext::system('limit raise test')->withScope($org->id);
+    app(WalletService::class)->topup($org, Money::decimal('50000', 'CZK'), 'bank', 'lr-open-seed', $context);
+    $quote = app(QuoteService::class)->quote([limitRaiseItem(['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 60])], 'CZK', [], 1, null, $org);
+    $consents = [];
+    foreach (app(CheckoutService::class)->requiredDocuments($quote, $org) as $key) {
+        $consents[$key] = ['person' => 'test'];
+    }
+    app(CheckoutService::class)->placeOrder($quote, $org, null, $consents, ['mode' => 'wallet'], 'lr-open-'.Str::random(6), $context, 'staff');
+
+    // 5 of the plan + 60 ordered + 60 more is above the 5 + 100 the product sells
+    expect(limitRaiseRefusal(fn () => limitRaiseQuoteLine($org, ['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 60])))->toBe('limit_raise_above_max')
+        ->and(limitRaiseRefusal(fn () => limitRaiseQuoteLine($org, ['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 40])))->toBe('accepted');
+});
+
+it('prices a raise in the organization currency and refuses one the option has no price for', function () {
+    [, $org] = $this->customerWithOrganization([], ['currency' => 'EUR']);
+    $parent = limitRaiseParent($org);
+    $quoteEur = fn () => app(QuoteService::class)->quote([limitRaiseItem(['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5])], 'EUR', [], 1, null, $org);
+    $quote = $quoteEur();
+    expect($quote->currency)->toBe('EUR')->and((int) $quote->lines[0]['unit_net'])->toBe(20 * 5) // the option's EUR unit price, not a conversion
+        ->and((int) data_get($quote->lines[0], 'config.limit_raise.unit_price_minor'))->toBe(20);
+
+    ProductOption::query()->where('product_id', Product::query()->where('key', 'web-hosting')->value('id'))->where('key', 'mailboxes')
+        ->update(['price_per_unit_minor' => json_encode(['CZK' => 500])]);
+    expect(limitRaiseRefusal($quoteEur))->toBe('limit_raise_unpriced');
+});
+
+it('fails loudly when the plan version a raise is measured against is missing', function () {
+    [, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org);
+    Service::query()->whereKey($parent->id)->update(['plan_version_id' => (string) Str::ulid()]);
+
+    expect(limitRaiseRefusal(fn () => limitRaiseQuoteLine($org, ['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5])))->toBe('limit_raise_plan_version_missing');
 });

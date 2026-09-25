@@ -25,7 +25,8 @@ use Onhost\Platform\Money\Currency;
  * operator alone (`ONHOST_FOUR_EYES=false`) records `waived:single-operator`, like every other four-eyes action.
  *
  * What is given lasts one period: the order is a normal order of total 0 (the invoice shows the price and the waiver as its
- * discount), the raise gets a subscription of 0 that ends with its period.
+ * discount), the raise gets a subscription that ends with its period and carries the list price, so switching its renewal
+ * back on bills the option price (it renewed at 0 for ever before — review round 1).
  */
 final class LimitRaiseService
 {

@@ -74,7 +74,8 @@ either way needs `confirm_large_change`: a slipped decimal place is the usual wa
 `plan_version_unchanged`, `reason_required`.
 
 The prices of an old version stay `active` on purpose — renewals and hourly rating of the services sold with it read
-them. Do not retire them by hand. A promo price (`promo_amount_minor`) belongs to its version and is not carried over.
+them. Do not retire them by hand. A promo price (`promo_amount_minor`) belongs to its version and is not carried over by a
+staff publish; a catalogue revision (below) carries it over unchanged, because a revision changes no price.
 `CatalogSeeder` writes version 1 only and never moves `current_version`; it is not part of a deployment (only a fresh
 `install.sh` seeds it). It used to rewrite version 1 — entitlements, features and prices — on every run, i.e. the version
 customers hold; since TASK-0022 it leaves a version alone as soon as a service or a subscription points at it.
@@ -86,7 +87,7 @@ versions, never as an edit of the seeder or a migration. The revision is written
 `domains/Catalog/CatalogRevisions.php` and published by an operator:
 
 ```bash
-php artisan onhost:catalog:revise            # dry run: plans, keys each loses, who keeps the old version, promo prices that end
+php artisan onhost:catalog:revise            # dry run: plans, keys each loses, who keeps the old version, promo prices carried over
 php artisan onhost:catalog:revise --apply    # publishes (asks first; --yes for a scripted window)
 ```
 
@@ -111,7 +112,8 @@ the system actor); the content of a revision is reviewed as code.
 Without a new version: `products` on the e-shop plans is fair use (decision 5, worded *Doporučeno do N produktů*),
 `cron_concurrency` is shown as *Naplánované úlohy* / *N naplánovaných úloh* (decision 11), and a new managed database
 instance never claims `pitr` (decision 2; an existing row keeps its flag). Before `--apply`, read the dry run: a promo
-price on the current version ends for new orders (set it again on the new version), and a features line staff wrote that
+price on the current version is carried into the new one unchanged (`keep_promos`, CLI revisions only — the console API
+does not accept it; ending an introductory price would be a price rise nobody approved), and a features line staff wrote that
 still names PITR, connections or a dedicated IP/DB is only reported — edit it in *Tarify a verze*. Afterwards
 `onhost:doctor` shows *every catalogue revision is applied* OK and lists, under *no customer holds a version promising an
 unkept number*, the old versions customers still hold (support answers them; nothing about them changes).
@@ -125,7 +127,13 @@ now also the raise prices. It is never on the price list and never a cart upsell
 (`items: [{product_key: limit-raise, config: {limit_raise: {service_id, metric, units}}}]`); customers only once
 `ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS=true`; at no charge only with a second person (docs/runbooks/approvals.md). Only a number
 `MetricRegistry` marks enforced for the family and priced by an option can be raised; no cloud, and no vCPU/RAM/disk of a
-game server in v1. `onhost:limit-raise list` shows the raises, `onhost:limit-raise push {raise} --apply` repeats a panel push
+game server in v1. The service must run, renew (`limit_raise_parent_ending` when its subscription ends at the period end or
+does not auto-renew: the raise would be paid for months the service never runs) and still do so when the order is paid —
+a raise paid after the service was cancelled is not delivered, the line fails and the settlement returns the money to
+credit. The option's `max` counts raises already ordered and not yet delivered. A raise whose service ended without taking
+it along stops renewing (`SubscriptionService::tick`) and the doctor names it. Unpaid, a raise is kept through the dunning
+suspension stage (a payment then keeps it) and ends at the termination stage, like every unpaid service. **No refund:** a
+prepaid raise that ends early — its service terminated, or the customer ending it — is not credited for the unused days. `onhost:limit-raise list` shows the raises, `onhost:limit-raise push {raise} --apply` repeats a panel push
 that was refused; the doctor row *every limit raise is billed or approved* names both kinds of problem.
 
 ## The configurator ("Tarif na míru")
