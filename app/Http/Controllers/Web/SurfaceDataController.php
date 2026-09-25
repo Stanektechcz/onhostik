@@ -165,6 +165,11 @@ final class SurfaceDataController extends Controller
                     $out[$slug]['chips'] = $engines;
                 }
             }
+            if ($slug === 'eshop') { // the authored lead promised dedicated PHP workers on every shop plan; only one plan sells them (decision 7, TASK-0023)
+                $out[$slug]['lead'] = $cs
+                    ? 'Košík mimo cache a škálování na hodiny. Kapacitu navýšíme na kampaň a po ní zase snížíme — platíte jen za dobu, kdy ji potřebujete.'
+                    : 'Cart outside cache and hourly scaling. We raise capacity for the campaign and lower it after — you pay only while you need it.';
+            }
             if (in_array('game', $keys, true)) { // the game pages name the templates the panel really offers (mapped and orderable), Minecraft flavours on the Minecraft page
                 $templates = app(GameTemplates::class);
                 $labels = [];

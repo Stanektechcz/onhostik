@@ -95,3 +95,33 @@ it('shows the revised catalogue on the public pages and withdraws the student pr
     $module = (string) file_get_contents((string) $this->get('/surfaces/api/onhost-svc-pages.api.js')->assertOk()->baseResponse->getFile());
     expect($module)->toContain('o.withdrawn');
 });
+
+/*
+ * Owner decision 7 (TASK-0023): only a plan that sells dedicated PHP workers names a worker count; every other web
+ * and managed plan runs in a pool it shares and says so. "4 PHP workery" on an aaPanel shop plan was a number nothing
+ * applied — aaPanel runs one pool per PHP version for the whole node.
+ */
+it('names a PHP worker count only where the plan sells dedicated workers', function () {
+    $this->seed([CatalogSeeder::class]);
+    $js = $this->get('/surfaces/onhost-data.js')->assertOk()->getContent();
+    preg_match('/var D = (\{.*\});\n  function L/s', $js, $m);
+    $data = json_decode($m[1] ?? '{}', true);
+
+    $eshop = $data['cs']['pages']['eshop'];
+    expect($eshop['plans'][0]['specs'])->toContain('Sdílené PHP workery')->not->toContain('4 PHP workery')
+        ->and($eshop['plans'][2]['specs'])->toContain('24 PHP workerů (dedikované)');
+    $row = collect($eshop['cmp']['rows'])->keyBy(0)->get('PHP workery');
+    expect($row)->toBe(['PHP workery', 'sdílené', 'sdílené', '24 dedikovaných']);
+    expect(collect($eshop['details']['rows'])->pluck(0)->all())->not->toContain('Php workers dedicated');
+    expect($eshop['lead'] ?? null)->toBeString()->not->toContain('dedikované PHP workery');
+
+    $wordpress = $data['cs']['pages']['wordpress'];
+    expect($wordpress['plans'][0]['specs'])->toContain('Sdílené PHP workery');
+    $en = $data['en']['pages']['eshop'];
+    expect($en['plans'][0]['specs'])->toContain('Shared PHP workers')->and($en['plans'][2]['specs'])->toContain('24 PHP workers (dedicated)')
+        ->and(collect($en['cmp']['rows'])->keyBy(0)->get('PHP workers'))->toBe(['PHP workers', 'shared', 'shared', '24 dedicated'])
+        ->and($en['lead'])->not->toContain('dedicated PHP workers');
+
+    $module = (string) file_get_contents((string) $this->get('/surfaces/api/onhost-svc-pages.api.js')->assertOk()->baseResponse->getFile());
+    expect($module)->toContain('if (o.lead) page.lead = o.lead;');
+});

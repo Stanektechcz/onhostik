@@ -42,6 +42,7 @@ use Onhost\Domain\Provisioning\OperationLatency;
 use Onhost\Domain\Provisioning\PanelVersionGate;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderInstanceService;
+use Onhost\Domain\Provisioning\Scheduling\CapacityDoctor;
 use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
@@ -435,6 +436,9 @@ final class Doctor extends Command
             }
         }
         $this->add('providers', 'every product can be provisioned', $missing === [], $missing === [] ? $placements->count().' placement(s), executors covered' : 'no usable instance or placement for: '.implode(', ', $missing));
+        foreach (app(CapacityDoctor::class)->rows() as $row) { // TASK-0023: dedicated PHP placement (decision 7) and the capacity basis (decision 19), standing WARNs
+            $this->add('capacity', $row['check'], $row['ok'], $row['detail'], false);
+        }
     }
 
     private function payments(): void

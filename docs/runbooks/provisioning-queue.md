@@ -91,9 +91,30 @@ Without that hold every order between two measurements was promised the same fre
 (`NodeScheduler::place`) locks the node rows while it decides, so two workers cannot take the same reserve; the hold is
 released when the service fails or is terminated, and disappears by itself once the next measurement contains it.
 
-* `capacity_basis: sold` in a provider instance's options judges its nodes by the RAM **sold** on them instead of the
-  RAM their guests use right now (Proxmox reports real use: a node full of idle VMs looks empty). The default stays
-  `measured` — switching is a commercial decision, a node that is already oversold stops taking orders at once.
+* **Capacity basis per dimension** (owner decision 19, TASK-0023, `CapacityBasis`): disk is judged by what was **sold**
+  on a node, RAM and CPU by what is **measured**. The platform default is `onhost.provisioning.capacity_basis`
+  (`ONHOST_CAPACITY_DISK_BASIS`, today `measured`); a panel may override single dimensions with
+  `options.capacity_basis: {disk: sold}`. The old one-word option `capacity_basis: sold` still means RAM **and** disk
+  sold (the doctor lists panels that carry it). Sold disk counts root services only — an included site's share is
+  carved out of its owner's space and a test copy is not sold — and never drops below what the node stores. The share
+  of a node's disk that may be sold is `ONHOST_DISK_SELL_RATIO` (0.85; panel option `disk_sell_ratio`). CPU stays
+  measured: a node above 85 % takes no server that asks for CPU.
+* **Switching the disk basis to sold** is an operator step, never a deploy: run `php artisan onhost:capacity:basis`
+  (read-only; `--json`, `--role=`, `--region=`) — per node the disk and RAM under both bases, the plans on sale each node
+  would stop taking and the nodes that would take none — then set `ONHOST_CAPACITY_DISK_BASIS=sold`, rebuild the config
+  cache and restart the workers. It changes only where new orders may go; nothing already placed moves.
+* **Dedicated PHP workers** (owner decision 7, `PlacementRules`): a plan that sells `php_workers_dedicated` on a product
+  that runs on ISPConfig (web-hosting/profi) runs only on ISPConfig, which gives every site its own PHP-FPM pool. A
+  placement or staff pin to aaPanel is refused (`placement_requires_dedicated_php`, 422), a product-wide aaPanel
+  placement is ignored for that plan, new specs carry `requires.php = dedicated` and the scheduler never puts them on
+  another panel, and a plan change to such a plan is refused for a service on a node-wide pool (`plan_change_does_not_fit`,
+  shortfall `php_workers_dedicated`) — the platform does not move a site between panel types. eshop/shop-peak (a managed
+  product on aaPanel) is **not** moved: ISPConfig would lose its WAF rate limit and ISPConfig's client-wide site count does
+  not count a plan without a `sites` number. It is listed by `onhost:doctor` (capacity) and `onhost:capacity:basis`.
+* **Web and managed hosting in the cart** (TASK-0023) are judged like servers: where provisioning would put them (the
+  plan's placement, its panel rule, the disk the plan sells under the node's basis). Sold out is `capacity_sold_out`
+  (409) before anything is ordered; with no web node of the panel registered nothing is judged, except that a
+  dedicated-PHP plan is sold out when only other panels have web nodes. `ONHOST_CAPACITY_GATE=false` switches this off too.
 * A VPS or a game server that **no registered node can take** is refused in the cart: `capacity_sold_out` (409), before
   an order or a payment exists. With no node of the kind registered at all nothing is judged (provisioning is then not
   automatic). A drained or locked node sells nothing. `ONHOST_CAPACITY_GATE=false` accepts such orders again and lets

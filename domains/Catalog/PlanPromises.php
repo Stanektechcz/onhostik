@@ -105,7 +105,6 @@ final class PlanPromises
      */
     public const KNOWN_GAPS = [
         'php_workers' => 'sold on wordpress/eshop (aaPanel); AaPanelWebProvider returns applied=false for every PHP-worker change — see MetricRegistry',
-        'php_workers_dedicated' => 'sold on web-hosting/profi and eshop/shop-peak; only the price list adds "(dedicated)" to the wording, nothing isolates a dedicated FPM pool — see MetricRegistry',
         'aliases' => 'sold on mail plans; ISPConfig has no limit_mailalias and alias.create runs no count check — see MetricRegistry',
         'spam_filter' => 'sold on mail plans; only the price list names the antispam tier, no mail config sets an rspamd policy from it — see MetricRegistry',
         'traffic_tb' => 'sold on VPS/VDS and the CDN add-on; UsageWatch only measures traffic for web/managed families — see MetricRegistry',

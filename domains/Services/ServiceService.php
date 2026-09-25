@@ -25,6 +25,7 @@ use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\OperationService;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
+use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
 use Onhost\Domain\Provisioning\Workflows\CdnWorkflow;
 use Onhost\Domain\Provisioning\Workflows\CertificateWorkflow;
@@ -1483,13 +1484,15 @@ final class ServiceService
         $pinned = trim((string) ($config['placement_instance'] ?? ''));
         $item = $service->order_item_id !== null ? OrderItem::query()->with('order')->find($service->order_item_id) : null;
         $source = $item !== null && $item->order instanceof Order ? (string) $item->order->source : '';
-        $placement = $pinned !== '' && in_array($source, ['staff', 'cli'], true) ? app(PlacementService::class)->pinned($product, $pinned) : null;
-        $placement ??= app(PlacementService::class)->resolve($product->key, $version?->plan?->key, $service->region_code);
+        // …and what the plan sells decides too: dedicated PHP workers run only where a site has a pool of its own (PlacementRules, decision 7)
+        $ent = (array) $service->entitlements;
+        $placement = $pinned !== '' && in_array($source, ['staff', 'cli'], true) ? app(PlacementService::class)->pinned($product, $pinned, $ent) : null;
+        $placement ??= app(PlacementService::class)->resolve($product->key, $version?->plan?->key, $service->region_code, $ent);
         $base = [
-            'product_key' => $product->key, 'plan_key' => $version?->plan?->key, 'family' => $product->family, 'executor' => $placement?->providerInstance?->provider ?? $product->executor, 'region' => $service->region_code, 'sla_class' => $service->sla_class,
+            'product_key' => $product->key, 'plan_key' => $version?->plan?->key, 'family' => $product->family, 'executor' => PlacementRules::executorFor((string) $product->executor, $ent, $placement) ?: $product->executor, 'region' => $service->region_code, 'sla_class' => $service->sla_class,
             'placement' => $placement === null ? null : ['id' => $placement->id, 'instance_id' => $placement->provider_instance_id, 'instance_key' => $placement->providerInstance?->key, 'node_id' => $placement->node_id],
             'entitlements' => $service->entitlements, 'limits' => $limits, 'contact_email' => $organization->billing_email ?: ($organization->owner?->email ?? null), 'contact_name' => $organization->name, 'organization_name' => $organization->name,
-        ];
+        ] + array_filter(['requires' => PlacementRules::requires((string) $product->executor, $ent)]); // only specs made after decision 7 carry it: services already in flight are placed as before
         $specific = match ($product->family) {
             'cloud', 'data' => [
                 'hostname' => Str::lower((string) ($config['hostname'] ?? "vm-{$shortId}.".config('onhost.provisioning.hostname_suffix', 'cust.onhost.cz'))), 'image' => (string) ($config['image'] ?? ($product->family === 'data' ? (string) ($config['engine'] ?? ($meta['engines'][0] ?? 'postgresql-16')) : ($meta['images'][0] ?? 'debian-13'))),

@@ -55,7 +55,7 @@ final class CatalogPresentation
             }
             $row = [$label];
             foreach ($plans as $plan) {
-                $row[] = self::value($key, ((array) $plan['entitlements'])[$key] ?? null, $locale);
+                $row[] = self::value($key, ((array) $plan['entitlements'])[$key] ?? null, $locale, (array) $plan['entitlements']);
             }
             $rows[] = $row;
             if (count($rows) >= $max) {
@@ -76,7 +76,7 @@ final class CatalogPresentation
         }
         $keys = self::keys($union, $family);
         foreach (array_keys($union) as $k) {
-            if (! in_array((string) $k, $keys, true) && $k !== 'options') {
+            if (! in_array((string) $k, $keys, true) && $k !== 'options' && $k !== 'php_workers_dedicated') { // said in the PHP workers row (decision 7)
                 $keys[] = (string) $k;
             }
         }
@@ -84,7 +84,7 @@ final class CatalogPresentation
         foreach ($keys as $key) {
             $row = [self::label($key, $locale) ?? ucfirst(str_replace('_', ' ', $key))];
             foreach ($plans as $plan) {
-                $row[] = self::value($key, ((array) $plan['entitlements'])[$key] ?? null, $locale);
+                $row[] = self::value($key, ((array) $plan['entitlements'])[$key] ?? null, $locale, (array) $plan['entitlements']);
             }
             $rows[] = $row;
         }
@@ -130,9 +130,12 @@ final class CatalogPresentation
     }
 
     /** Value cell of the comparison table. */
-    private static function value(string $key, mixed $value, string $locale): string
+    private static function value(string $key, mixed $value, string $locale, array $all = []): string
     {
         $cs = $locale !== 'en';
+        if ($key === 'php_workers' && $value !== null && empty($all['php_workers_dedicated'])) {
+            return $cs ? 'sdílené' : 'shared'; // decision 7: a worker count is promised only where the plan's own pool holds it
+        }
         if ($value === null || $value === '' || $value === false) {
             return '—';
         }
@@ -150,7 +153,7 @@ final class CatalogPresentation
             'products' => is_numeric($v) && (int) $v >= 999999 ? ($cs ? 'neomezeně' : 'unlimited') : ($cs ? 'doporučeno do '.number_format((int) $v, 0, ',', ' ') : 'recommended up to '.number_format((int) $v, 0, '.', ',')),
             'cron_concurrency' => self::scheduledTasks((int) $v, $cs), 'backup_frequency' => self::backupInterval($v, $cs, false),
             'sites', 'mailboxes', 'databases', 'aliases', 'domains', 'connections', 'snapshots', 'backups', 'allocations', 'replicas', 'builds_per_day', 'custom_domains', 'workers', 'cron', 'daily', 'weekly', 'monthly' => is_numeric($v) && (int) $v >= 999999 ? ($cs ? 'neomezeně' : 'unlimited') : $v,
-            'php_workers' => $v, default => $v,
+            'php_workers' => $cs ? $v.' dedikovaných' : $v.' dedicated', default => $v,
         };
     }
 
@@ -170,7 +173,8 @@ final class CatalogPresentation
             // a recommendation, not a limit (owner decision 5: fair use, PlanPromises::FAIR_USE)
             'products' => $unlimited ? ($cs ? 'Bez limitu produktů' : 'No product limit') : ($cs ? 'Doporučeno do '.number_format($n, 0, ',', ' ').' produktů' : 'Recommended up to '.number_format($n, 0, '.', ',').' products'),
             'cron_concurrency' => self::scheduledTasks($n, $cs),
-            'nvme_gb' => $n.' GB NVMe', 'php_workers' => ($cs ? $n.' PHP '.$plural($n, 'worker', 'workery', 'workerů') : $n.' PHP '.($n === 1 ? 'worker' : 'workers')).(! empty($all['php_workers_dedicated']) ? ($cs ? ' (dedikované)' : ' (dedicated)') : ''),
+            // decision 7 (TASK-0023): a worker count only where the plan sells dedicated workers, otherwise the shared pool
+            'nvme_gb' => $n.' GB NVMe', 'php_workers' => empty($all['php_workers_dedicated']) ? ($cs ? 'Sdílené PHP workery' : 'Shared PHP workers') : ($cs ? $n.' PHP '.$plural($n, 'worker', 'workery', 'workerů') : $n.' PHP '.($n === 1 ? 'worker' : 'workers')).($cs ? ' (dedikované)' : ' (dedicated)'),
             'php_memory_mb' => 'PHP '.$n.' MB', 'mailboxes' => $unlimited ? ($cs ? 'Neomezeně schránek' : 'Unlimited mailboxes') : ($cs ? $n.' '.$plural($n, 'schránka', 'schránky', 'schránek') : $n.' '.($n === 1 ? 'mailbox' : 'mailboxes')),
             'databases' => $unlimited ? ($cs ? 'Neomezeně databází' : 'Unlimited databases') : ($cs ? $n.' '.$plural($n, 'databáze', 'databáze', 'databází') : $n.' '.($n === 1 ? 'database' : 'databases')),
             'backup_days' => $cs ? 'Zálohy '.$n.' '.self::days($n, true) : $n.'-day backups', 'backup_frequency' => self::backupInterval((string) $value, $cs, true), 'staging' => $cs ? 'Staging na klik' : 'One-click staging',

@@ -39,15 +39,17 @@ it('lets staff pin a plan to a panel and a server, validates compatibility and d
         ->and(collect($overview['instances'])->firstWhere('key', 'ispconfig-shared01')['nodes'])->toHaveCount(2)
         ->and($overview['placements'])->toBe([]);
 
-    // the Profi plan of web hosting runs on the aaPanel instance, the rest of the product on ISPConfig node isp-web02
-    $this->putJson('/v1/staff/placements', ['product_key' => 'web-hosting', 'plan_key' => 'profi', 'provider_instance_key' => 'aapanel-managed01'], ['Idempotency-Key' => 'pl-1'])->assertCreated()->assertJsonPath('provider', 'aapanel');
+    // the Standard plan of web hosting runs on the aaPanel instance, the rest of the product on ISPConfig node isp-web02
+    $this->putJson('/v1/staff/placements', ['product_key' => 'web-hosting', 'plan_key' => 'standard', 'provider_instance_key' => 'aapanel-managed01'], ['Idempotency-Key' => 'pl-1'])->assertCreated()->assertJsonPath('provider', 'aapanel');
+    // Profi sells dedicated PHP workers: never on a panel with one PHP pool for the whole node (decision 7, TASK-0023)
+    $this->putJson('/v1/staff/placements', ['product_key' => 'web-hosting', 'plan_key' => 'profi', 'provider_instance_key' => 'aapanel-managed01'], ['Idempotency-Key' => 'pl-1b'])->assertUnprocessable()->assertJsonPath('error', 'placement_requires_dedicated_php');
     $this->putJson('/v1/staff/placements', ['product_key' => 'web-hosting', 'provider_instance_key' => 'ispconfig-shared01', 'node_id' => 'isp-web02'], ['Idempotency-Key' => 'pl-2'])->assertCreated()->assertJsonPath('node_name', 'isp-web02');
     $this->putJson('/v1/staff/placements', ['product_key' => 'web-hosting', 'plan_key' => 'start', 'provider_instance_key' => 'proxmox-cz1'], ['Idempotency-Key' => 'pl-3'])->assertUnprocessable()->assertJsonPath('error', 'placement_incompatible');
     $this->putJson('/v1/staff/placements', ['product_key' => 'web-hosting', 'plan_key' => 'nope', 'provider_instance_key' => 'ispconfig-shared01'], ['Idempotency-Key' => 'pl-4'])->assertUnprocessable()->assertJsonPath('error', 'placement_plan_unknown');
     $this->putJson('/v1/staff/placements', ['product_key' => 'web-hosting', 'provider_instance_key' => 'aapanel-managed01', 'node_id' => 'isp-web01'], ['Idempotency-Key' => 'pl-5'])->assertUnprocessable()->assertJsonPath('error', 'placement_node_unknown');
 
     $placements = app(PlacementService::class);
-    expect($placements->resolve('web-hosting', 'profi', 'cz1')->providerInstance->key)->toBe('aapanel-managed01')
+    expect($placements->resolve('web-hosting', 'standard', 'cz1')->providerInstance->key)->toBe('aapanel-managed01')
         ->and($placements->resolve('web-hosting', 'start', 'cz1')->node->name)->toBe('isp-web02')
         ->and($placements->resolve('vps', 'compute-2', 'cz1'))->toBeNull();
 
@@ -64,20 +66,20 @@ it('lets staff pin a plan to a panel and a server, validates compatibility and d
     $this->getJson('/v1/staff/placements')->assertForbidden();
 
     $this->actingAs($staff, 'sanctum');
-    $id = collect($this->getJson('/v1/staff/placements')->json('data.placements'))->firstWhere('plan_key', 'profi')['id'];
+    $id = collect($this->getJson('/v1/staff/placements')->json('data.placements'))->firstWhere('plan_key', 'standard')['id'];
     $this->deleteJson("/v1/staff/placements/{$id}")->assertOk()->assertJsonPath('deleted', true);
-    expect($placements->resolve('web-hosting', 'profi', 'cz1')->node->name)->toBe('isp-web02'); // falls back to the product-wide placement
+    expect($placements->resolve('web-hosting', 'standard', 'cz1')->node->name)->toBe('isp-web02'); // falls back to the product-wide placement
     expect(AuditEvent::query()->whereIn('action', ['placement.upsert', 'placement.delete'])->count())->toBe(3);
 });
 
 it('provisions a new web service on the panel chosen for its plan', function () {
     [$isp, $aap] = placementLab();
-    app(PlacementService::class)->upsert(['product_key' => 'web-hosting', 'plan_key' => 'profi', 'provider_instance_key' => 'aapanel-managed01'], CommandContext::system('test'));
+    app(PlacementService::class)->upsert(['product_key' => 'web-hosting', 'plan_key' => 'standard', 'provider_instance_key' => 'aapanel-managed01'], CommandContext::system('test'));
     [$owner, $org] = $this->customerWithOrganization();
     $product = Product::query()->where('key', 'web-hosting')->firstOrFail();
     $version = fn (string $plan) => $product->plans()->where('key', $plan)->firstOrFail()->currentVersion();
     $services = app(ServiceService::class);
-    $service = $services->create($org, $product, $version('profi'), ['domain' => 'placed.cz'], $this->contextFor($owner, $org));
+    $service = $services->create($org, $product, $version('standard'), ['domain' => 'placed.cz'], $this->contextFor($owner, $org));
     expect($service->desired_spec['executor'])->toBe('aapanel')->and($service->desired_spec['placement']['instance_key'])->toBe('aapanel-managed01');
     $other = $services->create($org, $product, $version('start'), ['domain' => 'free.cz'], $this->contextFor($owner, $org));
     expect($other->desired_spec['executor'])->toBe('ispconfig')->and($other->desired_spec['placement'])->toBeNull();

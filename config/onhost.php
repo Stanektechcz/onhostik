@@ -312,6 +312,12 @@ return [
         ],
         'n_plus_one_sell_ratio' => 0.75,
         'capacity_gate' => (bool) env('ONHOST_CAPACITY_GATE', true), // a server no registered node can take is refused in the cart (H04); off = accept and let provisioning wait
+        // ── TASK-0023 placement-capacity (owner decision 19) ─────────────────────────────────────────────────────────
+        // what a node's room is judged by, per dimension (CapacityBasis): disk becomes `sold` only after an operator read
+        // `php artisan onhost:capacity:basis`; RAM and CPU stay measured. A panel may override with options.capacity_basis.
+        'capacity_basis' => ['disk' => env('ONHOST_CAPACITY_DISK_BASIS', 'measured'), 'ram' => 'measured', 'cpu' => 'measured'],
+        'disk_sell_ratio' => (float) env('ONHOST_DISK_SELL_RATIO', 0.85), // share of a node's disk that may be sold (panel option disk_sell_ratio overrides)
+        // ── end TASK-0023 placement-capacity ─────────────────────────────────────────────────────────────────────────
         'default_region' => env('ONHOST_DEFAULT_REGION', 'cz1'),
         'hostname_suffix' => env('ONHOST_VM_HOSTNAME_SUFFIX', 'cust.onhost.cz'),
         'web_preview_suffix' => env('ONHOST_WEB_PREVIEW_SUFFIX', 'web.onhost.cz'),

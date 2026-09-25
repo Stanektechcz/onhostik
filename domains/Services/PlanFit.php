@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
+use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\StagingLink;
 use Onhost\Domain\Services\Web\ServiceSites;
@@ -61,6 +64,15 @@ final class PlanFit
         if (($entitlements['staging'] ?? false) === false && StagingLink::query()->where('service_id', $service->id)->exists()) {
             $out[] = ['key' => 'staging', 'have' => 'ano', 'offer' => 'ne',
                 'message' => 'Tarif nenabízí testovací kopii webu a služba ji má. Nejdřív ji odeberte.'];
+        }
+        // dedicated PHP workers need a PHP pool per site; a service on a node-wide pool cannot be given them by a plan change,
+        // and the platform does not move a site to another kind of panel by itself (decision 7). A service that already holds
+        // the plan (a billing-period change, a service placed before the rule) is not refused what it has.
+        $provider = $service->provider_instance_id === null ? '' : (string) (ProviderInstance::query()->whereKey($service->provider_instance_id)->value('provider') ?? '');
+        $executor = (string) (Product::query()->where('key', $service->product_key)->value('executor') ?? '');
+        if ($provider !== '' && $executor !== '' && ! PlacementRules::dedicatedPhp((array) $service->entitlements) && ! PlacementRules::allows($executor, $provider, $entitlements)) {
+            $out[] = ['key' => 'php_workers_dedicated', 'have' => 'sdílené', 'offer' => 'vyhrazené',
+                'message' => 'Tarif s vyhrazenými PHP workery běží na jiném typu serveru, než na kterém je vaše služba; změnu tarifu provede podpora.'];
         }
         $versions = array_map('strval', (array) ($entitlements['php_versions'] ?? []));
         if ($versions !== []) {

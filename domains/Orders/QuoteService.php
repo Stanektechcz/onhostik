@@ -16,6 +16,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\GameConfigurator;
 use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\Region;
+use Onhost\Domain\Provisioning\Scheduling\CartCapacity;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
 use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Limits\LimitRaiseWaiver;
@@ -306,7 +307,7 @@ final class QuoteService
                 ]]);
             }
             if ($change === null) { // a server that no node can take is refused while it is a cart, not after it was paid (H04)
-                $this->assertCapacity($product, app(ServiceService::class)->entitlementsFor($resolved['version'], (array) ($config['options'] ?? []), $product), $config, $organization);
+                $this->assertCapacity($product, app(ServiceService::class)->entitlementsFor($resolved['version'], (array) ($config['options'] ?? []), $product), $config, $organization, (string) $planKey);
                 $this->assertNamesFree($product, $config, $organization, $claimed); // and neither is a name somebody else already serves
             }
             $versions['plans'][] = $resolved['version']->id;
@@ -399,17 +400,14 @@ final class QuoteService
      * @param  array<string,mixed>  $entitlements
      * @param  array<string,mixed>  $config
      */
-    private function assertCapacity(Product $product, array $entitlements, array $config, ?Organization $organization): void
+    private function assertCapacity(Product $product, array $entitlements, array $config, ?Organization $organization, ?string $planKey = null): void
     {
-        $role = ['proxmox' => 'compute', 'pterodactyl' => 'game'][(string) $product->executor] ?? null;
-        if ($role === null || ! config('onhost.provisioning.capacity_gate', true)) {
+        if (! config('onhost.provisioning.capacity_gate', true)) {
             return;
         }
         $region = (string) ($config['region'] ?? config('onhost.provisioning.default_region', 'cz1'));
-        $fits = app(NodeScheduler::class)->canHost([
-            'role' => $role, 'provider' => (string) $product->executor, 'region' => $region, 'sandbox' => NodeScheduler::sandboxFor($organization?->id),
-            'ram_mb' => (int) ($entitlements['ram_mb'] ?? 0), 'cpu_cores' => (int) ($entitlements['vcpu'] ?? 0), 'disk_gb' => (int) ($entitlements['nvme_gb'] ?? 0),
-        ]);
+        // servers since H04, web and managed hosting since TASK-0023 (the plan's placement, its panel rule and the disk it sells)
+        $fits = app(CartCapacity::class)->fits($product, $entitlements, $region, $planKey, NodeScheduler::sandboxFor($organization?->id));
         if ($fits === false) {
             throw new DomainError('capacity_sold_out', "{$product->key} of this size is sold out in {$region} right now. Nothing was ordered or charged; a smaller plan or another location may be available.", 409, ['field' => 'items', 'product' => $product->key, 'region' => $region]);
         }

@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Services\IncludedServices;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Errors\DomainError;
@@ -21,8 +22,11 @@ use Onhost\Platform\Errors\DomainError;
  */
 final class NodeScheduler
 {
+    /** A node busier than this takes no server that asks for CPU (CPU is always measured, decision 19). */
+    public const CPU_LIMIT_PCT = 85.0;
+
     /**
-     * @param  array{region?:string, role:string, provider?:string, ram_mb?:int, cpu_cores?:int, disk_gb?:int, anti_affinity?:list<string>, affinity_failure_domain?:string, exclude_nodes?:list<string>}  $constraints
+     * @param  array{region?:string, role:string, provider?:string, providers?:list<string>, ram_mb?:int, cpu_cores?:int, disk_gb?:int, anti_affinity?:list<string>, affinity_failure_domain?:string, exclude_nodes?:list<string>}  $constraints
      * @return array{node:Node, instance:ProviderInstance, score:float, candidates:list<array{node:string,score:float}>}
      */
     /** Whether an organization is a sandbox tenant (`feature_flags.sandbox`): its services are placed on lab instances (`options.sandbox`). */
@@ -33,6 +37,14 @@ final class NodeScheduler
         }
 
         return (bool) data_get(Organization::query()->find($organizationId)?->feature_flags, 'sandbox', false);
+    }
+
+    /** The panel a node belongs to, typed (the relation is not). */
+    public static function instanceOf(Node $node): ?ProviderInstance
+    {
+        $instance = $node->providerInstance;
+
+        return $instance instanceof ProviderInstance ? $instance : null;
     }
 
     /** Whether a node serves a role: its `role`, or one of the extra roles in `tags.roles` / `tags.ispconfig_roles` (a panel host running web and mail). */
@@ -61,6 +73,7 @@ final class NodeScheduler
         }
         $nodes = $query->get()->filter(fn (Node $n) => self::serves($n, (string) $constraints['role']) && $n->providerInstance !== null && $n->providerInstance->isUsable()
             && (empty($constraints['provider']) || $n->providerInstance->provider === $constraints['provider'])
+            && (empty($constraints['providers']) || in_array(self::instanceOf($n)?->provider, (array) $constraints['providers'], true)) // what the plan sells decides the panel (PlacementRules)
             && ! in_array($n->id, $constraints['exclude_nodes'] ?? [], true)
             && ! in_array($n->name, $constraints['exclude_nodes'] ?? [], true)
             && (bool) data_get($n->providerInstance->options, 'sandbox', false) === (bool) ($constraints['sandbox'] ?? false)); // sandbox tenants land on lab instances only; everyone else never does (audit §5j-9)
@@ -79,32 +92,30 @@ final class NodeScheduler
         $candidates = [];
         $blocked = [];
         foreach ($nodes as $node) {
-            $instance = $node->providerInstance;
             // `usage` is the last measurement. What was placed since — paid and waiting to be built, or built after the sample — is
-            // held on top of it, otherwise every order between two samples is promised the same free space (H04). An instance
-            // with `capacity_basis: sold` is judged by what was sold on the node instead of what its guests happen to use.
-            $basis = $instance instanceof ProviderInstance ? (string) $instance->option('capacity_basis', 'measured') : 'measured';
-            $ramUsed = $basis === 'sold' ? max($held[$node->id]['sold_ram'], 0.0) : $node->use('ram_used_mb') + $held[$node->id]['pending_ram'];
-            $diskUsed = $basis === 'sold' ? max($held[$node->id]['sold_disk'], $node->use('disk_used_gb')) : $node->use('disk_used_gb') + $held[$node->id]['pending_disk'];
-            $sellRatio = (float) ($instance instanceof ProviderInstance ? $instance->option('sell_ratio', config('onhost.provisioning.n_plus_one_sell_ratio', 0.75)) : config('onhost.provisioning.n_plus_one_sell_ratio', 0.75)); // an instance may sell more of its nodes (option sell_ratio)
-            $ramTotal = $node->cap('ram_mb');
+            // held on top of it, otherwise every order between two samples is promised the same free space (H04). Each dimension
+            // is judged by its own basis (CapacityBasis, decision 19): disk may be judged by what was sold on the node.
+            $room = $this->room($node, $held[$node->id], CapacityBasis::for(self::instanceOf($node)));
+            $ramTotal = $room['ram']['total'];
+            $ramUsed = $room['ram']['used'];
             $cpuTotal = $node->cap('cpu_cores');
-            $diskTotal = $node->cap('disk_gb');
+            $diskTotal = $room['disk']['total'];
+            $diskUsed = $room['disk']['used'];
             $ramFree = $ramTotal - $ramUsed;
             $cpuFreePct = 100.0 - $node->use('cpu_pct');
             $diskFree = $diskTotal - $diskUsed;
             // Hard capacity: placement must fit inside the sellable share (N+1 reserve kept on every node).
-            if ($ramTotal > 0 && ($ramUsed + $ramNeed) > $ramTotal * $sellRatio) {
-                $blocked[] = sprintf('%s RAM %d+%d > %d MB (%d %%)', $node->name, (int) $ramUsed, (int) $ramNeed, (int) ($ramTotal * $sellRatio), (int) round($sellRatio * 100));
+            if ($ramTotal > 0 && ($ramUsed + $ramNeed) > $room['ram']['limit']) {
+                $blocked[] = sprintf('%s RAM %d+%d > %d MB (%d %%)', $node->name, (int) $ramUsed, (int) $ramNeed, (int) $room['ram']['limit'], (int) round($room['ram']['ratio'] * 100));
 
                 continue;
             }
-            if ($diskTotal > 0 && ($diskUsed + $diskNeed) > $diskTotal * 0.85) {
-                $blocked[] = sprintf('%s disk %d+%d > %d GB', $node->name, (int) $diskUsed, (int) $diskNeed, (int) ($diskTotal * 0.85));
+            if ($diskTotal > 0 && ($diskUsed + $diskNeed) > $room['disk']['limit']) {
+                $blocked[] = sprintf('%s disk %d+%d > %d GB', $node->name, (int) $diskUsed, (int) $diskNeed, (int) $room['disk']['limit']);
 
                 continue;
             }
-            if ($cpuTotal > 0 && $cpuNeed > 0 && $node->use('cpu_pct') > 85.0) {
+            if ($cpuTotal > 0 && $cpuNeed > 0 && $node->use('cpu_pct') > self::CPU_LIMIT_PCT) {
                 $blocked[] = sprintf('%s CPU %d %%', $node->name, (int) $node->use('cpu_pct'));
 
                 continue;
@@ -204,8 +215,11 @@ final class NodeScheduler
         if ($out === []) {
             return $out;
         }
-        $services = Service::query()->whereIn('node_id', array_keys($out))->whereNotIn('state', [ServiceStateMachine::TERMINATED, ServiceStateMachine::FAILED, ServiceStateMachine::PENDING_PAYMENT])->get(['id', 'node_id', 'state', 'entitlements', 'activated_at']);
+        $services = Service::query()->whereIn('node_id', array_keys($out))->whereNotIn('state', [ServiceStateMachine::TERMINATED, ServiceStateMachine::FAILED, ServiceStateMachine::PENDING_PAYMENT])->get(['id', 'node_id', 'state', 'entitlements', 'activated_at', 'tags']);
         foreach ($services as $service) {
+            if (IncludedServices::isIncluded($service)) {
+                continue; // a further site's share is carved out of its owner's space and a test copy is not sold: counted, they sold the owner's space twice
+            }
             $ram = (float) data_get($service->entitlements, 'ram_mb', 0);
             $disk = (float) data_get($service->entitlements, 'nvme_gb', 0);
             $out[$service->node_id]['sold_ram'] += $ram;
@@ -220,6 +234,44 @@ final class NodeScheduler
         }
 
         return $out;
+    }
+
+    /**
+     * The room of one node per dimension under a basis (the node's own, CapacityBasis::for, unless one is given): the read-only
+     * report (`onhost:capacity:basis`) and the forecast read the same numbers `pick()` decides by.
+     *
+     * @param  array{disk:string, ram:string, cpu:string}|null  $basis
+     * @return array{basis:array{disk:string, ram:string, cpu:string}, ram:array<string,float>, disk:array<string,float>, cpu:array<string,float>}
+     */
+    public function headroom(Node $node, ?array $basis = null): array
+    {
+        $node->loadMissing('providerInstance');
+
+        return $this->room($node, $this->commitments([$node])[$node->id], $basis ?? CapacityBasis::for(self::instanceOf($node)));
+    }
+
+    /**
+     * @param  array{pending_ram:float, pending_disk:float, sold_ram:float, sold_disk:float}  $held
+     * @param  array{disk:string, ram:string, cpu:string}  $basis
+     * @return array{basis:array{disk:string, ram:string, cpu:string}, ram:array<string,float>, disk:array<string,float>, cpu:array<string,float>}
+     */
+    private function room(Node $node, array $held, array $basis): array
+    {
+        $instance = self::instanceOf($node);
+        $ramRatio = (float) ($instance?->option('sell_ratio') ?? config('onhost.provisioning.n_plus_one_sell_ratio', 0.75)); // an instance may sell more of its nodes (option sell_ratio)
+        $ramMeasured = $node->use('ram_used_mb') + $held['pending_ram'];
+        $diskMeasured = $node->use('disk_used_gb') + $held['pending_disk'];
+        // sold disk never drops below what the node stores: what the platform did not create still takes the disk
+        $ramUsed = $basis['ram'] === CapacityBasis::SOLD ? max($held['sold_ram'], 0.0) : $ramMeasured;
+        $diskUsed = $basis['disk'] === CapacityBasis::SOLD ? max($held['sold_disk'], $node->use('disk_used_gb')) : $diskMeasured;
+        $dimension = fn (float $total, float $ratio, float $measured, float $sold, float $used) => ['total' => $total, 'ratio' => $ratio, 'limit' => $total * $ratio, 'measured' => $measured, 'sold' => $sold, 'used' => $used, 'free' => $total * $ratio - $used];
+
+        return [
+            'basis' => $basis,
+            'ram' => $dimension($node->cap('ram_mb'), $ramRatio, $ramMeasured, $held['sold_ram'], $ramUsed),
+            'disk' => $dimension($node->cap('disk_gb'), CapacityBasis::diskSellRatio($instance), $diskMeasured, $held['sold_disk'], $diskUsed),
+            'cpu' => ['total' => $node->cap('cpu_cores'), 'used_pct' => $node->use('cpu_pct'), 'limit_pct' => self::CPU_LIMIT_PCT],
+        ];
     }
 
     /** N+1 sellable capacity of a role/region: total minus the largest node, times the sell ratio. @return array{ram_mb:int, cpu_cores:int, disk_gb:int, nodes:int, largest_node:?string} */

@@ -188,3 +188,10 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 
 Adding an event: publish with `GenericEvent::of(name, aggregateType, aggregateId, payload, organizationId)`,
 add a row here, map it in `NotificationRouter` when a human should see it, and cover it in the domain's tests.
+
+<!-- TASK-0023 placement-capacity: begin -->
+Payload addition (TASK-0023, owner decision 19): every `capacity.forecast.low` row also carries `disk_basis`
+(`measured`/`sold`), `disk_sellable_gb`, `disk_sold_gb` (root services only — included sites and test copies are part
+of their owner's space), `disk_used_gb` and `disk_headroom_gb`; a web or managed pool is also low when its disk is
+judged by what was sold and no headroom is left.
+<!-- TASK-0023 placement-capacity: end -->

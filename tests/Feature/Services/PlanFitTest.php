@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
+use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\PlanFit;
@@ -65,13 +66,18 @@ it('refuses a plan the service does not fit into, before any money moves, and sa
     $plans = collect($this->getJson("/v1/services/{$service->id}/plans")->assertOk()->json('data.plans'));
     expect($plans->firstWhere('plan_key', 'start')['fits'])->toBeFalse()
         ->and($plans->firstWhere('plan_key', 'start')['blockers'][0]['key'])->toBe('sites')
-        ->and($plans->firstWhere('plan_key', 'profi')['fits'])->toBeTrue();
+        // Profi sells dedicated PHP workers, which a site on a node-wide PHP pool cannot get by a plan change (decision 7, TASK-0023)
+        ->and($plans->firstWhere('plan_key', 'profi')['fits'])->toBeFalse()
+        ->and(array_column($plans->firstWhere('plan_key', 'profi')['blockers'], 'key'))->toBe(['php_workers_dedicated']);
 
     // and the cart refuses it: „Tarif nabízí 1 web a služba má 2. Nejdřív odeberte: druhy-web.cz.“
     $this->putJson('/v1/cart', ['items' => [['product_key' => 'web-hosting', 'plan_key' => 'start', 'qty' => 1, 'period' => 'month', 'config' => ['upgrade_of' => $service->id]]], 'commit_months' => 1, 'currency' => 'CZK'])->assertOk();
     $this->postJson('/v1/cart/quote')->assertStatus(409)->assertJsonPath('error', 'plan_change_does_not_fit');
 
-    // the same service fits the bigger plan, and the quote goes through
+    // on a panel with a PHP pool per site the same service fits the bigger plan, and the quote goes through
+    $isp = ProviderInstance::query()->firstOrCreate(['key' => 'ispconfig-shared01'], ['provider' => 'ispconfig', 'name' => 'ISPConfig shared01', 'region_code' => 'cz1', 'base_url' => ISP, 'secret_ref' => 'env://ISPCONFIG_SHARED01', 'state' => 'active', 'capabilities' => ['web.create' => true]]);
+    $service->forceFill(['provider_instance_id' => $isp->id])->save();
+    expect(collect($this->getJson("/v1/services/{$service->id}/plans")->assertOk()->json('data.plans'))->firstWhere('plan_key', 'profi')['fits'])->toBeTrue();
     $this->putJson('/v1/cart', ['items' => [['product_key' => 'web-hosting', 'plan_key' => 'profi', 'qty' => 1, 'period' => 'month', 'config' => ['upgrade_of' => $service->id]]], 'commit_months' => 1, 'currency' => 'CZK'])->assertOk();
     $this->postJson('/v1/cart/quote')->assertOk();
 });

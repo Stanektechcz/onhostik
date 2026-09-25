@@ -177,11 +177,12 @@ final class MetricRegistry
             'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
             'reason' => 'ServiceFeatures shows "snapshots" as a display limit only; ServiceService\'s snapshot action never calls the generic $limit() count check that database.create/ftp.create/cron.create/subdomain.add use, so a VPS can take unlimited snapshots.',
         ],
+        // TASK-0023 placement-capacity (decision 7): kept for the web family only — a web plan that sells it runs only on ISPConfig
         'php_workers_dedicated' => [
-            'entitlement' => ['php_workers_dedicated'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['web', 'managed'],
-            'sources' => ['ispconfig' => null, 'aapanel' => null],
-            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'Only CatalogPresentation adds "(dedicated)" to the wording (web-hosting/profi, eshop/shop-peak); the pm_max_children pool ISPConfig writes is the shared per-site count either way, nothing isolates a dedicated pool.',
+            'entitlement' => ['php_workers_dedicated'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['web'],
+            'sources' => ['ispconfig' => 'IspConfigWebProvider gives every site its own FPM pool (pm=ondemand, pm_max_children = php_workers) and drift-checks it; PlacementRules keeps a plan that sells it on ISPConfig at the placement, the staff pin, the cart, the scheduler and a plan change', 'aapanel' => null],
+            'interval_minutes' => null, 'drives_guard' => false, 'status' => self::ENFORCED_ONLY,
+            'reason' => 'Not kept for the managed family: eshop/shop-peak runs on aaPanel (one pool per PHP version for the whole node) and is not moved to ISPConfig, where its WAF rate limit and the client-wide site count would break. Listed by onhost:doctor (capacity) and onhost:capacity:basis until the owner decides.',
         ],
         'spam_filter' => [
             'entitlement' => ['spam_filter'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::NONE, 'families' => ['mail'],
