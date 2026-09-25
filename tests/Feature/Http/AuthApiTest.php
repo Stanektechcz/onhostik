@@ -5,12 +5,15 @@ declare(strict_types=1);
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Notification;
 use Onhost\Domain\Identity\Models\EmailVerificationToken;
+use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\Notifications\PasswordResetNotification;
 use Onhost\Domain\Identity\Notifications\VerifyEmailNotification;
 use Onhost\Domain\Identity\StepUp\Totp;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Platform\Audit\AuditEvent;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Outbox\OutboxMessage;
 
 const STRONG = 'Correct-Horse-Battery-9-Staple';
@@ -134,6 +137,35 @@ it('resets a password through a single-use token and revokes sessions', function
     $this->postJson('/v1/auth/password/reset/confirm', ['token' => $token, 'password' => STRONG])->assertUnprocessable(); // used
     $this->postJson('/v1/auth/login', ['email' => 'reset@example.cz', 'password' => STRONG])->assertOk();
     expect(OutboxMessage::query()->where('name', 'security.password_changed')->exists())->toBeTrue();
+});
+
+it('revokes every personal API token of the user on a forgotten-password reset, and nobody else\'s (owner decision 14)', function () {
+    Notification::fake();
+    [$user, $org] = $this->customerWithOrganization(['email' => 'reset-tokens@example.cz']);
+    [, $second] = $this->customerWithOrganization();
+    app(OrganizationService::class)->attachMember($second, $user, 'developer', CommandContext::system('test'), true);
+    $user->createToken('CI deploy', ['services:read'])->accessToken->forceFill(['organization_id' => $org->id])->save();
+    $user->createToken('druhá organizace', ['services:read'])->accessToken->forceFill(['organization_id' => $second->id])->save();
+    $machine = ServiceAccount::query()->create(['organization_id' => $org->id, 'name' => 'Terraform', 'state' => 'active']);
+    $machine->createToken('terraform', ['services:read']);
+    [$colleague] = $this->customerWithOrganization();
+    $colleague->createToken('kolega', ['services:read']);
+
+    $this->postJson('/v1/auth/password/reset', ['email' => 'reset-tokens@example.cz'])->assertOk();
+    $token = null;
+    Notification::assertSentTo($user, PasswordResetNotification::class, function (PasswordResetNotification $n) use (&$token) {
+        $token = $n->token;
+
+        return true;
+    });
+    $this->postJson('/v1/auth/password/reset/confirm', ['token' => $token, 'password' => STRONG])->assertOk();
+
+    expect($user->tokens()->whereNull('revoked_at')->count())->toBe(0)
+        ->and($machine->tokens()->whereNull('revoked_at')->count())->toBe(1)
+        ->and($colleague->tokens()->whereNull('revoked_at')->count())->toBe(1);
+    $event = OutboxMessage::query()->where('name', 'security.password_changed')->sole();
+    expect($event->payload['api_access'])->toBe('revoked')->and($event->payload['api_access_count'])->toBe(2);
+    expect(AuditEvent::query()->where('action', 'auth.password_reset.confirm')->sole()->detail)->toMatchArray(['api_access' => 'revoked', 'api_access_count' => 2]);
 });
 
 it('refuses staff accounts without MFA and unauthenticated access to protected routes', function () {

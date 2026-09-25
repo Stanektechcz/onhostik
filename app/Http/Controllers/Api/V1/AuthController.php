@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
+use Onhost\Domain\Identity\ApiAccessRevocation;
 use Onhost\Domain\Identity\Models\EmailVerificationToken;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\Models\User;
@@ -184,7 +185,7 @@ final class AuthController extends ApiController
         return response()->json(['data' => ['sent' => true]]); // never reveals whether the address exists
     }
 
-    public function confirmPasswordReset(Request $request, StepUpService $stepUp, AuditRecorder $audit, OutboxPublisher $outbox): JsonResponse
+    public function confirmPasswordReset(Request $request, StepUpService $stepUp, AuditRecorder $audit, OutboxPublisher $outbox, ApiAccessRevocation $revocation): JsonResponse
     {
         $data = $request->validate(['token' => ['required', 'string'], 'password' => ['required', Password::min(12)->letters()->numbers()->uncompromised()]]);
         $row = EmailVerificationToken::query()->where('token_hash', hash('sha256', $data['token']))->where('purpose', 'reset')->whereNull('used_at')->where('expires_at', '>', now())->first();
@@ -195,9 +196,9 @@ final class AuthController extends ApiController
         $user->forceFill(['password' => $data['password'], 'password_changed_at' => now(), 'failed_login_attempts' => 0, 'locked_until' => null, 'remember_token' => Str::random(60)])->save();
         $row->forceFill(['used_at' => now()])->save();
         $stepUp->revokeAll($user);
-        $user->tokens()->whereNull('revoked_at')->update(['revoked_at' => now()]);
-        $audit->record(new CommandContext('user', $user->id, ip: $request->ip()), 'auth.password_reset.confirm', 'succeeded', [], 'user', $user->id);
-        $outbox->publish(GenericEvent::of('security.password_changed', 'user', $user->id, ['email' => $user->email, 'ip' => $request->ip(), 'api_access' => 'revoked']));
+        $revoked = $revocation->revokePersonalTokens($user); // a reset always ends every personal API token (no switch: whoever lost the password lost it)
+        $audit->record(new CommandContext('user', $user->id, ip: $request->ip()), 'auth.password_reset.confirm', 'succeeded', ['api_access' => 'revoked', 'api_access_count' => $revoked], 'user', $user->id);
+        $outbox->publish(GenericEvent::of('security.password_changed', 'user', $user->id, ['email' => $user->email, 'ip' => $request->ip(), 'api_access' => 'revoked', 'api_access_count' => $revoked]));
         // The single-use link plus the new password signs the browser in — for an account whose only factor is the password.
         // With an authenticator enrolled (and for staff, who must have one) the link proves the mailbox and nothing more:
         // signing in here would make a read of somebody's mail enough to take over an account the second factor protects.

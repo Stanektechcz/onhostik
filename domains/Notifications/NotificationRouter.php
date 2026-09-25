@@ -218,7 +218,7 @@ final class NotificationRouter
             'dns.zone.committed' => $this->customer($m, 'dns', "DNS {$p['name']}: verze {$p['version']} publikována", ($p['records'] ?? 0).' záznamů', '/panel/domeny'),
             'security.login' => $this->user($m, 'security.login', 'Nové přihlášení', ($p['ip'] ?? '').' · '.($p['user_agent'] ?? ''), '/panel/nastaveni', 'info', 'security-login', ['ip' => $p['ip'] ?? '', 'zarizeni' => $p['user_agent'] ?? '', 'cas' => $p['at'] ?? now()->toIso8601String(), 'url' => "{$portal}/panel/nastaveni"]),
             'security.mfa' => $this->user($m, 'security.mfa', 'Dvoufázové ověření změněno', (string) ($p['change'] ?? ''), '/panel/nastaveni', 'warn', 'security-mfa', ['zmena' => $p['change'] ?? '', 'url' => "{$portal}/panel/nastaveni"]),
-            // a reset revokes the API tokens, a change keeps them — the mail says which, and how many stay valid (it used to say "signed out" for both)
+            // a reset revokes the API tokens, and so does a change unless the operator switch `onhost.identity.password_change_revokes_api_access` is off (TASK-0021) — the mail says which, and how many stay valid
             'security.password_changed' => ($p['api_access'] ?? 'revoked') === 'kept'
                 ? $this->user($m, 'security.mfa', 'Heslo bylo změněno', trim(($p['ip'] ?? '').' · API tokeny zůstávají platné: '.(int) ($p['api_access_count'] ?? 0)), '/panel/nastaveni', 'warn', 'security-password-kept', ['ip' => $p['ip'] ?? '', 'pocet' => (string) (int) ($p['api_access_count'] ?? 0), 'url' => "{$portal}/panel/nastaveni"])
                 : $this->user($m, 'security.mfa', 'Heslo bylo změněno', ($p['ip'] ?? ''), '/panel/nastaveni', 'warn', 'security-password', ['ip' => $p['ip'] ?? '', 'url' => "{$portal}/panel/nastaveni"]),
