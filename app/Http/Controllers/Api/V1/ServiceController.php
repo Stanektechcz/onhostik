@@ -153,7 +153,7 @@ final class ServiceController extends ApiController
         $usage = $services->usage($model);
 
         // the plan's total (files + databases + mail) as the usage watch last stored it (TASK-0023)
-        return response()->json(['data' => ['metrics' => $usage->metrics, 'observed_at' => $usage->observedAt, 'disk_total' => WebDiskTotal::held($model)]]);
+        return response()->json(['data' => ['metrics' => $usage->metrics, 'observed_at' => $usage->observedAt, 'disk_total' => WebDiskTotal::shownFor($model)]]);
     }
 
     public function operations(Request $request, string $service): JsonResponse

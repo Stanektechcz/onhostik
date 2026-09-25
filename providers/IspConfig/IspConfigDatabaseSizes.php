@@ -29,9 +29,15 @@ trait IspConfigDatabaseSizes
             // without the client the panel would be asked about every client's databases
             throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'The site has no ISPConfig client on record; refusing to read database sizes.');
         }
+        $domainId = ctype_digit($site->remoteId) ? (int) $site->remoteId : 0;
+        if ($domainId <= 0) {
+            // parent_domain_id 0 would match the client's databases attached to no site — possibly historical ones
+            throw new ProviderException('ispconfig', ProviderErrorCode::VALIDATION, 'The site has no usable ISPConfig domain id; refusing to read database sizes.');
+        }
         $names = [];
-        foreach ((array) $this->api->call('sites_database_get', ['primary_id' => ['parent_domain_id' => (int) $site->remoteId]]) as $row) {
-            if (is_array($row) && (string) ($row['database_name'] ?? '') !== '' && (int) ($row['parent_domain_id'] ?? $site->remoteId) === (int) $site->remoteId) {
+        foreach ((array) $this->api->call('sites_database_get', ['primary_id' => ['parent_domain_id' => $domainId]]) as $row) {
+            // a row counts only when the panel itself says it belongs to this domain; a missing parent is not a match
+            if (is_array($row) && (string) ($row['database_name'] ?? '') !== '' && is_numeric($row['parent_domain_id'] ?? null) && (int) $row['parent_domain_id'] === $domainId) {
                 $names[] = (string) $row['database_name'];
             }
         }

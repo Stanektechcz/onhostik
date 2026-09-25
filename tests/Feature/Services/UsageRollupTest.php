@@ -69,8 +69,10 @@ it('prunes by the owner\'s retention: raw 45 days, daily 400 days, monthly for e
     $ancientMonth = usageRollupRow($service, ServiceUsageSample::GRANULARITY_MONTH, $now->subYears(5)->startOfMonth(), null);
 
     expect(app(UsageRollup::class)->prune($now))->toBe(['raw' => 1, 'daily' => 1]);
-    expect(ServiceUsageSample::query()->pluck('id')->sort()->values()->all())->toBe(collect([$keptRaw->id, $keptDay->id, $ancientMonth->id])->sort()->values()->all())
-        ->and(ServiceUsageSample::query()->whereKey($oldRaw->id)->exists())->toBeFalse()->and(ServiceUsageSample::query()->whereKey($oldDay->id)->exists())->toBeFalse();
+    expect(ServiceUsageSample::query()->whereKey([$keptRaw->id, $keptDay->id, $ancientMonth->id])->count())->toBe(3)
+        ->and(ServiceUsageSample::query()->whereKey($oldRaw->id)->exists())->toBeFalse()->and(ServiceUsageSample::query()->whereKey($oldDay->id)->exists())->toBeFalse()
+        // the pruned raw row's day was rolled first: its day row stays (daily retention) instead of the day being lost
+        ->and(ServiceUsageSample::query()->where('granularity', ServiceUsageSample::GRANULARITY_DAY)->where('dedupe_key', $service->id.':disk:day:'.$now->subDays(46)->format('Y-m-d'))->exists())->toBeTrue();
     expect(app(UsageRollup::class)->prune($now))->toBe(['raw' => 0, 'daily' => 0]); // idempotent
     expect(config('onhost.metering.retention'))->toMatchArray(['raw_days' => 45, 'daily_days' => 400]);
 });
@@ -84,4 +86,37 @@ it('runs the rollup and the prune from the scheduler, and a switched-off rule re
     $ledger->setEnabled('metering.prune', false, 'test');
     $this->artisan('onhost:metering:prune')->expectsOutputToContain('switched off')->assertSuccessful();
     expect($ledger->last('metering.prune')['stats'])->toBe(['skipped' => 1]);
+});
+
+it('never prunes below the retention floor, even when configured lower', function () {
+    config(['onhost.metering.retention.raw_days' => 1, 'onhost.metering.retention.daily_days' => 5]);
+
+    expect(UsageRollup::rawDays())->toBe(3)->and(UsageRollup::dailyDays())->toBe(70);
+
+    [, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'aapanel');
+    $now = CarbonImmutable::parse('2026-09-20 10:00:00');
+    $recentRaw = usageRollupRow($service, ServiceUsageSample::GRANULARITY_SAMPLE, $now->subDays(2));
+    $recentDay = usageRollupRow($service, ServiceUsageSample::GRANULARITY_DAY, $now->subDays(60)->startOfDay());
+
+    expect(app(UsageRollup::class)->prune($now))->toBe(['raw' => 0, 'daily' => 0])
+        ->and(ServiceUsageSample::query()->whereKey([$recentRaw->id, $recentDay->id])->count())->toBe(2);
+});
+
+it('rolls a day into its day and month rows before pruning its raw samples, so a stalled rollup loses nothing', function () {
+    [, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'aapanel');
+    $recorder = app(UsageRecorder::class);
+    $now = CarbonImmutable::parse('2026-09-20 10:00:00');
+    $day = $now->subDays(50)->startOfDay(); // never rolled: the rollup was switched off or failing for weeks
+    $recorder->record($service, [UsageReading::measured('disk', 10, 100, 'quotas')], $day->addHours(2));
+    $recorder->record($service, [UsageReading::measured('disk', 40, 100, 'quotas')], $day->addHours(7));
+    expect(ServiceUsageSample::query()->where('granularity', '!=', ServiceUsageSample::GRANULARITY_SAMPLE)->count())->toBe(0);
+
+    expect(app(UsageRollup::class)->prune($now)['raw'])->toBe(2);
+
+    $kept = ServiceUsageSample::query()->where('granularity', ServiceUsageSample::GRANULARITY_DAY)->sole();
+    expect($kept->value)->toBe(40)->and($kept->samples_total)->toBe(2)->and($kept->window_start->toDateString())->toBe($day->toDateString())
+        ->and(ServiceUsageSample::query()->where('granularity', ServiceUsageSample::GRANULARITY_MONTH)->sole()->value)->toBe(40)
+        ->and(ServiceUsageSample::query()->where('granularity', ServiceUsageSample::GRANULARITY_SAMPLE)->count())->toBe(0);
 });

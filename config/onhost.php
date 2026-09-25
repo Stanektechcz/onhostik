@@ -691,6 +691,10 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'web_disk_total' => [
             'enforce_from' => env('ONHOST_WEB_DISK_TOTAL_ENFORCE_FROM') ?: null,
             'notice_min_days' => (int) env('ONHOST_WEB_DISK_TOTAL_NOTICE_DAYS', 30),
+            // read ISPConfig database sizes (databasequota_get_by_user) only once verified on a TEST panel (release step 2)
+            'database_sizes' => (bool) env('ONHOST_WEB_DISK_TOTAL_DATABASE_SIZES', false),
+            // enforce_from counts only once the operator confirmed databases and mail lie outside hd_quota (release step 3)
+            'parts_verified' => (bool) env('ONHOST_WEB_DISK_TOTAL_PARTS_VERIFIED', false),
         ],
         // ── end TASK-0023 web-disk-total ──
     ],

@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Services\Metering\AnnounceDiskTotalCommand;
+use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Commands\CommandBus;
@@ -39,7 +41,7 @@ function noticeWebHosting(Organization $org, int $gb, string $state = ServiceSta
 
 function noticeDate(int $days): void
 {
-    config(['onhost.metering.web_disk_total.enforce_from' => $days === 0 ? null : now()->addDays($days)->toDateString(), 'onhost.metering.web_disk_total.notice_min_days' => 30]);
+    config(['onhost.metering.web_disk_total.enforce_from' => $days === 0 ? null : now()->addDays($days)->toDateString(), 'onhost.metering.web_disk_total.notice_min_days' => 30, 'onhost.metering.web_disk_total.parts_verified' => true]);
 }
 
 it('lists who would be told and writes nothing on a dry run', function () {
@@ -116,4 +118,61 @@ it('tells only the services it is given, and refuses a customer who tries to sen
     expect(fn () => app(CommandBus::class)->dispatch(new AnnounceDiskTotalCommand($org->id, 'disk-total-notice:'.$other->id.':user', ['service_id' => $other->id, 'effective' => now()->addDays(45)->toDateString()]), $this->contextFor($user, $org)))
         ->toThrow(DomainError::class);
     expect(data_get($other->fresh()->tags, 'usage_notices'))->toBeNull();
+});
+
+it('refuses a notice whose date does not match the configured enforcement date', function () {
+    [, $org] = $this->customerWithOrganization();
+    $service = noticeWebHosting($org, 60);
+    noticeDate(45);
+
+    // a real date, far enough ahead, but not the one the operator configured: the record would never count
+    expect(fn () => app(CommandBus::class)->dispatch(new AnnounceDiskTotalCommand($org->id, 'disk-total-notice:'.$service->id.':wrong', ['service_id' => $service->id, 'effective' => now()->addDays(46)->toDateString()]),
+        CommandContext::system('operator:disk-total-notice')))->toThrow(DomainError::class, 'configured enforcement date');
+    expect(data_get($service->fresh()->tags, 'usage_notices'))->toBeNull()
+        ->and(OutboxMessage::query()->where('name', 'service.disk_total.announced')->count())->toBe(0);
+});
+
+it('refuses a notice for a service of another organization', function () {
+    [, $orgA] = $this->customerWithOrganization();
+    [, $orgB] = $this->customerWithOrganization();
+    $foreign = noticeWebHosting($orgB, 60);
+    noticeDate(45);
+
+    expect(fn () => app(CommandBus::class)->dispatch(new AnnounceDiskTotalCommand($orgA->id, 'disk-total-notice:'.$foreign->id.':cross', ['service_id' => $foreign->id, 'effective' => now()->addDays(45)->toDateString()]),
+        CommandContext::system('operator:disk-total-notice')))->toThrow(DomainError::class, 'Only a paying web service');
+    expect(data_get($foreign->fresh()->tags, 'usage_notices'))->toBeNull()
+        ->and(OutboxMessage::query()->where('name', 'service.disk_total.announced')->count())->toBe(0);
+});
+
+it('skips an unknown or non-web service id given with --service, telling nobody', function () {
+    [, $org] = $this->customerWithOrganization();
+    $mail = featureMailService($org, 'posta-notice.cz');
+    noticeDate(45);
+
+    expect(Artisan::call('onhost:usage:disk-total-notice', ['--send' => true, '--service' => ['not-a-real-id', $mail->id]]))->toBe(0);
+    expect(Artisan::output())->toContain('listed 0')->toContain('announced 0')
+        ->and(OutboxMessage::query()->where('name', 'service.disk_total.announced')->count())->toBe(0);
+});
+
+it('refuses to send while the operator has not confirmed how the parts are measured', function () {
+    [, $org] = $this->customerWithOrganization();
+    $service = noticeWebHosting($org, 60);
+    noticeDate(45);
+    config(['onhost.metering.web_disk_total.parts_verified' => false]);
+
+    // a date alone is not enough: until databases and mail are confirmed outside the files quota the total may count twice
+    expect(Artisan::call('onhost:usage:disk-total-notice', ['--send' => true]))->toBe(1);
+    expect(Artisan::output())->toContain('ONHOST_WEB_DISK_TOTAL_PARTS_VERIFIED');
+    expect(fn () => app(CommandBus::class)->dispatch(new AnnounceDiskTotalCommand($org->id, 'disk-total-notice:'.$service->id.':unverified', ['service_id' => $service->id, 'effective' => now()->addDays(45)->toDateString()]),
+        CommandContext::system('operator:disk-total-notice')))->toThrow(DomainError::class);
+    expect(data_get($service->fresh()->tags, 'usage_notices'))->toBeNull()
+        ->and(WebDiskTotal::enforceFrom())->toBeNull();
+});
+
+it('keeps the notice an ordinary operator command: no step-up, no second approver', function () {
+    $command = new AnnounceDiskTotalCommand('org', 'disk-total-notice:x:y', ['service_id' => 'x', 'effective' => 'y']);
+
+    // a risk bump (step-up or four-eyes) would silently block the operator's --send run in production
+    expect($command->riskLevel())->toBe(PermissionCatalog::NORMAL)
+        ->and($command->requiresStepUp())->toBeFalse()->and($command->requiresApproval())->toBeFalse();
 });

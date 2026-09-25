@@ -87,3 +87,35 @@ it('refuses to read database sizes for a mail domain or without a client', funct
         ->and(fn () => $adapter->databaseSizes(new ResourceRef('web_domain', '7', '1', [])))->toThrow(ProviderException::class)
         ->and(collect($calls)->pluck(0)->all())->not->toContain('databasequota_get_by_user');
 });
+
+it('refuses a site without a usable ISPConfig domain id, which would match the client\'s databases attached to no site', function () {
+    $calls = [];
+    dbSizeFake($calls, []);
+    $adapter = dbSizeAdapter();
+
+    foreach (['', '0', 'abc', '-3', '7abc'] as $bad) {
+        expect(fn () => $adapter->databaseSizes(new ResourceRef('web_domain', $bad, '1', ['client_id' => 3])))->toThrow(ProviderException::class);
+    }
+    expect($calls)->toBe([]); // not even a login
+});
+
+it('counts only rows ISPConfig puts under this very domain, never a row that does not say where it belongs', function () {
+    $calls = [];
+    Http::fake(function ($request) use (&$calls) {
+        $function = (string) parse_url($request->url(), PHP_URL_QUERY);
+        $calls[] = $function;
+
+        return Http::response(match ($function) {
+            'login' => ['code' => 'ok', 'message' => '', 'response' => 'sess-db-size'],
+            'sites_database_get' => ['code' => 'ok', 'message' => '', 'response' => [
+                ['database_id' => 11, 'database_name' => 'c3shop', 'parent_domain_id' => 7],
+                ['database_id' => 14, 'database_name' => 'c3orphan'], // no parent_domain_id: an older panel or a filter it ignored
+                ['database_id' => 15, 'database_name' => 'c3other', 'parent_domain_id' => 0],
+            ]],
+            'databasequota_get_by_user' => ['code' => 'ok', 'message' => '', 'response' => [['database_name' => 'c3shop', 'used_raw' => 100], ['database_name' => 'c3orphan', 'used_raw' => 900], ['database_name' => 'c3other', 'used_raw' => 800]]],
+            default => ['code' => 'remote_fault', 'message' => "unexpected {$function}", 'response' => false],
+        });
+    });
+
+    expect(dbSizeAdapter()->databaseSizes(new ResourceRef('web_domain', '7', '1', ['client_id' => 3])))->toBe([['name' => 'c3shop', 'used_bytes' => 100]]);
+});

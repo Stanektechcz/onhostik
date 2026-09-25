@@ -37,7 +37,9 @@ SFTP (`SftpTransport`, rooted at `<home>/web`); `ensureAgent()` is asynchronous 
 `databasequota_get_by_user` (TASK-0023 web-disk-total, `DatabaseSizeCapable::databaseSizes()`: sizes per client from the
 server monitor's `database_size` data, narrowed to the databases `sites_database_get` lists under the site's own
 `parent_domain_id`, `used_raw` before `used`, a database not yet measured is null; the remote user needs the function
-group that grants it — unverified on the live panels, a refusal leaves the plan total `partial`),
+group that grants it — unverified on the live panels, a refusal leaves the plan total `partial`; not called at all until
+`ONHOST_WEB_DISK_TOTAL_DATABASE_SIZES=true`, and a site whose remote id is not a positive domain id or a row without its
+own `parent_domain_id` is never counted),
 `sites_web_domain_backup` (`primary_id` = the **backup's** id, `backup_download` / `backup_restore`, only ids from the site's own list — docs/runbooks/backups.md; the panel has no "back up now", `siteFeatures()['backup_on_demand']` is false) downloads, `client_login_get` for the staff panel link, and the mail functions
 `mail_forward_*`, `mail_catchall_*`, `mail_user_get/update` (autoresponder — merged into the stored record, so the backup fields survive), `mail_policy_get`,
 `mail_spamfilter_user_*`, `mail_spamfilter_whitelist/blacklist_*`, `mail_user_filter_*`, `mail_mailinglist_*`,

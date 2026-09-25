@@ -33,7 +33,8 @@ final class UsageDiskTotalNotice extends Command
         $send = (bool) $this->option('send');
         $from = WebDiskTotal::enforceFrom();
         if ($send && ($from === null || $from->lessThan(now()->startOfDay()->addDays(WebDiskTotal::noticeDays())))) {
-            $this->error('No notice sent: set onhost.metering.web_disk_total.enforce_from (ONHOST_WEB_DISK_TOTAL_ENFORCE_FROM) to a date at least '.WebDiskTotal::noticeDays().' days ahead first.');
+            $this->error('No notice sent: set onhost.metering.web_disk_total.enforce_from (ONHOST_WEB_DISK_TOTAL_ENFORCE_FROM) to a date at least '.WebDiskTotal::noticeDays().' days ahead first,'
+                .' and confirm the parts are measured without double counting (ONHOST_WEB_DISK_TOTAL_PARTS_VERIFIED=true; without it the date counts for nobody).');
 
             return self::FAILURE;
         }

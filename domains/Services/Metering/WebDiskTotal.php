@@ -110,6 +110,24 @@ final class WebDiskTotal
         return is_array($held) ? $held : null;
     }
 
+    /**
+     * What a reader of `$service` is shown of the plan total. On the paying service: all of it. On an included site —
+     * which can be shared on its own (`svc_view`) — the plan's figures and that site's own row only: never the hostnames
+     * and sizes of the sibling sites or the test copies (review round 1, sharing boundary).
+     *
+     * @return array<string,mixed>|null
+     */
+    public static function shownFor(Service $service): ?array
+    {
+        $held = self::held($service);
+        if ($held === null || (string) self::ownerOf($service)->id === (string) $service->id) {
+            return $held;
+        }
+        $own = array_values(array_filter((array) ($held['parts'] ?? []), fn (mixed $part) => is_array($part) && (string) ($part['service_id'] ?? '') === (string) $service->id));
+
+        return array_replace($held, ['parts' => $own, 'staging' => []]);
+    }
+
     /** What the plan sells as space: the plan's GB plus a mail add-on's quota. The one place a paid limit raise must extend. */
     public static function limitBytes(Service $owner): ?int
     {
@@ -122,11 +140,16 @@ final class WebDiskTotal
         return $gb * 1024 ** 3 + max(0, (int) ($entitlements['quota_mb'] ?? 0)) * 1024 ** 2;
     }
 
-    /** The configured date from which the total counts (null = never, also for a value that is not a date). */
+    /**
+     * The configured date from which the total counts (null = never, also for a value that is not a date). A date alone
+     * is not enough: the operator must also confirm (`parts_verified`) that databases and mail lie outside the files
+     * quota and are read as the release steps say — else the total could count a part twice and refuse, or upgrade
+     * from credit, a customer who is within the plan.
+     */
     public static function enforceFrom(): ?CarbonImmutable
     {
         $value = trim((string) config('onhost.metering.web_disk_total.enforce_from', ''));
-        if ($value === '') {
+        if ($value === '' || config('onhost.metering.web_disk_total.parts_verified', false) !== true) {
             return null;
         }
         try {
@@ -238,7 +261,7 @@ final class WebDiskTotal
     /** What the quota listing shows next to the files: the held total and from when it counts. @return array{total: array<string,mixed>|null, total_enforced_from: string|null} */
     public static function display(Service $service): array
     {
-        return ['total' => self::held($service), 'total_enforced_from' => self::enforcementDate($service)];
+        return ['total' => self::shownFor($service), 'total_enforced_from' => self::enforcementDate($service)];
     }
 
     /**
@@ -293,6 +316,10 @@ final class WebDiskTotal
             $adapter = $this->features->adapterFor($site);
             if (! $adapter instanceof DatabaseSizeCapable) {
                 return ['value' => null, 'complete' => false, 'reason' => 'panel_reports_no_database_size'];
+            }
+            // off until the operator verified the read on a test panel: its faults would count against the panel's breaker every hour
+            if (config('onhost.metering.web_disk_total.database_sizes', false) !== true) {
+                return ['value' => null, 'complete' => false, 'reason' => 'database_size_read_off'];
             }
             $rows = $adapter->databaseSizes($this->features->refFor($site));
         } catch (Throwable $e) {

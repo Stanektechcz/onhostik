@@ -2,9 +2,12 @@
 
 declare(strict_types=1);
 
+use Database\Seeders\NotificationTemplateSeeder;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
+use Onhost\Domain\Services\Access\ServiceAccessService;
 use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -14,6 +17,7 @@ use Onhost\Domain\Services\PlanFit;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\UsageGuard;
 use Onhost\Domain\Services\UsageWatch;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
@@ -94,6 +98,7 @@ function wdtIncludedSite(Service $owner, string $domain, int $domainId, bool $st
 function wdtOwner(Organization $org): array
 {
     $owner = featureWebService($org, 'ispconfig');
+    config(['onhost.metering.web_disk_total.database_sizes' => true]); // the operator verified the ISPConfig read (release step 2)
     wdtMailDomain($owner, 'shop.cz', 900);
     wdtMailDomain($owner, 'shop.sk', 901);
     $state = ['calls' => [], 'quota' => [7 => 25], 'dbs' => [7 => ['c3shop']], 'sizes' => ['c3shop' => 20, 'c3legacy' => 30],
@@ -114,7 +119,7 @@ function wdtAaHosting(Organization $org): Service
 /** Sets the enforcement date and the notice the service got. */
 function wdtEnforce(?string $from, ?Service $noticed = null, ?string $sentAt = null): void
 {
-    config(['onhost.metering.web_disk_total.enforce_from' => $from, 'onhost.metering.web_disk_total.notice_min_days' => 30]);
+    config(['onhost.metering.web_disk_total.enforce_from' => $from, 'onhost.metering.web_disk_total.notice_min_days' => 30, 'onhost.metering.web_disk_total.parts_verified' => true]);
     if ($noticed !== null) {
         $noticed->forceFill(['tags' => array_merge((array) $noticed->tags, ['usage_notices' => ['disk_total' => ['sent_at' => $sentAt, 'effective' => $from]]])])->save();
     }
@@ -353,4 +358,78 @@ it('shows the parts and the total in the panel quota tab through the surface sea
     expect($tools)->toContain("var t = q.total, nm = function (v) { return v == null ? _('nezměřeno', 'not measured') : bytes(v); };")
         ->toContain("_('Celkem z tarifu', 'Plan total')")->toContain("_(' se limit tarifu počítá ze součtu', ' the plan limit counts the total')")
         ->and($workbench)->toContain("disk_total: _('prostor celkem', 'storage in total')");
+});
+
+it('does not refuse an included site on its owner\'s full total once that total is older than a day', function () {
+    [, $org] = $this->customerWithOrganization();
+    [$owner] = wdtOwner($org);
+    $blog = wdtIncludedSite($owner, 'blog.shop.cz', 8);
+    wdtEnforce(now()->subDay()->toDateString(), $owner, now()->subDays(40)->toIso8601String());
+    $stale = ['files' => 50 * WDT_GB, 'databases' => 10 * WDT_GB, 'mail' => 0, 'total' => 60 * WDT_GB, 'limit' => 50 * WDT_GB, 'pct' => 120, 'quality' => 'measured', 'unavailable' => [],
+        'checked_at' => now()->subHours(UsageWatch::FRESH_HOURS + 1)->toIso8601String()];
+    $owner->forceFill(['tags' => array_merge((array) $owner->tags, ['usage' => ['level' => 'full', 'metrics' => [], 'checked_at' => now()->toIso8601String(), 'disk_total' => $stale]])])->save();
+
+    // the owner-total path decays like the service's own metrics: 27 hours old at 120 % is not acted on
+    expect(WebDiskTotal::fullFor($blog->fresh()))->toBeNull();
+    UsageGuard::assertRoomFor($blog->fresh(), 'file.save'); // does not throw
+});
+
+it('shows a guest of one included site the plan total and that site\'s own part, never the sibling sites or the test copies', function () {
+    $this->seed(NotificationTemplateSeeder::class);
+    [$owner, $org] = $this->customerWithOrganization();
+    [$shop, $state] = wdtOwner($org);
+    $blog = wdtIncludedSite($shop, 'blog.shop.cz', 8);
+    $secret = wdtIncludedSite($shop, 'tajny-projekt.cz', 10);
+    $staging = wdtIncludedSite($shop, 'shop-staging.web.onhost.cz', 9, true);
+    $state['quota'] = [7 => 10, 8 => 5, 9 => 7, 10 => 3];
+    $state['dbs'] = [7 => ['c3shop'], 8 => ['c3blog'], 9 => ['c3stage'], 10 => ['c3secret']];
+    $state['sizes'] = ['c3shop' => 1, 'c3blog' => 2, 'c3stage' => 3, 'c3secret' => 4];
+    $state['mail'] = [];
+    wdtIspFake($state);
+    app(UsageWatch::class)->run();
+    expect(collect(data_get($shop->fresh()->tags, 'usage.disk_total.parts'))->pluck('service_id')->all())->toBe([$shop->id, $blog->id, $secret->id]);
+
+    $guest = $this->customer(['email' => 'blog-agentura@example.cz']);
+    app(OrganizationService::class)->attachMember($org, $guest, 'guest', CommandContext::system('test'), true);
+    app(ServiceAccessService::class)->share($org, $blog, 'blog-agentura@example.cz', ['view'], $this->contextFor($owner, $org, 'totp'));
+    $this->actingAs($guest, 'sanctum');
+    $this->getJson("/v1/services/{$shop->id}/usage", ['X-Organization' => $org->id])->assertForbidden();
+
+    $shown = $this->getJson("/v1/services/{$blog->id}/usage", ['X-Organization' => $org->id])->assertOk()->json('data.disk_total');
+    $quotas = (array) app(ServiceFeatures::class)->resources($blog->fresh(), 'quotas', true)['total'];
+    foreach ([$shown, $quotas] as $total) {
+        $everything = (string) json_encode($total);
+        expect($total)->toMatchArray(['total' => 25 * WDT_GB, 'limit' => 50 * WDT_GB, 'quality' => 'measured'])
+            ->and(collect($total['parts'])->pluck('service_id')->all())->toBe([$blog->id])
+            ->and($total['staging'])->toBe([])
+            ->and($everything)->not->toContain('tajny-projekt.cz')->not->toContain($secret->id)->not->toContain('shop-staging')->not->toContain($staging->id);
+    }
+
+    // the paying service itself still shows every site of its plan
+    expect(collect(app(ServiceFeatures::class)->resources($shop->fresh(), 'quotas', true)['total']['parts'])->pluck('service_id')->all())->toBe([$shop->id, $blog->id, $secret->id]);
+});
+
+it('reads no ISPConfig database size until the operator switches the read on, and says why', function () {
+    [, $org] = $this->customerWithOrganization();
+    [$owner, $state] = wdtOwner($org);
+    config(['onhost.metering.web_disk_total.database_sizes' => false]);
+    wdtIspFake($state);
+
+    $total = app(WebDiskTotal::class)->measure($owner);
+
+    // the function is unverified live, and its faults would count against the panel's breaker on every hourly visit
+    expect($total['databases'])->toBeNull()->and($total['unavailable'])->toBe(['databases' => 'database_size_read_off'])->and($total['quality'])->toBe('partial')
+        ->and($state['calls'])->not->toContain('databasequota_get_by_user')->not->toContain('sites_database_get');
+    expect((require config_path('onhost.php'))['metering']['web_disk_total'])->toMatchArray(['database_sizes' => false, 'parts_verified' => false]); // both off unless the operator sets them
+});
+
+it('enforces nothing on a date alone until the operator confirms the parts are measured without double counting', function () {
+    [, $org] = $this->customerWithOrganization();
+    $service = wdtAaHosting($org); // ordered after the date: would be enforced at once
+    wdtEnforce(now()->subDay()->toDateString());
+    expect(WebDiskTotal::enforcedFor($service->fresh()))->toBeTrue();
+
+    config(['onhost.metering.web_disk_total.parts_verified' => false]);
+    expect(WebDiskTotal::enforceFrom())->toBeNull()->and(WebDiskTotal::enforcedFor($service->fresh()))->toBeFalse()
+        ->and(WebDiskTotal::display($service->fresh())['total_enforced_from'])->toBeNull();
 });

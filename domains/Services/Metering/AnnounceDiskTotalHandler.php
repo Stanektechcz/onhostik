@@ -69,7 +69,7 @@ final class AnnounceDiskTotalHandler implements CommandHandler
             $date = null;
         }
         if ($from === null || $date === null || $date->toDateString() !== $from->toDateString()) {
-            throw new DomainError('disk_total_date_mismatch', 'The notice must name the configured enforcement date (onhost.metering.web_disk_total.enforce_from).', 422, ['field' => 'effective']);
+            throw new DomainError('disk_total_date_mismatch', 'The notice must name the configured enforcement date (onhost.metering.web_disk_total.enforce_from, counted only with parts_verified).', 422, ['field' => 'effective']);
         }
         if ($from->lessThan(now()->startOfDay()->addDays(WebDiskTotal::noticeDays()))) {
             throw new DomainError('disk_total_notice_too_late', 'The enforcement date is less than '.WebDiskTotal::noticeDays().' days away; set a later date before telling customers.', 422, ['field' => 'effective']);

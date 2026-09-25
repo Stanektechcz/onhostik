@@ -54,18 +54,41 @@ final class UsageRollup
     }
 
     /**
-     * Deletes raw samples and daily rows older than the retention; monthly rows stay.
+     * Deletes raw samples and daily rows older than the retention; monthly rows stay. Raw samples go by whole days, and
+     * each such day is rolled into its day and month rows first: when the rollup was switched off or failing for longer
+     * than the raw retention, its days are kept as history instead of being deleted unseen.
      *
      * @return array{raw:int, daily:int}
      */
     public function prune(?CarbonInterface $now = null): array
     {
         $now = CarbonImmutable::instance($now ?? now());
+        $rawBefore = $now->subDays(self::rawDays())->startOfDay();
+        $this->rollBefore($rawBefore);
 
         return [
-            'raw' => $this->pruneOlder(ServiceUsageSample::GRANULARITY_SAMPLE, $now->subDays(self::rawDays())),
+            'raw' => $this->pruneOlder(ServiceUsageSample::GRANULARITY_SAMPLE, $rawBefore),
             'daily' => $this->pruneOlder(ServiceUsageSample::GRANULARITY_DAY, $now->subDays(self::dailyDays())),
         ];
+    }
+
+    /** Rolls every day that still has raw samples before `$before` (normally just the one day leaving the retention). */
+    private function rollBefore(CarbonImmutable $before): void
+    {
+        $oldest = ServiceUsageSample::query()->where('granularity', ServiceUsageSample::GRANULARITY_SAMPLE)->where('window_start', '<', $before)->min('window_start');
+        if ($oldest === null) {
+            return;
+        }
+        $months = [];
+        for ($day = CarbonImmutable::parse((string) $oldest)->startOfDay(); $day->lessThan($before); $day = $day->addDay()) {
+            if (ServiceUsageSample::query()->where('granularity', ServiceUsageSample::GRANULARITY_SAMPLE)->where('window_start', '>=', $day)->where('window_start', '<', $day->addDay())->exists()) {
+                $this->rollDay($day);
+                $months[$day->format('Y-m')] = $day->startOfMonth();
+            }
+        }
+        foreach ($months as $month) {
+            $this->rollMonth($month);
+        }
     }
 
     public static function rawDays(): int
