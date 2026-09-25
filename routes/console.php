@@ -775,6 +775,17 @@ Artisan::command('onhost:backups:run {--limit=100}', function (BackupScheduler $
 })->purpose('Start scheduled backups, apply retention and generation caps, copy off-site');
 
 /*
+ * Servers and managed databases were sold with backups nobody took (TASK-0019). Starting them on existing services is
+ * the owner's decision, so the rule `backups.compute` is off until staff switch it on; this lists, read-only, whom it
+ * would start backing up and whether their Proxmox instance has a `backup_storage` to put the backups on.
+ */
+Artisan::command('onhost:backups:compute-plan {--limit=500}', function (BackupScheduler $scheduler, AutomationLedger $ledger) {
+    $rows = $scheduler->computePlan(max(1, (int) $this->option('limit')));
+    $this->table(['service', 'family', 'plan', 'frequency', 'days', 'generations', 'backup storage'], array_map(fn (array $r) => array_values($r), $rows));
+    $this->info(sprintf('%d service(s) would be backed up · rule %s: %s · nothing was changed', count($rows), BackupScheduler::COMPUTE_RULE, $ledger->enabled(BackupScheduler::COMPUTE_RULE) ? 'on' : 'off'));
+})->purpose('Dry run: servers and managed databases the backups.compute rule would start backing up (writes nothing)');
+
+/*
  * Services stranded in a transient state (SUSPENDING, RESUMING, RESIZING) with no operation left to finish it. Until
  * 2026-09-19 a suspend or a resume the panel refused could not return the service to where it really was — the state
  * machine had no way back — and nothing is accepted in a transient state. This lists them; `--apply` puts each back

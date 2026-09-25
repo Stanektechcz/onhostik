@@ -303,3 +303,58 @@ number the platform ever held or bound on the cluster and skips numbers the back
 successor's backups land in the PBS group `vm/<vmid>` of a predecessor (docs/provider-adapters/proxmox.md).
 
 Tests: `tests/Feature/Services/ArchiveExpiryTest.php`.
+
+## Servers and managed databases: scheduled backups behind a switch (2026-09-25, TASK-0019)
+
+**The hole.** The managed databases `db-s` / `db-m` (family `data`, one KVM VM on Proxmox) are sold with 14 / 30 days of
+backups, and nothing ever took one: `BackupScheduler::tick()` looked at `web`, `managed` and `mail` only, and the
+features of a server had no `backup_schedule` to read. The same held for a VPS whose customer bought `backup-plus` or
+`backup-hourly`: the add-on wrote a policy (above) that nothing scheduled for family `cloud`. The only backup a server
+ever got was the one somebody asked for by hand.
+
+**The rule — off until the owner switches it on.** Starting backups on existing services is the owner's decision, so
+the whole thing sits behind the automation rule **`backups.compute`** (`AutomationLedger::RULES`, `default_off`, the same
+mechanism as `capacity.auto_order`). While it is off nothing changes for anybody: no server is looked at, no record is
+written on it, and its feature list is the same as before.
+
+1. **Look first:** `php artisan onhost:backups:compute-plan` lists, read-only, every server the rule would start
+   backing up — service, family, product/plan, frequency, days, generations, and the Proxmox instance's
+   `backup_storage` (`MISSING` means the backups would have nowhere to go: set the instance option first). It writes
+   nothing and asks no provider anything.
+2. **Switch on** in the staff console (Automations → "Zálohy serverů a databází podle plánu"), which lands in the
+   settings `automation.enabled`. Switching it off again puts everything back as it was; backups already made stay.
+
+**What it does when on** (every 15 minutes inside `onhost:backups:run`):
+
+* who: `data` and `cloud` services that are ACTIVE/DEGRADED, have a provider instance **and** a binding (only what the
+  platform provisioned), in a window of their own — a server never takes the place of a web service among the first
+  `--limit` of the tick;
+* what is sold: a managed database — `backup_days` from its plan (`backup_frequency` or daily, `backup_generations` or
+  one per day); a VPS — only while an **active** backup add-on belongs to it and its policy row exists (a policy left
+  behind by a cancelled add-on takes no more backups). The customer may set the schedule within that ceiling as on the
+  web (`PUT /v1/services/{id}/backups/schedule`) — the `backup_schedule` feature appears for these servers only while
+  the rule is on;
+* how: one ordinary `backup` operation per slot (`backup:auto:{service}:{slot}`, `kind = scheduled`,
+  `retention_days` = the plan's days): a vzdump to the instance's `backup_storage`, adopted as today;
+* retention: an expired or surplus **scheduled** backup is removed from the backup storage through
+  `ExpiringBackups::expireBackup()` (unprotect, delete; a volume already gone counts as gone), and only a volume of the
+  service's own VM on its own instance. Never touched: `kind = final` (the final archive is `FinalArchive`'s alone),
+  `protected` rows (safety copies), manual backups at the hypervisor, anything under a legal hold. When the storage
+  cannot remove a volume the row stays `completed` with `meta.delete_blocked` saying why, and the next tick tries again.
+
+The `final` guard applies to web services too: before, an **unprotected** final archive past its date on a service
+the scheduler looked at could be deleted by the generation/retention prune instead of by `FinalArchive::prune()`.
+
+**Still NOT built — do not promise it:**
+
+* **PITR.** `pitr_days` on the database plans is a number on the price list and nothing more: there is no WAL
+  archiving, no restore to a point in time. A product decision (build it, or stop selling it).
+* **Mail `backup_days`.** Mail services are in the tick but have no `backup_schedule` feature, so nothing is scheduled
+  for them; a separate task.
+* **Off-site copies of server backups.** The add-ons sell `offsite`; a vzdump volume is not copied anywhere else.
+* **VDS plans** (`backup: daily 7d`) and the configurator's `backup` option write a string entitlement no schedule
+  reads; not covered by this rule.
+* **Doctor rows.** `onhost:doctor` counts stalled and paused schedules for `web`/`managed`/`mail` only; servers need
+  the same two lines (follow-up — `app/Console/Commands/Doctor.php`).
+
+Tests: `tests/Feature/Services/ComputeBackupScheduleTest.php`.

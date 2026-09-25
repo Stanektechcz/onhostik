@@ -9,6 +9,7 @@ use Onhost\Domain\Catalog\WafLevels;
 use Onhost\Domain\Dns\DnsService;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\IpAddress;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
@@ -16,9 +17,11 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Mail\MailDomains;
 use Onhost\Domain\Services\Mail\MailSettings;
+use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
+use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Services\Web\CdnService;
 use Onhost\Domain\Services\Web\CertificateService;
 use Onhost\Domain\Services\Web\DeployService;
@@ -224,6 +227,12 @@ final class ServiceFeatures
                     // booting somebody else's system on the customer's own disks: offered where the hypervisor holds rescue images (H233)
                     'vm_rescue' => $on($service->family === 'cloud' && ($adapter === null || $adapter instanceof ComputeProvider), null, ['session' => RescueMode::session($service), 'hours' => RescueMode::hours()]),
                 ];
+                // the backups a server was sold (TASK-0019), offered only once the owner switched the rule on: until then
+                // the feature list of every existing server stays exactly what it was
+                $sold = $this->computeBackupSchedule($service);
+                if ($sold !== null && app(AutomationLedger::class)->enabled(BackupScheduler::COMPUTE_RULE)) {
+                    $out['backup_schedule'] = $on($adapter === null || $adapter instanceof BackupCapable, null, $sold);
+                }
                 break;
             case 'game':
                 // the node unreachable: the tabs stay, their listings say so; a panel whose client API key is missing or refused (prerequisites) offers no server tools
@@ -651,6 +660,38 @@ final class ServiceFeatures
      *
      * @return array<string, mixed>
      */
+    /**
+     * The backup schedule a server or managed database was SOLD, whatever the automation switch says (the dry run asks
+     * this too). A managed database carries it in its plan (`backup_days`, 14 on db-s, 30 on db-m). A VPS sells none of
+     * its own: only an ACTIVE backup add-on does, together with the policy it wrote — a policy row that outlived its
+     * add-on (re-saved under the plan's key, which the add-on's cancellation does not remove) must not go on taking
+     * backups nobody pays for. The ceiling is what the add-on sells, not what the row says now.
+     *
+     * @return array{frequency:string, days:int, generations:int}|null
+     */
+    public function computeBackupSchedule(Service $service): ?array
+    {
+        $ent = (array) $service->entitlements;
+        if ($service->family === 'data') {
+            $days = (int) ($ent['backup_days'] ?? 0);
+
+            return $days > 0 ? ['frequency' => (string) ($ent['backup_frequency'] ?? 'daily'), 'days' => $days, 'generations' => max(1, (int) ($ent['backup_generations'] ?? $days))] : null;
+        }
+        if ($service->family !== 'cloud' || ! BackupPolicy::query()->where('service_id', $service->id)->exists()) {
+            return null;
+        }
+        $addons = Service::query()->where('family', 'addon')->where('tags->parent_service_id', $service->id)
+            ->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->orderBy('created_at')->orderBy('id')->get();
+        foreach ($addons as $addon) {
+            $policy = Addons::backupPolicy((string) $addon->product_key, (array) $addon->entitlements);
+            if ($policy !== null) {
+                return ['frequency' => (string) $policy['schedule']['frequency'], 'days' => (int) $policy['retention']['days'], 'generations' => (int) $policy['retention']['generations']];
+            }
+        }
+
+        return null;
+    }
+
     private static function wafPromise(string $waf, bool $rate, Service $service): array
     {
         $supports = self::supportsFor($rate);

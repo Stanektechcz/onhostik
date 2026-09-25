@@ -4,8 +4,13 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services\Web;
 
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
+use Onhost\Domain\Catalog\Models\Plan;
+use Onhost\Domain\Catalog\Models\PlanVersion;
+use Onhost\Domain\Provisioning\AutomationLedger;
+use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\LegalHold;
 use Onhost\Domain\Services\Models\Backup;
@@ -18,10 +23,12 @@ use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxPublisher;
+use Onhost\Providers\Contracts\ExpiringBackups;
 use Throwable;
 
 /**
- * Scheduled backups for web and mail services: the plan's entitlements say how often (15m, hourly, 6h, daily),
+ * Scheduled backups for web and mail services — and, under the owner's switch `backups.compute`, for servers and managed
+ * databases (TASK-0019): the plan's entitlements say how often (15m, hourly, 6h, daily),
  * how many days and how many generations to keep and whether a copy goes off-site. Backups run as ordinary
  * `backup` operations (one per slot, idempotent); expired ones are deleted on the node, generation caps trim the
  * oldest, and the off-site copy is streamed through the control plane to the configured disk.
@@ -30,7 +37,13 @@ final class BackupScheduler
 {
     public const FREQUENCIES = ['15m' => 15, 'hourly' => 60, '6h' => 360, 'daily' => 1440, 'weekly' => 10080];
 
-    public function __construct(private readonly ServiceService $services, private readonly ServiceFeatures $features, private readonly OutboxPublisher $outbox, private readonly FinalArchive $archives) {}
+    /** The automation rule (off unless staff switch it on) under which servers and managed databases are backed up. */
+    public const COMPUTE_RULE = 'backups.compute';
+
+    /** Families whose backups are the hypervisor's own (vzdump to the instance's `backup_storage`). */
+    public const COMPUTE_FAMILIES = ['cloud', 'data'];
+
+    public function __construct(private readonly ServiceService $services, private readonly ServiceFeatures $features, private readonly OutboxPublisher $outbox, private readonly FinalArchive $archives, private readonly AutomationLedger $ledger) {}
 
     /** @return array{started:int, skipped:int, deleted:int, offsite:int, errors:int} */
     public function tick(int $limit = 100): array
@@ -38,6 +51,11 @@ final class BackupScheduler
         $stats = ['started' => 0, 'skipped' => 0, 'deleted' => 0, 'offsite' => 0, 'errors' => 0, 'missed' => 0, 'paused' => 0];
         $context = CommandContext::system('backup scheduler');
         $services = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->whereNotNull('provider_instance_id')->orderBy('id')->limit($limit)->get();
+        if ($this->ledger->enabled(self::COMPUTE_RULE)) {
+            // a window of their own, so a server never takes the place of a web service among the first $limit; only what the
+            // platform provisioned (an instance AND a binding): a server it merely found is not its to back up
+            $services = $services->concat($this->computeServices($limit));
+        }
         foreach ($services as $service) {
             $schedule = null; // never the previous service's schedule, whatever throws below
             try {
@@ -217,8 +235,19 @@ final class BackupScheduler
         if (empty($features['backups']['enabled']) || $schedule === null || empty($schedule['enabled'])) {
             return null;
         }
+
+        return $this->scheduleFrom($service, (array) ($schedule['options'] ?? []));
+    }
+
+    /**
+     * The schedule from what the plan sells (`$options`) and what the customer set within it (the policy).
+     *
+     * @param  array<string,mixed>  $options
+     * @return array{frequency:string, minutes:int, days:int, generations:int, offsite:bool, slot:string, window_start:Carbon}
+     */
+    private function scheduleFrom(Service $service, array $options): array
+    {
         $policy = BackupPolicy::query()->where('service_id', $service->id)->first();
-        $options = (array) ($schedule['options'] ?? []);
         $frequency = (string) ($policy?->schedule['frequency'] ?? $options['frequency'] ?? 'daily');
         $minutes = self::FREQUENCIES[$frequency] ?? self::FREQUENCIES['daily'];
         $days = max(1, (int) ($policy?->retention['days'] ?? $options['days'] ?? 7));
@@ -237,6 +266,45 @@ final class BackupScheduler
         return ['frequency' => $frequency, 'minutes' => $minutes, 'days' => $days, 'generations' => $generations, 'offsite' => $offsite, 'slot' => $windowStart->format('YmdHi'), 'window_start' => $windowStart];
     }
 
+    /**
+     * Servers and managed databases the platform provisioned itself — an instance AND a binding. A server without a
+     * binding is one the platform does not own; the schedule would only write misses onto it.
+     *
+     * @return Collection<int, Service>
+     */
+    private function computeServices(int $limit): Collection
+    {
+        return Service::query()->whereIn('family', self::COMPUTE_FAMILIES)->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])
+            ->whereNotNull('provider_instance_id')->whereHas('bindings')->orderBy('id')->limit($limit)->get();
+    }
+
+    /**
+     * Who `backups.compute` would start backing up, read-only (`onhost:backups:compute-plan`): the owner decides on
+     * existing services with this list in hand. Nothing is written, nothing is asked of a provider.
+     *
+     * @return list<array{service:string, family:string, plan:string, frequency:string, days:int, generations:int, backup_storage:string}>
+     */
+    public function computePlan(int $limit = 500): array
+    {
+        $rows = [];
+        foreach ($this->computeServices($limit) as $service) {
+            $sold = $this->features->computeBackupSchedule($service);
+            if ($sold === null) {
+                continue; // sold no backups: the rule leaves it alone
+            }
+            $schedule = $this->scheduleFrom($service, $sold);
+            $planId = $service->plan_version_id !== null ? PlanVersion::query()->whereKey($service->plan_version_id)->value('plan_id') : null;
+            $planKey = $planId !== null ? (string) Plan::query()->whereKey($planId)->value('key') : '';
+            $storage = (string) data_get(ProviderInstance::query()->find($service->provider_instance_id)?->options, 'backup_storage', '');
+            $rows[] = [
+                'service' => (string) $service->id, 'family' => (string) $service->family, 'plan' => $service->product_key.'/'.($planKey !== '' ? $planKey : '-'),
+                'frequency' => $schedule['frequency'], 'days' => $schedule['days'], 'generations' => $schedule['generations'], 'backup_storage' => $storage === '' ? 'MISSING' : $storage,
+            ];
+        }
+
+        return $rows;
+    }
+
     private function due(Service $service, array $schedule): bool
     {
         // a failed attempt counts as this slot having been tried: the operation runner has already retried it, and
@@ -246,16 +314,20 @@ final class BackupScheduler
         return $last === null || $last->started_at === null || $last->started_at->lessThan($schedule['window_start']);
     }
 
-    /** Delete expired backups and trim generations beyond the plan; protected ones are never touched. */
+    /** Delete expired backups and trim generations beyond the plan; protected ones and final archives are never touched. */
     private function prune(Service $service, array $schedule, CommandContext $context): int
     {
         if (LegalHold::coversService($service)) {
             return 0; // a legal hold suspends deletion (H18): new backups are still made, old ones stay until the hold is lifted
         }
         $deleted = 0;
-        $expired = Backup::query()->where('service_id', $service->id)->where('state', 'completed')->where('protected', false)->where(function ($q) {
+        $compute = in_array($service->family, self::COMPUTE_FAMILIES, true);
+        // the final archive is FinalArchive's alone (its own retention, its own expiry at the provider), protected or not
+        $expired = Backup::query()->where('service_id', $service->id)->where('state', 'completed')->where('protected', false)->where('kind', '!=', 'final')->where(function ($q) {
             $q->whereNotNull('retention_until')->where('retention_until', '<', now());
-        })->get();
+        })
+            // on a server only what this schedule made: a manual backup or a safety copy at the hypervisor was never its to take
+            ->when($compute, fn ($q) => $q->where('kind', 'scheduled'))->get();
         $surplus = Backup::query()->where('service_id', $service->id)->where('state', 'completed')->where('protected', false)->where('kind', 'scheduled')->orderByDesc('started_at')->skip($schedule['generations'])->take(50)->get();
         foreach ($expired->merge($surplus)->unique('id') as $backup) {
             if ($this->deleteOnNode($service, $backup)) {
@@ -275,12 +347,42 @@ final class BackupScheduler
 
             return true;
         }
+        if (in_array($service->family, self::COMPUTE_FAMILIES, true)) {
+            return $this->expireAtProvider($service, $backup);
+        }
         $features = $this->features->features($service);
         if (empty($features['backup_delete']['enabled'])) {
             return false; // the panel keeps its own retention (ISPConfig copies); nothing to delete remotely
         }
         [$tools, $ref] = $this->features->toolsFor($service);
         $tools->deleteBackup($ref, (string) $backup->remote_id);
+
+        return true;
+    }
+
+    /**
+     * A vzdump backup of a server past its retention, removed from the backup storage itself (`ExpiringBackups`, as the
+     * final archive's expiry does it). Only a volume of this service's own VM on this service's own instance: anything
+     * else is kept and the row says why. Until the volume is gone the row stays `completed` and the next tick tries again.
+     */
+    private function expireAtProvider(Service $service, Backup $backup): bool
+    {
+        $volid = (string) $backup->remote_id;
+        $binding = $service->primaryBinding();
+        $vmid = $binding === null ? '' : (string) $binding->remote_id;
+        $ours = (string) $backup->provider_instance_id === (string) $service->provider_instance_id && $vmid !== ''
+            && (str_contains($volid, '/'.$vmid.'/') || str_contains($volid, '-'.$vmid.'-'));
+        try {
+            $adapter = $ours ? $this->features->adapterFor($service) : null;
+            if (! $adapter instanceof ExpiringBackups) {
+                throw new DomainError('backup_not_ours', $ours ? 'the provider of this backup cannot remove it' : 'the volume is not proven to belong to this service\'s VM', 409);
+            }
+            $adapter->expireBackup($volid);
+        } catch (Throwable $e) {
+            $backup->forceFill(['meta' => array_merge((array) $backup->meta, ['delete_blocked' => ['at' => now()->toIso8601String(), 'why' => mb_substr($e->getMessage(), 0, 200)]])])->save();
+
+            return false;
+        }
 
         return true;
     }
