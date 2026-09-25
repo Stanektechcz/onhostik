@@ -627,3 +627,47 @@ it('renews the other add-ons only once the owner switches it on: nothing changes
     expect($subscription->amount_minor)->toBe(3900)->and($subscription->period)->toBe('month')->and($subscription->state)->toBe(Subscription::ACTIVE)
         ->and(Subscription::query()->where('service_id', $today->id)->exists())->toBeFalse(); // an add-on sold before is not billed now
 });
+
+it('does not let a resize that was still running undo a raise delivered meanwhile', function () {
+    Event::fake(['onhost.order.paid']);
+    $busy = true; // the panel's job queue has not run yet: the first resize waits
+    Http::fake([ISP.'/remote/json.php*' => function (Request $request) use (&$busy) {
+        return Http::response(['code' => 'ok', 'message' => '', 'response' => match ((string) parse_url($request->url(), PHP_URL_QUERY)) {
+            'login' => 'sess-1',
+            'client_get' => ['client_id' => 3, 'username' => 'onh_client3', 'limit_mailbox' => 10],
+            'sites_web_domain_get' => ['domain_id' => 7, 'domain' => 'shop.cz', 'system_user' => 'web7', 'sys_groupid' => 3, 'hd_quota' => 10240, 'active' => 'y', 'document_root' => '/var/www/clients/client3/web7'],
+            'monitor_jobqueue_count' => $busy ? 3 : 0,
+            default => true,
+        }]);
+    }]);
+    [, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org, 'ispconfig');
+    $base = (int) $parent->entitlements['mailboxes'];
+    $context = CommandContext::system('limit raise test')->withScope($org->id);
+    app(WalletService::class)->topup($org, Money::decimal('50000', 'CZK'), 'bank', 'lr-race-seed', $context);
+    // one cart, two raises of the same service (+5 and +3 mailboxes): delivered one after the other
+    $quote = app(QuoteService::class)->quote([limitRaiseItem(['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5]), limitRaiseItem(['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 3])], 'CZK', [], 1, null, $org);
+    $consents = [];
+    foreach (app(CheckoutService::class)->requiredDocuments($quote, $org) as $key) {
+        $consents[$key] = ['person' => 'test'];
+    }
+    $order = app(CheckoutService::class)->placeOrder($quote, $org, null, $consents, ['mode' => 'wallet'], 'lr-race-'.Str::random(6), $context, 'staff')['order'];
+    [$itemA, $itemB] = OrderItem::query()->where('order_id', $order->id)->orderBy('created_at')->orderBy('id')->get()->all();
+    $first = app(ServiceService::class)->createFromOrderItem($itemA, $order, $context);
+    $resize = Operation::query()->where('idempotency_key', "limit-raise:{$itemA->id}")->sole();
+    expect($resize->state)->not->toBe(Operation::SUCCEEDED);
+    $second = app(ServiceService::class)->createFromOrderItem($itemB, $order, $context);
+    expect($parent->fresh()->entitlements['mailboxes'])->toBe($base + 8)
+        ->and(data_get($second->fresh()->tags, 'addon.panel.state'))->toBe('pending'); // the service is resizing: its number goes later
+
+    $busy = false;
+    driveOperation($resize);
+    expect($resize->fresh()->state)->toBe(Operation::SUCCEEDED)
+        ->and($parent->fresh()->entitlements['mailboxes'])->toBe($base + 8); // the first resize's snapshot (base + 5) did not overwrite it
+
+    $this->artisan('onhost:limit-raise', ['action' => 'push', 'addon' => $second->id, '--apply' => true])->assertSuccessful();
+    $push = Operation::query()->where('service_id', $parent->id)->where('idempotency_key', 'like', 'limit-raise-push:%')->sole();
+    driveOperation($push);
+    expect($parent->fresh()->entitlements['mailboxes'])->toBe($base + 8)
+        ->and(data_get($first->fresh()->tags, 'addon.revoked_at'))->toBeNull();
+});

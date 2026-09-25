@@ -908,6 +908,13 @@ final class ServiceActionWorkflow implements Workflow
                 $service = $this->service($context);
                 $actual = $this->capability($context, InfrastructureProvider::class)->getActualState($this->ref($context));
                 $target = (array) $context->get('target_entitlements', []);
+                // a number somebody changed while this resize ran (a limit raise delivered meanwhile) stays theirs: the target
+                // is a snapshot from the moment the resize was asked, and writing it back undid a raise that was paid for
+                $base = $context->desired('entitlements_base');
+                $held = (array) $service->entitlements;
+                if (is_array($base)) {
+                    $target = array_filter($target, fn ($value, $key) => ! array_key_exists($key, $held) || ($base[$key] ?? null) === $held[$key], ARRAY_FILTER_USE_BOTH);
+                }
                 $tags = (array) ($service->tags ?? []);
                 if ($context->get('site_nvme_gb') !== null) { // what of the plan's space this site holds after the change
                     $tags['sites'] = array_merge((array) ($tags['sites'] ?? []), ['quota_gb' => (int) $context->get('site_nvme_gb')]);

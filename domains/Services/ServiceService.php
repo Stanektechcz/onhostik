@@ -543,6 +543,9 @@ final class ServiceService
         if ($action === 'resize' && empty($params['entitlements'])) {
             throw new DomainError('resize_target_required', 'Resize needs the target entitlements.', 422);
         }
+        if ($action === 'resize') { // what the service held when this was asked: a number changed while it runs is not undone by it (TASK-0022)
+            $params['entitlements_base'] = (array) $service->entitlements;
+        }
         if (! in_array($action, ServiceActionWorkflow::CORE_ACTIONS, true)) {
             $params = $this->featureParams($service, $action, $params);
         }

@@ -189,7 +189,7 @@ final class DunningService
     }
 
     /**
-     * An add-on (a paid limit raise — the only add-on with a subscription) has nothing of its own to suspend: every action but
+     * An add-on (a paid limit raise; every add-on once ONHOST_ADDON_RENEWALS is on) has nothing of its own to suspend: every action but
      * the cancellation is refused on it, so the suspension failed with `addon_action_unsupported` every day and the raise stayed.
      * Unpaid, it ends: its units come off the service it raised (TASK-0022 limit-raise).
      */
