@@ -6,6 +6,7 @@ namespace Onhost\Domain\Billing;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Onhost\Domain\Billing\Commands\ReinstateServiceCommand;
 use Onhost\Domain\Billing\Models\ChargebackRequest;
 use Onhost\Domain\Billing\Models\DunningCase;
 use Onhost\Domain\Billing\Models\RatedUsage;
@@ -16,6 +17,7 @@ use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\InvoiceLine;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -68,9 +70,6 @@ final class ServiceReinstatement
         'resume_refused' => 'Službu se teď nepodařilo znovu spustit, a tak jsme nic nestrhli ani nezměnili. Zkuste to prosím později, nebo napište podpoře.',
     ];
 
-    /** Spending the organization's credit (TASK-0021 contract); reading it is `billing.wallet.read`. */
-    private const SPEND = 'billing.wallet.spend';
-
     public function __construct(
         private readonly AutomationLedger $ledger,
         private readonly SubscriptionService $subscriptions,
@@ -80,6 +79,7 @@ final class ServiceReinstatement
         private readonly AuditRecorder $audit,
         private readonly OutboxPublisher $outbox,
         private readonly Authorizer $authorizer,
+        private readonly CreditOrderPolicy $credit,
     ) {}
 
     public function enabled(): bool
@@ -185,6 +185,10 @@ final class ServiceReinstatement
      */
     public function reinstate(Service $service, CommandContext $context, string $key): array
     {
+        // the one credit gate (TASK-0027): the same switch and the same refusal as every other payment from the credit; the
+        // platform paying a recorded request after a payment (`system`) spends what whoever asked agreed to
+        $this->credit->assertMaySpend($service->organization_id, $context, 'Požádejte vlastníka nebo správce fakturace o obnovení služby.');
+
         return DB::transaction(function () use ($service, $context, $key) {
             $service = Service::query()->lockForUpdate()->find($service->id);
             if ($service === null) {
@@ -269,11 +273,13 @@ final class ServiceReinstatement
      * whole new period (402 with the quote) — and where no new period would be charged (a metered product) there is none.
      *
      * With the rule on, taking a cancellation back starts its billing again (RestartBillingAfterRestore: the next renewals are
-     * charged to the credit), so it needs `billing.wallet.spend` at the organization — not a guest of the service, not an
-     * org_admin, not an API token or an assistant (review round 2). The 402 names the organization's credit and invoices
-     * only to who may read them (`billing.wallet.read`); anybody else hears the price and the way to pay.
+     * charged to the credit), so it asks the one credit gate (CreditOrderPolicy, TASK-0027): while
+     * `onhost.orders.credit_approval.enabled` is on only the owner and the billing admin may (not a guest of the service, not
+     * an org_admin, not an assistant); while it is off, whoever may resume the service — as for every other payment from the
+     * credit. The 402 names the organization's credit and invoices only to who may read them (`billing.wallet.read`); anybody
+     * else hears the price and the way to pay.
      *
-     * @throws DomainError `chargeback_cancelled` (409); with the rule on `reinstatement_spend_required` (403) or
+     * @throws DomainError `chargeback_cancelled` (409); with the rule on `credit_spend_not_allowed` (403) or
      *                     `reinstatement_payment_required` (402)
      */
     public function assertCustomerMayResume(Service $service, CommandContext $context): void
@@ -290,9 +296,7 @@ final class ServiceReinstatement
         if (! $this->enabled()) {
             return;
         }
-        if (! $this->actorMay($context, self::SPEND, $service->organization_id)) {
-            throw new DomainError('reinstatement_spend_required', 'Zrušení služby může vzít zpět jen ten, kdo smí platit z kreditu organizace (vlastník nebo správce fakturace) — služba se tím znovu začne účtovat. Požádejte o to prosím vlastníka.', 403, ['permission' => self::SPEND]);
-        }
+        $this->credit->assertMaySpend($service->organization_id, $context, 'Zrušení služby tím vezmete zpět a služba se znovu začne účtovat — požádejte o to prosím vlastníka nebo správce fakturace.');
         $quote = $this->quote($service);
         if ($quote['total_due']->isPositive()) {
             $shown = $this->actorMay($context, 'billing.wallet.read', $service->organization_id) ? $quote : ['total_due' => $quote['total_due'], 'renewal' => $quote['renewal'], 'grace_until' => $quote['grace_until']];
@@ -465,20 +469,28 @@ final class ServiceReinstatement
         }
     }
 
-    /** @param array<string,mixed> $wish */
+    /**
+     * Whoever asked may still ask and still spend: an active user who holds the command's own permission at the organization
+     * and passes the one credit gate (TASK-0027) as it stands now — so a request an org_admin recorded while credit approval
+     * was off is dropped once it is on. Staff always; the platform acting on a payment always.
+     *
+     * @param  array<string,mixed>  $wish
+     */
     private function requesterMaySpend(array $wish, Service $service): bool
     {
         [$type, $id] = array_pad(explode(':', (string) ($wish['by'] ?? ''), 2), 2, null);
         if ($type === 'system') {
             return true; // recorded by the platform acting on a payment (a paid invoice), not on somebody's authority
         }
+        $context = new CommandContext((string) $type, $id !== '' ? $id : null);
 
-        return $this->actorMay(new CommandContext((string) $type, $id !== '' ? $id : null), self::SPEND, $service->organization_id);
+        return $this->actorMay($context, ReinstateServiceCommand::PERMISSION, $service->organization_id)
+            && (self::actsForPlatform($context) || $this->credit->maySpend($service->organization_id, $context));
     }
 
     /**
      * The actor holds the permission at the organization: staff always; a user by their bindings; an API token or an
-     * assistant never (spending and reading the credit are the organization's people's own decision).
+     * assistant never (reading the credit, and asking to spend it, are the organization's people's own decision).
      */
     private function actorMay(CommandContext $context, string $permission, string $organizationId): bool
     {

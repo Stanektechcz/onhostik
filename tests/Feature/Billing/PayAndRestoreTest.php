@@ -417,6 +417,7 @@ it('keeps the renewal day of a period that was started again', function () {
 
 it('lets only who may spend the credit pay for a restore', function () {
     reinstateSwitchOn();
+    config(['onhost.orders.credit_approval.enabled' => true]); // the one credit gate (TASK-0027): CreditOrderPolicy decides who spends
     [$owner, $org] = $this->customerWithOrganization();
     app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
     $service = reinstateCancelled($org, ['reason' => 'subscription ended']);
@@ -427,7 +428,8 @@ it('lets only who may spend the credit pay for a restore', function () {
     $organizations->attachMember($org, $billing, 'billing_admin', CommandContext::system('test'), true);
 
     $this->actingAs($admin, 'sanctum');
-    $this->withHeader('Idempotency-Key', 're-admin-1')->postJson("/v1/services/{$service->id}/reinstate")->assertForbidden();
+    $this->withHeader('Idempotency-Key', 're-admin-1')->postJson("/v1/services/{$service->id}/reinstate")->assertForbidden()
+        ->assertJsonPath('error', 'credit_spend_not_allowed')->assertJsonPath('permission', 'billing.wallet.spend');
     expect(reinstateCharges())->toBe(0);
 
     $this->actingAs($billing, 'sanctum');
@@ -459,6 +461,7 @@ function reinstateCancelAgain(Service $service, string $operationId): Service
 
 it('lets only who may spend the credit take back a cancellation that bills again, and shows the credit only to who may read it', function () {
     reinstateSwitchOn();
+    config(['onhost.orders.credit_approval.enabled' => true]); // the one credit gate (TASK-0027)
     [$owner, $org] = $this->customerWithOrganization();
     $covered = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->addDays(15)]);
     $ended = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->subDay(), 'remote_id' => '1046']);
@@ -472,7 +475,7 @@ it('lets only who may spend the credit take back a cancellation that bills again
     foreach ([[$guest, 'g'], [$admin, 'a']] as [$who, $tag]) {
         $this->actingAs($who, 'sanctum');
         foreach ([$covered, $ended] as $i => $service) {
-            $body = $this->withHeader('Idempotency-Key', "r2-undo-{$tag}-{$i}")->postJson("/v1/services/{$service->id}/actions", ['action' => 'resume'])->assertForbidden()->assertJsonPath('error', 'reinstatement_spend_required')->json();
+            $body = $this->withHeader('Idempotency-Key', "r2-undo-{$tag}-{$i}")->postJson("/v1/services/{$service->id}/actions", ['action' => 'resume'])->assertForbidden()->assertJsonPath('error', 'credit_spend_not_allowed')->json();
             expect(json_encode($body))->not->toContain('wallet_available')->not->toContain('outstanding_invoices');
         }
     }
@@ -651,4 +654,94 @@ it('keeps auto-renew off when a customer takes back a cancellation with nothing 
 
     $subscription = Subscription::query()->where('service_id', $service->id)->firstOrFail();
     expect($subscription->state)->toBe(Subscription::ACTIVE)->and($subscription->auto_renew)->toBeFalse()->and(reinstateCharges())->toBe(0);
+});
+
+/* ── TASK-0027: one gate for spending the credit ─────────────────────────────────────────────────────────────────────
+ * Paying for a restore, taking back a cancellation that bills again and a recorded restore request all spend the
+ * organization's credit. They ask the same gate as every other credit payment (Orders\CreditOrderPolicy, TASK-0021): open to
+ * whoever may pay from the credit while `onhost.orders.credit_approval.enabled` is off, only the owner and the billing admin
+ * once it is on, refused with the same `credit_spend_not_allowed`.
+ */
+
+function reinstateOrgAdmin(Organization $org): User
+{
+    $admin = test()->customer();
+    app(OrganizationService::class)->attachMember($org, $admin, 'org_admin', CommandContext::system('test'), true);
+
+    return $admin;
+}
+
+it('pays for a restore under the one credit gate: an org_admin may while credit approval is off, not once it is on', function () {
+    reinstateSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization();
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
+    $first = reinstateCancelled($org, ['reason' => 'subscription ended']);
+    $second = reinstateCancelled($org, ['reason' => 'subscription ended', 'remote_id' => '1046']);
+    $this->actingAs(reinstateOrgAdmin($org), 'sanctum');
+
+    config(['onhost.orders.credit_approval.enabled' => false]); // as an invoice paid from the credit: whoever may pay one
+    $this->withHeader('Idempotency-Key', 'g1-off')->postJson("/v1/services/{$first->id}/reinstate")->assertStatus(202)->assertJsonPath('state', 'restoring');
+    expect(reinstateCharges())->toBe(1);
+
+    config(['onhost.orders.credit_approval.enabled' => true]);
+    $this->withHeader('Idempotency-Key', 'g1-on')->postJson("/v1/services/{$second->id}/reinstate")->assertForbidden()
+        ->assertJsonPath('error', 'credit_spend_not_allowed')->assertJsonPath('permission', 'billing.wallet.spend');
+    $this->flushHeaders();
+    expect(reinstateCharges())->toBe(1)->and(Service::query()->findOrFail($second->id)->terminate_at)->not->toBeNull();
+
+    // a member who may not pay from the credit at all (a developer) is refused by the bus whatever the switch says
+    $developer = $this->customer();
+    reinstateBind($org, $developer, 'developer');
+    $this->actingAs($developer, 'sanctum');
+    config(['onhost.orders.credit_approval.enabled' => false]);
+    $this->withHeader('Idempotency-Key', 'g1-dev')->postJson("/v1/services/{$second->id}/reinstate")->assertForbidden();
+    $this->flushHeaders();
+    expect(reinstateCharges())->toBe(1);
+});
+
+it('takes back a cancellation that bills again under the one credit gate, the switch off or on', function () {
+    reinstateSwitchOn();
+    [, $org] = $this->customerWithOrganization();
+    $off = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->addDays(15)]);
+    $on = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->addDays(15), 'remote_id' => '1046']);
+    $this->actingAs(reinstateOrgAdmin($org), 'sanctum');
+
+    config(['onhost.orders.credit_approval.enabled' => false]);
+    $this->withHeader('Idempotency-Key', 'g2-off')->postJson("/v1/services/{$off->id}/actions", ['action' => 'resume'])->assertStatus(202);
+
+    config(['onhost.orders.credit_approval.enabled' => true]);
+    $this->withHeader('Idempotency-Key', 'g2-on')->postJson("/v1/services/{$on->id}/actions", ['action' => 'resume'])->assertForbidden()
+        ->assertJsonPath('error', 'credit_spend_not_allowed')->assertJsonPath('permission', 'billing.wallet.spend');
+    $this->flushHeaders();
+    expect(Operation::query()->where('service_id', $on->id)->count())->toBe(0)->and(Service::query()->findOrFail($on->id)->terminate_at)->not->toBeNull()
+        ->and(Subscription::query()->where('service_id', $on->id)->value('state'))->toBe(Subscription::CANCELLED);
+});
+
+it('pays a recorded restore request under the one credit gate: fulfilled while credit approval is off, dropped once it is on', function () {
+    reinstateSwitchOn();
+    config(['onhost.orders.credit_approval.enabled' => false]);
+    [$owner, $org] = $this->customerWithOrganization();
+    app(WalletService::class)->topup($org, Money::decimal('100', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
+    $kept = reinstateCancelled($org, ['reason' => 'subscription ended', 'terminate_at' => now()->addDays(10)]);
+    $dropped = reinstateCancelled($org, ['reason' => 'subscription ended', 'terminate_at' => now()->addDays(20), 'remote_id' => '1046']);
+    $this->actingAs(reinstateOrgAdmin($org), 'sanctum');
+    foreach ([$kept, $dropped] as $i => $service) {
+        $this->withHeader('Idempotency-Key', "g3-wish-{$i}")->postJson("/v1/services/{$service->id}/reinstate")->assertStatus(202)->assertJsonPath('state', 'awaiting_payment');
+    }
+    $this->flushHeaders();
+
+    // enough for one: the earlier window is paid for while the switch is off, the other still waits
+    app(WalletService::class)->topup($org, Money::decimal('300', 'CZK'), 'bank', 'seed-2', $this->contextFor($owner, $org));
+    app(OutboxPublisher::class)->relayPending();
+    driveOperations();
+    expect(reinstateCharges())->toBe(1)->and(Service::query()->findOrFail($kept->id)->terminate_at)->toBeNull()
+        ->and(data_get(Service::query()->findOrFail($dropped->id)->tags, 'reinstatement'))->toBeArray();
+
+    // the switch goes on before the rest arrives: whoever asked (an org_admin) may no longer spend the credit
+    config(['onhost.orders.credit_approval.enabled' => true]);
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed-3', $this->contextFor($owner, $org));
+    app(OutboxPublisher::class)->relayPending();
+    $fresh = Service::query()->findOrFail($dropped->id);
+    expect(reinstateCharges())->toBe(1)->and($fresh->terminate_at)->not->toBeNull()->and(data_get($fresh->tags, 'reinstatement'))->toBeNull()
+        ->and(OutboxMessage::query()->where('name', 'service.reinstatement.dropped')->where('aggregate_id', $dropped->id)->exists())->toBeTrue();
 });
