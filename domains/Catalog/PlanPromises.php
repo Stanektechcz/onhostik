@@ -110,8 +110,7 @@ final class PlanPromises
         'connections' => 'sold on managed database plans; nothing writes it into the engine config or measures live connections — see MetricRegistry',
         'pitr_days' => 'sold on managed database plans; only read as (bool) pitr_days — whether PITR is on — never as a retention window — see MetricRegistry',
         'pids' => 'sold in every game plan\'s limits bag; PterodactylGameProvider\'s resource limits (memory/swap/disk/io/cpu) never include a PID cap — see MetricRegistry',
-        'backup_days' => 'sold on db-s/db-m (managed database, family `data`); BackupScheduler only schedules and prunes backups for family web/managed/mail — a managed database\'s retention promise is enforced nowhere. Kept for web/managed/mail — see MetricRegistry (found by family-scoping the registry check, audit §5ad)',
-        'vcpu' => 'sold in every game plan\'s entitlements; PterodactylGameProvider never reads vcpu — only cpu_pct and pids size a game container. Kept for cloud/data (Proxmox) — see MetricRegistry (found by family-scoping the registry check, audit §5ad)',
+        'backup_days' => 'sold on mail plans and on db-s/db-m (managed database, family `data`); BackupScheduler only ever schedules web/managed (mail is selected but has no backup_schedule, data is not selected), so neither retention promise is kept. Kept for web/managed — see MetricRegistry (found by family-scoping the registry check, audit §5ad)',
     ];
 
     /**

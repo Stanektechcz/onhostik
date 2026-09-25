@@ -158,13 +158,13 @@ version being checked): a row verified only for `families => ['mail']` must not 
 happens to sell the same key name — `MetricRegistry::isKept($key, $family)` fails the family check before it ever
 looks at `status`. Family-scoping this way surfaced two rows that were simply incomplete (their real enforcement
 does reach a family the row hadn't listed yet — `nvme_gb` on the managed-database family and `mailboxes` sold
-through the `mail-hosting` add-on — both extended once the enforcing code was confirmed) and two genuinely new,
-honest gaps (`backup_days` sold on a managed database, which `BackupScheduler` never schedules for; `vcpu` sold on
-every game plan, which the Pterodactyl adapter never reads — only `cpu_pct`/`pids` size a game container).
+through the `mail-hosting` add-on — both extended once the enforcing code was confirmed) and one genuinely new,
+honest gap (`backup_days` sold on mail plans and on a managed database, neither of which `BackupScheduler` ever
+schedules). `vcpu` on game plans is enforced: provisioning raises `cpu_pct` to at least `vcpu` × 100.
 
 A key that is neither measured, enforced, fair use, nor read may still be listed once, honestly, in
 `PlanPromises::KNOWN_GAPS` — a ratchet that may only shrink (fixing a gap without removing the line, or a new gap
-appearing without one, both fail the guard test) — currently 15 entries, two of them boolean
+appearing without one, both fail the guard test) — currently 14 entries, two of them boolean
 (`dedicated_outbound_ip`, `dedicated_db`) rather than numeric, because excluding the presentation files surfaced
 them as genuinely unbuilt rather than merely unmeasured. `onhost:doctor` shows the tracked list as a standing WARN
 (`catalog: no known metering gap`) and any *new*, untracked gap as a production FAIL

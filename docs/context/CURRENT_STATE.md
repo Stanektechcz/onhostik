@@ -527,9 +527,9 @@
   from the scan, and every numeric promise is checked against `domains/Services/Metering/MetricRegistry.php` — a
   hand-verified table of what actually measures or enforces each key, scoped to the plan's own product family (a
   row verified only for mail must not pass a web plan selling the same key name) and to numeric strings as well as
-  ints/floats. Family-scoping itself surfaced two more honest gaps (`backup_days` never applied to a managed
-  database, `vcpu` never read by the Pterodactyl adapter) and two rows that were incomplete rather than wrong
-  (`nvme_gb`, `mailboxes`, extended once their real enforcement paths were confirmed). 15 tracked gaps remain in
+  ints/floats. Family-scoping itself surfaced one more honest gap (`backup_days`: a managed database is never backed
+  up on a schedule at all, and mail plans are selected by `BackupScheduler` but never scheduled) and two rows that were incomplete rather than wrong
+  (`nvme_gb`, `mailboxes`, extended once their real enforcement paths were confirmed). 14 tracked gaps remain in
   `PlanPromises::KNOWN_GAPS` — a ratchet that may only shrink — shown as a standing WARN by `onhost:doctor`; any new,
   untracked gap is a production FAIL.
 

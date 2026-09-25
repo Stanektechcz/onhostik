@@ -86,9 +86,9 @@ final class MetricRegistry
         ],
         'backup_days' => [
             'entitlement' => ['backup_days'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::SOFT, 'families' => ['web', 'managed', 'mail', 'data'],
-            'sources' => ['scheduler' => 'BackupScheduler::tick() queries Service::whereIn(\'family\', [\'web\',\'managed\',\'mail\']) and schedule() reads backup_days as the retention window, pruning expired/surplus backups against it — never for family data'],
+            'sources' => ['scheduler' => 'BackupScheduler::tick() queries Service::whereIn(\'family\', [\'web\',\'managed\',\'mail\']), and scheduleFor() only runs where ServiceFeatures offers backup_schedule (web/managed); there it reads backup_days as the retention window and prunes against it'],
             'interval_minutes' => 1440, 'drives_guard' => false, 'status' => self::GAP,
-            'reason' => 'kept for web/managed/mail (BackupScheduler, see sources); also sold on db-s/db-m (managed database, family data), where nothing ever reads backup_days — BackupScheduler\'s own family query excludes data, and no other code prunes or expires a managed database\'s backups by it — see KNOWN_GAPS.',
+            'reason' => 'kept for web/managed only (BackupScheduler, see sources). Mail plans sell it too, but mail services are selected and then skipped — ServiceFeatures gives mail no backup_schedule and no mail config sets the panel\'s retention from it; managed databases (db-s/db-m, family data) are not even selected, and nothing else backs them up on a schedule or prunes by it — see KNOWN_GAPS.',
         ],
         'backup_generations' => [
             'entitlement' => ['backup_generations'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::SOFT, 'families' => ['web'],
@@ -149,9 +149,8 @@ final class MetricRegistry
         // ---- VPS / VDS (Proxmox) -----------------------------------------------------------------------------
         'vcpu' => [
             'entitlement' => ['vcpu'], 'unit' => 'count', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['cloud', 'data', 'game'],
-            'sources' => ['proxmox' => 'ProxmoxComputeProvider sets qemu cores at provision/resize and drift-checks it against vcpu — cloud and data only', 'pterodactyl' => null],
-            'interval_minutes' => null, 'drives_guard' => true, 'status' => self::GAP,
-            'reason' => 'kept for cloud/data (ProxmoxComputeProvider, see sources); also sold in every game plan\'s entitlements, but PterodactylGameProvider never reads vcpu — only cpu_pct and pids (the limits bag) size a game container, so a game plan\'s vcpu number is never applied — see KNOWN_GAPS.',
+            'sources' => ['proxmox' => 'ProxmoxComputeProvider sets qemu cores at provision/resize and drift-checks it against vcpu', 'pterodactyl' => 'ServiceService::provision raises a game server\'s cpu_pct to at least vcpu × 100, which PterodactylGameProvider sends as limits.cpu (a plan change re-sends only the version\'s own cpu_pct — follow-up, not a sale-time gap)'],
+            'interval_minutes' => null, 'drives_guard' => true, 'status' => self::ENFORCED_ONLY, 'reason' => null,
         ],
         'ram_mb' => [
             'entitlement' => ['ram_mb'], 'unit' => 'bytes', 'scope' => 'service', 'limit_kind' => self::HARD, 'families' => ['cloud', 'data', 'game'],
