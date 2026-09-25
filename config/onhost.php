@@ -674,4 +674,17 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
     ],
     // every other add-on (ipv4, backups, mail, CDN) renews too — off until the owner decides: see TASK-0022 findings (ending one does not reach the panel/edge)
     'addon_renewals' => (bool) env('ONHOST_ADDON_RENEWALS', false),
+
+    // ── TASK-0023 metering-core (owner decisions 9 and 12) ──────────────────────────────────────────────────────────
+    // usage samples (service_usage_samples): null = not measured, never 0; retention raw 45 d, daily 400 d, monthly for ever
+    'metering' => [
+        // a metric that never drove anything on a family before (e.g. memory of a managed database) is only observed until this is on
+        'enforce_new_metrics' => (bool) env('ONHOST_METERING_ENFORCE_NEW_METRICS', false),
+        'retention' => [
+            'raw_days' => (int) env('ONHOST_METERING_RAW_DAYS', 45),
+            'daily_days' => (int) env('ONHOST_METERING_DAILY_DAYS', 400),
+            // monthly rows are never pruned
+        ],
+    ],
+    // ── end TASK-0023 metering-core ─────────────────────────────────────────────────────────────────────────────────
 ];

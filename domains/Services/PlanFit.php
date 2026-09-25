@@ -7,6 +7,7 @@ namespace Onhost\Domain\Services;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
+use Onhost\Domain\Services\Metering\UsageRecorder;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\StagingLink;
 use Onhost\Domain\Services\Web\ServiceSites;
@@ -27,6 +28,8 @@ use Onhost\Platform\Errors\DomainError;
  */
 final class PlanFit
 {
+    public function __construct(private readonly UsageRecorder $recorder) {}
+
     /**
      * What the service holds that the target plan would not cover.
      *
@@ -55,7 +58,13 @@ final class PlanFit
                 $out[] = ['key' => 'nvme_gb', 'have' => $carried, 'offer' => $total,
                     'message' => 'Tarif nabízí '.$total.' GB a další weby služby mají přidělených '.$carried.' GB, takže na hlavní web by nezbylo nic. Zmenšete prostor některého webu, nebo některý odeberte.'];
             }
-            $usedGb = (int) ceil((int) data_get($service->tags, 'usage.metrics.disk.used', 0) / 1024 ** 3);
+            $used = $this->usedDiskBytes($service);
+            $usedGb = $used === null ? 0 : (int) ceil($used / 1024 ** 3);
+            if ($used === null && (bool) config('onhost.metering.enforce_new_metrics', false) && $total < (int) (($service->entitlements ?? [])['nvme_gb'] ?? 0)) {
+                // never measured is not "empty" (TASK-0023): a smaller plan waits for the first number, a bigger one never does
+                $out[] = ['key' => 'disk_unmeasured', 'have' => 'neměřeno', 'offer' => $total,
+                    'message' => 'Zatím nevíme, kolik služba zabírá; změna na menší tarif bude možná po prvním měření.'];
+            }
             if ($usedGb > $total) {
                 $out[] = ['key' => 'disk_used', 'have' => $usedGb, 'offer' => $total,
                     'message' => 'Služba má uloženo '.$usedGb.' GB, víc, než tarif nabízí ('.$total.' GB).'];
@@ -85,6 +94,17 @@ final class PlanFit
         }
 
         return $out;
+    }
+
+    /** What the service stores: the watch's last reading, else the newest sample with a number, else null — never a false 0. */
+    public function usedDiskBytes(Service $service): ?int
+    {
+        $tagged = data_get($service->tags, 'usage.metrics.disk.used');
+        if (is_numeric($tagged)) {
+            return (int) $tagged;
+        }
+
+        return $this->recorder->latestMeasured($service, 'disk')?->value;
     }
 
     /** Refuses the change and names everything that stands in its way, so the customer fixes it in one go. */

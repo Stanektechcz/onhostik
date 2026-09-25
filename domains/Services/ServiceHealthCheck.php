@@ -214,6 +214,7 @@ final class ServiceHealthCheck
         }
 
         return match ((string) ($usage['level'] ?? 'ok')) {
+            'full' => self::finding('usage', 'bad', "Služba vyčerpala limit ({$top['key']}, {$top['pct']} %).", "The service has used up its limit ({$top['key']}, {$top['pct']} %)."),
             'critical' => self::finding('usage', 'bad', "Služba je na {$top['pct']} % svého limitu ({$top['key']}).", "The service is at {$top['pct']} % of its limit ({$top['key']})."),
             'warn' => self::finding('usage', 'warn', "Služba se blíží limitu: {$top['pct']} % ({$top['key']}).", "The service is getting close to its limit: {$top['pct']} % ({$top['key']})."),
             default => self::finding('usage', 'ok', "Využití je v pořádku (nejvíc {$top['pct']} %, {$top['key']}).", "Usage is fine (at most {$top['pct']} %, {$top['key']})."),

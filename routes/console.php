@@ -1330,3 +1330,8 @@ Schedule::command('onhost:access:expire')->everyFiveMinutes()->withoutOverlappin
 Schedule::command('onhost:ssh-keys:settle')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:cdn:refresh')->hourlyAt(35)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:web-tools:prune')->hourlyAt(50)->onOneServer();
+
+// ── TASK-0023 metering-core (owner decision 12): usage samples → days/months, then the retention ──────────────────
+Schedule::command('onhost:metering:rollup')->dailyAt('00:20')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:metering:prune')->dailyAt('04:35')->withoutOverlapping()->onOneServer();
+// ── end TASK-0023 metering-core ──────────────────────────────────────────────────────────────────────────────────

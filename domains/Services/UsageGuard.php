@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services;
 
 use Carbon\CarbonImmutable;
+use Onhost\Domain\Services\Metering\UsageMetrics;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Errors\DomainError;
 
@@ -53,7 +54,13 @@ final class UsageGuard
         if ($checked === null || $checked->addHours(UsageWatch::FRESH_HOURS)->isPast()) {
             return null;
         }
+        // a first reading is only a baseline, and a soft limit only ever tells the customer (TASK-0023, owner decision 9);
+        // a measurement written before metering has no baseline list and counts as confirmed
+        $baseline = array_map('strval', (array) ($usage['baseline'] ?? []));
         foreach (self::STORAGE_METRICS as $key) {
+            if (in_array($key, $baseline, true) || UsageMetrics::isSoft($key)) {
+                continue;
+            }
             $metric = (array) data_get($usage, "metrics.{$key}", []);
             if ((int) ($metric['pct'] ?? 0) >= UsageWatch::FULL_PCT && (int) ($metric['limit'] ?? 0) > 0) {
                 return ['key' => $key, 'used' => (int) $metric['used'], 'limit' => (int) $metric['limit'], 'pct' => (int) $metric['pct']];

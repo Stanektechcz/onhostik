@@ -71,6 +71,11 @@ final class AutomationLedger
         ['key' => 'mail.blocklist', 'command' => 'onhost:mail:blocklist', 'name' => 'Blocklisty odesílacích adres', 'does' => 'ptá se blocklistů, jestli adresa uzlu není na seznamu; jeden spammer na sdíleném uzlu shodí poštu všem ostatním', 'runs' => 'denně 05:25', 'switchable' => true],
         ['key' => 'dns.check', 'command' => 'onhost:dns:check', 'name' => 'Kontrola DNS zákaznických domén', 'does' => 'porovná, co veřejné DNS odpovídá, s tím, co jsme pro doménu publikovali; vlastní zónu opraví, zbytek řekne zákazníkovi', 'runs' => 'denně 05:10', 'switchable' => true],
         ['key' => 'game.migration', 'command' => null, 'name' => 'Stěhování herních serverů', 'does' => 'záloha, nový server na jiném uzlu, přenos archivu, přepnutí adresy, úklid — bez zásahu do hry', 'runs' => 'na pokyn obsluhy', 'switchable' => false],
+        // ── TASK-0023 metering-core (owner decisions 9 and 12) ──────────────────────────────────────────────────────
+        ['key' => 'usage.rotation', 'command' => null, 'name' => 'Měření všech služeb', 'does' => 'hlídání využití měří postupně všechny služby (i spravované databáze), nejdéle neměřené první, ne jen prvních 200; první měření je jen výchozí stav — nic neblokuje ani neobjednává. Náhled: onhost:metering:preview', 'runs' => 'každou hodinu spolu s Hlídáním využití tarifu', 'switchable' => true, 'default_off' => true],
+        ['key' => 'metering.rollup', 'command' => 'onhost:metering:rollup', 'name' => 'Denní a měsíční souhrny využití', 'does' => 'z hodinových měření udělá denní a měsíční řádky; den bez jediného měření zůstane „neměřeno“, ne 0', 'runs' => 'denně 00:20', 'switchable' => true],
+        ['key' => 'metering.prune', 'command' => 'onhost:metering:prune', 'name' => 'Retence měření využití', 'does' => 'maže hodinová měření starší 45 dní a denní souhrny starší 400 dní; měsíční souhrny drží navždy', 'runs' => 'denně 04:35', 'switchable' => true],
+        // ── end TASK-0023 metering-core ─────────────────────────────────────────────────────────────────────────────
     ];
 
     public function __construct(private readonly CacheRepository $cache, private readonly SettingsStore $settings) {}
