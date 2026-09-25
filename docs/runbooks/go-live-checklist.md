@@ -28,7 +28,7 @@ how it is verified; nothing here is optional for production. Run through it top 
 
 | Item | Verify |
 | --- | --- |
-| Proxmox instance per region with API token, `storage`, `bridge`, `pbs_datastore`; nodes imported (Discover) | Probe UP, nodes listed with capacity |
+| Proxmox instance per region with API token, `storage`, `bridge`, `backup_storage` (the Proxmox storage ID backups go to; the code reads `backup_storage`, not `pbs_datastore`); nodes imported (Discover) | Probe UP, nodes listed with capacity, prerequisite `backup_storage` OK |
 | PBS datastore reachable from the Proxmox instance | backup of a test VM completes |
 | ISPConfig remote user with client, sites, mail, dns, server, monitor functions; `server_id` resolved | Probe UP with `permissions.server = true` |
 | aaPanel API key, control-plane egress IP on the allow-list, certificate pinned if self-signed | Probe UP with the panel version |
@@ -39,6 +39,8 @@ how it is verified; nothing here is optional for production. Run through it top 
 | RKE2 service account token + cluster CA pinned | Probe UP, `apps.create` capability on |
 | IPAM pools per region for VPS addresses | `POST /v1/staff/ipam/pools`; a VPS order no longer waits with `ipam.exhausted` |
 | Console relay key shared with the relay service | `ONHOST_CONSOLE_RELAY_KEY`; opening a console in the panel connects |
+| Server and database backups (`backups.compute`, owner decision 1): `php artisan onhost:backups:compute-plan` shows no `MISSING` backup storage, a staging VM backup carries `onhost backup:<id>` in its notes, then the rule is switched on (Automations → "Zálohy serverů a databází podle plánu") — see [backups.md](backups.md) | after 24 h `onhost:doctor` shows the `backups:` rows and `every server sold backups has one from the last 3 days` OK |
+| Backups as sold (`backups.as_sold`, owner decision 18): `php artisan onhost:backups:frequency-plan` reviewed (services that change, extra storage against the backup disk), retention meaning confirmed by the owner, then the rule is switched on | `onhost:doctor` row `backups: every plan is backed up as often and as long as sold` OK; the backup disk has room for the estimate |
 | Panel versions (H530): every panel runs a version its adapter was verified on, or one an operator accepted on passing checks | `php artisan onhost:integrations:versions` shows no `held` and no `baseline`; ISPConfig and aaPanel report a version (see [panel-upgrade.md](panel-upgrade.md)) |
 
 ## 3. Money and documents

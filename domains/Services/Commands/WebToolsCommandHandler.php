@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services\Commands;
 
 use Carbon\CarbonImmutable;
+use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\ServiceMigrationService;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
@@ -72,6 +73,9 @@ final class WebToolsCommandHandler implements CommandHandler
             throw new DomainError('feature_unavailable', 'Scheduled backups are not part of this plan.', 422);
         }
         $plan = (array) ($schedule['options'] ?? []);
+        if (isset($plan['frequency'])) { // `1h` on the price list is hourly only under the owner's rule (TASK-0024); otherwise as before
+            $plan['frequency'] = BackupScheduler::normalizeFrequency((string) $plan['frequency'], app(AutomationLedger::class)->enabled(BackupScheduler::AS_SOLD_RULE));
+        }
         $allowed = array_keys(BackupScheduler::FREQUENCIES);
         $planMinutes = BackupScheduler::FREQUENCIES[(string) ($plan['frequency'] ?? 'daily')] ?? 1440;
         $frequency = (string) ($params['frequency'] ?? $plan['frequency'] ?? 'daily');

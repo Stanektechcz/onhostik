@@ -24,7 +24,7 @@ functions, `server_id` auto-resolved to 1, job queue read) and aaPanel 8.0.6 at 
 | Provider | What to create | Notes |
 | --- | --- | --- |
 | Proxmox VE | API token `onhost@pve!cp` (Datacenter → Permissions → API tokens, privilege separation on) with role: VM.Allocate, VM.Clone, VM.Config.*, VM.PowerMgmt, VM.Console, VM.Snapshot, VM.Backup, Datastore.AllocateSpace, Datastore.Audit, Sys.Audit on `/` | keep `verify_tls: false` only in labs; production uses a CA-signed API certificate |
-| Proxmox Backup Server | API token with Datastore.Backup + Datastore.Verify on the datastore | option `pbs_datastore` on the Proxmox instance |
+| Proxmox Backup Server | API token with Datastore.Backup + Datastore.Verify on the datastore | option `backup_storage` on the Proxmox instance = the Proxmox storage ID of that datastore (the code reads `backup_storage`; `pbs_datastore` is read by nothing) |
 | ISPConfig | System → Remote users: user with client, sites, mail, dns and server functions | option `server_id` (web) and `mail_server_id` |
 | aaPanel | Settings → API interface: enable, copy the key, allow-list the control plane's egress IP | signature = md5(time + md5(key)) is computed by the adapter |
 | Pterodactyl | Admin → Application API key (read/write on users, servers, nodes, allocations) + a client API key of the ONhost service user | option `eggs` maps catalog game keys to `{nest, egg}` |
@@ -41,7 +41,7 @@ functions, `server_id` auto-resolved to 1, job queue read) and aaPanel 8.0.6 at 
 {
   "key": "proxmox-cz1", "provider": "proxmox", "name": "PVE Praha 1", "region_code": "cz1",
   "base_url": "https://pve.onhost.internal:8006",
-  "options": { "verify_tls": true, "storage": "nvme", "bridge": "vmbr0", "pbs_datastore": "pbs-cz1" },
+  "options": { "verify_tls": true, "storage": "nvme", "bridge": "vmbr0", "backup_storage": "pbs-cz1" },
   "credentials": { "token_id": "onhost@pve!cp", "token_secret": "…" }
 }
 ```

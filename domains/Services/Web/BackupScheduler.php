@@ -48,17 +48,50 @@ final class BackupScheduler
     /** How many services a tick used to look at before TASK-0019 (the first hundred by id, never the rest). */
     public const OLD_WINDOW = 100;
 
+    /** Every family the scheduler may keep a schedule for (the doctor counts stalled and paused schedules over all of them). */
+    public const SCHEDULED_FAMILIES = ['web', 'managed', 'mail', 'cloud', 'data'];
+
+    /**
+     * How long one tick may take (80 % of its fifteen-minute cadence). `onhost:backups:run` runs withoutOverlapping, so a
+     * tick that overruns makes the next one skip in silence and a 15m plan loses slots nobody counts; the doctor compares
+     * the seconds the last tick recorded with this.
+     */
+    public const TICK_BUDGET_SECONDS = 720;
+
+    /**
+     * The automation rule (off unless staff switch it on) under which a plan is backed up as often and as long as sold
+     * (owner decision 18, TASK-0024): `1h` read as hourly, and on web/managed one backup a day kept for `backup_days`
+     * beyond the sub-daily generations. Who it would change: `onhost:backups:frequency-plan`.
+     */
+    public const AS_SOLD_RULE = 'backups.as_sold';
+
+    /** Spellings of a frequency on the price list that the scheduler did not know (managed-woo and shop-growth sell `1h`). */
+    public const FREQUENCY_ALIASES = ['1h' => 'hourly', '60m' => 'hourly', '24h' => 'daily', '1d' => 'daily'];
+
+    /** Families that keep one backup a day for `backup_days` beyond their generations under `backups.as_sold`. */
+    public const DAILY_KEEPER_FAMILIES = ['web', 'managed'];
+
     public function __construct(private readonly ServiceService $services, private readonly ServiceFeatures $features, private readonly OutboxPublisher $outbox, private readonly FinalArchive $archives, private readonly AutomationLedger $ledger) {}
+
+    /**
+     * The frequency the scheduler acts on: the price list's spelling (`1h`) is read as the frequency it means only under
+     * `backups.as_sold`; otherwise the string stays what it was, and an unknown one keeps its old daily-at-midnight path.
+     */
+    public static function normalizeFrequency(string $frequency, bool $asSold): string
+    {
+        return $asSold ? (self::FREQUENCY_ALIASES[$frequency] ?? $frequency) : $frequency;
+    }
 
     /**
      * One pass over EVERY eligible service. `$limit` is the size of one chunk read from the database, not a cap: the tick
      * used to take the first hundred services by id and never look at the rest, so from the 101st service on nobody
      * got a scheduled backup at all. A slot stays idempotent (`backup:auto:{id}:{slot}`), so a long pass is harmless.
      *
-     * @return array{started:int, skipped:int, deleted:int, offsite:int, errors:int, missed:int, paused:int}
+     * @return array{started:int, skipped:int, deleted:int, offsite:int, errors:int, missed:int, paused:int, seconds:int}
      */
     public function tick(int $limit = 100): array
     {
+        $began = microtime(true);
         $stats = ['started' => 0, 'skipped' => 0, 'deleted' => 0, 'offsite' => 0, 'errors' => 0, 'missed' => 0, 'paused' => 0];
         $context = CommandContext::system('backup scheduler');
         $services = $this->eligible(self::WEB_FAMILIES, false, $limit);
@@ -106,6 +139,7 @@ final class BackupScheduler
                 report($e);
             }
         }
+        $stats['seconds'] = (int) round(microtime(true) - $began); // the doctor holds it against TICK_BUDGET_SECONDS
 
         return $stats;
     }
@@ -240,8 +274,11 @@ final class BackupScheduler
         return true;
     }
 
-    /** @return array{frequency:string, minutes:int, days:int, generations:int, offsite:bool, slot:string, window_start:Carbon}|null */
-    public function scheduleFor(Service $service): ?array
+    /**
+     * @param  bool|null  $asSold  null: as the rule `backups.as_sold` stands now; true/false: as it would be (the frequency plan)
+     * @return array{frequency:string, minutes:int, days:int, generations:int, offsite:bool, slot:string, window_start:Carbon}|null
+     */
+    public function scheduleFor(Service $service, ?bool $asSold = null): ?array
     {
         $features = $this->features->features($service);
         $schedule = $features['backup_schedule'] ?? null;
@@ -249,7 +286,7 @@ final class BackupScheduler
             return null;
         }
 
-        return $this->scheduleFrom($service, (array) ($schedule['options'] ?? []));
+        return $this->scheduleFrom($service, (array) ($schedule['options'] ?? []), $asSold);
     }
 
     /**
@@ -258,10 +295,14 @@ final class BackupScheduler
      * @param  array<string,mixed>  $options
      * @return array{frequency:string, minutes:int, days:int, generations:int, offsite:bool, slot:string, window_start:Carbon}
      */
-    private function scheduleFrom(Service $service, array $options): array
+    private function scheduleFrom(Service $service, array $options, ?bool $asSold = null): array
     {
+        $asSold ??= $this->ledger->enabled(self::AS_SOLD_RULE);
+        if (isset($options['frequency'])) {
+            $options['frequency'] = self::normalizeFrequency((string) $options['frequency'], $asSold);
+        }
         $policy = BackupPolicy::query()->where('service_id', $service->id)->first();
-        $frequency = (string) ($policy?->schedule['frequency'] ?? $options['frequency'] ?? 'daily');
+        $frequency = self::normalizeFrequency((string) ($policy?->schedule['frequency'] ?? $options['frequency'] ?? 'daily'), $asSold);
         $minutes = self::FREQUENCIES[$frequency] ?? self::FREQUENCIES['daily'];
         $days = max(1, (int) ($policy?->retention['days'] ?? $options['days'] ?? 7));
         $generations = max(1, (int) ($policy?->retention['generations'] ?? $options['generations'] ?? 7));
@@ -287,7 +328,7 @@ final class BackupScheduler
             $windowStart = $frequency === 'weekly' ? $windowStart->subWeek() : $windowStart->subDay();
         }
 
-        return ['frequency' => $frequency, 'minutes' => $minutes, 'days' => $days, 'generations' => $generations, 'offsite' => $offsite, 'slot' => $windowStart->format('YmdHi'), 'window_start' => $windowStart];
+        return ['frequency' => $frequency, 'minutes' => $minutes, 'days' => $days, 'generations' => $generations, 'offsite' => $offsite, 'slot' => $windowStart->format('YmdHi'), 'window_start' => $windowStart, 'as_sold' => $asSold];
     }
 
     /**
@@ -367,6 +408,73 @@ final class BackupScheduler
         return $out;
     }
 
+    /**
+     * Whether servers and managed databases sold backups can get them, read-only (the doctor): the rule's state, how many
+     * are sold backups, and which Proxmox instances carrying them have no `backup_storage` to put the backups on.
+     *
+     * @return array{rule_on:bool, sold:int, services:list<string>, instances_missing_storage:list<string>, services_missing_storage:int}
+     */
+    public function computeReadiness(int $chunk = 500): array
+    {
+        $sold = 0;
+        $ids = [];
+        $instances = [];
+        foreach ($this->eligible(self::COMPUTE_FAMILIES, true, $chunk) as $service) {
+            if ($this->features->computeBackupSchedule($service) === null) {
+                continue;
+            }
+            $sold++;
+            $ids[] = (string) $service->id;
+            $instances[(string) $service->provider_instance_id] = ($instances[(string) $service->provider_instance_id] ?? 0) + 1;
+        }
+        $missing = [];
+        $services = 0;
+        foreach (ProviderInstance::query()->whereIn('id', array_keys($instances))->get() as $instance) {
+            if ((string) data_get($instance->options, 'backup_storage', '') === '') {
+                $missing[] = (string) $instance->key;
+                $services += $instances[(string) $instance->id];
+            }
+        }
+        sort($missing);
+
+        return ['rule_on' => $this->ledger->enabled(self::COMPUTE_RULE), 'sold' => $sold, 'services' => $ids, 'instances_missing_storage' => $missing, 'services_missing_storage' => $services];
+    }
+
+    /**
+     * What `backups.as_sold` would change for web and managed services, read-only (`onhost:backups:frequency-plan`): the
+     * frequency sold, the frequency and history the scheduler gives today and would give under the rule, and a storage
+     * estimate (the last completed backup's size times the copies the rule keeps on top). Nothing is written.
+     *
+     * @return list<array{service:string, plan:string, sold:string, now:string, as_sold:string, history_now:int, history_as_sold:int, extra_copies:int, extra_bytes:?int, changes:bool}>
+     */
+    public function frequencyPlan(int $chunk = 500): array
+    {
+        $rows = [];
+        foreach ($this->eligible(self::DAILY_KEEPER_FAMILIES, false, $chunk) as $service) {
+            try {
+                $now = $this->scheduleFor($service, false);
+                $sold = $now === null ? null : $this->scheduleFor($service, true);
+            } catch (Throwable) {
+                continue; // features that cannot be read right now: the service is left out, not guessed
+            }
+            if ($now === null || $sold === null) {
+                continue;
+            }
+            $historyNow = BackupDailyKeepers::historyMinutes($now['minutes'], $now['days'], $now['generations'], false);
+            $historyAsSold = BackupDailyKeepers::historyMinutes($sold['minutes'], $sold['days'], $sold['generations'], true);
+            $extra = max(0, BackupDailyKeepers::copies($sold['minutes'], $sold['days'], $sold['generations'], true) - BackupDailyKeepers::copies($now['minutes'], $now['days'], $now['generations'], false));
+            $size = Backup::query()->where('service_id', $service->id)->where('state', 'completed')->where('kind', 'scheduled')->whereNotNull('size_bytes')->orderByDesc('started_at')->value('size_bytes');
+            $rows[] = [
+                'service' => (string) $service->id, 'plan' => (string) $service->product_key, 'sold' => (string) data_get($service->entitlements, 'backup_frequency', 'daily'),
+                'now' => $now['frequency'].' ('.$now['minutes'].' min)', 'as_sold' => $sold['frequency'].' ('.$sold['minutes'].' min)',
+                'history_now' => $historyNow, 'history_as_sold' => $historyAsSold, 'extra_copies' => $extra, 'extra_bytes' => $size === null ? null : (int) $size * $extra,
+                'changes' => $now['minutes'] !== $sold['minutes'] || $historyNow !== $historyAsSold,
+            ];
+        }
+
+        return $rows;
+    }
+
     private function due(Service $service, array $schedule): bool
     {
         // a failed attempt counts as this slot having been tried: the operation runner has already retried it, and
@@ -390,7 +498,9 @@ final class BackupScheduler
         })
             // on a server only what this schedule made: a manual backup or a safety copy at the hypervisor was never its to take
             ->when($compute, fn ($q) => $q->where('kind', 'scheduled'))->get();
-        $surplus = Backup::query()->where('service_id', $service->id)->where('state', 'completed')->where('protected', false)->where('kind', 'scheduled')->orderByDesc('started_at')->skip($schedule['generations'])->take(50)->get();
+        $surplus = ! empty($schedule['as_sold']) && in_array($service->family, self::DAILY_KEEPER_FAMILIES, true)
+            ? BackupDailyKeepers::surplus($service, $schedule['generations'], $schedule['days'], 50)
+            : Backup::query()->where('service_id', $service->id)->where('state', 'completed')->where('protected', false)->where('kind', 'scheduled')->orderByDesc('started_at')->skip($schedule['generations'])->take(50)->get();
         foreach ($expired->merge($surplus)->unique('id') as $backup) {
             if ($this->deleteOnNode($service, $backup)) {
                 $backup->forceFill(['state' => 'deleted', 'meta' => array_merge((array) $backup->meta, ['deleted_at' => now()->toIso8601String(), 'deleted_by' => 'retention'])])->save();

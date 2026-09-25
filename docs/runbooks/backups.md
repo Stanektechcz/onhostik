@@ -372,7 +372,88 @@ the scheduler looked at could be deleted by the generation/retention prune inste
 * **Off-site copies of server backups.** The add-ons sell `offsite`; a vzdump volume is not copied anywhere else.
 * **VDS plans** (`backup: daily 7d`) and the configurator's `backup` option write a string entitlement no schedule
   reads; not covered by this rule.
-* **Doctor rows.** `onhost:doctor` counts stalled and paused schedules for `web`/`managed`/`mail` only; servers need
-  the same two lines (follow-up — `app/Console/Commands/Doctor.php`).
 
 Tests: `tests/Feature/Services/ComputeBackupScheduleTest.php`.
+
+### Going live with server backups (operator steps)
+
+1. `php artisan onhost:backups:compute-plan` on production (read-only): note every service with `backup storage
+   MISSING` and the web-window line.
+2. For each Proxmox instance behind a MISSING row set the instance option **`backup_storage`** (the storage ID of the
+   PBS/vzdump storage in Proxmox — the code reads `backup_storage`; older docs said `pbs_datastore`, which nothing
+   reads) in Nastavení systému → Integrace providerů (`instance.upsert`, HIGH, step-up). Probe the instance; its
+   `backup_storage` prerequisite must be OK.
+3. Re-run `compute-plan` until it shows no MISSING. On staging, first back a test VM up through the platform and check
+   that the volume's notes carry `onhost backup:<id>` (the notes/protected read-back is ASSUMED from the PVE API docs,
+   not yet seen on a real cluster).
+4. Switch **`backups.compute`** on (Automations → "Zálohy serverů a databází podle plánu").
+5. Watch `onhost:doctor` for 24 h: the `backups:` rows below, stalled/paused schedules and the server coverage row.
+
+## Doctor rows for backups (TASK-0024)
+
+`onhost:doctor` (area `lifecycle`; logic in `Onhost\Domain\Services\Web\BackupOperationsCheck`):
+
+| Row | OK when | Blocking |
+| --- | --- | --- |
+| backup schedules keeping up / no backup schedule is waiting for a person | no service of **any** scheduled family (`web`, `managed`, `mail`, `cloud`, `data`) has 3+ missed slots / a paused schedule | no |
+| backups: servers and databases sold backups get them | `backups.compute` is on, or no server/database is sold backups; otherwise names how many get none | no |
+| backups: every Proxmox instance carrying sold backups has a backup_storage | every instance of a server sold backups names one; lists the others | **yes, once `backups.compute` is on** |
+| backups: expired server backups are gone from the backup storage | no scheduled server backup carries `meta.delete_blocked` (first five ids with the reason) | no |
+| backups: no orphaned backup volume | no row carries `meta.orphan_volumes` (see below) | no |
+| backups: the backup tick ran within 30 min and inside its budget | the last `backups.run` is younger than 30 min, took at most `TICK_BUDGET_SECONDS` (720 s, 80 % of the cadence) and had no errors; also warns when `backups.run` is switched off | no |
+| backups: every plan is backed up as often and as long as sold | `backups.as_sold` is on, or no web/managed service sells a sub-daily frequency | no |
+| every server sold backups has one from the last N days | only while `backups.compute` is on: every server sold backups older than `coverage_days` has a completed backup in that window | no |
+
+`onhost:backups:run` is `withoutOverlapping`: a tick that runs longer than fifteen minutes makes the next one skip in
+silence and a 15m plan loses slots nobody counts. The tick now records its `seconds` in the automation ledger; the
+doctor row above is the only place that shows it. Shortening the tick (off-site streaming is synchronous inside it) is a
+separate performance task.
+
+## A server backup that is retried (TASK-0024)
+
+When the POST /vzdump started the dump but its answer was lost (a 5xx from a proxy, a timeout — retryable), the retry
+ran the step from the top: it listed the storage as "before" (the first volume already in it) and dumped a second
+time. The first volume carried the row's marker but was never the row's `remote_id`, so no retention ever removed it.
+
+Now a retry of the `backup` step on a `RetainedBackups` adapter (Proxmox) first lists the storage for a volume that
+carries **this row's** marker (`onhost backup:<id>`, derived from the row, never from the request) and adopts it without
+a new vzdump; only when none is there does it dump again. When several volumes carry the marker the newest is the row's
+and the others are written to **`meta.orphan_volumes`** — report only. Nothing deletes them automatically: look at the
+hypervisor, and remove a volume by hand only when it is provably the platform's. A retry after the task finished (a
+re-poll) never dumped twice and is unchanged. There is no "legacy" adoption without the marker: an operation that
+started before the marker existed fails with `backup_unconfirmed` and is retried as before.
+
+## Frequency and history as sold — `backups.as_sold` (owner decision 18, TASK-0024)
+
+**The hole.** managed-woo and shop-growth sell `backup_frequency: 1h`, a key `BackupScheduler::FREQUENCIES` does not
+know: the scheduler fell back to one slot a day at 00:00, and the customer could not even choose `hourly`
+(`backup_frequency_above_plan`). And every sub-daily plan kept only `backup_generations` (default 7) backups whatever its
+`backup_days`: "Zálohy 30 dní" on managed-wp was 42 hours of history, shop-peak (15 min, 90 days) 105 minutes. The
+configurator's `backup-30`/`backup-90` set only `backup_days`, so history stayed at 7 generations there too.
+
+**The rule — off until the owner switches it on** (`backups.as_sold`, `default_off`, "Zálohy přesně podle ceníku"):
+
+* `1h`/`60m` read as `hourly` (and `24h`/`1d` as `daily`) — in the schedule and in the customer's schedule ceiling;
+* on `web` and `managed` services: the newest `generations` backups are kept as before and, beyond them, **the last
+  backup of every calendar day** inside the last `backup_days` days (`BackupDailyKeepers`); the prune deletes at most 50
+  per tick as before; expired rows go as before; `data`/`cloud` keep TASK-0019's rule (their generations already default
+  to the days).
+
+While it is off `scheduleFor()`, the customer's schedule check and the prune behave exactly as before (tests assert it).
+Switching it off again stops new hourly slots and the daily keepers; nothing is deleted at the switch, the rows kept
+beyond the generations are pruned at the next ticks down to today's cap (50 per tick).
+
+| Plan | Sold | Today (rule off) | As sold (rule on) |
+| --- | --- | --- | --- |
+| web-hosting start / standard / profi, web-custom | daily, 7 / 30 / 90 days | daily 02:30, history = generations (7 / 30 / 90) | same |
+| managed-wp, shop-start | 6h, 30 days | 6h, 42 h of history | 6h, 7 generations + one a day for 30 days |
+| managed-woo, shop-growth | 1h, 30 days | **daily at 00:00**, 7 days | hourly, 7 generations + one a day for 30 days |
+| shop-peak | 15m, 90 days | 15m, 105 min of history | 15m, 7 generations + one a day for 90 days |
+
+**Before switching on:** `php artisan onhost:backups:frequency-plan` (read-only) lists every web/managed service —
+sold, now, as sold, history now and as sold, extra copies and an estimate of the extra storage (last completed backup ×
+extra copies) — and ends with `N service(s) change · about X GB more on the backup disk · rule backups.as_sold: on|off ·
+nothing was changed`. Check the estimate against the capacity of `ONHOST_PLATFORM_BACKUP_DISK` and confirm the retention
+meaning (frequency for the generations + one a day for `backup_days`; every sub-daily copy for the whole `backup_days`
+would be 8 640 full archives per site on shop-peak). New plan versions should also spell `hourly` instead of `1h`
+(catalogue task); the alias stays for existing services.

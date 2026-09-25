@@ -50,6 +50,7 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\Web\BackupOperationsCheck;
 use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Support\Assistant\AssistantBudget;
 use Onhost\Domain\Tax\CnbRates;
@@ -173,7 +174,7 @@ final class Doctor extends Command
             $blocked === 0 ? '' : $blocked.' archive(s) past retention still at the provider — backups.meta.expiry_blocked says why', false);
 
         // a schedule that keeps missing its slot is a backup the customer paid for and did not get (H434, H446)
-        $stalled = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->where('tags->backup_schedule->missed', '>=', BackupScheduler::MISSES_BEFORE_ALARM)->count();
+        $stalled = Service::query()->whereIn('family', BackupScheduler::SCHEDULED_FAMILIES)->where('tags->backup_schedule->missed', '>=', BackupScheduler::MISSES_BEFORE_ALARM)->count();
         $this->add('lifecycle', 'backup schedules keeping up', $stalled === 0, $stalled === 0 ? '' : $stalled.' service(s) have missed '.BackupScheduler::MISSES_BEFORE_ALARM.'+ slots in a row — tags.backup_schedule says why', false);
 
         // a node nobody looked at is a node the scheduler would sell (H471): the waiting ones, and the ones already
@@ -203,9 +204,12 @@ final class Doctor extends Command
             $untested === 0 ? (count($promised) === 0 ? 'no plan promises one' : count($promised).' service(s) with a tested backup') : $untested.' service(s) sold a restore test have none that passed — onhost:services:restore-test', false);
 
         // a schedule that stopped itself after repeated failures waits for a person and nothing else will start it (H447)
-        $pausedSchedules = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->whereNotNull('tags->backup_schedule->paused_at')->count();
+        $pausedSchedules = Service::query()->whereIn('family', BackupScheduler::SCHEDULED_FAMILIES)->whereNotNull('tags->backup_schedule->paused_at')->count();
         $this->add('lifecycle', 'no backup schedule is waiting for a person', $pausedSchedules === 0,
             $pausedSchedules === 0 ? '' : $pausedSchedules.' schedule(s) stopped after '.BackupScheduler::FAILURES_BEFORE_PAUSE.' failures in a row — fix the cause, then set the schedule again', false);
+        foreach (app(BackupOperationsCheck::class)->rows() as $row) { // server and database backups, the backup tick, frequency as sold (TASK-0024)
+            $this->add($row['area'], $row['check'], $row['ok'], $row['detail'], $row['blocking']);
+        }
 
         // an add-on is a billing row that changes its parent; one the platform cannot apply would be charged for nothing (audit §5ac)
         $undelivered = Addons::unsellable();
