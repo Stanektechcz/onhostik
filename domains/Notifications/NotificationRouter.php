@@ -138,10 +138,10 @@ final class NotificationRouter
             'service.resumed' => $this->customer($m, 'service', 'Služba byla obnovena', '', '/panel/sluzby'),
             'service.terminated' => $this->customer($m, 'service', 'Služba byla ukončena', 'Zálohy držíme po dobu retenční lhůty.', '/panel/sluzby', 'warn'),
             // the deletion lifecycle (audit §5ab): deactivation, the restore window, the removal and the archive
-            'service.restore_test.failed' => $this->customer($m, 'service', 'Záloha se nepodařilo obnovit na zkoušku', 'Pravidelný test obnovy u služby '.($p['label'] ?? '').' neprošel: '.($p['problem'] ?? '').' Vaše data ani databáze jsme nijak nezměnili — test běží stranou. Díváme se na to.', '/panel/sluzby', 'warn'),
-            'service.database.import.failed' => $this->customer($m, 'service', 'Import databáze se nedokončil', 'Import do databáze '.($p['database'] ?? '').' ('.($p['label'] ?? '').') se nedokončil'.(($p['restored'] ?? false) ? ' a vrátili jsme ji do stavu těsně před importem.' : '. Kopii z doby těsně před importem máme uloženou.').' Důvod: '.($p['reason'] ?? ''), '/panel/sluzby', 'warn'),
-            'service.backup.schedule.paused' => $this->customer($m, 'service', 'Plánování záloh jsme zastavili', 'Zálohy služby '.($p['label'] ?? '').' selhaly '.(int) ($p['failures'] ?? 0).'× po sobě ('.($p['reason'] ?? '').'), tak jsme plán zastavili, aby se pokusy neopakovaly donekonečna. Hotové zálohy zůstávají. Plán se rozeběhne, jakmile ho znovu nastavíte.', '/panel/sluzby', 'warn'),
-            'service.backup.schedule.stalled' => $this->customer($m, 'service', 'Plánovaná záloha se nespustila', 'Zálohu služby '.($p['label'] ?? '').' se nepodařilo spustit '.(int) ($p['missed'] ?? 0).'× po sobě ('.($p['reason'] ?? '').'). Díváme se na to; poslední hotová záloha zůstává k dispozici.', '/panel/sluzby', 'warn'),
+            'service.restore_test.failed' => $this->customerAndStaff($m, $p, 'Záloha se nepodařilo obnovit na zkoušku', 'Pravidelný test obnovy u služby '.($p['label'] ?? '').' neprošel: '.($p['problem'] ?? '').' Vaše data ani databáze jsme nijak nezměnili — test běží stranou. Díváme se na to.'),
+            'service.database.import.failed' => $this->customerAndStaff($m, $p, 'Import databáze se nedokončil', 'Import do databáze '.($p['database'] ?? '').' ('.($p['label'] ?? '').') se nedokončil'.(($p['restored'] ?? false) ? ' a vrátili jsme ji do stavu těsně před importem.' : '. Kopii z doby těsně před importem máme uloženou.').' Důvod: '.($p['reason'] ?? '')),
+            'service.backup.schedule.paused' => $this->customerAndStaff($m, $p, 'Plánování záloh jsme zastavili', 'Zálohy služby '.($p['label'] ?? '').' selhaly '.(int) ($p['failures'] ?? 0).'× po sobě ('.($p['reason'] ?? '').'), tak jsme plán zastavili, aby se pokusy neopakovaly donekonečna. Hotové zálohy zůstávají. Plán se rozeběhne, jakmile ho znovu nastavíte.'),
+            'service.backup.schedule.stalled' => $this->customerAndStaff($m, $p, 'Plánovaná záloha se nespustila', 'Zálohu služby '.($p['label'] ?? '').' se nepodařilo spustit '.(int) ($p['missed'] ?? 0).'× po sobě ('.($p['reason'] ?? '').'). Díváme se na to; poslední hotová záloha zůstává k dispozici.'),
             'service.rescue.started' => $this->customer($m, 'service', 'Server běží v záchranném režimu', 'Nastartovali jsme server ze záchranného obrazu ('.($p['image'] ?? '').'). Disky zůstaly nedotčené. Režim sám skončí '.($p['until'] ?? '').' a server nabootuje zpět do svého systému.', '/panel/sluzby', 'warn'),
             'service.rescue.ended' => $this->customer($m, 'service', 'Záchranný režim skončil', 'Server jsme vrátili do vlastního systému ('.($p['reason'] ?? '').').', '/panel/sluzby', 'info'),
             'service.deactivated' => $this->internal($m, 'service', 'Služba deaktivována ke zrušení', (string) ($p['reason'] ?? ''), '/sprava/sluzby'),
@@ -265,7 +265,7 @@ final class NotificationRouter
             'catalog.plan.version_published', 'catalog.plan.version_activated' => $this->internal($m, 'finance', self::internalTitle($m->name, $p), 'Změněno: '.implode(', ', array_merge((array) ($p['changed']['entitlements'] ?? []), (array) ($p['changed']['limits'] ?? []), (array) ($p['changed']['prices'] ?? []))).' · důvod: '.($p['reason'] ?? ''), '/sprava/fakturace', 'warn'),
             'platform.mail.failing', 'platform.mail.recovered',
             'node.blocklisted', 'service.name_unproved', 'service.certificate.problem', 'service.resume.incomplete', 'service.suspend.incomplete', 'service.purge.leftover',
-            'registrar.credit.low', 'integration.down', 'integration.maintenance.lifted', 'integration.maintenance.overdue', 'security.ssh_key.revocation.stuck', 'platform.load_shedding.started', 'platform.load_shedding.ended', 'platform.queue.stalled', 'platform.queue.backlog', 'node.drained', 'node.resumed', 'node.qualified', 'node.disk.low', 'service.integrity.suspicious', 'node.synthetic.leftover', 'service.relocated', 'service.backup.schedule.stalled', 'service.backup.schedule.paused', 'service.database.import.failed', 'service.restore_test.failed', 'capacity.unavailable', 'ipam.exhausted', 'ipam.threshold', 'ipam.rdns.unpublished', 'ipam.rdns.failed', 'provisioning.drift.detected', 'operation.failed', 'finance.reconciliation.mismatch', 'registrar.notification.dead', 'domain.reconcile.missing_remote', 'domain.reconcile.unknown_remote', 'payment.orphan_callback', 'security.incident.opened', 'abuse.case.opened', 'compliance.timer.due', 'compliance.timer.missed', 'sla.burn_rate', 'sla.budget.exhausted', 'maintenance.unapproved' => $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), mb_substr(json_encode(array_diff_key($p, array_flip(['row', 'raw'])), JSON_UNESCAPED_UNICODE) ?: '', 0, 250), self::internalSurface($m->name), 'hot'),
+            'registrar.credit.low', 'integration.down', 'integration.maintenance.lifted', 'integration.maintenance.overdue', 'security.ssh_key.revocation.stuck', 'platform.load_shedding.started', 'platform.load_shedding.ended', 'platform.queue.stalled', 'platform.queue.backlog', 'node.drained', 'node.resumed', 'node.qualified', 'node.disk.low', 'service.integrity.suspicious', 'node.synthetic.leftover', 'service.relocated', 'capacity.unavailable', 'ipam.exhausted', 'ipam.threshold', 'ipam.rdns.unpublished', 'ipam.rdns.failed', 'provisioning.drift.detected', 'operation.failed', 'finance.reconciliation.mismatch', 'registrar.notification.dead', 'domain.reconcile.missing_remote', 'domain.reconcile.unknown_remote', 'payment.orphan_callback', 'security.incident.opened', 'abuse.case.opened', 'compliance.timer.due', 'compliance.timer.missed', 'sla.burn_rate', 'sla.budget.exhausted', 'maintenance.unapproved' => $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), self::internalBody($p), self::internalSurface($m->name), 'hot'),
             // marketplace (audit §5j-1): the partner gets the brief, the customer the delivery; disputes reach support and the partner
             'marketplace.ordered' => $this->customer($m, 'order', 'Objednávka z marketplace: '.($p['title'] ?? ''), 'Partner dostal zadání; dodání do '.self::when($p['due_at'] ?? null).'. Zaplaceno z kreditu ('.$money($p['total'] ?? null).').', '/panel/nastaveni', 'info'),
             'marketplace.assigned' => $this->customer($m, 'order', 'Nová zakázka z marketplace: '.($p['title'] ?? ''), 'Zákazník '.($p['customer'] ?? '').' · dodání do '.self::when($p['due_at'] ?? null).' · '.mb_substr((string) ($p['brief'] ?? ''), 0, 200), '/partner', 'warn', $email, 'marketplace-assigned', ['sluzba' => (string) ($p['title'] ?? ''), 'zakaznik' => (string) ($p['customer'] ?? ''), 'termin' => self::when($p['due_at'] ?? null), 'zadani' => mb_substr((string) ($p['brief'] ?? ''), 0, 500), 'url' => "{$portal}/partner"]),
@@ -435,6 +435,29 @@ final class NotificationRouter
     {
         $this->internal($m, $kind, $internalTitle, $internalBody, $internalSurface, $severity);
         $this->customer($m, $kind, $customerTitle, $customerBody, $customerSurface, $severity, $mailTo, $template, $vars);
+    }
+
+    /**
+     * A service trouble the events catalog promises to "customer + operator": staff hear it as the staff list words it
+     * (hot), the customer in their own words (warn). One arm per event — PHP's match runs only the first arm that names it,
+     * which is how these four once reached the customer alone (TASK-0027).
+     *
+     * @param  array<string,mixed>  $p
+     */
+    private function customerAndStaff(OutboxMessage $m, array $p, string $title, string $body): void
+    {
+        $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), self::internalBody($p), self::internalSurface($m->name), 'hot');
+        $this->customer($m, 'service', $title, $body, '/panel/sluzby', 'warn');
+    }
+
+    /**
+     * What staff read under an internal title: the payload without raw rows, cut to the column.
+     *
+     * @param  array<string,mixed>  $p
+     */
+    private static function internalBody(array $p): string
+    {
+        return mb_substr(json_encode(array_diff_key($p, array_flip(['row', 'raw'])), JSON_UNESCAPED_UNICODE) ?: '', 0, 250);
     }
 
     /** User-addressed security events: aggregate is the user, mail goes to that user. */

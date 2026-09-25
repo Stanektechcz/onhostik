@@ -139,8 +139,8 @@ it('puts the database back when the panel refuses the dump, and leaves a timeout
 
     app(OutboxPublisher::class)->relayPending();
     $told = Notification::query()->where('event', 'service.database.import.failed')->get();
-    expect($told->pluck('audience')->unique()->all())->toContain('customer')
-        ->and($told->first()->body)->toContain('vrátili jsme');
+    expect($told->pluck('audience')->unique()->all())->toContain('customer')->toContain('internal') // staff hear it too (TASK-0027: the second arm never ran)
+        ->and($told->firstWhere('audience', 'customer')->body)->toContain('vrátili jsme');
 });
 
 it('refuses to remove a database account a database still hangs on (H462)', function () {

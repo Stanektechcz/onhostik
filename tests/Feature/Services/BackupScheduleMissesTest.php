@@ -42,8 +42,8 @@ it('writes down a slot that could not run, and tells somebody when it keeps happ
     app(OutboxPublisher::class)->relayPending();
     $told = Notification::query()->where('event', 'service.backup.schedule.stalled')->get();
     expect($told)->not->toBeEmpty()
-        ->and($told->pluck('audience')->unique()->all())->toContain('customer')
-        ->and($told->first()->body)->toContain('3×');
+        ->and($told->pluck('audience')->unique()->all())->toContain('customer')->toContain('internal') // staff hear it too (TASK-0027: the second arm never ran)
+        ->and($told->firstWhere('audience', 'customer')->body)->toContain('3×');
 });
 
 it('counts one miss per slot, and a slot that runs clears the count', function () {
@@ -93,8 +93,8 @@ it('stops a schedule whose backups keep failing, and starts it again only when a
 
     app(OutboxPublisher::class)->relayPending();
     $told = Notification::query()->where('event', 'service.backup.schedule.paused')->get();
-    expect($told->pluck('audience')->unique()->all())->toContain('customer')
-        ->and($told->first()->body)->toContain('5×');
+    expect($told->pluck('audience')->unique()->all())->toContain('customer')->toContain('internal') // staff hear it too (TASK-0027: the second arm never ran)
+        ->and($told->firstWhere('audience', 'customer')->body)->toContain('5×');
 
     // the controlled resume: the customer looks at it and sets the schedule again
     $this->actingAs($user, 'sanctum')->putJson("/v1/services/{$service->id}/backups/schedule", ['frequency' => 'daily', 'days' => 7, 'generations' => 7])->assertOk();
