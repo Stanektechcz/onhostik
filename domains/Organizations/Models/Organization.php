@@ -7,9 +7,14 @@ namespace Onhost\Domain\Organizations\Models;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Platform\Eloquent\Model;
 
+/**
+ * @property ?Carbon $vat_checked_at TASK-0031: when VIES last answered about vat_checked_number
+ * @property ?Carbon $vat_override_until TASK-0031: a staff override of the VAT status counts until then
+ */
 final class Organization extends Model
 {
     use SoftDeletes;
@@ -25,6 +30,8 @@ final class Organization extends Model
             'feature_flags' => 'array',
             'auto_renew_default' => 'boolean',
             'vat_validated_at' => 'datetime',
+            'vat_checked_at' => 'datetime', // TASK-0031: when VIES last answered about vat_checked_number
+            'vat_override_until' => 'datetime',
             'closed_at' => 'datetime',
             'domain_renewal_reserve_days' => 'integer',
         ];

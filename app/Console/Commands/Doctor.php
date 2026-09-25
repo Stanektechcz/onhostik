@@ -60,6 +60,7 @@ use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Support\Assistant\AssistantBudget;
 use Onhost\Domain\Tax\CnbRates;
 use Onhost\Domain\Tax\Models\ExchangeRate;
+use Onhost\Domain\Tax\VatHealth;
 use Onhost\Domain\WalletLedger\AutoTopup;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Ops\PlatformBackup;
@@ -100,6 +101,11 @@ final class Doctor extends Command
         foreach (app(WithdrawalHealth::class)->checks() as $check) { // TASK-0025: the lawyer's review and stuck withdrawals
             $this->add($check['area'], $check['check'], $check['ok'], $check['detail'], $check['blocking']);
         }
+        // ── TASK-0031: VIES on and configured, customers waiting for an answer, the last answer, lapsing reverse charge (no HTTP) ──
+        foreach (app(VatHealth::class)->checks() as $check) {
+            $this->add($check['area'], $check['check'], $check['ok'], $check['detail'], $check['blocking']);
+        }
+        // ── end TASK-0031 ──
 
         $fails = count(array_filter($this->rows, fn ($r) => $r['status'] === 'FAIL'));
         $warns = count(array_filter($this->rows, fn ($r) => $r['status'] === 'WARN'));

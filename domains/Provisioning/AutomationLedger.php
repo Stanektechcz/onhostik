@@ -81,6 +81,9 @@ final class AutomationLedger
         // TASK-0025 consumer withdrawal (owner decision 17): off until a lawyer has reviewed it and the owner switches it on
         ['key' => 'billing.withdrawal', 'command' => 'onhost:withdrawals:finish', 'name' => 'Odstoupení spotřebitele (14 dní)', 'does' => 'spotřebitel může do 14 dnů od objednávky odstoupit v panelu: služba se nejdřív pozastaví, nevyužitá část zaplaceného se vrátí dobropisem na kredit a služba se zruší; registrovanou doménu nelze. Rozpracovaná odstoupení dokončuje onhost:withdrawals:finish', 'runs' => 'na žádost zákazníka / každou hodinu dokončení', 'switchable' => true, 'default_off' => true],
         // ── end TASK-0025 ──
+        // ── TASK-0031: reverse charge counts 30 days after the VIES answer; re-checking changes existing customers' documents, so off until staff switch it on ──
+        ['key' => 'tax.vies_recheck', 'command' => 'onhost:vat:recheck', 'name' => 'Opakované ověření DIČ ve VIES', 'does' => 'firmám z EU s ověřeným DIČ ho jednou za měsíc znovu ověří, aby reverse charge nepropadl (platí 30 dní); neověřené stávající zákazníky jen přes onhost:vat:verify --apply', 'runs' => 'denně 04:20', 'switchable' => true, 'default_off' => true],
+        // ── end TASK-0031 ──
     ];
 
     public function __construct(private readonly CacheRepository $cache, private readonly SettingsStore $settings) {}

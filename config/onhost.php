@@ -703,4 +703,20 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         // ── end TASK-0023 web-disk-total ──
     ],
     // ── end TASK-0023 metering-core ─────────────────────────────────────────────────────────────────────────────────
+    // ── TASK-0031 VIES ──────────────────────────────────────────────────────────────────────────────────────────────
+    // a VAT number that was given is checked in the EU register (docs/runbooks/vat-and-vies.md). Off until go-live: without it
+    // every number stays `unknown` (destination VAT). billing.vies_endpoint above is the old, unused key and stays for now.
+    'vies' => [
+        'enabled' => (bool) env('ONHOST_VIES_ENABLED', false),
+        'endpoint' => env('VIES_ENDPOINT', 'https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number'),
+        // our own VAT ID as the requester: VIES then answers with a consultation number, the evidence for reverse charge
+        'requester_vat_id' => env('ONHOST_VIES_REQUESTER_VAT_ID', env('ONHOST_VAT_ID', env('ONHOST_DIC', ''))),
+        'timeout_seconds' => (int) env('ONHOST_VIES_TIMEOUT', 8),
+        'checkout_timeout_seconds' => (int) env('ONHOST_VIES_CHECKOUT_TIMEOUT', 5),
+        'freshness_days' => 30,       // a valid answer counts for reverse charge this long
+        'override_days' => 30,        // a staff override ends after this many days unless confirmed again
+        'retry_after_minutes' => 10,  // after an unknown answer a checkout does not ask again for this long
+        'recheck_after_days' => 25,   // tax.vies_recheck asks again before the 30 days run out
+    ],
+    // ── end TASK-0031 VIES ──────────────────────────────────────────────────────────────────────────────────────────
 ];

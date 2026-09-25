@@ -3553,12 +3553,6 @@ parameters:
 			path: domains/Tax/TaxEngine.php
 
 		-
-			message: '#^Called ''env'' outside of the config directory which returns null when the config is cached, use ''config''\.$#'
-			identifier: larastan.noEnvCallsOutsideOfConfig
-			count: 1
-			path: domains/Tax/ViesClient.php
-
-		-
 			message: '#^Cannot call method isToday\(\) on string\.$#'
 			identifier: method.nonObject
 			count: 2

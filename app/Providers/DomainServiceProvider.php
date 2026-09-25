@@ -94,6 +94,8 @@ use Onhost\Domain\Services\Metering\AnnounceDiskTotalHandler;
 use Onhost\Domain\Support\Commands\WorkOfferCommandHandler;
 use Onhost\Domain\Support\Commands\WorkOfferDecisionCommand;
 use Onhost\Domain\Support\Commands\WorkOfferStaffCommand;
+use Onhost\Domain\Tax\Commands\RecordVatCheckCommand;
+use Onhost\Domain\Tax\Commands\RecordVatCheckHandler;
 use Onhost\Domain\WalletLedger\Commands\AutoTopupCommand;
 use Onhost\Domain\WalletLedger\Commands\BudgetCommand;
 use Onhost\Domain\WalletLedger\Commands\RemovePaymentMethodCommand;
@@ -161,6 +163,9 @@ final class DomainServiceProvider extends ServiceProvider
         // ── TASK-0023 web-disk-total ──
         AnnounceDiskTotalCommand::class => AnnounceDiskTotalHandler::class,
         // ── end TASK-0023 web-disk-total ──
+        // ── TASK-0031 ──
+        RecordVatCheckCommand::class => RecordVatCheckHandler::class,
+        // ── end TASK-0031 ──
     ];
 
     public function boot(): void

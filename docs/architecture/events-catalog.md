@@ -214,3 +214,9 @@ Payload addition (TASK-0023 web-disk-total): once the plan total is enforced for
 | --- | --- | --- | --- |
 | `service.access.reduced` | service | `grant_id`, `user_id`, `email`, `organization_id`, `capabilities[]` (what the share gives now), `dropped[]`, `service` — an ACTIVE share was given again with less, and what was dropped took `service.console` (svc_console → svc_manage): the person's SSH keys and game collaborator accounts on that service go as on `service.access.revoked` (`RevokeDelegatedAccess`, kept while another role still gives the console); the share itself stays. A raise, the same again or a drop of anything else publishes nothing. Customer in-app *Konzole služby odebrána* (TASK-0029, security review round 2) | ServiceAccessService::share |
 <!-- TASK-0029 service-access-reduced: end -->
+
+<!-- TASK-0031 vies: begin -->
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `tax.vat_number.checked` | organization | `result` (valid / invalid — an unknown answer is never published), `previous` and `effective` (the effective status before and after, VatStanding), `changed` (bool), `source` (vies / format / staff), `trigger` (vat_id_changed / checkout / recheck / operator / staff), `country` (ISO), `number_hint` (country + last three characters), `consultation_number` (VIES requestIdentifier or null); for a staff override also `until`. Never the trader's name, address or the full number. The customer's billing contacts are told when the result is invalid (`vat-number-invalid` mail + portal note; a Czech organization gets the neutral wording), an in-app note when a number became valid; a staff override goes to the finance inbox (TASK-0031) | RecordVatCheckHandler, OverrideVatStatusHandler |
+<!-- TASK-0031 vies: end -->

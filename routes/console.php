@@ -1339,3 +1339,7 @@ Schedule::command('onhost:metering:prune')->dailyAt('04:35')->withoutOverlapping
 // ── TASK-0025 consumer withdrawal: finish what consumers asked for (a refused suspension/cancellation again, a refund once the service is off); never starts one ──
 Schedule::command('onhost:withdrawals:finish')->hourlyAt(25)->withoutOverlapping()->onOneServer();
 // ── end TASK-0025 ──
+
+// ── TASK-0031: re-check the VIES-valid VAT numbers before their 30 days run out (tax.vies_recheck, off by default) ──
+Schedule::command('onhost:vat:recheck')->dailyAt('04:20')->withoutOverlapping()->onOneServer();
+// ── end TASK-0031 ──

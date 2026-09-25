@@ -11,6 +11,7 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\UsageWatch;
+use Onhost\Domain\Tax\VatNumber;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxEventDispatched;
 use Onhost\Platform\Outbox\OutboxMessage;
@@ -390,9 +391,43 @@ final class NotificationRouter
             // ── TASK-0029 service-access-reduced: a share given again without the console takes the person's SSH keys and game sub-users on it (RevokeDelegatedAccess) ──
             'service.access.reduced' => $this->customer($m, 'account', 'Konzole služby odebrána: '.($p['service'] ?? ''), ($p['email'] ?? '').' · přístup zůstává ('.implode(', ', (array) ($p['capabilities'] ?? [])).'), SSH klíče a herní sub-uživatelé této osoby se odebírají', '/panel/sluzby'),
             // ── end TASK-0029 service-access-reduced ──
+            // ── TASK-0031: a VAT number checked in VIES — the billing contacts hear an invalid number, finance hears a staff override ──
+            'tax.vat_number.checked' => $this->vatNumberChecked($m, $p, $org, $email, $portal, $locale),
+            // ── end TASK-0031 ──
             default => null,
         };
     }
+
+    // ── TASK-0031 ──
+    /**
+     * What a VIES verdict means for the customer (D31.8). An invalid number is told to the billing contacts with the mail;
+     * only a customer in another EU state hears that their country's VAT is charged meanwhile — a Czech organization is
+     * charged Czech VAT either way, and a number from outside the EU is never checked, so nobody there hears "invalid".
+     * A number that became valid is an in-app note; a staff override goes to finance.
+     *
+     * @param  array<string,mixed>  $p
+     */
+    private function vatNumberChecked(OutboxMessage $m, array $p, ?Organization $org, ?string $email, string $portal, string $locale): void
+    {
+        $hint = (string) ($p['number_hint'] ?? '');
+        if (($p['source'] ?? '') === 'staff') {
+            $this->internal($m, 'finance', 'Stav DIČ nastaven ručně: '.($org->name ?? ''), $hint.' · '.(string) ($p['result'] ?? '').(isset($p['until']) ? ' · do '.substr((string) $p['until'], 0, 10) : ''), '/sprava#/money', 'info');
+
+            return;
+        }
+        $supplier = ($p['country'] ?? '') === VatNumber::supplierCountry() || strtoupper((string) ($org->country ?? '')) === VatNumber::supplierCountry();
+        if (($p['result'] ?? '') === 'invalid') {
+            $effect = $supplier ? 'Pokud je číslo správné, napište nám a ověříme ho ručně.' : 'Dokud DIČ neověříme, účtujeme DPH vaší země.';
+            $this->customer($m, 'billing', 'DIČ se nepodařilo ověřit ve VIES', 'DIČ '.$hint.' se nepodařilo ověřit ve VIES. '.$effect.' Zkontrolujte ho ve fakturačních údajích.', '/panel/nastaveni', 'warn', $email, 'vat-number-invalid',
+                ['dic' => $hint, 'dopad' => (string) Lexicon::translate($effect, $locale), 'url' => $portal.'/panel/nastaveni']);
+
+            return;
+        }
+        if (($p['result'] ?? '') === 'valid' && ! empty($p['changed'])) {
+            $this->customer($m, 'billing', 'DIČ ověřeno ve VIES', 'DIČ '.$hint.' je platné.'.($supplier || ! ($org?->isB2b() ?? false) ? '' : ' Na dokladech uplatníme přenesení daňové povinnosti (reverse charge).'), '/panel/nastaveni', 'info');
+        }
+    }
+    // ── end TASK-0031 ──
 
     /** What is wrong with the domain, in the words the customer can act on. */
     private static function dnsProblems(array $payload): string

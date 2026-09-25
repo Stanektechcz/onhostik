@@ -190,6 +190,15 @@ final class Lexicon
         'Vráceno na kredit po odstoupení: ' => 'Returned to credit after the withdrawal: ', ' · dobropis ' => ' · credit note ',
         'Služba ukončena odstoupením: ' => 'Service ended by withdrawal: ', 'Smlouva je ukončena. Novou službu si můžete kdykoli objednat.' => 'The contract has ended. You can order a new service at any time.',
         // ── end TASK-0025 ──
+        // ── TASK-0031 VAT numbers in VIES ──
+        'DIČ se nepodařilo ověřit ve VIES' => 'Your VAT number could not be verified in VIES', ' se nepodařilo ověřit ve VIES. ' => ' could not be verified in VIES. ',
+        'Dokud DIČ neověříme, účtujeme DPH vaší země.' => 'Until it is verified, we charge the VAT of your country.',
+        'Pokud je číslo správné, napište nám a ověříme ho ručně.' => 'If the number is correct, write to us and we will verify it by hand.',
+        ' Zkontrolujte ho ve fakturačních údajích.' => ' Please check it in your billing details.',
+        'DIČ ověřeno ve VIES' => 'VAT number verified in VIES', ' je platné.' => ' is valid.',
+        ' Na dokladech uplatníme přenesení daňové povinnosti (reverse charge).' => ' Your documents will apply the reverse charge.',
+        'DIČ ' => 'VAT number ', 'Stav DIČ nastaven ručně: ' => 'VAT number status set by hand: ',
+        // ── end TASK-0031 ──
     ];
 
     public static function translate(?string $text, string $locale): ?string
