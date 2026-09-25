@@ -356,6 +356,11 @@ final class NotificationRouter
                 }
             })(),
             'service.limit_raise_ended' => $this->customer($m, 'service', 'Navýšení limitu služby '.($p['label'] ?? '').' skončilo', (string) ($p['metric_label'] ?? $p['metric'] ?? '').' −'.(int) ($p['delta'] ?? 0).' → '.(int) ($p['new_value'] ?? 0), '/panel/sluzby', 'info'),
+            // ── TASK-0025 pay and restore (rule services.reinstate): a cancelled service came back after payment, waits for it, or its resume failed after the money was taken ──
+            'service.reinstated' => $this->customer($m, 'service', 'Služba je zpět: '.($p['label'] ?? ''), (is_array($p['amount'] ?? null) ? 'Zaplaceno '.$money($p['amount']).' · ' : 'Zaplacené období trvá · ').'plánované odstranění jsme zrušili, služba se znovu spouští.', '/panel/sluzby', 'info', $email, 'service-reinstated', ['sluzba' => (string) ($p['label'] ?? ''), 'castka' => is_array($p['amount'] ?? null) ? $money($p['amount']) : '—', 'url' => "{$portal}/panel/sluzby"]),
+            'service.reinstatement.awaiting_payment' => $this->customer($m, 'service', 'Obnovení služby čeká na platbu: '.($p['label'] ?? ''), 'K úhradě '.$money($p['amount'] ?? null).((int) data_get($p, 'shortfall.minor', 0) > 0 ? ' · na kreditu chybí '.$money($p['shortfall'] ?? null) : '').' · obnovit lze do '.substr((string) ($p['grace_until'] ?? ''), 0, 10), '/panel/fakturace', 'warn'),
+            'service.reinstatement.failed' => $this->internal($m, 'service', 'Zaplacená služba se neobnovila: '.($p['label'] ?? ''), 'platba přijata ('.(string) ($p['billing'] ?? '').'), odstranění zrušeno, obnovení odmítnuto: '.(string) ($p['error'] ?? '').' · obnovte ručně', '/sprava/sluzby', 'hot'),
+            // ── end TASK-0025 ──
             default => null,
         };
     }

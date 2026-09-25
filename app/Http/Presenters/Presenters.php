@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Presenters;
 
+use Onhost\Domain\Billing\ServiceReinstatement;
 use Onhost\Domain\Dns\Models\DnsChange;
 use Onhost\Domain\Dns\Models\DnsRecord;
 use Onhost\Domain\Dns\Models\DnsZone;
@@ -87,6 +88,7 @@ final class Presenters
             'deletion' => $service->terminate_at === null ? null : [
                 'grace_until' => $service->terminate_at->toIso8601String(), 'days_left' => max(0, (int) now()->diffInDays($service->terminate_at, false)),
                 'archive_backup_id' => data_get($service->tags, 'deletion.archive_backup_id'), 'reason' => data_get($service->tags, 'deletion.reason'),
+                'pay_to_restore' => app(ServiceReinstatement::class)->enabled(), // TASK-0025: the panel offers "Zaplatit a obnovit" only while the rule is on
             ],
             // what the world answers for the customer's domain, against what the platform published for it (PublicDnsCheck)
             'dns' => self::dnsCheck($service),

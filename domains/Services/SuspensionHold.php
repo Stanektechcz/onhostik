@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
+use Onhost\Domain\Billing\ServiceReinstatement;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Commands\CommandContext;
@@ -94,11 +95,28 @@ final class SuspensionHold
             'hold' => $first, 'holds' => $holds, 'customer_can_resume' => $holds === [], 'since' => $service->suspended_at->toIso8601String(),
             'message' => match ($first) {
                 self::ABUSE => 'Služba je pozastavená kvůli porušení podmínek. Odpovězte prosím na tiket, který jsme vám k tomu poslali; obnovit ji může jen náš tým.',
-                self::PAYMENT => 'Služba je pozastavená kvůli neuhrazené platbě nebo ukončenému předplatnému. Po úhradě ji obnovíme; pokud to nejde, napište podpoře.',
+                self::PAYMENT => self::paymentMessage($service),
                 self::REVIEW => 'Službu pozastavil náš tým. Napište prosím podpoře — obnovit ji může jen ona.',
                 default => null,
             },
         ];
+    }
+
+    /**
+     * "Po úhradě ji obnovíme" is true of a suspension for an unpaid invoice; of a service that was cancelled for it (or whose
+     * subscription ran out) it was not — nothing brought such a service back (TASK-0025). With pay and restore switched on
+     * the customer is shown the way back; without it, who can still help.
+     */
+    private static function paymentMessage(Service $service): string
+    {
+        if ($service->terminate_at === null) {
+            return 'Služba je pozastavená kvůli neuhrazené platbě nebo ukončenému předplatnému. Po úhradě ji obnovíme; pokud to nejde, napište podpoře.';
+        }
+        $until = $service->terminate_at->format('j. n. Y');
+
+        return app(ServiceReinstatement::class)->enabled()
+            ? "Služba je zrušená kvůli neuhrazené platbě nebo ukončenému předplatnému. Do {$until} ji obnovíte zaplacením (Zaplatit a obnovit); pokud to nejde, napište podpoře."
+            : "Služba je zrušená kvůli neuhrazené platbě nebo ukončenému předplatnému. Obnovit ji do {$until} může podpora — napište jí prosím.";
     }
 
     private static function fromReason(string $reason): ?string

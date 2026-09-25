@@ -9,7 +9,10 @@ use Illuminate\Support\ServiceProvider;
 use Onhost\Domain\Billing\Commands\ChargebackCommand;
 use Onhost\Domain\Billing\Commands\ChargebackCommandHandler;
 use Onhost\Domain\Billing\Commands\ChargebackStaffCommand;
+use Onhost\Domain\Billing\Commands\ReinstateServiceCommand;
+use Onhost\Domain\Billing\Commands\ReinstateServiceCommandHandler;
 use Onhost\Domain\Billing\Listeners\ChargebackSettlement;
+use Onhost\Domain\Billing\Listeners\RestartBillingAfterRestore;
 use Onhost\Domain\Billing\Listeners\SettleBillingAfterPayment;
 use Onhost\Domain\Catalog\Commands\CatalogCommand;
 use Onhost\Domain\Catalog\Commands\CatalogCommandHandler;
@@ -114,6 +117,7 @@ final class DomainServiceProvider extends ServiceProvider
         DecideOrderApprovalCommand::class => OrdersCommandHandler::class, // TASK-0021: owner decision 20
         ChargebackCommand::class => ChargebackCommandHandler::class,
         ChargebackStaffCommand::class => ChargebackCommandHandler::class,
+        ReinstateServiceCommand::class => ReinstateServiceCommandHandler::class, // TASK-0025 pay and restore
         LoyaltyCommand::class => LoyaltyCommandHandler::class,
         AccountLoyaltyCommand::class => LoyaltyCommandHandler::class,
         MarketplaceCommand::class => MarketplaceCommandHandler::class,
@@ -167,6 +171,7 @@ final class DomainServiceProvider extends ServiceProvider
         Event::listen(OutboxEventDispatched::class, WebhookDispatcher::class);
         Event::listen(OutboxEventDispatched::class, OnCallService::class); // operational events page the on-call (audit §5q-1)
         Event::listen(OutboxEventDispatched::class, ChargebackSettlement::class); // credit back once the service is gone
+        Event::listen('onhost.service.deletion.cancelled', RestartBillingAfterRestore::class); // TASK-0025: an undone cancellation is billed again (rule services.reinstate)
         Event::listen('onhost.organization.member.removed', CloseServiceAccessGrants::class); // whoever left has nothing shared any more
         Event::listen(OutboxEventDispatched::class, RevokeDelegatedAccess::class); // a removed member loses the panel accounts that were theirs (H333)
         Event::listen(OutboxEventDispatched::class, LoyaltyRouter::class); // points for what customers do

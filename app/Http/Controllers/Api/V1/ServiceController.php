@@ -10,6 +10,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\ChargebackService;
 use Onhost\Domain\Billing\Commands\ChargebackCommand;
+use Onhost\Domain\Billing\Commands\ReinstateServiceCommand;
+use Onhost\Domain\Billing\ServiceReinstatement;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -230,6 +232,23 @@ final class ServiceController extends ApiController
         $model = $this->resolve($request, $service, 'service.manage');
 
         return $this->dispatch(new ChargebackCommand($model->organization_id, $this->idempotencyKey($request, "chargeback.cancel:{$model->id}"), ['op' => 'cancel', 'service_id' => $model->id]), $this->api->context($request, Organization::query()->find($model->organization_id)), 202);
+    }
+
+    /** Pay and restore (TASK-0025): what bringing a cancelled service back costs now, and why it cannot be brought back if it cannot. */
+    public function reinstatement(Request $request, ServiceReinstatement $reinstatement, string $service): JsonResponse
+    {
+        $model = $this->resolve($request, $service);
+        $this->api->authorize($request, 'billing.wallet.read', CommandScope::organization($model->organization_id)); // the quote shows the credit
+
+        return response()->json(['data' => $reinstatement->quote($model)]);
+    }
+
+    /** Pay what the cancelled service owes from the credit and bring it back (202: the resume runs; or it waits for the money). */
+    public function reinstate(Request $request, string $service): JsonResponse
+    {
+        $model = $this->resolve($request, $service);
+
+        return $this->dispatch(new ReinstateServiceCommand($model->organization_id, $this->idempotencyKey($request, "service.reinstate:{$model->id}"), ['service_id' => $model->id]), $this->api->context($request, Organization::query()->find($model->organization_id)), 202);
     }
 
     /** The customer moves a scheduled migration inside the window staff gave (audit §5h-3). */

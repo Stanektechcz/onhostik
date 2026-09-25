@@ -84,6 +84,34 @@
     if (r === undefined || fresh) { if (r === undefined) state.ops[sel.id] = null; load('o:' + sel.id, '/services/' + sel.id + '/operations', cmp, function (d) { state.ops[sel.id] = Array.isArray(d) ? d : (d.data || d); }); }
     return r === undefined ? null : r;
   }
+  // pay and restore (TASK-0025): the quote, one confirmation with the amount, then the paid restore of a cancelled service
+  function payRestore(cmp, sel) {
+    var _ = T(cmp);
+    var fmtM = function (m) { return m && m.minor != null ? (Math.round(m.minor) / 100).toLocaleString('cs-CZ') + ' ' + (m.currency || '') : '—'; };
+    return API.get('/services/' + sel.id + '/reinstatement').then(function (r) {
+      var q = r.data || r;
+      if (!q.eligible) { flash(cmp, _('Službu teď nelze obnovit', 'The service cannot be restored now'), q.reason || ''); return null; }
+      var inv = (q.outstanding_invoices || []).map(function (i) { return (i.number || i.id) + ' ' + fmtM(i.outstanding); }).join(', ');
+      var short = q.shortfall && q.shortfall.minor > 0 ? fmtM(q.shortfall) : null;
+      var text = inv ? _('Nejdřív je třeba uhradit fakturu ' + inv + '; po její úhradě službu obnovíme sami. Pokračovat?', 'The invoice ' + inv + ' has to be paid first; we restore the service once it is. Continue?')
+        : _('Obnovit službu a zrušit plánované odstranění? K úhradě z kreditu: ' + fmtM(q.total_due) + (short ? ' (na kreditu chybí ' + short + ')' : '') + '.', 'Restore the service and call the removal off? Paid from the credit: ' + fmtM(q.total_due) + (short ? ' (credit short by ' + short + ')' : '') + '.');
+      if (!window.confirm(text)) return null;
+      return API.post('/services/' + sel.id + '/reinstate', {}, API.key()).then(function (r2) {
+        var d = r2.data || r2;
+        if (d.state === 'restoring') {
+          flash(cmp, _('Služba se obnovuje', 'The service is coming back'), _('Zaplaceno; plánované odstranění jsme zrušili.', 'Paid; the planned removal is cancelled.'));
+          [2500, 8000].forEach(function (ms) { setTimeout(function () { forget(sel, []); rerender(cmp); }, ms); });
+        } else if (d.state === 'awaiting_payment') {
+          flash(cmp, _('Obnovení čeká na kredit', 'The restore waits for credit'), _('Dobijte kredit ve Fakturaci (chybí ' + fmtM(d.shortfall) + '); službu pak obnovíme sami.', 'Top up the credit under Billing (short by ' + fmtM(d.shortfall) + '); we restore the service then.'));
+        } else if (d.state === 'awaiting_invoices') {
+          flash(cmp, _('Obnovení čeká na úhradu faktury', 'The restore waits for the invoice'), _('Fakturu zaplatíte ve Fakturaci; službu pak obnovíme sami.', 'Pay the invoice under Billing; we restore the service then.'));
+        } else {
+          flash(cmp, _('Zaplaceno, ale služba se neobnovila', 'Paid, but the service did not come back'), _('Ozveme se vám; odstranění je zrušené.', 'We will contact you; the removal is cancelled.'));
+        }
+        return d;
+      });
+    }).catch(function (e) { flash(cmp, _('Obnovení neproběhlo', 'Restore failed'), (e && e.message) || ''); });
+  }
   function forget(sel, kinds) { (kinds || []).forEach(function (k) { delete state.resources[sel.id + ':' + k]; }); delete state.ops[sel.id]; delete state.summary[sel.id]; }
 
   /* One customer action = one operation; the listing that changed is re-read after the executor had time to act. */
@@ -181,7 +209,7 @@
       var held = sel.suspension && sel.suspension.customer_can_resume === false ? sel.suspension : null; // a suspension we imposed is not the customer's to lift (H17)
       if (held) {
         rows.unshift({ cells: [cell(_('Pozastavená služba', 'Suspended service'), '1 1 220px'), cell(held.hold === 'payment' ? _('čeká na úhradu', 'waiting for payment') : (held.hold === 'abuse' ? _('pozastaveno kvůli porušení podmínek', 'suspended for a breach of terms') : _('pozastavil ji náš tým', 'suspended by our team')), '1 1 300px'), cell(_('obnoví ji ONhost', 'ONhost brings it back'), '0 0 170px', 1)],
-          note: held.hold === 'payment' ? _('Po úhradě službu obnovíme; pokud to nejde, napište podpoře.', 'We bring the service back once it is paid; write to support if that is not possible.') : _('Napište prosím podpoře — obnovit ji může jen náš tým.', 'Please write to support — only our team can bring it back.'), actions: [] });
+          note: held.hold === 'payment' ? _('Po úhradě službu obnovíme; pokud to nejde, napište podpoře.', 'We bring the service back once it is paid; write to support if that is not possible.') : _('Napište prosím podpoře — obnovit ji může jen náš tým.', 'Please write to support — only our team can bring it back.'), actions: held.hold === 'payment' && sel.deletion && sel.deletion.pay_to_restore ? [A(_('Zaplatit a obnovit', 'Pay and restore'), function () { payRestore(cmp, sel); })] : [] });
       }
       var del = !held && sel.deletion && sel.deletion.grace_until ? sel.deletion : null; // a cancelled service waits deactivated; the customer may bring it back (audit §5ab)
       if (del) {
@@ -190,8 +218,8 @@
           note: _('Po uplynutí lhůty službu odstraníme a zůstane jen archiv ke stažení nebo k obnově do nové služby.', 'After the window we remove the service; only the archive is left, to download or restore into a new service.'),
           actions: [A(_('Obnovit službu', 'Restore the service'), function () {
             if (!window.confirm(_('Obnovit službu a zrušit plánované odstranění?', 'Restore the service and call the removal off?'))) return;
-            act(cmp, sel, 'resume', {}, [], _('Služba se obnovuje', 'The service is coming back'), _('Plánované odstranění jsme zrušili.', 'The planned removal is cancelled.'));
-          })] });
+            act(cmp, sel, 'resume', {}, [], _('Služba se obnovuje', 'The service is coming back'), _('Plánované odstranění jsme zrušili.', 'The planned removal is cancelled.')).catch(function (e) { if (e && e.status === 402 && del.pay_to_restore) payRestore(cmp, sel); }); // the paid period ended: pay and restore (TASK-0025)
+          })].concat(del.pay_to_restore ? [A(_('Zaplatit a obnovit', 'Pay and restore'), function () { payRestore(cmp, sel); })] : []) });
       }
       var dnsP = sel.dns && sel.dns.problems && sel.dns.problems.length ? sel.dns : null; // what the world answers for the domain, against what we published for it
       if (dnsP) {

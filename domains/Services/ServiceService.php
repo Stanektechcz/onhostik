@@ -9,6 +9,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\Models\Subscription;
+use Onhost\Domain\Billing\ServiceReinstatement;
 use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Product;
@@ -525,8 +526,12 @@ final class ServiceService
             if (! empty($params['force']) && $context->actorType === 'user' && (string) ($params['reason'] ?? '') === '') {
                 throw new DomainError('reason_required', 'Předčasné odstranění služby vyžaduje důvod.', 422);
             }
+            if (empty($params['force'])) {
+                app(ServiceReinstatement::class)->assertPurgeAllowed($service); // TASK-0025: a carried site of a parent that was paid for and brought back stays
+            }
         }
         if ($action === 'resume') {
+            app(ServiceReinstatement::class)->assertCustomerMayResume($service, $context); // TASK-0025: no free undo of a refunded or unpaid cancellation
             $service = $this->liftHolds($service, $context, $params);
         }
         self::assertCoreActionOffered($service, $action);

@@ -283,6 +283,10 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::get('services/{service}/chargeback', [ServiceController::class, 'chargeback']);
     Route::post('services/{service}/chargeback', [ServiceController::class, 'requestChargeback']);
     Route::post('services/{service}/chargeback/cancel', [ServiceController::class, 'cancelWithChargeback']);
+    // ── TASK-0025 pay and restore: the quote and the paid restore of a cancelled service inside its window (rule services.reinstate) ──
+    Route::get('services/{service}/reinstatement', [ServiceController::class, 'reinstatement']);
+    Route::post('services/{service}/reinstate', [ServiceController::class, 'reinstate']);
+    // ── end TASK-0025 ──
     Route::get('services/{service}/ssh-keys', [ServiceController::class, 'sshKeys']); // whose key sits on which shell account, and revocations the panel has not taken yet (H185)
     Route::get('services/{service}/actions/{action}/preview', [ServiceController::class, 'preview'])->where('action', '[a-z_.]+'); // what a destructive action would really do (H414)
     Route::post('services/{service}/actions', [ServiceController::class, 'action']);

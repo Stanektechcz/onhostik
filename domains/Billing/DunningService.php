@@ -129,6 +129,15 @@ final class DunningService
         return $count;
     }
 
+    /**
+     * A case that ended in a cancellation stays TERMINATED when the service comes back through pay and restore (TASK-0025):
+     * what happened is history. The restore is written onto it, so whoever reads the case sees how the story ended.
+     */
+    public function noteReinstated(DunningCase $case, string $serviceId, CommandContext $context): void
+    {
+        $this->act($case, 'reinstate', ['service_id' => $serviceId, 'by' => $context->actorType], $context);
+    }
+
     private function resolveCase(DunningCase $case, CommandContext $context, string $reason): void
     {
         $wasSuspended = in_array($case->state, [DunningCase::SUSPENDED, DunningCase::TERMINATION_SCHEDULED], true);

@@ -76,6 +76,9 @@ final class AutomationLedger
         ['key' => 'metering.rollup', 'command' => 'onhost:metering:rollup', 'name' => 'Denní a měsíční souhrny využití', 'does' => 'z hodinových měření udělá denní a měsíční řádky; den bez jediného měření zůstane „neměřeno“, ne 0', 'runs' => 'denně 00:20', 'switchable' => true],
         ['key' => 'metering.prune', 'command' => 'onhost:metering:prune', 'name' => 'Retence měření využití', 'does' => 'maže hodinová měření starší 45 dní a denní souhrny starší 400 dní; měsíční souhrny drží navždy', 'runs' => 'denně 04:35', 'switchable' => true],
         // ── end TASK-0023 metering-core ─────────────────────────────────────────────────────────────────────────────
+        // ── TASK-0025 pay and restore (owner decision 23): off until the owner switches it on; nothing reaches existing services before ──
+        ['key' => 'services.reinstate', 'command' => null, 'name' => 'Zaplatit a obnovit', 'does' => 'zrušenou službu v lhůtě na obnovu vrátí po úhradě dlužné faktury nebo nového období z kreditu (jen na žádost zákazníka nebo když zaplacené období trvá); odvolané zrušení znovu účtuje; karanténu ani zásah týmu platba nezruší. Kdo je dotčen: onhost:billing:reinstatement-audit', 'runs' => 'při úhradě / na žádost zákazníka', 'switchable' => true, 'default_off' => true],
+        // ── end TASK-0025 ──
     ];
 
     public function __construct(private readonly CacheRepository $cache, private readonly SettingsStore $settings) {}

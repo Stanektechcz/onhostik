@@ -128,6 +128,7 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 | `loyalty.level_up` / `loyalty.badge` | organization | `level` (`key`, `label`, `reward` Money), `points` / `badge`, `label` — the loyalty program (audit §5i): a level reached posts its promo-credit reward once (mail `loyalty-level-up`); badges for MFA, backups, monitoring, the first service, referrals | LoyaltyService |
 | `service.limit_raised` | service (the raised one) | `addon_service_id`, `metric`, `metric_label`, `delta`, `new_value`, `label`, `waived`, `approval_ids`, `subscription_id`, `period`, `operation_id`, `panel` (`requested` / `pending`) — a paid (or four-eyes free) limit raise reached the service; it renews every period with its own subscription, a free one ends after one period (TASK-0022 limit-raise). Routed as *Limit služby … navýšen* (mail `service-limit-raised`); a free raise also reaches staff | LimitRaises::afterAttach |
 | `service.limit_raise_ended` | service (the raised one) | `addon_service_id`, `metric`, `metric_label`, `delta`, `new_value`, `label`, `reason`, `operation_id` — a raise ended (cancelled, unpaid in dunning, a free one's period over, or its service ended); exactly its delta came off and the panel was asked for the lower number | LimitRaises::afterRevoke |
+| `service.reinstated` / `service.reinstatement.awaiting_payment` | service | pay and restore (TASK-0025, rule `services.reinstate`): a cancelled service inside its restore window came back after payment (`label`, `amount` Money or null when the paid period still covers it, `billing` covered/renewed/invoiced, `document_id`, `period_end`, `operation_id`; mail `service-reinstated`), or the restore waits for money (`label`, `amount`, `shortfall` Money, `grace_until`, `cause` credit/budget/price/period_ended) | ServiceReinstatement |
 
 ## Internal (staff) events
 
@@ -172,6 +173,7 @@ Message envelope: `id`, `name`, `aggregate_type`, `aggregate_id`, `organization_
 | `capacity.budget.forecast_over` | `month`, `nodes`, `total`, `budget` (formatted), `pools` — the nodes the trend needs next month cost more than the monthly cap (audit §5r-5) | finance inbox `#/nodecost` (warn) |
 | `capacity.budget.exceeded` | the capacity request row + `cost`, `budget`, `spent` (formatted) — an order that would cross the monthly cap on vendor node orders waits for a person (audit §5q-5) | finance inbox `#/nodecost` (hot) |
 | `rebalance.plan` / `chargeback.cluster` | the nightly dry-run rebalancing plan from the measured load (audit §5j-4: `basis`, `moves`, `hot[]`, `summary[]`) and a cluster of chargeback reasons that opened an internal incident (audit §5j-6: `number`, `cluster`, `count`, `theme`, `label`) | operations inbox `#/fleet`, finance inbox `#/incidents` |
+| `service.reinstatement.failed` | the money for a restore was taken and the scheduled removal called off, but the resume was refused (`label`, `error`, `billing`, `document_id`); no hold is left, staff resume by hand (TASK-0025) | admin inbox (`service`, hot) |
 
 ## Consumers
 
