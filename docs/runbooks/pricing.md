@@ -116,6 +116,18 @@ still names PITR, connections or a dedicated IP/DB is only reported — edit it 
 `onhost:doctor` shows *every catalogue revision is applied* OK and lists, under *no customer holds a version promising an
 unkept number*, the old versions customers still hold (support answers them; nothing about them changes).
 
+**`2026-09-limit-raise`** (owner decision 8): creates the product `limit-raise` (family `addon`, no executor, `meta.listed:
+false`) when the catalogue does not have it — a revision's `create` list, one `CatalogCommand product.create` per product
+(only a product `CatalogRevisions::PRODUCTS` defines; four eyes in the console, the system actor on the CLI). It has **no plan
+and no price**: a raise is priced by `LimitRaiseLine` at the parent product's option price per unit × units × months of the
+service's period (no commitment, promo, loyalty or regional adjustment), so the option unit prices in *Slevy a doplňky* are
+now also the raise prices. It is never on the price list and never a cart upsell. Staff order a raise as an assisted order
+(`items: [{product_key: limit-raise, config: {limit_raise: {service_id, metric, units}}}]`); customers only once
+`ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS=true`; at no charge only with a second person (docs/runbooks/approvals.md). Only a number
+`MetricRegistry` marks enforced for the family and priced by an option can be raised; no cloud, and no vCPU/RAM/disk of a
+game server in v1. `onhost:limit-raise list` shows the raises, `onhost:limit-raise push {raise} --apply` repeats a panel push
+that was refused; the doctor row *every limit raise is billed or approved* names both kinds of problem.
+
 ## The configurator ("Tarif na míru")
 
 Product `web-custom` (family web, executor ISPConfig) has one base plan (`custom`, 49 Kč: 1 site, 5 GB, 3 mailboxes,
