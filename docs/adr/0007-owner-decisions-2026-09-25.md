@@ -84,3 +84,32 @@ behaviour as built only where it cites code.
 - A staff path that runs `import.run` for a customer. Today the customer runs it, or shares the new service with the
   helper (`svc_manage` covers it). Building a staff path needs its own task and a security review.
 - Import of mailboxes from a historical mail domain: no tool exists.
+
+## Implementation state after the stack (2026-09-25, TASK-0027)
+
+The decision table above records the state of the day the ADR was written and is kept as it was. Every row that said
+"Pending" is now built on the stack branch `fix/TASK-0027-stack-coherence-and-the-docs-that-descri` (TASK-0017 …
+TASK-0027, one pull request into `development`, not merged yet). Audit rows are in
+`docs/runbooks/production-readiness-audit.md` §7.
+
+| # | Built by | How it reaches existing customers | Audit row |
+| --- | --- | --- | --- |
+| 1 | TASK-0019, TASK-0024 | rule `backups.compute` (default off) after `onhost:backups:compute-plan` | 105, 113 |
+| 2, 4, 5, 6, 11 | TASK-0022 | revision `2026-09-honest-promises` through `onhost:catalog:revise --apply`; held versions untouched | 108 |
+| 3 | TASK-0024 | rule `mail.backup_retention` (default off), `onhost:mail:backup-retention` (dry run) | 114 |
+| 7 | TASK-0023 (placement), TASK-0027 C4 (wording) | new placements only; `eshop/shop-peak` loses `php_workers_dedicated` in revision `2026-09-shared-php-workers` | 110, 118 |
+| 8 | TASK-0022 | product `limit-raise` (revision `2026-09-limit-raise`); customer orders behind `ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS` | 109 |
+| 9, 12 | TASK-0023 | new storage; rule `usage.rotation` (default off); new metrics behind `ONHOST_METERING_ENFORCE_NEW_METRICS` | 111 |
+| 10 | TASK-0023 | shown at once; counted only from `ONHOST_WEB_DISK_TOTAL_ENFORCE_FROM` for noticed services | 112 |
+| 13 | TASK-0022 | staff only; `ONHOST_FOUR_EYES=false` for a solo owner **before** deploy | 6 |
+| 14, 15 | TASK-0021 | at a customer's next password change (switch default on); the role change with `AuthorizationSeeder` | 28, 106 |
+| 16 | TASK-0020 | read-only `onhost:audit:provider-calls` | 92 |
+| 17 | TASK-0025 | rule `billing.withdrawal` (default off) after the legal review | 16, 116 |
+| 18 | TASK-0024 | rule `backups.as_sold` (default off) after `onhost:backups:frequency-plan` | 113 |
+| 19 | TASK-0023 | `ONHOST_CAPACITY_DISK_BASIS=sold` after `onhost:capacity:basis`; new placements only | 110 |
+| 20 | TASK-0021, TASK-0027 C1 | `billing.wallet.spend` with the deploy; approvals behind `ONHOST_ORDER_CREDIT_APPROVAL` (default off); one credit gate for pay-and-restore | 107, 118 |
+| 23 | TASK-0025, TASK-0027 C1/C2 | rule `services.reinstate` (default off) after `onhost:billing:reinstatement-audit`; a restore never switches auto-renew on | 115, 118 |
+| 21, 22, 24, 25 | TASK-0022 (21: `sol-edu` withdrawn), TASK-0026 | as recorded above | 117 |
+
+Still not decided: the every-service backup tick (above), the per-operation exemptions of decision 13, a staff path for
+`import.run`, mailbox import from a historical mail domain.
