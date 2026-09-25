@@ -486,6 +486,9 @@ final class DomainService
     public function setAutoRenew(Domain $domain, bool $enabled, CommandContext $context): Domain
     {
         $this->assertNotMirrored($domain, 'auto_renew');
+        if ($enabled && ! $domain->auto_renew) { // owner decision 20 (TASK-0021): a standing renewal from credit (an expired domain is renewed the same night) — the owner or the billing admin switches it on
+            app(CreditOrderPolicy::class)->assertMaySpend($domain->organization_id, $context, 'Požádejte vlastníka o zapnutí automatického prodloužení domény.');
+        }
         if (! $enabled && $domain->critical) {
             $this->assertActionAllowed($domain, 'auto_renew_off', $context);
         }

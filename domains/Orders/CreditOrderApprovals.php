@@ -90,26 +90,43 @@ final class CreditOrderApprovals
     /**
      * Cancels the orders nobody decided within `$days`; returns how many. Unapproved orders are unpaid by definition, so the
      * nightly `onhost:commerce:prune` runs this with the unpaid-order expiry (CommerceHousekeeping::expireUnpaid).
+     *
+     * The list is only a list of candidates: each order is locked and read again before it is touched, because an owner may
+     * approve it in the meantime — and PAID → CANCELLED is a legal move of the state machine, so a stale copy would cancel
+     * (and refund) an order that had just been paid and overwrite who approved it (review round 1 of TASK-0021).
      */
     public function expirePending(?int $days = null): int
     {
         $days = max(1, $days ?? (int) config('onhost.orders.credit_approval.expire_days', 7));
         $expired = 0;
-        $due = Order::query()->where('state', OrderStateMachine::NEW)->where('meta->approval->state', 'pending')->where('placed_at', '<', now()->subDays($days))->orderBy('placed_at')->limit(500)->get();
-        foreach ($due as $order) {
+        $due = Order::query()->where('state', OrderStateMachine::NEW)->where('meta->approval->state', 'pending')->where('placed_at', '<', now()->subDays($days))->orderBy('placed_at')->limit(500)->pluck('id');
+        foreach ($due as $orderId) {
             try {
-                $context = CommandContext::system('credit order approval expiry')->withScope($order->organization_id);
-                $approval = array_merge(self::of($order), ['state' => 'expired', 'decided_at' => now()->toIso8601String()]);
-                $order->forceFill(['meta' => array_merge((array) $order->meta, ['approval' => $approval])])->save();
-                $this->checkout->transition($order, OrderStateMachine::CANCELLED, $context, "neschváleno do {$days} dnů");
-                $this->outbox->publish(GenericEvent::of('order.approval.expired', 'order', $order->id, ['number' => $order->number, 'requester_id' => $approval['requester_id'] ?? null, 'days' => $days], $order->organization_id));
-                $expired++;
+                $expired += $this->expireOne((string) $orderId, $days) ? 1 : 0;
             } catch (Throwable $e) {
                 report($e);
             }
         }
 
         return $expired;
+    }
+
+    /** One undecided order, under its lock: skipped when somebody decided it after the list was read. */
+    private function expireOne(string $orderId, int $days): bool
+    {
+        return DB::transaction(function () use ($orderId, $days) {
+            $order = Order::query()->lockForUpdate()->find($orderId);
+            if ($order === null || ! self::isPending($order)) {
+                return false;
+            }
+            $context = CommandContext::system('credit order approval expiry')->withScope($order->organization_id);
+            $approval = array_merge(self::of($order), ['state' => 'expired', 'decided_at' => now()->toIso8601String()]);
+            $order->forceFill(['meta' => array_merge((array) $order->meta, ['approval' => $approval])])->save();
+            $this->checkout->transition($order, OrderStateMachine::CANCELLED, $context, "neschváleno do {$days} dnů");
+            $this->outbox->publish(GenericEvent::of('order.approval.expired', 'order', $order->id, ['number' => $order->number, 'requester_id' => $approval['requester_id'] ?? null, 'days' => $days], $order->organization_id));
+
+            return true;
+        }, 3);
     }
 
     /** @param array<string,mixed> $approval */

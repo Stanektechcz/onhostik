@@ -78,14 +78,13 @@ final class WorkOfferService
     /** The customer's answer to the price. Approval commits the organization to pay it once the work is done. */
     public function decide(WorkOffer $offer, bool $approve, CommandContext $context, ?string $note = null, ?string $authorName = null): WorkOffer
     {
-        if ($approve) { // owner decision 20 (TASK-0021): the approved work is billed to the credit — the owner or the billing admin commits it
-            app(CreditOrderPolicy::class)->assertMaySpend((string) $offer->organization_id, $context, 'Požádejte vlastníka, aby nabídku schválil.');
-        }
-
         return DB::transaction(function () use ($offer, $approve, $context, $note, $authorName) {
             $offer = WorkOffer::query()->lockForUpdate()->findOrFail($offer->id);
             if ($offer->state === ($approve ? WorkOffer::APPROVED : WorkOffer::DECLINED)) {
                 return $offer; // the same answer twice is one answer
+            }
+            if ($approve) { // owner decision 20 (TASK-0021): the approved work is billed to the credit — the owner or the billing admin commits it
+                app(CreditOrderPolicy::class)->assertMaySpend((string) $offer->organization_id, $context, 'Požádejte vlastníka, aby nabídku schválil.');
             }
             if ($offer->state === WorkOffer::PROPOSED && ! $offer->isOpen()) {
                 $offer->forceFill(['state' => WorkOffer::EXPIRED])->save();

@@ -5,21 +5,28 @@ declare(strict_types=1);
 use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Onhost\Domain\Catalog\Models\PromoCode;
+use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Orders\CheckoutService;
 use Onhost\Domain\Orders\CommerceHousekeeping;
+use Onhost\Domain\Orders\CreditOrderApprovals;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\WalletLedger\Models\CreditLine;
+use Onhost\Domain\WalletLedger\Models\WalletHold;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Money\Money;
@@ -351,4 +358,98 @@ it('puts the waiting orders in front of the approvers in the panel billing tab',
     foreach (['onhost-panel-shop.api.js' => "d.approval === 'pending'", 'onhost-panel-order.api.js' => "x.result.approval === 'pending'", 'onhost-panel-tools.api.js' => "x.r.approval === 'pending'"] as $file => $check) {
         expect((string) file_get_contents(base_path('apps/surfaces/api/'.$file)))->toContain($check);
     }
+});
+
+it('a service account actor without the permission is held, not waved through', function () {
+    [, $org] = $this->customerWithOrganization();
+    creditApprovalTopup($org);
+    $machine = ServiceAccount::query()->create(['organization_id' => $org->id, 'name' => 'Terraform', 'state' => 'active']);
+
+    $context = new CommandContext('service_account', $machine->id, $org->id);
+    $held = app(CheckoutService::class)->placeOrder(creditApprovalQuote($org), $org, null, creditApprovalConsents(), ['mode' => 'wallet'], 'sa:ca-1', $context, 'api')['order'];
+    expect($held->refresh()->state)->toBe(OrderStateMachine::NEW)->and($held->meta['approval'])->toMatchArray(['state' => 'pending', 'requester_type' => 'service_account'])
+        ->and($held->wallet_hold_id)->toBeNull();
+});
+
+it('tells only current approvers: not a billing admin whose access expired or whose membership ended', function () {
+    [$owner, $org] = $this->customerWithOrganization(['email' => 'majitel@stary.test']);
+    creditApprovalTopup($org);
+    $temporary = User::factory()->create(['email' => 'docasny@stary.test']);
+    app(OrganizationService::class)->attachMember($org, $temporary, 'billing_admin', CommandContext::system('test'), true, now()->addDay());
+    $former = creditApprovalMember($org, 'billing_admin', ['email' => 'byvaly@stary.test']);
+    OrganizationMembership::query()->where('organization_id', $org->id)->where('user_id', $former->id)->delete(); // the membership ended, a stale binding stayed behind
+    $admin = creditApprovalMember($org, 'org_admin');
+    $this->travel(2)->days();
+
+    creditApprovalOrder($this, $admin, $org)->assertCreated()->assertJsonPath('approval', 'pending');
+    app(OutboxPublisher::class)->relayPending();
+
+    expect(CreditOrderPolicy::approvers($org->id)->pluck('id')->all())->toBe([$owner->id])
+        ->and(Notification::query()->where('event', 'order.approval.required')->whereNotNull('user_id')->pluck('user_id')->all())->toBe([$owner->id])
+        ->and(MailOutbox::query()->where('template_key', 'order-approval-required')->pluck('to')->all())->toBe(['majitel@stary.test']);
+});
+
+it('an order approved while the expiry runs stays paid and approved', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    creditApprovalTopup($org);
+    $admin = creditApprovalMember($org, 'org_admin');
+    $orderId = creditApprovalOrder($this, $admin, $org)->assertCreated()->json('order_id');
+    $this->travel((int) config('onhost.orders.credit_approval.expire_days', 7) + 1)->days();
+    $ownerContext = $this->contextFor($owner, $org);
+
+    // the owner's approval commits right after the expiry read its list of candidates and before it acted on this order
+    $approvedMeanwhile = false;
+    DB::listen(function (QueryExecuted $query) use (&$approvedMeanwhile, $orderId, $owner, $ownerContext) {
+        if ($approvedMeanwhile || ! str_contains($query->sql, 'placed_at') || ! str_contains($query->sql, 'approval')) {
+            return;
+        }
+        $approvedMeanwhile = true;
+        app(CreditOrderApprovals::class)->decide(Order::query()->findOrFail($orderId), $owner, 'approve', null, $ownerContext);
+    });
+
+    expect(app(CreditOrderApprovals::class)->expirePending())->toBe(0)->and($approvedMeanwhile)->toBeTrue();
+    $order = Order::query()->findOrFail($orderId);
+    expect($order->state)->toBe(OrderStateMachine::PAID)->and($order->meta['approval'])->toMatchArray(['state' => 'approved', 'decided_by' => $owner->id])
+        ->and(WalletHold::query()->findOrFail($order->wallet_hold_id)->state)->toBe('active')
+        ->and(OutboxMessage::query()->where('name', 'order.approval.expired')->where('aggregate_id', $orderId)->exists())->toBeFalse();
+});
+
+it('a replayed approval request with the same Idempotency-Key returns the first result, not a second decision', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    creditApprovalTopup($org);
+    $admin = creditApprovalMember($org, 'org_admin');
+    $orderId = creditApprovalOrder($this, $admin, $org)->assertCreated()->json('order_id');
+
+    $this->actingAs($owner, 'sanctum');
+    $key = (string) Str::ulid();
+    $first = $this->postJson("/v1/orders/{$orderId}/approval", ['decision' => 'approve'], ['Idempotency-Key' => $key])->assertOk();
+    $again = $this->postJson("/v1/orders/{$orderId}/approval", ['decision' => 'approve'], ['Idempotency-Key' => $key])->assertOk();
+    expect($again->json())->toBe($first->json())
+        ->and(OutboxMessage::query()->where('name', 'order.approval.approved')->where('aggregate_id', $orderId)->count())->toBe(1)
+        ->and(WalletHold::query()->where('reference_id', $orderId)->count())->toBe(1);
+});
+
+it('a personal API token cannot approve a held credit order', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    creditApprovalTopup($org);
+    $admin = creditApprovalMember($org, 'org_admin');
+    $orderId = creditApprovalOrder($this, $admin, $org)->assertCreated()->json('order_id');
+    $pat = $owner->createToken('ci', ['services:read', 'invoices:read', 'wallet:read']);
+    $pat->accessToken->forceFill(['organization_id' => $org->id])->save();
+    $token = $pat->plainTextToken;
+    app('auth')->forgetGuards();
+
+    $this->withToken($token)->postJson("/v1/orders/{$orderId}/approval", ['decision' => 'approve'], ['Idempotency-Key' => (string) Str::ulid()])->assertForbidden();
+    $order = Order::query()->findOrFail($orderId);
+    expect($order->state)->toBe(OrderStateMachine::NEW)->and($order->meta['approval']['state'])->toBe('pending')->and($order->wallet_hold_id)->toBeNull();
+});
+
+it('refuses at placement a held order that only the domain renewal reserve could cover', function () {
+    [, $org] = $this->customerWithOrganization();
+    creditApprovalTopup($org, '150'); // covers the order (107,69 Kč) — but not once the domain reserve is kept aside
+    $org->forceFill(['settings' => array_merge((array) $org->settings, ['domain_reserve' => ['CZK' => 10000]])])->save();
+    $admin = creditApprovalMember($org, 'org_admin');
+
+    creditApprovalOrder($this, $admin, $org)->assertStatus(402)->assertJsonPath('error', 'insufficient_funds');
+    expect(Order::query()->where('organization_id', $org->id)->count())->toBe(0);
 });

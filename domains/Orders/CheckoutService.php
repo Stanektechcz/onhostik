@@ -77,9 +77,10 @@ final class CheckoutService
         }
         // owner decision 20 (TASK-0021): a credit order of somebody who may not spend the credit waits for the owner or the billing admin;
         // what the organization could not pay anyway is refused now, not after somebody approved it
-        $awaitApproval = $this->creditPolicy->mustAwaitApproval($organization, $context, $mode, $source, Money::minor((int) $quote->total_minor, $quote->currency));
+        $quoted = Money::minor((int) $quote->total_minor, $quote->currency);
+        $awaitApproval = $this->creditPolicy->mustAwaitApproval($organization, $context, $mode, $source, $quoted);
         if ($awaitApproval) {
-            $this->assertCoverable($organization, Money::minor((int) $quote->total_minor, $quote->currency), $context);
+            $this->assertCoverable($organization, $quoted, collect($quote->lines)->contains(fn ($line) => ($line['product_key'] ?? null) === 'domain'), $context);
         }
 
         $requiredDocs = $this->requiredDocuments($quote, $organization);
@@ -212,10 +213,17 @@ final class CheckoutService
         return $this->markPaid($order, $context, 'wallet');
     }
 
-    /** A held credit order is refused at once when the organization could not pay it anyway (read only: nothing is reserved). */
-    private function assertCoverable(Organization $organization, Money $total, CommandContext $context): void
+    /**
+     * A held credit order is refused at once when the organization could not pay it anyway (read only: nothing is reserved).
+     * The same arithmetic as the hold the approval will make (WalletService::hold): an order without a domain may not use the
+     * money kept aside for domain renewals.
+     */
+    private function assertCoverable(Organization $organization, Money $total, bool $hasDomain, CommandContext $context): void
     {
         $spendable = $this->wallets->spendable($organization, $total->currency);
+        if (! $hasDomain) {
+            $spendable = $spendable->subtract($this->wallets->domainReserve($organization->id, $total->currency));
+        }
         if ($spendable->lessThan($total)) {
             throw new DomainError('insufficient_funds', 'Insufficient wallet balance for this operation.', 402, ['required' => $total, 'available' => $spendable, 'hint' => 'Top up the wallet or enable auto top-up.']);
         }

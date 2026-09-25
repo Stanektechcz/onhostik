@@ -11,6 +11,7 @@ use Onhost\Domain\Catalog\Models\Price;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\Models\Service;
@@ -208,6 +209,9 @@ final class SubscriptionService
 
     public function setAutoRenew(Subscription $subscription, bool $enabled, CommandContext $context): Subscription
     {
+        if ($enabled && ! $subscription->auto_renew) { // owner decision 20 (TASK-0021): a standing renewal from credit — the owner or the billing admin switches it on
+            app(CreditOrderPolicy::class)->assertMaySpend($subscription->organization_id, $context, 'Požádejte vlastníka o zapnutí automatického prodloužení.');
+        }
         $subscription->forceFill(['auto_renew' => $enabled, 'cancel_at_period_end' => $enabled ? false : $subscription->cancel_at_period_end])->save();
         $this->audit->record($context->withScope($subscription->organization_id), 'subscription.auto_renew', 'succeeded', ['enabled' => $enabled], 'subscription', $subscription->id);
 

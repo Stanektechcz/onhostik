@@ -921,7 +921,7 @@ final class SurfaceDataController extends Controller
             'sla' => $services->pluck('sla_class')->filter()->unique()->values()->all(),
             // TASK-0021 (owner decision 20): credit orders waiting for the owner or a billing admin; the server refuses anybody else's decision
             'approvals' => Order::query()->where('organization_id', $organizationId)->where('state', OrderStateMachine::NEW)->where('meta->approval->state', 'pending')->orderBy('placed_at')->limit(20)->get()
-                ->map(fn (Order $o) => ['id' => $o->id, 'number' => $o->number, 'total' => round((int) $o->total_minor / 100, 2), 'currency' => $o->currency, 'requester' => CreditOrderApprovals::of($o)['requester_name'] ?? null, 'placed' => $fmt($o->placed_at)])->values()->all(),
+                ->map(fn (Order $o) => ['id' => $o->id, 'number' => $o->number, 'total' => (float) $o->total()->toDecimal(), 'currency' => $o->currency, 'requester' => CreditOrderApprovals::of($o)['requester_name'] ?? null, 'placed' => $fmt($o->placed_at)])->values()->all(),
             'approval_expire_days' => (int) config('onhost.orders.credit_approval.expire_days', 7),
         ];
     }

@@ -6,6 +6,8 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Str;
+use Onhost\Domain\Billing\Models\Subscription;
+use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Domains\DomainService;
 use Onhost\Domain\Domains\DomainStateMachine;
 use Onhost\Domain\Identity\Authorization\Authorizer;
@@ -23,11 +25,13 @@ use Onhost\Domain\Services\ServiceArchiveService;
 use Onhost\Domain\Support\Models\WorkOffer;
 use Onhost\Domain\Support\WorkOfferService;
 use Onhost\Domain\WalletLedger\WalletService;
+use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
+use Tests\TestCase;
 
 /*
  * Owner decision 20 (TASK-0021): account credit is spent by the organization owner or its billing admin. What is paid from
@@ -119,7 +123,7 @@ it('refuses a manual domain renewal from credit to a member without the right, n
 });
 
 it('refuses a marketplace order and the approval of paid support work to an org_admin', function () {
-    [, $org] = $this->customerWithOrganization();
+    [$owner, $org] = $this->customerWithOrganization();
     $admin = creditGateMember($org, 'org_admin');
     $ctx = $this->contextFor($admin, $org);
 
@@ -127,7 +131,7 @@ it('refuses a marketplace order and the approval of paid support work to an org_
     $refused = creditGateRefusal(fn () => app(MarketplaceService::class)->order($org, $admin, $listing, ['brief' => 'Potřebujeme péči o WordPress.'], $ctx));
     expect($refused?->error)->toBe('credit_spend_not_allowed')->and($refused?->status)->toBe(403);
 
-    $offer = new WorkOffer(['organization_id' => $org->id, 'state' => WorkOffer::PROPOSED]);
+    $offer = creditGateWorkOffer($this, $owner, $this->staff('support_l2'));
     $refused = creditGateRefusal(fn () => app(WorkOfferService::class)->decide($offer, true, $ctx));
     expect($refused?->error)->toBe('credit_spend_not_allowed')->and($refused?->status)->toBe(403);
 });
@@ -158,4 +162,86 @@ it('does not let an org_admin hand the right to spend the credit to anybody, the
         expect($refused?->error)->toBeIn(['role_above_own', 'self_membership_locked']);
     }
     expect(app(Authorizer::class)->can($colleague->refresh(), 'billing.wallet.spend', CommandScope::organization($org->id)))->toBeFalse();
+});
+
+/** A paid-work offer support proposed on a ticket the owner opened; returns it saved. */
+function creditGateWorkOffer(TestCase $test, User $owner, User $agent): WorkOffer
+{
+    $test->actingAs($owner, 'sanctum');
+    $ticketId = (string) $test->postJson('/v1/tickets', ['subject' => 'WordPress po aktualizaci hlásí chybu 500', 'body' => 'Po aktualizaci pluginu e-shop nejede, potřebujeme to opravit.'], ['Idempotency-Key' => (string) Str::ulid()])->assertCreated()->json('data.id');
+    $test->actingAs($agent, 'sanctum');
+    $offerId = (string) $test->postJson("/v1/staff/tickets/{$ticketId}/work-offers", ['scope' => 'administration', 'description' => 'Nastavení zálohování databáze na serveru zákazníka', 'price_net' => '800'], ['Idempotency-Key' => (string) Str::ulid()])->assertCreated()->json('data.id');
+
+    return WorkOffer::query()->findOrFail($offerId);
+}
+
+it('an offer the owner already approved answers the same approval of an org_admin as the one answer, not with a refusal', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $admin = creditGateMember($org, 'org_admin');
+    $offer = creditGateWorkOffer($this, $owner, $this->staff('support_l2'));
+
+    $refused = creditGateRefusal(fn () => app(WorkOfferService::class)->decide($offer, true, $this->contextFor($admin, $org)));
+    expect($refused?->error)->toBe('credit_spend_not_allowed')->and($offer->refresh()->state)->toBe(WorkOffer::PROPOSED);
+
+    app(WorkOfferService::class)->decide($offer, true, $this->contextFor($owner, $org));
+    $again = app(WorkOfferService::class)->decide($offer, true, $this->contextFor($admin, $org));
+    expect($again->state)->toBe(WorkOffer::APPROVED)->and($again->decided_by)->toBe($owner->id);
+});
+
+it('refuses switching the automatic plan upgrade on to a member without the right; switching it off stays open', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $admin = creditGateMember($org, 'org_admin');
+    $service = featureWebService($org, 'ispconfig');
+    $policy = "/v1/services/{$service->id}/policy";
+
+    $this->actingAs($admin, 'sanctum');
+    $refused = $this->putJson($policy, ['auto_upgrade' => true], ['Idempotency-Key' => (string) Str::ulid()])->assertForbidden();
+    expect($refused->json('error'))->toBe('credit_spend_not_allowed')->and($refused->json('message'))->toContain('automatického navýšení')
+        ->and((bool) data_get($service->refresh()->tags, 'policy.auto_upgrade', false))->toBeFalse();
+    // what does not commit any credit stays open to the same member
+    $this->putJson($policy, ['availability_alerts' => false], ['Idempotency-Key' => (string) Str::ulid()])->assertOk();
+
+    $this->actingAs($owner, 'sanctum');
+    $this->putJson($policy, ['auto_upgrade' => true], ['Idempotency-Key' => (string) Str::ulid()])->assertOk()->assertJsonPath('policy.auto_upgrade', true);
+    $audit = AuditEvent::query()->where('action', 'service.policy')->where('resource_id', $service->id)->orderByDesc('id')->firstOrFail();
+    expect(data_get($audit->detail, 'auto_upgrade_enabled_by'))->toBe($owner->id);
+
+    // an upgrade the owner switched on can still be switched off by the member (and not on again)
+    $this->actingAs($admin, 'sanctum');
+    $this->putJson($policy, ['auto_upgrade' => true], ['Idempotency-Key' => (string) Str::ulid()])->assertOk(); // already on: nothing new is committed
+    $this->putJson($policy, ['auto_upgrade' => false], ['Idempotency-Key' => (string) Str::ulid()])->assertOk()->assertJsonPath('policy.auto_upgrade', false);
+    $this->putJson($policy, ['auto_upgrade' => true], ['Idempotency-Key' => (string) Str::ulid()])->assertForbidden();
+});
+
+it('refuses switching domain auto-renewal on to a member without the right, so an expired domain is not renewed from credit behind the owner', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $domain = graceDomain($org, 'firma-auto.cz', DomainStateMachine::EXPIRED, now()->subDays(3));
+    $domain->forceFill(['auto_renew' => false])->save();
+    $domainManager = creditGateMember($org, 'domain_manager');
+    $domains = app(DomainService::class);
+
+    $refused = creditGateRefusal(fn () => $domains->setAutoRenew($domain, true, $this->contextFor($domainManager, $org)));
+    expect($refused?->error)->toBe('credit_spend_not_allowed')->and($refused?->getMessage())->toContain('automatického prodloužení')
+        ->and((bool) $domain->refresh()->auto_renew)->toBeFalse();
+
+    $domains->setAutoRenew($domain, true, $this->contextFor($owner, $org));
+    expect((bool) $domain->refresh()->auto_renew)->toBeTrue();
+    $domains->setAutoRenew($domain, false, $this->contextFor($domainManager, $org)); // switching off commits nothing
+    expect((bool) $domain->refresh()->auto_renew)->toBeFalse();
+});
+
+it('refuses switching a subscription\'s auto-renewal on to a member without the right', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $admin = creditGateMember($org, 'org_admin');
+    $service = featureWebService($org, 'ispconfig');
+    $subscription = Subscription::query()->create([
+        'organization_id' => $org->id, 'service_id' => $service->id, 'currency' => 'CZK', 'period' => 'month', 'amount_minor' => 10769,
+        'state' => Subscription::ACTIVE, 'current_period_start' => now()->subDays(15), 'current_period_end' => now()->addDays(15), 'next_renewal_at' => now()->addDays(8), 'auto_renew' => false, 'renewal_priority' => 'normal',
+    ]);
+    $subscriptions = app(SubscriptionService::class);
+
+    $refused = creditGateRefusal(fn () => $subscriptions->setAutoRenew($subscription, true, $this->contextFor($admin, $org)));
+    expect($refused?->error)->toBe('credit_spend_not_allowed')->and((bool) $subscription->refresh()->auto_renew)->toBeFalse();
+    expect((bool) $subscriptions->setAutoRenew($subscription, true, $this->contextFor($owner, $org))->auto_renew)->toBeTrue();
+    expect((bool) $subscriptions->setAutoRenew($subscription->refresh(), false, $this->contextFor($admin, $org))->auto_renew)->toBeFalse();
 });

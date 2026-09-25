@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services\Commands;
 
 use Carbon\CarbonImmutable;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Provisioning\ServiceMigrationService;
 use Onhost\Domain\Services\Models\BackupPolicy;
@@ -42,8 +43,14 @@ final class WebToolsCommandHandler implements CommandHandler
             'policy.set' => (function () use ($service, $params, $context) {
                 $tags = (array) ($service->tags ?? []);
                 $policy = array_merge((array) ($tags['policy'] ?? []), array_intersect_key(array_map(fn ($v) => filter_var($v, FILTER_VALIDATE_BOOLEAN), $params), ['auto_upgrade' => 1, 'availability_alerts' => 1]));
+                // owner decision 20 (TASK-0021): switching the automatic upgrade on is a standing order paid from credit (the usage
+                // watch places it as the platform) — only the owner or the billing admin commits it; switching it off stays open
+                $upgradeSwitchedOn = ! empty($policy['auto_upgrade']) && empty(((array) ($tags['policy'] ?? []))['auto_upgrade']);
+                if ($upgradeSwitchedOn) {
+                    app(CreditOrderPolicy::class)->assertMaySpend($service->organization_id, $context, 'Požádejte vlastníka o zapnutí automatického navýšení tarifu.');
+                }
                 $service->forceFill(['tags' => array_merge($tags, ['policy' => $policy])])->save();
-                $this->audit->record($context->withScope($service->organization_id, $service->project_id), 'service.policy', 'succeeded', $policy, 'service', $service->id);
+                $this->audit->record($context->withScope($service->organization_id, $service->project_id), 'service.policy', 'succeeded', $policy + ($upgradeSwitchedOn ? ['auto_upgrade_enabled_by' => $context->onBehalfOfUserId ?? $context->actorId] : []), 'service', $service->id);
 
                 return ['policy' => $policy];
             })(),

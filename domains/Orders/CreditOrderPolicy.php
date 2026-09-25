@@ -11,6 +11,7 @@ use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
@@ -98,8 +99,9 @@ final class CreditOrderPolicy
     }
 
     /**
-     * The people who decide a held order: active users bound in the organization by a role that grants the permission, and the
-     * owner. Staff are never among them (a global binding is not an organization role).
+     * The people who decide a held order: active users bound in the organization by a role that grants the permission while
+     * their membership is current (SECURITY_RULES §2 — a binding left behind by an ended membership tells a former member
+     * nothing), and the owner. Staff are never among them (a global binding is not an organization role).
      *
      * @return Collection<int, User>
      */
@@ -107,7 +109,9 @@ final class CreditOrderPolicy
     {
         $roles = DB::table('role_permissions')->where('permission_key', self::PERMISSION)->pluck('role_key')->all();
         $ids = PolicyBinding::query()->where('principal_type', 'user')->where('scope_type', 'organization')->where('scope_id', $organizationId)->whereIn('role_key', $roles)
-            ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->pluck('principal_id')->all();
+            ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+            ->whereIn('principal_id', OrganizationMembership::query()->current()->where('organization_id', $organizationId)->select('user_id'))
+            ->pluck('principal_id')->all();
         $owner = Organization::query()->whereKey($organizationId)->value('owner_user_id');
         if (is_string($owner) && $owner !== '') {
             $ids[] = $owner;
@@ -118,7 +122,12 @@ final class CreditOrderPolicy
 
     private function holds(User|ServiceAccount $principal, Organization $organization): bool
     {
-        if ($principal instanceof User && $principal->id === $organization->owner_user_id && $principal->isActive()) {
+        if ($principal instanceof ServiceAccount) {
+            // a machine never spends the credit on its own: its orders wait for a person. (The Authorizer cannot read a service
+            // account's bindings yet — ServiceAccount is not Authenticatable — so asking it would fail anyway, not answer.)
+            return false;
+        }
+        if ($principal->id === $organization->owner_user_id && $principal->isActive()) {
             return true; // the literal owner, even if their owner binding were ever missing
         }
 
