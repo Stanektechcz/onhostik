@@ -6,6 +6,7 @@ namespace Onhost\Domain\Services\Commands;
 
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Services\CustomerActionParams;
+use Onhost\Domain\Services\Limits\LimitRaisePolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Platform\Commands\Command;
@@ -37,6 +38,8 @@ final class ServicesCommandHandler implements CommandHandler
         $params = (array) $command->get('params', []);
         if (! $this->isStaff($context)) { // a customer's request keeps only what a customer may choose (H21)
             $params = CustomerActionParams::filter($action, $params);
+        } elseif ($action === 'resize') { // staff repair or lower; more than the service holds is a raise, and a raise is an order (TASK-0022)
+            LimitRaisePolicy::assertNoUnbilledRaise($service, (array) ($params['entitlements'] ?? []));
         }
         $operation = $this->services->requestAction($service, $action, $context, $command->idempotencyKey, $params, authorizedPermission: $command->permission()); // the permission the bus just checked is the one the run asks for again before each step (H315)
 

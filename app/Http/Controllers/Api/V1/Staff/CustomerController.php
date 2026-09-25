@@ -23,6 +23,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Provisioning\Commands\ProvisioningCommand;
 use Onhost\Domain\Risk\RiskWeights;
+use Onhost\Domain\Services\Limits\LimitRaiseService;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandScope;
@@ -204,6 +205,22 @@ final class CustomerController extends ApiController
         ]);
 
         return $this->dispatch(new StaffCustomerCommand($this->onceKey($request, "order.assisted:{$organization}"), ['op' => 'order.assisted', 'organization_id' => $organization] + $data), $this->api->context($request, null, $data['note']), 201);
+    }
+
+    /**
+     * A raise of one limit at no charge for one period (owner decision 8, TASK-0022 limit-raise). The permission first (nobody without
+     * it learns anything from the checks), then the raise is checked and priced the way the order will be — a raise that cannot be
+     * had is refused before a second person is asked — and the price it waives goes into the request the approver reads and binds.
+     */
+    public function grantFreeLimitRaise(Request $request, LimitRaiseService $raises, string $organization): JsonResponse
+    {
+        $this->api->authorize($request, 'billing.limit_raise.waive', CommandScope::global());
+        $org = Organization::query()->find($organization) ?? throw DomainError::notFound('organization');
+        $data = $request->validate(['service_id' => ['required', 'string', 'max:40'], 'metric' => ['required', 'string', 'max:40'], 'units' => ['required', 'integer', 'min:1', 'max:10000'], 'note' => ['required', 'string', 'min:3', 'max:250']]);
+        $payload = ['op' => 'limit_raise.free', 'organization_id' => $org->id, 'service_id' => (string) $data['service_id'], 'metric' => (string) $data['metric'], 'units' => (int) $data['units'], 'note' => (string) $data['note']];
+        $payload['price'] = $raises->listPrice($org, $payload['service_id'], $payload['metric'], $payload['units']);
+
+        return $this->dispatch(new StaffCustomerCommand($this->onceKey($request, 'limit_raise.free:'.$org->id.':'.substr(hash('sha256', (string) json_encode($payload)), 0, 24)), $payload), $this->api->context($request, null, $payload['note']), 201);
     }
 
     /**

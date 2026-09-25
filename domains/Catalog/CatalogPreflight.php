@@ -46,6 +46,7 @@ final class CatalogPreflight
             'option.delete' => self::product((string) $command->get('product_key')),
             'product.state' => self::productState((string) $command->get('state'), (array) $command->get('products', [])),
             'product.describe' => self::description((string) $command->get('product_key'), (array) $command->get('description', [])),
+            'product.create' => self::newProduct((string) $command->get('product_key')),
             'plan.publish' => $this->plans->check((string) $command->get('product_key'), (string) $command->get('plan_key'), $command->payload),
             'plan.activate_version' => $this->plans->checkActivate((string) $command->get('product_key'), (string) $command->get('plan_key'), (int) $command->get('version')),
             'pricing.domain_discount.delete', 'promo.delete', 'lifecycle.set', 'panel_nav.set' => null, // nothing to refuse: a withdrawal, a clamped setting, the sidebar
@@ -173,6 +174,21 @@ final class CatalogPreflight
         }
 
         return ['product' => $product, 'description' => ['cs' => $cs, 'en' => $en === '' ? $cs : $en]];
+    }
+
+    /**
+     * A product the code defines and the catalogue does not have yet (TASK-0022 limit-raise), as the handler creates it.
+     *
+     * @return array<string,mixed>
+     */
+    public static function newProduct(string $key): array
+    {
+        $attributes = CatalogRevisions::productAttributes($key);
+        if (Product::query()->where('key', $key)->exists()) {
+            throw new DomainError('product_exists', "Product {$key} already exists; a defined product is created once and never rewritten.", 409, ['field' => 'product_key']);
+        }
+
+        return $attributes;
     }
 
     /** @param list<string> $keys @return list<Product> */

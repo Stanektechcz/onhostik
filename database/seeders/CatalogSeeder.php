@@ -6,6 +6,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Onhost\Domain\Billing\Models\Subscription;
+use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\Models\DomainPrice;
 use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\PlanVersion;
@@ -91,6 +92,7 @@ final class CatalogSeeder extends Seeder
         $this->product('object-storage', 'data', null, 'metered', ['cs' => 'Object storage', 'en' => 'Object storage'], ['cs' => 'S3 kompatibilní úložiště (připravováno — bez executoru zatím není prodejné).', 'en' => 'S3-compatible storage (in preparation — not sellable without an executor).'], 90, ['persona' => 'business'], [], state: 'draft');
 
         $this->addonProducts();
+        $this->definedProducts();
         $this->options();
         $this->webOptions();
         $this->gameOptions();
@@ -176,6 +178,20 @@ final class CatalogSeeder extends Seeder
         $this->product('mail-hosting', 'addon', 'ispconfig', 'subscription', ['cs' => 'E-mail hosting', 'en' => 'Mail hosting'], ['cs' => 'Schránky s antispamem, DKIM a DMARC k vaší doméně.', 'en' => 'Mailboxes with anti-spam, DKIM and DMARC for your domain.'], 94, ['upsell' => 'mail'], [
             ['basic', ['cs' => 'E-mail hosting', 'en' => 'Mail hosting'], 3900, 39000, 159, 1590, true, 'standard', ['mailboxes' => 5, 'quota_mb' => 5120, 'dkim' => true], []],
         ]);
+    }
+
+    /**
+     * Products the code defines (CatalogRevisions::PRODUCTS, TASK-0022 limit-raise): created on a fresh install, never rewritten on
+     * a running one — there the operator creates them with `php artisan onhost:catalog:revise --apply`, since this seeder is not part
+     * of a deployment.
+     */
+    private function definedProducts(): void
+    {
+        foreach (array_keys(CatalogRevisions::PRODUCTS) as $key) {
+            if (! Product::query()->where('key', $key)->exists()) {
+                Product::query()->create(CatalogRevisions::productAttributes($key));
+            }
+        }
     }
 
     private function options(): void

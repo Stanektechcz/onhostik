@@ -31,6 +31,7 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\Reconciler;
 use Onhost\Domain\Provisioning\Scheduling\NodeRebalancer;
 use Onhost\Domain\Provisioning\ServiceMigrationService;
+use Onhost\Domain\Services\Limits\LimitRaisePolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
@@ -180,6 +181,13 @@ final class ProvisioningCommandHandler implements CommandHandler
                 $planKey = (string) $command->get('plan_key', '');
                 $plan = $planKey !== '' ? Plan::query()->where('product_id', $product->id)->where('key', $planKey)->first() ?? throw DomainError::notFound('plan') : null;
                 $config = (array) $command->get('config', []);
+                // a service without an order gets its plan, not more: more is a raise, and a raise is an order (TASK-0022 limit-raise)
+                $version = $plan?->currentVersion();
+                $planNumbers = $version === null ? [] : (array) $version->entitlements;
+                LimitRaisePolicy::assertWithinPlan((array) ($config['entitlements'] ?? []), $planNumbers);
+                if ($version !== null && (array) ($config['options'] ?? []) !== []) {
+                    LimitRaisePolicy::assertWithinPlan($this->services->entitlementsFor($version, (array) $config['options'], $product), $planNumbers);
+                }
                 $service = $this->services->create($organization, $product, $plan?->currentVersion(), $config, $context->withScope($organization->id), null, isset($config['label']) && $config['label'] !== '' ? (string) $config['label'] : null);
                 $operation = Operation::query()->where('service_id', $service->id)->orderByDesc('queued_at')->first();
 

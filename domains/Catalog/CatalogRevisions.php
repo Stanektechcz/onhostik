@@ -35,7 +35,9 @@ use Onhost\Platform\Errors\DomainError;
  *  - `plans`: 'product/plan' => keys the new version drops (from `entitlements` or `limits`, wherever the current version has them);
  *  - `rewrite`: key => [old value => new value], applied to every plan whose current version still carries the old value;
  *  - `products`: product key => ['match' => regex on the current description, 'description' => {cs, en}] — replaced only while
- *    the current description still says what the revision withdraws, so a text staff wrote since is left alone.
+ *    the current description still says what the revision withdraws, so a text staff wrote since is left alone;
+ *  - `create`: keys of `PRODUCTS` a running catalogue must have — created (`CatalogCommand product.create`) while missing, never
+ *    changed once they exist. A product defined here carries no prices of its own (a raise is priced by its parent's options).
  */
 final class CatalogRevisions
 {
@@ -59,6 +61,27 @@ final class CatalogRevisions
                 ],
             ],
         ],
+        '2026-09-limit-raise' => [
+            'reason' => 'Rozhodnutí vlastníka 8 (2026-09-25): placené navýšení jednoho limitu jedné služby za cenu volby jejího produktu, účtované každé období (TASK-0022 limit-raise).',
+            'plans' => [],
+            'rewrite' => [],
+            'products' => [],
+            'create' => ['limit-raise'],
+        ],
+    ];
+
+    /**
+     * Products the code base defines (created by a revision's `create`, and by `CatalogSeeder` on a fresh install). A product here
+     * has no plan and no price: what it costs is decided elsewhere (`LimitRaiseLine`: the parent product's option price).
+     */
+    public const PRODUCTS = [
+        'limit-raise' => [
+            'family' => 'addon', 'executor' => null, 'billing_model' => 'subscription', 'sort' => 205, 'state' => 'active',
+            'name' => ['cs' => 'Navýšení limitu', 'en' => 'Limit raise'],
+            'description' => ['cs' => 'Víc schránek, databází nebo prostoru pro jednu službu za cenu volby jejího tarifu, účtováno s každým obdobím.', 'en' => 'More mailboxes, databases or space for one service at the price of its plan\'s option, billed every period.'],
+            // never on the price list and never a cart upsell: it is ordered for one running service (LimitRaiseLine)
+            'meta' => ['listed' => false, 'limit_raise' => true],
+        ],
     ];
 
     /** Features lines staff may have written that repeat a withdrawn promise: the preview warns, nothing rewrites them. */
@@ -73,7 +96,7 @@ final class CatalogRevisions
     /**
      * What is still to do, per revision (only revisions with something pending).
      *
-     * @return array<string, array{plans: array<string, array{version: int, drop: array<string,string>, set: array<string, array{bag: string, from: mixed, to: mixed}>}>, products: array<string, array{cs: string, en: string}>}>
+     * @return array<string, array{plans: array<string, array{version: int, drop: array<string,string>, set: array<string, array{bag: string, from: mixed, to: mixed}>}>, products: array<string, array{cs: string, en: string}>, create?: list<string>}>
      */
     public function pending(?string $id = null): array
     {
@@ -81,8 +104,9 @@ final class CatalogRevisions
         foreach ($id === null ? self::ids() : [$this->known($id)] as $revision) {
             $plans = $this->pendingPlans($revision);
             $products = $this->pendingProducts($revision);
-            if ($plans !== [] || $products !== []) {
-                $out[$revision] = ['plans' => $plans, 'products' => $products];
+            $create = $this->pendingCreates($revision);
+            if ($plans !== [] || $products !== [] || $create !== []) {
+                $out[$revision] = ['plans' => $plans, 'products' => $products] + ($create === [] ? [] : ['create' => $create]);
             }
         }
 
@@ -119,6 +143,9 @@ final class CatalogRevisions
     {
         $pending = $this->pending($id)[$id] ?? ['plans' => [], 'products' => []];
         $rows = [];
+        foreach ($pending['create'] ?? [] as $key) {
+            $rows[] = ['kind' => 'create', 'target' => $key, 'definition' => self::PRODUCTS[$key]];
+        }
         foreach ($pending['plans'] as $target => $change) {
             $version = $this->currentVersion($target);
             $rows[] = [
@@ -151,6 +178,14 @@ final class CatalogRevisions
         $done = [];
         foreach ($this->pending($id) as $revision => $pending) {
             $reason = (string) self::REVISIONS[$revision]['reason'];
+            foreach ($pending['create'] ?? [] as $key) { // a product the code defines, as the four-eyes catalogue operation (system actor on the CLI)
+                try {
+                    $bus->dispatch(new CatalogCommand('catalog.revise:'.$revision.':create:'.$key, ['op' => 'product.create', 'product_key' => $key, 'reason' => $reason]), $context);
+                    $done[] = ['kind' => 'create', 'target' => $key];
+                } catch (DomainError $e) {
+                    $done[] = ['kind' => 'create', 'target' => $key, 'error' => $e->error.': '.$e->getMessage()];
+                }
+            }
             foreach ($pending['plans'] as $target => $change) {
                 [$product, $plan] = explode('/', $target, 2);
                 $payload = ['op' => 'plan.publish', 'product_key' => $product, 'plan_key' => $plan, 'base_version' => $change['version'], 'reason' => $reason];
@@ -186,7 +221,7 @@ final class CatalogRevisions
     /**
      * One line for the doctor: 'revision: product/plan (−key, ~key), product key'.
      *
-     * @param  array<string, array{plans: array<string, array{drop: array<string,string>, set: array<string,mixed>}>, products: array<string,mixed>}>  $pending
+     * @param  array<string, array{plans: array<string, array{drop: array<string,string>, set: array<string,mixed>}>, products: array<string,mixed>, create?: list<string>}>  $pending
      */
     public static function summary(array $pending): string
     {
@@ -199,6 +234,9 @@ final class CatalogRevisions
             }
             foreach (array_keys($p['products']) as $product) {
                 $items[] = 'product '.$product;
+            }
+            foreach ($p['create'] ?? [] as $product) {
+                $items[] = 'new product '.$product;
             }
             $parts[] = $revision.': '.implode(', ', $items);
         }
@@ -218,7 +256,7 @@ final class CatalogRevisions
     /**
      * A revision as the code reads it (the constant's literal types are narrower than what a revision may hold).
      *
-     * @return array{reason: string, plans: array<string, list<string>>, rewrite: array<string, array<string, mixed>>, products: array<string, array{match: string, description: array{cs: string, en: string}}>}
+     * @return array{reason: string, plans: array<string, list<string>>, rewrite: array<string, array<string, mixed>>, products: array<string, array{match: string, description: array{cs: string, en: string}}>, create?: list<string>}
      */
     private static function definition(string $revision): array
     {
@@ -272,6 +310,26 @@ final class CatalogRevisions
         ksort($out);
 
         return $out;
+    }
+
+    /** @return list<string> products of `PRODUCTS` this revision creates that the catalogue does not have yet */
+    private function pendingCreates(string $revision): array
+    {
+        $keys = (array) (self::definition($revision)['create'] ?? []);
+
+        return array_values(array_filter(array_map('strval', $keys), fn (string $key) => ! Product::query()->where('key', $key)->exists()));
+    }
+
+    /**
+     * The product row a definition of `PRODUCTS` becomes (`CatalogCommand product.create`, `CatalogSeeder`), or the refusal.
+     *
+     * @return array<string,mixed>
+     */
+    public static function productAttributes(string $key): array
+    {
+        $definition = self::PRODUCTS[$key] ?? throw new DomainError('product_undefined', "Product {$key} is not defined in code (CatalogRevisions::PRODUCTS); a new product comes with the code that delivers it.", 422, ['field' => 'product_key']);
+
+        return ['key' => $key] + $definition;
     }
 
     /** @return array<string, array{cs: string, en: string}> */

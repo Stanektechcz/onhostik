@@ -11,6 +11,7 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Limits\LimitRaiseService;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandContext;
@@ -103,6 +104,11 @@ final class OrdersCommandHandler implements CommandHandler
             $topup = $this->wallets->topup($organization, $amount, $promo ? 'promo' : 'manual', 'staff-credit:'.$command->idempotencyKey, $ctx, note: 'Ruční připsání: '.$note, promo: $promo, bankProvider: $promo ? null : 'manual');
 
             return ['topup_id' => $topup->id, 'amount' => $amount, 'kind' => $promo ? 'promo' : 'manual', 'balances' => $this->wallets->balances($organization, $currency), 'spendable' => $this->wallets->spendable($organization, $currency)];
+        }
+        if ($command->op() === 'limit_raise.free') { // a raise at no charge, proven by the second person the bus consumed (TASK-0022 limit-raise)
+            $order = app(LimitRaiseService::class)->grantFree($organization, (string) $command->get('service_id'), (string) $command->get('metric'), (int) $command->get('units'), $note, (array) $command->get('price', []), $command->idempotencyKey, $ctx);
+
+            return ['order_id' => $order->id, 'number' => $order->number, 'state' => $order->state, 'total' => $order->total()];
         }
         if ($command->op() !== 'order.assisted') {
             throw new \LogicException('Unsupported staff customer op '.$command->op());

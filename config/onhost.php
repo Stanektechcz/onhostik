@@ -657,4 +657,15 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
             'payments' => 'Payments', 'portal' => 'Customer Portal/API', 'ai' => 'AI',
         ],
     ],
+
+    // ── TASK-0022 limit-raise (owner decision 8): a paid raise of one limit of one service (domains/Services/Limits) ──
+    'limit_raise' => [
+        // a customer orders a raise in the panel only once this is on (on the server); staff place raises as assisted orders
+        'customer_orders' => (bool) env('ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS', false),
+        'max_units' => 100, // units of the option per raise
+        // v1: no cloud or data — a resize has no node-capacity check yet (and neither vds nor database sells an option)
+        'families' => ['web', 'managed', 'mail', 'game'],
+    ],
+    // every other add-on (ipv4, backups, mail, CDN) renews too — off until the owner decides: see TASK-0022 findings (ending one does not reach the panel/edge)
+    'addon_renewals' => (bool) env('ONHOST_ADDON_RENEWALS', false),
 ];

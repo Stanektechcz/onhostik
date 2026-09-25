@@ -164,6 +164,11 @@ final class DunningService
             if ($service !== null && $service->state === ServiceStateMachine::SUSPENDED) { // already down (paused by the customer, quarantined): it must not come back while unpaid
                 app(ServiceService::class)->imposeHold($service, SuspensionHold::PAYMENT, 'dunning', CommandContext::system('dunning')->withScope($service->organization_id));
             }
+            if ($service !== null && $service->family === 'addon' && in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
+                $this->endAddon($case, $service, "dunning_end:{$case->id}", $context); // an add-on cannot be suspended: an unpaid one ends
+
+                return;
+            }
             if ($service !== null && in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
                 try {
                     app(ServiceService::class)->requestAction($service, 'suspend', CommandContext::system('dunning')->withScope($service->organization_id), "dunning_suspend:{$case->id}", ['reason' => 'dunning']);
@@ -184,6 +189,22 @@ final class DunningService
     }
 
     /**
+     * An add-on (a paid limit raise — the only add-on with a subscription) has nothing of its own to suspend: every action but
+     * the cancellation is refused on it, so the suspension failed with `addon_action_unsupported` every day and the raise stayed.
+     * Unpaid, it ends: its units come off the service it raised (TASK-0022 limit-raise).
+     */
+    private function endAddon(DunningCase $case, Service $service, string $key, CommandContext $context): void
+    {
+        $meta = ['service_id' => $service->id];
+        try {
+            app(ServiceService::class)->requestAction($service, 'terminate', CommandContext::system('dunning')->withScope($service->organization_id), $key, ['reason' => 'dunning']);
+        } catch (DomainError $e) {
+            $meta['error'] = $e->error;
+        }
+        $this->act($case, 'terminate_addon', $meta, $context);
+    }
+
+    /**
      * A suspension that did not happen — the panel refused it, another operation stood in the way, the operation failed —
      * was never asked for again: the case said SUSPENDED, the site ran, and the next thing that happened to it was the
      * termination date. It is asked for again once a day (a new idempotency key: the old one would answer with the failed
@@ -193,6 +214,11 @@ final class DunningService
     {
         $service = $case->service_id !== null ? Service::query()->find($case->service_id) : null;
         if ($service === null || ! in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
+            return;
+        }
+        if ($service->family === 'addon') {
+            $this->endAddon($case, $service, "dunning_end:{$case->id}:".now()->format('Ymd'), $context);
+
             return;
         }
         $meta = ['service_id' => $service->id, 'attempt' => $case->actions()->whereIn('action', ['suspend', 'suspend_retry'])->count() + 1];

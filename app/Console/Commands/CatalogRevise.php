@@ -59,6 +59,11 @@ final class CatalogRevise extends Command
     {
         $this->line("Revision {$revision}: ".(string) CatalogRevisions::REVISIONS[$revision]['reason']);
         foreach ($rows as $row) {
+            if ($row['kind'] === 'create') { // a product the code defines and this catalogue does not have yet
+                $this->line("  create product {$row['target']} ({$row['definition']['family']}, {$row['definition']['name']['cs']}): no plan and no price of its own; four eyes in the console, the system actor here");
+
+                continue;
+            }
             if ($row['kind'] === 'product') {
                 $this->line("  product {$row['target']}: description → „{$row['description']['cs']}“");
 
@@ -90,7 +95,11 @@ final class CatalogRevise extends Command
 
                 continue;
             }
-            $this->line($row['kind'] === 'plan' ? "  published {$row['target']} v{$row['from']} → v{$row['to']}" : "  described product {$row['target']}");
+            $this->line(match ($row['kind']) {
+                'plan' => "  published {$row['target']} v{$row['from']} → v{$row['to']}",
+                'create' => "  created product {$row['target']}",
+                default => "  described product {$row['target']}",
+            });
         }
         if ($failed > 0) {
             $this->error("{$failed} change(s) refused; the others are published. Fix the cause and run the command again: it continues where it stopped.");

@@ -24,6 +24,7 @@ use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\IncludedServices;
 use Onhost\Domain\Services\LegalHold;
+use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Mail\MailboxBackupPolicy;
 use Onhost\Domain\Services\Mail\MailDomains;
 use Onhost\Domain\Services\Mail\MailSettings;
@@ -1398,6 +1399,9 @@ final class ServiceActionWorkflow implements Workflow
                     return StepResult::done(['detached' => 'already']);
                 }
                 $result = $context->container->make(Addons::class)->revoke($parent, $addon);
+                if (LimitRaises::isRaise($addon)) { // the lower number reaches the panel too (TASK-0022 limit-raise)
+                    $context->container->make(LimitRaises::class)->afterRevoke($parent, $addon->fresh() ?? $addon, (string) $context->desired('reason', 'ended'));
+                }
 
                 return StepResult::done(['detached' => true, 'parent_service_id' => $parent->id, 'restored' => $result['restored'], 'kept' => $result['kept'], 'backup_policy' => $result['backup_policy']]);
             }

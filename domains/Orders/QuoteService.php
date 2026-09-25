@@ -17,6 +17,8 @@ use Onhost\Domain\Provisioning\GameConfigurator;
 use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\Region;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
+use Onhost\Domain\Services\Limits\LimitRaises;
+use Onhost\Domain\Services\Limits\LimitRaiseWaiver;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\PlanChangeService;
@@ -42,6 +44,7 @@ final class QuoteService
         private readonly CatalogService $catalog,
         private readonly TaxEngine $tax,
         private readonly PricingRules $rules,
+        private readonly LimitRaiseLine $limitRaise,
     ) {}
 
     /**
@@ -82,7 +85,7 @@ final class QuoteService
                 throw new DomainError('quantity_too_large', "At most {$max} of one service fit on one order line.", 422, ['field' => "items.{$index}.qty", 'max' => $max]);
             }
             $named = array_values(array_filter(['fqdn', 'domain', 'hostname'], fn (string $key) => ! empty($config[$key])));
-            if (($item['product_key'] ?? '') === 'domain' || ! empty($config['upgrade_of']) || $named !== []) {
+            if (($item['product_key'] ?? '') === 'domain' || ($item['product_key'] ?? '') === LimitRaises::PRODUCT || ! empty($config['upgrade_of']) || $named !== []) {
                 throw new DomainError('quantity_unsupported', 'This line names one thing (a domain name, a site, a service that changes its plan); add another line for another one.', 422, ['field' => "items.{$index}.qty"]);
             }
             for ($copy = 1; $copy <= $qty; $copy++) {
@@ -111,7 +114,7 @@ final class QuoteService
      * @param  list<array<string,mixed>>  $items
      * @param  array{country?:string,customer_class?:string,vat_status?:string,ip_country?:?string}  $customer
      */
-    public function quote(array $items, Currency|string $currency, array $customer, int $commitMonths = 1, ?string $promoCode = null, ?Organization $organization = null, string $locale = 'cs'): Quote
+    public function quote(array $items, Currency|string $currency, array $customer, int $commitMonths = 1, ?string $promoCode = null, ?Organization $organization = null, string $locale = 'cs', ?LimitRaiseWaiver $waiver = null): Quote
     {
         $currency = $currency instanceof Currency ? $currency : Currency::fromString($currency);
         if ($organization !== null) {
@@ -161,6 +164,7 @@ final class QuoteService
         $discount = Money::zero($currency);
         $renewalTotal = Money::zero($currency);
 
+        $raised = []; // limit raises of this cart per service and number (LimitRaiseLine)
         $parentProducts = []; // cart lines that may carry add-ons (line id → product key)
         foreach ($items as $index => $item) {
             if (($item['product_key'] ?? '') !== 'domain' && empty($item['config']['parent_line_id'])) {
@@ -204,6 +208,15 @@ final class QuoteService
                 $subtotal = $subtotal->add($net);
                 $discount = $discount->add($lineDiscount);
                 $renewalTotal = $renewalTotal->add($renewal);
+
+                continue;
+            }
+            if ($productKey === LimitRaises::PRODUCT) { // one number of one service, at its product's option price (TASK-0022 limit-raise)
+                $line = $this->limitRaise->build($organization, $item, $currency, $lineId, $raised, $waiver, $locale);
+                $lines[] = $line;
+                $subtotal = $subtotal->add($line['unit_net']);
+                $discount = $discount->add($line['discount']);
+                $renewalTotal = $renewalTotal->add($line['renewal_net']);
 
                 continue;
             }
@@ -459,7 +472,7 @@ final class QuoteService
             throw new DomainError('plan_change_same_plan', 'The service already runs this plan.', 422, ['field' => 'items']);
         }
         // …and it has to fit what the service already holds: a plan that sells one site does not take a service with three
-        app(PlanFit::class)->assertFits($service, (array) $version->entitlements);
+        app(PlanFit::class)->assertFits($service, LimitRaises::withActiveDeltas($service, (array) $version->entitlements)); // its paid raises go with it
 
         return [
             'service' => $service, 'subscription' => $subscription, 'from_plan' => $fromPlan, 'period' => $periodChange ? $requestedPeriod : $fromPeriod, 'from_period' => $fromPeriod, 'period_change' => $periodChange,

@@ -377,6 +377,8 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::post('customers/{organization}/orders/quote', [CustomerController::class, 'quoteOrder']);
         Route::post('customers/{organization}/orders', [CustomerController::class, 'placeOrder']); // assisted order (audit §5y)
         Route::post('customers/{organization}/services', [CustomerController::class, 'createService']); // a service without an order (audit §5o)
+        // ── TASK-0022 limit-raise: a raise at no charge for one period, four eyes (a priced raise is an assisted order) ──
+        Route::post('customers/{organization}/limit-raises/free', [CustomerController::class, 'grantFreeLimitRaise']);
         Route::get('services', [CustomerController::class, 'services']);
         Route::get('domains', [CustomerController::class, 'domains']);
         Route::get('integrations', [ProvisioningController::class, 'integrations']);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Services;
 
 use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Web\BackupScheduler;
@@ -37,7 +38,7 @@ final class Addons
     /** Add-on products the platform delivers. Anything else is not sellable — see the class comment. */
     public static function handled(): array
     {
-        return ['ipv4', 'backup-plus', 'backup-hourly', 'mail-hosting', 'cdn'];
+        return ['ipv4', 'backup-plus', 'backup-hourly', 'mail-hosting', 'cdn', LimitRaises::PRODUCT];
     }
 
     public static function sellable(string $productKey): bool
@@ -81,7 +82,11 @@ final class Addons
         if ($policy !== null) {
             BackupPolicy::query()->updateOrCreate(['service_id' => $parent->id], $policy + ['product_key' => $addon->product_key, 'state' => 'active']);
         }
-        $addon->forceFill(['tags' => array_replace((array) $addon->tags, ['addon' => ['patch' => $patch, 'before' => $before, 'backup_policy' => $policy !== null]])])->save();
+        $applied = ['patch' => $patch, 'before' => $before, 'backup_policy' => $policy !== null];
+        if ($addon->product_key === LimitRaises::PRODUCT) { // a raise adds to whatever the number is; its cancellation takes back exactly this much
+            $applied['delta'] = self::raiseDelta($entitlements);
+        }
+        $addon->forceFill(['tags' => array_replace((array) $addon->tags, ['addon' => $applied])])->save();
         $this->features->forget($parent);
 
         return ['patch' => $patch, 'before' => $before, 'backup_policy' => $policy !== null];
@@ -101,6 +106,17 @@ final class Addons
         $entitlements = (array) $parent->entitlements;
         $restored = [];
         $kept = [];
+        if ($addon->product_key === LimitRaises::PRODUCT) {
+            // raises stack: another raise or a plan change may have moved the number since, so the value from before is not
+            // the one to go back to — exactly this raise's delta comes off (never below zero), and nothing else
+            foreach ((array) ($applied['delta'] ?? []) as $key => $delta) {
+                if (is_numeric($entitlements[$key] ?? null)) {
+                    $entitlements[$key] = max(0, (int) $entitlements[$key] - (int) $delta);
+                    $restored[$key] = $entitlements[$key];
+                }
+            }
+            $patch = [];
+        }
         foreach ($patch as $key => $value) {
             if (($entitlements[$key] ?? null) !== $value) {
                 $kept[] = $key; // changed since: not ours to take back
@@ -182,7 +198,38 @@ final class Addons
                 'waf' => (string) ($ent['waf'] ?? '') !== '' ? (string) $ent['waf'] : null,
                 'traffic_tb' => (int) ($ent['traffic_tb'] ?? 0) ?: null,
             ], fn ($v) => $v !== null),
+            // one number of the parent, plus what was paid for (LimitRaiseLine computed the delta on the server)
+            LimitRaises::PRODUCT => self::raised($current, self::raiseDelta($ent)),
             default => [], // the backup add-ons deliver through the policy, not through the parent's entitlements
         };
+    }
+
+    /**
+     * The one number a raise adds to, and by how much (`{limit_raise: {metric, delta}}`, written by `LimitRaiseLine`).
+     *
+     * @param  array<string,mixed>  $ent
+     * @return array<string,int>
+     */
+    private static function raiseDelta(array $ent): array
+    {
+        $metric = (string) data_get($ent, 'limit_raise.metric', '');
+        $delta = (int) data_get($ent, 'limit_raise.delta', 0);
+
+        return $metric === '' || $delta <= 0 ? [] : [$metric => $delta];
+    }
+
+    /**
+     * @param  array<string,mixed>  $current
+     * @param  array<string,int>  $delta
+     * @return array<string,int>
+     */
+    private static function raised(array $current, array $delta): array
+    {
+        $out = [];
+        foreach ($delta as $key => $by) {
+            $out[$key] = (int) ($current[$key] ?? 0) + $by;
+        }
+
+        return $out;
     }
 }

@@ -18,6 +18,7 @@ use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\PaymentService;
+use Onhost\Domain\Services\Limits\LimitRaisePolicy;
 use Onhost\Domain\WalletLedger\Models\WalletHold;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -72,6 +73,7 @@ final class CheckoutService
         if (! in_array($mode, ['wallet', 'gateway', 'bank', 'postpaid'], true)) {
             throw new DomainError('payment_mode_invalid', 'Unsupported payment mode.');
         }
+        LimitRaisePolicy::assertOrderable($quote, $source); // customers order a raise once the switch is on; a free raise is staff's (TASK-0022)
         if ($mode === 'postpaid' && $this->wallets->approvedCreditLine($organization->id, $quote->currency)->isZero()) {
             throw new DomainError('postpaid_not_approved', 'Postpaid billing requires an approved credit line.', 403);
         }

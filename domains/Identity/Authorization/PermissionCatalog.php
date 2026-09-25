@@ -163,6 +163,8 @@ final class PermissionCatalog
             'catalog.manage' => $s('Edit products, plans and prices', self::HIGH),
             'partner.manage' => $s('Manage reseller partners, commissions, payouts', self::HIGH),
             'feature_flag.manage' => $s('Toggle feature flags', self::HIGH),
+            // ── TASK-0022 limit-raise: a raise of a limit at no charge is money given away — a second person (docs/runbooks/approvals.md) ──
+            'billing.limit_raise.waive' => $s('Grant a limit raise at no charge for one period (four eyes)', self::CRITICAL),
         ];
     }
 

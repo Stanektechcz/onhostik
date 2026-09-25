@@ -13,7 +13,7 @@ use Illuminate\Support\Str;
  */
 final class CommandContext
 {
-    /** @param list<string> $approvalIds */
+    /** @param list<string> $approvalIds @param list<string> $verifiedApprovalIds */
     public function __construct(
         public readonly string $actorType,   // user | service_account | ai | system
         public readonly ?string $actorId,
@@ -29,6 +29,9 @@ final class CommandContext
         public readonly ?string $correlationId = null,
         public readonly ?string $requestId = null,
         public readonly ?string $onBehalfOfUserId = null, // staff impersonation context
+        // what the authorizer actually consumed for THIS command (approval ids, or 'waived:single-operator'); set by the bus only.
+        // `approvalIds` above is what the caller offered — a handler that must prove its second person reads this one
+        public readonly array $verifiedApprovalIds = [],
     ) {}
 
     public static function system(?string $reason = null): self
@@ -57,7 +60,17 @@ final class CommandContext
         return new self(
             $this->actorType, $this->actorId, $organizationId ?? $this->organizationId, $projectId ?? $this->projectId,
             $this->ip, $this->userAgent, $this->sessionId, $this->reason, $this->ticketRef, $this->stepUpMethod,
-            $this->approvalIds, $this->correlationId, $this->requestId, $this->onBehalfOfUserId,
+            $this->approvalIds, $this->correlationId, $this->requestId, $this->onBehalfOfUserId, $this->verifiedApprovalIds,
+        );
+    }
+
+    /** @param list<string> $approvalIds what the authorizer consumed for the command about to run (CommandBus) */
+    public function withVerifiedApprovals(array $approvalIds): self
+    {
+        return new self(
+            $this->actorType, $this->actorId, $this->organizationId, $this->projectId,
+            $this->ip, $this->userAgent, $this->sessionId, $this->reason, $this->ticketRef, $this->stepUpMethod,
+            $this->approvalIds, $this->correlationId, $this->requestId, $this->onBehalfOfUserId, array_values($approvalIds),
         );
     }
 
@@ -66,7 +79,7 @@ final class CommandContext
         return new self(
             $this->actorType, $this->actorId, $this->organizationId, $this->projectId,
             $this->ip, $this->userAgent, $this->sessionId, $reason ?? $this->reason, $ticketRef ?? $this->ticketRef, $this->stepUpMethod,
-            $this->approvalIds, $this->correlationId, $this->requestId, $this->onBehalfOfUserId,
+            $this->approvalIds, $this->correlationId, $this->requestId, $this->onBehalfOfUserId, $this->verifiedApprovalIds,
         );
     }
 

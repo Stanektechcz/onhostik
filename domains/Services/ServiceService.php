@@ -40,6 +40,7 @@ use Onhost\Domain\Provisioning\Workflows\SiteWorkflow;
 use Onhost\Domain\Provisioning\Workflows\StagingWorkflow;
 use Onhost\Domain\Provisioning\Workflows\WordPressWorkflow;
 use Onhost\Domain\Services\Access\OwnerOnlyActions;
+use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\DatabaseInstance;
 use Onhost\Domain\Services\Models\Service;
@@ -166,6 +167,11 @@ final class ServiceService
         $applied = app(Addons::class)->apply($parent, $service);
         if ($product->key === 'ipv4' && $parent->isActive() && $parent->family === 'cloud') {
             $this->requestAction($parent, 'resize', $context, "addon:{$item->id}", ['entitlements' => ['ipv4' => (int) ($entitlements['addresses'] ?? 1)], 'reason' => 'ipv4 addon']);
+        }
+        if ($product->key === LimitRaises::PRODUCT) { // a paid raise renews every period and reaches the panel (TASK-0022 limit-raise)
+            app(LimitRaises::class)->afterAttach($parent, $service, $item, $context);
+        } elseif ((bool) config('onhost.addon_renewals', false)) { // an add-on is sold per period; it was billed once and never renewed
+            app(SubscriptionService::class)->ensureForService($service, $item, $context);
         }
         $this->audit->record($context->withScope($organization->id), 'service.addon.attach', 'succeeded', ['addon' => $product->key, 'parent' => $parent->id, 'applied' => $applied['patch'], 'backup_policy' => $applied['backup_policy']], 'service', $service->id);
         $this->outbox->publish(GenericEvent::of('service.activated', 'service', $service->id, ['product_key' => $product->key, 'parent_service_id' => $parent->id, 'order_item_id' => $item->id], $organization->id));
@@ -463,6 +469,9 @@ final class ServiceService
         }
         if ($service->family === 'addon' && ! in_array($action, ['terminate', 'purge'], true)) {
             throw new DomainError('addon_action_unsupported', 'Doplněk se spravuje přes službu, ke které patří; zrušit jej lze samostatně.', 422, ['action' => $action]);
+        }
+        if ($action === 'terminate' && $context->actorType !== 'system' && LimitRaises::isRaise($service)) {
+            LimitRaises::assertCanEnd($service); // a raise the service already uses is not ended by hand; an unpaid one ends anyway (system)
         }
         // one thing at a time per service — except a declarative apply, which deliberately queues several steps; the queue runs them one after another (RunOperation is WithoutOverlapping per service)
         if (! $chained && Operation::query()->where('service_id', $service->id)->whereIn('state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING])->exists()) {

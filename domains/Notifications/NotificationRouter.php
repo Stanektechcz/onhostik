@@ -338,6 +338,16 @@ final class NotificationRouter
             'rebalance.plan' => $this->internal($m, 'infra', 'Noční plán přerozdělení: '.(int) ($p['moves'] ?? 0).' přesunů ('.($p['basis'] ?? 'usage').')', 'horké uzly: '.implode(', ', (array) ($p['hot'] ?? [])).' · '.implode(' · ', (array) ($p['summary'] ?? [])), '/sprava#/fleet', (int) ($p['moves'] ?? 0) > 0 ? 'warn' : 'info'),
             'chargeback.cluster' => $this->internal($m, 'finance', 'Odchody zákazníků se hromadí: '.($p['label'] ?? ''), (int) ($p['count'] ?? 0).'× · téma '.($p['theme'] ?? '').' · incident '.($p['number'] ?? ''), '/sprava#/incidents', 'hot'),
             'tenant.sandbox' => $this->customer($m, 'account', ! empty($p['enabled']) ? 'Účet je v režimu sandbox' : 'Režim sandbox ukončen', ! empty($p['enabled']) ? 'Služby se zřizují v laboratorním prostředí; kredit '.$money(['minor' => (int) ($p['credit'] ?? 0), 'currency' => $org?->currency ?? 'CZK']).' je určen k testování.' : 'Nové objednávky jdou do produkce.', '/panel/nastaveni'),
+            // ── TASK-0022 limit-raise: the customer hears the new number (billing contact); a raise given at no charge reaches staff too ──
+            'service.limit_raised' => (function () use ($m, $p, $email, $portal) {
+                $what = (string) ($p['metric_label'] ?? $p['metric'] ?? '').' +'.(int) ($p['delta'] ?? 0).' → '.(int) ($p['new_value'] ?? 0);
+                $this->customer($m, 'service', 'Limit služby '.($p['label'] ?? '').' navýšen', $what.(! empty($p['waived']) ? ' · na jedno období zdarma' : ' · účtuje se s každým obdobím'), '/panel/sluzby', 'info', $email, 'service-limit-raised',
+                    ['sluzba' => (string) ($p['label'] ?? ''), 'limit' => $what, 'uctovani' => ! empty($p['waived']) ? 'Navýšení je na jedno období zdarma a potom skončí.' : 'Navýšení se účtuje s každým obdobím, dokud ho nezrušíte.', 'url' => $portal.'/panel/sluzby']);
+                if (! empty($p['waived'])) {
+                    $this->internal($m, 'finance', 'Navýšení limitu zdarma: '.($p['label'] ?? ''), $what.' · schválení '.implode(', ', (array) ($p['approval_ids'] ?? [])), '/sprava/objednavky');
+                }
+            })(),
+            'service.limit_raise_ended' => $this->customer($m, 'service', 'Navýšení limitu služby '.($p['label'] ?? '').' skončilo', (string) ($p['metric_label'] ?? $p['metric'] ?? '').' −'.(int) ($p['delta'] ?? 0).' → '.(int) ($p['new_value'] ?? 0), '/panel/sluzby', 'info'),
             default => null,
         };
     }

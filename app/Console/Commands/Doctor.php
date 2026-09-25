@@ -45,6 +45,7 @@ use Onhost\Domain\Provisioning\ProviderInstanceService;
 use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
+use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
@@ -255,6 +256,9 @@ final class Doctor extends Command
             ->whereNull('tags->parent_service_id')->count();
         $this->add('catalog', 'every add-on knows the service it belongs to', $addonsWithoutParent === 0,
             $addonsWithoutParent === 0 ? '' : $addonsWithoutParent.' × without a parent service — they change nothing and bill anyway', false);
+        // ── TASK-0022 limit-raise: a raise is billed every period or given with a second person's approval, and its number is on the panel ──
+        $raises = LimitRaises::problems();
+        $this->add('catalog', 'every limit raise is billed or approved', $raises === [], $raises === [] ? '' : implode(' · ', array_slice($raises, 0, 10)).(count($raises) > 10 ? ' …' : ''), false);
     }
 
     /**

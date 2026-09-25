@@ -15,7 +15,7 @@ use Onhost\Platform\Commands\GlobalCommand;
  *  option.upsert{product_key,option,reason?} · option.delete{product_key,key,reason?} · product.state{state: active|draft, products: list} ·
  *  plan.publish{product_key,plan_key,base_version?,entitlements?,limits?,features?,prices?,reason,confirm_large_change?} ·
  *  plan.activate_version{product_key,plan_key,version,base_version?,reason} · lifecycle.set{config,base?,reason?} · panel_nav.set{config} ·
- *  product.describe{product_key,description{cs,en},base?}
+ *  product.describe{product_key,description{cs,en},base?} · product.create{product_key,reason?} (only a product CatalogRevisions::PRODUCTS defines)
  *
  * Who it takes (owner decision 13, 2026-09-25; docs/runbooks/approvals.md): HIGH is a fresh step-up and nothing more, but every
  * change of a price or a plan takes a second person as well, although catalog.manage itself is only HIGH. Withdrawing an offer
@@ -26,7 +26,13 @@ use Onhost\Platform\Commands\GlobalCommand;
  */
 final class CatalogCommand extends GlobalCommand implements RiskAwareCommand
 {
-    public const OPS = ['pricing.commit_discounts.set', 'pricing.regions.set', 'pricing.domain_discount.set', 'pricing.domain_discount.delete', 'pricing.addon_products.set', 'promo.upsert', 'promo.delete', 'option.upsert', 'option.delete', 'panel_nav.set', 'product.state', 'plan.publish', 'plan.activate_version', 'lifecycle.set', 'product.describe'];
+    public const OPS = ['pricing.commit_discounts.set', 'pricing.regions.set', 'pricing.domain_discount.set', 'pricing.domain_discount.delete', 'pricing.addon_products.set', 'promo.upsert', 'promo.delete', 'option.upsert', 'option.delete', 'panel_nav.set', 'product.state', 'plan.publish', 'plan.activate_version', 'lifecycle.set', 'product.describe', 'product.create'];
+
+    /**
+     * Classified four-eyes on purpose (not by the fail-closed default): a new product on sale is a new offer at a price, even when
+     * its price comes from elsewhere (TASK-0022 limit-raise: the parent's option price).
+     */
+    public const APPROVAL_OPS = ['product.create'];
 
     /**
      * Withdrawals and the composition of an offer from products already on sale at approved prices: one person, a step-up.
@@ -58,6 +64,7 @@ final class CatalogCommand extends GlobalCommand implements RiskAwareCommand
     {
         return match (true) {
             in_array($this->op(), self::ORDINARY_OPS, true) => PermissionCatalog::NORMAL,
+            in_array($this->op(), self::APPROVAL_OPS, true) => PermissionCatalog::CRITICAL,
             in_array($this->op(), self::STEP_UP_OPS, true), $this->isWithdrawal() => PermissionCatalog::HIGH,
             default => PermissionCatalog::CRITICAL, // prices, plans, unknown operations
         };

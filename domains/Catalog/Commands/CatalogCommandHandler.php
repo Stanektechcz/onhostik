@@ -62,6 +62,12 @@ final class CatalogCommandHandler implements CommandHandler
 
                 return ['product_key' => $product->key, 'description' => $description];
             })(),
+            // a product the code defines (CatalogRevisions::PRODUCTS), created once; it is not a way to invent a product (TASK-0022)
+            'product.create' => (function () use ($command) {
+                $product = Product::query()->create(CatalogPreflight::newProduct((string) $command->get('product_key')));
+
+                return ['product_key' => $product->key, 'family' => $product->family, 'state' => $product->state];
+            })(),
             // the deletion lifecycle: how long a cancelled service can come back, how long the archive lives, what its download costs (audit §5ab)
             'lifecycle.set' => ['lifecycle' => app(DeletionPolicy::class)->set((array) $command->get('config', []), $by)],
             // the customer panel's sidebar: category switches, order and labels (domains/Catalog/PanelNavigation.php)

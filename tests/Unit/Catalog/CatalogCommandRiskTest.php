@@ -38,6 +38,7 @@ it('classifies every catalogue operation: price and plan changes take a second p
         [['op' => 'plan.activate_version'], $fourEyes],
         [['op' => 'lifecycle.set'], $fourEyes], // the archive download fee is a price
         [['op' => 'product.state', 'state' => 'active'], $fourEyes], // putting a product on sale is offering its prices
+        [['op' => 'product.create', 'product_key' => 'limit-raise'], $fourEyes], // a product the code defines; a new offer (TASK-0022 limit-raise)
         [['op' => 'pricing.domain_discount.delete'], $stepUp],
         [['op' => 'promo.delete'], $stepUp],
         [['op' => 'promo.upsert', 'promo' => ['code' => 'JARO', 'state' => 'paused']], $stepUp],

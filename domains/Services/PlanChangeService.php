@@ -15,6 +15,7 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -153,7 +154,7 @@ final class PlanChangeService
         if ($service->product_key !== $product->key) {
             throw new DomainError('plan_change_product_mismatch', 'The plan belongs to a different product than the service.', 422);
         }
-        $entitlements = $this->services->entitlementsFor($version, (array) ($config['options'] ?? []), $product);
+        $entitlements = LimitRaises::withActiveDeltas($service, $this->services->entitlementsFor($version, (array) ($config['options'] ?? []), $product)); // the paid raises stay on top of the new plan
         app(PlanFit::class)->assertFits($service, $entitlements); // the service may have grown between the order and its payment
         $from = (string) (data_get($config, 'plan_change.from_plan') ?? '');
         $to = (string) ($version->plan?->key ?? '');
