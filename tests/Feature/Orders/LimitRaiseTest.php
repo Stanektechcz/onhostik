@@ -421,6 +421,46 @@ it('ends an unpaid raise in dunning instead of trying to suspend an add-on', fun
         ->and($case->actions()->where('action', 'suspend')->whereNotNull('meta->error')->exists())->toBeFalse();
 });
 
+it('leaves an add-on sold today alone in dunning while the add-on renewals switch is off', function () {
+    Event::fake(['onhost.order.paid']);
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org);
+    $context = CommandContext::system('addon dunning test')->withScope($org->id);
+    app(WalletService::class)->topup($org, Money::decimal('5000', 'CZK'), 'bank', 'lr-addon-dunning-seed', $context);
+    $sellMailAddon = function () use ($org, $parent, $context): Service {
+        $quote = app(QuoteService::class)->quote([['product_key' => 'mail-hosting', 'plan_key' => 'basic', 'period' => 'month', 'config' => ['parent_service_id' => $parent->id]]], 'CZK', [], 1, null, $org);
+        $consents = [];
+        foreach (app(CheckoutService::class)->requiredDocuments($quote, $org) as $key) {
+            $consents[$key] = ['person' => 'test'];
+        }
+        $order = app(CheckoutService::class)->placeOrder($quote, $org, null, $consents, ['mode' => 'wallet'], 'lr-addon-dunning-'.Str::random(8), $context, 'staff')['order'];
+
+        return app(ServiceService::class)->createFromOrderItem(OrderItem::query()->where('order_id', $order->id)->sole(), $order, $context);
+    };
+    $openCase = function (Service $addon) use ($org) {
+        $invoice = Invoice::query()->create(['legal_entity' => 'onhost-cz', 'series' => 'FV', 'type' => 'invoice', 'number' => 'FV-2026-1'.Str::random(6), 'organization_id' => $org->id, 'currency' => 'CZK', 'state' => Invoice::OVERDUE,
+            'subtotal_minor' => 3900, 'discount_minor' => 0, 'tax_minor' => 819, 'total_minor' => 4719, 'paid_minor' => 0, 'issued_at' => now()->subDays(60), 'due_at' => now()->subDays(45), 'meta' => ['postpaid' => true]]);
+
+        return app(DunningService::class)->open($org->id, $invoice->id, $addon->id, $invoice->due_at);
+    };
+    $today = $sellMailAddon();
+    $todayCase = $openCase($today);
+
+    expect(config('onhost.addon_renewals'))->toBeFalse();
+    app(DunningService::class)->tick();
+    expect($todayCase->actions()->where('action', 'terminate_addon')->exists())->toBeFalse() // an existing add-on is not ended by this change
+        ->and(data_get($today->fresh()->tags, 'addon.revoked_at'))->toBeNull();
+
+    config()->set('onhost.addon_renewals', true); // switched on: only an add-on sold renewing (with its subscription) ends unpaid
+    $renewing = $sellMailAddon();
+    $renewingCase = $openCase($renewing);
+    app(DunningService::class)->tick();
+    expect($renewingCase->actions()->where('action', 'terminate_addon')->exists())->toBeTrue()
+        ->and($todayCase->actions()->where('action', 'terminate_addon')->exists())->toBeFalse()
+        ->and(data_get($today->fresh()->tags, 'addon.revoked_at'))->toBeNull();
+});
+
 it('grants a raise at no charge only with a second person, bound to the service, the number and the price', function () {
     Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
     [, $org] = $this->customerWithOrganization();

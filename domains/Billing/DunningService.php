@@ -6,9 +6,11 @@ namespace Onhost\Domain\Billing;
 
 use Onhost\Domain\Billing\Models\DunningAction;
 use Onhost\Domain\Billing\Models\DunningCase;
+use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
@@ -164,7 +166,7 @@ final class DunningService
             if ($service !== null && $service->state === ServiceStateMachine::SUSPENDED) { // already down (paused by the customer, quarantined): it must not come back while unpaid
                 app(ServiceService::class)->imposeHold($service, SuspensionHold::PAYMENT, 'dunning', CommandContext::system('dunning')->withScope($service->organization_id));
             }
-            if ($service !== null && $service->family === 'addon' && in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
+            if ($service !== null && $this->endsUnpaid($service) && in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
                 $this->endAddon($case, $service, "dunning_end:{$case->id}", $context); // an add-on cannot be suspended: an unpaid one ends
 
                 return;
@@ -189,7 +191,7 @@ final class DunningService
     }
 
     /**
-     * An add-on (a paid limit raise; every add-on once ONHOST_ADDON_RENEWALS is on) has nothing of its own to suspend: every action but
+     * An add-on (a paid limit raise; an add-on sold renewing under ONHOST_ADDON_RENEWALS — see endsUnpaid()) has nothing of its own to suspend: every action but
      * the cancellation is refused on it, so the suspension failed with `addon_action_unsupported` every day and the raise stayed.
      * Unpaid, it ends: its units come off the service it raised (TASK-0022 limit-raise).
      */
@@ -205,6 +207,23 @@ final class DunningService
     }
 
     /**
+     * Only an add-on sold as renewing ends when unpaid: a limit raise, or another add-on that got its renewal subscription
+     * under ONHOST_ADDON_RENEWALS. An add-on sold before (paid once, no subscription) keeps the old behaviour — this change
+     * never ends an existing customer's add-on (owner rule: no mass change to existing services).
+     */
+    private function endsUnpaid(Service $service): bool
+    {
+        if ($service->family !== 'addon') {
+            return false;
+        }
+        if (LimitRaises::isRaise($service)) {
+            return true;
+        }
+
+        return (bool) config('onhost.addon_renewals', false) && Subscription::query()->where('service_id', $service->id)->exists();
+    }
+
+    /**
      * A suspension that did not happen — the panel refused it, another operation stood in the way, the operation failed —
      * was never asked for again: the case said SUSPENDED, the site ran, and the next thing that happened to it was the
      * termination date. It is asked for again once a day (a new idempotency key: the old one would answer with the failed
@@ -216,7 +235,7 @@ final class DunningService
         if ($service === null || ! in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
             return;
         }
-        if ($service->family === 'addon') {
+        if ($this->endsUnpaid($service)) {
             $this->endAddon($case, $service, "dunning_end:{$case->id}:".now()->format('Ymd'), $context);
 
             return;
