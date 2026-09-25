@@ -39,11 +39,14 @@ final class UsageDiskTotalNotice extends Command
             return self::FAILURE;
         }
         $rows = [];
-        $counts = ['listed' => 0, 'over' => 0, 'announced' => 0, 'already' => 0, 'refused' => 0];
+        $counts = ['listed' => 0, 'over' => 0, 'announced' => 0, 'already' => 0, 'refused' => 0, 'included' => 0];
         $limit = max(1, (int) $this->option('limit'));
         $this->owners()->chunkById(200, function (Collection $services) use (&$rows, &$counts, $limit, $send, $from, $bus) {
             foreach ($services as $service) {
                 if (IncludedServices::isIncluded($service)) {
+                    // its space is part of its owner's plan total: the owner is told, the site never on its own
+                    $counts['included']++;
+
                     continue;
                 }
                 if ($counts['listed'] >= $limit) {
@@ -64,7 +67,8 @@ final class UsageDiskTotalNotice extends Command
             return true;
         });
         $this->table(['service', 'hostname', 'files', 'databases', 'mail', 'total', 'plan', 'used', 'quality', 'over', 'notice'], $rows);
-        $this->line(sprintf('enforce_from %s · listed %d · over today %d', $from?->toDateString() ?? 'not set', $counts['listed'], $counts['over']));
+        $this->line(sprintf('enforce_from %s · listed %d · over today %d · included sites skipped %d (their space counts in the owner\'s plan; the owner is told)',
+            $from?->toDateString() ?? 'not set', $counts['listed'], $counts['over'], $counts['included']));
         $this->line($send ? sprintf('announced %d · already told %d · refused %d', $counts['announced'], $counts['already'], $counts['refused']) : 'dry run — nothing was recorded or sent; add --send to tell these customers');
 
         return self::SUCCESS;

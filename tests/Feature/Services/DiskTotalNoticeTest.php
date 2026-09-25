@@ -176,3 +176,64 @@ it('keeps the notice an ordinary operator command: no step-up, no second approve
     expect($command->riskLevel())->toBe(PermissionCatalog::NORMAL)
         ->and($command->requiresStepUp())->toBeFalse()->and($command->requiresApproval())->toBeFalse();
 });
+
+/** An included site of `$owner`: counted in its owner's plan total and told through its owner, never on its own. */
+function noticeIncludedSite(Organization $org, Service $owner): Service
+{
+    $site = noticeWebHosting($org, 1);
+    $site->forceFill(['tags' => array_merge((array) $site->tags, ['parent_service_id' => $owner->id, 'billing' => 'included'])])->save();
+
+    return $site->refresh();
+}
+
+it('refuses a notice for an included site through the bus, writing nothing', function () {
+    [, $org] = $this->customerWithOrganization();
+    $owner = noticeWebHosting($org, 60);
+    $site = noticeIncludedSite($org, $owner);
+    noticeDate(45);
+
+    // running, paying family, right date: only the included flag stands between the site and a notice of its own
+    try {
+        app(CommandBus::class)->dispatch(new AnnounceDiskTotalCommand($org->id, 'disk-total-notice:'.$site->id.':included', ['service_id' => $site->id, 'effective' => now()->addDays(45)->toDateString()]),
+            CommandContext::system('operator:disk-total-notice'));
+        $this->fail('an included site was noticed on its own');
+    } catch (DomainError $e) {
+        expect($e->error)->toBe('service_not_noticeable');
+    }
+    expect(data_get($site->fresh()->tags, 'usage_notices'))->toBeNull()
+        ->and(data_get($owner->fresh()->tags, 'usage_notices'))->toBeNull()
+        ->and(OutboxMessage::query()->where('name', 'service.disk_total.announced')->count())->toBe(0);
+});
+
+it('writes nothing for an included site given with --service and says why', function () {
+    [, $org] = $this->customerWithOrganization();
+    $owner = noticeWebHosting($org, 60);
+    $site = noticeIncludedSite($org, $owner);
+    noticeDate(45);
+
+    expect(Artisan::call('onhost:usage:disk-total-notice', ['--send' => true, '--service' => [$site->id]]))->toBe(0);
+    $out = Artisan::output();
+
+    // skipped before the bus: not listed, not refused, and the operator is told it goes through its owner
+    expect($out)->toContain('listed 0')->toContain('announced 0')->toContain('refused 0')
+        ->toContain('included sites skipped 1')
+        ->and(data_get($site->fresh()->tags, 'usage_notices'))->toBeNull()
+        ->and(data_get($owner->fresh()->tags, 'usage_notices'))->toBeNull()
+        ->and(OutboxMessage::query()->where('name', 'service.disk_total.announced')->count())->toBe(0);
+});
+
+it('skips included sites in its listing while noticing their owner', function () {
+    [, $org] = $this->customerWithOrganization();
+    $owner = noticeWebHosting($org, 60);
+    $site = noticeIncludedSite($org, $owner);
+    noticeDate(45);
+
+    expect(Artisan::call('onhost:usage:disk-total-notice'))->toBe(0);
+    expect(Artisan::output())->toContain($owner->id)->not->toContain($site->id)->toContain('listed 1')->toContain('included sites skipped 1');
+
+    expect(Artisan::call('onhost:usage:disk-total-notice', ['--send' => true]))->toBe(0);
+    expect(Artisan::output())->toContain('listed 1')->toContain('announced 1')->toContain('refused 0')
+        ->and(data_get($owner->fresh()->tags, 'usage_notices.disk_total.effective'))->toBe(now()->addDays(45)->toDateString())
+        ->and(data_get($site->fresh()->tags, 'usage_notices'))->toBeNull()
+        ->and(OutboxMessage::query()->where('name', 'service.disk_total.announced')->pluck('aggregate_id')->all())->toBe([$owner->id]);
+});
