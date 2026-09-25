@@ -79,10 +79,6 @@ final class CheckoutService
         // what the organization could not pay anyway is refused now, not after somebody approved it
         $quoted = Money::minor((int) $quote->total_minor, $quote->currency);
         $awaitApproval = $this->creditPolicy->mustAwaitApproval($organization, $context, $mode, $source, $quoted);
-        if ($awaitApproval) {
-            $this->assertCoverable($organization, $quoted, collect($quote->lines)->contains(fn ($line) => ($line['product_key'] ?? null) === 'domain'), $context);
-        }
-
         $requiredDocs = $this->requiredDocuments($quote, $organization);
         foreach ($requiredDocs as $key) {
             if (! isset($consents[$key])) {
@@ -99,6 +95,9 @@ final class CheckoutService
             $this->audit->record($context->withScope($organization->id), 'order.place', 'replayed', ['number' => $duplicate->number, 'reason' => 'same content within the duplicate window'], 'order', $duplicate->id);
 
             return ['order' => $duplicate, 'redirect_url' => $duplicate->meta['redirect_url'] ?? null, 'payment_intent_id' => $duplicate->payment_intent_id, 'bank_instructions' => $duplicate->meta['bank_instructions'] ?? null];
+        }
+        if ($awaitApproval) { // after the duplicate lookup: a resubmitted held cart gets the order that already waits, not a 402
+            $this->assertCoverable($organization, $quoted, collect($quote->lines)->contains(fn ($line) => ($line['product_key'] ?? null) === 'domain'), $context);
         }
 
         // intake pre-check (audit §5f-8): scored before anything is written; a held order is placed and paid like any other, only its fulfilment waits for staff
@@ -318,13 +317,17 @@ final class CheckoutService
             throw new DomainError('reason_required', 'Uveďte důvod zrušení zaplacené objednávky (zapíše se do auditu a na opravný doklad).', 422, ['field' => 'reason']);
         }
 
-        return $this->transition($order, OrderStateMachine::CANCELLED, $context, $reason);
+        return $this->transition($order, OrderStateMachine::CANCELLED, $context, $reason, $allowed);
     }
 
-    public function transition(Order $order, string $to, CommandContext $context, ?string $note = null): Order
+    /** @param list<string>|null $onlyFrom the states the caller decided on; the locked row must still be in one (an approval may have paid it meanwhile) */
+    public function transition(Order $order, string $to, CommandContext $context, ?string $note = null, ?array $onlyFrom = null): Order
     {
-        return DB::transaction(function () use ($order, $to, $context, $note) {
+        return DB::transaction(function () use ($order, $to, $context, $note, $onlyFrom) {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ($onlyFrom !== null && ! in_array($order->state, $onlyFrom, true)) {
+                throw new DomainError('order_state_changed', "Objednávka se mezitím změnila (je {$order->state}); načtěte ji znovu.", 409, ['state' => $order->state]);
+            }
             OrderStateMachine::machine()->assertTransition($order->state, $to);
             $from = $order->state;
             $patch = ['state' => $to];

@@ -33,6 +33,7 @@ final class CreditOrderApprovals
         private readonly WalletService $wallets,
         private readonly AuditRecorder $audit,
         private readonly OutboxPublisher $outbox,
+        private readonly HeldPlanChangeCheck $planChanges,
     ) {}
 
     /** @return array<string,mixed> what an order that waits remembers about who placed it */
@@ -132,6 +133,8 @@ final class CreditOrderApprovals
     /** @param array<string,mixed> $approval */
     private function approve(Order $order, array $approval, User $decider, CommandContext $context): Order
     {
+        // a plan-change line was priced for the moment it was placed; one the service has since outgrown is refused, nothing reserved (review round 2)
+        $this->planChanges->assertStillCurrent($order);
         if ($order->payment_mode === 'postpaid' && $this->wallets->approvedCreditLine($order->organization_id, $order->currency)->isZero()) {
             throw new DomainError('postpaid_not_approved', 'Postpaid billing requires an approved credit line.', 403);
         }
