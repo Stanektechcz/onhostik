@@ -46,8 +46,8 @@ The customer panel, public site and admin are a preserved HTML prototype made li
 Branch `fix/TASK-0027-stack-coherence-and-the-docs-that-descri` = `development @ 2426c17` + TASK-0019, TASK-0017,
 TASK-0020, TASK-0026, TASK-0024, TASK-0021, TASK-0022, TASK-0023, TASK-0025, cherry-picked TASK-0018 and TASK-0003, and
 TASK-0027 (coherence fixes C1–C4 and the docs). Everything reaches `development` in **one** pull request, only with the
-human's go-ahead. TASK-0017, TASK-0018, TASK-0019 and TASK-0003 were also pushed on their own (open PRs #20–#23, CI green
-there); the stack contains them. What each task does: `docs/context/CURRENT_STATE.md` (*The stack*), audit rows 104–119.
+human's go-ahead. The pull request is **#24** (CI green incl. `pest-postgres` and e2e); TASK-0017, TASK-0018, TASK-0019
+and TASK-0003 were also pushed on their own as PRs #20–#23, now closed as superseded by #24. What each task does: `docs/context/CURRENT_STATE.md` (*The stack*), audit rows 104–119.
 New behaviour that reaches existing services is switched off by default; the operator steps are in
 `docs/runbooks/go-live-checklist.md` §6.
 
@@ -87,12 +87,24 @@ failing test (TASK-0018 fixed the order-dependent `RenewalGuardTest`).
    (TASK-0026); the customer notice `service.deletion.scheduled` promises a restore that needs `services.reinstate`
    (TASK-0025).
 8. Vault: `System/CODE-MAP.md` lists ADR-0007 only after `Update-CodeMap.ps1` runs on a main checkout that has the stack.
+9. **Onboarding audit (Fikoun, 2026-09-25)** — `.ai/audits/2026-09-25-onboarding-audit/`: the audit's `README.md` and
+   `development-state.md`, and `response-verified-2026-09-25.md` checking all its claims against the stack tip (72 rows:
+   45 confirmed, 21 partly, 5 wrong, 1 resolved by the stack; HIGH findings re-checked by adversarial challengers).
+   Three HIGH findings stand and must be fixed before go-live: service actions falling through
+   `ServiceActionCommand::permissionFor()` to `service.manage` at NORMAL risk (backup/snapshot deletion without step-up,
+   a `svc_manage` guest reaching root/console); `ApiContext::assertTokenScope` mapping every `service.*` permission to
+   `services:read` (a read-only token opens a console); reverse-charge VAT unreachable (`ViesClient` has no caller) while
+   public copy promises VIES checks. The audit's other pages (`security-posture.md`, `production-readiness.md`,
+   `ai-docs-and-tooling.md`, `needs-verification.md`) and its TASK-0028 branch are not pushed yet — **TASK-0028 is taken
+   by that branch; new task ids start at TASK-0029.**
 
 ## Next safe steps
 
-1. Human: review the stack and decide the one pull request into `development` (PRs #20–#23 become redundant with it);
-   after the merge the post-integration gate, CI `pest-postgres`, and `.\brain.ps1 task finish` per task.
-2. Staging: the lifecycle verification (archive on each panel, then the purge) and the restore of `s4s.electree.cz`.
-3. Then the go-live checklist on the production host with the stack's operator steps (§6), each default-off switch only
+1. Human: merge PR #24 into `development` (`gh pr merge 24 --rebase`); after the merge the post-integration gate and
+   `.\brain.ps1 task finish` per task.
+2. Fix the three HIGH findings of the verified onboarding-audit response (known issue 9) as TASK-0029+ before go-live;
+   coordinate with the second developer's TASK-0028 (portable `./brain`) so the two do not collide.
+3. Staging: the lifecycle verification (archive on each panel, then the purge) and the restore of `s4s.electree.cz`.
+4. Then the go-live checklist on the production host with the stack's operator steps (§6), each default-off switch only
    after its read-only command; `onhost:audit:provider-calls` on a production copy.
-4. Start further changes with `/ai-orchestrate` or `/ai-task` (`brain.ps1 task start`, one worktree per task).
+5. Start further changes with `/ai-orchestrate` or `/ai-task` (`brain.ps1 task start`, one worktree per task).
