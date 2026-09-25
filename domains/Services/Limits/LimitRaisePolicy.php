@@ -7,9 +7,14 @@ namespace Onhost\Domain\Services\Limits;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
+use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Models\ServiceAccount;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Services\Metering\MetricRegistry;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Currency;
 
@@ -102,6 +107,25 @@ final class LimitRaisePolicy
     }
 
     /**
+     * The fair-use limits a staff resize sends along: no more than the service was given (its desired spec) or, when it
+     * carries none, what its plan sets (review round 2).
+     *
+     * @param  array<string,mixed>  $limits
+     */
+    public static function assertNoUnbilledLimits(Service $service, array $limits): void
+    {
+        if ($limits === []) {
+            return;
+        }
+        $held = data_get($service->desired_spec, 'limits');
+        if (! is_array($held)) {
+            $version = PlanVersion::query()->find($service->plan_version_id);
+            $held = $version === null ? [] : (array) $version->limits;
+        }
+        self::assertNotAbove($limits, $held, 'what the service holds');
+    }
+
+    /**
      * A service created without an order (staff quick action) gets its plan, not more.
      *
      * @param  array<string,mixed>  $target
@@ -113,7 +137,7 @@ final class LimitRaisePolicy
     }
 
     /** Customers order a raise only once `onhost.limit_raise.customer_orders` is on; a raise at no charge is staff's alone. */
-    public static function assertOrderable(Quote $quote, string $source): void
+    public static function assertOrderable(Quote $quote, string $source, ?CommandContext $context = null): void
     {
         $staff = in_array($source, self::STAFF_SOURCES, true);
         foreach ((array) $quote->lines as $line) {
@@ -126,6 +150,36 @@ final class LimitRaisePolicy
             if (! $staff && ! (bool) config('onhost.limit_raise.customer_orders', false)) {
                 throw new DomainError('limit_raise_staff_only', 'Navýšení limitu zatím objednává obsluha; napište nám prosím do podpory.', 403, ['field' => 'items']);
             }
+            if (! $staff) {
+                self::assertCustomerMayRaise((string) data_get($line, 'config.limit_raise.service_id', ''), $context);
+            }
+        }
+    }
+
+    /**
+     * A customer's raise is billed to the organization, but it is a change of ONE service: whoever orders it must be allowed to
+     * order for that service — the project they work in is the service's, and their grant covers the service's project
+     * (a member of one project raised, and billed the organization for, a service of another; review round 2). Fails closed:
+     * without an actor there is no raise.
+     */
+    private static function assertCustomerMayRaise(string $serviceId, ?CommandContext $context): void
+    {
+        $service = $serviceId === '' ? null : Service::query()->find($serviceId);
+        if ($context === null || $service === null) {
+            throw new DomainError('limit_raise_scope', 'Navýšení limitu této služby objednat nemůžete.', 403, ['field' => 'items']);
+        }
+        if ($context->actorType === 'system') {
+            return;
+        }
+        $principal = match ($context->actorType) {
+            'user', 'ai' => User::query()->find($context->onBehalfOfUserId ?? $context->actorId),
+            'service_account' => ServiceAccount::query()->find($context->actorId),
+            default => null,
+        };
+        $inAnotherProject = $context->projectId !== null && $context->projectId !== $service->project_id;
+        $scope = CommandScope::resource($service->id, (string) $service->organization_id, $service->project_id !== null ? (string) $service->project_id : null);
+        if ($principal === null || $inAnotherProject || ! app(Authorizer::class)->can($principal, 'catalog.order.create', $scope)) {
+            throw new DomainError('limit_raise_scope', 'Navýšení limitu této služby objednat nemůžete: služba patří do projektu, pro který objednávat nesmíte.', 403, ['field' => 'items', 'service_id' => $service->id]);
         }
     }
 
@@ -163,14 +217,45 @@ final class LimitRaisePolicy
     {
         $above = [];
         foreach ($target as $key => $value) {
-            if (is_int($value) || (is_string($value) && is_numeric($value)) || is_float($value)) {
-                if ((float) $value > (float) (is_numeric($allowed[$key] ?? null) ? $allowed[$key] : 0)) {
-                    $above[] = (string) $key;
-                }
+            if (! self::notMore($value, $allowed[$key] ?? null)) {
+                $above[] = (string) $key;
             }
         }
         if ($above !== []) {
             throw new DomainError('limit_raise_required', 'Vyšší limit než '.$what.' je navýšení a to se objednává (produkt limit-raise), nebo schvaluje zdarma druhou osobou: '.implode(', ', $above).'.', 403, ['keys' => $above]);
         }
+    }
+
+    /**
+     * Whether a value gives no more than the one held (review round 2: a plain "greater than" let every sentinel through).
+     * Fail closed: what is not provably the same or less is a raise. -1 is "unlimited" at ISPConfig; 0 or no number at all is
+     * "not counted" to the platform's own check (ServiceService's plan limit) — so a positive number goes to neither; a word,
+     * a list or a switch counts only when it is exactly what is held, except a switch turned off; a key the service does not
+     * hold takes only an off switch, a zero or nothing.
+     */
+    private static function notMore(mixed $value, mixed $held): bool
+    {
+        $number = self::number($value);
+        $heldNumber = self::number($held);
+        if ($number !== null && $heldNumber !== null && $number === $heldNumber) {
+            return true; // a repair to exactly what is held, whatever it is
+        }
+        if ($value === $held) {
+            return true;
+        }
+        if ($value === false || $value === null || $number === 0.0) {
+            // switching off is a lowering; clearing or zeroing a number the service counts is not (the count stops)
+            return $held === null || is_bool($held) || ($heldNumber !== null && $heldNumber <= 0);
+        }
+        if ($number !== null) {
+            return $number > 0 && $heldNumber !== null && $heldNumber > 0 && $number <= $heldNumber;
+        }
+
+        return false; // true for anything not already true, a word, a list, anything else: only as held
+    }
+
+    private static function number(mixed $value): ?float
+    {
+        return is_int($value) || is_float($value) || (is_string($value) && is_numeric($value)) ? (float) $value : null;
     }
 }

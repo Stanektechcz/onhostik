@@ -14,7 +14,6 @@ use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
-use Onhost\Platform\Money\Currency;
 
 /**
  * A raise at no charge (owner decision 8 + 13: money given away takes a second person).
@@ -49,7 +48,7 @@ final class LimitRaiseService
     {
         $claimed = [];
         $line = $this->lines->build($organization, ['product_key' => LimitRaises::PRODUCT, 'config' => ['limit_raise' => ['service_id' => $serviceId, 'metric' => $metric, 'units' => $units]]],
-            Currency::fromString((string) ($organization->currency ?? 'CZK')), 'l1', $claimed);
+            LimitRaiseLine::currencyFor($organization, $serviceId), 'l1', $claimed);
 
         return ['currency' => (string) $line['unit_net']->currency->value, 'net_minor' => (int) $line['unit_net']->minor, 'period' => (string) $line['period']];
     }
@@ -64,7 +63,7 @@ final class LimitRaiseService
         $bound = self::price($price);
         $waiver = new LimitRaiseWaiver($this->proof($organization, $serviceId, $metric, $units, $bound, $context), (string) $context->actorId, $note);
         $quote = $this->quotes->quote([['product_key' => LimitRaises::PRODUCT, 'config' => ['limit_raise' => ['service_id' => $serviceId, 'metric' => $metric, 'units' => $units]]]],
-            (string) ($organization->currency ?? 'CZK'), [], 1, null, $organization, 'cs', $waiver);
+            LimitRaiseLine::currencyFor($organization, $serviceId), [], 1, null, $organization, 'cs', $waiver); // the service's billing currency
         $line = collect((array) $quote->lines)->first();
         $now = ['currency' => (string) $quote->currency, 'net_minor' => (int) data_get($line, 'unit_net', -1), 'period' => (string) data_get($line, 'period', '')];
         if ($now !== $bound) { // the option price moved after the approval: what was approved is not what would be given

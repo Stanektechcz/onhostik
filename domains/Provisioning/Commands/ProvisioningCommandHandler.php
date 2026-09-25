@@ -185,6 +185,7 @@ final class ProvisioningCommandHandler implements CommandHandler
                 $version = $plan?->currentVersion();
                 $planNumbers = $version === null ? [] : (array) $version->entitlements;
                 LimitRaisePolicy::assertWithinPlan((array) ($config['entitlements'] ?? []), $planNumbers);
+                LimitRaisePolicy::assertWithinPlan((array) ($config['limits'] ?? []), $version === null ? [] : (array) $version->limits); // the fair-use bag too
                 if ($version !== null && (array) ($config['options'] ?? []) !== []) {
                     LimitRaisePolicy::assertWithinPlan($this->services->entitlementsFor($version, (array) $config['options'], $product), $planNumbers);
                 }

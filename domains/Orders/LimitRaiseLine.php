@@ -42,6 +42,9 @@ final class LimitRaiseLine
         }
         LimitRaises::assertParentTakesRaise($service); // running, billed, and not ending before the raise's period does
         $subscription = Subscription::query()->where('service_id', $service->id)->where('state', Subscription::ACTIVE)->firstOrFail();
+        if (strtoupper((string) $subscription->currency) !== $currency->value) { // one service is billed in one currency (review round 2)
+            throw new DomainError('limit_raise_currency', "Služba se účtuje v {$subscription->currency}; navýšení se objednává ve stejné měně.", 422, ['field' => 'currency', 'currency' => (string) $subscription->currency]);
+        }
         $units = filter_var($raise['units'] ?? null, FILTER_VALIDATE_INT);
         $maxUnits = max(1, (int) config('onhost.limit_raise.max_units', 100));
         if ($units === false || $units < 1 || $units > $maxUnits) {
@@ -84,6 +87,15 @@ final class LimitRaiseLine
             ], fn ($value) => $value !== null)],
             'entitlements' => ['limit_raise' => ['metric' => $metric, 'delta' => $delta]],
         ];
+    }
+
+    /** The currency a raise of this service is priced in: the one its subscription bills, else the organization's. */
+    public static function currencyFor(Organization $organization, string $serviceId): Currency
+    {
+        $service = Service::query()->where('organization_id', $organization->id)->find($serviceId);
+        $billed = $service === null ? null : Subscription::query()->where('service_id', $service->id)->where('state', Subscription::ACTIVE)->value('currency');
+
+        return Currency::fromString((string) ($billed ?? $organization->currency ?? 'CZK'));
     }
 
     /**

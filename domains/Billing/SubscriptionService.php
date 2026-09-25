@@ -18,6 +18,7 @@ use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\Tax\TaxEngine;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -101,6 +102,11 @@ final class SubscriptionService
 
                 continue;
             }
+            if ($this->addonWaitsForParent($service)) { // tried again tomorrow, after the parent's own retry (review round 2)
+                $subscription->forceFill(['next_renewal_at' => now()->addDay()])->save();
+
+                continue;
+            }
             if ($subscription->cancel_at_period_end && $subscription->current_period_end <= now()) {
                 $this->expire($subscription, $service, $context);
                 $stats['cancelled']++;
@@ -129,6 +135,23 @@ final class SubscriptionService
         }
 
         return $stats;
+    }
+
+    /**
+     * An add-on's renewal waits while its parent is failed (an operator brings it back; ending the add-on for good left it
+     * delivered and unbilled) or unpaid (its renewal past due, or stopped by dunning): money that comes in goes to the service
+     * the customer is about to lose, not to an add-on of it that fell due a little earlier (review round 2).
+     */
+    private function addonWaitsForParent(Service $addon): bool
+    {
+        $parent = Addons::parentOf($addon);
+        if ($parent === null) {
+            return false;
+        }
+
+        return $parent->state === ServiceStateMachine::FAILED
+            || in_array(SuspensionHold::PAYMENT, SuspensionHold::holds($parent), true)
+            || Subscription::query()->where('service_id', $parent->id)->where('state', Subscription::PAST_DUE)->exists();
     }
 
     /** @return 'renewed'|'invoiced'|'failed' */

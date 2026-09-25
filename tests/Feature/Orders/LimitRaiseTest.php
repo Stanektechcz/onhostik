@@ -36,18 +36,24 @@ use Onhost\Domain\Orders\Listeners\FulfillPaidOrder;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\Models\Quote;
+use Onhost\Domain\Orders\OrderSettlement;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Provisioning\Commands\ProvisioningCommand;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
+use Onhost\Domain\Services\Limits\LimitRaisePolicy;
 use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\PlanChangeService;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\SuspensionHold;
+use Onhost\Domain\WalletLedger\Models\WalletHold;
+use Onhost\Domain\WalletLedger\Models\WalletTopup;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Commands\CommandBus;
@@ -827,13 +833,37 @@ it('does not deliver a raise paid after its service was cancelled, and gives the
     $parent->forceFill(['state' => ServiceStateMachine::SUSPENDED, 'terminate_at' => now()->addDays(14)])->save();
     Subscription::query()->where('service_id', $parent->id)->update(['state' => Subscription::CANCELLED, 'auto_renew' => false]);
 
-    app(FulfillPaidOrder::class)->handle((new OutboxMessage)->forceFill(['aggregate_id' => $order->id, 'name' => 'onhost.order.paid']));
+    $wallets = app(WalletService::class);
+    $topupsBefore = WalletTopup::query()->where('organization_id', $org->id)->count();
+    expect($wallets->spendable($org, 'CZK')->minor)->toBe(5000000 - (int) $order->total_minor); // the order holds its price
+
+    $paid = fn () => app(FulfillPaidOrder::class)->handle((new OutboxMessage)->forceFill(['aggregate_id' => $order->id, 'name' => 'onhost.order.paid']));
+    $paid();
 
     $item = OrderItem::query()->where('order_id', $order->id)->sole();
     expect($item->state)->toBe('refunded')
         ->and(Service::query()->where('order_item_id', $item->id)->exists())->toBeFalse()
         ->and(Subscription::query()->where('organization_id', $org->id)->where('state', Subscription::ACTIVE)->exists())->toBeFalse()
         ->and($parent->fresh()->entitlements['mailboxes'])->toBe($base);
+    // the money path (review round 2): the tax document is corrected for exactly the raise's line, and the price is back to
+    // spend — the order's reservation released, not captured and topped up again (no new top-up of any kind, no second return)
+    $document = Invoice::query()->where('order_id', $order->id)->whereIn('type', ['statement', 'invoice'])->sole();
+    $credit = Invoice::query()->where('order_id', $order->id)->where('type', 'credit_note')->sole();
+    expect($credit->lines()->count())->toBe(1)
+        ->and($credit->lines()->value('order_item_id'))->toBe($item->id)
+        ->and((int) $credit->total_minor)->toBe(-(int) $item->total_minor)
+        ->and($document->fresh()->state)->toBe(Invoice::CREDITED)
+        ->and(WalletHold::query()->findOrFail($order->fresh()->wallet_hold_id)->state)->toBe('released')
+        ->and(WalletTopup::query()->where('organization_id', $org->id)->count())->toBe($topupsBefore)
+        ->and($wallets->spendable($org, 'CZK')->minor)->toBe(5000000)
+        ->and((int) data_get($order->fresh()->meta, 'settlement.returned_minor'))->toBe((int) $item->total_minor);
+
+    // idempotent: the paid event delivered again, or the settlement run again, gives nothing back a second time
+    $paid();
+    app(OrderSettlement::class)->settle($order->id, $context);
+    expect(Invoice::query()->where('order_id', $order->id)->where('type', 'credit_note')->count())->toBe(1)
+        ->and(WalletTopup::query()->where('organization_id', $org->id)->count())->toBe($topupsBefore)
+        ->and($wallets->spendable($org, 'CZK')->minor)->toBe(5000000);
 });
 
 it('stops billing a raise whose service ended without taking it along, and tells the doctor', function () {
@@ -891,6 +921,7 @@ it('counts raises already ordered and not yet delivered against the product maxi
 it('prices a raise in the organization currency and refuses one the option has no price for', function () {
     [, $org] = $this->customerWithOrganization([], ['currency' => 'EUR']);
     $parent = limitRaiseParent($org);
+    Subscription::query()->where('service_id', $parent->id)->update(['currency' => 'EUR', 'amount_minor' => 390]); // the service is billed in EUR
     $quoteEur = fn () => app(QuoteService::class)->quote([limitRaiseItem(['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5])], 'EUR', [], 1, null, $org);
     $quote = $quoteEur();
     expect($quote->currency)->toBe('EUR')->and((int) $quote->lines[0]['unit_net'])->toBe(20 * 5) // the option's EUR unit price, not a conversion
@@ -907,4 +938,139 @@ it('fails loudly when the plan version a raise is measured against is missing', 
     Service::query()->whereKey($parent->id)->update(['plan_version_id' => (string) Str::ulid()]);
 
     expect(limitRaiseRefusal(fn () => limitRaiseQuoteLine($org, ['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5])))->toBe('limit_raise_plan_version_missing');
+});
+
+/*
+ * Review round 2 (TASK-0022).
+ */
+
+it('refuses a staff resize or a staff service that lifts a limit through a sentinel, a word, a switch, a new key or the limits bag', function () {
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org); // start: 5 mailboxes, ssh off, waf basic
+    $staff = limitRaiseStaff('platform_owner', false);
+    app(StepUpService::class)->grant($staff, 'totp', 'test-session', '127.0.0.1');
+    $context = $this->contextFor($staff, $org, 'totp');
+    $bus = app(CommandBus::class);
+    $resize = fn (array $params) => limitRaiseRefusal(fn () => $bus->dispatch(new ServiceActionCommand($org->id, 'lr-rs-'.Str::random(8), ['service_id' => $parent->id, 'action' => 'resize', 'params' => $params]), $context));
+    $create = fn (array $config) => limitRaiseRefusal(fn () => $bus->dispatch(new ProvisioningCommand('lr-cr-'.Str::random(8), ['op' => 'service.create', 'organization_id' => $org->id, 'product_key' => 'web-hosting', 'plan_key' => 'start', 'config' => $config]), $context));
+    $held = (array) $parent->entitlements;
+    expect($held['mailboxes'])->toBe(5)->and($held['ssh'])->toBeFalse()->and($held['waf'])->toBe('basic');
+
+    $raises = [
+        'ISPConfig unlimited' => ['mailboxes' => -1],
+        'unlimited as text' => ['mailboxes' => '-1'],
+        'a word' => ['mailboxes' => 'unlimited'],
+        'a boolean for a number' => ['mailboxes' => true],
+        'no number (the platform stops counting)' => ['mailboxes' => null],
+        'zero (the platform stops counting)' => ['mailboxes' => 0],
+        'a switch the plan leaves off' => ['ssh' => true],
+        'a switch as a word' => ['ssh' => 'yes'],
+        'a better word' => ['waf' => 'advanced+cdn'],
+        'a key the service does not hold' => ['dedicated_outbound_ip' => true],
+        'a number the service does not hold' => ['snapshots' => 3],
+        'a longer list' => ['php_versions' => ['8.0', '8.1', '8.2', '8.3', '8.4']],
+    ];
+    foreach ($raises as $what => $raise) {
+        expect($resize(['entitlements' => $raise]))->toBe('limit_raise_required', "resize: {$what}")
+            ->and($create(['entitlements' => $raise]))->toBe('limit_raise_required', "service.create: {$what}");
+    }
+    // the fair-use limits bag is held to what the plan (or the service) has, too
+    expect($resize(['entitlements' => ['mailboxes' => 5], 'limits' => ['cpu_pct' => 400]]))->toBe('limit_raise_required')
+        ->and($create(['limits' => ['cpu_pct' => 400]]))->toBe('limit_raise_required');
+    expect($parent->fresh()->entitlements)->toBe($held)->and(Service::query()->where('organization_id', $org->id)->count())->toBe(1);
+
+    // lowering and repeating what the service holds still run
+    expect($resize(['entitlements' => ['mailboxes' => 2, 'ssh' => false, 'waf' => 'basic', 'php_versions' => $held['php_versions']], 'limits' => []]))->toBe('accepted');
+});
+
+it('lets a member raise only a service they may order for: the project of the context and a project-level grant count', function () {
+    config()->set('onhost.limit_raise.customer_orders', true);
+    [$owner, $org] = $this->customerWithOrganization();
+    $mine = Project::query()->create(['organization_id' => $org->id, 'name' => 'Můj', 'slug' => 'muj', 'tags' => []]);
+    $theirs = Project::query()->create(['organization_id' => $org->id, 'name' => 'Cizí', 'slug' => 'cizi', 'tags' => []]);
+    $parent = limitRaiseParent($org);
+    $parent->forceFill(['project_id' => $theirs->id])->save();
+    $member = User::factory()->create();
+    PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $member->id, 'role_key' => 'billing_admin', 'scope_type' => 'project', 'scope_id' => $mine->id, 'organization_id' => $org->id]);
+    $quote = app(QuoteService::class)->quote([limitRaiseItem(['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5])], 'CZK', [], 1, null, $org);
+    $orderable = fn (CommandContext $context, string $source = 'panel') => limitRaiseRefusal(fn () => LimitRaisePolicy::assertOrderable($quote, $source, $context));
+
+    expect($orderable($this->contextFor($member, $org)))->toBe('limit_raise_scope') // a grant in another project
+        ->and($orderable($this->contextFor($owner, $org)->withScope($org->id, $mine->id)))->toBe('limit_raise_scope') // working in another project
+        ->and($orderable($this->contextFor($owner, $org)))->toBe('accepted')
+        ->and($orderable($this->contextFor($owner, $org)->withScope($org->id, $theirs->id)))->toBe('accepted');
+
+    $parent->forceFill(['project_id' => $mine->id])->save();
+    expect($orderable($this->contextFor($member, $org)))->toBe('accepted');
+});
+
+it('waits with the renewal of a raise while its service is failed, and renews it once an operator brings the service back', function () {
+    Event::fake(['onhost.order.paid']);
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org);
+    [$raise] = limitRaiseDeliver($org, $parent, 'mailboxes', 5);
+    $subscription = Subscription::query()->where('service_id', $raise->id)->sole();
+    $periodEnd = $subscription->current_period_end->toIso8601String();
+    Subscription::query()->where('service_id', $parent->id)->update(['next_renewal_at' => now()->addDays(20)]);
+    Service::query()->whereKey($parent->id)->update(['state' => ServiceStateMachine::FAILED]); // a failed resize (the raise's own push, too)
+    $subscription->forceFill(['next_renewal_at' => now()->subMinute()])->save();
+
+    $stats = app(SubscriptionService::class)->tick();
+    expect($stats['cancelled'] + $stats['renewed'] + $stats['failed'])->toBe(0)
+        ->and($subscription->fresh()->state)->toBe(Subscription::ACTIVE)
+        ->and($subscription->fresh()->next_renewal_at->isFuture())->toBeTrue()
+        ->and($subscription->fresh()->current_period_end->toIso8601String())->toBe($periodEnd)
+        ->and(LimitRaises::problems())->toBe([]);
+
+    Service::query()->whereKey($parent->id)->update(['state' => ServiceStateMachine::ACTIVE]); // FAILED → ACTIVE (operator)
+    $this->travel(25)->hours();
+    expect(app(SubscriptionService::class)->tick()['renewed'])->toBe(1)
+        ->and($subscription->fresh()->state)->toBe(Subscription::ACTIVE)
+        ->and(Invoice::query()->where('meta->subscription_id', $subscription->id)->count())->toBe(1);
+});
+
+it('does not let a raise take the money its unpaid service waits for', function () {
+    Event::fake(['onhost.order.paid']);
+    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+    [, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org);
+    [$raise] = limitRaiseDeliver($org, $parent, 'mailboxes', 5);
+    $context = CommandContext::system('limit raise test')->withScope($org->id);
+    $wallets = app(WalletService::class);
+    $wallets->charge($org, $wallets->spendable($org, 'CZK'), 'services', 'lr-drain', $context); // the credit is empty
+    $parentSub = Subscription::query()->where('service_id', $parent->id)->sole();
+    $raiseSub = Subscription::query()->where('service_id', $raise->id)->sole();
+    // the service's renewal failed and waits for money; the raise falls due before its retry
+    $parentSub->forceFill(['state' => Subscription::PAST_DUE, 'renewal_failures' => 1, 'next_renewal_at' => now()->addHours(12)])->save();
+    $raiseSub->forceFill(['next_renewal_at' => now()->subMinute()])->save();
+    $raisePeriod = $raiseSub->current_period_end->toIso8601String();
+    $wallets->topup($org, Money::decimal('120', 'CZK'), 'bank', 'lr-parent-only', $context); // covers the service (107.69), not both
+
+    expect(app(SubscriptionService::class)->tick()['renewed'])->toBe(0)
+        ->and($raiseSub->fresh()->state)->toBe(Subscription::ACTIVE)
+        ->and($raiseSub->fresh()->current_period_end->toIso8601String())->toBe($raisePeriod)
+        ->and($wallets->spendable($org, 'CZK')->minor)->toBe(12000);
+
+    // the service renews first; the raise then fails on its own (the money went where the service needed it)
+    $this->travel(25)->hours();
+    app(SubscriptionService::class)->tick();
+    expect($parentSub->fresh()->state)->toBe(Subscription::ACTIVE)
+        ->and($raiseSub->fresh()->state)->toBe(Subscription::PAST_DUE);
+
+    // a service stopped for an unpaid invoice (postpaid: its subscription stays active) holds the raise's renewal as well
+    $raiseSub->forceFill(['state' => Subscription::ACTIVE, 'next_renewal_at' => now()->subMinute()])->save();
+    $held = Service::query()->findOrFail($parent->id);
+    $held->forceFill(['state' => ServiceStateMachine::SUSPENDED, 'tags' => SuspensionHold::with((array) $held->tags, SuspensionHold::PAYMENT, 'dunning', $context)])->save();
+    $wallets->topup($org, Money::decimal('500', 'CZK'), 'bank', 'lr-more', $context);
+    expect(app(SubscriptionService::class)->tick()['renewed'])->toBe(0)
+        ->and($raiseSub->fresh()->current_period_end->toIso8601String())->toBe($raisePeriod);
+});
+
+it('refuses a raise priced in another currency than the service is billed in', function () {
+    [, $org] = $this->customerWithOrganization();
+    $parent = limitRaiseParent($org); // billed in CZK
+    expect(limitRaiseRefusal(fn () => app(QuoteService::class)->quote([limitRaiseItem(['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5])], 'EUR', [], 1, null, $org)))->toBe('limit_raise_currency')
+        ->and(limitRaiseRefusal(fn () => limitRaiseQuoteLine($org, ['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5])))->toBe('accepted');
 });

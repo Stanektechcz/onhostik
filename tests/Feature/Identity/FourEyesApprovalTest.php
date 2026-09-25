@@ -122,3 +122,28 @@ it('shows staff the approvals page and nobody else', function () {
     $this->actingAs($customer, 'sanctum')->get('/sprava/nastaveni/schvalovani')->assertRedirect('/panel');
     $this->actingAs($this->staff('iam_admin'), 'sanctum')->get('/sprava/nastaveni/schvalovani')->assertOk()->assertSee('Schvalování')->assertSee('/staff/approvals', false);
 });
+
+it('spends an approval once even when two requests read it as unused at the same moment', function () {
+    [, $org] = $this->customerWithOrganization();
+    $legal = fourEyesStaff($this, ['compliance_legal'], 'legal-race@onhost.test');
+    $owner = fourEyesStaff($this, ['platform_owner'], 'owner-race@onhost.test');
+    $url = "/v1/staff/customers/{$org->id}/legal-hold";
+    $body = ['hold' => true, 'reason' => 'Žádost PČR č. j. KRPA-4321/2026'];
+    $this->actingAs($legal, 'sanctum');
+    $id = (string) $this->withHeader('Idempotency-Key', 'fe-race-1')->postJson($url, $body)->assertForbidden()->json('approval_id');
+    secondPersonApproves($id, $owner);
+
+    // another request (another Idempotency-Key) read the same approval as unused a moment earlier and spent it first
+    $spent = false;
+    Approval::retrieved(function (Approval $approval) use ($id, &$spent) {
+        if (! $spent && $approval->id === $id && $approval->state === 'approved') {
+            $spent = true;
+            Approval::query()->whereKey($id)->update(['state' => 'consumed', 'consumed_at' => now()]);
+        }
+    });
+    $this->withHeader('Idempotency-Key', 'fe-race-2')->postJson($url, $body + ['approval_ids' => [$id]])->assertForbidden()->assertJsonPath('error', 'approval_required');
+    Approval::flushEventListeners();
+
+    expect($spent)->toBeTrue()->and($org->fresh()->settings['legal_hold'] ?? false)->toBeFalse()
+        ->and(AuditEvent::query()->where('action', 'compliance.legal_hold')->where('result', 'succeeded')->exists())->toBeFalse();
+});

@@ -40,6 +40,7 @@ final class ServicesCommandHandler implements CommandHandler
             $params = CustomerActionParams::filter($action, $params);
         } elseif ($action === 'resize') { // staff repair or lower; more than the service holds is a raise, and a raise is an order (TASK-0022)
             LimitRaisePolicy::assertNoUnbilledRaise($service, (array) ($params['entitlements'] ?? []));
+            LimitRaisePolicy::assertNoUnbilledLimits($service, (array) ($params['limits'] ?? []));
         }
         $operation = $this->services->requestAction($service, $action, $context, $command->idempotencyKey, $params, authorizedPermission: $command->permission()); // the permission the bus just checked is the one the run asks for again before each step (H315)
 

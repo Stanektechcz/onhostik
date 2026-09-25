@@ -43,18 +43,28 @@ final class Addons
     }
 
     /**
-     * The service an add-on belongs to is gone, ending (in its deletion grace window) or failed: nothing is delivered through it
-     * any more, so the add-on's own subscription must not renew (`SubscriptionService::tick`), as the parent's own does not.
+     * The service an add-on belongs to is gone or ending (in its deletion grace window): nothing is delivered through it any
+     * more, so the add-on's own subscription must not renew (`SubscriptionService::tick`), as the parent's own does not.
+     * A FAILED parent is not ended — an operator brings it back to ACTIVE, and its add-ons with it; their renewal waits
+     * (`SubscriptionService::tick`) instead of ending for good (review round 2: a raise cancelled for ever, delivered unbilled).
      */
     public static function parentEnded(Service $addon): bool
     {
         if ($addon->family !== 'addon') {
             return false;
         }
-        $parent = Service::query()->find((string) data_get($addon->tags, 'parent_service_id', ''));
+        $parent = self::parentOf($addon);
 
         return $parent === null || $parent->terminate_at !== null
-            || in_array($parent->state, [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING, ServiceStateMachine::FAILED], true);
+            || in_array($parent->state, [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING], true);
+    }
+
+    /** The service an add-on belongs to (null for a service that is no add-on, or whose parent is gone). */
+    public static function parentOf(Service $addon): ?Service
+    {
+        $parentId = (string) data_get($addon->tags, 'parent_service_id', '');
+
+        return $addon->family !== 'addon' || $parentId === '' ? null : Service::query()->find($parentId);
     }
 
     public static function sellable(string $productKey): bool
