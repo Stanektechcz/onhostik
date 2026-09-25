@@ -39,7 +39,9 @@ operations under a HIGH permission needs no step-up (a draft, a note) — those 
 
 ### Prices and plans (owner decision 13, 2026-09-25)
 
-HIGH means a fresh step-up and nothing more. **Every change of a price or a plan in the admin configuration takes a second
+Owner decision 2026-09-25 (`docs/adr/0007-owner-decisions-2026-09-25.md` §13): HIGH means a fresh step-up and nothing
+more; CRITICAL and every price or plan change take the second person. With `ONHOST_FOUR_EYES=false` these are waived and
+audited like every critical action (below). **Every change of a price or a plan in the admin configuration takes a second
 person as well**, although `catalog.manage` is only HIGH: `CatalogCommand::requiresApproval()` asks for it. A catalogue
 operation the command does not classify is treated as a price change (fail closed).
 
@@ -89,6 +91,17 @@ no charge** is money given away:
 - One operator (`ONHOST_FOUR_EYES=false`): the step-up stays, the order records `waived:single-operator`.
 - No other way gives more for nothing: a staff `resize` above what the service holds and a staff `service.create` above its
   plan are refused with `limit_raise_required` (a repair or a lower number still runs).
+
+## Customer approval of credit orders (owner decision 20, TASK-0021)
+
+Separate from the staff four eyes: the **customer's** owner or billing admin approves a credit order another member placed
+(panel *Fakturace* card or `POST /v1/orders/{id}/approval`). Switch `ONHOST_ORDER_CREDIT_APPROVAL` (default **off**),
+modes `wallet`/`postpaid` (`onhost.orders.credit_approval.modes`), expiry `ONHOST_ORDER_CREDIT_APPROVAL_EXPIRE_DAYS` (7)
+in `onhost:commerce:prune`. While it is on, immediate payments from the credit by anybody else are refused
+(`credit_spend_not_allowed`), pay-and-restore included (TASK-0027 C1); card and bank transfer stay open. Staff-assisted
+orders and platform (system) orders are never held. Before switching on: `php artisan onhost:orders:credit-approval-report`
+(read-only) — who will need an approval, organizations without anybody who may approve, orders waiting now; consider
+telling those customers first. The rule itself: `docs/runbooks/security-boundaries.md` §22.
 
 ## One operator alone
 

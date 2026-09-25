@@ -337,3 +337,16 @@ on the server — until then the doctor row "consumer withdrawal reviewed by a l
   "consumer withdrawals move on" counts refused steps and notices not refunded after 7 days.
 - **Afterwards:** the customer cannot resume the service (`service_suspension_held`, hold `withdrawal`) and pay and restore
   refuses it (`held`); staff can resume it with a reason — the refund stays, so that is a deliberate decision.
+
+## Who may pay from the credit (owner decision 20, TASK-0021)
+
+With `ONHOST_ORDER_CREDIT_APPROVAL` off (the default) whoever holds a payment's own permission pays from the credit, as
+before. Switched on, only the owner and the billing admin (`billing.wallet.spend`) do: a credit order of anybody else is
+held for their approval, and every immediate payment from the credit — an invoice, a manual domain renewal, the
+marketplace, a work offer, the archive download fee, pay-and-restore — asks the one gate (`Orders\CreditOrderPolicy`,
+`credit_spend_not_allowed`). The approval flow and the operator steps are in `docs/runbooks/approvals.md`, the rule in
+`docs/runbooks/security-boundaries.md` §22.
+
+Known wording gap: the customer notice `service.deletion.scheduled` says *Obnovit službu můžete do N dnů*. That is true
+for a cancellation the customer takes back, and for pay-and-restore only once `services.reinstate` is on; with the rule
+off a service cancelled for non-payment comes back only through support (TASK-0025 handoff, concern 6).

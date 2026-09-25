@@ -16,7 +16,9 @@ service workbench (`apps/surfaces/api/onhost-panel-tools.api.js`, seam #31).
 `WebToolsProvider` (both adapters) exposes shell, transport, PHP settings, security rules, HTTP/3, cron
 edit/run/logs, database export/import/remote access, backup download/delete, quotas, Node projects and the
 staff panel login link. `MailToolsProvider` (ISPConfig) exposes forwards, catch-all, autoresponder, spam
-policies, white/blacklists, filters, mailing lists, fetchmail, mailbox backups, usage and webmail.
+policies, white/blacklists, filters, mailing lists, fetchmail, mailbox backups, usage and webmail. An autoresponder change
+is merged into the stored mailbox record like every other mailbox update, so the mailbox's backup fields survive it
+(TASK-0024). Every tool that acts on one mailbox resolves it in the service's own mail domains first (TASK-0016).
 
 ## Instance options (Správa → Integrace → instance)
 
@@ -41,7 +43,7 @@ policies, white/blacklists, filters, mailing lists, fetchmail, mailbox backups, 
 | Cron | `cron.update`, `cron.run` ; resource `cron_logs` | aaPanel `modify_crond` / `StartTask` / `GetLogs`; ISPConfig `sites_cron_update`, run through the agent |
 | Databases | `database.export` (→ `download_token`), `database.import` (upload_id), `database.access` | aaPanel `ToBackup`/`InputSql`/`SetDatabaseAccess`; ISPConfig mysqldump/mysql in the jail with remembered credentials (`DatabaseCredentials`, secret store) |
 | Files | `file.rename`, `file.copy`, `file.chmod`, `file.archive`, `file.extract`, `POST …/files/upload` | transports |
-| Backups | `GET …/backups/{id}/download`, `backup.delete`, `PUT …/backups/schedule` | `BackupScheduler` (`onhost:backups:run` every 15 min): frequency/days/generations from the plan (`backup_frequency`, `backup_days`, `backup_generations`), off-site copy to `ONHOST_BACKUP_OFFSITE_DISK` |
+| Backups | `GET …/backups/{id}/download`, `backup.delete`, `PUT …/backups/schedule` | `BackupScheduler` (`onhost:backups:run` every 15 min): frequency/days/generations from the plan (`backup_frequency`, `backup_days`, `backup_generations`), off-site copy to `ONHOST_BACKUP_OFFSITE_DISK`. The schedule ceiling reads `1h` as `hourly` and keeps one backup a day for `backup_days` only under the rule `backups.as_sold` (default off); servers and managed databases are scheduled only under `backups.compute` (default off) — docs/runbooks/backups.md |
 | Staging | `staging.create/refresh/push/delete` ; resource `staging` | `StagingService` + `StagingWorkflow`: second service on the same server (`<site>-staging.<ONHOST_STAGING_SUFFIX>`, tag `billing: included`, never invoiced), rsync on one aaPanel node or tar relay through the control plane, database copy, WordPress search-replace; push takes a backup first |
 | Provoz webu | resource `quotas` → `traffic_used_bytes`, `traffic_period` | ISPConfig counts it itself (`trafficquota_get_by_user` → `this_month`). aaPanel has **no traffic counter**, so `AaPanelTools` sums the bytes out of `/www/wwwlogs/<site>.log*` for the current month (rotated and gzipped files included through `zcat -f`, lines filtered by their own `/Mon/YYYY`, the byte field found by its place after the status code), cached 12 h. A log format it cannot read returns **null**, never 0 |
 | Vyčerpaný tarif | — (guard on every action) | `UsageWatch` levels: 85 % `warn`, 95 % `critical`, 100 % `full` (the ladder only ever climbs, one notice a day). At `full` the customer gets a different message and `UsageGuard::assertRoomFor()` refuses what would store more (`UsageGuard::GROWING`) in `ServiceService::requestAction` and on the file-upload endpoint; deleting, backups, restores and plan changes are never refused. It reads `tags.usage` — the measurement UsageWatch wrote — and only while it is younger than `UsageWatch::FRESH_HOURS` (26 h) |
@@ -54,7 +56,7 @@ policies, white/blacklists, filters, mailing lists, fetchmail, mailbox backups, 
 | Monitoring | `GET/PUT …/monitoring`, `DELETE …/monitoring/{id}` | `UptimeMonitor` (`onhost:monitoring:check` every minute): HTTP checks, keyword, N failures → `monitoring.down` (mail `site-down`), recovery → `monitoring.up` |
 | Wildcard SSL | `ssl.wildcard` (domain) ; resource `certificates` | `AcmeClient` + `CertificateWorkflow`: DNS-01 through the platform DNS (`_acme-challenge` TXT), key material in the secret store, installed with `uploadCertificate`, renewed by `onhost:certificates:renew` |
 | CDN | `cdn.enable/disable/purge` (settings) ; resource `cdn` | `CdnService` + `CloudflareCdnProvider` (`ONHOST_CDN_CLOUDFLARE_SECRET_REF` → secret with `token`, `account_id`): zone per apex, records mirrored from the platform DNS (web hosts proxied), settings, purge, nameserver switch when the domain is ours; `onhost:cdn:refresh` hourly |
-| Import | `import.run` (kind cpanel/plesk/url/upload, source, files, databases, subdir) ; resource `imports` | `ImportService` + `ImportWorkflow`: unpack on the control plane, detect document root and SQL dumps, upload through the transport, create databases, re-point WordPress |
+| Import | `import.run` (kind cpanel/plesk/url/upload, source, files, databases, subdir) ; resource `imports` | `ImportService` + `ImportWorkflow`: unpack on the control plane, detect document root and SQL dumps, upload through the transport, create databases, re-point WordPress; a historical site (not created by ONhost) only via docs/runbooks/historical-site-import.md, as an import into a NEW site |
 | Node.js projects | `node.create`, `node.action` ; resource `node_projects` | aaPanel Node project API |
 | Staff panel login | staff `GET /v1/staff/services/{id}/panel-login` | ISPConfig `client_login_get` (permission `staff.console`, audited) |
 
@@ -342,6 +344,28 @@ today's pro-rated price (`PlanChangeService::options`); mail `service-usage-high
 (`PlanChangeService::orderUpgrade`, credit only, source `auto`, at most once a day) and the notice names the order;
 an empty wallet or a refusal is audited (`service.auto_upgrade refused`) and the customer only hears the warning.
 
+Metering (TASK-0023, owner decisions 9 and 12): every reading is also a row in `service_usage_samples` (`UsageRecorder`,
+one per service, metric and hour; `value` null = not measured, quality measured / estimated / unavailable). `tags.usage`
+gains `baseline`, `observed` and `unavailable`, and `level` can be `unknown`. A first reading of a metric is a baseline:
+`UsageGuard` ignores it and the automatic upgrade needs two critical readings in a row. `usage.rotation` (default off)
+makes the hourly run visit the least recently measured services first, at least `ceil(eligible / 24)` a run, managed
+databases included; `onhost:metering:preview` shows what it would do without writing anything. Metrics new to a family
+only count once `ONHOST_METERING_ENFORCE_NEW_METRICS` is on; a soft limit only notifies, never throttles or bills.
+`onhost:metering:rollup` (00:20) and `onhost:metering:prune` (04:35) keep days/months and the retention (raw 45 d, daily
+400 d, monthly for ever).
+
+Plan total (TASK-0023, owner decision 10): the `quotas` listing keeps `disk_used_bytes` as the site's files only
+(DatabaseImport and ServiceSites read it) and adds `total` — the watch's last `tags.usage.disk_total`: `files` (quota of the
+owner and its included sites), `databases` (`DatabaseSizeCapable`: ISPConfig `databasequota_get_by_user` narrowed to the
+site's own `sites_database_get` list, read only with `ONHOST_WEB_DISK_TOTAL_DATABASE_SIZES=true`; aaPanel
+`panel_reports_no_database_size`), `mail` (mailbox usage over every mail domain of the service), `total` (sum of what was
+measured; `partial` = lower bound), `limit` (`nvme_gb` + a mail add-on's `quota_mb`), `parts` and `staging` (test copies,
+not counted) — and `total_enforced_from`. The total becomes the watch metric `disk_total` (UsageGuard, PlanFit, notices,
+automatic upgrade) only once `onhost.metering.web_disk_total.enforce_from` is reached, `ONHOST_WEB_DISK_TOTAL_PARTS_VERIFIED`
+is on, and the service was told at least `notice_min_days` (30) before (`onhost:usage:disk-total-notice`, dry run unless
+`--send`) or ordered after the date. Panel quotas (`hd_quota`) are never rewritten; deletions, backups, restores and plan
+changes are never blocked by it.
+
 **Renewal guard and automatic top-ups** (`WalletForecast::renewalGuard`, `onhost:billing:renewal-guard` daily 07:35).
 Renewals due within 7 days are summed gross per organization and compared with the available credit; when short,
 `AutoTopup::attempt` runs first (opt-in `PUT /v1/wallet/auto-topup {enabled, amount, threshold, max_per_day,
@@ -407,8 +431,8 @@ account, SFTP details), `schedule_tools` (list, run now, enable/disable, delete 
 `console`/`files`/`full` from `GameToolsProvider::SUBUSER_PRESETS` — raw permission keys never come from the customer),
 `game_files` (browse, edit ≤ 512 kB, mkdir, rename, delete, download through `GET …/files/download`), `allocations`
 (plan limit `allocations`; add = the panel picks a free port, primary, remove), `backup_tools` (lock, delete, signed
-download URL through `GET …/backups/{id}/download`), `panel_access` (`panel.password` — HIGH, step-up; refused for
-panel administrators). Actions: `variable.set`, `image.set`, `rename` (also updates the service label), `reinstall`
+download URL through `GET …/backups/{id}/download`), `panel_access` (`panel.password` — HIGH, step-up, organization
+owner only (`service.panel_account.manage`, `OwnerOnlyActions`, TASK-0021); refused for panel administrators). Actions: `variable.set`, `image.set`, `rename` (also updates the service label), `reinstall`
 (HIGH, step-up, `confirm=true`, async until the panel reports the install done), `schedule.delete/toggle/run`,
 `gamedb.create/rotate/delete`, `subuser.create/delete`, `gfile.save/delete/mkdir/rename`, `allocation.add/primary/remove`,
 `gbackup.delete/lock`, `panel.password`. Resources: `status`, `server_detail`, `startup`, `schedules`,
@@ -1409,6 +1433,13 @@ and `resize` called it with the plan's `php_workers`: a plan change of one custo
 of every customer on that PHP version (a downgrade to a two-worker plan would have throttled the node). `resize` on
 aaPanel now changes nothing on the node and says so in its result (`applied: false`); the pool is sized by the operator
 with the node. ISPConfig is different — a web domain has its own pool (`pm_max_children`), and a plan change sets it.
+
+What a plan may promise follows from this (owner decision 7): on aaPanel `php_workers` is a share of the node's pool and
+the price list says *Sdílené PHP workery*; a plan selling **dedicated** workers (`php_workers_dedicated`,
+`web-hosting/profi`) is placed on ISPConfig only (`PlacementRules`, TASK-0023), and the one managed plan that sold it on
+aaPanel (`eshop/shop-peak`) loses it in a new plan version (revision `2026-09-shared-php-workers`, TASK-0027,
+docs/runbooks/pricing.md). Node capacity for new placements is judged per dimension (`CapacityBasis`: disk sold once
+`ONHOST_CAPACITY_DISK_BASIS=sold`, RAM/CPU measured; read `onhost:capacity:basis` first).
 
 If a managed plan is to limit one site's concurrency on aaPanel, the panel's per-site switch is the traffic limit
 (`POST /site?action=SetLimitNet` — `perserver`, `perip`, `limit_rate`). It is not wired: how many connections stand for

@@ -323,8 +323,9 @@ written on it, and its feature list is the same as before.
    backing up (and, on its last line, what visiting every web service changes — below) — service, family, product/plan, frequency, days, generations, and the Proxmox instance's
    `backup_storage` (`MISSING` means the backups would have nowhere to go: set the instance option first). It writes
    nothing and asks no provider anything.
-2. **Switch on** in the staff console (Automations → "Zálohy serverů a databází podle plánu"), which lands in the
-   settings `automation.enabled`. Switching it off again puts everything back as it was; backups already made stay.
+2. **Switch on** in the staff console (Automations → "Zálohy serverů a databází podle plánu", a step-up), which lands in
+   the settings `automation.enabled`. Switching it off again puts everything back as it was; backups already made stay.
+   Owner decision (ADR-0007 §1): switch it on once `compute-plan` lists no `MISSING` backup storage.
 
 **What it does when on** (every 15 minutes inside `onhost:backups:run`):
 
@@ -353,7 +354,8 @@ written on it, and its feature list is the same as before.
   anything under a legal hold. A row whose volume cannot go stays `completed` with `meta.delete_blocked` saying why —
   written once per reason, not at every tick.
 
-**Every service, every tick — OWNER DECISION before merge.** `onhost:backups:run --limit=100` used to look at the first
+**Every service, every tick — OWNER DECISION still open** (not one of the 25 questions of ADR-0007; it reaches
+`development` with the stack pull request of TASK-0017 … TASK-0027). `onhost:backups:run --limit=100` used to look at the first
 100 services by id and never at the rest: from the 101st web hosting on, nobody got a scheduled backup. `--limit` is
 now the size of one chunk; the tick walks all eligible services by id (keyset), web/managed/mail first, then the
 servers under the rule. This is the sold behaviour, but for every web/managed/mail service beyond the old window it is
@@ -367,10 +369,11 @@ the scheduler looked at could be deleted by the generation/retention prune inste
 
 **Still NOT built — do not promise it:**
 
-* **PITR.** `pitr_days` on the database plans is a number on the price list and nothing more: there is no WAL
-  archiving, no restore to a point in time. A product decision (build it, or stop selling it).
-* **Mail `backup_days`.** Mail services are in the tick but have no `backup_schedule` feature, so nothing is scheduled
-  for them; a separate task.
+* **PITR.** There is no WAL archiving and no restore to a point in time. Decided (ADR-0007 §2): `pitr_days` leaves the
+  price list in a new plan version (revision `2026-09-honest-promises`, TASK-0022, applied by
+  `onhost:catalog:revise --apply`); a new managed database instance never claims `pitr`, existing contracts keep theirs.
+* **Mail `backup_days`** is not scheduled by `BackupScheduler` (mail keeps no `backup_schedule`). Decided (ADR-0007 §3):
+  the panel keeps the retention itself, set from `backup_days` behind the rule `mail.backup_retention` (TASK-0024, below).
 * **Off-site copies of server backups.** The add-ons sell `offsite`; a vzdump volume is not copied anywhere else.
 * **VDS plans** (`backup: daily 7d`) and the configurator's `backup` option write a string entitlement no schedule
   reads; not covered by this rule.
@@ -448,7 +451,8 @@ on, the prune stamps the keeper of every ended day (`backups.meta.kept_as_sold`)
 prune (`BackupDailyKeepers::beyondGenerations`) passes stamped rows by — they leave only through their own
 `retention_until` (at most `backup_days` after they were made), like any expired backup. Backups the rule did not keep
 are still trimmed to the generation cap at 50 per tick. (Before review round 1 the switch-off deleted every keeper of
-every web/managed customer at the next ticks, with no way back; `automation.toggle` is NORMAL risk with no dry run.)
+every web/managed customer at the next ticks, with no way back. Switching a rule is `automation.toggle`, HIGH with a
+fresh step-up since owner decision 13, but it still has no dry run.)
 To free the disk sooner, delete individual backups as staff, never by switching rules.
 
 | Plan | Sold | Today (rule off) | As sold (rule on) |
@@ -463,8 +467,11 @@ sold, now, as sold, history now and as sold, extra copies and an estimate of the
 extra copies) — and ends with `N service(s) change · about X GB more on the backup disk · rule backups.as_sold: on|off ·
 nothing was changed`. Check the estimate against the capacity of `ONHOST_PLATFORM_BACKUP_DISK` and confirm the retention
 meaning (frequency for the generations + one a day for `backup_days`; every sub-daily copy for the whole `backup_days`
-would be 8 640 full archives per site on shop-peak). New plan versions should also spell `hourly` instead of `1h`
-(catalogue task); the alias stays for existing services.
+would be 8 640 full archives per site on shop-peak). New plan versions spell `hourly` instead of `1h` (revision
+`2026-09-honest-promises`, TASK-0022); the alias stays for the versions customers already hold.
+
+The frequency is what the plan version sells (ADR-0007 §18): there is no lower platform default, and the `1h` gap is closed
+only through this rule, reviewed first with the read-only operator command above.
 
 ## Mailbox backups follow the plan — `mail.backup_retention` (owner decision 3, TASK-0024)
 

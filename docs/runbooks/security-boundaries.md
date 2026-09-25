@@ -40,6 +40,13 @@ public — no loopback, private, link-local, CGNAT, multicast; local names such 
   decided before the controller runs): `services`, `invoices`/`documents`, `wallet`, `tickets`, `dns`/`zones`,
   `domains`, and `GET /v1/me`. The account, the step-up, tokens, organizations, webhooks and orders are portal-only.
   A new route family for tokens is added to `TokenRouteScope::FAMILIES` on purpose. Test: `tests/Feature/Http/PanelApiTest.php`.
+* **A password change ends the person's API tokens** (owner decision 14, TASK-0021). Changing the password revokes every
+  personal API token of the user in every organization (a reset always did); the browser that made the change stays
+  signed in. A service account's tokens and the integration secrets (action hooks, on-call feeds, SLA probes, Discord)
+  are not personal and are never touched: `Identity\ApiAccessRevocation` goes through the morph-scoped `User::tokens()`.
+  Switch `onhost.identity.password_change_revokes_api_access` (`ONHOST_PASSWORD_CHANGE_REVOKES_API_ACCESS`, default
+  **on**); off restores the old "tokens kept" path with its truthful mail (`security-password-kept`).
+  Test: `tests/Feature/Http/PanelApiTest.php`.
 * **Step-up:** once TOTP is enrolled the password is not a second factor (customers and staff). The setting is
   `onhost.identity.staff_mfa_required`; `tests/Feature/Platform/ConfigKeysTest.php` fails on any `config('onhost.*')`
   key the configuration does not define.
@@ -62,6 +69,18 @@ Test: `tests/Feature/Organizations/AccessExpiryTest.php`.
   when an unpaid order is cancelled.
 * `throttle:auth` has an e-mail bucket only when the request carries an e-mail (`email` or `customer.email`).
   Tests: `tests/Feature/Orders/CheckoutTest.php`.
+* **Paying to restore a cancelled service** (owner decision 23, TASK-0025, rule `services.reinstate`, default off) goes
+  through the one credit gate of §22: `POST /v1/services/{id}/reinstate` needs `billing.wallet.topup` on the bus (the
+  permission of paying an invoice from the credit; no API-token scope) and `CreditOrderPolicy::assertMaySpend()`; money
+  lifts only the `payment` hold, never a quarantine or a staff hold. Taking a cancellation back bills again and asks the
+  same gate. The payment-required answer shows the organization's credit and invoices only to `billing.wallet.read`. A
+  restore never switches auto-renew on (TASK-0027 C2). Test: `tests/Feature/Billing/PayAndRestoreTest.php`.
+* **Withdrawing from a contract** (owner decision 17, TASK-0025, rule `billing.withdrawal`, default off) needs
+  `service.delete` at organization scope with a fresh step-up (not a service guest, an API token or the assistant); the
+  staff record of a mailed notice is `billing.refund.execute`, CRITICAL (four eyes), because it can be dated back. The
+  estimate is read with `billing.wallet.read` at organization scope. An order held for the staff risk review cannot be
+  withdrawn by the customer, and a service the consumer withdrew from never gets a chargeback. Test:
+  `tests/Feature/Billing/WithdrawalTest.php`.
 
 ## 6. Secrets that are handed out once are not kept
 
@@ -73,8 +92,8 @@ Test: `tests/Feature/Organizations/AccessExpiryTest.php`.
 * The replay store (`idempotency_keys.result`) and a **sent** mail (`mail_outbox.vars`) keep the shape, not the secret;
   `GET /v1/staff/outbox` never shows it; a mail whose link is gone is not resent (`mail_secret_not_kept`).
   Tests: `tests/Feature/Domains/TransferCodeSecrecyTest.php`, `tests/Feature/Notifications/MailOutboxSecretsTest.php`.
-* Still open: `operations.desired/context/result` keep generated passwords (the customer reads the WordPress admin
-  password from the operation result). See `production-readiness-audit.md` §"Review 2026-09-20".
+* Generated passwords in `operations.desired/context/result` are forgotten after the run (the WordPress admin password
+  is shown for 30 minutes to `service.manage` only): §11 below.
 
 ## 7. Accounts
 
@@ -321,8 +340,16 @@ Tests: `tests/Feature/Services/SiteNameClaimsTest.php`, `tests/Feature/Services/
   service holds is covered. A listing that fails is a provider error and retries; it never reads as "not yours".
 * **aaPanel was clean**: every method there resolves the id against the site's own listing, and the two it cannot do
   (`deleteDbUser`, `setShellKey`) refuse outright. The defect was ISPConfig-only.
+* The tools that act on **one mailbox** (autoresponder, spam policy, filters, mailbox backup/restore, fetchmail) had the
+  same hole and resolve the mailbox in the service's own mail domains first (`ServiceActionWorkflow::OWN_MAIL_TARGETS`,
+  `MailDomains::ownRow`, TASK-0016).
+* **Past exploitation.** Whether the hole was used before the fix is answered read-only by
+  `php artisan onhost:audit:provider-calls` (TASK-0020, runbook `provider-calls-audit.md`): verdict and severity per
+  action from the platform's own logged listings, probing after the fix, unexplained writes, log coverage. It writes
+  nothing and calls no panel; to be run by the operator on staging with a production copy.
 
-Tests: `tests/Contract/IspConfigOwnershipTest.php`, `tests/Feature/Provisioning/MailboxOwnershipTest.php`.
+Tests: `tests/Contract/IspConfigOwnershipTest.php`, `tests/Feature/Provisioning/MailboxOwnershipTest.php`,
+`tests/Feature/Provisioning/ProviderCallsAuditTest.php`.
 
 ## 20. Managing a shared service is not a shell on it
 
@@ -343,6 +370,92 @@ Tests: `tests/Contract/IspConfigOwnershipTest.php`, `tests/Feature/Provisioning/
 
 Tests: `tests/Feature/Services/ServiceAccessShareTest.php`.
 
+## 21. A panel account password belongs to the organization owner
+
+* `panel.password` (the customer's game-panel account, which opens every server of that account) maps to
+  `service.panel_account.manage` (HIGH, step-up), which only the `owner` role holds — `PermissionCatalog::OWNER_ONLY`,
+  `RoleCatalog::orgAdminWithheld()` and `RoleCatalog::STAFF_NEVER` keep it off org_admin, the `svc_*` share roles and
+  platform_owner (owner decision 15, TASK-0021).
+* `Services\Access\OwnerOnlyActions` refuses in `ServiceService::requestAction` anyone who is not the organization's
+  `owner_user_id` acting in person — staff, the system, the assistant and impersonation included (`owner_only_action`).
+  The platform never shows the panel password.
+
+Tests: `tests/Feature/Identity/PermissionMatrixTest.php`, `tests/Feature/Provisioning/GameToolsFeatureTest.php`.
+
+## 22. Spending the organization's credit
+
+* `Orders\CreditOrderPolicy` decides who may pay from the credit (owner decision 20, TASK-0021). With
+  `ONHOST_ORDER_CREDIT_APPROVAL` **off** (the default) nothing changes: whoever holds the command's own permission pays.
+  With it **on**, only holders of `billing.wallet.spend` in the organization (owner, billing_admin; withheld from org_admin)
+  or the literal `owner_user_id`. The principal is read as the bus reads it (`onBehalfOfUserId ?? actorId`), so an AI run
+  or a service account without a person fails closed; the `system` actor is exempt.
+* Orders paid from credit by anybody else are held (`CreditOrderApprovals`: nothing is reserved, issued or provisioned
+  until the owner or a billing admin approves, `POST /v1/orders/{id}/approval`; 7 days without a decision cancel it).
+  Immediate payments from credit call `assertMaySpend()` → 403 `credit_spend_not_allowed` with the permission named:
+  invoice from credit, manual domain renewal, marketplace, an approved work offer, the archive download fee, and
+  **pay-and-restore** — paying for a restore, taking back a cancellation that bills again and a recorded restore request
+  (TASK-0027 C1: one gate for all three; before, the restore had a second gate with its own switch). Card and bank
+  transfer stay open to everybody.
+* A role that carries `billing.wallet.spend` cannot be granted by an org_admin (`mayGrant` → `role_above_own`).
+* **Every new path that spends credit calls `CreditOrderPolicy::assertMaySpend()` or goes through a held order.**
+* Before switching on: `php artisan onhost:orders:credit-approval-report` (read-only).
+
+Tests: `tests/Feature/Orders/CreditOrderApprovalTest.php`, `tests/Feature/Orders/CreditSpendGateTest.php`,
+`tests/Feature/Billing/PayAndRestoreTest.php`, `tests/Feature/Identity/PermissionMatrixTest.php`.
+
+## 23. Prices, plans and the second person
+
+* Catalogue writes go through `Staff\PricingController::catalog()`: the permission is checked before the pre-flight
+  check (nobody without `catalog.manage` learns anything from validation), the binding (`base` / `base_version`) is part
+  of the approved payload and of the idempotency key, and header-less keys carry the minute (`onceKey`). The rules of the
+  second person: `docs/runbooks/approvals.md` (owner decision 13, TASK-0022).
+* A handler that must prove its second person reads `CommandContext::verifiedApprovalIds` — the approval ids (or
+  `waived:single-operator`) the authorizer consumed for this very command, set by the CommandBus — never `approvalIds`
+  (what the caller offered) and never a search by payload hash. The free limit raise checks that the consumed approval's
+  own payload names the organization, service, metric, units and price.
+* An approval is spent exactly once: the authorizer marks it with one conditional UPDATE (state approved, `consumed_at`
+  null) and denies unless exactly one row changed.
+* Staff `resize` / staff `service.create` hold every entitlement and limit to what the service (plan) has: a value passes
+  only if it is the same, a smaller positive number, or switching off; -1, words, `true`, null/0 on a counted number and
+  new keys are refused (`limit_raise_required`); a product with plans needs a plan with a current version
+  (`plan_required`). A customer-ordered limit raise requires `catalog.order.create` at the parent service's resource scope
+  and a context project equal to the service's (`limit_raise_scope`).
+* `onhost:catalog:revise --apply` and `onhost:catalog:state` publish as the system actor without a second person; the
+  gate is shell access and code review of `CatalogRevisions` (a revision cannot pass prices or features).
+
+Tests: `tests/Feature/Catalog/CatalogFourEyesTest.php`, `tests/Feature/Orders/LimitRaiseTest.php`,
+`tests/Unit/Catalog/CatalogCommandRiskTest.php`.
+
+## 24. A panel number is read only from what is provably the service's
+
+* **Mailbox backup retention** (TASK-0024): `mailbox.backup_retention` is operator-only (`CustomerActionParams` → 403
+  `operator_only`; HIGH for staff). The ISPConfig adapter writes a mailbox's retention only after proving the mail domain
+  (`onh_` client, its group, the domain name) and the mailbox (same group, address inside the domain); the copy count
+  comes from the service's entitlements, never from a request.
+* **Database sizes for the plan total** (TASK-0023): the ISPConfig read (`databasequota_get_by_user`) is per client; only
+  databases the panel lists under the service's own web domain (`parent_domain_id`) are counted, so a historical site of
+  the same client never becomes this customer's usage; a remote id that is not a positive domain id is refused and a row
+  without its own `parent_domain_id` is not counted. Nothing is called until `ONHOST_WEB_DISK_TOTAL_DATABASE_SIZES=true`.
+  The disk-total notice command is system-only (a user context is refused by the handler). A guest shared one included
+  site sees the plan figures and only that site's row (`WebDiskTotal::shownFor`), never the sibling sites or test copies.
+* A shared web node's whole-node CPU, memory and disk are never shown as the customer's usage (`CustomerUsage`, H286).
+
+Tests: `tests/Feature/Services/MailBackupRetentionTest.php`, `tests/Contract/IspConfigDatabaseSizeContractTest.php`,
+`tests/Feature/Services/WebDiskTotalTest.php`, `tests/Feature/Services/DiskTotalNoticeTest.php`.
+
+## 25. A resource the platform did not create is not ours
+
+* Historical sites, mail domains and databases on the live ISPConfig and aaPanel are never bound, changed, suspended or
+  deleted (owner rule of 2026-09-24, TASK-0014): a pre-existing resource is ours only when the panel proves it — the
+  `onhost:<service>` remark on aaPanel, the organization's `onh_…` client as owner on ISPConfig — and anything else is
+  refused with `CONFLICT` before a single write. A mail binding carries its domain name; an empty name is refused before
+  any mailbox query (it once read `'%@'`, every mailbox on the shared mail server).
+* Taking over a historical site never binds it: the only procedure is a customer-run import into a NEW site with an
+  operator's help (`docs/runbooks/historical-site-import.md`, ADR-0007 decision 22), and no staff path runs `import.run`
+  for a customer.
+
+Tests: `tests/Feature/Provisioning/ResourceProvenanceTest.php`.
+
 ## What to look at on staging after deploying this
 
 * migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;
@@ -354,3 +467,8 @@ Tests: `tests/Feature/Services/ServiceAccessShareTest.php`.
 * uptime monitors, webhooks and proxies pointing at private addresses (they now fail with `destination_not_allowed`);
 * promo codes with `max_uses`: their `uses` start from zero now — set the real count by hand if a campaign is running;
 * web and mail services that already share one name: `select hostname, family, count(*) from services where state <> 'TERMINATED' and hostname is not null group by hostname, family having count(*) > 1` — the refusal only stops new ones, and whichever vhost the node loads first is serving that name today.
+* roles: `AuthorizationSeeder` runs with the deploy (`infra/aapanel/deploy.sh`); afterwards `onhost:doctor` must report the
+  roles in the database equal to the catalogue — billing_admin holds `billing.wallet.spend`, only `owner` holds
+  `service.panel_account.manage`, an org_admin can no longer grant billing_admin (TASK-0021);
+* `php artisan onhost:audit:provider-calls` on a production copy (read-only, §19) before the first customer is told
+  anything about the ISPConfig ownership hole.
