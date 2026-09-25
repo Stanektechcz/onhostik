@@ -12,6 +12,7 @@ use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\OrganizationStatusService;
 use Onhost\Domain\Notifications\NotificationService;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
@@ -231,6 +232,10 @@ final class OrganizationService
         $allowed = ['name', 'type', 'ico', 'dic', 'vat_id', 'billing_email', 'street', 'city', 'postal_code', 'country', 'locale', 'auto_renew_default', 'ui_mode', 'domain_renewal_reserve_days', 'currency'];
         $before = $organization->only($allowed);
         $changes = array_intersect_key($attributes, array_flip($allowed));
+        if (array_key_exists('auto_renew_default', $changes) && (bool) $changes['auto_renew_default'] && ! (bool) $organization->auto_renew_default) {
+            // owner decision 20 (TASK-0021): the standing auto-renew default is the holder's consent to renewals paid from credit — the owner or the billing admin switches it on
+            app(CreditOrderPolicy::class)->assertMaySpend($organization, $context, 'Požádejte vlastníka o zapnutí automatického prodloužení.');
+        }
         if (isset($changes['currency'])) { // the account currency the customer picks (audit §5j-8): quotes, documents and the default wallet follow it; wallets are per currency already
             $changes['currency'] = strtoupper((string) $changes['currency']);
             if (! in_array($changes['currency'], ['CZK', 'EUR'], true)) {

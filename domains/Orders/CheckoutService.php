@@ -79,6 +79,8 @@ final class CheckoutService
         // what the organization could not pay anyway is refused now, not after somebody approved it
         $quoted = Money::minor((int) $quote->total_minor, $quote->currency);
         $awaitApproval = $this->creditPolicy->mustAwaitApproval($organization, $context, $mode, $source, $quoted);
+        // what a non-holder orders (by card or bank too) renews only under the organization's standing auto-renew default
+        $standingDefault = $this->creditPolicy->followsStandingDefault($organization, $context);
         $requiredDocs = $this->requiredDocuments($quote, $organization);
         foreach ($requiredDocs as $key) {
             if (! isset($consents[$key])) {
@@ -103,7 +105,7 @@ final class CheckoutService
         // intake pre-check (audit §5f-8): scored before anything is written; a held order is placed and paid like any other, only its fulfilment waits for staff
         $risk = $this->risk->assess($quote, $organization, $user, $context, $source);
 
-        return DB::transaction(function () use ($quote, $organization, $user, $consents, $payment, $idempotencyKey, $context, $source, $mode, $fingerprint, $risk, $awaitApproval) {
+        return DB::transaction(function () use ($quote, $organization, $user, $consents, $payment, $idempotencyKey, $context, $source, $mode, $fingerprint, $risk, $awaitApproval, $standingDefault) {
             $quote->forceFill(['state' => 'accepted', 'organization_id' => $organization->id])->save();
             // a promo code is used when an order is placed with it — counted here, under a lock, so "the first hundred" is a
             // hundred even when two checkouts race. The counter existed and nothing ever wrote to it: every limited code was unlimited.
@@ -135,7 +137,7 @@ final class CheckoutService
                 'placed_at' => now(),
                 'meta' => array_filter(['tax_review_required' => (bool) ($quote->versions['tax_review_required'] ?? false), 'renewal_total_minor' => $quote->renewal_total_minor, 'fingerprint' => $fingerprint,
                     'risk' => ['score' => $risk['score'], 'reasons' => $risk['reasons']], 'review' => $risk['hold'] ? ['state' => 'pending', 'score' => $risk['score'], 'reasons' => $risk['reasons'], 'opened_at' => now()->toIso8601String()] : null,
-                    'approval' => $awaitApproval ? CreditOrderApprovals::opened($context) : null], fn ($v) => $v !== null),
+                    'approval' => $awaitApproval ? CreditOrderApprovals::opened($context) : null, 'renewal_consent' => $standingDefault ? 'organization_default' : null], fn ($v) => $v !== null),
             ]);
             foreach ($quote->lines as $line) {
                 OrderItem::query()->create([

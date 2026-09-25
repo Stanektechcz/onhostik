@@ -43,10 +43,10 @@ final class CreditApprovalReport extends Command
                     $affected[] = [$organization->name, $organization->id, 'user', $user->email];
                 }
             }
-            foreach (ServiceAccount::query()->where('organization_id', $organization->id)->get() as $account) {
-                if ($account->isActive() && $authorizer->can($account, 'catalog.order.create', $scope) && ! $authorizer->can($account, CreditOrderPolicy::PERMISSION, $scope)) {
-                    $affected[] = [$organization->name, $organization->id, 'service account', (string) $account->name];
-                }
+            // A service account is never a holder (CreditOrderPolicy::holds): every credit order it places waits for a person. The
+            // Authorizer is not asked about it — it cannot read a ServiceAccount's bindings (not Authenticatable) and would throw.
+            foreach (ServiceAccount::query()->where('organization_id', $organization->id)->where('state', 'active')->orderBy('name')->get() as $account) {
+                $affected[] = [$organization->name, $organization->id, 'service account (always held)', (string) $account->name];
             }
             if (CreditOrderPolicy::approvers($organization->id)->isEmpty()) {
                 $withoutApprover[] = [$organization->name, $organization->id];

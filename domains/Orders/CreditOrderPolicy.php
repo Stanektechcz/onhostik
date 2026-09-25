@@ -93,6 +93,16 @@ final class CreditOrderPolicy
         throw new DomainError('credit_spend_not_allowed', 'Z kreditu organizace může platit jen její vlastník nebo fakturační správce. '.$ask, 403, ['permission' => self::PERMISSION]);
     }
 
+    /**
+     * Whether what the acting person creates (an order of any payment mode, a domain registered directly) renews only under the
+     * organization's standing auto-renew default. A renewal that runs by itself is paid from credit; the default a holder set
+     * (or the owner accepted at sign-up) is their standing consent — an auto_renew=true a non-holder asks for is not.
+     */
+    public function followsStandingDefault(Organization $organization, CommandContext $context): bool
+    {
+        return ! $this->maySpend($organization, $context);
+    }
+
     public function mayApprove(User $user, Organization $organization): bool
     {
         return $this->holds($user, $organization);

@@ -164,6 +164,9 @@ final class DomainService
             'dns_template' => $config['dns_template'] ?? 'parking', 'dns_vars' => $config['dns_vars'] ?? [], 'nameservers' => $config['nameservers'] ?? null, 'dns_provider' => $config['dns_provider'] ?? 'powerdns',
             'consents' => Consent::query()->where('order_id', $order->id)->whereIn('kind', ['registry_terms', 'registrar_terms'])->get()->all(),
         ];
+        if (data_get($order->meta, 'renewal_consent') === 'organization_default') { // owner decision 20 (TASK-0021): ordered by a non-holder — renews only under the holder's standing default
+            $request['auto_renew'] = (bool) $organization->auto_renew_default;
+        }
 
         return $this->register($organization, (string) ($config['fqdn'] ?? $config['domain'] ?? ''), $request, $context, "order_item:{$item->id}", $item);
     }
@@ -191,6 +194,9 @@ final class DomainService
         $testMode = (bool) ($request['test_mode'] ?? config('onhost.wapi.test_mode', false));
         $choice = $this->selector->choose($tld, 'register', $testMode);
         $provider = $choice['provider'];
+        if (app(CreditOrderPolicy::class)->followsStandingDefault($organization, $context)) { // owner decision 20 (TASK-0021): a non-holder's auto_renew=true is not the holder's consent
+            $request['auto_renew'] = (bool) $organization->auto_renew_default;
+        }
 
         $domain = DB::transaction(function () use ($organization, $fqdn, $tld, $period, $request, $context, $item, $provider, $choice) {
             $domain = Domain::query()->where('fqdn_ascii', $fqdn)->first();
@@ -390,7 +396,9 @@ final class DomainService
         $this->catalog->tld($tld);
         $choice = $this->selector->choose($tld, 'transfer');
         $provider = $choice['provider'];
-        $domain = DB::transaction(function () use ($organization, $fqdn, $tld, $request, $authInfo, $context, $provider, $choice) {
+        // owner decision 20 (TASK-0021): a domain a non-holder brings in renews only under the holder's standing default
+        $renewal = app(CreditOrderPolicy::class)->followsStandingDefault($organization, $context) ? ['auto_renew' => (bool) $organization->auto_renew_default] : [];
+        $domain = DB::transaction(function () use ($organization, $fqdn, $tld, $request, $authInfo, $context, $provider, $choice, $renewal) {
             $domain = Domain::query()->where('fqdn_ascii', $fqdn)->first();
             if ($domain !== null && $domain->organization_id !== $organization->id && $domain->isActive()) {
                 throw new DomainError('domain_taken', "{$fqdn} is already managed by another organization.", 409);
@@ -400,7 +408,7 @@ final class DomainService
                 'organization_id' => $organization->id, 'fqdn_ascii' => $fqdn, 'fqdn_unicode' => Hostname::unicode($fqdn), 'tld' => $tld, 'state' => DomainStateMachine::TRANSFER_IN_PENDING, 'registrar_provider' => $provider,
                 'meta' => array_merge((array) ($domain?->meta ?? []), ['registrar_selection' => RegistrarSelector::summary($choice)]),
                 'registrant_contact_id' => $registrant->id, 'admin_contact_id' => $registrant->id, 'dns_provider' => (string) ($request['dns_provider'] ?? 'external'), 'nameservers' => $request['nameservers'] ?? null, 'renewal_period' => 1,
-            ];
+            ] + $renewal;
             $domain = $domain === null ? Domain::query()->create($attributes) : tap($domain)->forceFill($attributes)->save();
             DomainTransferSecret::query()->create(['domain_id' => $domain->id, 'auth_info' => $authInfo, 'direction' => 'in', 'requested_by' => $context->actorId, 'step_up_method' => $context->stepUpMethod, 'expires_at' => now()->addDays((int) config('onhost.domains.transfer_secret_ttl_days', 7))]);
             $this->recordConsents($domain, $request, $context);

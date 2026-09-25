@@ -6,6 +6,7 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
@@ -337,6 +338,19 @@ it('shows the operator, read only, whose credit orders will wait before the swit
         ->doesntExpectOutputToContain($viewer->email)
         ->assertSuccessful();
     expect(Order::query()->count())->toBe($orders)->and($billing->refresh()->state)->toBe('active')->and($admin->refresh()->state)->toBe('active');
+});
+
+it('lists an active service account in the report as always held, without asking the authorizer about it', function () {
+    config(['onhost.orders.credit_approval.enabled' => false]);
+    [, $org] = $this->customerWithOrganization();
+    ServiceAccount::query()->create(['organization_id' => $org->id, 'name' => 'Terraform CI', 'state' => 'active']);
+    ServiceAccount::query()->create(['organization_id' => $org->id, 'name' => 'Stary skript', 'state' => 'disabled']);
+    creditApprovalMember($org, 'org_admin', ['email' => 'admin@report-sa.test']);
+
+    // the whole table is one write, so it is read from the buffered output (expectsOutputToContain matches one write once)
+    expect(Artisan::call('onhost:orders:credit-approval-report', ['--organization' => $org->id]))->toBe(0);
+    $output = Artisan::output();
+    expect($output)->toContain('admin@report-sa.test')->toContain('| service account (always held) | Terraform CI')->not->toContain('Stary skript');
 });
 
 it('puts the waiting orders in front of the approvers in the panel billing tab', function () {
