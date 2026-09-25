@@ -1099,6 +1099,7 @@ final class ServiceActionWorkflow implements Workflow
                 if ($before !== null) { // TASK-0025: what the customer had chosen, so taking the cancellation back restores it
                     $tags['deletion']['subscription'] = ['id' => $before->id, 'state' => $before->state, 'auto_renew' => (bool) $before->auto_renew, 'cancel_at_period_end' => (bool) $before->cancel_at_period_end, 'current_period_end' => $before->getAttribute('current_period_end') instanceof \DateTimeInterface ? $before->getAttribute('current_period_end')->format(DATE_ATOM) : null];
                 }
+                unset($tags['reinstatement']); // TASK-0025: a restore asked for during an earlier cancellation never pays for this one
                 $fresh->forceFill(['terminate_at' => $graceUntil, 'tags' => $tags])->save();
                 Subscription::query()->where('service_id', $fresh->id)->whereNotIn('state', [Subscription::CANCELLED])->update(['state' => Subscription::CANCELLED, 'auto_renew' => false]);
                 $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.deletion.scheduled', 'service', $fresh->id, [

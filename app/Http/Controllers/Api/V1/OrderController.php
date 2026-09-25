@@ -89,6 +89,7 @@ final class OrderController extends ApiController
     public function withdrawal(Request $request, WithdrawalPolicy $policy, WithdrawalService $withdrawals, string $order): JsonResponse
     {
         $model = $this->resolve($request, $order);
+        $this->api->authorize($request, 'billing.wallet.read', CommandScope::organization($model->organization_id)); // the refund, the credit notes and what went back to the credit are the organization's money
         $record = Withdrawal::query()->where('subject_key', 'order:'.$model->id)->first();
 
         return response()->json(['data' => $policy->check($model) + ['enabled' => $policy->enabled(), 'withdrawal' => $record ? $withdrawals->present($record) : null, 'terms_url' => WithdrawalPolicy::TERMS_URL]]);

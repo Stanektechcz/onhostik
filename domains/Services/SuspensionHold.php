@@ -128,7 +128,7 @@ final class SuspensionHold
         $reason = mb_strtolower(trim($reason));
 
         return match (true) {
-            str_starts_with($reason, 'withdrawal') => self::WITHDRAWAL, // only the platform's own withdrawal steps say so; a customer's own pause never carries a hold (kindFor)
+            preg_match('/^withdrawal wdr_/', $reason) === 1 => self::WITHDRAWAL, // only the platform's own withdrawal steps ("withdrawal wdr_…") say so; an older staff reason that merely starts with the word stays what it was
             str_starts_with($reason, 'abuse') => self::ABUSE,
             str_starts_with($reason, 'dunning'), str_contains($reason, 'subscription ended'), str_contains($reason, 'subscription expired'), str_contains($reason, 'unpaid') => self::PAYMENT,
             str_starts_with($reason, 'risk'), str_starts_with($reason, 'security'), str_starts_with($reason, 'legal') => self::REVIEW,

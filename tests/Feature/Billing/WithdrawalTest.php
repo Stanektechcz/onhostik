@@ -9,6 +9,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Onhost\Domain\Billing\ChargebackService;
 use Onhost\Domain\Billing\Listeners\RestartBillingAfterRestore;
 use Onhost\Domain\Billing\Models\ChargebackRequest;
 use Onhost\Domain\Billing\Models\Subscription;
@@ -41,6 +42,7 @@ use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
@@ -686,4 +688,84 @@ it('closes a renewal already past due at the notice, and never restarts the bill
     $back->forceFill(['terminate_at' => null])->save();
     app(RestartBillingAfterRestore::class)->handle((new OutboxMessage)->forceFill(['name' => 'service.deletion.cancelled', 'aggregate_type' => 'service', 'aggregate_id' => $service->id]));
     expect(Subscription::query()->where('service_id', $service->id)->value('state'))->toBe(Subscription::CANCELLED);
+});
+
+/* ── review round 2 ──────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/** What the call threw, if anything. */
+function withdrawalCaught(callable $call): ?DomainError
+{
+    try {
+        $call();
+    } catch (DomainError $e) {
+        return $e;
+    }
+
+    return null;
+}
+
+it('never gives a withdrawn service a second refund through a chargeback while its cancellation still runs', function () {
+    withdrawalSwitchOn();
+    withdrawalPteroFake();
+    [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    $service = withdrawalConsumerService($org);
+    $this->actingAs($owner, 'sanctum');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+    $queue = app('queue');
+    Queue::fake();
+    $this->withHeader('Idempotency-Key', 'wd-cb-late')->postJson("/v1/services/{$service->id}/withdrawal", ['confirm_refund_to_credit' => true])->assertStatus(202);
+    $this->flushHeaders();
+    Queue::swap($queue);
+    driveOperations();
+    Queue::fake(); // the cancellation is asked for and has not run: the service is suspended and its subscription is not closed yet
+    $withdrawal = app(WithdrawalService::class)->advance(Withdrawal::query()->sole());
+    expect($withdrawal->state)->toBe(Withdrawal::TERMINATING)->and(Invoice::query()->where('type', 'credit_note')->count())->toBe(1);
+    $chargebacks = app(ChargebackService::class);
+    $ctx = $this->contextFor($owner, $org, 'totp');
+
+    // asking, deciding and cancelling are all refused: the consumer has already had the unused part back
+    expect(withdrawalCaught(fn () => $chargebacks->request($service->fresh(), $owner, 'Chceme vrátit ještě kredit.', $ctx))?->error)->toBe('withdrawn');
+    $pending = ChargebackRequest::query()->create(['organization_id' => $org->id, 'service_id' => $service->id, 'state' => ChargebackRequest::REQUESTED, 'reason' => 'Nechceme.', 'percent' => 70, 'currency' => 'CZK']);
+    expect(withdrawalCaught(fn () => $chargebacks->decide($pending, 'approve', null, $this->contextFor($this->staff())))?->error)->toBe('withdrawn');
+    $pending->forceFill(['state' => ChargebackRequest::APPROVED])->save();
+    expect(withdrawalCaught(fn () => $chargebacks->cancelService($pending, $ctx))?->error)->toBe('withdrawn');
+
+    expect($pending->refresh()->state)->toBe(ChargebackRequest::APPROVED)->and(ChargebackRequest::query()->count())->toBe(1)
+        ->and(Invoice::query()->where('type', 'credit_note')->count())->toBe(1);
+});
+
+it('cancels a service for a chargeback only while the request is still approved, read under a lock', function () {
+    withdrawalPteroFake();
+    Queue::fake();
+    [, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    $service = withdrawalConsumerService($org);
+    $stale = ChargebackRequest::query()->create(['organization_id' => $org->id, 'service_id' => $service->id, 'state' => ChargebackRequest::APPROVED, 'reason' => 'Nechceme.', 'percent' => 70, 'currency' => 'CZK']);
+    // a withdrawal took it over in the meantime (it writes WITHDRAWN under the service lock); this copy is from before
+    ChargebackRequest::query()->whereKey($stale->id)->update(['state' => ChargebackRequest::WITHDRAWN]);
+
+    expect(withdrawalCaught(fn () => app(ChargebackService::class)->cancelService($stale, CommandContext::system('test')->withScope($org->id)))?->error)->toBe('chargeback_not_approved');
+    expect(ChargebackRequest::query()->findOrFail($stale->id)->state)->toBe(ChargebackRequest::WITHDRAWN)
+        ->and(Operation::query()->where('service_id', $service->id)->count())->toBe(0);
+});
+
+it('shows the withdrawal of an order only to who may read the organization\'s money', function () {
+    withdrawalSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization([], ['type' => 'person', 'name' => 'Jana Nováková']);
+    withdrawalConsumerService($org);
+    $order = Order::query()->where('organization_id', $org->id)->sole();
+    $contact = $this->customer();
+    app(OrganizationService::class)->attachMember($org, $contact, 'support_contact', CommandContext::system('test'), true);
+
+    $this->actingAs($contact, 'sanctum')->getJson("/v1/orders/{$order->id}")->assertOk();
+    $this->getJson("/v1/orders/{$order->id}/withdrawal")->assertForbidden();
+    $this->actingAs($owner, 'sanctum')->getJson("/v1/orders/{$order->id}/withdrawal")->assertOk();
+});
+
+it('reads the withdrawal hold only from the platform\'s own withdrawal steps, never from an older staff reason', function () {
+    [, $org] = $this->customerWithOrganization();
+    $service = withdrawalConsumerService($org);
+    $service->forceFill(['state' => ServiceStateMachine::SUSPENDED, 'suspended_at' => now(), 'suspended_reason' => 'Withdrawal of the website requested by phone'])->save(); // suspended before holds existed
+    expect(SuspensionHold::holds($service->refresh()))->toBe([]);
+    $service->forceFill(['suspended_reason' => 'withdrawal wdr_01k6abcdefghjkmnpqrstvwxyz'])->save();
+    expect(SuspensionHold::holds($service->refresh()))->toBe([SuspensionHold::WITHDRAWAL]);
 });

@@ -266,15 +266,17 @@ automation rule **`services.reinstate`** switched on (staff console → Automati
 | --- | --- |
 | Dunning cancelled the service (case TERMINATED) and the invoice is paid later | `invoice.paid` → `ServiceReinstatement::afterInvoicePaid`: when the paid invoice still covers the period, the service comes back with no further charge; otherwise the customer is told what is missing (`service.reinstatement.awaiting_payment`) |
 | The subscription expired or dunning cancelled a wallet renewal | the customer uses **Zaplatit a obnovit** (`GET /v1/services/{id}/reinstatement` quote, `POST /v1/services/{id}/reinstate`); one new period from today at the subscription's own price is charged from the credit (statement, `meta.reinstatement = true`), or invoiced for a postpaid organization |
-| The credit is short | the wish is recorded (`tags.reinstatement`), the answer is `awaiting_payment` with the shortfall; the next top-up restores it (never at a higher price than quoted — then the customer is told instead). A top-up alone never charges a service nobody asked to restore |
+| The credit is short | the wish is recorded (`tags.reinstatement`, bound to this cancellation and to who asked), the answer is `awaiting_payment` with the shortfall; the next top-up restores it (never at a higher price than quoted — then the customer is told instead). A top-up alone never charges a service nobody asked to restore. The wish ends with its cancellation (any resume, a new cancellation) and is dropped before any charge when who asked may no longer spend the credit (`service.reinstatement.dropped`) |
 | An overdue invoice still belongs to the service | `awaiting_invoices`: the invoice is paid through the ordinary invoice payment and the restore follows it |
-| The customer takes back their own cancellation | the plain resume works while the paid period runs, and the subscription runs on (`RestartBillingAfterRestore`); after the period ended the resume answers `402 reinstatement_payment_required` with the quote |
+| The customer takes back their own cancellation | only who may spend the credit (`billing.wallet.spend`: owner, billing admin) — taking it back bills the service again; a guest of the service or an org_admin gets `403 reinstatement_spend_required`. The plain resume works while the paid period runs, and the subscription runs on (`RestartBillingAfterRestore`); after the period ended the resume answers `402 reinstatement_payment_required` with the quote (the credit and the invoices in it only for `billing.wallet.read`) |
 | Abuse or staff hold, legal hold, purged, window over, add-on, carried site | refused (`409 reinstatement_refused`, `reason`); money never lifts a quarantine |
 
 Order of the restore (inside one transaction, the service row locked): charge (key `sub_reinstate:{subscription}:{cancellation}`,
 so a retry or a second click never charges twice) → the scheduled removal is called off (`service.deletion.cancelled`) →
 the ordinary `resume` as the platform, lifting only the `payment` hold → `service.reinstated`. If the resume is refused
-after the money was taken, the removal stays cancelled and `service.reinstatement.failed` goes to staff (resume by hand).
+on the spot (a provisioning freeze, a maintenance window), all of it is rolled back — nothing is charged, the removal stays
+scheduled — and the answer is `409 reinstatement_refused` (`reason` resume_refused, `cause`); when a payment triggered it,
+`service.reinstatement.failed` goes to staff.
 While the parent's resume has not run yet, the nightly purge refuses its carried sites (`parent_reinstated`).
 
 Spending the credit needs `billing.wallet.spend` (the owner and the billing admin; not org_admin, not a guest of one
@@ -282,7 +284,8 @@ service, not API tokens). The next renewals end on the day the period restarted 
 
 A chargeback-cancelled service (the unused period was returned as credit) can never be resumed by the customer for
 free: with the rule off the resume answers `409 chargeback_cancelled`; with it on, a whole new period is owed. Staff can
-still resume; its billing then restarts from today.
+still resume; its billing then restarts from today. A service the consumer withdrew from cannot get a chargeback at any
+stage (`409 withdrawn` for the request, the decision and the cancellation).
 
 **Before switching the rule on:** `php artisan onhost:billing:reinstatement-audit` (read-only) lists (a) undone
 cancellations whose subscription stayed CANCELLED and run unbilled, (b) services in the window whose dunning invoice is

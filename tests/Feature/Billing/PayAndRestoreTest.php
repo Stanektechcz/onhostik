@@ -8,6 +8,7 @@ use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Onhost\Domain\Billing\Models\ChargebackRequest;
@@ -15,11 +16,15 @@ use Onhost\Domain\Billing\Models\DunningCase;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Billing\ServiceReinstatement;
 use Onhost\Domain\Billing\SubscriptionService;
+use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
+use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\AutomationLedger;
+use Onhost\Domain\Provisioning\FreezeSwitch;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
@@ -428,4 +433,141 @@ it('lets only who may spend the credit pay for a restore', function () {
     $this->actingAs($billing, 'sanctum');
     $this->withHeader('Idempotency-Key', 're-billing-1')->postJson("/v1/services/{$service->id}/reinstate")->assertStatus(202)->assertJsonPath('state', 'restoring');
     expect(reinstateCharges())->toBe(1);
+});
+
+/* ── review round 2 ──────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/** A member bound to `$role` at the organization, or — `$serviceId` given — a guest of that one service. */
+function reinstateBind(Organization $org, User $user, string $role, ?string $serviceId = null): void
+{
+    PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $user->id, 'role_key' => $role,
+        'scope_type' => $serviceId === null ? 'organization' : 'resource', 'scope_id' => $serviceId ?? $org->id, 'organization_id' => $org->id]);
+}
+
+/** The service is cancelled once more (a new cancellation operation), the payment hold on it again. */
+function reinstateCancelAgain(Service $service, string $operationId): Service
+{
+    $service = $service->fresh(); // as it is now (running again), so every column below is written
+    $tags = (array) $service->tags;
+    $tags['suspension'] = ['holds' => [SuspensionHold::PAYMENT => ['reason' => 'subscription ended', 'by' => 'system', 'at' => now()->toIso8601String()]]];
+    $tags['deletion'] = ['requested_at' => now()->toIso8601String(), 'grace_until' => now()->addDays(30)->toIso8601String(), 'grace_days' => 30, 'reason' => 'subscription ended', 'operation_id' => $operationId, 'subscription' => ['state' => 'active', 'auto_renew' => true]];
+    $service->forceFill(['state' => ServiceStateMachine::SUSPENDED, 'suspended_at' => now(), 'suspended_reason' => 'subscription ended', 'terminate_at' => now()->addDays(30), 'tags' => $tags])->save();
+    Subscription::query()->where('service_id', $service->id)->update(['state' => Subscription::CANCELLED, 'auto_renew' => false]);
+
+    return $service->refresh();
+}
+
+it('lets only who may spend the credit take back a cancellation that bills again, and shows the credit only to who may read it', function () {
+    reinstateSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization();
+    $covered = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->addDays(15)]);
+    $ended = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->subDay(), 'remote_id' => '1046']);
+    $guest = $this->customer();
+    reinstateBind($org, $guest, 'svc_manage', $covered->id);
+    reinstateBind($org, $guest, 'svc_manage', $ended->id);
+    $admin = $this->customer();
+    app(OrganizationService::class)->attachMember($org, $admin, 'org_admin', CommandContext::system('test'), true);
+
+    // a guest of the service and an org_admin (no billing.wallet.spend) cannot commit the organization to renewals again
+    foreach ([[$guest, 'g'], [$admin, 'a']] as [$who, $tag]) {
+        $this->actingAs($who, 'sanctum');
+        foreach ([$covered, $ended] as $i => $service) {
+            $body = $this->withHeader('Idempotency-Key', "r2-undo-{$tag}-{$i}")->postJson("/v1/services/{$service->id}/actions", ['action' => 'resume'])->assertForbidden()->assertJsonPath('error', 'reinstatement_spend_required')->json();
+            expect(json_encode($body))->not->toContain('wallet_available')->not->toContain('outstanding_invoices');
+        }
+    }
+    $this->flushHeaders();
+    expect(Operation::query()->whereIn('service_id', [$covered->id, $ended->id])->count())->toBe(0)
+        ->and(Subscription::query()->whereIn('service_id', [$covered->id, $ended->id])->pluck('state')->unique()->values()->all())->toBe([Subscription::CANCELLED])
+        ->and(Service::query()->findOrFail($covered->id)->terminate_at)->not->toBeNull();
+
+    // who may spend but not read the credit is told the price and the way to pay, not the organization's balance
+    DB::table('roles')->insert(['key' => 'test_spend_only', 'name' => 'Spend only', 'scope_type' => 'organization', 'is_staff' => false, 'assignable' => false, 'created_at' => now(), 'updated_at' => now()]);
+    DB::table('role_permissions')->insert([['role_key' => 'test_spend_only', 'permission_key' => 'service.read'], ['role_key' => 'test_spend_only', 'permission_key' => 'service.manage'], ['role_key' => 'test_spend_only', 'permission_key' => 'billing.wallet.spend']]);
+    $spender = $this->customer();
+    reinstateBind($org, $spender, 'test_spend_only');
+    $this->actingAs($spender, 'sanctum');
+    $refused = $this->withHeader('Idempotency-Key', 'r2-undo-s')->postJson("/v1/services/{$ended->id}/actions", ['action' => 'resume'])->assertStatus(402)->assertJsonPath('error', 'reinstatement_payment_required')->json();
+    expect($refused['quote']['total_due']['minor'])->toBe(36300)->and($refused['pay'])->toBe("/v1/services/{$ended->id}/reinstate")
+        ->and(json_encode($refused))->not->toContain('wallet_available')->not->toContain('outstanding_invoices');
+
+    // the owner sees the whole quote, and takes back the covered cancellation
+    $this->actingAs($owner, 'sanctum');
+    $full = $this->withHeader('Idempotency-Key', 'r2-undo-o1')->postJson("/v1/services/{$ended->id}/actions", ['action' => 'resume'])->assertStatus(402)->json();
+    expect($full['quote'])->toHaveKeys(['wallet_available', 'shortfall', 'outstanding_invoices']);
+    $this->withHeader('Idempotency-Key', 'r2-undo-o2')->postJson("/v1/services/{$covered->id}/actions", ['action' => 'resume'])->assertStatus(202);
+    $this->flushHeaders();
+});
+
+it('forgets a restore request once its cancellation is over: a later cancellation is never paid for by the next top-up', function () {
+    reinstateSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization();
+    app(WalletService::class)->topup($org, Money::decimal('100', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
+    $service = reinstateCancelled($org, ['reason' => 'subscription ended', 'operation_id' => 'op_first_cancel']);
+    $this->actingAs($owner, 'sanctum');
+    $this->withHeader('Idempotency-Key', 'r2-wish-1')->postJson("/v1/services/{$service->id}/reinstate")->assertStatus(202)->assertJsonPath('state', 'awaiting_payment');
+    $this->flushHeaders();
+    $wish = data_get(Service::query()->findOrFail($service->id)->tags, 'reinstatement');
+    expect($wish)->toBeArray();
+
+    // staff bring it back on their own; the request of the old cancellation goes with it
+    $staff = $this->staff();
+    expect(driveOperation(app(ServiceService::class)->requestAction($service->fresh(), 'resume', $this->contextFor($staff), 'r2-staff-resume', ['reason' => 'rozhodnutí podpory']))->state)->toBe(Operation::SUCCEEDED);
+    expect(data_get(Service::query()->findOrFail($service->id)->tags, 'reinstatement'))->toBeNull();
+
+    // cancelled again later — the customer chose it; the credit that arrives next pays for nothing
+    $again = reinstateCancelAgain($service, 'op_second_cancel');
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed-2', $this->contextFor($owner, $org));
+    app(OutboxPublisher::class)->relayPending();
+    expect(reinstateCharges())->toBe(0)->and(Service::query()->findOrFail($service->id)->terminate_at)->not->toBeNull();
+
+    // even a request that somehow outlived its cancellation is not honoured for the next one: it is dropped
+    $again->forceFill(['tags' => array_merge((array) $again->fresh()->tags, ['reinstatement' => $wish])])->save();
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed-3', $this->contextFor($owner, $org));
+    app(OutboxPublisher::class)->relayPending();
+    driveOperations();
+    $fresh = Service::query()->findOrFail($service->id);
+    expect(reinstateCharges())->toBe(0)->and($fresh->terminate_at)->not->toBeNull()->and($fresh->state)->toBe(ServiceStateMachine::SUSPENDED)
+        ->and(data_get($fresh->tags, 'reinstatement'))->toBeNull();
+});
+
+it('drops a recorded restore request when whoever asked may no longer spend the credit', function () {
+    reinstateSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization();
+    app(WalletService::class)->topup($org, Money::decimal('100', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
+    $service = reinstateCancelled($org, ['reason' => 'subscription ended']);
+    $billing = $this->customer();
+    app(OrganizationService::class)->attachMember($org, $billing, 'billing_admin', CommandContext::system('test'), true);
+    $this->actingAs($billing, 'sanctum');
+    $this->withHeader('Idempotency-Key', 'r2-who-1')->postJson("/v1/services/{$service->id}/reinstate")->assertStatus(202)->assertJsonPath('state', 'awaiting_payment');
+    $this->flushHeaders();
+
+    // the billing admin loses the role; somebody else adds the missing credit
+    PolicyBinding::query()->where('principal_id', $billing->id)->delete();
+    app(Authorizer::class)->forget($billing);
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed-2', $this->contextFor($owner, $org));
+    app(OutboxPublisher::class)->relayPending();
+
+    $fresh = Service::query()->findOrFail($service->id);
+    expect(reinstateCharges())->toBe(0)->and($fresh->terminate_at)->not->toBeNull()->and(data_get($fresh->tags, 'reinstatement'))->toBeNull()
+        ->and(OutboxMessage::query()->where('name', 'service.reinstatement.dropped')->where('aggregate_id', $service->id)->exists())->toBeTrue();
+});
+
+it('takes nothing when the resume is refused right after the charge', function () {
+    reinstateSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization();
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
+    $service = reinstateCancelled($org, ['reason' => 'subscription ended']);
+    app(FreezeSwitch::class)->freeze('incident', 'test'); // the resume is refused on the spot
+    $this->actingAs($owner, 'sanctum');
+
+    $this->withHeader('Idempotency-Key', 'r2-frozen')->postJson("/v1/services/{$service->id}/reinstate")->assertStatus(409)
+        ->assertJsonPath('error', 'reinstatement_refused')->assertJsonPath('reason', 'resume_refused');
+    $this->flushHeaders();
+    app(FreezeSwitch::class)->thaw();
+
+    $fresh = Service::query()->findOrFail($service->id);
+    expect(reinstateCharges())->toBe(0)->and(app(WalletService::class)->spendable($org, 'CZK')->minor)->toBe(100000)
+        ->and(Invoice::query()->where('meta->reinstatement', true)->count())->toBe(0)
+        ->and($fresh->terminate_at)->not->toBeNull()->and(Subscription::query()->where('service_id', $service->id)->value('state'))->toBe(Subscription::CANCELLED);
 });

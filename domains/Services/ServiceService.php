@@ -438,7 +438,7 @@ final class ServiceService
         }
         $tags = (array) $service->tags;
         $deletion = $tags['deletion'] ?? [];
-        unset($tags['deletion']);
+        unset($tags['deletion'], $tags['reinstatement']); // TASK-0025: a pay-and-restore request belongs to the cancellation it was made for
         $tags['deletion_cancelled'] = array_merge(is_array($deletion) ? $deletion : [], ['cancelled_at' => now()->toIso8601String()]);
         $this->outbox->publish(GenericEvent::of('service.deletion.cancelled', 'service', $service->id, [
             'product_key' => $service->product_key, 'grace_until' => $service->terminate_at?->toIso8601String(),

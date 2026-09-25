@@ -12,6 +12,7 @@ use Onhost\Domain\Billing\Models\RatedUsage;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Billing\Models\Withdrawal;
 use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\InvoiceLine;
@@ -26,6 +27,7 @@ use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Money\Money;
@@ -63,7 +65,11 @@ final class ServiceReinstatement
         'operation_in_progress' => 'Na službě právě běží jiná operace; zkuste to prosím za chvíli.',
         'withdrawn' => 'Od této smlouvy bylo odstoupeno; službu nelze obnovit platbou. Novou si můžete kdykoli objednat.',
         'chargeback' => 'Služba byla zrušena s vrácením kreditu (chargeback) a obnovení by nic nové nestálo; obnovit ji může jen podpora.',
+        'resume_refused' => 'Službu se teď nepodařilo znovu spustit, a tak jsme nic nestrhli ani nezměnili. Zkuste to prosím později, nebo napište podpoře.',
     ];
+
+    /** Spending the organization's credit (TASK-0021 contract); reading it is `billing.wallet.read`. */
+    private const SPEND = 'billing.wallet.spend';
 
     public function __construct(
         private readonly AutomationLedger $ledger,
@@ -73,6 +79,7 @@ final class ServiceReinstatement
         private readonly DunningService $dunning,
         private readonly AuditRecorder $audit,
         private readonly OutboxPublisher $outbox,
+        private readonly Authorizer $authorizer,
     ) {}
 
     public function enabled(): bool
@@ -171,9 +178,10 @@ final class ServiceReinstatement
      * Bring the service back, paying what it owes. Runs inside the bus's transaction (the customer's command) or its own
      * (a payment arrived); the service row is locked, so two requests cannot both charge.
      *
-     * @return array<string,mixed> state `restoring` | `awaiting_payment` | `awaiting_invoices` | `resume_failed`
+     * @return array<string,mixed> state `restoring` | `awaiting_payment` | `awaiting_invoices`
      *
-     * @throws DomainError `reinstatement_refused` (409, `reason`)
+     * @throws DomainError `reinstatement_refused` (409, `reason`; `resume_refused` + `cause` when the resume was refused right
+     *                     after the charge — the charge, its statement and the undone deletion are then rolled back with it)
      */
     public function reinstate(Service $service, CommandContext $context, string $key): array
     {
@@ -201,7 +209,7 @@ final class ServiceReinstatement
                 }
             }
             $subscription = $this->subscriptionOf($service);
-            $cancellation = (string) data_get($service->tags, 'deletion.operation_id', '') ?: (string) $service->terminate_at?->timestamp;
+            $cancellation = self::cancellationKey($service);
             try {
                 // one key per cancellation: a second request, a retried event and the customer's click can never charge twice
                 $billing = $this->subscriptions->reinstate($subscription, $service, $context, "sub_reinstate:{$subscription->id}:{$cancellation}", ! $this->refundedSinceCancellation($service));
@@ -260,7 +268,13 @@ final class ServiceReinstatement
      * A chargeback-cancelled service is refused whether the rule is on or off; with the rule on the one way back is to pay a
      * whole new period (402 with the quote) — and where no new period would be charged (a metered product) there is none.
      *
-     * @throws DomainError `chargeback_cancelled` (409), or `reinstatement_payment_required` (402) with the rule on
+     * With the rule on, taking a cancellation back starts its billing again (RestartBillingAfterRestore: the next renewals are
+     * charged to the credit), so it needs `billing.wallet.spend` at the organization — not a guest of the service, not an
+     * org_admin, not an API token or an assistant (review round 2). The 402 names the organization's credit and invoices
+     * only to who may read them (`billing.wallet.read`); anybody else hears the price and the way to pay.
+     *
+     * @throws DomainError `chargeback_cancelled` (409); with the rule on `reinstatement_spend_required` (403) or
+     *                     `reinstatement_payment_required` (402)
      */
     public function assertCustomerMayResume(Service $service, CommandContext $context): void
     {
@@ -273,13 +287,17 @@ final class ServiceReinstatement
         if ($this->chargebackEndedThisCancellation($service) && ! ($this->enabled() && $this->newPeriodCharged($service))) {
             throw new DomainError('chargeback_cancelled', 'Služba byla zrušena s vrácením kreditu (chargeback); obnovit ji může jen podpora.', 409, ['grace_until' => $service->terminate_at->toIso8601String()]);
         }
-        if ($this->enabled()) {
-            $quote = $this->quote($service);
-            if ($quote['total_due']->isPositive()) {
-                throw new DomainError('reinstatement_payment_required', 'Služba je zrušená a zaplacené období skončilo'.($quote['outstanding_invoices'] !== [] ? ' nebo zbývá uhradit fakturu' : '').'. Obnovíte ji zaplacením: '.$quote['total_due']->format('cs').'.', 402, ['quote' => $quote, 'pay' => "/v1/services/{$service->id}/reinstate"]);
-            }
-
+        if (! $this->enabled()) {
             return;
+        }
+        if (! $this->actorMay($context, self::SPEND, $service->organization_id)) {
+            throw new DomainError('reinstatement_spend_required', 'Zrušení služby může vzít zpět jen ten, kdo smí platit z kreditu organizace (vlastník nebo správce fakturace) — služba se tím znovu začne účtovat. Požádejte o to prosím vlastníka.', 403, ['permission' => self::SPEND]);
+        }
+        $quote = $this->quote($service);
+        if ($quote['total_due']->isPositive()) {
+            $shown = $this->actorMay($context, 'billing.wallet.read', $service->organization_id) ? $quote : ['total_due' => $quote['total_due'], 'renewal' => $quote['renewal'], 'grace_until' => $quote['grace_until']];
+
+            throw new DomainError('reinstatement_payment_required', 'Služba je zrušená a zaplacené období skončilo'.($quote['outstanding_invoices'] !== [] ? ' nebo zbývá uhradit fakturu' : '').'. Obnovíte ji zaplacením: '.$quote['total_due']->format('cs').'.', 402, ['quote' => $shown, 'pay' => "/v1/services/{$service->id}/reinstate"]);
         }
     }
 
@@ -327,24 +345,22 @@ final class ServiceReinstatement
         unset($tags['reinstatement']);
         $service->forceFill(['tags' => $tags])->save();
         $services->undoScheduledDeletion($service, $context); // first: from now on the purge cannot take a paid service, whatever the resume does
-        $operationId = null;
-        $failure = null;
         try {
             // the ordinary resume, as the platform: it lifts the `payment` hold and nothing else, and brings the carried sites back
             $operationId = $services->requestAction($service, 'resume', CommandContext::system('reinstated after payment')->withScope($service->organization_id), "reinstate:{$service->id}:{$cancellation}", ['reason' => 'reinstated after payment', 'lift' => SuspensionHold::PAYMENT])->id;
         } catch (DomainError $e) {
-            $failure = $e->error; // the money and the undone deletion stay; with no hold left the customer or staff can resume
+            // refused on the spot (review round 2): keeping the money would leave a paid, suspended service that is never purged
+            // and renews again — thrown inside the transaction, so the charge, its statement and the undone deletion go back too
+            throw new DomainError('reinstatement_refused', self::REFUSALS['resume_refused'], 409, ['reason' => 'resume_refused', 'cause' => $e->error]);
         }
         foreach (DunningCase::query()->where('service_id', $service->id)->where('state', DunningCase::TERMINATED)->get() as $case) {
             $this->dunning->noteReinstated($case, $service->id, $context);
         }
-        $detail = ['operation_id' => $operationId, 'billing' => $billing['result'], 'document_id' => $billing['document_id'], 'amount' => $billing['amount'], 'period_end' => $billing['period_end'], 'error' => $failure];
-        $this->audit->record($context->withScope($service->organization_id), 'service.reinstate', $failure === null ? 'succeeded' : 'failed', $detail, 'service', $service->id);
-        $this->outbox->publish($failure === null
-            ? GenericEvent::of('service.reinstated', 'service', $service->id, ['label' => self::label($service), 'amount' => $billing['amount'], 'billing' => $billing['result'], 'document_id' => $billing['document_id'], 'period_end' => $billing['period_end'], 'operation_id' => $operationId], $service->organization_id)
-            : GenericEvent::of('service.reinstatement.failed', 'service', $service->id, ['label' => self::label($service), 'error' => $failure, 'billing' => $billing['result'], 'document_id' => $billing['document_id']], $service->organization_id));
+        $detail = ['operation_id' => $operationId, 'billing' => $billing['result'], 'document_id' => $billing['document_id'], 'amount' => $billing['amount'], 'period_end' => $billing['period_end']];
+        $this->audit->record($context->withScope($service->organization_id), 'service.reinstate', 'succeeded', $detail, 'service', $service->id);
+        $this->outbox->publish(GenericEvent::of('service.reinstated', 'service', $service->id, ['label' => self::label($service), 'amount' => $billing['amount'], 'billing' => $billing['result'], 'document_id' => $billing['document_id'], 'period_end' => $billing['period_end'], 'operation_id' => $operationId], $service->organization_id));
 
-        return ['state' => $failure === null ? 'restoring' : 'resume_failed', 'operation_id' => $operationId, 'billing' => $billing['result'], 'document_id' => $billing['document_id'], 'charged' => $billing['amount'], 'period_end' => $billing['period_end'], 'error' => $failure];
+        return ['state' => 'restoring', 'operation_id' => $operationId, 'billing' => $billing['result'], 'document_id' => $billing['document_id'], 'charged' => $billing['amount'], 'period_end' => $billing['period_end'], 'error' => null];
     }
 
     /**
@@ -353,11 +369,20 @@ final class ServiceReinstatement
     private function settle(Service $service, CommandContext $context, string $trigger, bool $dunnedForThis): int
     {
         try {
+            $wish = data_get($service->tags, 'reinstatement');
+            if (is_array($wish)) {
+                // a request belongs to the cancellation it was made for, and is paid for only while who asked may still spend the credit
+                $drop = ($wish['cancellation'] ?? null) !== self::cancellationKey($service) ? 'stale' : ($this->requesterMaySpend($wish, $service) ? null : 'requester');
+                if ($drop !== null) {
+                    $this->dropWish($service, $context, $drop);
+
+                    return 0;
+                }
+            }
             $quote = $this->quote($service);
             if (! $quote['eligible'] || $quote['outstanding_invoices'] !== []) {
                 return 0;
             }
-            $wish = data_get($service->tags, 'reinstatement');
             $chargeNow = $quote['total_due']->minor;
             if (is_array($wish)) {
                 if ($chargeNow > (int) ($wish['quoted_total_minor'] ?? 0) && $chargeNow > 0) { // the price moved since the customer asked: they are told, not charged
@@ -377,9 +402,12 @@ final class ServiceReinstatement
             }
             $result = $this->reinstate($service, $context, "reinstate:{$trigger}:{$service->id}");
 
-            return in_array($result['state'] ?? '', ['restoring', 'resume_failed'], true) ? 1 : 0;
+            return ($result['state'] ?? '') === 'restoring' ? 1 : 0;
         } catch (DomainError $e) {
-            $this->audit->record($context->withScope($service->organization_id), 'service.reinstate', 'failed', ['trigger' => $trigger, 'error' => $e->error], 'service', $service->id);
+            $this->audit->record($context->withScope($service->organization_id), 'service.reinstate', 'failed', ['trigger' => $trigger, 'error' => $e->error, 'reason' => $e->extra['reason'] ?? null], 'service', $service->id);
+            if (($e->extra['reason'] ?? null) === 'resume_refused') { // a payment arrived for it and it could not come back: nothing was charged, staff look at it
+                $this->outbox->publish(GenericEvent::of('service.reinstatement.failed', 'service', $service->id, ['label' => self::label($service), 'error' => (string) ($e->extra['cause'] ?? ''), 'billing' => 'rolled_back', 'document_id' => null, 'trigger' => $trigger], $service->organization_id));
+            }
 
             return 0;
         } catch (Throwable $e) {
@@ -403,16 +431,72 @@ final class ServiceReinstatement
             ->filter(fn (Service $s) => in_array($s->id, $named, true) || is_array(data_get($s->tags, 'reinstatement')))->values()->all();
     }
 
-    /** @param array<string,mixed> $quote */
+    /**
+     * The request, bound to this cancellation (review round 2): a request of an earlier cancellation is never carried over,
+     * and a payment retrying it later keeps who asked — the one whose authority the charge rests on.
+     *
+     * @param  array<string,mixed>  $quote
+     */
     private function recordWish(Service $service, CommandContext $context, array $quote, string $key): void
     {
         $tags = (array) $service->tags;
+        $cancellation = self::cancellationKey($service);
+        $previous = data_get($tags, 'reinstatement');
+        $same = is_array($previous) && ($previous['cancellation'] ?? null) === $cancellation;
         $tags['reinstatement'] = [
-            'requested_at' => data_get($tags, 'reinstatement.requested_at') ?? now()->toIso8601String(), 'by' => $context->actorType.($context->actorId !== null ? ':'.$context->actorId : ''),
-            'quoted_total_minor' => $quote['total_due']->minor, 'currency' => $quote['total_due']->currency->value, 'key' => mb_substr($key, 0, 160),
+            'requested_at' => ($same ? ($previous['requested_at'] ?? null) : null) ?? now()->toIso8601String(),
+            'by' => ($same ? ($previous['by'] ?? null) : null) ?? $context->actorType.($context->actorId !== null ? ':'.$context->actorId : ''),
+            'cancellation' => $cancellation, 'quoted_total_minor' => $quote['total_due']->minor, 'currency' => $quote['total_due']->currency->value, 'key' => mb_substr($key, 0, 160),
         ];
         $service->forceFill(['tags' => $tags])->save();
         $this->audit->record($context->withScope($service->organization_id), 'service.reinstate.requested', 'succeeded', ['total_due' => $quote['total_due'], 'shortfall' => $quote['shortfall'], 'invoices' => count($quote['outstanding_invoices'])], 'service', $service->id);
+    }
+
+    /** `stale`: made for an earlier cancellation (silently); `requester`: who asked may no longer spend the credit (they are told). */
+    private function dropWish(Service $service, CommandContext $context, string $why): void
+    {
+        $tags = (array) $service->tags;
+        $by = (string) data_get($tags, 'reinstatement.by', '');
+        unset($tags['reinstatement']);
+        $service->forceFill(['tags' => $tags])->save();
+        $this->audit->record($context->withScope($service->organization_id), 'service.reinstate.dropped', 'succeeded', ['why' => $why, 'requested_by' => $by], 'service', $service->id);
+        if ($why === 'requester') {
+            $this->outbox->publish(GenericEvent::of('service.reinstatement.dropped', 'service', $service->id, ['label' => self::label($service), 'why' => $why, 'grace_until' => $service->terminate_at?->toIso8601String()], $service->organization_id));
+        }
+    }
+
+    /** @param array<string,mixed> $wish */
+    private function requesterMaySpend(array $wish, Service $service): bool
+    {
+        [$type, $id] = array_pad(explode(':', (string) ($wish['by'] ?? ''), 2), 2, null);
+        if ($type === 'system') {
+            return true; // recorded by the platform acting on a payment (a paid invoice), not on somebody's authority
+        }
+
+        return $this->actorMay(new CommandContext((string) $type, $id !== '' ? $id : null), self::SPEND, $service->organization_id);
+    }
+
+    /**
+     * The actor holds the permission at the organization: staff always; a user by their bindings; an API token or an
+     * assistant never (spending and reading the credit are the organization's people's own decision).
+     */
+    private function actorMay(CommandContext $context, string $permission, string $organizationId): bool
+    {
+        if ($context->actorType !== 'user' || $context->actorId === null) {
+            return false;
+        }
+        $user = User::query()->find($context->onBehalfOfUserId ?? $context->actorId); // whose permissions the bus checks too
+        if ($user === null) {
+            return false;
+        }
+
+        return $user->isActive() && ((bool) $user->is_staff || $this->authorizer->can($user, $permission, CommandScope::organization($organizationId)));
+    }
+
+    /** Which cancellation this is: a restore, its one charge and a recorded request belong to exactly one. */
+    private static function cancellationKey(Service $service): string
+    {
+        return (string) data_get($service->tags, 'deletion.operation_id', '') ?: (string) $service->terminate_at?->timestamp;
     }
 
     private function subscriptionOf(Service $service): ?Subscription
