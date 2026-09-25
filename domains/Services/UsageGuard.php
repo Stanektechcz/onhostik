@@ -6,6 +6,7 @@ namespace Onhost\Domain\Services;
 
 use Carbon\CarbonImmutable;
 use Onhost\Domain\Services\Metering\UsageMetrics;
+use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Errors\DomainError;
 
@@ -39,8 +40,11 @@ final class UsageGuard
         'wp.install', 'wp.plugin', 'mailbox.create', 'mailbox.restore',
     ];
 
-    /** The metrics that mean "there is no room on the node for more of this service". */
-    public const STORAGE_METRICS = ['disk', 'inodes'];
+    /**
+     * The metrics that mean "there is no room on the node for more of this service". `disk_total` (files + databases +
+     * mail, TASK-0023) counts only once it is enforced for the service (`WebDiskTotal::enforcedFor`).
+     */
+    public const STORAGE_METRICS = ['disk', 'inodes', WebDiskTotal::METRIC];
 
     /**
      * The measurement the platform holds, if it is fresh enough to act on.
@@ -58,7 +62,7 @@ final class UsageGuard
         // a measurement written before metering has no baseline list and counts as confirmed
         $baseline = array_map('strval', (array) ($usage['baseline'] ?? []));
         foreach (self::STORAGE_METRICS as $key) {
-            if (in_array($key, $baseline, true) || UsageMetrics::isSoft($key)) {
+            if (in_array($key, $baseline, true) || UsageMetrics::isSoft($key) || ($key === WebDiskTotal::METRIC && ! WebDiskTotal::enforcedFor($service))) {
                 continue;
             }
             $metric = (array) data_get($usage, "metrics.{$key}", []);
@@ -76,13 +80,16 @@ final class UsageGuard
         if (! in_array($action, self::GROWING, true) || ! in_array($service->family, ['web', 'managed'], true)) {
             return;
         }
-        $full = self::full($service);
+        // an included site has no plan space of its own: its owner's enforced total is the plan's
+        $full = self::full($service) ?? (IncludedServices::isIncluded($service) ? WebDiskTotal::fullFor($service) : null);
         if ($full === null) {
             return;
         }
-        $what = $full['key'] === 'inodes'
-            ? 'počet souborů webu je na '.$full['pct'].' % tarifu ('.number_format($full['used'], 0, ',', ' ').' z '.number_format($full['limit'], 0, ',', ' ').')'
-            : 'web má zaplněno '.$full['pct'].' % prostoru tarifu ('.self::gb($full['used']).' z '.self::gb($full['limit']).')';
+        $what = match ($full['key']) {
+            'inodes' => 'počet souborů webu je na '.$full['pct'].' % tarifu ('.number_format($full['used'], 0, ',', ' ').' z '.number_format($full['limit'], 0, ',', ' ').')',
+            WebDiskTotal::METRIC => 'místo tarifu (soubory + databáze + pošta) je zaplněno na '.$full['pct'].' % ('.self::gb($full['used']).' z '.self::gb($full['limit']).')',
+            default => 'web má zaplněno '.$full['pct'].' % prostoru tarifu ('.self::gb($full['used']).' z '.self::gb($full['limit']).')',
+        };
 
         throw new DomainError('service_storage_full', ucfirst($what).'. Uvolněte místo (smazání souborů, starých záloh nebo nepoužívané databáze), nebo zvyšte tarif. Do té doby nejde přidávat další obsah.', 409, [
             'metric' => $full['key'], 'used' => $full['used'], 'limit' => $full['limit'], 'pct' => $full['pct'], 'action' => $action,

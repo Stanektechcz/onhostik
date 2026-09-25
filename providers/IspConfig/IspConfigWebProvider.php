@@ -13,6 +13,7 @@ use Onhost\Providers\Contracts\ActionPlan;
 use Onhost\Providers\Contracts\ActualState;
 use Onhost\Providers\Contracts\AsyncHandle;
 use Onhost\Providers\Contracts\AsyncStatus;
+use Onhost\Providers\Contracts\DatabaseSizeCapable;
 use Onhost\Providers\Contracts\FileTransport;
 use Onhost\Providers\Contracts\MailboxBackupRetention;
 use Onhost\Providers\Contracts\MailProvider;
@@ -34,8 +35,9 @@ use Onhost\Providers\Shell\SecurityRules;
  * (§15). One ISPConfig client per ONhost organization, one Unix user + PHP-FPM
  * pool per site, real per-site limits from the plan entitlements.
  */
-final class IspConfigWebProvider implements MailboxBackupRetention, MailProvider, MailToolsProvider, SelfProbing, WebHostingProvider, WebToolsProvider
+final class IspConfigWebProvider implements DatabaseSizeCapable, MailboxBackupRetention, MailProvider, MailToolsProvider, SelfProbing, WebHostingProvider, WebToolsProvider
 {
+    use IspConfigDatabaseSizes;
     use IspConfigMailBackups;
     use IspConfigMailTools;
     use IspConfigTools;

@@ -195,3 +195,11 @@ Payload addition (TASK-0023, owner decision 19): every `capacity.forecast.low` r
 of their owner's space), `disk_used_gb` and `disk_headroom_gb`; a web or managed pool is also low when its disk is
 judged by what was sold and no headroom is left.
 <!-- TASK-0023 placement-capacity: end -->
+
+<!-- TASK-0023 web-disk-total: begin -->
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `service.disk_total.announced` | service | `effective` (Y-m-d from which the plan space counts files + databases + mail together), `hostname`, `label`, `files`, `databases`, `mail`, `total`, `limit` (bytes; null = not measured, never 0), `pct`, `quality` (`measured` / `partial` / `unavailable`), `over` (the total is over the plan today) — the dated notice an operator sent with `onhost:usage:disk-total-notice --send`; once per service and date, recorded as `tags.usage_notices.disk_total`. Routed to the customer (mandatory `service-disk-total-notice` mail + portal note) | AnnounceDiskTotalHandler |
+
+Payload addition (TASK-0023 web-disk-total): once the plan total is enforced for a service, `service.usage.high` may carry the metric `disk_total` in `metrics` / `top` (files + databases + mail against the plan's space).
+<!-- TASK-0023 web-disk-total: end -->

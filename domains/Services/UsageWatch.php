@@ -12,6 +12,7 @@ use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Services\Metering\UsageMetrics;
 use Onhost\Domain\Services\Metering\UsageReading;
 use Onhost\Domain\Services\Metering\UsageRecorder;
+use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -37,6 +38,10 @@ use Throwable;
  * customer, but it blocks nothing (`UsageGuard`) and orders nothing — the automatic upgrade needs two critical readings
  * in a row. With the default-off rule `usage.rotation` the watch goes round every service, measured-longest-ago
  * first, instead of the first 200 by id.
+ *
+ * The plan's space in total (TASK-0023 web-disk-total): files, databases and mail of a web plan are added up
+ * (`WebDiskTotal`) and kept beside the metrics as `tags.usage.disk_total`. They enter the metrics — and so the level,
+ * the notice, the automatic upgrade and `UsageGuard` — only once the total is enforced for the service.
  */
 final class UsageWatch
 {
@@ -66,6 +71,7 @@ final class UsageWatch
         private readonly AuditRecorder $audit,
         private readonly UsageRecorder $recorder,
         private readonly AutomationLedger $ledger,
+        private readonly WebDiskTotal $diskTotal,
     ) {}
 
     /** @return array<string, int|null> checked, warned, critical, full, upgraded, errors, unavailable, baseline, observed_only, rotation, lag_hours */
@@ -87,7 +93,11 @@ final class UsageWatch
 
                 continue;
             }
-            $this->apply($service, $readings, $stats);
+            $total = $this->diskTotal($service);
+            if ($total !== null) {
+                $this->recorder->record($service, WebDiskTotal::readings($total, WebDiskTotal::enforcedFor($service)), now());
+            }
+            $this->apply($service, $readings, $stats, $total);
         }
 
         return $stats;
@@ -299,7 +309,8 @@ final class UsageWatch
     {
         return match ($key) {
             'disk' => $locale === 'cs' ? 'prostor' : 'disk space', 'traffic' => $locale === 'cs' ? 'přenos dat' : 'traffic', 'memory' => $locale === 'cs' ? 'paměť' : 'memory', 'mail' => $locale === 'cs' ? 'poštovní schránky' : 'mailboxes',
-            'inodes' => $locale === 'cs' ? 'počet souborů' : 'file count', default => $key,
+            'inodes' => $locale === 'cs' ? 'počet souborů' : 'file count',
+            WebDiskTotal::METRIC => $locale === 'cs' ? 'prostor tarifu celkem (soubory, databáze, pošta)' : 'plan storage in total (files, databases, mail)', default => $key,
         };
     }
 
@@ -313,16 +324,24 @@ final class UsageWatch
      *
      * @param  list<UsageReading>  $readings
      * @param  array<string, int|null>  $stats
+     * @param  array<string, mixed>|null  $total  the plan's total (web/managed owners only)
      */
-    private function apply(Service $service, array $readings, array &$stats): void
+    private function apply(Service $service, array $readings, array &$stats, ?array $total = null): void
     {
         [$metrics, $observed, $missing] = self::split($readings, (string) $service->family);
+        $enforced = $total === null ? null : WebDiskTotal::metricOf($total);
+        if ($enforced !== null && WebDiskTotal::enforcedFor($service)) { // before the date the total is only shown
+            $metrics[WebDiskTotal::METRIC] = $enforced;
+        }
+        $tags = (array) ($service->tags ?? []);
         if ($metrics === [] && $missing === []) { // nothing limited to talk about: the samples hold the numbers, the tags stay as they were
             $stats['observed_only'] += $observed === [] ? 0 : 1;
+            if ($total !== null) {
+                $service->forceFill(['tags' => array_merge($tags, ['usage' => array_merge((array) ($tags['usage'] ?? []), ['disk_total' => $total])])])->save();
+            }
 
             return;
         }
-        $tags = (array) ($service->tags ?? []);
         $previous = (array) ($tags['usage'] ?? []);
         $unavailable = self::unavailableOf($missing, $previous);
         $stats['unavailable'] += $unavailable === [] ? 0 : 1;
@@ -330,7 +349,7 @@ final class UsageWatch
             // not one limited number came back: say so instead of "0 %, fine"; what the customer was told and when stays,
             // so the next real reading does not repeat a notice, and the last real reading ages out of UsageGuard on its own
             $usage = array_merge(array_intersect_key($previous, ['checked_at' => 1, 'notified_level' => 1, 'notified_on' => 1, 'auto_upgrade_on' => 1, 'baseline' => 1]),
-                ['level' => 'unknown', 'metrics' => [], 'unavailable' => $unavailable, 'observed' => $observed, 'unavailable_at' => now()->toIso8601String()]);
+                ['level' => 'unknown', 'metrics' => [], 'unavailable' => $unavailable, 'observed' => $observed, 'unavailable_at' => now()->toIso8601String()], $total === null ? [] : ['disk_total' => $total]);
             $service->forceFill(['tags' => array_merge($tags, ['usage' => $usage])])->save();
 
             return;
@@ -339,7 +358,7 @@ final class UsageWatch
         $baseline = self::baselineOf($metrics, $previous);
         $stats['baseline'] += $baseline === [] ? 0 : 1;
         $usage = ['level' => $level, 'metrics' => $metrics, 'checked_at' => now()->toIso8601String(), 'notified_level' => $previous['notified_level'] ?? 'ok', 'notified_on' => $previous['notified_on'] ?? null, 'auto_upgrade_on' => $previous['auto_upgrade_on'] ?? null,
-            'baseline' => $baseline, 'observed' => $observed, 'unavailable' => $unavailable];
+            'baseline' => $baseline, 'observed' => $observed, 'unavailable' => $unavailable] + ($total === null ? [] : ['disk_total' => $total]);
         $today = now()->toDateString();
         $upgrade = null;
         if ($level !== 'ok') {
@@ -371,6 +390,24 @@ final class UsageWatch
             $usage['notified_level'] = 'ok';
         }
         $service->forceFill(['tags' => array_merge($tags, ['usage' => $usage])])->save();
+    }
+
+    /**
+     * The plan's total for a paying web/managed service (an included site's space is its owner's), never null-as-0: a total
+     * that could not be read at all is stored as unavailable with the reason.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function diskTotal(Service $service): ?array
+    {
+        if (! in_array($service->family, ['web', 'managed'], true) || IncludedServices::isIncluded($service)) {
+            return null;
+        }
+        try {
+            return $this->diskTotal->measure($service);
+        } catch (Throwable $e) {
+            return ['total' => null, 'limit' => WebDiskTotal::limitBytes($service), 'pct' => null, 'quality' => WebDiskTotal::UNAVAILABLE, 'reason' => self::errorCode($e), 'checked_at' => now()->toIso8601String()];
+        }
     }
 
     /** @return array{0: list<UsageReading>, 1: string|null} the readings, and the error code when the panel could not be asked */

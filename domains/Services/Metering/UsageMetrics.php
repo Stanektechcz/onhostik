@@ -24,6 +24,8 @@ final class UsageMetrics
         'inodes' => ['registry' => 'inodes', 'unit' => 'count', 'watched' => ['web', 'managed']],
         'memory' => ['registry' => 'ram_mb', 'unit' => 'bytes', 'watched' => ['cloud', 'game']],
         'mail' => ['registry' => 'quota_mb', 'unit' => 'bytes', 'watched' => ['mail']],
+        // files + databases + mail of a web plan (WebDiskTotal); a watch metric only once enforced for the service
+        'disk_total' => ['registry' => 'nvme_gb', 'unit' => 'bytes', 'watched' => ['web', 'managed']],
     ];
 
     /** The metrics read for each family (what a failed reading is recorded as missing). @var array<string, list<string>> */

@@ -20,6 +20,7 @@ use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Commands\WebToolsCommand;
 use Onhost\Domain\Services\DestructivePreview;
 use Onhost\Domain\Services\Mail\MailboxPasswordLinks;
+use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\SshKeyGrant;
@@ -151,7 +152,8 @@ final class ServiceController extends ApiController
         $model = $this->resolve($request, $service);
         $usage = $services->usage($model);
 
-        return response()->json(['data' => ['metrics' => $usage->metrics, 'observed_at' => $usage->observedAt]]);
+        // the plan's total (files + databases + mail) as the usage watch last stored it (TASK-0023)
+        return response()->json(['data' => ['metrics' => $usage->metrics, 'observed_at' => $usage->observedAt, 'disk_total' => WebDiskTotal::held($model)]]);
     }
 
     public function operations(Request $request, string $service): JsonResponse

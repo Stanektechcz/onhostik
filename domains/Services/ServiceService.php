@@ -42,6 +42,7 @@ use Onhost\Domain\Provisioning\Workflows\StagingWorkflow;
 use Onhost\Domain\Provisioning\Workflows\WordPressWorkflow;
 use Onhost\Domain\Services\Access\OwnerOnlyActions;
 use Onhost\Domain\Services\Limits\LimitRaises;
+use Onhost\Domain\Services\Metering\CustomerUsage;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\DatabaseInstance;
 use Onhost\Domain\Services\Models\Service;
@@ -1401,7 +1402,7 @@ final class ServiceService
             throw new DomainError('usage_unsupported', 'This service type reports no usage.', 422);
         }
 
-        return $adapter->usage($binding->ref());
+        return CustomerUsage::of($service, $adapter->usage($binding->ref()));
     }
 
     public function transition(Service $service, string $to, CommandContext $context, ?string $note = null): Service

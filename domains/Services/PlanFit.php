@@ -8,6 +8,7 @@ use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
 use Onhost\Domain\Services\Metering\UsageRecorder;
+use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\StagingLink;
 use Onhost\Domain\Services\Web\ServiceSites;
@@ -96,9 +97,16 @@ final class PlanFit
         return $out;
     }
 
-    /** What the service stores: the watch's last reading, else the newest sample with a number, else null — never a false 0. */
+    /**
+     * What the service stores: the watch's last reading, else the newest sample with a number, else null — never a false 0.
+     * Once the plan's total (files + databases + mail) is enforced for the service, a fully measured total is what it stores.
+     */
     public function usedDiskBytes(Service $service): ?int
     {
+        $total = WebDiskTotal::enforcedFor($service) ? WebDiskTotal::held($service) : null;
+        if ($total !== null && ($total['quality'] ?? null) === WebDiskTotal::MEASURED && is_numeric($total['total'] ?? null)) {
+            return (int) $total['total'];
+        }
         $tagged = data_get($service->tags, 'usage.metrics.disk.used');
         if (is_numeric($tagged)) {
             return (int) $tagged;

@@ -685,6 +685,14 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
             'daily_days' => (int) env('ONHOST_METERING_DAILY_DAYS', 400),
             // monthly rows are never pruned
         ],
+        // ── TASK-0023 web-disk-total (owner decision 10) ──
+        // the plan space counts files + databases + mail together from this date (Y-m-d; empty = never, only shown) and only for
+        // a service told at least notice_min_days before it (onhost:usage:disk-total-notice) or ordered on or after it
+        'web_disk_total' => [
+            'enforce_from' => env('ONHOST_WEB_DISK_TOTAL_ENFORCE_FROM') ?: null,
+            'notice_min_days' => (int) env('ONHOST_WEB_DISK_TOTAL_NOTICE_DAYS', 30),
+        ],
+        // ── end TASK-0023 web-disk-total ──
     ],
     // ── end TASK-0023 metering-core ─────────────────────────────────────────────────────────────────────────────────
 ];

@@ -409,6 +409,14 @@
     var cell = function (t, mono) { return { t: t, style: 'flex:1 1 200px;min-width:0;font-size:13px;' + (mono ? 'font-family:ui-monospace,Menlo,monospace;font-size:12px' : '') }; };
     if (q && !q.__error) {
       [[_('Obsazený prostor', 'Disk used'), bytes(q.disk_used_bytes) + (q.disk_limit_bytes ? ' / ' + bytes(q.disk_limit_bytes) : '')], [_('Přenos tento měsíc', 'Traffic this month'), bytes(q.traffic_used_bytes) + (q.traffic_limit_bytes ? ' / ' + bytes(q.traffic_limit_bytes) : '')], [_('Počet souborů', 'Files'), q.inodes_used == null ? '—' : String(q.inodes_used)], [_('Změřeno', 'Measured'), ctx.X.since(ctx.cmp, q.measured_at) || '—']].forEach(function (p) { core.rows.push({ cells: [cell(p[0]), cell(p[1], 1)], note: '' }); });
+      // TASK-0023: the plan's space is files + databases + mail together; a part nobody measured says so, never 0
+      var t = q.total, nm = function (v) { return v == null ? _('nezměřeno', 'not measured') : bytes(v); };
+      if (t && typeof t === 'object') {
+        [[_('Soubory', 'Files'), nm(t.files)], [_('Databáze', 'Databases'), nm(t.databases)], [_('Pošta', 'Mail'), nm(t.mail)],
+          [_('Celkem z tarifu', 'Plan total'), (t.total == null ? _('nezměřeno', 'not measured') : (t.quality === 'partial' ? _('alespoň ', 'at least ') : '') + bytes(t.total)) + (t.limit ? ' / ' + bytes(t.limit) : '') + (t.pct != null && t.quality === 'measured' ? ' · ' + t.pct + ' %' : '')]
+        ].forEach(function (p) { core.rows.push({ cells: [cell(p[0]), cell(p[1], 1)], note: '' }); });
+        if (q.total_enforced_from) core.rows.push({ cells: [cell(_('Limit tarifu', 'Plan limit')), cell(_('Od ', 'From ') + new Date(q.total_enforced_from + 'T00:00:00').toLocaleDateString('cs-CZ') + _(' se limit tarifu počítá ze součtu', ' the plan limit counts the total'))], note: '' });
+      }
     }
     core.extra = (core.extra || []).concat([refreshBtn(ctx, ['quotas', 'usage'])]);
     return core;

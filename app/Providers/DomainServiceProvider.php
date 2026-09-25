@@ -82,6 +82,8 @@ use Onhost\Domain\Services\Commands\WebToolsCommand;
 use Onhost\Domain\Services\Commands\WebToolsCommandHandler;
 use Onhost\Domain\Services\Listeners\CloseServiceAccessGrants;
 use Onhost\Domain\Services\Listeners\RevokeDelegatedAccess;
+use Onhost\Domain\Services\Metering\AnnounceDiskTotalCommand;
+use Onhost\Domain\Services\Metering\AnnounceDiskTotalHandler;
 use Onhost\Domain\Support\Commands\WorkOfferCommandHandler;
 use Onhost\Domain\Support\Commands\WorkOfferDecisionCommand;
 use Onhost\Domain\Support\Commands\WorkOfferStaffCommand;
@@ -146,6 +148,9 @@ final class DomainServiceProvider extends ServiceProvider
         ApprovalDecisionCommand::class => ApprovalDecisionCommandHandler::class,
         PartnerCommand::class => PartnersCommandHandler::class,
         PartnerPortalCommand::class => PartnersCommandHandler::class,
+        // ── TASK-0023 web-disk-total ──
+        AnnounceDiskTotalCommand::class => AnnounceDiskTotalHandler::class,
+        // ── end TASK-0023 web-disk-total ──
     ];
 
     public function boot(): void

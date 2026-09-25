@@ -47,7 +47,7 @@
     var cert = { issued: _('vystavený', 'issued'), requested: _('žádáme o vystavení', 'being issued'), pending_dns: _('čeká na DNS domény', 'waiting for the domain DNS'), failed: _('vystavení selhalo', 'issuing failed') };
     var mon = sm.monitor ? ({ up: _('běží', 'up'), down: _('nedostupný', 'down'), pending: _('první kontrola', 'first check') }[sm.monitor.state] || sm.monitor.state) + (sm.monitor.last_ms != null ? ' · ' + sm.monitor.last_ms + ' ms' : '') + (sm.monitor.last_checked_at ? ' · ' + new Date(sm.monitor.last_checked_at).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }) : '') : _('bez monitoru', 'no monitor');
     var ops = sm.operations || {};
-    var usage = sm.usage && sm.usage.metrics ? Object.keys(sm.usage.metrics).map(function (k) { var m = sm.usage.metrics[k]; return ({ disk: _('prostor', 'disk'), traffic: _('přenos', 'traffic'), memory: _('paměť', 'memory') }[k] || k) + ' ' + m.pct + ' %'; }).join(' · ') : '';
+    var usage = sm.usage && sm.usage.metrics ? Object.keys(sm.usage.metrics).map(function (k) { var m = sm.usage.metrics[k]; return ({ disk: _('prostor', 'disk'), traffic: _('přenos', 'traffic'), memory: _('paměť', 'memory'), disk_total: _('prostor celkem', 'storage in total') }[k] || k) + ' ' + m.pct + ' %'; }).join(' · ') : '';
     var usageLevel = sm.usage ? sm.usage.level : null;
     return [
       [_('Tarif', 'Plan'), sm.plan && sm.plan.name ? sm.plan.name + (per ? ' · ' + per : '') + (sm.plan.sla_class && sm.plan.sla_class !== 'standard' ? ' · SLA ' + sm.plan.sla_class : '') : '—'],

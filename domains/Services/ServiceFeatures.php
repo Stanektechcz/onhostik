@@ -17,6 +17,7 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Mail\MailDomains;
 use Onhost\Domain\Services\Mail\MailSettings;
+use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -373,7 +374,8 @@ final class ServiceFeatures
             'http_versions' => $this->tools($adapter)->httpVersions($ref),
             'cron_logs' => $this->tools($adapter)->cronLogs($ref, (string) ($params['remote_id'] ?? ''), 200),
             'database_access' => $this->tools($adapter)->databaseAccess($ref, (string) ($params['remote_id'] ?? '')),
-            'quotas' => $this->tools($adapter)->quotas($ref),
+            // the files as the panel reports them, and the plan's total (files + databases + mail) the watch last stored (TASK-0023)
+            'quotas' => array_replace($this->tools($adapter)->quotas($ref), WebDiskTotal::display($service)),
             'node_projects' => $this->tools($adapter)->nodeProjects($ref),
             'proxies' => $this->tools($adapter)->listProxies($ref),
             'default_docs' => ['names' => $this->tools($adapter)->defaultDocuments($ref)],

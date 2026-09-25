@@ -9,6 +9,7 @@ use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\UsageWatch;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxEventDispatched;
@@ -337,6 +338,13 @@ final class NotificationRouter
             // operations (audit §5j-4, §5j-6, §5j-9)
             'rebalance.plan' => $this->internal($m, 'infra', 'Noční plán přerozdělení: '.(int) ($p['moves'] ?? 0).' přesunů ('.($p['basis'] ?? 'usage').')', 'horké uzly: '.implode(', ', (array) ($p['hot'] ?? [])).' · '.implode(' · ', (array) ($p['summary'] ?? [])), '/sprava#/fleet', (int) ($p['moves'] ?? 0) > 0 ? 'warn' : 'info'),
             'chargeback.cluster' => $this->internal($m, 'finance', 'Odchody zákazníků se hromadí: '.($p['label'] ?? ''), (int) ($p['count'] ?? 0).'× · téma '.($p['theme'] ?? '').' · incident '.($p['number'] ?? ''), '/sprava#/incidents', 'hot'),
+            // ── TASK-0023 web-disk-total: the dated notice that the plan space counts files + databases + mail together ──
+            'service.disk_total.announced' => (function () use ($m, $p, $email, $portal) {
+                $v = WebDiskTotal::noticeVars($p);
+                $this->customer($m, 'service', 'Od '.$v['datum'].' se prostor tarifu služby '.$v['sluzba'].' počítá celkem', 'Do limitu tarifu se bude počítat součet souborů, databází a pošty. Dnes: '.$v['celkem'].' z '.$v['limit'].'. '.$v['stav'],
+                    '/panel/sluzby', ! empty($p['over']) ? 'warn' : 'info', $email, 'service-disk-total-notice', $v + ['url' => "{$portal}/panel/sluzby"]);
+            })(),
+            // ── end TASK-0023 web-disk-total ──
             'tenant.sandbox' => $this->customer($m, 'account', ! empty($p['enabled']) ? 'Účet je v režimu sandbox' : 'Režim sandbox ukončen', ! empty($p['enabled']) ? 'Služby se zřizují v laboratorním prostředí; kredit '.$money(['minor' => (int) ($p['credit'] ?? 0), 'currency' => $org?->currency ?? 'CZK']).' je určen k testování.' : 'Nové objednávky jdou do produkce.', '/panel/nastaveni'),
             // ── TASK-0022 limit-raise: the customer hears the new number (billing contact); a raise given at no charge reaches staff too ──
             'service.limit_raised' => (function () use ($m, $p, $email, $portal) {
