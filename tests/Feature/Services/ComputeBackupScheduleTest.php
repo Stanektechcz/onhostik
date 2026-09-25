@@ -63,6 +63,26 @@ function computeBackupAddon(Service $parent, string $product = 'backup-plus', ar
     return $addon;
 }
 
+/**
+ * Many web sites on the lab ISPConfig, each with its own site id (a binding is unique per instance and remote id).
+ *
+ * @return Collection<int, Service>
+ */
+function computeBackupWebFleet(Organization $org, int $count)
+{
+    $first = featureWebService($org, 'ispconfig');
+    $binding = $first->primaryBinding();
+
+    return collect([$first])->concat(collect(range(2, $count))->map(function (int $i) use ($first, $binding) {
+        $service = $first->replicate(['id', 'name_prefix'])->fill(['name' => 'Webhosting '.$i, 'hostname' => 'shop'.$i.'.cz']);
+        $service->save();
+        ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $binding->provider_instance_id, 'remote_type' => $binding->remote_type, 'remote_id' => (string) (1000 + $i),
+            'remote_node' => $binding->remote_node, 'meta' => $binding->meta, 'ownership' => ['managed_by' => 'onhost'], 'idempotency_key' => "fleet:{$service->id}", 'adapter_version' => '1.0.0']);
+
+        return $service;
+    }));
+}
+
 function computeBackupSwitch(bool $on): void
 {
     app(AutomationLedger::class)->setEnabled(BackupScheduler::COMPUTE_RULE, $on, 'test');
@@ -296,4 +316,29 @@ it('lists the servers the rule would start backing up, and writes nothing', func
         ->and(BackupPolicy::query()->count())->toBe($policies)
         ->and($database->fresh()->tags)->toBe([])
         ->and(app(AutomationLedger::class)->enabled(BackupScheduler::COMPUTE_RULE))->toBeFalse();
+});
+
+it('visits every due service in one tick, not only the first hundred', function () {
+    [, $org] = $this->customerWithOrganization();
+    $webs = computeBackupWebFleet($org, 105);
+
+    $stats = app(BackupScheduler::class)->tick(); // the command's default --limit=100 is now the size of one chunk
+
+    $started = Operation::query()->where('idempotency_key', 'like', 'backup:auto:%')->pluck('service_id')->unique();
+    expect($started)->toHaveCount(105)->and($stats['started'])->toBe(105)
+        ->and($webs->pluck('id')->diff($started)->all())->toBe([]); // before: the services after the first hundred by id never got a backup
+
+    app(BackupScheduler::class)->tick(); // the same slot again: still one operation per service
+    expect(Operation::query()->where('idempotency_key', 'like', 'backup:auto:%')->count())->toBe(105);
+});
+
+it('walks the servers in chunks too: a chunk of one still reaches every managed database', function () {
+    [, $org] = $this->customerWithOrganization();
+    $databases = collect(['2101', '2102', '2103'])->map(fn (string $vmid) => computeBackupDataService($org, vmid: $vmid));
+    computeBackupSwitch(true);
+
+    app(BackupScheduler::class)->tick(1);
+
+    expect($databases->every(fn (Service $db) => computeBackupOperations($db)->count() === 1))->toBeTrue()
+        ->and(app(BackupScheduler::class)->computePlan(1))->toHaveCount(3);
 });

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services\Web;
 
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Onhost\Domain\Catalog\Models\Plan;
@@ -45,16 +44,24 @@ final class BackupScheduler
 
     public function __construct(private readonly ServiceService $services, private readonly ServiceFeatures $features, private readonly OutboxPublisher $outbox, private readonly FinalArchive $archives, private readonly AutomationLedger $ledger) {}
 
-    /** @return array{started:int, skipped:int, deleted:int, offsite:int, errors:int} */
+    /**
+     * One pass over EVERY eligible service. `$limit` is the size of one chunk read from the database, not a cap: the tick
+     * used to take the first hundred services by id and never look at the rest, so from the 101st service on nobody
+     * got a scheduled backup at all. A slot stays idempotent (`backup:auto:{id}:{slot}`), so a long pass is harmless.
+     *
+     * @return array{started:int, skipped:int, deleted:int, offsite:int, errors:int, missed:int, paused:int}
+     */
     public function tick(int $limit = 100): array
     {
         $stats = ['started' => 0, 'skipped' => 0, 'deleted' => 0, 'offsite' => 0, 'errors' => 0, 'missed' => 0, 'paused' => 0];
         $context = CommandContext::system('backup scheduler');
-        $services = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->whereNotNull('provider_instance_id')->orderBy('id')->limit($limit)->get();
+        $services = $this->eligible(['web', 'managed', 'mail'], false, $limit);
         if ($this->ledger->enabled(self::COMPUTE_RULE)) {
-            // a window of their own, so a server never takes the place of a web service among the first $limit; only what the
-            // platform provisioned (an instance AND a binding): a server it merely found is not its to back up
-            $services = $services->concat($this->computeServices($limit));
+            // only what the platform provisioned (an instance AND a binding): a server it merely found is not its to back up
+            $services = (function () use ($services, $limit) {
+                yield from $services;
+                yield from $this->eligible(self::COMPUTE_FAMILIES, true, $limit);
+            })();
         }
         foreach ($services as $service) {
             $schedule = null; // never the previous service's schedule, whatever throws below
@@ -267,15 +274,27 @@ final class BackupScheduler
     }
 
     /**
-     * Servers and managed databases the platform provisioned itself — an instance AND a binding. A server without a
-     * binding is one the platform does not own; the schedule would only write misses onto it.
+     * Every live service of the families with a provider instance, read in chunks of `$chunk` by id (keyset, so a row
+     * written meanwhile neither repeats nor hides one). `$owned` also asks for a binding — for servers and managed
+     * databases: one without a binding is not the platform's, and the schedule would only write misses onto it.
      *
-     * @return Collection<int, Service>
+     * @param  list<string>  $families
+     * @return \Generator<int, Service>
      */
-    private function computeServices(int $limit): Collection
+    private function eligible(array $families, bool $owned, int $chunk): \Generator
     {
-        return Service::query()->whereIn('family', self::COMPUTE_FAMILIES)->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])
-            ->whereNotNull('provider_instance_id')->whereHas('bindings')->orderBy('id')->limit($limit)->get();
+        $chunk = max(1, $chunk);
+        $after = null;
+        do {
+            $batch = Service::query()->whereIn('family', $families)->whereIn('state', [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED])->whereNotNull('provider_instance_id')
+                ->when($owned, fn ($q) => $q->whereHas('bindings'))
+                ->when($after !== null, fn ($q) => $q->where('id', '>', $after))
+                ->orderBy('id')->limit($chunk)->get();
+            foreach ($batch as $service) {
+                yield $service;
+            }
+            $after = $batch->last()?->id;
+        } while ($batch->count() === $chunk);
     }
 
     /**
@@ -287,7 +306,7 @@ final class BackupScheduler
     public function computePlan(int $limit = 500): array
     {
         $rows = [];
-        foreach ($this->computeServices($limit) as $service) {
+        foreach ($this->eligible(self::COMPUTE_FAMILIES, true, $limit) as $service) { // all of them; `$limit` is the chunk size
             $sold = $this->features->computeBackupSchedule($service);
             if ($sold === null) {
                 continue; // sold no backups: the rule leaves it alone

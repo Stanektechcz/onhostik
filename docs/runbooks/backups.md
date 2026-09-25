@@ -327,8 +327,7 @@ written on it, and its feature list is the same as before.
 **What it does when on** (every 15 minutes inside `onhost:backups:run`):
 
 * who: `data` and `cloud` services that are ACTIVE/DEGRADED, have a provider instance **and** a binding (only what the
-  platform provisioned), in a window of their own — a server never takes the place of a web service among the first
-  `--limit` of the tick;
+  platform provisioned), after the web services of the same tick;
 * what is sold: a managed database — `backup_days` from its plan (`backup_frequency` or daily, `backup_generations` or
   one per day); a VPS — only while an **active** backup add-on belongs to it and its policy row exists (a policy left
   behind by a cancelled add-on takes no more backups). The customer may set the schedule within that ceiling as on the
@@ -341,6 +340,10 @@ written on it, and its feature list is the same as before.
   service's own VM on its own instance. Never touched: `kind = final` (the final archive is `FinalArchive`'s alone),
   `protected` rows (safety copies), manual backups at the hypervisor, anything under a legal hold. When the storage
   cannot remove a volume the row stays `completed` with `meta.delete_blocked` saying why, and the next tick tries again.
+
+**Every service, every tick.** `onhost:backups:run --limit=100` used to look at the first 100 services by id and never
+at the rest: from the 101st web hosting on, nobody got a scheduled backup. `--limit` is now the size of one chunk; the
+tick walks all eligible services by id (keyset), web/managed/mail first, then the servers under the rule.
 
 The `final` guard applies to web services too: before, an **unprotected** final archive past its date on a service
 the scheduler looked at could be deleted by the generation/retention prune instead of by `FinalArchive::prune()`.

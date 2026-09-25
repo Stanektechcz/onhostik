@@ -755,7 +755,7 @@ Artisan::command('onhost:orders:settle {--limit=200}', function (OrderSettlement
     $this->info('settled orders: '.$settlement->sweep((int) $this->option('limit')));
 })->purpose('Charge what an order delivered and give back what it did not (orders whose settlement was interrupted)');
 
-Artisan::command('onhost:backups:run {--limit=100}', function (BackupScheduler $scheduler, AutomationLedger $ledger) {
+Artisan::command('onhost:backups:run {--limit=100 : services read per chunk; every eligible service is visited}', function (BackupScheduler $scheduler, AutomationLedger $ledger) {
     if ($ledger->off('backups.run')) {
         $this->warn('switched off by staff (console → automation)');
 
@@ -779,7 +779,7 @@ Artisan::command('onhost:backups:run {--limit=100}', function (BackupScheduler $
  * the owner's decision, so the rule `backups.compute` is off until staff switch it on; this lists, read-only, whom it
  * would start backing up and whether their Proxmox instance has a `backup_storage` to put the backups on.
  */
-Artisan::command('onhost:backups:compute-plan {--limit=500}', function (BackupScheduler $scheduler, AutomationLedger $ledger) {
+Artisan::command('onhost:backups:compute-plan {--limit=500 : services read per chunk; every one is listed}', function (BackupScheduler $scheduler, AutomationLedger $ledger) {
     $rows = $scheduler->computePlan(max(1, (int) $this->option('limit')));
     $this->table(['service', 'family', 'plan', 'frequency', 'days', 'generations', 'backup storage'], array_map(fn (array $r) => array_values($r), $rows));
     $this->info(sprintf('%d service(s) would be backed up · rule %s: %s · nothing was changed', count($rows), BackupScheduler::COMPUTE_RULE, $ledger->enabled(BackupScheduler::COMPUTE_RULE) ? 'on' : 'off'));
