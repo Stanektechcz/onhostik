@@ -11,6 +11,7 @@ use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Billing\Models\UsageEvent;
 use Onhost\Domain\Billing\RatingService;
 use Onhost\Domain\Catalog\CatalogService;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\AutomationLedger;
@@ -349,7 +350,12 @@ it('usage.rotation is off by default and switchable by staff; the rollup and pru
         ->and($ledger->rule('metering.rollup')['command'])->toBe('onhost:metering:rollup')
         ->and($ledger->rule('metering.prune')['command'])->toBe('onhost:metering:prune');
 
-    $this->actingAs($this->staff('platform_owner'), 'sanctum');
+    $staff = $this->staff('platform_owner');
+    $this->actingAs($staff, 'sanctum');
+    // TASK-0022 (owner decision 13): switching a rule takes a fresh step-up; rotation reaches every service at once
+    $this->putJson('/v1/staff/automation/usage.rotation', ['enabled' => true, 'reason' => 'preview reviewed'])->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    expect(app(AutomationLedger::class)->enabled('usage.rotation'))->toBeFalse();
+    app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1');
     $this->putJson('/v1/staff/automation/usage.rotation', ['enabled' => true, 'reason' => 'preview reviewed'])->assertOk()->assertJsonPath('enabled', true);
     expect(app(AutomationLedger::class)->enabled('usage.rotation'))->toBeTrue();
 });

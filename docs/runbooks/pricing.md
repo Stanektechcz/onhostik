@@ -224,9 +224,11 @@ schedules). `vcpu` on game plans is enforced: provisioning raises `cpu_pct` to a
 
 A key that is neither measured, enforced, fair use, nor read may still be listed once, honestly, in
 `PlanPromises::KNOWN_GAPS` — a ratchet that may only shrink (fixing a gap without removing the line, or a new gap
-appearing without one, both fail the guard test) — currently 9 entries. The boolean `dedicated_outbound_ip` and
+appearing without one, both fail the guard test) — currently 8 entries. The boolean `dedicated_outbound_ip` and
 `dedicated_db`, the numeric `pitr_days` and `connections` left it with the revision `2026-09-honest-promises` (the owner
-decided they are not provided) and `products` became fair use. `onhost:doctor` shows the tracked list as a standing WARN
+decided they are not provided), `products` became fair use, and `php_workers_dedicated` left it once placement binds a
+dedicated-PHP web plan to ISPConfig, one PHP-FPM pool per site (`PlacementRules`, decision 7; the managed-family gap is
+recorded in its `MetricRegistry` row and the doctor, not in the ratchet). `onhost:doctor` shows the tracked list as a standing WARN
 (`catalog: no known metering gap`) and any *new*, untracked gap as a production FAIL
 (`catalog: the metering gap ratchet is not growing`) — except a key a revision not yet applied still has to remove,
 which is the WARN `catalog: every catalogue revision is applied` naming `onhost:catalog:revise`.
