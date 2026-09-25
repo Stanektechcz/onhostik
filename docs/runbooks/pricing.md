@@ -61,8 +61,9 @@ renewal price. Page: **Nastavení systému → Tarify a verze** (`/sprava/nastav
   (services, live subscriptions): the impact of a change before it is made.
 * `POST …/versions` `{reason, entitlements?, limits?, features?, prices?[{currency, period, amount, renewal_amount?, setup?,
   monthly_cap?}], confirm_large_change?}` — publishes version N+1 from the one on sale. What is not mentioned is carried
-  over, so a currency or a billing period can neither appear nor vanish by omission. `catalog.manage`, risk HIGH, fresh
-  step-up, reason kept in the audit trail; finance gets a notification.
+  over, so a currency or a billing period can neither appear nor vanish by omission. `catalog.manage`, a fresh step-up
+  **and a second person** (owner decision 13, docs/runbooks/approvals.md), reason kept in the audit trail; finance gets a
+  notification. A `null` takes a key off the new version.
 * `POST …/versions/{n}/activate` `{reason}` — puts an existing version (back) on sale: the rollback. Customers of the
   version in between keep it; version numbers are never reused.
 
@@ -74,7 +75,46 @@ either way needs `confirm_large_change`: a slipped decimal place is the usual wa
 
 The prices of an old version stay `active` on purpose — renewals and hourly rating of the services sold with it read
 them. Do not retire them by hand. A promo price (`promo_amount_minor`) belongs to its version and is not carried over.
-`CatalogSeeder` writes version 1 only and never moves `current_version`; it is not part of a deployment.
+`CatalogSeeder` writes version 1 only and never moves `current_version`; it is not part of a deployment (only a fresh
+`install.sh` seeds it). It used to rewrite version 1 — entitlements, features and prices — on every run, i.e. the version
+customers hold; since TASK-0022 it leaves a version alone as soon as a service or a subscription points at it.
+
+## Catalogue revisions (2026-09)
+
+A change the code base decides — a promise the platform turned out not to keep — reaches a running catalogue as new plan
+versions, never as an edit of the seeder or a migration. The revision is written down in
+`domains/Catalog/CatalogRevisions.php` and published by an operator:
+
+```bash
+php artisan onhost:catalog:revise            # dry run: plans, keys each loses, who keeps the old version, promo prices that end
+php artisan onhost:catalog:revise --apply    # publishes (asks first; --yes for a scripted window)
+```
+
+Each plan is one `CatalogCommand plan.publish` through the bus (system actor `cli:catalog:revise`, bound to the version it
+was previewed against): audited, finance gets one *Nová verze tarifu* notification per plan, the prices of the current
+version are carried over unchanged (a revision cannot pass prices or features), everybody on an older version keeps it.
+The command is stateless — what is pending is read from the current versions — so a key staff already removed is skipped,
+a second run prints *Nothing pending*, and a rollback to an old version makes it pending again. A refused plan does not
+undo the others; run it again after fixing the cause. Shell access to the server is the gate (no second person exists for
+the system actor); the content of a revision is reviewed as code.
+
+**`2026-09-honest-promises`** (owner decisions 2, 4, 6 and 18):
+
+| Plan | New version without | Also |
+| --- | --- | --- |
+| `database/db-s`, `database/db-m` | `pitr_days`, `connections` | product description no longer says PITR (`product.describe`, a step-up operation) |
+| `mail/mail-enterprise` | `dedicated_outbound_ip` | |
+| `wordpress/managed-woo` | `dedicated_db` | `backup_frequency` `1h` → `hourly` |
+| `eshop/shop-growth` | — | `backup_frequency` `1h` → `hourly` |
+| `eshop/shop-peak` | `dedicated_db` | |
+
+Without a new version: `products` on the e-shop plans is fair use (decision 5, worded *Doporučeno do N produktů*),
+`cron_concurrency` is shown as *Naplánované úlohy* / *N naplánovaných úloh* (decision 11), and a new managed database
+instance never claims `pitr` (decision 2; an existing row keeps its flag). Before `--apply`, read the dry run: a promo
+price on the current version ends for new orders (set it again on the new version), and a features line staff wrote that
+still names PITR, connections or a dedicated IP/DB is only reported — edit it in *Tarify a verze*. Afterwards
+`onhost:doctor` shows *every catalogue revision is applied* OK and lists, under *no customer holds a version promising an
+unkept number*, the old versions customers still hold (support answers them; nothing about them changes).
 
 ## The configurator ("Tarif na míru")
 
@@ -164,10 +204,11 @@ schedules). `vcpu` on game plans is enforced: provisioning raises `cpu_pct` to a
 
 A key that is neither measured, enforced, fair use, nor read may still be listed once, honestly, in
 `PlanPromises::KNOWN_GAPS` — a ratchet that may only shrink (fixing a gap without removing the line, or a new gap
-appearing without one, both fail the guard test) — currently 14 entries, two of them boolean
-(`dedicated_outbound_ip`, `dedicated_db`) rather than numeric, because excluding the presentation files surfaced
-them as genuinely unbuilt rather than merely unmeasured. `onhost:doctor` shows the tracked list as a standing WARN
+appearing without one, both fail the guard test) — currently 9 entries. The boolean `dedicated_outbound_ip` and
+`dedicated_db`, the numeric `pitr_days` and `connections` left it with the revision `2026-09-honest-promises` (the owner
+decided they are not provided) and `products` became fair use. `onhost:doctor` shows the tracked list as a standing WARN
 (`catalog: no known metering gap`) and any *new*, untracked gap as a production FAIL
-(`catalog: the metering gap ratchet is not growing`).
+(`catalog: the metering gap ratchet is not growing`) — except a key a revision not yet applied still has to remove,
+which is the WARN `catalog: every catalogue revision is applied` naming `onhost:catalog:revise`.
 
 Tests: `tests/Feature/Catalog/PlanPromisesTest.php`, `tests/Feature/Platform/DoctorCommandTest.php`.

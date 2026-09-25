@@ -61,6 +61,9 @@ operation the command does not classify is treated as a price change (fail close
   the handler is `409 catalog_changed_since_request`. The approved request is repeated **unchanged** (the pages keep the
   form as it was and say so).
 - The approver reads why: the price endpoints take an optional `reason` (plan versions require one).
+- Catalogue revisions defined in code (`php artisan onhost:catalog:revise --apply`, docs/runbooks/pricing.md) publish plan
+  versions as the system actor: no second person exists there, shell access is the gate and the revision itself is
+  reviewed as code (it cannot pass prices or features; the prices of the current version are carried over).
 - Automation switches (`PUT /v1/staff/automation/{rule}`) take a fresh step-up: switching on a rule that ships default-off
   reaches every existing service at once.
 
