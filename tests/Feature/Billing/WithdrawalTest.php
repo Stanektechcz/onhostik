@@ -183,7 +183,25 @@ it('switches the service off, returns the unused days of what was PAID to the cr
         ->and(Notification::query()->where('organization_id', $org->id)->where('title', 'like', 'Odstoupení od smlouvy přijato%')->exists())->toBeTrue()
         ->and(Notification::query()->where('audience', 'internal')->where('title', 'like', 'Odstoupení spotřebitele: vráceno%')->exists())->toBeTrue()
         ->and(MailOutbox::query()->where('template_key', 'withdrawal-accepted')->exists())->toBeTrue();
+    // it promises what reaches the credit — all of it here, the statement was paid — and nothing about unpaid documents
+    $notice = withdrawalAcceptedNotice();
+    expect($notice['payload'])->toMatchArray(['estimate' => true])->and($notice['payload']['to_credit']['minor'])->toBe(30250)->and($notice['payload']['off_documents']['minor'])->toBe(0)
+        ->and($notice['body'])->toContain('na kredit vrátíme dobropisem odhadem')->not->toContain('neuhrazené')->and($notice['mail']['postup'])->toBe(substr($notice['body'], strpos($notice['body'], 'Službu')));
 });
+
+/**
+ * The confirmation of receipt as it went out: the event's payload, the customer's row and the mandatory mail's variables.
+ *
+ * @return array{payload:array<string,mixed>, body:string, mail:array<string,mixed>}
+ */
+function withdrawalAcceptedNotice(): array
+{
+    return [
+        'payload' => (array) OutboxMessage::query()->where('name', 'withdrawal.accepted')->sole()->payload,
+        'body' => (string) Notification::query()->where('audience', '!=', 'internal')->where('title', 'like', 'Odstoupení od smlouvy přijato%')->sole()->body,
+        'mail' => (array) MailOutbox::query()->where('template_key', 'withdrawal-accepted')->sole()->vars,
+    ];
+}
 
 it('gives nothing back while the service still runs: a suspension the panel refused is asked for again, then the refund follows', function () {
     withdrawalSwitchOn();
@@ -367,6 +385,14 @@ it('makes an unpaid postpaid invoice smaller instead of paying out money that ne
     $withdrawal = Withdrawal::query()->sole();
     expect($withdrawal->off_document_minor)->toBe(30250)->and($withdrawal->to_credit_minor)->toBe(0)
         ->and(app(WalletService::class)->balances($org, 'CZK')['available']->minor)->toBe(0)->and($invoice->refresh()->outstanding()->minor)->toBe(36300 - 30250);
+    // the notice never promised that money to the credit: it names the smaller invoice apart, and so does the refund row
+    $notice = withdrawalAcceptedNotice();
+    expect($notice['payload']['to_credit']['minor'])->toBe(0)->and($notice['payload']['off_documents']['minor'])->toBe(30250)
+        ->and($notice['body'])->toContain('neuhrazené doklady snížíme o odhadem')->not->toContain('vrátíme dobropisem')
+        ->and($notice['mail']['postup'])->toContain('neuhrazené doklady snížíme o odhadem')->not->toContain('vrátíme dobropisem');
+    $refunded = Notification::query()->where('audience', '!=', 'internal')->where('kind', 'wallet')->where('title', 'like', 'Odstoupení vyřízeno%')->sole();
+    expect($refunded->title)->toContain('neuhrazené doklady sníženy o')
+        ->and(Notification::query()->where('title', 'like', 'Vráceno na kredit po odstoupení%')->exists())->toBeFalse();
 });
 
 it('keeps the refund when the cancellation is refused (legal hold) and requests it once the finish command may', function () {
@@ -429,6 +455,10 @@ it('leaves a paid order held for the staff risk review to staff, and cancels a p
         ->and(app(WalletService::class)->balances($org, 'CZK')['available']->minor)->toBe(500000);
     // what came back is the reservation the cancellation released — once, not again as the credit note of the same document
     expect($done['to_credit']['minor'])->toBe((int) $held->total_minor)->and($done['refund']['minor'])->toBe((int) $held->total_minor)->and($done['off_documents']['minor'])->toBe(0);
+    app(OutboxPublisher::class)->relayPending();
+    $notice = withdrawalAcceptedNotice();
+    expect($notice['payload']['to_credit']['minor'])->toBe((int) $held->total_minor)->and($notice['payload']['off_documents']['minor'])->toBe(0)->and($notice['payload']['estimate'])->toBeFalse()
+        ->and($notice['body'])->toContain('Objednávku rušíme, na kredit vrátíme dobropisem ')->not->toContain('odhadem');
 });
 
 it('records nothing returned for a failed order the settlement had already given back', function () {
@@ -453,6 +483,12 @@ it('records nothing returned for a failed order the settlement had already given
         ->and(Invoice::query()->where('type', 'credit_note')->count())->toBe($notesBefore)
         ->and(OutboxMessage::query()->where('name', 'withdrawal.refunded')->count())->toBe(0) // nobody is told money moved now
         ->and(app(WalletService::class)->balances($org, 'CZK')['available']->minor)->toBe(500000);
+    // and the confirmation of receipt promises nothing either: it says nothing comes back, and why
+    app(OutboxPublisher::class)->relayPending();
+    $notice = withdrawalAcceptedNotice();
+    expect($notice['payload']['refund']['minor'])->toBe(0)->and($notice['payload']['to_credit']['minor'])->toBe(0)->and($notice['payload']['off_documents']['minor'])->toBe(0)
+        ->and($notice['payload'])->toMatchArray(['estimate' => false, 'already_returned' => true])
+        ->and($notice['body'])->toContain('na kredit se nic nevrací, vše už bylo vráceno dříve')->and($notice['mail']['postup'])->toContain('na kredit se nic nevrací');
 });
 
 it('keeps tenants apart: nobody withdraws from another organization\'s service', function () {

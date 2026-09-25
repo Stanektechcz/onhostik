@@ -92,7 +92,7 @@ function reinstateCancelled(Organization $org, array $o = []): Service
         'tags' => ['suspension' => ['holds' => $holds], 'deletion' => [
             'requested_at' => now()->subDays(5)->toIso8601String(), 'grace_until' => $terminateAt->toIso8601String(), 'grace_days' => 30, 'reason' => $reason,
             'operation_id' => (string) ($o['operation_id'] ?? 'op_cancel_'.substr(uniqid(), -8)), 'subscription' => ['state' => 'active', 'auto_renew' => (bool) ($o['auto_renew'] ?? true)],
-        ]],
+        ]] + (array) ($o['tags'] ?? []),
     ]);
     ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $instance->id, 'remote_type' => 'qemu', 'remote_id' => (string) ($o['remote_id'] ?? '1042'), 'remote_node' => 'prg1-n2', 'meta' => ['name' => 'vm-test'], 'ownership' => ['managed_by' => 'onhost'], 'idempotency_key' => "provision:{$service->id}:qemu", 'adapter_version' => '1.0.0']);
     $end = $o['period_end'] ?? now()->subDays(2);
@@ -570,4 +570,85 @@ it('takes nothing when the resume is refused right after the charge', function (
     expect(reinstateCharges())->toBe(0)->and(app(WalletService::class)->spendable($org, 'CZK')->minor)->toBe(100000)
         ->and(Invoice::query()->where('meta->reinstatement', true)->count())->toBe(0)
         ->and($fresh->terminate_at)->not->toBeNull()->and(Subscription::query()->where('service_id', $service->id)->value('state'))->toBe(Subscription::CANCELLED);
+});
+
+/* ── review round 3: auto-renew is never switched on without the customer ─────────────────────────────────────────── */
+
+/**
+ * The customer's subscription ends the way `tick()` ends it — auto-renew switched off, or the end asked for with the
+ * period — and the terminate saga cancels the service. The saga records the customer's choice only for a subscription
+ * that is not CANCELLED yet, so an expired one leaves no record (`deletion.subscription` missing). An earlier, undone
+ * cancellation had recorded auto-renew on.
+ *
+ * @param  array<string,mixed>  $choice  the subscription columns as the customer left them
+ */
+function reinstateExpiredByChoice(Service $service, array $choice): Service
+{
+    $cancelled = (array) $service->fresh()->tags;
+    $service->forceFill(['state' => ServiceStateMachine::ACTIVE, 'terminate_at' => null, 'suspended_at' => null, 'suspended_reason' => null, 'tags' => array_diff_key($cancelled, ['deletion' => 1, 'suspension' => 1])])->save();
+    Subscription::query()->where('service_id', $service->id)->update(['state' => Subscription::ACTIVE] + $choice);
+    expect(app(SubscriptionService::class)->tick()['cancelled'])->toBe(1);
+    $expired = Subscription::query()->where('service_id', $service->id)->firstOrFail();
+    expect($expired->state)->toBe(Subscription::CANCELLED)->and($expired->auto_renew)->toBeFalse();
+    Operation::query()->where('service_id', $service->id)->update(['state' => Operation::SUCCEEDED]); // the terminate saga ran …
+    $deletion = (array) $cancelled['deletion'];
+    unset($deletion['subscription']); // … and found no subscription that was not CANCELLED already
+    $tags = array_replace($cancelled, ['deletion' => $deletion, 'deletion_cancelled' => ['operation_id' => 'op_older', 'cancelled_at' => now()->subMonths(2)->toIso8601String(), 'subscription' => ['state' => 'active', 'auto_renew' => true]]]);
+    $service->forceFill(['state' => ServiceStateMachine::SUSPENDED, 'suspended_at' => now(), 'suspended_reason' => 'subscription ended', 'terminate_at' => now()->addDays(20), 'tags' => $tags])->save();
+
+    return $service->refresh();
+}
+
+it('never switches auto-renew back on when a customer who had switched it off pays to restore', function () {
+    reinstateSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization();
+    $org->forceFill(['auto_renew_default' => true])->save();
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
+    $service = reinstateExpiredByChoice(reinstateCancelled($org, ['reason' => 'subscription ended']), ['auto_renew' => false, 'cancel_at_period_end' => false]);
+    $this->actingAs($owner, 'sanctum');
+
+    $this->withHeader('Idempotency-Key', 'r3-off-1')->postJson("/v1/services/{$service->id}/reinstate")->assertStatus(202)->assertJsonPath('state', 'restoring');
+    $subscription = Subscription::query()->where('service_id', $service->id)->firstOrFail();
+    expect(reinstateCharges())->toBe(1)->and($subscription->state)->toBe(Subscription::ACTIVE)->and($subscription->auto_renew)->toBeFalse();
+
+    // the paid period runs out: it ends as the customer chose, the next one is never charged from the credit
+    $spendable = app(WalletService::class)->spendable($org, 'CZK')->minor;
+    $this->travelTo($subscription->current_period_end->copy()->addDay());
+    app(SubscriptionService::class)->tick();
+    expect(Subscription::query()->where('service_id', $service->id)->value('state'))->toBe(Subscription::CANCELLED)
+        ->and(app(WalletService::class)->spendable($org, 'CZK')->minor)->toBe($spendable)
+        ->and(Invoice::query()->where('type', 'statement')->where('meta->subscription_id', $subscription->id)->count())->toBe(1);
+});
+
+it('keeps a subscription that was to end with its period ending after a paid restore', function () {
+    reinstateSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization();
+    $org->forceFill(['auto_renew_default' => true])->save();
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
+    $service = reinstateCancelled($org, ['reason' => 'subscription ended']);
+    $subscription = Subscription::query()->where('service_id', $service->id)->firstOrFail();
+    $subscription->forceFill(['state' => Subscription::ACTIVE, 'auto_renew' => true])->save();
+    app(SubscriptionService::class)->cancelAtPeriodEnd($subscription, true, $this->contextFor($owner, $org)); // the customer's own "end it with the period"
+    $service = reinstateExpiredByChoice($service, []);
+
+    $result = app(ServiceReinstatement::class)->reinstate($service, $this->contextFor($owner, $org), 'r3-cape-1');
+    expect($result['state'])->toBe('restoring')->and(reinstateCharges())->toBe(1);
+    $back = Subscription::query()->where('service_id', $service->id)->firstOrFail();
+    expect($back->state)->toBe(Subscription::ACTIVE)->and($back->auto_renew)->toBeFalse()->and($back->cancel_at_period_end)->toBeFalse();
+});
+
+it('keeps auto-renew off when a customer takes back a cancellation with nothing recorded', function () {
+    reinstateSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization();
+    $org->forceFill(['auto_renew_default' => true])->save();
+    $service = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->addDays(15)]);
+    $tags = (array) $service->tags;
+    unset($tags['deletion']['subscription']); // a cancellation from before the saga recorded the choice
+    $service->forceFill(['tags' => $tags])->save();
+
+    driveOperation(app(ServiceService::class)->requestAction($service->fresh(), 'resume', $this->contextFor($owner, $org), 'r3-undo-1'));
+    app(OutboxPublisher::class)->relayPending();
+
+    $subscription = Subscription::query()->where('service_id', $service->id)->firstOrFail();
+    expect($subscription->state)->toBe(Subscription::ACTIVE)->and($subscription->auto_renew)->toBeFalse()->and(reinstateCharges())->toBe(0);
 });

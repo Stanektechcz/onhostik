@@ -362,14 +362,27 @@ final class NotificationRouter
             'service.reinstatement.failed' => $this->internal($m, 'service', 'Zaplacená služba se neobnovila: '.($p['label'] ?? ''), 'obnovení odmítnuto: '.(string) ($p['error'] ?? '').' · nic nestrženo, odstranění dál naplánováno · obnovte ručně nebo se ozvěte zákazníkovi', '/sprava/sluzby', 'hot'),
             'service.reinstatement.dropped' => $this->customer($m, 'service', 'Žádost o obnovení služby zrušena: '.($p['label'] ?? ''), 'Kdo o obnovení požádal, už nesmí platit z kreditu organizace, a tak jsme nic nestrhli. Obnovit ji může vlastník nebo správce fakturace do '.substr((string) ($p['grace_until'] ?? ''), 0, 10).'.', '/panel/sluzby', 'warn'),
             // TASK-0025 consumer withdrawal: the confirmation of receipt is a mandatory legal notice (mail `withdrawal-accepted`); finance sees every refund; a refused step goes to finance as hot
-            'withdrawal.accepted' => (function () use ($m, $p, $org, $money, $email, $portal): void {
-                $this->internal($m, 'finance', 'Odstoupení spotřebitele přijato: '.($p['label'] ?? ''), ($org->name ?? '').' · odhad vrácení '.$money($p['refund'] ?? null).' · '.(($p['channel'] ?? '') === 'staff' ? 'zaznamenal tým' : 'v panelu'), '/sprava#/money', 'info');
-                $this->customer($m, 'legal.notice', 'Odstoupení od smlouvy přijato: '.($p['label'] ?? ''), 'Odesláno '.substr((string) ($p['sent_at'] ?? ''), 0, 10).'. Službu pozastavíme, nevyužitou zaplacenou část (odhadem '.$money($p['refund'] ?? null).') vrátíme na kredit a službu zrušíme.', '/panel/sluzby', 'info', $email, 'withdrawal-accepted',
-                    ['sluzba' => (string) ($p['label'] ?? ''), 'objednavka' => (string) ($p['order_number'] ?? ''), 'odeslano' => substr((string) ($p['sent_at'] ?? ''), 0, 10), 'castka' => $money($p['refund'] ?? null), 'url' => "{$portal}/panel/fakturace"]);
+            // the notice promises only what will really reach the credit; what only makes unpaid documents smaller is named apart (TASK-0025 review)
+            'withdrawal.accepted' => (function () use ($m, $p, $org, $money, $email, $portal, $locale): void {
+                $about = ! empty($p['estimate']) ? 'odhadem ' : '';
+                $toCredit = (int) data_get($p, 'to_credit.minor', 0) > 0;
+                $offDocuments = (int) data_get($p, 'off_documents.minor', 0) > 0;
+                $what = implode(', ', array_filter([
+                    $toCredit ? 'na kredit vrátíme dobropisem '.$about.$money($p['to_credit']) : null,
+                    $offDocuments ? 'neuhrazené doklady snížíme o '.$about.$money($p['off_documents']) : null,
+                    $toCredit || $offDocuments ? null : (! empty($p['already_returned']) ? 'na kredit se nic nevrací, vše už bylo vráceno dříve' : 'na kredit se nic nevrací'),
+                ]));
+                $steps = ($p['service_id'] ?? null) !== null ? 'Službu pozastavíme, '.$what.' a službu zrušíme.' : 'Objednávku rušíme, '.$what.'.';
+                $this->internal($m, 'finance', 'Odstoupení spotřebitele přijato: '.($p['label'] ?? ''), ($org->name ?? '').' · '.(! empty($p['estimate']) ? 'odhad: ' : '').'na kredit '.$money($p['to_credit'] ?? null).' · z neuhrazených dokladů '.$money($p['off_documents'] ?? null).' · '.(($p['channel'] ?? '') === 'staff' ? 'zaznamenal tým' : 'v panelu'), '/sprava#/money', 'info');
+                $this->customer($m, 'legal.notice', 'Odstoupení od smlouvy přijato: '.($p['label'] ?? ''), 'Odesláno '.substr((string) ($p['sent_at'] ?? ''), 0, 10).'. '.$steps, '/panel/sluzby', 'info', $email, 'withdrawal-accepted',
+                    ['sluzba' => (string) ($p['label'] ?? ''), 'objednavka' => (string) ($p['order_number'] ?? ''), 'odeslano' => substr((string) ($p['sent_at'] ?? ''), 0, 10), 'postup' => (string) Lexicon::translate($steps, $locale), 'url' => "{$portal}/panel/fakturace"]);
             })(),
             'withdrawal.refunded' => (function () use ($m, $p, $org, $money): void {
                 $this->internal($m, 'finance', 'Odstoupení spotřebitele: vráceno '.$money($p['refund'] ?? null), ($org->name ?? '').' · '.($p['label'] ?? '').' · na kredit '.$money($p['to_credit'] ?? null).' · z neuhrazených dokladů '.$money($p['off_documents'] ?? null).' · dobropisy '.implode(', ', (array) ($p['credit_notes'] ?? [])), '/sprava#/money', 'info');
-                $this->customer($m, 'wallet', 'Vráceno na kredit po odstoupení: '.$money($p['refund'] ?? null), ($p['label'] ?? '').' · dobropis '.implode(', ', (array) ($p['credit_notes'] ?? [])), '/panel/fakturace', 'info');
+                $credited = (int) data_get($p, 'to_credit.minor', 0) > 0;
+                $reduced = (int) data_get($p, 'off_documents.minor', 0) > 0 ? 'neuhrazené doklady sníženy o '.$money($p['off_documents']) : null;
+                $this->customer($m, 'wallet', $credited ? 'Vráceno na kredit po odstoupení: '.$money($p['to_credit']) : 'Odstoupení vyřízeno: '.($reduced ?? 'na kredit se nic nevrací'),
+                    ($p['label'] ?? '').($credited && $reduced !== null ? ' · '.$reduced : '').' · dobropis '.implode(', ', (array) ($p['credit_notes'] ?? [])), '/panel/fakturace', 'info');
             })(),
             'withdrawal.completed' => $this->customer($m, 'service', 'Služba ukončena odstoupením: '.($p['label'] ?? ''), 'Smlouva je ukončena. Novou službu si můžete kdykoli objednat.', '/panel/sluzby', 'info'),
             'withdrawal.stalled' => $this->internal($m, 'finance', 'Odstoupení se zastavilo: '.($p['label'] ?? ''), 'krok '.(string) ($p['step'] ?? '').' odmítnut: '.(string) ($p['error'] ?? '').' · vráceno: '.(! empty($p['refunded']) ? 'ano' : 'ne').' · onhost:withdrawals:finish to zkusí znovu', '/sprava#/money', 'hot'),

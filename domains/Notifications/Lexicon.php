@@ -182,8 +182,12 @@ final class Lexicon
         ' dnů neschválil, proto jsme ji zrušili.' => ' days, so we cancelled it.',
         // ── end TASK-0021 ──
         // ── TASK-0025 consumer withdrawal ──
-        'Odstoupení od smlouvy přijato: ' => 'Withdrawal from the contract received: ', 'Odesláno ' => 'Sent ', '. Službu pozastavíme, nevyužitou zaplacenou část (odhadem ' => '. We suspend the service, return the unused paid part (about ',
-        ') vrátíme na kredit a službu zrušíme.' => ') to your credit and cancel the service.', 'Vráceno na kredit po odstoupení: ' => 'Returned to credit after the withdrawal: ', ' · dobropis ' => ' · credit note ',
+        'Odstoupení od smlouvy přijato: ' => 'Withdrawal from the contract received: ', 'Odesláno ' => 'Sent ', 'Službu pozastavíme, ' => 'We suspend the service, ', 'Objednávku rušíme, ' => 'We cancel the order, ',
+        'na kredit vrátíme dobropisem odhadem ' => 'we return to your credit with a credit note about ', 'na kredit vrátíme dobropisem ' => 'we return to your credit with a credit note ',
+        'neuhrazené doklady snížíme o odhadem ' => 'we reduce your unpaid documents by about ', 'neuhrazené doklady snížíme o ' => 'we reduce your unpaid documents by ',
+        'na kredit se nic nevrací, vše už bylo vráceno dříve' => 'nothing returns to your credit, everything was returned before', 'na kredit se nic nevrací' => 'nothing returns to your credit',
+        ' a službu zrušíme.' => ' and cancel the service.', 'Odstoupení vyřízeno: ' => 'Withdrawal settled: ', 'neuhrazené doklady sníženy o ' => 'unpaid documents reduced by ',
+        'Vráceno na kredit po odstoupení: ' => 'Returned to credit after the withdrawal: ', ' · dobropis ' => ' · credit note ',
         'Služba ukončena odstoupením: ' => 'Service ended by withdrawal: ', 'Smlouva je ukončena. Novou službu si můžete kdykoli objednat.' => 'The contract has ended. You can order a new service at any time.',
         // ── end TASK-0025 ──
     ];

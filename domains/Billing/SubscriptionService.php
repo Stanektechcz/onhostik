@@ -292,7 +292,7 @@ final class SubscriptionService
     public function reinstate(Subscription $subscription, Service $service, CommandContext $context, string $walletKey, bool $paidPeriodCounts = true): array
     {
         $organization = Organization::query()->findOrFail($subscription->organization_id);
-        $restore = ['cancel_at_period_end' => false, 'auto_renew' => self::previousAutoRenew($service, $organization)];
+        $restore = ['cancel_at_period_end' => false, 'auto_renew' => self::previousAutoRenew($service, $subscription)];
         if (self::isMetered(Product::query()->where('key', $service->product_key)->first())) {
             $this->rollMetered($subscription);
             $subscription->forceFill($restore)->save();
@@ -344,7 +344,7 @@ final class SubscriptionService
             return null;
         }
         $organization = Organization::query()->findOrFail($subscription->organization_id);
-        $restore = ['cancel_at_period_end' => false, 'auto_renew' => self::previousAutoRenew($service, $organization)];
+        $restore = ['cancel_at_period_end' => false, 'auto_renew' => self::previousAutoRenew($service, $subscription)];
         if (self::isMetered(Product::query()->where('key', $service->product_key)->first())) {
             $this->rollMetered($subscription);
             $subscription->forceFill($restore)->save();
@@ -364,12 +364,26 @@ final class SubscriptionService
         return $outcome;
     }
 
-    /** What the customer had chosen before the cancellation, recorded by the terminate saga; older cancellations fall back to the organization's default. */
-    private static function previousAutoRenew(Service $service, Organization $organization): bool
+    /**
+     * Whether the customer had auto-renew on before this cancellation — as the terminate saga recorded it for the cancellation
+     * being taken back (`deletion` while it runs, `deletion_cancelled` once it was undone; never an earlier cancellation's
+     * record). Nothing recorded means off, never the organization's default: a subscription that expired because the customer
+     * switched auto-renew off or asked to end it with the period has no record (it was CANCELLED before the saga ran), and a
+     * restore must not start charging the next periods against that choice (TASK-0025 review).
+     */
+    private static function previousAutoRenew(Service $service, Subscription $subscription): bool
     {
-        $before = data_get($service->tags, 'deletion.subscription.auto_renew') ?? data_get($service->tags, 'deletion_cancelled.subscription.auto_renew');
+        $tags = (array) $service->tags;
+        $record = is_array($tags['deletion'] ?? null) ? $tags['deletion'] : ($tags['deletion_cancelled'] ?? null);
+        $before = data_get($record, 'subscription');
+        if (! is_array($before) || ! array_key_exists('auto_renew', $before)) {
+            return false;
+        }
+        if (isset($before['id']) && (string) $before['id'] !== (string) $subscription->id) {
+            return false; // recorded for another subscription of the service
+        }
 
-        return $before !== null ? (bool) $before : (bool) ($organization->auto_renew_default ?? true);
+        return (bool) $before['auto_renew'] && ! (bool) ($before['cancel_at_period_end'] ?? false);
     }
 
     /** @param array<string,mixed> $restore */
@@ -420,7 +434,7 @@ final class SubscriptionService
     private function expire(Subscription $subscription, Service $service, CommandContext $context): void
     {
         DB::transaction(function () use ($subscription, $service) {
-            $subscription->forceFill(['state' => Subscription::CANCELLED])->save();
+            $subscription->forceFill(['state' => Subscription::CANCELLED, 'auto_renew' => false])->save(); // it ended because it was not to renew: the row says so for a later restore
             $this->outbox->publish(GenericEvent::of('subscription.expired', 'subscription', $subscription->id, ['service_id' => $service->id], $subscription->organization_id));
         });
         if (in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED], true)) {

@@ -58,9 +58,10 @@ final class WithdrawalService
 
     /**
      * What withdrawing on `$asOf` would give back: the paid lines of the service and its add-ons whose period has not run
-     * out, prorated by the days after the notice (the day of the notice counts as used).
+     * out, prorated by the days after the notice (the day of the notice counts as used). `to_credit` is the part that will
+     * reach the account credit, `off_documents` the part that only makes an unpaid document smaller (TASK-0025 review).
      *
-     * @return array{currency:string, refund:Money, lines:list<array<string,mixed>>}
+     * @return array{currency:string, refund:Money, to_credit:Money, off_documents:Money, lines:list<array<string,mixed>>}
      */
     public function estimate(Service $service, CarbonImmutable $asOf): array
     {
@@ -76,8 +77,39 @@ final class WithdrawalService
             }
         }
         $lines = array_values($lines);
+        $split = self::split($lines);
 
-        return ['currency' => $currency, 'refund' => Money::minor((int) array_sum(array_column($lines, 'refund_minor')), $currency), 'lines' => $lines];
+        return ['currency' => $currency, 'refund' => Money::minor((int) array_sum(array_column($lines, 'refund_minor')), $currency),
+            'to_credit' => Money::minor($split['to_credit'], $currency), 'off_documents' => Money::minor($split['off_documents'], $currency), 'lines' => $lines];
+    }
+
+    /**
+     * How a refund of these lines divides, document by document, the way `InvoiceService::giveBack` divides it: only what was
+     * paid for comes back to the credit; the rest of a credit note makes an unpaid document smaller and is never money.
+     *
+     * @param  list<array<string,mixed>>  $lines
+     * @return array{to_credit:int, off_documents:int}
+     */
+    private static function split(array $lines): array
+    {
+        $byDocument = [];
+        foreach ($lines as $row) {
+            $byDocument[(string) $row['invoice_id']] = ($byDocument[(string) $row['invoice_id']] ?? 0) + (int) $row['refund_minor'];
+        }
+        $toCredit = 0;
+        $offDocuments = 0;
+        foreach ($byDocument as $invoiceId => $gross) {
+            $document = Invoice::query()->find($invoiceId);
+            if ($document === null || $gross <= 0) {
+                continue;
+            }
+            $returnedBefore = (int) ($document->meta['overpaid_returned_minor'] ?? 0);
+            $over = max(0, min($gross, (int) $document->paid_minor - max(0, (int) $document->total_minor - (int) $document->credited_minor - $gross) - $returnedBefore));
+            $toCredit += $over;
+            $offDocuments += $gross - $over;
+        }
+
+        return ['to_credit' => $toCredit, 'off_documents' => $offDocuments];
     }
 
     public function withdrawService(Service $service, CommandContext $context, string $channel, CarbonImmutable $sentAt, ?string $statement, ?string $requestedBy): Withdrawal
@@ -91,7 +123,8 @@ final class WithdrawalService
                 'organization_id' => $service->organization_id, 'order_id' => $terms['order']->id, 'order_item_id' => $terms['item']->id, 'service_id' => $service->id, 'subject_key' => 'item:'.$terms['item']->id,
                 'channel' => $channel, 'requested_by' => $requestedBy, 'sent_at' => $sentAt, 'contract_start_at' => $terms['contract_start'], 'deadline_at' => $terms['deadline'], 'customer_class_at_order' => $terms['customer_class'],
                 'refund_consent_id' => $consent->id, 'statement' => $statement !== null ? mb_substr($statement, 0, 2000) : null, 'state' => Withdrawal::SUSPENDING, 'currency' => $estimate['currency'],
-                'refund_minor' => $estimate['refund']->minor, 'basis' => ['as_of' => AccountingClock::date($sentAt), 'lines' => $estimate['lines']],
+                'refund_minor' => $estimate['refund']->minor, 'basis' => ['as_of' => AccountingClock::date($sentAt), 'lines' => $estimate['lines'],
+                    'estimate' => ['to_credit_minor' => $estimate['to_credit']->minor, 'off_document_minor' => $estimate['off_documents']->minor]],
             ]);
             $consent->forceFill(['evidence' => array_merge((array) $consent->evidence, ['withdrawal_id' => $withdrawal->id])])->save();
             // nothing renews while the contract is unwound, and a request to leave early with a share back is superseded by the right to leave with all of it
@@ -100,7 +133,7 @@ final class WithdrawalService
             // a renewal already past due would be retried from the next top-up (retryPastDue does not ask about auto-renew) and that charge is not in the frozen refund
             Subscription::query()->whereIn('service_id', $parts)->where('state', Subscription::PAST_DUE)->update(['state' => Subscription::CANCELLED]);
             ChargebackRequest::query()->where('service_id', $service->id)->whereIn('state', [ChargebackRequest::REQUESTED, ChargebackRequest::APPROVED])->update(['state' => ChargebackRequest::WITHDRAWN, 'decision_reason' => 'nahrazeno odstoupením od smlouvy '.$withdrawal->id]);
-            $this->accepted($withdrawal, $context, self::label($service));
+            $this->accepted($withdrawal, $context, self::label($service), $estimate['to_credit'], $estimate['off_documents'], true);
 
             return $withdrawal;
         }, 3);
@@ -118,9 +151,8 @@ final class WithdrawalService
             $withdrawal = Withdrawal::query()->create([
                 'organization_id' => $order->organization_id, 'order_id' => $order->id, 'subject_key' => 'order:'.$order->id, 'channel' => $channel, 'requested_by' => $requestedBy, 'sent_at' => $sentAt,
                 'contract_start_at' => $terms['contract_start'], 'deadline_at' => $terms['deadline'], 'customer_class_at_order' => $terms['customer_class'], 'refund_consent_id' => $consent->id,
-                'statement' => $statement !== null ? mb_substr($statement, 0, 2000) : null, 'state' => Withdrawal::SUSPENDING, 'currency' => $order->currency, 'refund_minor' => (int) $order->total_minor, 'basis' => ['order' => $order->number],
+                'statement' => $statement !== null ? mb_substr($statement, 0, 2000) : null, 'state' => Withdrawal::SUSPENDING, 'currency' => $order->currency, 'refund_minor' => 0, 'basis' => ['order' => $order->number],
             ]);
-            $this->accepted($withdrawal, $context, 'objednávka '.$order->number);
             $ctx = CommandContext::system('withdrawal '.$withdrawal->id)->withScope($order->organization_id);
             $postpaid = $order->payment_mode === 'postpaid';
             $hold = $order->wallet_hold_id === null ? null : WalletHold::query()->find($order->wallet_hold_id);
@@ -138,6 +170,8 @@ final class WithdrawalService
                 $basis['already_returned'] = ['by' => 'order settlement', 'returned_minor' => (int) data_get($order->meta, 'settlement.returned_minor', 0)];
             }
             $withdrawal->forceFill(['state' => Withdrawal::REFUNDED, 'refunded_at' => now(), 'refund_minor' => $toCredit + $offDocuments, 'to_credit_minor' => $toCredit, 'off_document_minor' => $offDocuments, 'basis' => $basis])->save();
+            // the confirmation of receipt names what really moved (it is known now), never the order total
+            $this->accepted($withdrawal, $context, 'objednávka '.$order->number, Money::minor($toCredit, $order->currency), Money::minor($offDocuments, $order->currency), false);
             if ($toCredit + $offDocuments > 0) {
                 $this->refunded($withdrawal, $ctx, 'objednávka '.$order->number);
             }
@@ -406,12 +440,18 @@ final class WithdrawalService
         ]);
     }
 
-    private function accepted(Withdrawal $w, CommandContext $context, string $label): void
+    /**
+     * The confirmation of receipt (a mandatory legal notice). It names only what will really reach the credit (`to_credit`)
+     * and, apart from it, what only makes unpaid documents smaller (`off_documents`); `estimate` says whether the amounts are
+     * the service's estimate at the notice or, for a whole order, what the cancellation already moved.
+     */
+    private function accepted(Withdrawal $w, CommandContext $context, string $label, Money $toCredit, Money $offDocuments, bool $estimate): void
     {
-        $this->audit->record($context->withScope($w->organization_id), 'billing.withdrawal.accept', 'succeeded', ['withdrawal' => $w->id, 'channel' => $w->channel, 'sent_at' => $w->sent_at->toIso8601String(), 'estimate_minor' => $w->refund_minor], 'withdrawal', $w->id);
+        $this->audit->record($context->withScope($w->organization_id), 'billing.withdrawal.accept', 'succeeded', ['withdrawal' => $w->id, 'channel' => $w->channel, 'sent_at' => $w->sent_at->toIso8601String(), 'estimate_minor' => $w->refund_minor, 'to_credit_minor' => $toCredit->minor, 'off_document_minor' => $offDocuments->minor], 'withdrawal', $w->id);
         $this->outbox->publish(GenericEvent::of('withdrawal.accepted', 'withdrawal', $w->id, [
             'service_id' => $w->service_id, 'label' => $label, 'order_number' => Order::query()->whereKey($w->order_id)->value('number'), 'sent_at' => $w->sent_at->toIso8601String(),
-            'refund' => Money::minor((int) $w->refund_minor, $w->currency), 'channel' => $w->channel,
+            'refund' => Money::minor((int) $w->refund_minor, $w->currency), 'to_credit' => $toCredit, 'off_documents' => $offDocuments, 'estimate' => $estimate,
+            'already_returned' => data_get($w->basis, 'already_returned') !== null, 'channel' => $w->channel,
         ], $w->organization_id));
     }
 
