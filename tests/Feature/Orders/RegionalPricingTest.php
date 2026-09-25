@@ -6,6 +6,7 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Onhost\Domain\Catalog\PricingRules;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Platform\Money\Money;
 
@@ -37,8 +38,12 @@ it('applies the region percentage to the list price, lets staff edit the table a
     expect($eu->lines[0]['config'])->not->toHaveKey('region'); // `region` on a line is the placement region the provisioning reads — never the price group
     expect($eu->renewal_total_minor)->toBe($home->renewal_total_minor + Money::minor($home->renewal_total_minor, 'CZK')->percent('5')->minor); // the renewal follows the region too
 
-    // staff replace the table: Slovakia at −10 %, everything else at the list price
-    $this->actingAs($this->staff('platform_owner'), 'sanctum');
+    // staff replace the table: Slovakia at −10 %, everything else at the list price (a price change: step-up, and here one operator —
+    // the second person is tested in tests/Feature/Catalog/CatalogFourEyesTest.php)
+    config(['onhost.identity.four_eyes' => false]);
+    $pricingStaff = $this->staff('platform_owner');
+    app(StepUpService::class)->grant($pricingStaff, 'totp', null, '127.0.0.1');
+    $this->actingAs($pricingStaff, 'sanctum');
     $this->putJson('/v1/staff/pricing/regions', ['regions' => [['key' => 'sk', 'countries' => ['SK'], 'currency' => 'EUR', 'adjust_pct' => -10]]])->assertOk()->assertJsonPath('regions.sk.adjust_pct', -10);
     $this->putJson('/v1/staff/pricing/regions', ['regions' => [['key' => 'x', 'countries' => ['Slovensko']]]])->assertStatus(422);
     expect($rules->regionFor('DE')['key'])->toBe('home');

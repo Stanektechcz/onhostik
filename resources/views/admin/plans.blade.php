@@ -125,14 +125,22 @@
     }).then(function (r) {
       return r.text().then(function (t) {
         var j = {}; try { j = t ? JSON.parse(t) : {}; } catch (e) { j = { message: t.slice(0, 200) }; }
-        if (!r.ok) { var e = new Error(j.message || r.statusText); e.error = j.error; e.status = r.status; throw e; }
+        if (!r.ok) { var e = new Error(j.message || r.statusText); e.error = j.error; e.status = r.status; e.approvalId = j.approval_id; throw e; }
         return j;
       });
     });
   }
+  /* Price and plan changes take a second person (owner decision 13): the refusal carries the request it opened. The form stays as it is: once
+     somebody else approves, the same change is sent again unchanged and goes through. */
+  function pendingApproval(e) {
+    var p = new Error('Změna čeká na schválení druhou osobou (žádost ' + (e.approvalId || '?') + '). Po schválení ji odešlete znovu beze změny — /sprava/nastaveni/schvalovani');
+    p.error = 'approval_required'; p.approvalId = e.approvalId; p.status = e.status; p.payload = e.payload;
+    return p;
+  }
   /* HIGH-risk commands answer step_up_required until the session holds a fresh grant: ask, verify, retry. */
   function guarded(action) {
     return action().catch(function (e) {
+      if (e.error === 'approval_required') throw pendingApproval(e);
       if (e.error !== 'step_up_required') throw e;
       return new Promise(function (resolve, reject) {
         state.retry = function () { return action().then(resolve, reject); };

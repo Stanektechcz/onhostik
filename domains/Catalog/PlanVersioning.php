@@ -45,22 +45,8 @@ final class PlanVersioning
 
         return DB::transaction(function () use ($plan, $productKey, $in, $reason, $context) {
             $plan = Plan::query()->lockForUpdate()->findOrFail($plan->id);
-            $current = $plan->currentVersion() ?? throw new DomainError('plan_version_missing', "Plan {$plan->key} has no current version.", 500);
-            $entitlements = $this->merged((array) $current->entitlements, (array) ($in['entitlements'] ?? []), 'entitlements');
-            $limits = $this->merged((array) ($current->limits ?? []), (array) ($in['limits'] ?? []), 'limits');
-            $features = array_key_exists('features', $in) && $in['features'] !== null ? $this->features((array) $in['features']) : $current->features;
-            $currentPrices = $current->prices()->where('state', 'active')->get();
-            $prices = $this->prices($currentPrices->all(), (array) ($in['prices'] ?? []), (bool) ($in['confirm_large_change'] ?? false));
-
-            $changed = [
-                'entitlements' => self::diff((array) $current->entitlements, $entitlements),
-                'limits' => self::diff((array) ($current->limits ?? []), $limits),
-                'features' => $features !== $current->features,
-                'prices' => array_values(array_map(fn (array $p) => $p['currency'].'/'.$p['period'], array_filter($prices, fn (array $p) => $p['changed']))),
-            ];
-            if ($changed['entitlements'] === [] && $changed['limits'] === [] && ! $changed['features'] && $changed['prices'] === []) {
-                throw new DomainError('plan_version_unchanged', 'Nothing differs from the current version; a version without a change is not published.', 422);
-            }
+            self::assertBase($plan, $in);
+            ['current' => $current, 'entitlements' => $entitlements, 'limits' => $limits, 'features' => $features, 'prices' => $prices, 'changed' => $changed] = $this->next($plan, $in);
 
             $number = (int) PlanVersion::query()->where('plan_id', $plan->id)->max('version') + 1; // never reuse a number, even after a rollback
             $version = PlanVersion::query()->create(['plan_id' => $plan->id, 'version' => $number, 'entitlements' => $entitlements, 'limits' => $limits, 'features' => $features, 'effective_from' => now(), 'created_by' => $context->actorId]);
@@ -78,11 +64,25 @@ final class PlanVersioning
         }, 3);
     }
 
-    /** Point the plan at a version that already exists (a rollback, or forward again). Nobody's agreed version changes. */
-    public function activate(string $productKey, string $planKey, int $number, array $in, CommandContext $context): Plan
+    /**
+     * What `publish` would refuse, checked without writing anything: a broken change is refused before a second person is
+     * asked to approve it (domains/Catalog/CatalogPreflight.php). The handler runs `publish`, which checks it all again.
+     *
+     * @param  array<string,mixed>  $in
+     * @return array<string,mixed> what would change
+     */
+    public function check(string $productKey, string $planKey, array $in): array
     {
         $plan = $this->plan($productKey, $planKey);
-        $reason = $this->reason($in);
+        $this->reason($in);
+
+        return $this->next($plan, $in)['changed'];
+    }
+
+    /** What `activate` would refuse, checked without writing anything. */
+    public function checkActivate(string $productKey, string $planKey, int $number): PlanVersion
+    {
+        $plan = $this->plan($productKey, $planKey);
         $version = PlanVersion::query()->where('plan_id', $plan->id)->where('version', $number)->first() ?? throw DomainError::notFound("Version {$number} of {$productKey}/{$planKey}");
         if ((int) $plan->current_version === $number) {
             throw new DomainError('plan_version_unchanged', "Version {$number} is already the one on sale.", 422);
@@ -90,8 +90,20 @@ final class PlanVersioning
         if (! $version->prices()->where('state', 'active')->exists()) {
             throw new DomainError('price_unavailable', "Version {$number} has no active price; it cannot go on sale.", 409);
         }
+
+        return $version;
+    }
+
+    /** Point the plan at a version that already exists (a rollback, or forward again). Nobody's agreed version changes. */
+    public function activate(string $productKey, string $planKey, int $number, array $in, CommandContext $context): Plan
+    {
+        $plan = $this->plan($productKey, $planKey);
+        $reason = $this->reason($in);
+        self::assertBase($plan, $in);
+        $version = $this->checkActivate($productKey, $planKey, $number);
         $previous = (int) $plan->current_version;
-        DB::transaction(function () use ($plan, $version, $number): void {
+        DB::transaction(function () use ($plan, $version, $number, $in): void {
+            self::assertBase(Plan::query()->lockForUpdate()->findOrFail($plan->id), $in); // two approved rollbacks at once: the second finds the plan moved
             PlanVersion::query()->where('plan_id', $plan->id)->where('version', $plan->current_version)->update(['effective_to' => now()]);
             $version->forceFill(['effective_to' => null])->save();
             $plan->forceFill(['current_version' => $number])->save();
@@ -119,6 +131,51 @@ final class PlanVersioning
                 'services' => Service::query()->where('plan_version_id', $v->id)->count(), 'subscriptions' => Subscription::query()->where('plan_version_id', $v->id)->whereIn('state', ['active', 'past_due'])->count(),
             ])->all(),
         ];
+    }
+
+    /**
+     * The new version's content: the current one with the change applied, and what differs — or the refusal.
+     *
+     * @param  array<string,mixed>  $in
+     * @return array{current: PlanVersion, entitlements: array<string,mixed>, limits: array<string,mixed>, features: mixed, prices: list<array<string,mixed>>, changed: array<string,mixed>}
+     */
+    private function next(Plan $plan, array $in): array
+    {
+        $current = $plan->currentVersion() ?? throw new DomainError('plan_version_missing', "Plan {$plan->key} has no current version.", 500);
+        $entitlements = $this->merged((array) $current->entitlements, (array) ($in['entitlements'] ?? []), 'entitlements');
+        $limits = $this->merged((array) ($current->limits ?? []), (array) ($in['limits'] ?? []), 'limits');
+        $features = array_key_exists('features', $in) && $in['features'] !== null ? $this->features((array) $in['features']) : $current->features;
+        $currentPrices = $current->prices()->where('state', 'active')->get();
+        $prices = $this->prices($currentPrices->all(), (array) ($in['prices'] ?? []), (bool) ($in['confirm_large_change'] ?? false));
+
+        $changed = [
+            'entitlements' => self::diff((array) $current->entitlements, $entitlements),
+            'limits' => self::diff((array) ($current->limits ?? []), $limits),
+            'features' => $features !== $current->features,
+            'prices' => array_values(array_map(fn (array $p) => $p['currency'].'/'.$p['period'], array_filter($prices, fn (array $p) => $p['changed']))),
+        ];
+        if ($changed['entitlements'] === [] && $changed['limits'] === [] && ! $changed['features'] && $changed['prices'] === []) {
+            throw new DomainError('plan_version_unchanged', 'Nothing differs from the current version; a version without a change is not published.', 422);
+        }
+
+        return ['current' => $current, 'entitlements' => $entitlements, 'limits' => $limits, 'features' => $features, 'prices' => $prices, 'changed' => $changed];
+    }
+
+    /**
+     * A change approved against one version is not applied to another (owner decision 13): the staff console binds the request
+     * to the version on sale when it was asked (`base_version`, part of the approved payload), and somebody else's version
+     * published in between turns the approved change into a conflict instead of a silent overwrite.
+     *
+     * @param  array<string,mixed>  $in
+     */
+    private static function assertBase(Plan $plan, array $in): void
+    {
+        if (! array_key_exists('base_version', $in) || $in['base_version'] === null) {
+            return;
+        }
+        if ((int) $in['base_version'] !== (int) $plan->current_version) {
+            throw new DomainError('catalog_changed_since_request', "The plan changed since the request was made (version {$in['base_version']} then, {$plan->current_version} now); ask again against the current version.", 409, ['base_version' => (int) $in['base_version'], 'current_version' => (int) $plan->current_version]);
+        }
     }
 
     private function plan(string $productKey, string $planKey): Plan

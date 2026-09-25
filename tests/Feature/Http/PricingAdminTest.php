@@ -7,7 +7,9 @@ use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Orders\QuoteService;
+use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Money\Money;
 
 /* Staff set every discount, promo code, add-on mapping and option price in the settings; the public data script follows. */
@@ -17,7 +19,12 @@ beforeEach(function () {
 });
 
 it('lets staff approve commitment and domain discounts, manage promo codes, add-on mappings and option prices', function () {
-    $this->actingAs($this->staff('platform_owner'), 'sanctum');
+    // price changes take a step-up and a second person (owner decision 13, tests/Feature/Catalog/CatalogFourEyesTest.php); this test runs
+    // the functional flow the way a single operator does (ONHOST_FOUR_EYES=false): the step-up stays, the audit says nobody else signed
+    config(['onhost.identity.four_eyes' => false]);
+    $pricingStaff = $this->staff('platform_owner');
+    app(StepUpService::class)->grant($pricingStaff, 'totp', null, '127.0.0.1');
+    $this->actingAs($pricingStaff, 'sanctum');
     $index = $this->getJson('/v1/staff/pricing')->assertOk()->json('data');
     expect($index['commit_discounts'])->toBe(['default' => [], 'families' => []])->and($index['domain_discounts'])->toBe([])->and($index['commit_months'])->toBe([1, 12, 24])
         ->and(collect($index['promo_codes'])->pluck('code')->all())->toContain('ONHOST10')->and(collect($index['products'])->firstWhere('key', 'web-hosting')['addon_products'])->toBe(['cdn', 'backup-plus', 'mail-hosting']) // ssl is not on sale: a draft add-on is never offered
@@ -63,6 +70,7 @@ it('lets staff approve commitment and domain discounts, manage promo codes, add-
     $this->deleteJson('/v1/staff/pricing/promo-codes/JARO-2026')->assertOk()->assertJsonPath('deleted', true);
     $this->deleteJson('/v1/staff/pricing/options/web-hosting/malware_scan')->assertOk()->assertJsonPath('deleted', true);
     expect(PromoCode::query()->where('code', 'JARO-2026')->exists())->toBeFalse()->and(ProductOption::query()->where('key', 'malware_scan')->exists())->toBeFalse();
+    expect(AuditEvent::query()->where('action', 'catalog.promo.upsert')->where('result', 'succeeded')->sole()->approval_ids)->toBe(['waived:single-operator']);
 });
 
 it('keeps pricing behind the catalogue permission', function () {

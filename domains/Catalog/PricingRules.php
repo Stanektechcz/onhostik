@@ -70,6 +70,21 @@ final class PricingRules
     /** @param array{default?:array<string|int,mixed>, families?:array<string,array<string|int,mixed>>} $cfg */
     public function setCommitDiscounts(array $cfg, ?string $updatedBy = null): array
     {
+        $normalized = $this->normalizeCommitDiscounts($cfg);
+        $this->settings->set(self::KEY_COMMIT, $normalized, $updatedBy);
+
+        return $normalized;
+    }
+
+    /**
+     * What `setCommitDiscounts` would store, or the refusal it would give — without storing anything (the pre-flight check
+     * before a second person is asked, domains/Catalog/CatalogPreflight.php).
+     *
+     * @param  array{default?:array<string|int,mixed>, families?:array<string,array<string|int,mixed>>}  $cfg
+     * @return array{default: array<string,float>, families: array<string, array<string,float>>}
+     */
+    public function normalizeCommitDiscounts(array $cfg): array
+    {
         $normalized = ['default' => self::percents((array) ($cfg['default'] ?? []), true), 'families' => []];
         foreach ((array) ($cfg['families'] ?? []) as $family => $row) {
             $family = strtolower(trim((string) $family));
@@ -81,7 +96,6 @@ final class PricingRules
                 $normalized['families'][$family] = $percents;
             }
         }
-        $this->settings->set(self::KEY_COMMIT, $normalized, $updatedBy);
 
         return $normalized;
     }
@@ -119,12 +133,8 @@ final class PricingRules
     /** @param array<string,mixed> $row */
     public function setDomainDiscount(string $tld, array $row, ?string $updatedBy = null): array
     {
-        $tld = strtolower(ltrim(trim($tld), '.'));
-        if (! preg_match('/^[a-z0-9.-]{2,32}$/', $tld)) {
-            throw new DomainError('tld_invalid', 'TLD must be like cz or co.uk.', 422, ['field' => 'tld']);
-        }
+        [$tld, $normalized] = $this->normalizeDomainDiscount($tld, $row);
         $all = (array) $this->settings->get(self::KEY_DOMAIN, []);
-        $normalized = self::domainRow($row);
         if ($normalized['register'] <= 0 && $normalized['renew'] <= 0 && $normalized['transfer'] <= 0) {
             unset($all[$tld]);
         } else {
@@ -133,6 +143,22 @@ final class PricingRules
         $this->settings->set(self::KEY_DOMAIN, $all, $updatedBy);
 
         return $normalized;
+    }
+
+    /**
+     * The TLD and the row `setDomainDiscount` would store, or its refusal — without storing anything.
+     *
+     * @param  array<string,mixed>  $row
+     * @return array{0: string, 1: array{register:float, renew:float, transfer:float, valid_from:?string, valid_to:?string, label:?string}}
+     */
+    public function normalizeDomainDiscount(string $tld, array $row): array
+    {
+        $tld = strtolower(ltrim(trim($tld), '.'));
+        if (! preg_match('/^[a-z0-9.-]{2,32}$/', $tld)) {
+            throw new DomainError('tld_invalid', 'TLD must be like cz or co.uk.', 422, ['field' => 'tld']);
+        }
+
+        return [$tld, self::domainRow($row)];
     }
 
     public function deleteDomainDiscount(string $tld, ?string $updatedBy = null): void
@@ -166,6 +192,17 @@ final class PricingRules
     /** @param list<string> $keys @return list<string> */
     public function setAddonProducts(string $productKey, array $keys, ?string $updatedBy = null): array
     {
+        $clean = $this->normalizeAddonProducts($productKey, $keys);
+        $map = (array) $this->settings->get(self::KEY_ADDONS, []);
+        $map[$productKey] = $clean;
+        $this->settings->set(self::KEY_ADDONS, $map, $updatedBy);
+
+        return $map[$productKey];
+    }
+
+    /** @param list<string> $keys @return list<string> the mapping `setAddonProducts` would store, or its refusal — without storing anything */
+    public function normalizeAddonProducts(string $productKey, array $keys): array
+    {
         $product = $this->product($productKey);
         if ($product === null) {
             throw DomainError::notFound("Product {$productKey}");
@@ -181,11 +218,8 @@ final class PricingRules
             }
             $clean[] = $key;
         }
-        $map = (array) $this->settings->get(self::KEY_ADDONS, []);
-        $map[$productKey] = array_values(array_unique($clean));
-        $this->settings->set(self::KEY_ADDONS, $map, $updatedBy);
 
-        return $map[$productKey];
+        return array_values(array_unique($clean));
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -230,6 +264,24 @@ final class PricingRules
     /** @param  list<array<string,mixed>>  $regions  Replaces the table; an empty list returns to the configured defaults. */
     public function setRegions(array $regions, ?string $updatedBy = null): array
     {
+        $clean = $this->normalizeRegions($regions);
+        if ($clean === []) {
+            $this->settings->forget(self::KEY_REGIONS);
+        } else {
+            $this->settings->set(self::KEY_REGIONS, array_values($clean), $updatedBy);
+        }
+
+        return $this->regions();
+    }
+
+    /**
+     * The table `setRegions` would store (empty = back to the defaults), or its refusal — without storing anything.
+     *
+     * @param  list<array<string,mixed>>  $regions
+     * @return array<string, array{key:string,label:string,countries:list<string>,currency:string,adjust_pct:float}>
+     */
+    public function normalizeRegions(array $regions): array
+    {
         $clean = [];
         foreach ($regions as $row) {
             $key = strtolower(trim((string) ($row['key'] ?? '')));
@@ -252,13 +304,8 @@ final class PricingRules
             }
             $clean[$key] = ['key' => $key, 'label' => mb_substr(trim((string) ($row['label'] ?? strtoupper($key))), 0, 40), 'countries' => $countries, 'currency' => $currency, 'adjust_pct' => round($pct, 2)];
         }
-        if ($clean === []) {
-            $this->settings->forget(self::KEY_REGIONS);
-        } else {
-            $this->settings->set(self::KEY_REGIONS, array_values($clean), $updatedBy);
-        }
 
-        return $this->regions();
+        return $clean;
     }
 
     private function product(string $key): ?Product

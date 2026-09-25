@@ -46,13 +46,16 @@ final class ProvisioningCommand extends GlobalCommand implements RiskAwareComman
 
     public function riskLevel(): string
     {
-        return in_array($this->op(), ['freeze', 'thaw', 'cancel', 'instance.upsert', 'instance.state', 'game.operator_variable.set'], true) ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
+        return in_array($this->op(), ['freeze', 'thaw', 'cancel', 'instance.upsert', 'instance.state', 'game.operator_variable.set', 'automation.toggle'], true) ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
     }
 
-    /** Registering credentials / changing base URLs touches production executors: fresh step-up. */
+    /**
+     * Registering credentials / changing base URLs touches production executors: fresh step-up. So does an automation switch
+     * (owner decision 13): switching on a rule that ships default-off reaches every existing service at once.
+     */
     public function requiresStepUp(): bool
     {
-        return in_array($this->op(), ['freeze', 'thaw', 'instance.upsert', 'instance.state', 'game.operator_variable.set'], true); // §5t-1: the Steam account behind a template
+        return in_array($this->op(), ['freeze', 'thaw', 'instance.upsert', 'instance.state', 'game.operator_variable.set', 'automation.toggle'], true); // §5t-1: the Steam account behind a template
     }
 
     public function requiresApproval(): bool

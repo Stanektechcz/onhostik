@@ -44,6 +44,9 @@
   label { display: block; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-neutral-700, #605d5d); margin-bottom: 5px; }
   input[type=number] { font: inherit; width: 100%; padding: 8px 10px; border: 2px solid var(--color-text, #201e1d); background: var(--color-bg, #f3f2f2); color: inherit; }
   .hint { font-size: 12px; color: var(--color-neutral-700, #605d5d); margin-top: 4px; }
+  dialog { border: 2px solid var(--color-text, #201e1d); padding: 20px; max-width: 420px; font: inherit; }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  select, input[type=text] { font: inherit; width: 100%; padding: 8px 10px; border: 2px solid var(--color-text, #201e1d); background: var(--color-bg, #f3f2f2); color: inherit; }
 </style>
 </head>
 <body>
@@ -106,6 +109,17 @@
     <table><thead><tr><th>Archiv</th><th>Zákazník</th><th>Stav</th><th>Velikost</th><th>Části / mezery</th><th>Uchovat do</th></tr></thead><tbody id="archives"><tr><td colspan="6" class="muted">načítám…</td></tr></tbody></table>
   </section>
 </main>
+
+<dialog id="stepup">
+  <form method="dialog" id="stepup-form">
+    <h2>Druhé ověření</h2>
+    <p class="muted">Poplatek za stažení archivu je cena a lhůty rozhodují o datech zákazníků. Zadejte kód z autentikátoru nebo záložní kód.</p>
+    <div><label for="s-method">Metoda</label><select id="s-method"><option value="totp">TOTP (autentikátor)</option><option value="recovery">záložní kód</option><option value="password">heslo (jen dokud není zapnuté TOTP a mimo produkci)</option></select></div>
+    <div style="margin-top:10px"><label for="s-code">Kód</label><input type="text" id="s-code" inputmode="numeric" autocomplete="one-time-code" required></div>
+    <div class="actions" style="margin-top:14px"><button class="btn primary" value="ok">Ověřit a pokračovat</button><button class="btn" value="cancel" type="button" id="s-cancel">Zrušit</button></div>
+    <p class="hint" id="s-error" style="color:#ae1800"></p>
+  </form>
+</dialog>
 <script>
 (function () {
   var API = '/v1';
@@ -120,7 +134,7 @@
     }).then(function (r) {
       return r.text().then(function (t) {
         var j = {}; try { j = t ? JSON.parse(t) : {}; } catch (e) { j = { message: t.slice(0, 200) }; }
-        if (!r.ok) { var e = new Error(j.message || r.statusText); e.status = r.status; throw e; }
+        if (!r.ok) { var e = new Error(j.message || r.statusText); e.error = j.error; e.status = r.status; e.approvalId = j.approval_id; throw e; }
         return j;
       });
     });
@@ -129,7 +143,34 @@
   function day(iso) { if (!iso) return '—'; return new Date(iso).toLocaleDateString('cs-CZ'); }
   function mb(b) { return (Number(b || 0) / 1048576).toFixed(1) + ' MB'; }
   function alertBox(text, ok) { var a = document.getElementById('alert'); a.hidden = false; a.className = 'msg' + (ok ? ' ok' : ''); a.textContent = text; }
-
+  /* Price and plan changes take a second person (owner decision 13): the refusal carries the request it opened. The form stays as it is: once
+     somebody else approves, the same change is sent again unchanged and goes through. */
+  function pendingApproval(e) {
+    var p = new Error('Změna čeká na schválení druhou osobou (žádost ' + (e.approvalId || '?') + '). Po schválení ji odešlete znovu beze změny — /sprava/nastaveni/schvalovani');
+    p.error = 'approval_required'; p.approvalId = e.approvalId; p.status = e.status; p.payload = e.payload;
+    return p;
+  }
+  /* HIGH-risk commands answer step_up_required until the session holds a fresh grant: ask, verify, retry. */
+  var retry = null, cancel = null;
+  function guarded(action) {
+    return action().catch(function (e) {
+      if (e.error === 'approval_required') throw pendingApproval(e);
+      if (e.error !== 'step_up_required') throw e;
+      return new Promise(function (resolve, reject) {
+        retry = function () { return action().then(resolve, reject); };
+        cancel = function () { reject(new Error('Druhé ověření zrušeno — nic se nezměnilo.')); };
+        document.getElementById('s-error').textContent = ''; document.getElementById('s-code').value = '';
+        document.getElementById('stepup').showModal();
+      });
+    });
+  }
+  document.getElementById('stepup-form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    api('POST', '/auth/step-up', { method: document.getElementById('s-method').value, code: document.getElementById('s-code').value.trim() }).then(function () {
+      document.getElementById('stepup').close(); var r = retry; retry = null; cancel = null; if (r) r();
+    }).catch(function (e) { document.getElementById('s-error').textContent = e.message || 'Ověření se nezdařilo.'; });
+  });
+  document.getElementById('s-cancel').addEventListener('click', function () { document.getElementById('stepup').close(); retry = null; var c = cancel; cancel = null; if (c) c(); });
   function render(d) {
     var p = d.policy || {};
     document.getElementById('grace').value = p.grace_days || 30;
@@ -161,12 +202,13 @@
 
   document.getElementById('policy').addEventListener('submit', function (e) {
     e.preventDefault();
-    api('PUT', '/staff/settings/lifecycle', {
+    var body = {
       grace_days: Number(document.getElementById('grace').value),
       retention_days: Number(document.getElementById('retention').value),
       identity_checks: Number(document.getElementById('checks').value),
       download_fee_minor: { CZK: Math.round(Number(document.getElementById('fee-czk').value) * 100), EUR: Math.round(Number(document.getElementById('fee-eur').value) * 100) }
-    }).then(function () { alertBox('Pravidla uložena. Platí pro každé další zrušení služby.', true); load(); })
+    };
+    guarded(function () { return api('PUT', '/staff/settings/lifecycle', body); }).then(function () { alertBox('Pravidla uložena. Platí pro každé další zrušení služby.', true); load(); })
       .catch(function (err) { alertBox('Uložení neprošlo: ' + err.message); });
   });
 

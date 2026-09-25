@@ -12,6 +12,7 @@ use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\TldPolicy;
 use Onhost\Domain\Catalog\PlanPromises;
+use Onhost\Domain\Catalog\PriceChangeApprovers;
 use Onhost\Domain\Catalog\WafLevels;
 use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Domains\DomainStateMachine;
@@ -455,6 +456,9 @@ final class Doctor extends Command
         $deciders = ApprovalService::deciders()->count();
         $fourEyes = ApprovalService::enabled();
         $this->add('identity', 'four eyes in effect', $fourEyes && $deciders >= 2, $fourEyes ? "{$deciders} member(s) of staff may decide approvals".($deciders >= 2 ? '' : ' — grant iam.approval.decide to a second person, or run ONHOST_FOUR_EYES=false deliberately') : 'ONHOST_FOUR_EYES=false: critical actions take one person and a step-up (single-operator mode)', false);
+        // a price or plan change takes a second person who could make it themselves (owner decision 13, domains/Catalog/PriceChangeApprovers.php)
+        $prices = app(PriceChangeApprovers::class)->status();
+        $this->add('identity', 'price changes have a second person', $prices['ok'], $prices['detail'], false);
         $waiting = Approval::query()->where('state', 'pending')->where('expires_at', '>', now())->where('created_at', '<', now()->subHours(4))->count();
         $this->add('identity', 'no approval waiting for hours', $waiting === 0, $waiting === 0 ? '' : "{$waiting} request(s) older than four hours — /sprava/nastaveni/schvalovani", false);
     }

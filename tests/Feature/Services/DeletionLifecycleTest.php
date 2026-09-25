@@ -44,12 +44,19 @@ function storedArchive(string $organizationId, string $serviceId, string $family
 }
 
 it('lets staff set the restore window, the retention and the download fee, and clamps nonsense (audit §5ab)', function () {
-    $this->actingAs($this->staff(), 'sanctum');
+    $staff = $this->staff();
+    app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1');
+    $this->actingAs($staff, 'sanctum');
 
     expect($this->getJson('/v1/staff/settings/lifecycle')->assertOk()->json('data.lifecycle'))
         ->toMatchArray(['grace_days' => 30, 'retention_days' => 60, 'identity_checks' => 5]);
 
-    $this->withHeader('Idempotency-Key', 'lc-1')->putJson('/v1/staff/settings/lifecycle', ['grace_days' => 45, 'retention_days' => 120, 'download_fee_minor' => ['CZK' => 90000]])->assertOk();
+    // the download fee is a price (owner decision 13): a second person approves, the same request repeated goes through
+    $body = ['grace_days' => 45, 'retention_days' => 120, 'download_fee_minor' => ['CZK' => 90000]];
+    $asked = (string) $this->withHeader('Idempotency-Key', 'lc-1')->putJson('/v1/staff/settings/lifecycle', $body)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
+    expect(app(DeletionPolicy::class)->graceDays())->toBe(30);
+    secondPersonApproves($asked);
+    $this->withHeader('Idempotency-Key', 'lc-1b')->putJson('/v1/staff/settings/lifecycle', $body)->assertOk();
     $policy = app(DeletionPolicy::class);
     expect($policy->graceDays())->toBe(45)->and($policy->retentionDays())->toBe(120)->and($policy->downloadFeeMinor('CZK'))->toBe(90000);
 

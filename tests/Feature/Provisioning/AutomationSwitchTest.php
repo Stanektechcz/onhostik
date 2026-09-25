@@ -8,6 +8,7 @@ use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Orders\OrderRiskService;
 use Onhost\Domain\Orders\QuoteService;
@@ -31,6 +32,10 @@ beforeEach(fn () => $this->seed([CatalogSeeder::class, TaxRuleSeeder::class, Leg
 it('switches a rule off and on from the console; a switched-off rule records skips and the order check stops scoring', function () {
     $staff = $this->staff('platform_owner');
     $this->actingAs($staff, 'sanctum');
+    // a switch reaches every service at once (switching on a default-off rule is a mass change): a fresh step-up first (owner decision 13)
+    $this->putJson('/v1/staff/automation/usage.watch', ['enabled' => false, 'reason' => 'capacity work'])->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    expect(app(AutomationLedger::class)->enabled('usage.watch'))->toBeTrue();
+    app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1');
     $this->putJson('/v1/staff/automation/usage.watch', ['enabled' => false, 'reason' => 'capacity work'])->assertOk()->assertJsonPath('enabled', false)->assertJsonPath('key', 'usage.watch');
     expect(app(AutomationLedger::class)->enabled('usage.watch'))->toBeFalse()->and(app(SettingsStore::class)->get(AutomationLedger::SETTING))->toBe(['usage.watch']);
     $this->artisan('onhost:services:usage-watch')->expectsOutputToContain('switched off')->assertSuccessful();

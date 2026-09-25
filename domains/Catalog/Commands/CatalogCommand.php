@@ -9,15 +9,29 @@ use Onhost\Domain\Identity\Authorization\RiskAwareCommand;
 use Onhost\Platform\Commands\GlobalCommand;
 
 /**
- * Staff pricing controls (Nastavení systému → Slevy a doplňky), dispatched by `op`:
- *  pricing.commit_discounts.set{config} · pricing.domain_discount.set{tld,discount} · pricing.domain_discount.delete{tld} ·
- *  pricing.addon_products.set{product_key,addon_products} · promo.upsert{promo} · promo.delete{code} ·
- *  option.upsert{product_key,option} · option.delete{product_key,key} · product.state{state: active|draft, products: list} ·
- *  plan.publish{product_key,plan_key,entitlements?,limits?,features?,prices?,reason,confirm_large_change?} · plan.activate_version{product_key,plan_key,version,reason}
+ * Staff pricing controls (Nastavení systému → Slevy a doplňky, Tarify, Životní cyklus), dispatched by `op`:
+ *  pricing.commit_discounts.set{config,base?,reason?} · pricing.regions.set{regions,base?,reason?} · pricing.domain_discount.set{tld,discount,reason?} ·
+ *  pricing.domain_discount.delete{tld} · pricing.addon_products.set{product_key,addon_products} · promo.upsert{promo,reason?} · promo.delete{code} ·
+ *  option.upsert{product_key,option,reason?} · option.delete{product_key,key,reason?} · product.state{state: active|draft, products: list} ·
+ *  plan.publish{product_key,plan_key,base_version?,entitlements?,limits?,features?,prices?,reason,confirm_large_change?} ·
+ *  plan.activate_version{product_key,plan_key,version,base_version?,reason} · lifecycle.set{config,base?,reason?} · panel_nav.set{config}
+ *
+ * Who it takes (owner decision 13, 2026-09-25; docs/runbooks/approvals.md): HIGH is a fresh step-up and nothing more, but every
+ * change of a price or a plan takes a second person as well, although catalog.manage itself is only HIGH. Withdrawing an offer
+ * (a discount, a promo code, a product off sale) is one person with a step-up: it can only return to a list price somebody
+ * already approved, and the emergency brake must not wait for a second person. The panel sidebar is an ordinary edit. An
+ * operation this list does not know is a price change: a new operation is four-eyes until somebody classifies it here.
+ * With ONHOST_FOUR_EYES=false (one operator) the authorizer waives the second person and the audit says so.
  */
 final class CatalogCommand extends GlobalCommand implements RiskAwareCommand
 {
-    public const OPS = ['pricing.commit_discounts.set', 'pricing.domain_discount.set', 'pricing.domain_discount.delete', 'pricing.addon_products.set', 'promo.upsert', 'promo.delete', 'option.upsert', 'option.delete', 'panel_nav.set', 'product.state', 'plan.publish', 'plan.activate_version'];
+    public const OPS = ['pricing.commit_discounts.set', 'pricing.regions.set', 'pricing.domain_discount.set', 'pricing.domain_discount.delete', 'pricing.addon_products.set', 'promo.upsert', 'promo.delete', 'option.upsert', 'option.delete', 'panel_nav.set', 'product.state', 'plan.publish', 'plan.activate_version', 'lifecycle.set'];
+
+    /** Withdrawals and the composition of an offer from products already on sale at approved prices: one person, a step-up. */
+    public const STEP_UP_OPS = ['pricing.domain_discount.delete', 'promo.delete', 'pricing.addon_products.set'];
+
+    /** Neither a price nor an offer. */
+    public const ORDINARY_OPS = ['panel_nav.set'];
 
     protected const AUDIT_STRIP = [];
 
@@ -36,19 +50,36 @@ final class CatalogCommand extends GlobalCommand implements RiskAwareCommand
         return 'catalog.'.$this->op();
     }
 
-    /** A plan version decides what every new customer gets and pays (H01): that is not a routine edit. */
     public function riskLevel(): string
     {
-        return $this->requiresStepUp() ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
+        return match (true) {
+            in_array($this->op(), self::ORDINARY_OPS, true) => PermissionCatalog::NORMAL,
+            in_array($this->op(), self::STEP_UP_OPS, true), $this->isWithdrawal() => PermissionCatalog::HIGH,
+            default => PermissionCatalog::CRITICAL, // prices, plans, unknown operations
+        };
     }
 
     public function requiresStepUp(): bool
     {
-        return in_array($this->op(), ['plan.publish', 'plan.activate_version'], true);
+        return $this->riskLevel() !== PermissionCatalog::NORMAL;
     }
 
+    /** The explicit second person: catalog.manage is HIGH, so the authorizer would not ask for one by the permission alone. */
     public function requiresApproval(): bool
     {
-        return false;
+        return $this->riskLevel() === PermissionCatalog::CRITICAL;
+    }
+
+    /**
+     * Taking something off sale: a promo code paused or retired (only an active code is redeemed, and making it active again
+     * is an upsert of the whole code that needs the second person), a product put back to draft.
+     */
+    private function isWithdrawal(): bool
+    {
+        return match ($this->op()) {
+            'promo.upsert' => in_array($this->get('promo.state'), ['paused', 'retired'], true),
+            'product.state' => $this->get('state') === 'draft',
+            default => false,
+        };
     }
 }
