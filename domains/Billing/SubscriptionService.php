@@ -368,6 +368,23 @@ final class SubscriptionService
     }
 
     /**
+     * Whether `restartAfterRestore()` would now take the `restarted` branch with auto-renew off: a zero-length period that the
+     * next renewal pass ends again (`expire()`), because nobody who may spend the credit agreed to renew it.
+     */
+    public function restartEndsAgain(Service $service, bool $paidPeriodCounts = true): bool
+    {
+        $subscription = Subscription::query()->where('service_id', $service->id)->where('state', Subscription::CANCELLED)->orderByDesc('created_at')->first();
+        if ($subscription === null || self::isMetered(Product::query()->where('key', $service->product_key)->first())) {
+            return false;
+        }
+        if ($paidPeriodCounts && self::periodEnd($subscription)?->isFuture()) {
+            return false;
+        }
+
+        return ! self::previousAutoRenew($service, $subscription);
+    }
+
+    /**
      * Whether the customer had auto-renew on before this cancellation — as the terminate saga recorded it for the cancellation
      * being taken back (`deletion` while it runs, `deletion_cancelled` once it was undone; never an earlier cancellation's
      * record, never another subscription's). Without such a record, the cancelled row's own value as the cancellation left it
@@ -441,7 +458,10 @@ final class SubscriptionService
             $this->outbox->publish(GenericEvent::of('subscription.expired', 'subscription', $subscription->id, ['service_id' => $service->id], $subscription->organization_id));
         });
         if (in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED], true)) {
-            app(ServiceService::class)->requestAction($service, 'terminate', CommandContext::system('subscription expired')->withScope($service->organization_id), "sub_expire:{$subscription->id}", ['reason' => 'subscription ended', 'final_backup' => true]);
+            // one termination per period that ended (TASK-0027 review round 1): a subscription a restore started again ends
+            // again, and a key of the subscription alone handed back the earlier expiry's operation — the service ran on unbilled
+            $ended = self::periodEnd($subscription)?->getTimestamp() ?? 0;
+            app(ServiceService::class)->requestAction($service, 'terminate', CommandContext::system('subscription expired')->withScope($service->organization_id), "sub_expire:{$subscription->id}:{$ended}", ['reason' => 'subscription ended', 'final_backup' => true]);
         }
     }
 }

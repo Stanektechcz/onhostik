@@ -37,8 +37,22 @@ final class CatalogRevise extends Command
 
             return self::SUCCESS;
         }
+        $plans = []; // target => [from, how many revisions change it]
         foreach (array_keys($pending) as $revision) {
-            $this->printPreview($revision, $revisions->preview($revision));
+            $rows = $revisions->preview($revision);
+            $this->printPreview($revision, $rows);
+            foreach ($rows as $row) {
+                if ($row['kind'] === 'plan') {
+                    $plans[$row['target']] = [$plans[$row['target']][0] ?? (int) $row['from'], ($plans[$row['target']][1] ?? 0) + 1];
+                }
+            }
+        }
+        // each revision above is counted from today's version; --apply reads each one just before it runs, so a later revision
+        // on the same plan publishes on top of the version the earlier one makes (TASK-0027 review round 1)
+        foreach ($plans as $target => [$from, $count]) {
+            if ($count > 1) {
+                $this->line("{$target} is changed by {$count} revisions: --apply publishes them one after another (".implode(' → ', array_map(fn (int $n) => "v{$n}", range($from, $from + $count))).')');
+            }
         }
         if (! $this->option('apply')) {
             $this->info('Dry run: nothing was published. Run again with --apply to publish the new versions.');

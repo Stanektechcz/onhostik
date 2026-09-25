@@ -95,7 +95,9 @@ Each plan is one `CatalogCommand plan.publish` through the bus (system actor `cl
 was previewed against): audited, finance gets one *Nová verze tarifu* notification per plan, the prices of the current
 version are carried over unchanged (a revision cannot pass prices or features), everybody on an older version keeps it.
 The command is stateless — what is pending is read from the current versions — so a key staff already removed is skipped,
-a second run prints *Nothing pending*, and a rollback to an old version makes it pending again. A refused plan does not
+a second run prints *Nothing pending*, and a rollback to an old version makes it pending again. The dry run counts every
+revision from today's version; `--apply` reads each revision just before it runs, so when two revisions change one plan
+the dry run says so (`eshop/shop-peak is changed by 2 revisions: --apply publishes them one after another (v1 → v2 → v3)`). A refused plan does not
 undo the others; run it again after fixing the cause. Shell access to the server is the gate (no second person exists for
 the system actor); the content of a revision is reviewed as code.
 

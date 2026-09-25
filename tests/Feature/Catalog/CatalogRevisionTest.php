@@ -98,6 +98,8 @@ it('previews the revision without publishing anything: the plans, the keys each 
         ->expectsOutputToContain('eshop/shop-peak v1 → v2: − entitlements.dedicated_db')
         ->expectsOutputToContain('1 service(s) and 1 subscription(s) keep v1')
         ->expectsOutputToContain('promo price CZK/month carried over')
+        // two revisions change shop-peak: the preview counts each from today's version, --apply publishes them in turn (review round 1)
+        ->expectsOutputToContain('eshop/shop-peak is changed by 2 revisions: --apply publishes them one after another (v1 → v2 → v3)')
         ->expectsOutputToContain('Dry run: nothing was published');
 
     expect(PlanVersion::query()->count())->toBe($versions)

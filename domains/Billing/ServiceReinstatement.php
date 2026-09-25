@@ -185,9 +185,12 @@ final class ServiceReinstatement
      */
     public function reinstate(Service $service, CommandContext $context, string $key): array
     {
-        // the one credit gate (TASK-0027): the same switch and the same refusal as every other payment from the credit; the
-        // platform paying a recorded request after a payment (`system`) spends what whoever asked agreed to
-        $this->credit->assertMaySpend($service->organization_id, $context, 'Požádejte vlastníka nebo správce fakturace o obnovení služby.');
+        // the one credit gate (TASK-0027): the same switch and the same refusal as every other payment from the credit. Staff
+        // restoring a customer's service on their request, and the platform paying a recorded request after a payment
+        // (`system`), are not asked — as `requesterMaySpend()` lets a request of either be paid (review round 1)
+        if (! self::actsForPlatform($context)) {
+            $this->credit->assertMaySpend($service->organization_id, $context, 'Požádejte vlastníka nebo správce fakturace o obnovení služby.');
+        }
 
         return DB::transaction(function () use ($service, $context, $key) {
             $service = Service::query()->lockForUpdate()->find($service->id);
@@ -273,14 +276,17 @@ final class ServiceReinstatement
      * whole new period (402 with the quote) — and where no new period would be charged (a metered product) there is none.
      *
      * With the rule on, taking a cancellation back starts its billing again (RestartBillingAfterRestore: the next renewals are
-     * charged to the credit), so it asks the one credit gate (CreditOrderPolicy, TASK-0027): while
-     * `onhost.orders.credit_approval.enabled` is on only the owner and the billing admin may (not a guest of the service, not
-     * an org_admin, not an assistant); while it is off, whoever may resume the service — as for every other payment from the
-     * credit. The 402 names the organization's credit and invoices only to who may read them (`billing.wallet.read`); anybody
-     * else hears the price and the way to pay.
+     * charged to the credit, with the auto-renew the subscription had), so two things are asked, in this order (TASK-0027
+     * review round 1). First the restore command's own permission (`ReinstateServiceCommand::PERMISSION`, the permission of
+     * paying an invoice from the credit) held by a user at the organization: never a developer, an operator role or a guest
+     * of the one service (only `service.manage`), never an assistant or a service account (not a user), and a user's API token
+     * only as far as that user holds it. Then the one credit gate (CreditOrderPolicy): while
+     * `onhost.orders.credit_approval.enabled` is on only the owner and the billing admin — as for every other payment from
+     * the credit. The 402 names the organization's credit and invoices only to who may read them (`billing.wallet.read`);
+     * anybody else hears the price and the way to pay.
      *
-     * @throws DomainError `chargeback_cancelled` (409); with the rule on `credit_spend_not_allowed` (403) or
-     *                     `reinstatement_payment_required` (402)
+     * @throws DomainError `chargeback_cancelled` (409); with the rule on `credit_spend_not_allowed` (403, `permission` names
+     *                     what was missing) or `reinstatement_payment_required` (402)
      */
     public function assertCustomerMayResume(Service $service, CommandContext $context): void
     {
@@ -295,6 +301,9 @@ final class ServiceReinstatement
         }
         if (! $this->enabled()) {
             return;
+        }
+        if (! $this->actorMay($context, ReinstateServiceCommand::PERMISSION, $service->organization_id)) {
+            throw new DomainError('credit_spend_not_allowed', 'Zrušení služby může vzít zpět jen ten, kdo smí platit z kreditu organizace — služba se tím znovu začne účtovat. Požádejte o to prosím vlastníka nebo správce fakturace.', 403, ['permission' => ReinstateServiceCommand::PERMISSION]);
         }
         $this->credit->assertMaySpend($service->organization_id, $context, 'Zrušení služby tím vezmete zpět a služba se znovu začne účtovat — požádejte o to prosím vlastníka nebo správce fakturace.');
         $quote = $this->quote($service);
@@ -321,6 +330,23 @@ final class ServiceReinstatement
         if ($parent !== null && $parent->terminate_at === null && ! in_array($parent->state, [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING], true)) {
             throw new DomainError('parent_reinstated', 'Služba, ke které web patří, byla obnovena; web se s ní vrací a nelze jej odstranit.', 409, ['parent_service_id' => $parent->id]);
         }
+    }
+
+    /**
+     * Resuming this cancelled service now would restart its billing for a period that has already run out while auto-renew
+     * stays off as the customer left it — so the next renewal pass ends it again (TASK-0027 review round 1). Staff who bring
+     * such a service back are told so in the answer; the service is not refused. The same conditions as
+     * RestartBillingAfterRestore, read before the resume.
+     */
+    public function restoreEndsAgain(Service $service): bool
+    {
+        if (! $this->enabled() || $service->terminate_at === null || ! is_array(data_get($service->tags, 'deletion'))
+            || $service->family === 'addon' || data_get($service->tags, 'billing') === 'included'
+            || Withdrawal::query()->where('service_id', $service->id)->exists()) {
+            return false;
+        }
+
+        return $this->subscriptions->restartEndsAgain($service, ! $this->refundedSinceCancellation($service));
     }
 
     /** A refund returned (part of) the paid period after this cancellation began: that period does not cover a restore any more. */
@@ -489,8 +515,9 @@ final class ServiceReinstatement
     }
 
     /**
-     * The actor holds the permission at the organization: staff always; a user by their bindings; an API token or an
-     * assistant never (reading the credit, and asking to spend it, are the organization's people's own decision).
+     * The actor holds the permission at the organization: staff always; a user by their bindings (a user's API token acts as
+     * that user — the token's scope is the bus's and the controller's check); an assistant or a service account never (reading
+     * the credit, and asking to spend it, are the organization's people's own decision).
      */
     private function actorMay(CommandContext $context, string $permission, string $organizationId): bool
     {

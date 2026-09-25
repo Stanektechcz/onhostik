@@ -28,12 +28,14 @@ use Onhost\Domain\Provisioning\FreezeSwitch;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
+use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
 use Onhost\Domain\WalletLedger\WalletService;
+use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
@@ -484,9 +486,10 @@ it('lets only who may spend the credit take back a cancellation that bills again
         ->and(Subscription::query()->whereIn('service_id', [$covered->id, $ended->id])->pluck('state')->unique()->values()->all())->toBe([Subscription::CANCELLED])
         ->and(Service::query()->findOrFail($covered->id)->terminate_at)->not->toBeNull();
 
-    // who may spend but not read the credit is told the price and the way to pay, not the organization's balance
+    // who may spend but not read the credit is told the price and the way to pay, not the organization's balance (asking for a
+    // restore is the restore command's own permission, billing.wallet.topup — TASK-0027 review round 1)
     DB::table('roles')->insert(['key' => 'test_spend_only', 'name' => 'Spend only', 'scope_type' => 'organization', 'is_staff' => false, 'assignable' => false, 'created_at' => now(), 'updated_at' => now()]);
-    DB::table('role_permissions')->insert([['role_key' => 'test_spend_only', 'permission_key' => 'service.read'], ['role_key' => 'test_spend_only', 'permission_key' => 'service.manage'], ['role_key' => 'test_spend_only', 'permission_key' => 'billing.wallet.spend']]);
+    DB::table('role_permissions')->insert([['role_key' => 'test_spend_only', 'permission_key' => 'service.read'], ['role_key' => 'test_spend_only', 'permission_key' => 'service.manage'], ['role_key' => 'test_spend_only', 'permission_key' => 'billing.wallet.spend'], ['role_key' => 'test_spend_only', 'permission_key' => 'billing.wallet.topup']]);
     $spender = $this->customer();
     reinstateBind($org, $spender, 'test_spend_only');
     $this->actingAs($spender, 'sanctum');
@@ -821,4 +824,106 @@ it('takes the cancelled row\'s own auto-renew when the cancellation recorded non
 
     expect(Subscription::query()->where('service_id', $kept->id)->value('auto_renew'))->toBeTrue()
         ->and(Subscription::query()->where('service_id', $unset->id)->value('auto_renew'))->toBeFalse();
+});
+
+/* ── TASK-0027 review round 1 ──────────────────────────────────────────────────────────────────────────────────────────
+ * Taking back a cancellation that bills again asks first whether the actor may ask for a restore at all (the command's own
+ * permission, `billing.wallet.topup`, as a recorded request does), then the one credit gate. With credit approval off a
+ * developer, a guest of the one service, their `services:power` token and an assistant are refused as they were before the
+ * gate was unified; an org_admin still may. A service staff brought back whose customer had auto-renew off ends again at the
+ * next renewal pass — also when an earlier expiry of the same subscription had already asked for a termination.
+ */
+
+/** A service action as the bus runs it for `$context` (the staff console and the customer portal send the same command). @return array<string,mixed> */
+function reinstateServiceAction(Service $service, string $action, CommandContext $context, string $key, array $params = []): array
+{
+    return app(CommandBus::class)->dispatch(new ServiceActionCommand($service->organization_id, $key, ['service_id' => $service->id, 'action' => $action, 'params' => $params]), $context);
+}
+
+it('refuses a developer, a guest of the service, their token and an assistant the undo of a cancellation while credit approval is off', function () {
+    reinstateSwitchOn();
+    config(['onhost.orders.credit_approval.enabled' => false]);
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->addDays(15)]);
+    $guest = $this->customer();
+    reinstateBind($org, $guest, 'svc_manage', $service->id);
+    $developer = $this->customer();
+    reinstateBind($org, $developer, 'developer');
+
+    foreach ([[$guest, 'g'], [$developer, 'd']] as [$who, $tag]) {
+        $this->actingAs($who, 'sanctum');
+        $this->withHeader('Idempotency-Key', "rr1-undo-{$tag}")->postJson("/v1/services/{$service->id}/actions", ['action' => 'resume'])->assertForbidden()
+            ->assertJsonPath('error', 'credit_spend_not_allowed')->assertJsonPath('permission', 'billing.wallet.topup');
+    }
+    $this->flushHeaders();
+
+    $pat = $developer->createToken('ci', ['services:read', 'services:power']);
+    $pat->accessToken->forceFill(['organization_id' => $org->id])->save();
+    app('auth')->forgetGuards();
+    $this->withToken($pat->plainTextToken)->postJson("/v1/services/{$service->id}/actions", ['action' => 'resume'], ['X-Organization' => $org->id, 'Idempotency-Key' => 'rr1-undo-t'])
+        ->assertForbidden()->assertJsonPath('error', 'credit_spend_not_allowed');
+    app('auth')->forgetGuards();
+    $this->flushHeaders();
+
+    $assistant = new CommandContext('ai', 'run_rr1', $org->id, onBehalfOfUserId: $owner->id);
+    expect(fn () => app(ServiceReinstatement::class)->assertCustomerMayResume($service->fresh(), $assistant))->toThrow(DomainError::class);
+
+    expect(Operation::query()->where('service_id', $service->id)->count())->toBe(0)
+        ->and(Service::query()->findOrFail($service->id)->terminate_at)->not->toBeNull()
+        ->and(Subscription::query()->where('service_id', $service->id)->value('state'))->toBe(Subscription::CANCELLED);
+
+    // an org_admin may pay the organization's invoices from its credit, and so may take the cancellation back
+    $this->actingAs(reinstateOrgAdmin($org), 'sanctum');
+    $this->withHeader('Idempotency-Key', 'rr1-undo-a')->postJson("/v1/services/{$service->id}/actions", ['action' => 'resume'])->assertStatus(202);
+    $this->flushHeaders();
+});
+
+it('lets staff pay for a customer\'s restore while credit approval is on, as a recorded request of staff is paid', function () {
+    reinstateSwitchOn();
+    config(['onhost.orders.credit_approval.enabled' => true]);
+    [$owner, $org] = $this->customerWithOrganization();
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
+    $service = reinstateCancelled($org, ['reason' => 'subscription ended']);
+
+    $result = app(ServiceReinstatement::class)->reinstate($service, $this->contextFor($this->staff('cloud_vps_admin')), 'rr1-staff-pay');
+
+    expect($result['state'])->toBe('restoring')->and(reinstateCharges())->toBe(1);
+});
+
+it('ends a restored service again at the renewal pass even when an earlier expiry of its subscription asked for a termination', function () {
+    reinstateSwitchOn();
+    [, $org] = $this->customerWithOrganization();
+    $org->forceFill(['auto_renew_default' => true])->save();
+    // the customer switched auto-renew off; tick() expired the subscription and asked for the termination (`sub_expire:…`)
+    $service = reinstateExpiredByChoice(reinstateCancelled($org, ['hold' => null, 'reason' => 'subscription ended']), ['auto_renew' => false, 'cancel_at_period_end' => false]);
+    $subscription = Subscription::query()->where('service_id', $service->id)->firstOrFail();
+    expect(Operation::query()->where('service_id', $service->id)->where('idempotency_key', 'like', 'sub_expire:%')->count())->toBe(1);
+
+    // staff bring it back: billing restarts today with auto-renew off, and staff are told it will end again
+    $answer = reinstateServiceAction($service, 'resume', $this->contextFor($this->staff(), $org), 'rr1-staff-resume', ['reason' => 'rozhodnutí podpory']);
+    expect(data_get($answer, 'warning.code'))->toBe('restore_ends_at_renewal');
+    driveOperation(Operation::query()->findOrFail($answer['operation_id']));
+    app(OutboxPublisher::class)->relayPending();
+    $restarted = Subscription::query()->findOrFail($subscription->id);
+    expect($restarted->state)->toBe(Subscription::ACTIVE)->and($restarted->auto_renew)->toBeFalse()
+        ->and(Service::query()->findOrFail($service->id)->state)->toBe(ServiceStateMachine::ACTIVE);
+
+    // the renewal pass ends it again: a new termination, not the earlier one handed back
+    $this->travel(1)->minutes();
+    app(SubscriptionService::class)->tick();
+    expect(Subscription::query()->findOrFail($subscription->id)->state)->toBe(Subscription::CANCELLED)
+        ->and(Operation::query()->where('service_id', $service->id)->where('idempotency_key', 'like', 'sub_expire:%')->count())->toBe(2);
+    driveOperations();
+    expect(Service::query()->findOrFail($service->id)->state)->not->toBe(ServiceStateMachine::ACTIVE);
+});
+
+it('does not warn staff when a restore keeps a paid period or the auto-renew the customer had on', function () {
+    reinstateSwitchOn();
+    [, $org] = $this->customerWithOrganization();
+    $covered = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->addDays(15), 'auto_renew' => false]);
+    $renews = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->subDay(), 'auto_renew' => true, 'remote_id' => '1046']);
+    $staff = $this->staff();
+    foreach ([$covered, $renews] as $i => $service) {
+        expect(reinstateServiceAction($service, 'resume', $this->contextFor($staff, $org), "rr1-nowarn-{$i}", ['reason' => 'rozhodnutí podpory']))->not->toHaveKey('warning');
+    }
 });
