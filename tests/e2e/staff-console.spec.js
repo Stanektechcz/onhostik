@@ -1,7 +1,7 @@
 // The staff console table views (audit §5g-1): the seeded platform owner (DevAccountSeeder, admin@onhost.cz) opens
 // the automation rules, the scheduler with its liveness line, the game panel views and the fleet — every view is
-// served by the staff API and rendered through the prototype table seam. An automation switch is flipped and put
-// back through the console so the account and the settings are left as found.
+// served by the staff API and rendered through the prototype table seam. Switching an automation rule asks for a
+// step-up (owner decision 13); the smoke cancels the verification, so the account and the settings are left as found.
 import { execSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
 
@@ -38,14 +38,19 @@ test('automation, jobs, game and fleet views render from the staff API; a rule s
   await expect(page.getByText('Hlídání využití tarifu').first()).toBeVisible();
   await expect(page.getByText('Provisioning', { exact: true }).first()).toBeVisible();
 
-  // a switch round-trip through the API the buttons call: off, recorded as off, on again
-  const off = await api(page, 'put', '/staff/automation/commerce.prune', { enabled: false, reason: 'e2e smoke' });
-  expect(off.error, JSON.stringify(off)).toBeUndefined();
-  expect(off.enabled).toBe(false);
-  const listed = await api(page, 'get', '/staff/automation');
-  expect(listed.data.find((r) => r.key === 'commerce.prune').enabled).toBe(false);
-  const on = await api(page, 'put', '/staff/automation/commerce.prune', { enabled: true, reason: 'e2e smoke' });
-  expect(on.enabled).toBe(true);
+  // switching a rule is HIGH risk (owner decision 13, TASK-0022): the API the buttons call asks for a fresh step-up
+  // first, the console shows its verification dialog, and a cancelled verification leaves the rule exactly as it was
+  // (the seeded owner signs in by a dev link without an authenticator, so the smoke cannot complete a step-up)
+  const before = (await api(page, 'get', '/staff/automation')).data.find((r) => r.key === 'commerce.prune').enabled;
+  const pending = api(page, 'put', '/staff/automation/commerce.prune', { enabled: !before, reason: 'e2e smoke' });
+  const dialog = page.getByRole('dialog', { name: 'Potvrďte, že jste to vy' });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  const refused = await pending;
+  expect(refused.error, JSON.stringify(refused)).toBeDefined();
+  await expect(dialog).toBeHidden();
+  const after = await api(page, 'get', '/staff/automation');
+  expect(after.data.find((r) => r.key === 'commerce.prune').enabled).toBe(before);
 
   // scheduler with the liveness line, the game nodes, the fleet
   await page.goto('/sprava#/jobsadm');
