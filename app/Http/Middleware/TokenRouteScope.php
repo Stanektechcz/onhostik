@@ -6,8 +6,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Onhost\Domain\Identity\Models\PersonalAccessToken;
-use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Platform\Errors\DomainError;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -20,27 +19,28 @@ use Symfony\Component\HttpFoundation\Response;
  * for whatever high-risk action its scopes did cover. A cookie session (the portal) is not touched by this middleware.
  *
  * Deny by default: a route family that is not listed here is not available to tokens at all. The finer check by
- * permission (`assertTokenScope`) still runs afterwards.
+ * permission (`assertTokenScope`, the one map in TokenScopes) still runs afterwards. A service's console token is its own
+ * scope already here: a console is not a read and not a restart (C13-H2c), so neither `services:read` (GET) nor
+ * `services:power` (POST) reaches it.
  */
 final class TokenRouteScope
 {
     /** first path segment after /v1 → [scope for reads, scope for writes]; null = not available in that direction */
     private const FAMILIES = [
-        'services' => ['services:read', 'services:power'],
-        'invoices' => ['invoices:read', null],
-        'documents' => ['invoices:read', null],
-        'wallet' => ['wallet:read', null],
-        'tickets' => ['tickets:write', 'tickets:write'],
-        'dns' => ['dns:write', 'dns:write'],
-        'zones' => ['dns:write', 'dns:write'],
-        'domains' => ['domains:read', null],
+        'services' => [TokenScopes::SERVICES_READ, TokenScopes::SERVICES_POWER],
+        'invoices' => [TokenScopes::INVOICES_READ, null],
+        'documents' => [TokenScopes::INVOICES_READ, null],
+        'wallet' => [TokenScopes::WALLET_READ, null],
+        'tickets' => [TokenScopes::TICKETS_WRITE, TokenScopes::TICKETS_WRITE],
+        'dns' => [TokenScopes::DNS_WRITE, TokenScopes::DNS_WRITE],
+        'zones' => [TokenScopes::DNS_WRITE, TokenScopes::DNS_WRITE],
+        'domains' => [TokenScopes::DOMAINS_READ, null],
     ];
 
     public function handle(Request $request, Closure $next): Response
     {
-        $user = $request->user();
-        $token = $user instanceof User ? $user->currentAccessToken() : null;
-        if (! $token instanceof PersonalAccessToken) {
+        $token = TokenScopes::tokenOf($request->user());
+        if ($token === null) {
             return $next($request); // the portal's own session
         }
         $segments = array_values(array_filter(explode('/', trim($request->path(), '/')), fn (string $s) => $s !== ''));
@@ -48,11 +48,15 @@ final class TokenRouteScope
         if ($family === 'me' && $request->isMethod('GET') && count($segments) <= 2) {
             return $next($request); // a token may ask who it is — and nothing else about the account
         }
-        if ($family === 'services' && ($segments[($segments[0] ?? '') === 'v1' ? 3 : 2] ?? '') === 'access') {
+        $sub = $family === 'services' ? ($segments[($segments[0] ?? '') === 'v1' ? 3 : 2] ?? '') : '';
+        if ($sub === 'access') {
             throw DomainError::forbidden('Sharing a service is not available to API tokens; use the portal.'); // a token that may restart a service must not be able to let somebody in
         }
         $pair = self::FAMILIES[$family] ?? null;
         $needed = $pair === null ? null : $pair[in_array($request->method(), ['GET', 'HEAD'], true) ? 0 : 1];
+        if ($sub === 'console-token') {
+            $needed = TokenScopes::SERVICES_CONSOLE; // a console is neither a read nor a restart: GET and POST alike (C13-H2c)
+        }
         if ($needed === null) {
             throw DomainError::forbidden('This endpoint is not available to API tokens; use the portal.');
         }

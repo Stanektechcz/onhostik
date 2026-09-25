@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
 use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
@@ -90,48 +91,61 @@ final class ApiContext
         return $token instanceof PersonalAccessToken ? 'token:'.$token->getKey() : null;
     }
 
+    /**
+     * Whether this request may do `$permission` — the person's roles AND, for a bearer, the token's scopes. A read path that
+     * shows more to whoever manages (operation secrets, revealed listings, deploy values) must not show it to a read-only
+     * token of a person who manages (C13-H2c).
+     */
     public function can(Request $request, string $permission, ?CommandScope $scope = null): bool
     {
-        $user = $request->user();
-
-        return $user instanceof Authenticatable && $this->authorizer->can($user, $permission, $scope);
+        return $this->holds($request, $permission, $scope) && $this->tokenAllows($request, $permission);
     }
 
     public function authorize(Request $request, string $permission, ?CommandScope $scope = null): void
     {
-        if (! $this->can($request, $permission, $scope)) {
+        // the person first, the token after: "Missing permission X" stays the answer to somebody who lacks the role
+        if (! $this->holds($request, $permission, $scope)) {
             throw DomainError::forbidden("Missing permission {$permission}");
         }
         $this->assertTokenScope($request, $permission);
     }
 
-    /** API tokens carry documented scopes; a token without the scope for a permission family is refused even if the user could. */
+    /**
+     * API tokens carry documented scopes; a token without the scope for a permission is refused even if the user could.
+     * The decision is the one explicit map (TokenScopes): what it does not name is not available to tokens (C13-H2c).
+     */
     public function assertTokenScope(Request $request, ?string $permission): void
     {
-        if ($permission === null) {
-            return;
+        $token = TokenScopes::tokenOf($request->user());
+        if ($token === null) {
+            return; // the portal's own session
         }
-        $user = $request->user();
-        $token = $user instanceof User ? $user->currentAccessToken() : null;
-        if (! $token instanceof PersonalAccessToken) {
-            return;
-        }
-        $needed = match (true) {
-            str_starts_with($permission, 'service.manage'), str_starts_with($permission, 'service.delete'), str_starts_with($permission, 'backup.restore') => 'services:power',
-            str_starts_with($permission, 'service.'), str_starts_with($permission, 'backup.read') => 'services:read',
-            str_starts_with($permission, 'billing.invoice') => 'invoices:read',
-            str_starts_with($permission, 'billing.wallet.read') => 'wallet:read',
-            str_starts_with($permission, 'support.ticket') => 'tickets:write',
-            str_starts_with($permission, 'dns.') => 'dns:write',
-            str_starts_with($permission, 'domain.read') => 'domains:read',
-            default => null,
-        };
+        // a command that asks for no permission is decided by its handler for a person in the portal — never opened to a token
+        $needed = TokenScopes::for($permission);
         if ($needed === null) {
             throw DomainError::forbidden('This action is not available to API tokens; use the portal.');
         }
         if (! $token->can($needed)) {
             throw DomainError::forbidden("The API token lacks the {$needed} scope.");
         }
+    }
+
+    private function holds(Request $request, string $permission, ?CommandScope $scope): bool
+    {
+        $user = $request->user();
+
+        return $user instanceof Authenticatable && $this->authorizer->can($user, $permission, $scope);
+    }
+
+    private function tokenAllows(Request $request, string $permission): bool
+    {
+        $token = TokenScopes::tokenOf($request->user());
+        if ($token === null) {
+            return true;
+        }
+        $needed = TokenScopes::for($permission);
+
+        return $needed !== null && $token->can($needed);
     }
 
     /** `?limit=40&offset=0` + `X-Total-Count`, the shape the surfaces already paginate with. @param callable(mixed):array $present */

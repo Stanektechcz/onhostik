@@ -20,6 +20,11 @@ final class StepUpService
 {
     public function activeGrant(User $user, ?string $sessionId): ?StepUpGrant
     {
+        // A bearer token cannot step up (POST /v1/auth/step-up is closed to tokens, TokenRouteScope), and a grant made without
+        // a session must not follow the person into a token session: a HIGH action through a token is refused, always (C13-H2c).
+        if ($sessionId !== null && str_starts_with($sessionId, 'token:')) {
+            return null;
+        }
         $query = StepUpGrant::query()
             ->where('user_id', $user->id)
             ->whereNull('revoked_at')

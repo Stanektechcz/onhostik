@@ -161,7 +161,11 @@ Seznamy: `?limit=40&offset=` + hlavička `X-Total-Count` (UI kreslí okno 40 ř�
 | Leady | `POST /v1/leads`, `POST /v1/reseller/apply`, `POST /v1/tender/request` |
 
 Veřejné API pro zákazníky (dokumentované na `Onhost.dc.html#/api`) je podmnožina se scope tokeny:
-`services:read`, `services:power`, `invoices:read`, `tickets:write`, `dns:write`.
+`services:read`, `services:power`, `services:console`, `invoices:read`, `tickets:write`, `dns:write`, `domains:read`,
+`wallet:read`. Který scope pokrývá které oprávnění, říká jediná explicitní mapa `domains/Identity/Authorization/TokenScopes.php`;
+oprávnění, které v ní nemá rozhodnutí, tokenům dostupné není. `services:console` (konzole, terminál, příkazy, SSH klíče) není
+v žádné předvolbě formuláře — zákazník ho zaškrtává zvlášť. Token nikdy nemá step-up, takže akce s rizikem HIGH/CRITICAL
+přes token neprojdou.
 Limit 120 req/min na token, `429` s `Retry-After`.
 
 ## 6. Fronty a plánovač
