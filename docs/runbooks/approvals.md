@@ -32,7 +32,7 @@ The audit row of the action carries `approval_ids` and the step-up method; `iam.
 
 Permissions the catalogue marks CRITICAL for staff: `compliance.legal_hold.manage`, `iam.role.manage`,
 `iam.break_glass`, `billing.refund.execute_large`, `billing.credit.adjust_mass`, `billing.tax_rule.manage`,
-`provider.secret.view`, `secret.rotate`, `dns.global.write`, `domain.critical.manage`. A command can no longer talk
+`provider.secret.view`, `secret.rotate`, `dns.global.write`, `domain.critical.manage`, `billing.limit_raise.waive`. A command can no longer talk
 such a permission down to "high" (`riskLevel()` is ignored for them). Commands may still say that one of their
 operations under a HIGH permission needs no step-up (a draft, a note) — those per-operation decisions are listed in
 `production-readiness-audit.md` §7 for the owner's review.
@@ -66,6 +66,28 @@ operation the command does not classify is treated as a price change (fail close
   reviewed as code (it cannot pass prices or features; the prices of the current version are carried over).
 - Automation switches (`PUT /v1/staff/automation/{rule}`) take a fresh step-up: switching on a rule that ships default-off
   reaches every existing service at once.
+- A new product that the code defines (`product.create`, e.g. `limit-raise`) is a new offer: four eyes in the console; the
+  revision command (`onhost:catalog:revise --apply`) creates it as the system actor, like a plan version.
+
+### A limit raise at no charge (owner decision 8, TASK-0022)
+
+A raise of one limit of one service is an order: the parent product's option price per unit and per period, renewed every
+period (staff place it as an assisted order; customers only once `ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS=true`). Giving it **at
+no charge** is money given away:
+
+- `POST /v1/staff/customers/{organization}/limit-raises/free` `{service_id, metric, units, note}` needs
+  `billing.limit_raise.waive` (CRITICAL: `billing_finance_admin`, `platform_owner`), a step-up and **a second person** who
+  holds the same permission. The request is checked and priced first (a raise that cannot be had is refused before anybody
+  is asked); the approver reads the service, the number, the units, the note and the **price it waives**
+  (`price: {currency, net_minor, period}`).
+- The approval is the proof, explicitly: the handler reads the approval the bus consumed for this very request
+  (`CommandContext::verifiedApprovalIds`) and checks that it names the organization, the service, the number, the units and
+  the price. If the option price moved after the approval, the repeat is refused (`409 limit_raise_price_changed`) — ask again.
+- What is given lasts **one period**: an order of total 0 (the invoice shows the price and the waiver as its discount), a
+  subscription of 0 that ends with its period. Staff see every free raise (`Navýšení limitu zdarma: …`).
+- One operator (`ONHOST_FOUR_EYES=false`): the step-up stays, the order records `waived:single-operator`.
+- No other way gives more for nothing: a staff `resize` above what the service holds and a staff `service.create` above its
+  plan are refused with `limit_raise_required` (a repair or a lower number still runs).
 
 ## One operator alone
 
@@ -99,6 +121,10 @@ list freezes (withdrawals and `onhost:catalog:state draft` keep working).
    carry the approval ids. Ask for another version, publish a different one in between with its own approval, send the
    first again → a new request (the old approval is not spent). Pause and delete a promo code as `product_manager` → a
    step-up alone. `onhost:doctor` → `price changes have a second person` is OK.
+5. Limit raise (decision 8): as `billing_finance_admin`, give a web hosting +5 mailboxes for free → refused with an approval
+   id showing the price; approve as `platform_owner`; send it again unchanged → an order of 0, the service has 5 more, the
+   raise's subscription ends with the period. `onhost:limit-raise list` shows it `free: apr_…`; `onhost:doctor` → `every
+   limit raise is billed or approved` is OK.
 
 ## A role reads what it may change (2026-09-20)
 
