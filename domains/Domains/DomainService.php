@@ -22,6 +22,7 @@ use Onhost\Domain\Domains\Workflows\TransferDomainInWorkflow;
 use Onhost\Domain\Domains\Workflows\UpdateNameserversWorkflow;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Orders\Models\Consent;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
@@ -277,6 +278,8 @@ final class DomainService
     /** Holds the gross amount with domain priority and starts the renewal saga. */
     public function renew(Domain $domain, int $years, CommandContext $context, string $idempotencyKey, ?DomainRenewalJob $job = null): Operation
     {
+        // owner decision 20 (TASK-0021): a renewal is paid from credit — by the owner or the billing admin (the scheduler is the platform: not asked)
+        app(CreditOrderPolicy::class)->assertMaySpend($domain->organization_id, $context, 'Požádejte vlastníka o prodloužení domény.');
         $this->assertNotMirrored($domain, 'renew');
         if (! in_array($domain->state, [DomainStateMachine::ACTIVE, DomainStateMachine::EXPIRED, DomainStateMachine::GRACE], true)) {
             throw new DomainError('domain_not_renewable', "{$domain->fqdn_ascii} is {$domain->state}; only active, expired or grace-period domains can be renewed.", 409);

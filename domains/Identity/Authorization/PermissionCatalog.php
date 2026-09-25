@@ -52,6 +52,8 @@ final class PermissionCatalog
             'billing.payment_method.manage' => $c('Manage saved payment methods', self::HIGH),
             'billing.budget.manage' => $c('Set budgets, spend limits and alerts'),
             'catalog.order.create' => $c('Place orders and change plans'),
+            // TASK-0021 (owner decision 20): paying from the organization's credit — the owner and the billing admin; anybody else's credit order waits for them
+            'billing.wallet.spend' => $c('Pay from account credit (orders, invoices, renewals) and approve credit-paid orders of other members'),
 
             // ── customer: services ───────────────────────────────────────────
             'service.read' => $c('View services, metrics, logs and activity'),

@@ -201,6 +201,7 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
     Route::post('orders', [OrderController::class, 'store']);
     Route::get('orders/{order}', [OrderController::class, 'show']);
     Route::post('orders/{order}/transition', [OrderController::class, 'transition']);
+    Route::post('orders/{order}/approval', [OrderController::class, 'approval']); // TASK-0021: the owner or a billing admin decides a held credit order
 
     Route::get('monitors', [InsightsController::class, 'monitors'])->middleware('shed');
     Route::get('backups', [InsightsController::class, 'backups'])->middleware('shed');

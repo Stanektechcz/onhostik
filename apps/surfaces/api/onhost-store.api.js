@@ -68,6 +68,7 @@
       commit: o.commit_months || 1, total: num(o.total), at: ts(o.placed_at || o.created_at), src: o.source || 'web',
       stalled: !!(o.provisioning && o.provisioning.stalled), // fulfilment waiting on a transient node error (retrying)
       review: !!(o.review && o.review.state === 'pending'), // held by the intake pre-check (audit §5f-8): paid, provisioned after a staff decision
+      approval: !!(o.approval && o.approval.state === 'pending'), // TASK-0021: a credit order waiting for the owner or a billing admin
       hist: [['nova', ts(o.placed_at || o.created_at)]].concat(o.paid_at ? [['zaplaceno', ts(o.paid_at)]] : []).concat(o.activated_at ? [['aktivni', ts(o.activated_at)]] : []) };
   }
   function mapTicket(t) {
@@ -167,6 +168,13 @@
       log(who || 'admin', id + ' → ' + ORDER_FLOW[to].label);
       emit();
       return o;
+    },
+
+    /* TASK-0021: the owner or a billing admin decides a credit order another member placed (approve | reject, a reason for a rejection) */
+    orderApproval: function (id, decision, reason) {
+      var o = this.order(id); if (!o || !o.approval) return null;
+      return A.post('/orders/' + o.apiId + '/approval', { decision: decision, reason: reason || undefined }, A.key()).then(refresh)
+        .catch(function (e) { log('system', id + ': ' + e.message); emit(); throw e; });
     },
 
     /* --- tickets --- */

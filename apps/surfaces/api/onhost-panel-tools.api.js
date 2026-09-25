@@ -770,7 +770,7 @@
       })
       .then(function (x) {
         var o = x.r.order || x.r;
-        ctx.X.flash(cmp, (periodChange ? _('Změna období ', 'Billing period change ') : _('Změna tarifu ', 'Plan change ')) + (o.number || '') + _(' přijata', ' received'), x.mode === 'wallet' ? _('Uhrazeno z kreditu; nové limity platí do minuty.', 'Paid from credit; the new limits apply within a minute.') : _('Zálohová faktura je ve Fakturaci; po připsání platby tarif změníme.', 'The proforma is in Billing; the plan changes once the payment arrives.'));
+        ctx.X.flash(cmp, (periodChange ? _('Změna období ', 'Billing period change ') : _('Změna tarifu ', 'Plan change ')) + (o.number || '') + _(' přijata', ' received'), x.r.approval === 'pending' ? _('Objednávka čeká na schválení vlastníkem nebo fakturačním správcem organizace; z kreditu se zatím nic nečerpalo. Dáme vám vědět, jak rozhodnou.', 'The order waits for the approval of the organization owner or billing admin; no credit has been used yet. You will hear how they decide.') : x.mode === 'wallet' ? _('Uhrazeno z kreditu; nové limity platí do minuty.', 'Paid from credit; the new limits apply within a minute.') : _('Zálohová faktura je ve Fakturaci; po připsání platby tarif změníme.', 'The proforma is in Billing; the plan changes once the payment arrives.'));
         drop(ctx, ['plans', 'quotas']);
         if (window.OnhostStore && window.OnhostStore.refresh) window.OnhostStore.refresh();
       })

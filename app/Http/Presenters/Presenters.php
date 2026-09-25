@@ -11,6 +11,7 @@ use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Domains\Models\RegistrarConnection;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Orders\CreditOrderApprovals;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\OrderStateMachine;
@@ -189,6 +190,9 @@ final class Presenters
         $out['provisioning'] = self::provisioning($order);
         $review = is_array($order->meta['review'] ?? null) ? $order->meta['review'] : null; // intake pre-check (audit §5f-8): the customer sees "checking", staff see the score and reasons
         $out['review'] = $review === null ? null : ['state' => $review['state'] ?? 'pending', 'score' => $review['score'] ?? null, 'reasons' => $review['reasons'] ?? [], 'opened_at' => $review['opened_at'] ?? null, 'decided_at' => $review['decided_at'] ?? null];
+        $approval = CreditOrderApprovals::of($order); // a credit order waiting for the owner or a billing admin (TASK-0021)
+        $out['approval'] = $approval === [] ? null : ['state' => $approval['state'] ?? 'pending', 'requester' => isset($approval['requester_id']) ? ['id' => $approval['requester_id'], 'name' => $approval['requester_name'] ?? null] : null,
+            'opened_at' => $approval['opened_at'] ?? null, 'decided_at' => $approval['decided_at'] ?? null, 'decided_by' => isset($approval['decided_by']) ? ['id' => $approval['decided_by'], 'name' => $approval['decider_name'] ?? null] : null, 'reason' => $approval['reason'] ?? null];
 
         return $out;
     }

@@ -6,6 +6,7 @@ namespace Onhost\Domain\Services;
 
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Models\Backup;
@@ -96,6 +97,8 @@ final class ServiceArchiveService
         if (! (bool) data_get($backup->meta, 'download.paid', false)) {
             $fee = $this->policy->downloadFeeMinor($currency);
             if ($fee > 0) {
+                // owner decision 20 (TASK-0021): the fee is paid from credit — by the owner or the billing admin
+                app(CreditOrderPolicy::class)->assertMaySpend($organization, $context, 'Požádejte vlastníka o stažení archivu.');
                 $this->chargeFee($organization, $backup, Money::minor($fee, $currency), $context);
                 $charged = true;
             }

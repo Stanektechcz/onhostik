@@ -15,6 +15,7 @@ use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Marketplace\Models\MarketplaceListing;
 use Onhost\Domain\Marketplace\Models\MarketplaceOrder;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerCommission;
@@ -118,6 +119,8 @@ final class MarketplaceService
     /** @param  array{brief?:string, service_id?:string}  $input */
     public function order(Organization $organization, ?User $user, MarketplaceListing $listing, array $input, CommandContext $context): MarketplaceOrder
     {
+        // owner decision 20 (TASK-0021): a marketplace order is paid from credit at once — by the owner or the billing admin
+        app(CreditOrderPolicy::class)->assertMaySpend($organization, $context, 'Požádejte vlastníka, aby službu objednal.');
         if ($listing->state !== MarketplaceListing::PUBLISHED) {
             throw new DomainError('marketplace_listing_unavailable', 'This service is not available right now.', 409, ['state' => $listing->state]);
         }

@@ -6,6 +6,7 @@ namespace Onhost\Domain\Invoicing\Commands;
 
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Orders\OrderSettlement;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Models\PaymentIntent;
@@ -112,6 +113,8 @@ final class InvoicingCommandHandler implements CommandHandler
         if (! $open->isPositive()) {
             throw new DomainError('invoice_not_payable', "Invoice {$invoice->number} has nothing left to pay.", 409);
         }
+        // owner decision 20 (TASK-0021): the credit is spent by the owner or the billing admin; a card or a transfer stays open to everybody
+        app(CreditOrderPolicy::class)->assertMaySpend($invoice->organization_id, $context, 'Požádejte je o úhradu, nebo fakturu zaplaťte kartou či převodem.');
         if ($invoice->bookedAtIssue()) { // the revenue and the VAT were booked when it was issued: the payment settles the receivable
             $this->orders->releaseReservation($invoice, $context); // the order's reservation of the credit line waited for exactly this payment
             $this->wallets->settleReceivable($invoice->organization_id, $open, "invoice:{$invoice->id}:wallet", $context, 'invoice', $invoice->id, "Úhrada faktury {$invoice->number} z kreditu");

@@ -174,6 +174,13 @@ final class Lexicon
         'Za hodinu začíná vaše on-call směna' => 'Your on-call shift starts in an hour', ' držíte pager; alerty najdete v konzoli.' => ' you carry the pager; the alerts are in the console.', 'Od ' => 'From ', // §5t-4
         // small words that appear inside composed strings
         ' · vrácení kreditu' => ' · credit refund', ' dnů' => ' days', 'včera' => 'yesterday', 'dnes' => 'today', 'zítra' => 'tomorrow',
+        // ── TASK-0021 (owner decision 20): credit orders waiting for the owner or a billing admin ──
+        ' čeká na vaše schválení' => ' is waiting for your approval', 'Člen organizace' => 'A member of the organization', ' ji zadal s platbou z kreditu (' => ' placed it, paid from credit (',
+        '). Kredit se použije až po vašem schválení.' => '). The credit is used only once you approve it.', ' schválena' => ' approved', 'Schválil(a) ' => 'Approved by ',
+        '; uhrazeno z kreditu, služby se zřizují.' => '; paid from credit, the services are being provisioned.', ' nebyla schválena' => ' was not approved', 'Důvod: ' => 'Reason: ',
+        '. Z kreditu se nic nečerpalo.' => '. No credit was used.', ' vypršela bez schválení' => ' expired without approval', 'Nikdo ji do ' => 'Nobody approved it within ',
+        ' dnů neschválil, proto jsme ji zrušili.' => ' days, so we cancelled it.',
+        // ── end TASK-0021 ──
     ];
 
     public static function translate(?string $text, string $locale): ?string

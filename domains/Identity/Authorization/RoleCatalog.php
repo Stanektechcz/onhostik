@@ -22,7 +22,7 @@ final class RoleCatalog
             // ── customer organization roles ────────────────────────────────
             'owner' => self::role('Owner', 'Full control of the organization', 'organization', false, $allCustomer),
             'org_admin' => self::role('Organization admin', 'Everything except what the owner alone may do (closing the organization, the panel account password)', 'organization', false, array_values(array_diff($allCustomer, self::orgAdminWithheld()))),
-            'billing_admin' => self::role('Billing admin', 'Wallet, invoices, payment methods, budgets', 'organization', false, array_merge($customerRead, ['billing.wallet.topup', 'billing.payment_method.manage', 'billing.budget.manage', 'catalog.order.create'])),
+            'billing_admin' => self::role('Billing admin', 'Wallet, invoices, payment methods, budgets', 'organization', false, array_merge($customerRead, ['billing.wallet.topup', 'billing.payment_method.manage', 'billing.budget.manage', 'catalog.order.create'], self::BILLING_ADMIN_EXTRA)),
             'domain_manager' => self::role('Domain manager', 'Domains, contacts, renewals, transfers', 'organization', false, array_merge($customerRead, ['domain.manage', 'domain.transfer_out.execute', 'domain.registrant.change', 'dns.zone.write'])),
             'dns_manager' => self::role('DNS manager', 'DNS zones and DNSSEC', 'organization', false, array_merge($customerRead, ['dns.zone.write', 'dns.dnssec.manage'])),
             'developer' => self::role('Developer', 'Apps, deploys, databases, consoles', 'organization', false, array_merge($customerRead, ['service.manage', 'service.console', 'apps.deploy', 'database.manage', 'backup.download', 'dns.zone.write', 'support.ticket.write', 'support.chat.use'])),
@@ -91,8 +91,18 @@ final class RoleCatalog
      */
     public static function orgAdminWithheld(): array
     {
-        return array_values(array_unique(PermissionCatalog::OWNER_ONLY));
+        return array_values(array_unique(array_merge(PermissionCatalog::OWNER_ONLY, self::CREDIT_SPENDING)));
     }
+
+    /**
+     * Owner decision 20: the organization's credit is spent by the owner and the billing admin. The organization admin runs the
+     * organization day to day and still orders — paid by card or transfer at once, from credit after an owner or billing admin
+     * approved it (Orders\CreditOrderPolicy).
+     */
+    public const CREDIT_SPENDING = ['billing.wallet.spend'];
+
+    /** What the billing admin holds besides the billing line itself (owner decision 20). */
+    public const BILLING_ADMIN_EXTRA = self::CREDIT_SPENDING;
     // ── end TASK-0021 ──
 
     /** @param list<string> $permissions */

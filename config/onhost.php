@@ -346,6 +346,15 @@ return [
             'disposable_domains' => array_filter(array_map('trim', explode(',', (string) env('ONHOST_ORDER_RISK_DISPOSABLE', 'mailinator.com,guerrillamail.com,10minutemail.com,tempmail.com,temp-mail.org,yopmail.com,sharklasers.com,trashmail.com,dispostable.com,getnada.com,mohmal.com,throwawaymail.com')))),
             'free_mail_domains' => ['gmail.com', 'seznam.cz', 'email.cz', 'centrum.cz', 'post.cz', 'volny.cz', 'atlas.cz', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com', 'protonmail.com', 'proton.me', 'azet.sk', 'zoznam.sk'],
         ],
+        // ── TASK-0021 (owner decision 20): credit is spent by the owner and the billing admin (`billing.wallet.spend`). On: a credit-paid
+        // order (the modes below) of anybody else waits for their approval, and paying from credit at once (an invoice, a domain renewal,
+        // a marketplace order, approving paid support work, an archive download) is refused to them. Off (default) = everything as before.
+        'credit_approval' => [
+            'enabled' => (bool) env('ONHOST_ORDER_CREDIT_APPROVAL', false),
+            'modes' => ['wallet', 'postpaid'],
+            'expire_days' => (int) env('ONHOST_ORDER_CREDIT_APPROVAL_EXPIRE_DAYS', 7), // an order nobody decided is cancelled after this many days
+        ],
+        // ── end TASK-0021 ──
     ],
 
     'wapi' => [

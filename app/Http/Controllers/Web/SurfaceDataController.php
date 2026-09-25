@@ -21,8 +21,10 @@ use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Incidents\IncidentService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
+use Onhost\Domain\Orders\CreditOrderApprovals;
 use Onhost\Domain\Orders\Models\ConsentDocument;
 use Onhost\Domain\Orders\Models\Order;
+use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Payments\Models\PaymentIntent;
@@ -917,6 +919,10 @@ final class SurfaceDataController extends Controller
             'dunning' => (array) config('onhost.billing.dunning'),
             'wallet' => ['auto_topup' => $organization !== null ? app(AutoTopup::class)->settings($organization) : null, 'payment_methods' => $organization !== null ? app(PaymentService::class)->methods($organization) : []], // the automatic top-up policy row (audit §5e-2) and the stored cards (audit §5f-1)
             'sla' => $services->pluck('sla_class')->filter()->unique()->values()->all(),
+            // TASK-0021 (owner decision 20): credit orders waiting for the owner or a billing admin; the server refuses anybody else's decision
+            'approvals' => Order::query()->where('organization_id', $organizationId)->where('state', OrderStateMachine::NEW)->where('meta->approval->state', 'pending')->orderBy('placed_at')->limit(20)->get()
+                ->map(fn (Order $o) => ['id' => $o->id, 'number' => $o->number, 'total' => round((int) $o->total_minor / 100, 2), 'currency' => $o->currency, 'requester' => CreditOrderApprovals::of($o)['requester_name'] ?? null, 'placed' => $fmt($o->placed_at)])->values()->all(),
+            'approval_expire_days' => (int) config('onhost.orders.credit_approval.expire_days', 7),
         ];
     }
 

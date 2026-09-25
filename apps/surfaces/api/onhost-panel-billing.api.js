@@ -93,8 +93,46 @@
     });
   }
 
+  /* TASK-0021 (owner decision 20): credit orders of members who may not spend the credit, waiting for the owner or a billing admin.
+   * Shown in the pending-payments card before the transfers; the server refuses a decision to anybody else. */
+  function decideOrder(cmp, o, decision) {
+    var _ = tr(cmp), A = window.OnhostApi, reason = null;
+    if (!A) return;
+    if (decision === 'reject') {
+      reason = window.prompt(_('Proč objednávku ' + o.number + ' zamítáte? Důvod dostane člen, který ji zadal.', 'Why do you reject order ' + o.number + '? The member who placed it gets the reason.'), '');
+      if (!reason || !String(reason).trim()) return;
+    } else if (!window.confirm(_('Schválit objednávku ' + o.number + ' za ' + money(cmp, o.total) + '? Částka se uhradí z kreditu a služby se začnou zřizovat.', 'Approve order ' + o.number + ' for ' + money(cmp, o.total) + '? It is paid from credit and the services start.'))) return;
+    A.post('/orders/' + encodeURIComponent(o.id) + '/approval', { decision: decision, reason: reason ? String(reason).trim() : undefined }, A.key()).then(function () {
+      flash(cmp, decision === 'approve' ? _('Objednávka schválena · ', 'Order approved · ') + o.number : _('Objednávka zamítnuta · ', 'Order rejected · ') + o.number, decision === 'approve' ? _('Uhrazeno z kreditu, služby se zřizují.', 'Paid from credit; the services are being set up.') : _('Nic se z kreditu nečerpalo.', 'No credit was used.'));
+      setTimeout(function () { location.reload(); }, 1500);
+    }).catch(function (e) { flash(cmp, _('Rozhodnutí se neuložilo', 'Decision not saved'), (e && e.message) || _('Zkuste to prosím znovu.', 'Please try again.')); });
+  }
+
+  function approvalsLedger(cmp) {
+    var b = data();
+    if (!b || !b.approvals || !b.approvals.length) return null;
+    var _ = tr(cmp), n = b.approvals.length, cs = isCs(cmp), actions = [], days = b.approval_expire_days || 7;
+    b.approvals.slice(0, 3).forEach(function (o) {
+      actions.push([_('Schválit ', 'Approve ') + o.number, '', false, function () { decideOrder(cmp, o, 'approve'); }]);
+      actions.push([_('Zamítnout ', 'Reject ') + o.number, '', false, function () { decideOrder(cmp, o, 'reject'); }]);
+    });
+    return {
+      real: true,
+      title: _('Objednávky čekající na schválení', 'Orders waiting for approval'),
+      note: _('placené z kreditu · z kreditu smí platit jen vlastník a fakturační správce', 'paid from credit · only the owner and the billing admin may spend the credit'),
+      state: n + ' ' + (cs ? (n === 1 ? 'objednávka' : n < 5 ? 'objednávky' : 'objednávek') : (n === 1 ? 'order' : 'orders')), stateKind: 'warn', actions: actions,
+      head: [_('Objednávka', 'Order'), _('Zadal(a)', 'Placed by'), _('Částka', 'Amount'), _('Zadáno', 'Placed')],
+      rows: b.approvals.map(function (o) { return [o.number, o.requester || '—', money(cmp, o.total), o.placed || '']; }),
+      totals: [[_('Celkem čeká', 'Total waiting'), money(cmp, b.approvals.reduce(function (s, o) { return s + (o.total || 0); }, 0)), true]],
+      meta: [[_('Bez rozhodnutí', 'Undecided'), _('zrušíme po ' + days + ' dnech', 'cancelled after ' + days + ' days')]],
+      metaNote: _('Dokud objednávku neschválíte, nic se z kreditu nečerpá a nic se nezřizuje. Zamítnutí ji zruší bez poplatku.', 'Until you approve an order no credit is used and nothing is set up. Rejecting it cancels it free of charge.')
+    };
+  }
+
   /* "Čekající platby převodem": every transfer the customer still owes, with the symbol and the account, in the ledger shape. */
   function pendingLedger(cmp) {
+    var approvals = approvalsLedger(cmp);
+    if (approvals) return approvals;
     var b = data();
     if (!b || !b.pending || !b.pending.length) return null;
     var _ = tr(cmp), bank = b.bank || {}, n = b.pending.length, cs = isCs(cmp);
@@ -316,5 +354,5 @@
     };
   }
 
-  window.OnhostPanelBilling = { ledger: ledger, breakdown: breakdown, rowAction: rowAction, topUp: topUp, payByBank: payByBank, payByCard: payByCard, pendingLedger: pendingLedger, widgets: widgets, usageRows: usageRows, policyLedger: policyLedger, data: data };
+  window.OnhostPanelBilling = { ledger: ledger, breakdown: breakdown, rowAction: rowAction, topUp: topUp, payByBank: payByBank, payByCard: payByCard, pendingLedger: pendingLedger, approvalsLedger: approvalsLedger, widgets: widgets, usageRows: usageRows, policyLedger: policyLedger, data: data };
 })();

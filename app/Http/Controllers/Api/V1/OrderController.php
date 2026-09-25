@@ -8,6 +8,7 @@ use App\Http\Presenters\Presenters;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Onhost\Domain\Orders\Commands\CancelOrderCommand;
+use Onhost\Domain\Orders\Commands\DecideOrderApprovalCommand;
 use Onhost\Domain\Orders\Commands\PlaceOrderCommand;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
@@ -25,6 +26,9 @@ final class OrderController extends ApiController
         $query = Order::query()->where('organization_id', $organization->id);
         if ($request->filled('state')) {
             $query->where('state', strtoupper((string) $request->query('state')));
+        }
+        if ($request->query('approval') === 'pending') { // credit orders waiting for the owner or a billing admin (TASK-0021)
+            $query->where('state', OrderStateMachine::NEW)->where('meta->approval->state', 'pending');
         }
 
         return $this->api->paginate($request, $query, fn (Order $o) => Presenters::order($o, false), 'placed_at');
@@ -62,6 +66,19 @@ final class OrderController extends ApiController
         $this->bus->dispatch($command, $this->api->context($request, $organization, $data['reason'] ?? null));
 
         return response()->json(['data' => Presenters::order($model->refresh())]);
+    }
+
+    /**
+     * The owner or a billing admin decides a credit order another member placed (owner decision 20, TASK-0021). The order is
+     * found and the caller authorized for its organization before anything of the request is validated.
+     */
+    public function approval(Request $request, string $order): JsonResponse
+    {
+        $model = $this->resolve($request, $order);
+        $data = $request->validate(['decision' => ['required', 'in:approve,reject'], 'reason' => ['nullable', 'string', 'max:250']]);
+        $organization = Organization::query()->findOrFail($model->organization_id);
+
+        return $this->dispatch(new DecideOrderApprovalCommand($organization->id, $this->idempotencyKey($request, "order.approval:{$model->id}"), ['order_id' => $model->id, 'decision' => $data['decision'], 'reason' => $data['reason'] ?? null]), $this->api->context($request, $organization, $data['reason'] ?? null));
     }
 
     /** @return array{to:string, reason?:?string} */

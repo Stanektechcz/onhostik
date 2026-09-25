@@ -7,6 +7,7 @@ namespace Onhost\Domain\Support;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\DunningService;
 use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\Models\WorkOffer;
@@ -77,6 +78,10 @@ final class WorkOfferService
     /** The customer's answer to the price. Approval commits the organization to pay it once the work is done. */
     public function decide(WorkOffer $offer, bool $approve, CommandContext $context, ?string $note = null, ?string $authorName = null): WorkOffer
     {
+        if ($approve) { // owner decision 20 (TASK-0021): the approved work is billed to the credit — the owner or the billing admin commits it
+            app(CreditOrderPolicy::class)->assertMaySpend((string) $offer->organization_id, $context, 'Požádejte vlastníka, aby nabídku schválil.');
+        }
+
         return DB::transaction(function () use ($offer, $approve, $context, $note, $authorName) {
             $offer = WorkOffer::query()->lockForUpdate()->findOrFail($offer->id);
             if ($offer->state === ($approve ? WorkOffer::APPROVED : WorkOffer::DECLINED)) {

@@ -6,6 +6,7 @@ namespace Onhost\Domain\Notifications;
 
 use Carbon\CarbonImmutable;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\UsageWatch;
@@ -43,6 +44,12 @@ final class NotificationRouter
             'order.placed' => $this->both($m, 'order', "Nová objednávka {$p['number']}", ($org?->name ?? '').' · '.$money($p['total'] ?? null).' · '.($p['mode'] ?? ''), 'Objednávka přijata', "{$p['number']} · ".$money($p['total'] ?? null), '/sprava/objednavky', '/panel/objednavky', 'info', $email, 'order-received', ['cislo' => $p['number'], 'castka' => $money($p['total'] ?? null), 'jmeno' => $org?->name, 'url' => "{$portal}/panel/objednavky"]),
             'order.paid' => $this->customer($m, 'order', 'Objednávka zaplacena', "{$p['number']} · zřizujeme služby", '/panel/objednavky'),
             'order.active' => $this->customer($m, 'order', 'Objednávka je hotová', "{$p['number']} · všechny služby jsou aktivní", '/panel/sluzby'),
+            // ── TASK-0021 (owner decision 20): a credit order of a member who may not spend the credit waits for the owner or a billing admin ──
+            'order.approval.required' => $this->creditApprovers($m, "Objednávka {$number} čeká na vaše schválení", trim((string) ($p['requester'] ?? 'Člen organizace')).' ji zadal s platbou z kreditu ('.$money($p['total'] ?? null).'). Kredit se použije až po vašem schválení.', ['cislo' => $number, 'castka' => $money($p['total'] ?? null), 'zadal' => trim((string) ($p['requester'] ?? 'člen organizace')), 'url' => "{$portal}/panel/fakturace"]),
+            'order.approval.approved' => $this->customer($m, 'order', "Objednávka {$number} schválena", 'Schválil(a) '.(string) ($p['decider'] ?? '').'; uhrazeno z kreditu, služby se zřizují.', '/panel/objednavky'),
+            'order.approval.rejected' => $this->creditRequester($m, $p, "Objednávka {$number} nebyla schválena", 'Důvod: '.(string) ($p['reason'] ?? '').'. Z kreditu se nic nečerpalo.', 'order-approval-rejected', ['cislo' => $number, 'duvod' => (string) ($p['reason'] ?? ''), 'url' => "{$portal}/panel/objednavky"]),
+            'order.approval.expired' => $this->creditRequester($m, $p, "Objednávka {$number} vypršela bez schválení", 'Nikdo ji do '.(int) ($p['days'] ?? 7).' dnů neschválil, proto jsme ji zrušili. Z kreditu se nic nečerpalo.'),
+            // ── end TASK-0021 ──
             'provisioning.stranded.released' => $this->internal($m, 'provisioning', 'Služby uvolněné z mezistavu: '.(int) ($p['count'] ?? 0), implode(', ', array_map(fn ($s) => (string) ($s['name'] ?? $s['id'] ?? '').' ('.(string) ($s['from'] ?? '').' → '.(string) ($s['to'] ?? '').')', (array) ($p['services'] ?? []))), '/sprava/provoz', 'warn'),
             // four eyes: staff hear that somebody needs a second person, and what became of it
             'iam.approval.requested' => $this->internal($m, 'security', 'Žádost o schválení: '.($p['action'] ?? ''), trim((string) ($p['requester'] ?? '').' · '.(string) ($p['reason'] ?? ''), ' ·'), '/sprava/nastaveni/schvalovani', 'warn'),
@@ -390,6 +397,31 @@ final class NotificationRouter
             $this->notifications->queueMail($template, $user->email, $vars + ['jmeno' => $user->name], 'user', $user->id, $m->organization_id, $user->locale ?? 'cs', $user->id);
         }
     }
+
+    // ── TASK-0021 (owner decision 20) ──
+    /** Every owner and billing admin of the organization, each in person: in-app and by mail. @param array<string,string> $vars */
+    private function creditApprovers(OutboxMessage $m, string $title, string $body, array $vars): void
+    {
+        foreach (CreditOrderPolicy::approvers((string) $m->organization_id) as $approver) {
+            $this->notifications->notify('customer', 'order', $title, $body, '/panel/fakturace', $m->organization_id, $approver->id, $m->aggregate_type, $m->aggregate_id, $m->name, 'warn', $approver->locale ?? 'cs');
+            $this->notifications->queueMail('order-approval-required', $approver->email, $vars + ['jmeno' => $approver->name], $m->aggregate_type, $m->aggregate_id, $m->organization_id, $approver->locale ?? 'cs', $approver->id);
+        }
+    }
+
+    /** The member who placed the held order hears the outcome in person; the organization's inbox keeps the line. @param array<string,string> $vars */
+    private function creditRequester(OutboxMessage $m, array $p, string $title, string $body, ?string $template = null, array $vars = []): void
+    {
+        $this->notifications->notify('customer', 'order', $title, $body, '/panel/objednavky', $m->organization_id, null, $m->aggregate_type, $m->aggregate_id, $m->name, 'warn');
+        $requester = isset($p['requester_id']) ? User::query()->find((string) $p['requester_id']) : null;
+        if ($requester === null) {
+            return;
+        }
+        $this->notifications->notify('customer', 'order', $title, $body, '/panel/objednavky', $m->organization_id, $requester->id, $m->aggregate_type, $m->aggregate_id, $m->name, 'warn', $requester->locale ?? 'cs');
+        if ($template !== null) {
+            $this->notifications->queueMail($template, $requester->email, $vars + ['jmeno' => $requester->name], $m->aggregate_type, $m->aggregate_id, $m->organization_id, $requester->locale ?? 'cs', $requester->id);
+        }
+    }
+    // ── end TASK-0021 ──
 
     private function mailOnly(OutboxMessage $m, string $to, string $template, array $vars, string $locale): void
     {

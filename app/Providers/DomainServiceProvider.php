@@ -48,6 +48,7 @@ use Onhost\Domain\Marketplace\Commands\MarketplaceStaffCommand;
 use Onhost\Domain\Notifications\NotificationRouter;
 use Onhost\Domain\Notifications\WebhookDispatcher;
 use Onhost\Domain\Orders\Commands\CancelOrderCommand;
+use Onhost\Domain\Orders\Commands\DecideOrderApprovalCommand;
 use Onhost\Domain\Orders\Commands\OrdersCommandHandler;
 use Onhost\Domain\Orders\Commands\PlaceOrderCommand;
 use Onhost\Domain\Orders\Commands\ReviewOrderCommand;
@@ -108,6 +109,7 @@ final class DomainServiceProvider extends ServiceProvider
         StaffCancelOrderCommand::class => OrdersCommandHandler::class,
         ReviewOrderCommand::class => OrdersCommandHandler::class,
         StaffCustomerCommand::class => OrdersCommandHandler::class,
+        DecideOrderApprovalCommand::class => OrdersCommandHandler::class, // TASK-0021: owner decision 20
         ChargebackCommand::class => ChargebackCommandHandler::class,
         ChargebackStaffCommand::class => ChargebackCommandHandler::class,
         LoyaltyCommand::class => LoyaltyCommandHandler::class,
