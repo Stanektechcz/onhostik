@@ -86,8 +86,9 @@ final class RevokeDelegatedAccess
         $user = $userId === '' ? null : User::query()->find($userId);
         if ($user !== null) {
             $this->authorizer->forget($user);
-            if ($this->authorizer->can($user, 'service.manage', CommandScope::resource($service->id, $service->organization_id, $service->project_id))) {
-                return; // still theirs to manage through a role in the organization or the project
+            // SSH keys and game sub-users are the console's (TASK-0029, C13-H1b): somebody who keeps only managing loses them
+            if ($this->authorizer->can($user, 'service.console', CommandScope::resource($service->id, $service->organization_id, $service->project_id))) {
+                return; // still theirs through a role in the organization or the project that holds the console
             }
         }
         $context = CommandContext::system('shared service access ended');
@@ -100,8 +101,9 @@ final class RevokeDelegatedAccess
     }
 
     /**
-     * The services — of one project, or of the whole organization — the person can no longer manage. Somebody who is a
-     * developer of the whole organization keeps their keys when one project role ends: nothing was lost.
+     * The services — of one project, or of the whole organization — whose console the person no longer holds: SSH keys and game
+     * sub-users are console-level (TASK-0029), so managing alone does not keep them. Somebody who is a developer of the whole
+     * organization keeps their keys when one project role ends: nothing was lost.
      *
      * @return list<string>
      */
@@ -113,7 +115,7 @@ final class RevokeDelegatedAccess
         }
 
         return array_values(Service::query()->where('organization_id', $organization->id)->when($projectId !== null, fn ($q) => $q->where('project_id', $projectId))->get()
-            ->reject(fn (Service $service) => $user !== null && $this->authorizer->can($user, 'service.manage', CommandScope::resource($service->id, $service->organization_id, $service->project_id)))
+            ->reject(fn (Service $service) => $user !== null && $this->authorizer->can($user, 'service.console', CommandScope::resource($service->id, $service->organization_id, $service->project_id)))
             ->pluck('id')->all());
     }
 }

@@ -12,8 +12,8 @@ The customer's freelancer, agency or colleague looks after **one** service. Pane
 | Capability the owner ticks | Role on the binding | What it allows |
 | --- | --- | --- |
 | `view` (always added) | `svc_view` | state, metrics, logs, operations, the list of backups |
-| `manage` | `svc_manage` | actions and settings: restart, PHP, databases, cron, files, deploys, mailboxes |
-| `console` (adds `manage`) | `svc_console` | terminal, VNC, game console — a shell is more than managing, never less (H334) |
+| `manage` | `svc_manage` | actions and settings: restart, PHP, databases, cron, files, deploys, mailboxes, FTP and database logins, schedules of power/backup tasks — **not** deleting backups or snapshots (the owner's `backup.delete` / `game.manage` / `compute.vm.delete`, with a fresh step-up) and **not** anything that opens a shell (TASK-0029) |
+| `console` (adds `manage`) | `svc_console` | terminal, VNC, game console, SSH keys and root access (`access.reset`), rescue mode, game panel sub-users and schedules that run a console command — a shell is more than managing, never less (H334, TASK-0029). SSH keys and sub-users the person made go when the console is taken back, even if `manage` stays |
 | `backups` | `svc_backups` | download backup archives (taking data away is a decision of its own, H344) |
 | `restore` | `svc_restore` | restore the service from a backup |
 | `assistant` | `svc_assistant` | the AI assistant, about the shared service only |

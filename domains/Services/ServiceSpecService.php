@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
+use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Web\UptimeMonitor;
+use Onhost\Platform\Commands\CommandAuthorizer;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Throwable;
@@ -32,7 +34,7 @@ final class ServiceSpecService
     /** Per-mailbox details (autoresponders, spam policies) are read for this many mailboxes at most — one panel call each. */
     public const MAIL_DETAIL_LIMIT = 50;
 
-    public function __construct(private readonly ServiceFeatures $features, private readonly ServiceService $services, private readonly UptimeMonitor $monitor) {}
+    public function __construct(private readonly ServiceFeatures $features, private readonly ServiceService $services, private readonly UptimeMonitor $monitor, private readonly CommandAuthorizer $authorizer) {}
 
     /** @return list<string> the section names a family knows */
     public static function sectionsFor(string $family): array
@@ -153,7 +155,7 @@ final class ServiceSpecService
      * @param  array<string,mixed>  $spec
      * @return array{operations:list<array{section:string,action:string,operation_id:string}>, unchanged:list<string>, skipped:list<array{section:string,reason:string}>}
      */
-    public function apply(Service $service, array $spec, CommandContext $context, string $idempotencyKey, ?string $authorizedPermission = null): array
+    public function apply(Service $service, array $spec, CommandContext $context, string $idempotencyKey): array
     {
         $known = self::sectionsFor($service->family);
         if ($known === []) {
@@ -166,8 +168,29 @@ final class ServiceSpecService
         $current = $this->current($service);
         $out = ['operations' => [], 'unchanged' => [], 'skipped' => []];
         $enabled = $current['features'];
-        $act = function (string $section, string $action, array $params, string $suffix = '') use ($service, $context, $idempotencyKey, $authorizedPermission, &$out) {
-            $operation = $this->services->requestAction($service, $action, $context, "{$idempotencyKey}:{$section}{$suffix}", $params, chained: true, authorizedPermission: $authorizedPermission);
+        // The spec command asked `service.manage` once, for the whole document; each action inside it has a permission of its own
+        // (TASK-0029 D29.7, audit C13 secondary gate). A `svc_manage` guest could otherwise schedule a console command through a
+        // spec that the actions endpoint refuses them, so every step asks the bus's own decision — permission at the service,
+        // step-up, the AI rule — and the run re-checks that same permission (H315). No spec action takes four eyes
+        // (ServiceActionPermissionMapTest), so no approval is ever consumed here. A refused step is reported, not rolled back.
+        $act = function (string $section, string $action, array $params, string $suffix = '') use ($service, $context, $idempotencyKey, &$out) {
+            $key = "{$idempotencyKey}:{$section}{$suffix}";
+            $command = new ServiceActionCommand($service->organization_id, $key, ['service_id' => $service->id, 'project_id' => $service->project_id, 'action' => $action, 'params' => $params]);
+            $decision = $this->authorizer->authorize($command, $context);
+            if (! $decision->allowed) {
+                $out['skipped'][] = ['section' => $section, 'reason' => ($decision->requirement === 'step_up' ? 'step_up_required' : 'forbidden').':'.$action];
+
+                return;
+            }
+            // PUT /spec is in the token's `services` family and is checked as `service.manage`, which `services:power` covers; the
+            // bus never sees token scopes, so a console step on a token session is refused here (fails closed; TASK-0030 owns
+            // the scope map and may replace this with it)
+            if (str_starts_with((string) $context->sessionId, 'token:') && $command->permission() === 'service.console') {
+                $out['skipped'][] = ['section' => $section, 'reason' => 'token_scope:'.$action];
+
+                return;
+            }
+            $operation = $this->services->requestAction($service, $action, $context, $key, $params, chained: true, authorizedPermission: $command->permission());
             $out['operations'][] = ['section' => $section, 'action' => $action, 'operation_id' => $operation->id];
         };
         foreach ($spec as $section => $wanted) {
