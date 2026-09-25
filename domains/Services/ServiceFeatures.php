@@ -228,9 +228,10 @@ final class ServiceFeatures
                     'vm_rescue' => $on($service->family === 'cloud' && ($adapter === null || $adapter instanceof ComputeProvider), null, ['session' => RescueMode::session($service), 'hours' => RescueMode::hours()]),
                 ];
                 // the backups a server was sold (TASK-0019), offered only once the owner switched the rule on: until then
-                // the feature list of every existing server stays exactly what it was
-                $sold = $this->computeBackupSchedule($service);
-                if ($sold !== null && app(AutomationLedger::class)->enabled(BackupScheduler::COMPUTE_RULE)) {
+                // the feature list of every existing server stays exactly what it was (the rule is asked first, so a switched-off
+                // rule costs no query and nothing in the lookup can break the list)
+                $sold = app(AutomationLedger::class)->enabled(BackupScheduler::COMPUTE_RULE) ? $this->computeBackupSchedule($service) : null;
+                if ($sold !== null) {
                     $out['backup_schedule'] = $on($adapter === null || $adapter instanceof BackupCapable, null, $sold);
                 }
                 break;
