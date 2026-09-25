@@ -291,6 +291,12 @@ free: with the rule off the resume answers `409 chargeback_cancelled`; with it o
 still resume; its billing then restarts from today. A service the consumer withdrew from cannot get a chargeback at any
 stage (`409 withdrawn` for the request, the decision and the cancellation).
 
+A restore never switches auto-renew on (TASK-0027), whoever triggers it — a payment, staff, the audit command's `--apply`,
+the customer: the subscription keeps the auto-renew recorded for it at this cancellation (`deletion.subscription` /
+`deletion_cancelled.subscription`), else the cancelled row's own value, and nothing recorded means off. A service whose
+customer had auto-renew off and whose paid period is over therefore ends again at the next renewal pass unless it is paid
+for (`reinstate`) or the owner or billing admin switches auto-renew on — `--apply` warns about exactly that.
+
 **Before switching the rule on:** `php artisan onhost:billing:reinstatement-audit` (read-only) lists (a) undone
 cancellations whose subscription stayed CANCELLED and run unbilled, (b) services in the window whose dunning invoice is
 already paid, (c) services in the window held for payment, (d) undone cancellations whose carried sites were purged

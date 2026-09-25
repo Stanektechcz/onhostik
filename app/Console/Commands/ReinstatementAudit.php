@@ -64,6 +64,10 @@ final class ReinstatementAudit extends Command
         }
         $outcome = $subscriptions->restartAfterRestore($service, CommandContext::system('cli:billing:reinstatement-audit')->withScope($service->organization_id));
         $this->info("{$service->id}: billing restarted ({$outcome}); nothing was billed for the time it ran free");
+        // auto-renew is never switched on by a restore (TASK-0027): it stays what the customer left it
+        if (! (bool) Subscription::query()->where('service_id', $service->id)->where('state', Subscription::ACTIVE)->value('auto_renew')) {
+            $this->warn("{$service->id}: auto-renew stays off as the customer left it — the service ends at the next renewal pass unless it is paid for or the owner or billing admin switches auto-renew on");
+        }
 
         return self::SUCCESS;
     }

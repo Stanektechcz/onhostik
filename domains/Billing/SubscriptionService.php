@@ -353,9 +353,12 @@ final class SubscriptionService
             $this->runOn($subscription, $restore);
             $outcome = 'covered';
         } else {
-            // a service somebody brought back is meant to run: it renews now (auto-renew on), or it would be cancelled again at once
+            // the period restarts today and renews at once — from the credit only where auto-renew was on before the cancellation.
+            // It is never switched on here (TASK-0027): whoever brought it back (staff, an operator, a payment) is not the
+            // holder who agreed to renewals from the credit, so a service whose customer had it off ends again at the renewal
+            // pass unless it is paid for (`reinstate`) or a holder switches auto-renew on.
             $now = now();
-            $subscription->forceFill(['state' => Subscription::ACTIVE, 'current_period_start' => $now, 'current_period_end' => $now, 'next_renewal_at' => $now, 'renewal_failures' => 0, 'cancel_at_period_end' => false, 'auto_renew' => true])->save();
+            $subscription->forceFill(['state' => Subscription::ACTIVE, 'current_period_start' => $now, 'current_period_end' => $now, 'next_renewal_at' => $now, 'renewal_failures' => 0] + $restore)->save();
             $service->forceFill(['tags' => array_replace((array) $service->tags, ['billing_anchor_day' => $now->day])])->save();
             $outcome = 'restarted';
         }
@@ -367,20 +370,20 @@ final class SubscriptionService
     /**
      * Whether the customer had auto-renew on before this cancellation — as the terminate saga recorded it for the cancellation
      * being taken back (`deletion` while it runs, `deletion_cancelled` once it was undone; never an earlier cancellation's
-     * record). Nothing recorded means off, never the organization's default: a subscription that expired because the customer
-     * switched auto-renew off or asked to end it with the period has no record (it was CANCELLED before the saga ran), and a
-     * restore must not start charging the next periods against that choice (TASK-0025 review).
+     * record, never another subscription's). Without such a record, the cancelled row's own value as the cancellation left it
+     * (the saga and `expire()` write false); nothing at all means off, never the organization's default: a subscription that
+     * expired because the customer switched auto-renew off or asked to end it with the period has no record, and a restore
+     * must not start charging the next periods against that choice (TASK-0025 review). The same for every restore, whoever
+     * triggers it — a payment, staff, an operator, the customer (TASK-0027).
      */
     private static function previousAutoRenew(Service $service, Subscription $subscription): bool
     {
         $tags = (array) $service->tags;
         $record = is_array($tags['deletion'] ?? null) ? $tags['deletion'] : ($tags['deletion_cancelled'] ?? null);
         $before = data_get($record, 'subscription');
-        if (! is_array($before) || ! array_key_exists('auto_renew', $before)) {
-            return false;
-        }
-        if (isset($before['id']) && (string) $before['id'] !== (string) $subscription->id) {
-            return false; // recorded for another subscription of the service
+        $forThis = is_array($before) && array_key_exists('auto_renew', $before) && (! isset($before['id']) || (string) $before['id'] === (string) $subscription->id);
+        if (! $forThis) {
+            $before = ['auto_renew' => (bool) ($subscription->auto_renew ?? false), 'cancel_at_period_end' => (bool) ($subscription->cancel_at_period_end ?? false)];
         }
 
         return (bool) $before['auto_renew'] && ! (bool) ($before['cancel_at_period_end'] ?? false);

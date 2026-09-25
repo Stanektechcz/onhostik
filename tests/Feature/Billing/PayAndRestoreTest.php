@@ -745,3 +745,80 @@ it('pays a recorded restore request under the one credit gate: fulfilled while c
     expect(reinstateCharges())->toBe(1)->and($fresh->terminate_at)->not->toBeNull()->and(data_get($fresh->tags, 'reinstatement'))->toBeNull()
         ->and(OutboxMessage::query()->where('name', 'service.reinstatement.dropped')->where('aggregate_id', $dropped->id)->exists())->toBeTrue();
 });
+
+/* ── TASK-0027: a restore keeps the auto-renew the subscription had ──────────────────────────────────────────────────
+ * Whoever triggers the restore — a payment, staff, the customer — auto-renew stays exactly what it was before the
+ * cancellation: the terminate saga's record for this subscription, else the cancelled row's own value, nothing = off. Only a
+ * holder of the credit switches it on (TASK-0021).
+ */
+
+it('keeps auto-renew off when staff bring back a service whose paid period had ended', function () {
+    reinstateSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization();
+    $org->forceFill(['auto_renew_default' => true])->save();
+    app(WalletService::class)->topup($org, Money::decimal('1000', 'CZK'), 'bank', 'seed', $this->contextFor($owner, $org));
+    $service = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->subDay(), 'auto_renew' => false]);
+
+    $staff = $this->staff();
+    expect(driveOperation(app(ServiceService::class)->requestAction($service, 'resume', $this->contextFor($staff), 'c2-staff-1', ['reason' => 'rozhodnutí podpory']))->state)->toBe(Operation::SUCCEEDED);
+    app(OutboxPublisher::class)->relayPending();
+
+    $subscription = Subscription::query()->where('service_id', $service->id)->firstOrFail();
+    expect($subscription->state)->toBe(Subscription::ACTIVE)->and($subscription->auto_renew)->toBeFalse()->and(reinstateCharges())->toBe(0);
+
+    // the renewal pass never charges the credit for a period nobody agreed to
+    $spendable = app(WalletService::class)->spendable($org, 'CZK')->minor;
+    app(SubscriptionService::class)->tick();
+    expect(app(WalletService::class)->spendable($org, 'CZK')->minor)->toBe($spendable)
+        ->and(OutboxMessage::query()->where('name', 'subscription.renewed')->where('aggregate_id', $subscription->id)->exists())->toBeFalse();
+});
+
+it('keeps auto-renew on when staff bring back a service whose customer had it on', function () {
+    reinstateSwitchOn();
+    [, $org] = $this->customerWithOrganization();
+    $service = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->subDay(), 'auto_renew' => true]);
+
+    driveOperation(app(ServiceService::class)->requestAction($service, 'resume', $this->contextFor($this->staff()), 'c2-staff-on', ['reason' => 'rozhodnutí podpory']));
+    app(OutboxPublisher::class)->relayPending();
+
+    expect(Subscription::query()->where('service_id', $service->id)->value('auto_renew'))->toBeTrue();
+});
+
+it('keeps auto-renew off when a paid invoice brings back a service dunning cancelled', function () {
+    reinstateSwitchOn();
+    [, $org] = $this->customerWithOrganization();
+    $org->forceFill(['auto_renew_default' => true])->save();
+    $service = reinstateCancelled($org, ['period_end' => now()->addDays(10), 'auto_renew' => false]);
+    [$invoice] = reinstateDunnedInvoice($org, $service);
+
+    app(InvoiceService::class)->markPaid($invoice, $invoice->total(), 'bank', CommandContext::system('test')->withScope($org->id));
+    app(OutboxPublisher::class)->relayPending();
+    driveOperations();
+    app(OutboxPublisher::class)->relayPending();
+
+    $subscription = Subscription::query()->where('service_id', $service->id)->firstOrFail();
+    expect(Service::query()->findOrFail($service->id)->terminate_at)->toBeNull()
+        ->and($subscription->state)->toBe(Subscription::ACTIVE)->and($subscription->auto_renew)->toBeFalse();
+});
+
+it('takes the cancelled row\'s own auto-renew when the cancellation recorded none, and off when neither says so', function () {
+    reinstateSwitchOn();
+    [$owner, $org] = $this->customerWithOrganization();
+    $org->forceFill(['auto_renew_default' => false])->save();
+    $kept = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->addDays(15)]);
+    $unset = reinstateCancelled($org, ['hold' => null, 'reason' => 'customer request', 'period_end' => now()->addDays(15), 'remote_id' => '1046']);
+    foreach ([$kept, $unset] as $service) {
+        $tags = (array) $service->tags;
+        unset($tags['deletion']['subscription']); // a cancellation that recorded nothing
+        $service->forceFill(['tags' => $tags])->save();
+    }
+    Subscription::query()->where('service_id', $kept->id)->update(['auto_renew' => true]); // the row itself still says on
+
+    foreach ([$kept, $unset] as $i => $service) {
+        driveOperation(app(ServiceService::class)->requestAction($service->fresh(), 'resume', $this->contextFor($owner, $org), "c2-row-{$i}"));
+    }
+    app(OutboxPublisher::class)->relayPending();
+
+    expect(Subscription::query()->where('service_id', $kept->id)->value('auto_renew'))->toBeTrue()
+        ->and(Subscription::query()->where('service_id', $unset->id)->value('auto_renew'))->toBeFalse();
+});

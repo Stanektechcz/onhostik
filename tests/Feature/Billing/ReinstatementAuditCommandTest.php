@@ -46,9 +46,10 @@ it('bills again exactly the one service it is told to, and refuses to do it in b
     $this->artisan('onhost:billing:reinstatement-audit', ['--apply' => true, '--service' => 'svc_not_on_the_list'])->assertFailed();
     expect(Subscription::query()->where('state', Subscription::CANCELLED)->count())->toBe(2);
 
-    $this->artisan('onhost:billing:reinstatement-audit', ['--apply' => true, '--service' => $one->id])->assertSuccessful();
+    // auto-renew is never switched on by a restore (TASK-0027): the leak's row says off and nothing recorded otherwise
+    $this->artisan('onhost:billing:reinstatement-audit', ['--apply' => true, '--service' => $one->id])->expectsOutputToContain('auto-renew stays off')->assertSuccessful();
     $restarted = Subscription::query()->where('service_id', $one->id)->firstOrFail();
-    expect($restarted->state)->toBe(Subscription::ACTIVE)->and($restarted->auto_renew)->toBeTrue()
+    expect($restarted->state)->toBe(Subscription::ACTIVE)->and($restarted->auto_renew)->toBeFalse()
         ->and($restarted->next_renewal_at->toDateString())->toBe(now()->toDateString()) // the next renewal bills a full period from today; nothing back
         ->and(Subscription::query()->where('service_id', $other->id)->value('state'))->toBe(Subscription::CANCELLED)
         ->and((int) data_get($one->fresh()->tags, 'billing_anchor_day'))->toBe(now()->day);
