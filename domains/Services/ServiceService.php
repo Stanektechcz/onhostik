@@ -689,6 +689,13 @@ final class ServiceService
             return $value;
         };
         $remote = fn () => $need('remote_id', '/^[A-Za-z0-9:_.-]{1,120}$/', 'remote_id is required.');
+        // a copy the platform keeps — protected, the final archive, or under a legal hold — is not deleted or unlocked by an action
+        // of the service, whichever panel holds it: the web path always asked this, the game and VM paths did not (TASK-0029)
+        $unprotected = function (?Backup $row, string $field = 'remote_id', string $message = 'Tato záloha je chráněná a nelze ji smazat.'): void {
+            if ($row !== null && ($row->protected || $row->kind === 'final' || LegalHold::coversBackup($row))) {
+                throw new DomainError('backup_protected', $message, 409, ['field' => $field]);
+            }
+        };
         $hostname = '/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i';
         // The plan's limit is counted at the panel. When the panel is away the count cannot be had — and refusing the request
         // for that would break the promise of a durable queue (H02): the change is accepted, the limit travels with it as
@@ -765,7 +772,12 @@ final class ServiceService
             // "does it point at us" (DomainPointing) cannot tell them apart — only who holds the name can (SiteNames).
             'ssl.issue' => ['domains' => array_values(array_unique(array_map(fn ($d) => SiteNames::assertAllowed($service, (string) $d, 'domains'), array_filter((array) ($params['domains'] ?? []), fn ($d) => is_string($d) || is_int($d)))))],
             'https.force' => ['enabled' => filter_var($params['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN)],
-            'snapshot.delete' => ['name' => $need('name', '/^[A-Za-z0-9_-]{1,40}$/', 'name is required')],
+            'snapshot.delete' => (function () use ($need, $service, $unprotected) { // the platform's own safety snapshots are protected rows
+                $name = $need('name', '/^[A-Za-z0-9_-]{1,40}$/', 'name is required');
+                $unprotected(Backup::query()->where('service_id', $service->id)->where('remote_id', $name)->first(), 'name', 'Tento snapshot je chráněný a nelze jej smazat.');
+
+                return ['name' => $name];
+            })(),
             'firewall.apply' => (function () use ($params, $action) {
                 $rules = [];
                 foreach ((array) ($params['rules'] ?? []) as $rule) {
@@ -1304,7 +1316,13 @@ final class ServiceService
             'image.set' => ['image' => $need('image', '~^[a-z0-9][a-z0-9._/:@-]{2,200}$~i', 'image must be a container image reference')],
             'rename' => ['name' => $need('name', '/^[^\r\n<>]{1,60}$/u', 'name is required (max 60 characters)')],
             'reinstall' => ['confirm' => filter_var($params['confirm'] ?? false, FILTER_VALIDATE_BOOLEAN) ?: throw new DomainError('action_param_invalid', "{$action}: confirm=true is required; a reinstall rewrites the server files.", 422, ['field' => 'confirm'])],
-            'schedule.delete', 'schedule.run', 'gamedb.rotate', 'gamedb.delete', 'subuser.delete', 'allocation.primary', 'allocation.remove', 'gbackup.delete' => ['remote_id' => $remote()],
+            'schedule.delete', 'schedule.run', 'gamedb.rotate', 'gamedb.delete', 'subuser.delete', 'allocation.primary', 'allocation.remove' => ['remote_id' => $remote()],
+            'gbackup.delete' => (function () use ($service, $remote, $unprotected) {
+                $id = $remote();
+                $unprotected(Backup::query()->where('service_id', $service->id)->where('remote_id', $id)->first());
+
+                return ['remote_id' => $id];
+            })(),
             'schedule.toggle' => ['remote_id' => $remote(), 'active' => filter_var($params['active'] ?? true, FILTER_VALIDATE_BOOLEAN)],
             'gamedb.create' => (function () use ($need, $params, $limit, $action) {
                 $limit('game_databases', 'game_databases');
@@ -1362,7 +1380,15 @@ final class ServiceService
 
                 return [];
             })(),
-            'gbackup.lock' => ['remote_id' => $remote(), 'locked' => filter_var($params['locked'] ?? true, FILTER_VALIDATE_BOOLEAN)],
+            'gbackup.lock' => (function () use ($service, $remote, $params, $unprotected) {
+                $id = $remote();
+                $locked = filter_var($params['locked'] ?? true, FILTER_VALIDATE_BOOLEAN);
+                if (! $locked) { // unlocked on the panel, the copy could be deleted there: what the platform protects stays locked
+                    $unprotected(Backup::query()->where('service_id', $service->id)->where('remote_id', $id)->first(), 'remote_id', 'Tato záloha je chráněná a nelze ji odemknout.');
+                }
+
+                return ['remote_id' => $id, 'locked' => $locked];
+            })(),
             'panel.password' => ['password' => $password()],
             default => throw new DomainError('action_unknown', "Unknown action {$action}.", 422),
         } + ['reason' => $params['reason'] ?? null] + ($deferredLimit === null ? [] : ['_limit' => $deferredLimit]);

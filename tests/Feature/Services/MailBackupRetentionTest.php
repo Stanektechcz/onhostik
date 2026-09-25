@@ -315,7 +315,7 @@ it('does not let a customer run the retention action', function () {
     $this->actingAs($owner, 'sanctum');
 
     $this->withHeader('Idempotency-Key', (string) Str::ulid())->postJson("/v1/services/{$service->id}/actions", ['action' => 'mailbox.backup_retention', 'params' => ['allow_prune' => true]])
-        ->assertForbidden()->assertJsonPath('error', 'operator_only');
+        ->assertForbidden()->assertJsonPath('error', 'access_not_approved'); // the bus refuses first: backup.policy.manage is staff's (TASK-0029); CustomerActionParams stays the second lock
     expect(Operation::query()->where('service_id', $service->id)->exists())->toBeFalse()
         ->and($calls)->not->toContain('mail_user_update');
 });

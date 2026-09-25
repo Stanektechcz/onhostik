@@ -38,9 +38,10 @@ final class RoleCatalog
 
             // ── capabilities on ONE service (resource scope; handed out by Services\Access\ServiceAccessService, never as an organization or project role) ──
             'svc_view' => self::role('Service: view', 'State, metrics, logs, backups list', 'resource', false, ['service.read', 'backup.read']),
-            'svc_manage' => self::role('Service: manage', 'Actions and settings: restart, PHP, databases, cron, files, deploys, mailboxes', 'resource', false, ['service.read', 'service.manage']),
-            // a console is more than managing, never less (H334): whoever gets a shell on the service manages it
-            'svc_console' => self::role('Service: console', 'Terminal, VNC and game console', 'resource', false, ['service.read', 'service.manage', 'service.console']),
+            'svc_manage' => self::role('Service: manage', 'Actions and settings: restart, PHP, databases, cron, files, deploys, mailboxes — without backup deletion and without logins that open a shell', 'resource', false, ['service.read', 'service.manage']),
+            // a console is more than managing, never less (H334): whoever gets a shell on the service manages it. Root access, rescue
+            // mode and game sub-users are the console too (TASK-0029, C13-H1b): each of them hands over the server itself
+            'svc_console' => self::role('Service: console', 'Terminal, SSH keys and root access, rescue mode, VNC, game console and its sub-users and console schedules', 'resource', false, ['service.read', 'service.manage', 'service.console']),
             'svc_backups' => self::role('Service: backups', 'Download backup archives', 'resource', false, ['service.read', 'backup.read', 'backup.download']),
             'svc_restore' => self::role('Service: restore', 'Restore the service from a backup', 'resource', false, ['service.read', 'backup.read', 'backup.restore']),
             'svc_assistant' => self::role('Service: assistant', 'Use the AI assistant for the shared service', 'resource', false, ['service.read', 'support.chat.use']),

@@ -380,7 +380,14 @@ final class ServiceActionWorkflow implements Workflow
                         return $result;
                     })(),
                     'https.force' => $this->capability($context, WebHostingProvider::class)->forceHttps($ref, (bool) $p('enabled', true)),
-                    'snapshot.delete' => $this->capability($context, ComputeProvider::class)->deleteSnapshot($ref, (string) $p('name')),
+                    'snapshot.delete' => (function () use ($context, $ref, $p) {
+                        $row = Backup::query()->where('service_id', $this->service($context)->id)->where('remote_id', (string) $p('name'))->first();
+                        if ($row !== null && ($row->protected || $row->kind === 'final' || LegalHold::coversBackup($row))) { // asked again here: the row may have been protected since the request (TASK-0029)
+                            throw new ProviderException((string) $context->instance()->provider, ProviderErrorCode::VALIDATION, 'The snapshot is protected and cannot be deleted.');
+                        }
+
+                        return $this->capability($context, ComputeProvider::class)->deleteSnapshot($ref, (string) $p('name'));
+                    })(),
                     'firewall.apply' => (function () use ($context, $ref, $p) {
                         $result = $this->capability($context, ComputeProvider::class)->applyFirewall($ref, (array) $p('rules', []), (bool) $p('enabled', true));
                         $service = $this->service($context);
@@ -618,6 +625,10 @@ final class ServiceActionWorkflow implements Workflow
                     'allocation.primary' => $this->capability($context, GameToolsProvider::class)->setPrimaryAllocation($ref, (string) $p('remote_id')),
                     'allocation.remove' => $this->capability($context, GameToolsProvider::class)->removeAllocation($ref, (string) $p('remote_id')),
                     'gbackup.delete' => (function () use ($context, $ref, $p) {
+                        $row = Backup::query()->where('service_id', $this->service($context)->id)->where('remote_id', (string) $p('remote_id'))->first();
+                        if ($row !== null && ($row->protected || $row->kind === 'final' || LegalHold::coversBackup($row))) { // asked again here, as for a web backup: the row may have been protected since the request (TASK-0029)
+                            throw new ProviderException((string) $context->instance()->provider, ProviderErrorCode::VALIDATION, 'The backup is protected and cannot be deleted.');
+                        }
                         $result = $this->capability($context, GameToolsProvider::class)->deleteBackup($ref, (string) $p('remote_id'));
                         Backup::query()->where('service_id', $this->service($context)->id)->where('remote_id', (string) $p('remote_id'))->update(['state' => 'deleted']);
 

@@ -59,7 +59,7 @@ final class PermissionCatalog
             'service.read' => $c('View services, metrics, logs and activity'),
             'service.manage' => $c('Start/stop/restart, resize, configure services'),
             'service.delete' => $c('Terminate services (with retention grace)', self::HIGH),
-            'service.console' => $c('Open consoles and shells for own services'),
+            'service.console' => $c('Open consoles and shells, set root access and SSH keys, rescue mode, game sub-users and console schedules'),
             'service.credentials.rotate' => $c('Rotate service credentials', self::HIGH),
             // TASK-0021 (owner decision 15): the panel account opens every server of the account — the organization owner alone
             'service.panel_account.manage' => $c('Set the password of the service panel account (game panel); organization owner only', self::HIGH),
@@ -72,6 +72,9 @@ final class PermissionCatalog
             'backup.read' => $c('View backups and restore points'),
             'backup.download' => $c('Download backup archives and data exports'), // seeing that a backup exists is not taking the data away (H344)
             'backup.restore' => $c('Restore from backups', self::HIGH),
+            // CRITICAL stays as documentation of what deletion is; the customer action (ServiceActionCommand) is HIGH with a fresh
+            // step-up, because IdentityCommandAuthorizer forces CRITICAL for staff-audience permissions only and customers have no
+            // four-eyes (TASK-0029, D29.2)
             'backup.delete' => $c('Delete backup generations', self::CRITICAL),
 
             // ── customer: domains & DNS ──────────────────────────────────────

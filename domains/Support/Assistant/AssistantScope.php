@@ -103,6 +103,10 @@ final class AssistantScope
             return $this->authorizer->can($this->user, 'staff.service.manage', CommandScope::global());
         }
 
+        if (! array_key_exists($action, ServiceActionCommand::PERMISSIONS)) { // the model can name any string; the map has no default (TASK-0029)
+            return false;
+        }
+
         return $this->authorizer->can($this->user, ServiceActionCommand::permissionFor($action), CommandScope::resource($service->id, $service->organization_id, $service->project_id));
     }
 }
