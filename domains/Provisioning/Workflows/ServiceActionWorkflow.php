@@ -1567,6 +1567,15 @@ final class ServiceActionWorkflow implements Workflow
                 }
                 $adapter = $this->capability($context, BackupCapable::class);
                 $backup = Backup::query()->firstOrCreate(['operation_id' => $context->operation->id], ['service_id' => $service->id, 'organization_id' => $service->organization_id, 'provider_instance_id' => $service->provider_instance_id, 'kind' => $kind, 'state' => 'running', 'started_at' => now(), 'retention_until' => now()->addDays($days), 'protected' => (bool) $context->desired('protected', false)]);
+                if (! $backup->wasRecentlyCreated && $adapter instanceof RetainedBackups) {
+                    // a retry from the top (TASK-0024): the first attempt's vzdump may have run although its answer was lost. Its volume
+                    // names this row, so it is adopted here; dumping again left the first one on the storage for good (never the row's
+                    // remote id, never pruned).
+                    $retried = $this->adoptMarked($context, $backup);
+                    if ($retried !== null) {
+                        return $retried;
+                    }
+                }
 
                 // what the panel already holds is written down first: the backup of this run is the one that was not there before
                 $before = array_map(fn (array $b) => (string) $b['remote_id'], $adapter->listBackups($this->ref($context)));
@@ -1620,9 +1629,54 @@ final class ServiceActionWorkflow implements Workflow
                     return StepResult::fail('the panel reports the backup done, but its list holds no archive that was not there before', true, ['backup_unconfirmed' => true], 120);
                 }
                 $backup->forceFill(['state' => 'completed', 'finished_at' => now(), 'remote_id' => (string) $made['remote_id'], 'size_bytes' => $made['size_bytes'] ?? null,
-                    'verify_status' => isset($made['verified']) ? ($made['verified'] ? 'ok' : 'pending') : null, 'remote_datastore' => $context->instance()->option('backup_storage')])->save();
+                    'verify_status' => isset($made['verified']) ? ($made['verified'] ? 'ok' : 'pending') : null, 'remote_datastore' => $context->instance()->option('backup_storage'),
+                    'meta' => self::withOrphans((array) $backup->meta, $marker === null ? [] : $list->filter(fn (array $b) => self::carries($b, $marker))->all(), (string) $made['remote_id'])])->save();
 
                 return null;
+            }
+
+            /**
+             * On a retry: the volume this row's marker names, adopted without a new vzdump; null when there is none (dump again).
+             * The newest is the row's; any other with the same marker is written down as an orphan (`meta.orphan_volumes`) for the
+             * doctor — it is never deleted here: only the retention path, with its own proof, removes a volume.
+             */
+            private function adoptMarked(StepContext $context, Backup $backup): ?StepResult
+            {
+                if ($backup->state === 'completed' && (string) $backup->remote_id !== '') {
+                    return StepResult::done(['backup_id' => $backup->id, 'backup_remote_id' => $backup->remote_id]);
+                }
+                $marker = RetainedBackups::MARKER_PREFIX.$backup->id;
+                $marked = collect($this->capability($context, BackupCapable::class)->listBackups($this->ref($context)))->filter(fn (array $b) => self::carries($b, $marker))
+                    ->sortByDesc(fn (array $b) => (string) ($b['created_at'] ?? ''))->values();
+                $made = $marked->first();
+                if (! is_array($made) || (string) ($made['remote_id'] ?? '') === '') {
+                    return null;
+                }
+                $backup->forceFill(['state' => 'completed', 'finished_at' => now(), 'remote_id' => (string) $made['remote_id'], 'size_bytes' => $made['size_bytes'] ?? null,
+                    'verify_status' => isset($made['verified']) ? ($made['verified'] ? 'ok' : 'pending') : null, 'remote_datastore' => $context->instance()->option('backup_storage'),
+                    'meta' => self::withOrphans((array) $backup->meta, $marked->all(), (string) $made['remote_id'])])->save();
+
+                return StepResult::done(['backup_id' => $backup->id, 'backup_remote_id' => $backup->remote_id, 'backup_adopted_on_retry' => true]);
+            }
+
+            /** @param  array<string,mixed>  $volume */
+            private static function carries(array $volume, string $marker): bool
+            {
+                return preg_match('~(^|\s)'.preg_quote($marker, '~').'(\s|$)~', (string) data_get($volume, 'meta.notes', '')) === 1;
+            }
+
+            /**
+             * @param  array<string,mixed>  $meta
+             * @param  array<int, array<string,mixed>>  $marked  every listed volume carrying this row's marker
+             * @return array<string,mixed>
+             */
+            private static function withOrphans(array $meta, array $marked, string $adopted): array
+            {
+                $orphans = array_values(array_unique(array_merge(array_map('strval', (array) ($meta['orphan_volumes'] ?? [])),
+                    array_values(array_filter(array_map(fn (array $b) => (string) ($b['remote_id'] ?? ''), $marked), fn (string $id) => $id !== '' && $id !== $adopted)))));
+                unset($meta['orphan_volumes']);
+
+                return $orphans === [] ? $meta : $meta + ['orphan_volumes' => $orphans];
             }
         };
     }
