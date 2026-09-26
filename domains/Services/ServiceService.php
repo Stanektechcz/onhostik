@@ -464,8 +464,14 @@ final class ServiceService
         if (! in_array($action, ServiceActionWorkflow::ACTIONS, true)) {
             throw new DomainError('service_action_unknown', "Unknown service action {$action}.", 422);
         }
+        [$idempotencyKey, $requestHash] = self::scopedIdempotency($service, $action, $context, $idempotencyKey, $params);
         $existing = Operation::query()->where('idempotency_key', $idempotencyKey)->first();
         if ($existing !== null) {
+            $stored = data_get($existing->desired, 'request_hash');
+            if ($requestHash !== null && is_string($stored) && ! hash_equals($stored, $requestHash)) {
+                throw DomainError::conflict('idempotency_key_reused', 'This idempotency key was already used for another request on this service.', ['operation_id' => $existing->id]);
+            }
+
             return $existing;
         }
         // an add-on has no resource of its own: it changed the service it was bought for, and cancelling it gives that
@@ -569,10 +575,46 @@ final class ServiceService
         if ($transient !== null) {
             $this->transition($service, $transient, $context, (string) ($params['reason'] ?? $action));
         }
-        $operation = $this->operations->start(self::actionWorkflowFor($action), $idempotencyKey, array_merge($params, ['action' => $action, 'service_id' => $service->id]), $context, $service->id, $service->organization_id, null, $service->provider_instance_id, authorizedPermission: $authorizedPermission, authorizedScope: $authorizedScope);
+        $operation = $this->operations->start(self::actionWorkflowFor($action), $idempotencyKey, array_merge($params, ['action' => $action, 'service_id' => $service->id], $requestHash === null ? [] : ['request_hash' => $requestHash]), $context, $service->id, $service->organization_id, null, $service->provider_instance_id, authorizedPermission: $authorizedPermission, authorizedScope: $authorizedScope);
         $this->audit->record($context->withScope($service->organization_id), "service.action.{$action}", 'succeeded', ['params' => self::auditParams($params), 'operation_id' => $operation->id], 'service', $service->id, stepUp: $context->stepUpMethod, approvalIds: $context->approvalIds);
 
         return $operation;
+    }
+
+    /**
+     * IF-12 (permission program P0-10; audit SE-5, G12): the operation key is unique across the whole platform, and it was
+     * looked up by the caller's key alone — the same `Idempotency-Key` from another customer (or another member of the same
+     * one) was answered with the first caller's operation: its id and parameters handed out, and nothing run on the second
+     * caller's own service. A key a person sends is theirs for one organization, service, action and actor, and carries the
+     * hash of what was asked, so the same key for a different request is refused (409) instead of silently replayed.
+     * The system's own keys are built from internal ids (a dunning case, an order item) and are left exactly as they are:
+     * retries across the scheduler, and every place that finds such an operation by its key, keep working.
+     *
+     * @param  array<string,mixed>  $params
+     * @return array{0: string, 1: ?string} the key to store and the request hash (null for the system)
+     */
+    private static function scopedIdempotency(Service $service, string $action, CommandContext $context, string $key, array $params): array
+    {
+        if ($context->actorType === 'system') {
+            return [$key, null];
+        }
+        $namespace = substr(hash('sha256', implode('|', [(string) $service->organization_id, $service->id, $action, $context->actorType.':'.($context->onBehalfOfUserId ?? $context->actorId ?? '')])), 0, 24);
+        $scoped = $key.'@'.$namespace; // the caller's key stays readable in front; the column holds 200, provider bindings append to it
+        if (strlen($scoped) > 160) {
+            $scoped = 'h:'.hash('sha256', $key).'@'.$namespace;
+        }
+
+        return [$scoped, hash('sha256', $action.'|'.(string) json_encode(self::canonicalParams($params)))];
+    }
+
+    /** Parameters with their keys in a fixed order, so the same request hashes the same however its JSON was ordered. @param array<mixed> $params @return array<mixed> */
+    private static function canonicalParams(array $params): array
+    {
+        if (! array_is_list($params)) {
+            ksort($params);
+        }
+
+        return array_map(fn ($value) => is_array($value) ? self::canonicalParams($value) : $value, $params);
     }
 
     /**
