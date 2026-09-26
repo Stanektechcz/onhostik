@@ -7,7 +7,11 @@ namespace Onhost\Domain\Partners\Models;
 use Onhost\Platform\Eloquent\Model;
 use Onhost\Platform\Money\Money;
 
-/** Payout request with the self-billed invoice snapshot (`self_billing`). */
+/**
+ * Payout request with the self-billed invoice snapshot (`self_billing`).
+ *
+ * @property array<string,mixed>|null $self_billing cast `array` (the column is JSON text; TASK-0031 review round 3 reads it as the document)
+ */
 final class PartnerPayout extends Model
 {
     protected static string $idPrefix = 'pay';

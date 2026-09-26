@@ -777,30 +777,39 @@ final class PartnerService
      * A number no check has spoken about yet is not proof of the opposite (review round 2): the document then says the
      * registration is not verified and carries `vat_review` for finance, instead of stating that the partner is not a payer.
      *
-     * @return array{rate:float, category:string, note_vat:string, vat_review:bool}
+     * Payer status follows the customer's acceptance rules (review round 3, VatStanding::payerStanding): a valid number of
+     * another country than the partner's, or one VIES registers to another trader, is not proof — the document is at 0 %, says
+     * the registration is not verified and carries `vat_review` with `vat_review_reason` (vat_country_mismatch, name_mismatch,
+     * or unknown for a number nothing has proved either way), so no VAT is transferred on markPayoutPaid or booked as input
+     * VAT. Only a check that said invalid, or a staff override to invalid, lets the document say the partner is not a payer.
+     *
+     * @return array{rate:float, category:string, note_vat:string, vat_review:bool, vat_review_reason:?string}
      */
     private function selfBillingVat(Organization $organization): array
     {
         $rules = $this->tax->currentRules()->rules;
         $supplier = strtoupper((string) data_get($rules, 'supplier.country', 'CZ'));
         $country = strtoupper((string) $organization->country);
-        $payer = VatStanding::isVatPayer($organization);
+        $standing = VatStanding::payerStanding($organization);
+        $payer = $standing['payer'];
         if ($payer && $country === $supplier) {
             $rate = data_get($rules, 'standard_rates.'.$country);
             if (! is_numeric($rate)) {
                 throw new DomainError('tax_rate_missing', 'No standard VAT rate for '.$country.' in the active tax rules; the self-billing document cannot be issued.', 409, ['country' => $country]);
             }
 
-            return ['rate' => (float) $rate, 'category' => TaxEngine::CAT_STANDARD, 'note_vat' => 'Dodavatel je plátcem DPH.', 'vat_review' => false];
+            return ['rate' => (float) $rate, 'category' => TaxEngine::CAT_STANDARD, 'note_vat' => 'Dodavatel je plátcem DPH.', 'vat_review' => false, 'vat_review_reason' => null];
         }
         if ($payer && in_array($country, array_map('strtoupper', (array) data_get($rules, 'eu_members', VatNumber::EU_MEMBERS)), true)) {
-            return ['rate' => 0.0, 'category' => TaxEngine::CAT_REVERSE_CHARGE, 'note_vat' => 'Daň odvede odběratel (reverse charge, čl. 196 směrnice 2006/112/ES).', 'vat_review' => false];
+            return ['rate' => 0.0, 'category' => TaxEngine::CAT_REVERSE_CHARGE, 'note_vat' => 'Daň odvede odběratel (reverse charge, čl. 196 směrnice 2006/112/ES).', 'vat_review' => false, 'vat_review_reason' => null];
         }
-        if (VatStanding::payerUnverified($organization)) {
-            return ['rate' => 0.0, 'category' => TaxEngine::CAT_EXEMPT, 'note_vat' => 'Registrace dodavatele k DPH neověřena.', 'vat_review' => true];
+        $refused = in_array($standing['reason'], ['vat_country_mismatch', 'name_mismatch'], true);
+        $said = in_array($standing['reason'], ['invalid', 'staff_override'], true); // a check of this number, or staff, said "not a payer"
+        if ($refused || (! $said && VatStanding::subject($organization)?->isWellFormed() === true)) {
+            return ['rate' => 0.0, 'category' => TaxEngine::CAT_EXEMPT, 'note_vat' => 'Registrace dodavatele k DPH neověřena.', 'vat_review' => true, 'vat_review_reason' => $refused ? $standing['reason'] : 'unknown'];
         }
 
-        return ['rate' => 0.0, 'category' => TaxEngine::CAT_EXEMPT, 'note_vat' => 'Dodavatel není plátcem DPH.', 'vat_review' => false];
+        return ['rate' => 0.0, 'category' => TaxEngine::CAT_EXEMPT, 'note_vat' => 'Dodavatel není plátcem DPH.', 'vat_review' => false, 'vat_review_reason' => null];
     }
 
     /**
@@ -820,7 +829,7 @@ final class PartnerService
      * Self-billed invoice snapshot: the partner is the supplier, ONhost's legal entity the customer. Written once; a later change
      * of the partner's VAT status never rewrites it.
      *
-     * @param  array{rate:float, category:string, note_vat:string, vat_review:bool}  $vat
+     * @param  array{rate:float, category:string, note_vat:string, vat_review:bool, vat_review_reason:?string}  $vat
      */
     private function selfBilling(string $number, Partner $partner, Organization $organization, Money $amount, array $commissions, array $vat): array
     {
@@ -837,7 +846,7 @@ final class PartnerService
             'number' => $number, 'period' => now()->format('Y-m'), 'issued_at' => now()->toIso8601String(), 'self_billing' => true,
             'supplier' => $organization->only(['name', 'ico', 'dic', 'vat_id', 'street', 'city', 'postal_code', 'country']), 'customer' => ['name' => $entity->name ?? 'ONhost', 'ico' => $entity->ico ?? null, 'dic' => $entity->dic ?? null],
             'lines' => $byClient, 'net' => $amount, 'tax_rate' => $rate, 'tax_category' => $vat['category'], 'tax' => $tax, 'total' => $amount->add($tax), 'currency' => $amount->currency->value,
-            'note_vat' => $vat['note_vat'], 'vat_review' => $vat['vat_review'], 'vat_check' => VatStanding::snapshot($organization),
+            'note_vat' => $vat['note_vat'], 'vat_review' => $vat['vat_review'], 'vat_review_reason' => $vat['vat_review_reason'], 'vat_check' => VatStanding::snapshot($organization),
             'note' => 'Doklad vystaven odběratelem v režimu samofakturace (§ 28 odst. 7 zákona o DPH) na základě partnerské smlouvy.',
         ];
     }

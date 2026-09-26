@@ -149,14 +149,23 @@ override end, whether a check is needed).
 
 ## Partner self-billing VAT
 
-The self-billing document (the partner's commission invoice issued by us) uses the same standing (D31.6):
+The self-billing document (the partner's commission invoice issued by us) uses the same acceptance rules as the customer's
+tax decision (D31.6; one helper, `VatStanding::verdict()`, since review round 3): the number must be the current one, of the
+partner's own country, and — here unlike a customer — VIES must not register it to another trader name. The partner controls
+its own name, country and number, and the VAT on its document is cash we pay out and deduct as input VAT, so a number of
+another country or of another trader proves nothing. A genuine name difference is accepted only by a staff override to valid
+(CRITICAL, four eyes). Registration does not lapse in a month: no 30-day window for the payer.
 
 | Partner | Rate | Category | Note on the document |
 | --- | --- | --- | --- |
-| VAT payer in CZ (the DIČ is VIES-valid, a staff override to valid, or a legacy `payer`) | `standard_rates.CZ` of the active tax rules (21 %) | `S` | Dodavatel je plátcem DPH. |
-| VAT payer in another EU state | 0 % | `AE` | Daň odvede odběratel (reverse charge, čl. 196 směrnice 2006/112/ES). |
-| a well-formed number no check has spoken about yet | 0 % | `E` | Registrace dodavatele k DPH neověřena. (snapshot `vat_review: true`) |
-| anybody else (no number, or the check said it is not in VIES) | 0 % | `E` | Dodavatel není plátcem DPH. |
+| VAT payer in CZ (a CZ DIČ VIES-valid under the partner's name, a staff override to valid, or a legacy `payer`) | `standard_rates.CZ` of the active tax rules (21 %) | `S` | Dodavatel je plátcem DPH. |
+| VAT payer in another EU state (a valid number of its own country) | 0 % | `AE` | Daň odvede odběratel (reverse charge, čl. 196 směrnice 2006/112/ES). |
+| a valid number of another country than the partner's, or one VIES registers to another trader | 0 % | `E` | Registrace dodavatele k DPH neověřena. (snapshot `vat_review: true`, `vat_review_reason`: `vat_country_mismatch` / `name_mismatch`) |
+| a well-formed number nothing has proved either way (never checked, a legacy row, an ended override) | 0 % | `E` | Registrace dodavatele k DPH neověřena. (snapshot `vat_review: true`, `vat_review_reason: unknown`) |
+| anybody else (no number, or a check of the number or staff said it is not a payer) | 0 % | `E` | Dodavatel není plátcem DPH. |
+
+The partner sees its documents without `vat_review` / `vat_review_reason` and with the VIES evidence reduced to what the
+document prints (checked at, consultation number, VIES or staff); finance sees everything in the staff payout list.
 
 A partner's number is checked on the queue when the organization applies and when it is approved (VIES on). Partners that
 already exist are reached by `onhost:vat:verify --apply` only (group `partner`).

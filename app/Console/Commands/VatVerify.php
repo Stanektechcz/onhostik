@@ -140,7 +140,8 @@ final class VatVerify extends Command
             return 'partner';
         }
 
-        return VatStanding::effectiveStatus($organization) === VatStanding::VALID && VatStanding::nameMismatch($organization) ? 'name_mismatch' : null;
+        // the name rule as the tax decision reads it (VatStanding::verdict, review round 3), not a second copy of it here
+        return VatStanding::snapshot($organization)['name_mismatch'] ? 'name_mismatch' : null;
     }
 
     /** How the organization is charged today, in the words of the tax decision. */

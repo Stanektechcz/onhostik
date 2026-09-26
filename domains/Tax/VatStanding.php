@@ -51,7 +51,37 @@ final class VatStanding
      */
     public static function standing(Organization $organization, ?CarbonInterface $at = null): array
     {
-        $at = $at === null ? CarbonImmutable::now() : CarbonImmutable::instance($at);
+        $verdict = self::verdict($organization, $at === null ? CarbonImmutable::now() : CarbonImmutable::instance($at), true);
+
+        return ['status' => $verdict['status'], 'reason' => $verdict['reason']];
+    }
+
+    /**
+     * The acceptance rules for a number, in one place for the customer's standing and the partner's payer status (review
+     * round 3: isVatPayer had its own copy without the country rule and the name, and a partner — who controls its own name,
+     * country and number — was paid 21 % VAT on a real Czech company's DIČ or on a valid SK number with a CZ address). A
+     * staff override counts for its number and country until it ends; a row from before the check keeps what it said; a
+     * recorded check counts for the number it was about, of the organization's own country, and — for a tax decision — while
+     * it is at most `freshness_days` old. `name_mismatch` says VIES registers that number to another trader; what it means is
+     * the caller's decision (a customer keeps the reverse charge under review, a partner is not paid VAT on it).
+     *
+     * With `$freshness` false (the partner's registration, which does not lapse in a month) a valid check older than the
+     * window reads `valid` with reason `registered` instead of `unknown`/`stale`.
+     *
+     * @return array{status:string, reason:string, name_mismatch:bool}
+     */
+    private static function verdict(Organization $organization, CarbonImmutable $at, bool $freshness): array
+    {
+        $verdict = self::rules($organization, $at, $freshness);
+        // only a VIES answer about the current number names a trader; an override, a legacy row or a stale check has no name
+        $named = $verdict['status'] === self::VALID && in_array($verdict['reason'], ['fresh', 'registered'], true);
+
+        return $verdict + ['name_mismatch' => $named && self::nameMismatch($organization)];
+    }
+
+    /** @return array{status:string, reason:string} */
+    private static function rules(Organization $organization, CarbonImmutable $at, bool $freshness): array
+    {
         $stored = self::stored($organization);
         $source = $organization->vat_status_source;
         $until = $organization->vat_override_until;
@@ -98,8 +128,11 @@ final class VatStanding
             }
             $checked = $organization->vat_checked_at;
             $fresh = $checked !== null && CarbonImmutable::parse($checked)->greaterThanOrEqualTo($at->subDays(self::freshnessDays()));
+            if ($fresh) {
+                return ['status' => self::VALID, 'reason' => 'fresh'];
+            }
 
-            return $fresh ? ['status' => self::VALID, 'reason' => 'fresh'] : ['status' => self::UNKNOWN, 'reason' => 'stale'];
+            return $freshness ? ['status' => self::UNKNOWN, 'reason' => 'stale'] : ['status' => self::VALID, 'reason' => 'registered'];
         }
 
         return $stored === self::INVALID ? ['status' => self::INVALID, 'reason' => 'invalid'] : ['status' => self::UNKNOWN, 'reason' => 'stored_unknown'];
@@ -116,7 +149,7 @@ final class VatStanding
      */
     public static function taxCustomer(Organization $organization, ?string $ipCountry = null): array
     {
-        $standing = self::standing($organization);
+        $standing = self::verdict($organization, CarbonImmutable::now(), true);
 
         return [
             'country' => strtoupper((string) ($organization->country ?? 'CZ')),
@@ -124,7 +157,7 @@ final class VatStanding
             'vat_id' => self::subject($organization)?->value,
             'vat_status' => $standing['status'],
             'vat_reason' => $standing['reason'],
-            'vat_name_mismatch' => $standing['status'] === self::VALID && self::nameMismatch($organization),
+            'vat_name_mismatch' => $standing['name_mismatch'],
             'ip_country' => $ipCountry,
         ];
     }
@@ -136,7 +169,7 @@ final class VatStanding
      */
     public static function snapshot(Organization $organization): array
     {
-        $standing = self::standing($organization);
+        $standing = self::verdict($organization, CarbonImmutable::now(), true);
         // an override the number carries while the row was reset (review round 2) is evidence like one the row carries
         $override = $standing['reason'] === 'staff_override' && $organization->vat_status_source !== 'staff' ? self::numberOverride($organization) : null;
 
@@ -150,8 +183,23 @@ final class VatStanding
             'consultation_number' => $override !== null ? null : $organization->vat_consultation_number,
             'override_until' => $override !== null ? ($override->expires_at === null ? null : CarbonImmutable::parse($override->expires_at)->toIso8601String())
                 : ($organization->vat_override_until === null ? null : CarbonImmutable::parse($organization->vat_override_until)->toIso8601String()),
-            'name_mismatch' => $standing['status'] === self::VALID && self::nameMismatch($organization),
+            'name_mismatch' => $standing['name_mismatch'],
         ];
+    }
+
+    /**
+     * A snapshot() as the customer (or the partner) may see it: what the document prints — when the number was checked, the
+     * consultation number, and whether it rests on VIES or on evidence staff accepted. The reason, the stored status, the
+     * override's end and whether VIES names another trader are finance's (review rounds 2 and 3): the customer's invoice and
+     * the partner's self-billing document never tip off somebody using another trader's number.
+     *
+     * @param  array<string,mixed>  $check
+     * @return array{checked_at:mixed, consultation_number:mixed, source:?string}
+     */
+    public static function customerEvidence(array $check): array
+    {
+        return ['checked_at' => $check['checked_at'] ?? null, 'consultation_number' => $check['consultation_number'] ?? null,
+            'source' => ($check['source'] ?? null) === 'staff' ? 'staff' : (empty($check['checked_at']) ? null : 'vies')];
     }
 
     /**
@@ -172,24 +220,40 @@ final class VatStanding
         return self::effectiveStatus($organization) === self::UNKNOWN;
     }
 
-    /**
-     * A VAT payer for the partner self-billing document (D31.6): a staff override to valid in force, the current number
-     * checked valid (registration does not lapse in a month, so no freshness here), or a row written before the check that
-     * said `payer` (today's self-billing VAT, until the operator re-checks it).
-     */
+    /** A VAT payer for the partner self-billing document (D31.6) — see payerStanding(). */
     public static function isVatPayer(Organization $organization): bool
     {
-        $standing = self::standing($organization);
-        if ($standing['reason'] === 'staff_override') {
-            return $standing['status'] === self::VALID;
+        return self::payerStanding($organization)['payer'];
+    }
+
+    /**
+     * Whether the partner is a VAT payer for its self-billing document (D31.6), and why (not): the same acceptance rules as the
+     * customer's standing (verdict()), without the freshness window — a registration does not lapse in a month.
+     *
+     * - a staff override in force decides (to valid: a payer — the only way a genuine name difference is accepted);
+     * - a row written before the check that said `payer` stays a payer until the operator re-checks it (critic, review round 1);
+     * - a legacy `valid` row is not proof of registration (`legacy_unverified`, never a payer, as before);
+     * - a VIES answer about the current number of the organization's own country is proof, unless VIES registers the number to
+     *   another trader (review round 3): ONhost would pay that VAT out in cash and deduct it as input VAT the tax office
+     *   denies, where a customer's reverse charge only moves the tax to the buyer — so the name is part of the proof here, and
+     *   the reason is `name_mismatch`. A number of another country reads `vat_country_mismatch`.
+     *
+     * @return array{payer:bool, reason:string}
+     */
+    public static function payerStanding(Organization $organization): array
+    {
+        $verdict = self::verdict($organization, CarbonImmutable::now(), false);
+        if ($verdict['reason'] === 'staff_override') {
+            return ['payer' => $verdict['status'] === self::VALID, 'reason' => 'staff_override'];
         }
         if ($organization->vat_status_source === null && (string) $organization->vat_status === 'payer') {
-            return true;
+            return ['payer' => true, 'reason' => 'legacy_payer'];
         }
-        $subject = self::subject($organization);
+        if ($verdict['status'] !== self::VALID || $verdict['reason'] === 'legacy_unverified') {
+            return ['payer' => false, 'reason' => $verdict['reason']];
+        }
 
-        return $organization->vat_status_source !== null && $organization->vat_status_source !== 'staff' && (string) $organization->vat_status === self::VALID
-            && $subject !== null && (string) $organization->vat_checked_number === $subject->value;
+        return $verdict['name_mismatch'] ? ['payer' => false, 'reason' => 'name_mismatch'] : ['payer' => true, 'reason' => $verdict['reason']];
     }
 
     /**

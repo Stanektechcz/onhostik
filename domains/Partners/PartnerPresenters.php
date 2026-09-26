@@ -6,6 +6,7 @@ namespace Onhost\Domain\Partners;
 
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerPayout;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Money\Money;
 
 final class PartnerPresenters
@@ -21,13 +22,35 @@ final class PartnerPresenters
         ];
     }
 
-    public static function payout(PartnerPayout $p): array
+    /** `$internal` for staff (the staff payout list and finance's approve/reject/pay answers); the partner portal gets the partner's view. */
+    public static function payout(PartnerPayout $p, bool $internal = false): array
     {
         return [
             // `transfer` is what finance sends: the self-billing document's total, VAT included for a VAT-payer partner (TASK-0031)
             'id' => $p->id, 'number' => $p->number, 'partner_id' => $p->partner_id, 'amount' => Money::minor($p->amount_minor, $p->currency), 'transfer' => $p->transferAmount(), 'method' => $p->method, 'state' => $p->state,
-            'iban_masked' => $p->iban ? substr($p->iban, 0, 4).'…'.substr($p->iban, -4) : null, 'self_billing' => $p->self_billing, 'payment_reference' => $p->payment_reference, 'note' => $p->note,
+            'iban_masked' => $p->iban ? substr($p->iban, 0, 4).'…'.substr($p->iban, -4) : null, 'self_billing' => $internal ? $p->self_billing : self::partnerSelfBilling($p->self_billing), 'payment_reference' => $p->payment_reference, 'note' => $p->note,
             'requested_at' => $p->requested_at?->toIso8601String(), 'paid_at' => $p->paid_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * The self-billing document as the partner sees it (TASK-0031 review round 3; `vat_review` is staff-only, critic): the VAT
+     * it is billed and why — rate, category, `note_vat` — stay; finance's review flag, its reason and the VIES evidence beyond
+     * what the document prints do not (a partner using another trader's DIČ is not told that finance looks at the name).
+     *
+     * @param  array<string,mixed>|null  $document
+     * @return array<string,mixed>|null
+     */
+    private static function partnerSelfBilling(?array $document): ?array
+    {
+        if ($document === null) {
+            return null;
+        }
+        $document = array_diff_key($document, ['vat_review' => true, 'vat_review_reason' => true]);
+        if (is_array($document['vat_check'] ?? null)) {
+            $document['vat_check'] = VatStanding::customerEvidence($document['vat_check']);
+        }
+
+        return $document;
     }
 }

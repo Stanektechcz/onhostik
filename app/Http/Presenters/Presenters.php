@@ -256,9 +256,7 @@ final class Presenters
         if (! is_array($buyer['vat_check'] ?? null)) {
             return $buyer;
         }
-        $check = $buyer['vat_check'];
-        $buyer['vat_check'] = ['checked_at' => $check['checked_at'] ?? null, 'consultation_number' => $check['consultation_number'] ?? null,
-            'source' => ($check['source'] ?? null) === 'staff' ? 'staff' : (empty($check['checked_at']) ? null : 'vies')];
+        $buyer['vat_check'] = VatStanding::customerEvidence($buyer['vat_check']); // the same reduction as the partner's self-billing document (review round 3)
 
         return $buyer;
     }
