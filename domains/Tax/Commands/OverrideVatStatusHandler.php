@@ -51,6 +51,14 @@ final class OverrideVatStatusHandler implements CommandHandler
         }
         $organization = Organization::query()->whereKey((string) $command->get('organization_id'))->lockForUpdate()->first() ?? throw DomainError::notFound('organization');
         $subject = VatStanding::subject($organization);
+        // the subject the requester saw and the second person approved (stack polish, MEDIUM): the number and the name are
+        // self-service fields, and the approved command may run up to a day after the request — a partner that switched to
+        // another company's DIČ and name meanwhile would have that company confirmed as its supplier identity and VAT paid out
+        $boundNumber = $command->get('vat_number');
+        $boundName = $command->get('organization_name');
+        if (! is_string($boundNumber) || ! is_string($boundName) || $boundNumber !== ($subject?->value ?? '') || $boundName !== (string) $organization->name) {
+            throw new DomainError('vat_override_subject_changed', 'The VAT number or the name of the organization changed since the override was asked for; ask again for the organization as it is now.', 409, ['field' => 'vat_id']);
+        }
         if ($subject === null) {
             throw new DomainError('vat_number_missing', 'The organization has no VAT ID or DIČ to set a status for.', 422, ['field' => 'vat_id']);
         }

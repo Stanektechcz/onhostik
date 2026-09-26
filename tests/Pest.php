@@ -27,6 +27,7 @@ use Onhost\Domain\Provisioning\OperationService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
 use Tests\TestCase;
@@ -550,4 +551,17 @@ function secondPersonApproves(string $approvalId, ?User $decider = null): string
     app(ApprovalService::class)->decide($approval, $decider, 'approved', null, new CommandContext('user', $decider->id, null, null, '127.0.0.1', 'pest', 'second-person', stepUpMethod: 'totp'));
 
     return $approvalId;
+}
+
+/**
+ * The subject a staff VAT override confirms, as the requester sees it now (stack polish): the normalised number and the
+ * organization name. OverrideVatStatusHandler refuses a payload whose subject is not the organization's any more.
+ *
+ * @return array{vat_number:string, organization_name:string}
+ */
+function vatOverrideSubject(Organization $organization): array
+{
+    $current = Organization::query()->findOrFail($organization->id);
+
+    return ['vat_number' => (string) (VatStanding::subject($current)?->value ?? ''), 'organization_name' => (string) $current->name];
 }

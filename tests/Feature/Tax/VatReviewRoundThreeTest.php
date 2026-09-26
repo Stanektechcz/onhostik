@@ -72,7 +72,7 @@ function vatR3Pay(PartnerPayout $payout): array
 function vatR3Override(Organization $org, string $status): void
 {
     app(OverrideVatStatusHandler::class)->handle(new OverrideVatStatusCommand('vat-r3-override:'.uniqid(), [
-        'organization_id' => $org->id, 'status' => $status, 'reason' => 'Registrace ověřena u správce daně, jiný zápis jména ve VIES', 'evidence' => 'výpis z registru plátců DPH', 'days' => 30,
+        'organization_id' => $org->id, 'status' => $status, 'reason' => 'Registrace ověřena u správce daně, jiný zápis jména ve VIES', 'evidence' => 'výpis z registru plátců DPH', 'days' => 30, ...vatOverrideSubject($org),
     ]), CommandContext::system('test'));
 }
 

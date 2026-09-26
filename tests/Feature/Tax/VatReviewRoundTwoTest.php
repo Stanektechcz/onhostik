@@ -78,7 +78,7 @@ function vatR2Payout(Organization $org): array
 function vatR2Override(Organization $organization, string $status): void
 {
     app(OverrideVatStatusHandler::class)->handle(new OverrideVatStatusCommand('vat-r2-override:'.uniqid(), [
-        'organization_id' => $organization->id, 'status' => $status, 'reason' => 'VIES says valid, the registration was cancelled', 'evidence' => 'letter of the tax office', 'days' => 30,
+        'organization_id' => $organization->id, 'status' => $status, 'reason' => 'VIES says valid, the registration was cancelled', 'evidence' => 'letter of the tax office', 'days' => 30, ...vatOverrideSubject($organization),
     ]), CommandContext::system('test'));
 }
 

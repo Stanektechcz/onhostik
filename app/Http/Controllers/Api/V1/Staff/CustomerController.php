@@ -236,7 +236,9 @@ final class CustomerController extends ApiController
     /**
      * Finance sets the VAT status by hand (TASK-0031, D31.5): VIES is down, or the customer proves the registration otherwise.
      * Validated here, decided by the bus: `billing.tax_rule.manage`, CRITICAL — a fresh step-up and a second person (unless the
-     * platform runs with one operator); the override ends by itself after `days`.
+     * platform runs with one operator); the override ends by itself after `days`. The subject being confirmed — the normalised
+     * number and the organization's name as they are now — goes into the payload, so the approval's hash binds it and the second
+     * person reads it; the handler refuses it once either changed (stack polish). Read only for staff who may ask at all.
      */
     public function overrideVatStatus(Request $request, string $organization): JsonResponse
     {
@@ -244,7 +246,11 @@ final class CustomerController extends ApiController
             'status' => ['required', 'in:valid,invalid'], 'reason' => ['required', 'string', 'min:10', 'max:1000'], 'evidence' => ['required', 'string', 'min:5', 'max:1000'],
             'days' => ['nullable', 'integer', 'min:1', 'max:'.max(1, (int) config('onhost.vies.override_days', 30))],
         ]);
-        $payload = ['organization_id' => $organization, 'status' => (string) $data['status'], 'reason' => (string) $data['reason'], 'evidence' => (string) $data['evidence'], 'days' => (int) ($data['days'] ?? config('onhost.vies.override_days', 30))];
+        $org = $this->api->can($request, 'billing.tax_rule.manage', CommandScope::global()) ? Organization::query()->find($organization) : null;
+        $payload = [
+            'organization_id' => $organization, 'status' => (string) $data['status'], 'reason' => (string) $data['reason'], 'evidence' => (string) $data['evidence'], 'days' => (int) ($data['days'] ?? config('onhost.vies.override_days', 30)),
+            'vat_number' => $org === null ? '' : (string) (VatStanding::subject($org)?->value ?? ''), 'organization_name' => (string) ($org?->name ?? ''),
+        ];
 
         return $this->dispatch(new OverrideVatStatusCommand($this->onceKey($request, 'vat.override:'.$organization.':'.substr(hash('sha256', (string) json_encode($payload)), 0, 24)), $payload), $this->api->context($request, null, $payload['reason']), 202);
     }

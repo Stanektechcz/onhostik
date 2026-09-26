@@ -67,7 +67,7 @@ numbers.
 | V3 | The answer is evidence (`vat_validations`, `organizations.vat_checked_*`, consultation number; migration `000880` adds nullable columns and one index, **no data UPDATE** — critic). An unknown answer writes and publishes nothing; a malformed number is invalid only with an EU prefix; a non-EU number is never checked or called invalid (critic); a result for a number that changed meanwhile is discarded. | — |
 | V4 | Reverse charge only for a business of another EU state whose number VIES confirmed at most 30 days before the quote (orders) or the issue (everything else), and whose country matches; otherwise destination VAT with `vat_review`. Every tax input is built by `VatStanding::taxCustomer()` (arch test). | — |
 | V5 | Legacy rows are read, not migrated: a stored `valid` without a source keeps reverse charge flagged `legacy_unverified`; a stored `payer` keeps self-billing VAT; normalisation happens at read time (critic). | — |
-| V6 | Staff override `tax.vat_status.override`: reuses `billing.tax_rule.manage` (no new permission, the `TokenScopes` TASK-0031 block stays empty), CRITICAL (step-up + four eyes), 1–30 days, evidence row, audit, event; bus-only route `POST /v1/staff/customers/{organization}/vat-status` (202). It belongs to its number and country and holds against every automatic check; only the operator's explicit check replaces it (review rounds 1 and 2). | — |
+| V6 | Staff override `tax.vat_status.override`: reuses `billing.tax_rule.manage` (no new permission, the `TokenScopes` TASK-0031 block stays empty), CRITICAL (step-up + four eyes), 1–30 days, evidence row, audit, event; bus-only route `POST /v1/staff/customers/{organization}/vat-status` (202). It belongs to its number and country and holds against every automatic check; only the operator's explicit check replaces it (review rounds 1 and 2). The payload binds the subject the requester saw (normalised number + organization name, so the approval hash binds them); a subject changed before the approved run is refused with 409 `vat_override_subject_changed` (stack polish). | — |
 | V7 | Re-check under rule `tax.vies_recheck` (**default_off**, daily 04:20, never for legacy rows). Review round 1: the rule and the switch are **coupled** — switching VIES on without the rule is a go-live error (renewals judge the 30 days at issue and never ask VIES), and the doctor row is red while VIES is on and the rule off. | — |
 | V8 | `onhost:vat:verify` is a dry run without HTTP; `--apply` checks; `--csv` lists past VAT invoices to EU business customers for the accountant (formula cells neutralised, review round 1). Issued documents are never changed. | D31.6 (partners reached, review round 2) |
 | V9 | The VIES trader name is compared with the organization name: for a customer a mismatch keeps the verdict and raises `vat_review` (`name_mismatch`); `vat_review` and its reason are staff-only on every customer and partner response (review rounds 1 and 3). | — |
@@ -84,6 +84,15 @@ numbers.
   owner gave it `services:console` now can (as on `/actions`), and a token session whose token is gone is refused. This
   replaces TASK-0029's "skip every console step on a token session". Reverting that hunk restores the stricter rule; the
   console-token test would go with it.
+- **The VAT override binds its subject** (stack polish after integration, TASK-0031 MEDIUM, money): the payload of
+  `tax.vat_status.override` was `{organization_id, status, reason, evidence, days}`, and the handler read the organization's
+  number and name when the approved command ran — up to 24 h after the request. A partner that switched to another real
+  company's DIČ and name in that window would have had that company confirmed as its supplier and VAT paid out on it. The
+  controller now puts `vat_number` (normalised) and `organization_name` as the requester saw them into the payload, so the
+  approval binds them and the approver reads them; the handler refuses a missing or changed subject with 409
+  `vat_override_subject_changed` and writes nothing. The same command serves the customer reverse-charge override.
+  What remains of the approval window: finance must check the number and name in the request against its evidence (the
+  runbook says so); the single-operator waiver below is unchanged.
 - `TokenScopes` decides every permission the service action map can return (`service.console` → `services:console`;
   `service.manage`, `service.delete`, `backup.restore`, `backup.delete`, `game.manage`, `compute.vm.delete` →
   `services:power`; `backup.policy.manage`, `service.panel_account.manage` → none), pinned by `ApiTokenScopeMapTest`.

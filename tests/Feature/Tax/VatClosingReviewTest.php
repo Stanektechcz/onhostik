@@ -71,7 +71,7 @@ function vatCrPayOut(Organization $org): array
 function vatCrConfirm(Organization $org): void
 {
     app(OverrideVatStatusHandler::class)->handle(new OverrideVatStatusCommand('vat-cr-override:'.uniqid(), [
-        'organization_id' => $org->id, 'status' => 'valid', 'reason' => 'Dodavatel ověřen: smlouva, výpis z registru plátců DPH', 'evidence' => 'výpis z registru plátců DPH', 'days' => 30,
+        'organization_id' => $org->id, 'status' => 'valid', 'reason' => 'Dodavatel ověřen: smlouva, výpis z registru plátců DPH', 'evidence' => 'výpis z registru plátců DPH', 'days' => 30, ...vatOverrideSubject($org),
     ]), CommandContext::system('test'));
 }
 

@@ -57,7 +57,7 @@ function vatPartnerRecordValid(Organization $organization, string $number): void
 function vatPartnerRecordConfirmedPayer(Organization $organization, string $number): void
 {
     app(OverrideVatStatusHandler::class)->handle(new OverrideVatStatusCommand('vat-partner-confirm:'.uniqid('', true), [
-        'organization_id' => $organization->id, 'status' => 'valid', 'reason' => 'Dodavatel ověřen podle smlouvy a registru', 'evidence' => 'výpis z registru plátců DPH', 'days' => 30,
+        'organization_id' => $organization->id, 'status' => 'valid', 'reason' => 'Dodavatel ověřen podle smlouvy a registru', 'evidence' => 'výpis z registru plátců DPH', 'days' => 30, ...vatOverrideSubject($organization),
     ]), CommandContext::system('test'));
     vatPartnerRecordValid($organization, $number);
 }

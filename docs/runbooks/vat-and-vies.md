@@ -130,6 +130,13 @@ VIES has been down for days, or the customer proves the registration another way
 * Command `tax.vat_status.override`, permission `billing.tax_rule.manage`, risk **CRITICAL**: a fresh step-up and a second
   person ([approvals.md](approvals.md)). The first attempt returns `403 approval_required` and opens the request; the same
   call after the approval goes through. With `ONHOST_FOUR_EYES=false` (single operator) the step-up alone suffices.
+* It is **bound to the subject the requester saw** (stack polish): the request carries the organization's normalised VAT
+  number and its name as they are when it is made (`vat_number`, `organization_name` in the payload — the approver reads
+  them in the request), and the approval binds the hash of that payload. Both are self-service fields and the approval
+  lives up to 24 h, so if the number or the name changed in between, the repeated call is a new request for the
+  organization as it is now (`403 approval_required` again, the old approval stays unused), and a command that still carries
+  the old subject is refused by the handler with `409 vat_override_subject_changed` — nothing is written, no VAT is paid out
+  on it. Check the new request's number and name against the evidence before approving it.
 * Only a number of an EU member state can be overridden.
 * It writes a `vat_validations` row (source `staff`, reason, evidence, actor, `expires_at`), an audit record
   `tax.vat_status.override`, and the event with `source: staff`. It never writes the customer class or an issued document.

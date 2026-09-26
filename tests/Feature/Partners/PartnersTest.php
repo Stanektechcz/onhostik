@@ -47,7 +47,7 @@ function paidClientInvoice(Organization $client, int $net = 100000): Invoice
 function recordValidVatForTest(Organization $organization, string $number): void
 {
     app(OverrideVatStatusHandler::class)->handle(new OverrideVatStatusCommand('vat-partners-confirm:'.$organization->id.':'.$number, [
-        'organization_id' => $organization->id, 'status' => 'valid', 'reason' => 'Dodavatel ověřen podle smlouvy a registru', 'evidence' => 'výpis z registru plátců DPH', 'days' => 30,
+        'organization_id' => $organization->id, 'status' => 'valid', 'reason' => 'Dodavatel ověřen podle smlouvy a registru', 'evidence' => 'výpis z registru plátců DPH', 'days' => 30, ...vatOverrideSubject($organization),
     ]), CommandContext::system('test'));
     app(CommandBus::class)->dispatch(new RecordVatCheckCommand($organization->id, 'vat-partners-test:'.$organization->id.':'.$number, [
         'number' => $number, 'status' => 'valid', 'consultation_number' => 'WAPIPARTNERS', 'trigger' => 'operator', 'source' => 'vies',
