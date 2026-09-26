@@ -30,7 +30,7 @@ final class ServiceIntent
         ['/\b(vypni|vypnout|deaktivuj|disable)\b[^.]{0,40}\b(redis|object cache|cache)\b/', 'wp.cache', ['enabled' => false], ['web', 'managed'], ['Vypnout Redis cache na %s', 'Turn Redis cache off for %s'], 'wordpress'],
         ['/\b(obnov|obnovit|refresh|refreshni|aktualizuj)\b[^.]{0,30}\bstaging\b|\bstaging\b[^.]{0,30}\b(obnov|obnovit|refresh)\b/', 'staging.refresh', ['databases' => true], ['web', 'managed'], ['Obnovit staging z produkce (%s)', 'Refresh staging from production (%s)'], 'staging'],
         ['/\b(zaloz|zalozit|vytvor|vytvorit|create|udelej|udelat)\b[^.]{0,30}\bstaging\b/', 'staging.create', ['databases' => true], ['web', 'managed'], ['Založit staging pro %s', 'Create staging for %s'], 'staging'],
-        ['/\b(prenes|prenest|push|nahraj|nahrat|preklop)\b[^.]{0,30}\bstaging\b[^.]{0,30}\b(produkc|ostr)|\bstaging\b[^.]{0,30}\b(do produkce|na ostrou|to production)\b/', 'staging.push', ['databases' => true, 'confirm' => true], ['web', 'managed'], ['Přenést staging do produkce (%s)', 'Push staging to production (%s)'], 'staging'],
+        // no staging.push: replacing production with staging takes a fresh step-up that a chat button cannot give (TASK-0029)
         ['/\b(vymaz|vymazat|vyprazdni|vyprazdnit|promaz|purge|clear|flush)\b[^.]{0,30}\b(cdn|cache)\b|\bcdn\b[^.]{0,20}\b(vymaz|vyprazdni|purge)\b/', 'cdn.purge', ['settings' => []], ['web', 'managed'], ['Vyprázdnit CDN cache pro %s', 'Purge the CDN cache of %s'], 'cdn'],
         ['/\b(vystav|vystavit|obnov|obnovit|issue|renew|zaridit|zarid)\b[^.]{0,30}\b(certifikat|ssl|https|lets? ?encrypt)\b|\b(certifikat|ssl)\b[^.]{0,30}\b(vystav|vystavit|obnov|obnovit)\b/', 'ssl.issue', [], ['web', 'managed'], ['Vystavit certifikát pro %s', 'Issue a certificate for %s'], 'ssl'],
         ['/\b(vynut|vynutit|force|zapni|zapnout)\b[^.]{0,20}\bhttps\b/', 'https.force', ['enabled' => true], ['web', 'managed'], ['Vynutit HTTPS na %s', 'Force HTTPS on %s'], 'https'],
@@ -67,7 +67,8 @@ final class ServiceIntent
             if (! preg_match($pattern, $normalized, $m)) {
                 continue;
             }
-            $params = array_map(fn ($v) => is_string($v) && $v === '$1' ? ($m[1] ?? '') : $v, $params);
+            // every rule opens with a group that always takes part in a match, so $m[1] is there (possibly '')
+            $params = array_map(fn ($v) => is_string($v) && $v === '$1' ? $m[1] : $v, $params);
             $candidates = ($named->isNotEmpty() ? $named : $services)->filter(fn (Service $s) => in_array($s->family, $families, true));
             foreach ($candidates->take(3) as $service) {
                 $f = $features->features($service);
@@ -88,7 +89,7 @@ final class ServiceIntent
                     }
                 }
                 $name = (string) ($service->hostname ?: ($service->label ?: $service->name));
-                $out[] = ['kind' => 'service_action', 'label' => str_replace('$1', (string) ($m[1] ?? ''), sprintf($locale === 'en' ? $labels[1] : $labels[0], $name)), 'service_id' => $service->id, 'action' => $action, 'params' => $params, 'confirm' => true, 'class' => $scope?->staff === true ? 'STAFF_WRITE' : 'SAFE_WRITE', 'service' => $name];
+                $out[] = ['kind' => 'service_action', 'label' => str_replace('$1', $m[1], sprintf($locale === 'en' ? $labels[1] : $labels[0], $name)), 'service_id' => $service->id, 'action' => $action, 'params' => $params, 'confirm' => true, 'class' => $scope?->staff === true ? 'STAFF_WRITE' : 'SAFE_WRITE', 'service' => $name];
             }
             if (count($out) >= 4) {
                 break;

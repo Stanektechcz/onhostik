@@ -20,7 +20,10 @@ use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\SshKeyGrant;
+use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceSpecService;
+use Onhost\Domain\Support\Assistant\ServiceIntent;
+use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Events\GenericEvent;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Tests\TestCase;
@@ -121,11 +124,32 @@ it('does not let a spec apply schedule a console command for somebody who only m
         ->and(sasgOperation($result, 0)->authorized_permission)->toBe('service.manage');
 
     // the owner holds the console: both jobs go, and the run of the command job asks the console again (H315)
-    $result = $specs->apply($game, sasgSchedules(), $this->contextFor($owner, $org), 'spec-2');
+    $result = $specs->apply($game, sasgSchedules(), $this->contextFor($owner, $org, 'totp'), 'spec-2');
     expect($result['skipped'])->toBe([])
         ->and(array_column($result['operations'], 'action'))->toBe(['schedule.create', 'schedule.create'])
         ->and(sasgOperation($result, 0)->authorized_permission)->toBe('service.console')
         ->and(sasgOperation($result, 1)->authorized_permission)->toBe('service.manage');
+
+    // each step's audit row says who, under which session grant — as the /actions path records it (no spec step needs a fresh
+    // step-up of its own, ServiceActionPermissionMapTest; review round 1, LOW)
+    $rows = AuditEvent::query()->where('action', 'service.action.schedule.create')->where('result', 'succeeded')->get();
+    expect($rows->where('actor_id', $owner->id)->pluck('step_up_method')->all())->toBe(['totp', 'totp'])
+        ->and($rows->where('actor_id', $guest->id)->pluck('step_up_method')->all())->toBe([null]);
+});
+
+it('does not offer pushing staging to production from a chat sentence', function () {
+    // decision (1) of TASK-0029 retired the staging.push proposal (AssistantProposals, hooks, Discord); the plain-language intent
+    // still offered it as a button that the panel then refuses without a fresh step-up (review round 1, LOW)
+    [$owner, $org] = $this->customerWithOrganization();
+    $web = featureWebService($org, 'aapanel');
+    $web->update(['entitlements' => array_replace((array) $web->entitlements, ['staging' => true])]);
+    $features = app(ServiceFeatures::class);
+    expect($features->actions($web->refresh()))->toContain('staging.push', 'staging.refresh'); // the plan has staging: not vacuous
+
+    $offered = fn (string $text) => array_column(ServiceIntent::detect($text, $org, $features), 'action');
+    expect($offered('obnov staging na shop.cz'))->toBe(['staging.refresh'])
+        ->and($offered('přenes staging do produkce na shop.cz'))->not->toContain('staging.push')
+        ->and($offered('push staging to production shop.cz'))->not->toContain('staging.push');
 });
 
 it('does not let a power-only API token schedule a console command through the spec', function () {

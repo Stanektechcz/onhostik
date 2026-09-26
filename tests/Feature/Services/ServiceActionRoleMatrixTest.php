@@ -119,6 +119,11 @@ it('lets each role run exactly the dangerous actions its permissions promise', f
         expect(sarmCan($people['mail_manager'], $service, $action, $params))->toBeFalse($action)
             ->and(sarmCan($people['svc_backups'], $service, $action, $params))->toBeFalse($action);
     }
+    // said out loud (C13-H1b): the console is not the owner's copies — a svc_console guest holds a shell and still deletes no
+    // backup, game backup or snapshot; putting svc_console into a deletion row "because console implies everything" fails here
+    foreach ([['backup.delete', $web], ['gbackup.delete', $game], ['snapshot.delete', $web]] as [$action, $service]) {
+        expect(sarmCan($people['svc_console'], $service, $action))->toBeFalse($action);
+    }
 });
 
 it('widens two staff roles to exactly what their permissions name', function () {

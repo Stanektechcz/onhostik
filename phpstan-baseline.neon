@@ -3481,12 +3481,6 @@ parameters:
 			path: domains/Support/Assistant/AssistantService.php
 
 		-
-			message: '#^Offset 1 on array\{0\: non\-falsy\-string, 1\: string, 2\?\: non\-falsy\-string\}\|array\{non\-falsy\-string, '''', '''', ''certifikat''\|''ssl'', ''obnov''\|''obnovit''\|''vystav''\|''vystavit''\}\|array\{non\-falsy\-string, '''', '''', ''do produkce''\|''na ostrou''\|''purge''\|''to production''\|''vymaz''\|''vyprazdni''\}\|array\{non\-falsy\-string, '''', '''', ''http /3''\|''http 3''\|''http/3''\|''http3''\|''quic'', ''aktivovat''\|''aktivuj''\|''deaktivuj''\|''off''\|''on''\|''povol''\|''vypni''\|''vypnout''\|''zakaz''\|''zapni''\|''zapnout''\}\|array\{non\-falsy\-string, '''', '''', ''wordpress''\|''wp'', ''aktualizace''\|''aktualizovat''\|''aktualizuj''\|''update''\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 2
-			path: domains/Support/Assistant/ServiceIntent.php
-
-		-
 			message: '#^Empty array passed to foreach\.$#'
 			identifier: foreach.emptyArray
 			count: 1

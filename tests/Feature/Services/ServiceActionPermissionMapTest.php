@@ -168,11 +168,31 @@ it('makes every destructive action HIGH with a fresh step-up, and none CRITICAL'
     }
 });
 
-it('never takes a second person for anything a spec apply chains', function () {
-    // the spec gate (WP2) runs the bus authorizer per action; an approval must never be consumed there
+it('never takes a second person or a fresh step-up for anything a spec apply chains', function () {
+    // the spec gate (WP2) runs the bus authorizer per action; an approval must never be consumed there. Nor does any step need a
+    // fresh step-up: the step's decision then carries no step-up method of its own, and the step's audit row may keep the spec
+    // command's context (the session's grant, as the /actions path records it). A spec action that ever needs a step-up must
+    // hand the decision's method to requestAction first — this fails before that can be forgotten (review round 1, LOW).
+    expect(sapmSpecActions())->toContain('schedule.create', 'cron.create', 'mailbox.create');
     foreach (sapmSpecActions() as $action) {
-        expect(sapmCommand($action, ['allow_prune' => true, 'actions' => [['action' => 'command', 'payload' => 'x']]])->requiresApproval())->toBeFalse($action);
+        $command = sapmCommand($action, ['allow_prune' => true, 'actions' => [['action' => 'command', 'payload' => 'x']]]);
+        expect($command->requiresApproval())->toBeFalse($action)
+            ->and($command->requiresStepUp())->toBeFalse($action)
+            ->and($command->riskLevel())->toBe(PermissionCatalog::NORMAL, $action)
+            ->and(ServiceActionCommand::needsFreshStepUp($action))->toBeFalse($action);
     }
+});
+
+it('does not yet ask a fresh step-up for a persistent console grant', function () {
+    // Pinned on purpose (review round 1, MEDIUM; decisions_needed in the TASK-0029 handoff): a game sub-user and a schedule with
+    // a console command ask `service.console` (D29.3/D29.4) but no fresh step-up, although both outlive the session that made
+    // them. If the owner decides for a step-up, flip these to toBeTrue together with STEP_UP/HIGH_RISK — a deliberate diff.
+    $console = ['actions' => [['action' => 'command', 'payload' => 'op me']]];
+    expect(ServiceActionCommand::needsFreshStepUp('subuser.create'))->toBeFalse()
+        ->and(ServiceActionCommand::needsFreshStepUp('schedule.create'))->toBeFalse()
+        ->and(sapmCommand('subuser.create')->requiresStepUp())->toBeFalse()
+        ->and(sapmCommand('schedule.create', $console)->requiresStepUp())->toBeFalse()
+        ->and(sapmCommand('schedule.create', $console)->permission())->toBe('service.console');
 });
 
 it('keeps mailbox backup retention the operator\'s', function () {

@@ -190,6 +190,8 @@ final class ServiceSpecService
 
                 return;
             }
+            // the step's audit row keeps the spec's context (the session's grant, as the /actions path records it): no spec action
+            // needs a fresh step-up of its own, so $decision carries no method to add (ServiceActionPermissionMapTest pins that)
             $operation = $this->services->requestAction($service, $action, $context, $key, $params, chained: true, authorizedPermission: $command->permission());
             $out['operations'][] = ['section' => $section, 'action' => $action, 'operation_id' => $operation->id];
         };
