@@ -165,7 +165,8 @@ it('packs and unpacks the whole site: "." is the site root for both file transpo
 
         return ['status' => true];
     };
-    $panel = new AaPanelTransport(Closure::fromCallable($post), new ScriptedShell, '/www/wwwroot/firma.cz');
+    // the node lists the entries before the panel unpacks as root (TASK-0034, IF-7): a clean site archive
+    $panel = new AaPanelTransport(Closure::fromCallable($post), new ScriptedShell(['/--numeric-owner -tzvf/' => implode("\n", ['N 3 3', 'T - 1', 'T d 2'])]), '/www/wwwroot/firma.cz');
     expect($panel->abs('.'))->toBe('/www/wwwroot/firma.cz');
     $panel->archive(['.'], 'onhost-final-abc.tar.gz');
     $zip = collect($sent)->firstWhere(0, 'files.zip')[1];

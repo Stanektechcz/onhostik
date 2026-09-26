@@ -345,6 +345,11 @@ trait AaPanelTools
         if ($current === null) {
             throw new ProviderException('aapanel', ProviderErrorCode::NOT_FOUND, 'The cron job does not belong to this site');
         }
+        // a shared node the operator closed takes no new shell code (TASK-0034, IF-7). The same command written again is
+        // still accepted: that is how `onhost:services:cron-confine` moves an old root job to the site user.
+        if (array_key_exists('command', $job) && (string) $job['command'] !== (string) $current['command']) {
+            AaPanelTenancyGate::assertOpen($this->instance);
+        }
         [$minute, $hour] = $this->cronFields((string) ($job['schedule'] ?? $current['schedule']));
         $name = Naming::cronLabel($site->serviceId, $job['label'] ?? $current['label'] ?? null);
         $this->post('/crontab?action=modify_crond', [
@@ -376,6 +381,7 @@ trait AaPanelTools
         if (collect($this->listCron($site))->firstWhere('remote_id', $remoteId) === null) {
             throw new ProviderException('aapanel', ProviderErrorCode::NOT_FOUND, 'The cron job does not belong to this site');
         }
+        AaPanelTenancyGate::assertOpen($this->instance); // on demand is at a moment the tenant picks, beside root work on a shared node (TASK-0034)
         $this->post('/crontab?action=StartTask', ['id' => (int) $remoteId], 'cron.run', true);
 
         return ProviderResult::completed(new ResourceRef('cron', $remoteId, $this->instance->key, [], $site->serviceId), ['started' => true]);
@@ -471,9 +477,12 @@ trait AaPanelTools
     {
         $file = $this->backupFile($site, $backupRemoteId);
         $root = $this->sitePath($site);
-        $tmp = '/tmp/onhost-restore-'.bin2hex(random_bytes(5));
+        // unpacked where only root reads (in /tmp every site's PHP on the node could read this site's files), after the
+        // entries were listed and judged: the archive is the site's own content (TASK-0034, IF-7)
+        $tmp = AaPanelShell::PRIVATE_DIR.'/restore-'.bin2hex(random_bytes(5));
+        (new AaPanelArchivePreflight($this->shell($site)))->assertSafe($file, $tmp, $tmp, $root);
         $script = implode(' && ', [
-            'rm -rf '.Q::arg($tmp), 'mkdir -p '.Q::arg($tmp), 'unzip -oq '.Q::arg($file).' -d '.Q::arg($tmp),
+            AaPanelShell::privateDir(), 'rm -rf '.Q::arg($tmp), 'mkdir -p '.Q::arg($tmp), 'unzip -oq '.Q::arg($file).' -d '.Q::arg($tmp),
             'src='.Q::arg($tmp).'; if [ -d "$src/'.basename($root).'" ]; then src="$src/'.basename($root).'"; fi',
             'if command -v rsync >/dev/null; then rsync -a --delete --exclude ".user.ini" "$src/" '.Q::arg($root).'/; else cp -a "$src/." '.Q::arg($root).'/; fi',
             'chown -R www:www '.Q::arg($root), 'rm -rf '.Q::arg($tmp),

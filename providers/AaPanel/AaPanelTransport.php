@@ -125,8 +125,10 @@ final class AaPanelTransport implements FileTransport
         try {
             $offset = 0;
             while ($offset < $size) {
-                $temp = '/tmp/onhost-dl-'.bin2hex(random_bytes(6)).'.b64';
-                $cmd = sprintf('tail -c +%d %s | head -c %d | base64 -w0 > %s', $offset + 1, Q::arg($absolute), self::DOWNLOAD_CHUNK, $temp);
+                // the chunk is a piece of the customer's file: staged where only root reads, not in /tmp where every site's
+                // PHP on a shared node could read it (TASK-0034, IF-7)
+                $temp = AaPanelShell::PRIVATE_DIR.'/dl-'.bin2hex(random_bytes(6)).'.b64';
+                $cmd = AaPanelShell::privateDir().' && '.sprintf('tail -c +%d %s | head -c %d | base64 -w0 > %s', $offset + 1, Q::arg($absolute), self::DOWNLOAD_CHUNK, $temp);
                 $run = $this->shell->run($cmd, ['timeout' => 300]);
                 if (! $run->ok()) {
                     throw new ProviderException('aapanel', ProviderErrorCode::TRANSIENT, 'Reading the file on the node failed: '.$run->output());
@@ -215,10 +217,18 @@ final class AaPanelTransport implements FileTransport
         ($this->post)('/files?action=Zip', ['sfile' => $sources, 'dfile' => $this->abs($target), 'z_type' => $type, 'path' => $this->root], 'files.zip', true, []);
     }
 
+    /**
+     * The panel unpacks as root. Its entries are listed on the node first and the archive is refused when one of them
+     * would land outside the site — a link out with a file beneath it, a hardlink, an absolute name, `..` (TASK-0034,
+     * permission program IF-7, exploit PA-02). Applies to every unpack: the customer's own archive, an import, a restore.
+     */
     public function extract(string $archive, string $targetDir): void
     {
-        $type = str_ends_with(strtolower($archive), '.tar.gz') || str_ends_with(strtolower($archive), '.tgz') ? 'tar.gz' : 'zip';
-        ($this->post)('/files?action=UnZip', ['sfile' => $this->abs($archive), 'dfile' => $this->abs($targetDir), 'type' => $type, 'coding' => 'utf-8', 'password' => ''], 'files.unzip', true, []);
+        $source = $this->abs($archive);
+        $target = $this->abs($targetDir);
+        (new AaPanelArchivePreflight($this->shell))->assertSafe($source, $target, $this->root, $this->root);
+        $type = AaPanelArchivePreflight::isTar($archive) ? 'tar.gz' : 'zip';
+        ($this->post)('/files?action=UnZip', ['sfile' => $source, 'dfile' => $target, 'type' => $type, 'coding' => 'utf-8', 'password' => ''], 'files.unzip', true, []);
     }
 
     public function exists(string $path): bool

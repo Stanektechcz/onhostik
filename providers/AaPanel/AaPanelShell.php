@@ -14,14 +14,28 @@ use Onhost\Providers\Shell\SshShell;
 
 /**
  * Commands on an aaPanel node through the panel API. `files?action=ExecShell` only acknowledges ("Command sent") and
- * runs the command in the background as root, so every call is wrapped: `timeout … bash -c … > /tmp/<id>.out 2>&1;
- * echo $? > /tmp/<id>.exit`, the exit file is polled through `GetFileBody`, the output read the same way and both
- * removed afterwards. Site-level work switches to the site user (`su -s /bin/bash www -c …`) — aaPanel runs every
+ * runs the command in the background as root, so every call is wrapped: `timeout … bash -c … > <private>/<id>.out 2>&1;
+ * echo $? > <private>/<id>.exit`, the exit file is polled through `GetFileBody`, the output read the same way and both
+ * removed afterwards. <private> is PRIVATE_DIR, a folder only root can enter: in /tmp every tenant's PHP on the node
+ * could read what a command of another site printed (TASK-0034, permission program IF-7). Site-level work switches to the site user (`su -s /bin/bash www -c …`) — aaPanel runs every
  * site as `www`, so that is the same identity the customer's PHP already has.
  */
 final class AaPanelShell implements NodeShell
 {
     public const OUTPUT_CAP = 1048576;
+
+    /**
+     * Where the platform stages what it runs and reads on a node as root: the shell's output and exit files, download
+     * chunks, restores and archive listings. It used to be /tmp, which every site's PHP (`www`) can list and read on a
+     * node shared by several customers (TASK-0034, IF-7). /root is root's own and 0700; the folder is made 0700 too.
+     */
+    public const PRIVATE_DIR = '/root/.onhost-shell';
+
+    /** The shell words that make PRIVATE_DIR exist, root-only, before anything is written into it (chain with `&&`). */
+    public static function privateDir(): string
+    {
+        return 'mkdir -p -m 700 '.self::PRIVATE_DIR.' && chmod 700 '.self::PRIVATE_DIR;
+    }
 
     /** Lines the panel's `www` shell wrapper prints on every `su`; not part of the command's output. */
     private const NOISE = ['Your request has been recorded. Tips from BT security !!!', 'Tips from BT security'];
@@ -33,13 +47,14 @@ final class AaPanelShell implements NodeShell
     {
         $timeout = min(900, max(1, (int) ($options['timeout'] ?? 120)));
         $id = 'onhost-'.bin2hex(random_bytes(6));
-        $out = "/tmp/{$id}.out";
-        $exit = "/tmp/{$id}.exit";
+        $out = self::PRIVATE_DIR."/{$id}.out";
+        $exit = self::PRIVATE_DIR."/{$id}.exit";
         $inner = SshShell::compose($command, $options);
         if (! empty($options['user'])) {
             $inner = 'su -s /bin/bash '.Q::arg((string) $options['user']).' -c '.Q::arg($inner);
         }
-        $wrapped = 'timeout '.$timeout.'s bash -c '.Q::arg($inner).' > '.$out.' 2>&1; echo $? > '.$exit;
+        // the redirections are the root shell's own: the command itself (maybe the site user) never needs the folder
+        $wrapped = self::privateDir().' && { timeout '.$timeout.'s bash -c '.Q::arg($inner).' > '.$out.' 2>&1; echo $? > '.$exit.'; }';
         $started = hrtime(true);
         ($this->post)('/files?action=ExecShell', ['shell' => $wrapped, 'path' => '/tmp'], 'shell.exec', true);
 
