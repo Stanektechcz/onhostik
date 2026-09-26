@@ -9,6 +9,7 @@ use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Integrations\Models\ActionHook;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\CustomerActionParams;
 use Onhost\Domain\Services\Models\Service;
@@ -103,6 +104,13 @@ final class ActionHookService
 
             return ['accepted' => false, 'reason' => 'hook_stale', 'operation_id' => null, 'state' => null, 'hook' => $hook->name];
         }
+        // the creator must be a member NOW (TASK-0035, IF-15): a binding somewhere else (a staff role) is no way back into an
+        // organization the person left; the hook is switched off as the listener would have done it
+        if (! OrganizationMembership::query()->where('organization_id', $hook->organization_id)->where('user_id', $user->id)->current()->exists()) {
+            $this->disable($hook, 'member_removed', CommandContext::system('action hook of a person who is no member'));
+
+            return ['accepted' => false, 'reason' => 'hook_disabled', 'operation_id' => null, 'state' => null, 'hook' => $hook->name];
+        }
         // The hook asks the permission of its own action, as the bus would (TASK-0029 D29.7): an action nobody mapped any more is
         // not run, and one that needs a fresh step-up (a staging.push stored by an older release) cannot be run by a URL. The hook
         // stays enabled and says why, so its owner sees it in the list.
@@ -140,6 +148,58 @@ final class ActionHookService
         $this->audit->record($context, 'integration.hook.trigger', 'succeeded', ['action' => $hook->action, 'operation_id' => $operation->id], 'action_hook', $hook->id);
 
         return ['accepted' => true, 'reason' => null, 'operation_id' => $operation->id, 'state' => $operation->state, 'hook' => $hook->name];
+    }
+
+    /**
+     * Enabled hooks whose creator could no longer make them (TASK-0035, IF-15 / audit G1): not a current member of the
+     * organization, or a role without the permission of the hook's action. A trigger already asked the creator's permission,
+     * but the hook stayed enabled — a URL waiting for the day its creator is let back in, or given the role again. Narrowed to
+     * one person by the listener, over every organization by the one-off operator:integrations:orphan-links command.
+     *
+     * @return list<array{hook:ActionHook, reason:string}>
+     */
+    public function orphans(?string $organizationId = null, ?string $userId = null): array
+    {
+        $hooks = ActionHook::query()->where('enabled', true)
+            ->when($organizationId !== null, fn ($q) => $q->where('organization_id', $organizationId))
+            ->when($userId !== null, fn ($q) => $q->where('created_by', $userId))
+            ->orderBy('created_at')->limit(5000)->get();
+        $out = [];
+        foreach ($hooks as $hook) {
+            $reason = $this->orphanReason($hook);
+            if ($reason !== null) {
+                $out[] = ['hook' => $hook, 'reason' => $reason];
+            }
+        }
+
+        return $out;
+    }
+
+    /** Switched off, never deleted: the owner sees in the list which hook stopped and why, and makes a new one if it is still wanted. */
+    public function disable(ActionHook $hook, string $reason, CommandContext $context): void
+    {
+        if (! $hook->enabled) {
+            return;
+        }
+        $hook->forceFill(['enabled' => false, 'last_result' => mb_substr($reason, 0, 40)])->save();
+        $this->audit->record($context->withScope($hook->organization_id), 'integration.hook.disable', 'succeeded', ['reason' => $reason, 'created_by' => $hook->created_by, 'action' => $hook->action], 'action_hook', $hook->id);
+    }
+
+    private function orphanReason(ActionHook $hook): ?string
+    {
+        $user = $hook->created_by ? User::query()->find($hook->created_by) : null;
+        $member = $user !== null && OrganizationMembership::query()->where('organization_id', $hook->organization_id)->where('user_id', $user->id)->current()->exists();
+        if (! $member) {
+            return 'member_removed';
+        }
+        $this->authorizer->forget($user);
+        try {
+            $permission = ServiceActionCommand::permissionFor((string) $hook->action, CustomerActionParams::filter((string) $hook->action, (array) $hook->params));
+        } catch (DomainError) {
+            return null; // an action nobody maps any more is refused by the trigger and says so there; it is not a question of who made it
+        }
+
+        return $this->authorizer->can($user, $permission, CommandScope::organization($hook->organization_id)) ? null : 'role_changed';
     }
 
     public function url(string $token): string
