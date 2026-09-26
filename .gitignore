@@ -39,3 +39,5 @@ Thumbs.db
 /playwright-report
 /infra/edge/*.generated
 /storage/framework/phpstan/*
+# written by the deployer on the host: "<sha> <ref>" of the running release (infra/aapanel/deploy.sh, TASK-0032)
+/VERSION
