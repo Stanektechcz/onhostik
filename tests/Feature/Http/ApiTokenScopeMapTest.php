@@ -9,6 +9,7 @@ use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
@@ -19,15 +20,22 @@ use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Provisioning\Models\Node;
+use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
+use Onhost\Domain\Services\Commands\IssueConsoleTokenCommand;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
+use Onhost\Domain\Services\FinalArchive;
+use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\DeploySource;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditEvent;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
+use Onhost\Platform\Money\Money;
 
 /*
  * C13-H2c (TASK-0030): the permission → token-scope decision was a chain of prefixes, so every `service.*` permission that
@@ -79,6 +87,22 @@ function tokenScopeRequest(User $user, mixed $token): Request
     $request->setUserResolver(fn () => $user);
 
     return $request;
+}
+
+/** A finished final archive of `$serviceId` (copy of DeletionLifecycleTest::storedArchive — that file may not be loaded with this one). */
+function tokenScopeArchive(string $organizationId, string $serviceId): Backup
+{
+    Storage::fake('local');
+    $set = FinalArchive::PREFIX.'/'.$organizationId.'/'.$serviceId.'-20260901-120000';
+    Storage::disk('local')->put($set.'/service.json', json_encode(['service' => ['id' => $serviceId]]));
+    Storage::disk('local')->put($set.'/site-files.tar.gz', str_repeat('files', 200));
+    Storage::disk('local')->put($set.'/manifest.json', json_encode(['service_id' => $serviceId]));
+
+    return Backup::query()->create([
+        'service_id' => $serviceId, 'organization_id' => $organizationId, 'kind' => 'final', 'state' => 'completed', 'protected' => true,
+        'started_at' => now()->subDay(), 'finished_at' => now()->subDay(), 'verified_at' => now()->subDay(), 'verify_status' => 'ok', 'size_bytes' => 1024,
+        'retention_until' => now()->addDays(60), 'immutable_until' => now()->addDays(60), 'meta' => ['set' => $set, 'family' => 'web', 'parts' => ['service.json', 'site-files.tar.gz'], 'gaps' => []],
+    ]);
 }
 
 function tokenScopePveFakes(): void
@@ -214,6 +238,7 @@ it('gives a token with services:console a console, and its console actions pass 
     tokenScopePveFakes();
     [$owner, $org] = $this->customerWithOrganization();
     $service = tokenScopeVps($org);
+    $web = featureWebService($org, 'aapanel'); // a hosting whose plan offers the terminal: command.run is queued (202), not refused by the service
     $headers = ['X-Organization' => $org->id];
 
     $plain = tokenScopeBearer($owner, $org, ['services:read', 'services:power', 'services:console']);
@@ -221,12 +246,86 @@ it('gives a token with services:console a console, and its console actions pass 
     expect($console->json('kind'))->toBe('novnc')->and($console->json('token'))->toStartWith('con_')->and(json_encode($console->json()))->not->toContain('PVEVNC');
 
     app('auth')->forgetGuards();
-    $run = $this->withToken($plain)->postJson("/v1/services/{$service->id}/actions", ['action' => 'command.run', 'params' => ['command' => 'id']], $headers + ['Idempotency-Key' => 'con-run']);
-    expect((string) $run->json('message'))->not->toContain('API token')->and($run->status())->not->toBe(403, "command.run: {$run->status()} {$run->json('message')}"); // whatever the service answers, the token was not the reason
+    $run = $this->withToken($plain)->postJson("/v1/services/{$web->id}/actions", ['action' => 'command.run', 'params' => ['command' => 'id']], $headers + ['Idempotency-Key' => 'con-run']);
+    expect($run->status())->toBe(202, "command.run: {$run->status()} {$run->json('message')}");
 
     // the console scope alone is enough for a console: the route and the service check both ask for the console (D-8)
+    app('auth')->forgetGuards();
     $only = tokenScopeBearer($owner, $org, ['services:console']);
     $this->withToken($only)->getJson("/v1/services/{$service->id}/console-token", $headers)->assertOk();
+
+    // … and for the console's commands: the route decides POST …/actions by the action's own permission, not by services:power
+    // (round 1: a console-only token was told it lacked services:power on the very actions the scope exists for)
+    Operation::query()->where('service_id', $web->id)->update(['state' => Operation::SUCCEEDED, 'finished_at' => now()]); // one run at a time per service
+    app('auth')->forgetGuards();
+    $alone = $this->withToken($only)->postJson("/v1/services/{$web->id}/actions", ['action' => 'command.run', 'params' => ['command' => 'id']], $headers + ['Idempotency-Key' => 'con-only-run']);
+    expect($alone->status())->toBe(202, "console-only command.run: {$alone->status()} {$alone->json('message')}");
+
+    // a console is not a restart: the same token still cannot operate the service
+    app('auth')->forgetGuards();
+    $this->withToken($only)->postJson("/v1/services/{$service->id}/actions", ['action' => 'power', 'params' => ['power_action' => 'start']], $headers + ['Idempotency-Key' => 'con-only-power'])
+        ->assertForbidden()->assertJsonPath('message', 'The API token lacks the services:power scope.');
+    app('auth')->forgetGuards();
+    $this->withToken($only)->postJson("/v1/services/{$service->id}/power", ['power_action' => 'start'], $headers + ['Idempotency-Key' => 'con-only-power-short'])
+        ->assertForbidden()->assertJsonPath('message', 'The API token lacks the services:power scope.');
+    unset($_ENV['AAPANEL_MANAGED01_API_KEY']);
+});
+
+it('never lets a token pay for and take away the archive of a cancelled service', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = featureWebService($org, 'ispconfig');
+    $backup = tokenScopeArchive($org->id, $service->id);
+    app(WalletService::class)->topup($org, Money::decimal('2000', 'CZK'), 'bank', 'seed', CommandContext::system('test'));
+    $headers = ['X-Organization' => $org->id];
+
+    // round 1: the download was checked as backup.restore (services:power), so "operate services" paid from the wallet and
+    // got a signed link to wp-config.php and .env; backup.download is not available to tokens (D-1, the map)
+    foreach (['operate' => ['services:read', 'services:power'], 'all' => TokenScopes::ALL] as $label => $scopes) {
+        app('auth')->forgetGuards();
+        $plain = tokenScopeBearer($owner, $org, $scopes);
+        $response = $this->withToken($plain)->postJson("/v1/services/archives/{$backup->id}/download", [], $headers + ['Idempotency-Key' => "tok-dl-{$label}"]);
+        expect($response->status())->toBe(403, "{$label}: {$response->status()} {$response->json('message')}")
+            ->and($response->json('message'))->toBe('This action is not available to API tokens; use the portal.')
+            ->and($response->json('data.url'))->toBeNull();
+    }
+    expect(app(WalletService::class)->balances($org, 'CZK')['posted']->minor)->toBe(200000)
+        ->and(data_get(Backup::query()->findOrFail($backup->id)->meta, 'download.paid'))->toBeNull();
+
+    // the portal's own session still pays and gets the link
+    app('auth')->forgetGuards();
+    $this->flushHeaders();
+    $this->actingAs($owner->fresh(), 'sanctum')->postJson("/v1/services/archives/{$backup->id}/download", [], $headers + ['Idempotency-Key' => 'portal-dl'])->assertOk()->assertJsonPath('data.charged', true);
+});
+
+it('decides a console token on the service\'s own project, never on the one the payload names', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = tokenScopeVps($org);
+    $theirs = Project::query()->create(['organization_id' => $org->id, 'name' => 'Cizí', 'slug' => 'cizi-scope', 'tags' => []]);
+    $developer = $this->customer(['email' => 'scope-project@example.cz']);
+    tokenScopeBind($org, $developer, 'developer', null, $theirs->id);
+
+    // a dispatcher that forwarded a caller's project_id would have let a developer of another project into this console
+    $command = new IssueConsoleTokenCommand($org->id, 'console:scope', ['service_id' => $service->id, 'project_id' => $theirs->id]);
+    expect($command->scope()->projectId)->toBe($service->project_id)
+        ->and(app(Authorizer::class)->can($developer, 'service.console', $command->scope()))->toBeFalse();
+});
+
+it('shows a deploy listing\'s values only to a token that may manage the service', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $web = featureWebService($org, 'aapanel');
+    DeploySource::query()->create(['service_id' => $web->id, 'organization_id' => $org->id, 'provider' => 'github', 'repository' => 'firma/shop', 'branch' => 'main', 'clone_url' => 'git@github.com:firma/shop.git', 'env' => ['APP_ENV' => 'production', 'STRIPE_KEY' => 'sk_live_example']]);
+    $headers = ['X-Organization' => $org->id];
+
+    // ServiceController::resources passes `secrets` = ApiContext::can(service.manage): a read-only token of an owner reads the masked view
+    $read = tokenScopeBearer($owner, $org, ['services:read']);
+    $masked = $this->withToken($read)->getJson("/v1/services/{$web->id}/resources/deploy", $headers)->assertOk()->json('data.source');
+    expect($masked['env'])->toBe(['APP_ENV' => null, 'STRIPE_KEY' => null]);
+
+    app('auth')->forgetGuards();
+    $power = tokenScopeBearer($owner, $org, ['services:read', 'services:power']);
+    $full = $this->withToken($power)->getJson("/v1/services/{$web->id}/resources/deploy?fresh=1", $headers)->assertOk()->json('data.source');
+    expect($full['env'])->toBe(['APP_ENV' => 'production', 'STRIPE_KEY' => 'sk_live_example']);
+    unset($_ENV['AAPANEL_MANAGED01_API_KEY']);
 });
 
 it('refuses a HIGH action through a token even when the person has stepped up', function () {
@@ -237,6 +336,13 @@ it('refuses a HIGH action through a token even when the person has stepped up', 
 
     $plain = tokenScopeBearer($owner, $org, ['services:read', 'services:power']);
     $this->withToken($plain)->postJson("/v1/services/{$service->id}/terminate", [], ['X-Organization' => $org->id, 'Idempotency-Key' => 'tok-terminate'])
+        ->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    expect($service->fresh()->terminate_at)->toBeNull();
+
+    // round 1: an Origin of a stateful domain made Sanctum start a session for the bearer request, the session id then
+    // replaced `token:<id>` and the session-less grant matched — a token is a token whatever headers it sends
+    app('auth')->forgetGuards();
+    $this->withToken($plain)->postJson("/v1/services/{$service->id}/terminate", [], ['X-Organization' => $org->id, 'Idempotency-Key' => 'tok-terminate-origin', 'Origin' => 'http://localhost', 'Referer' => 'http://localhost/'])
         ->assertForbidden()->assertJsonPath('error', 'step_up_required');
     expect($service->fresh()->terminate_at)->toBeNull();
 

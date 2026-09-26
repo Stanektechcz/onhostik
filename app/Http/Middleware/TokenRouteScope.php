@@ -7,6 +7,8 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Onhost\Domain\Identity\Authorization\TokenScopes;
+use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
+use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Platform\Errors\DomainError;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -21,7 +23,8 @@ use Symfony\Component\HttpFoundation\Response;
  * Deny by default: a route family that is not listed here is not available to tokens at all. The finer check by
  * permission (`assertTokenScope`, the one map in TokenScopes) still runs afterwards. A service's console token is its own
  * scope already here: a console is not a read and not a restart (C13-H2c), so neither `services:read` (GET) nor
- * `services:power` (POST) reaches it.
+ * `services:power` (POST) reaches it. `POST services/{id}/actions` is decided by the action's own permission (the same
+ * ServiceActionCommand::permissionFor the bus asks), so the console's commands take `services:console` alone.
  */
 final class TokenRouteScope
 {
@@ -56,6 +59,19 @@ final class TokenRouteScope
         $needed = $pair === null ? null : $pair[in_array($request->method(), ['GET', 'HEAD'], true) ? 0 : 1];
         if ($sub === 'console-token') {
             $needed = TokenScopes::SERVICES_CONSOLE; // a console is neither a read nor a restart: GET and POST alike (C13-H2c)
+        }
+        if ($sub === 'actions' && $request->isMethod('POST') && count($segments) === (($segments[0] ?? '') === 'v1' ? 4 : 3)) {
+            // the generic action endpoint is decided by what the action is, through the same map the bus uses: the console's
+            // commands need services:console and nothing else, a restart services:power (TASK-0030 review round 1 — a
+            // console-only token was told it lacked services:power on the very commands its scope exists for). An unknown word
+            // keeps services:power and meets the controller's validator, the answer it always had
+            $action = $request->input('action');
+            if (is_string($action) && in_array($action, ServiceActionWorkflow::ACTIONS, true)) {
+                $needed = TokenScopes::for(ServiceActionCommand::permissionFor($action));
+            }
+            if ($needed === null) {
+                throw DomainError::forbidden('This action is not available to API tokens; use the portal.');
+            }
         }
         if ($needed === null) {
             throw DomainError::forbidden('This endpoint is not available to API tokens; use the portal.');

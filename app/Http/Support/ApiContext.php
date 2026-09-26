@@ -84,13 +84,16 @@ final class ApiContext
 
     public function sessionId(Request $request): ?string
     {
-        if ($request->hasSession() && $request->session()->isStarted()) {
-            return $request->session()->getId();
-        }
+        // the token first: an Origin or Referer of a stateful domain makes Sanctum start a session for a bearer request too, and
+        // that fresh session id would stand in for `token:<id>` — StepUpService then matched a session-less grant and a HIGH
+        // action ran through a token (TASK-0030 review round 1). A token is a token, whatever headers it is sent with.
         $user = $request->user();
         $token = $user instanceof User ? $user->currentAccessToken() : null;
+        if ($token instanceof PersonalAccessToken) {
+            return 'token:'.$token->getKey();
+        }
 
-        return $token instanceof PersonalAccessToken ? 'token:'.$token->getKey() : null;
+        return $request->hasSession() && $request->session()->isStarted() ? $request->session()->getId() : null;
     }
 
     /**
@@ -103,13 +106,18 @@ final class ApiContext
         return $this->holds($request, $permission, $scope) && $this->tokenAllows($request, $permission);
     }
 
-    public function authorize(Request $request, string $permission, ?CommandScope $scope = null): void
+    /**
+     * `$tokenPermission`: what the token is asked for when it is not `$permission` — an action endpoint finds the service as a
+     * read of the person, but the token is asked for what the action will do (a console-only token runs the console's commands
+     * and reads nothing, TASK-0030 review round 1). The bus asks the person for the action's own permission afterwards.
+     */
+    public function authorize(Request $request, string $permission, ?CommandScope $scope = null, ?string $tokenPermission = null): void
     {
         // the person first, the token after: "Missing permission X" stays the answer to somebody who lacks the role
         if (! $this->holds($request, $permission, $scope)) {
             throw DomainError::forbidden("Missing permission {$permission}");
         }
-        $this->assertTokenScope($request, $permission);
+        $this->assertTokenScope($request, $tokenPermission ?? $permission);
     }
 
     /**

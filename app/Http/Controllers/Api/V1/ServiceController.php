@@ -101,7 +101,13 @@ final class ServiceController extends ApiController
 
     public function action(Request $request, string $service, ?string $action = null): JsonResponse
     {
-        $model = $this->resolve($request, $service);
+        // the person finds the service as a reader. A console command asks the token for the console alone, as TokenRouteScope
+        // did — a console-only token runs the console's commands without services:read (TASK-0030 review round 1); every other
+        // action keeps asking the token for services:read here and for its own scope at the dispatch, as before
+        // Only a known action is asked about: an unknown word is the validator's answer below, not the map's (TASK-0029's map refuses one)
+        $requested = $action ?? (is_string($request->input('action')) ? (string) $request->input('action') : '');
+        $console = in_array($requested, ServiceActionWorkflow::ACTIONS, true) && ServiceActionCommand::permissionFor($requested) === 'service.console' ? 'service.console' : null;
+        $model = $this->resolve($request, $service, 'service.read', $console);
         $data = $request->validate(['action' => [$action === null ? 'required' : 'nullable', 'string', 'in:'.implode(',', ServiceActionWorkflow::ACTIONS)], 'params' => ['nullable', 'array'], 'reason' => ['nullable', 'string', 'max:250'], 'confirm' => ['nullable', 'string', 'size:64']]);
         $action ??= $data['action'];
         $params = (array) ($data['params'] ?? []);
@@ -368,13 +374,13 @@ final class ServiceController extends ApiController
         return response()->json(['data' => ['log' => $data['log'] ?? 'access', 'lines' => $features->logs($model, $data['log'] ?? 'access', (int) ($data['lines'] ?? 200))]]);
     }
 
-    private function resolve(Request $request, string $id, string $permission = 'service.read'): Service
+    private function resolve(Request $request, string $id, string $permission = 'service.read', ?string $tokenPermission = null): Service
     {
         $service = Service::query()->find($id);
         if ($service === null) {
             throw DomainError::notFound('service');
         }
-        $this->api->authorize($request, $permission, CommandScope::resource($service->id, $service->organization_id, $service->project_id)); // a project role covers the services of that project
+        $this->api->authorize($request, $permission, CommandScope::resource($service->id, $service->organization_id, $service->project_id), $tokenPermission); // a project role covers the services of that project
 
         return $service;
     }

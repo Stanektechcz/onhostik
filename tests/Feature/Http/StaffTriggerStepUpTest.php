@@ -107,6 +107,8 @@ it('every HIGH or CRITICAL authorize() outside the bus is classified', function 
     // bus uses authorizeAction(). A new HIGH authorize() fails here until somebody decides which of the three it is.
     $classified = [
         'Api/V1/MeController.php::api_token.manage' => 'read: GET /v1/tokens (creating one is ApiTokenCommand)',
+        'Api/V1/OrganizationController.php::organization.members.manage' => 'bus: resolve() in front of OrganizationCommand (invite, cancel, role, remove)',
+        'Api/V1/ServiceController.php::service.delete' => 'bus: resolve() in front of WithdrawalCommand (the withdrawal)',
         'Api/V1/RewardsController.php::staff.customer.manage' => 'read: campaigns, rewards, the forecast POST that stores nothing',
         'Api/V1/ServiceAccessController.php::organization.members.manage' => 'read: index (store/destroy are ServiceAccessCommand)',
         'Api/V1/Staff/ComplianceController.php::abuse.case.manage' => 'read: abuse case lists',
@@ -127,11 +129,16 @@ it('every HIGH or CRITICAL authorize() outside the bus is classified', function 
         if ($file->getExtension() !== 'php') {
             continue;
         }
-        preg_match_all('/->authorize\(\$request, \'([a-z_.]+)\'/', (string) file_get_contents($file->getPathname()), $matches);
+        // `->authorize(` itself and every `->resolve…(` helper that hands its literal to authorize() (round 1: a HIGH permission
+        // behind a helper was never classified); the arguments are matched with their parentheses balanced
+        preg_match_all('/(?:->authorize|->resolve[A-Za-z]*)(\((?:[^()]++|(?1))*\))/', (string) file_get_contents($file->getPathname()), $calls);
         $relative = str_replace('\\', '/', substr($file->getPathname(), strlen($root) + 1));
-        foreach ($matches[1] as $permission) {
-            if (PermissionCatalog::risk($permission) !== PermissionCatalog::NORMAL) {
-                $found[$relative.'::'.$permission] = true;
+        foreach ($calls[1] as $arguments) {
+            preg_match_all("/'([a-z_]+(?:\\.[a-z_]+)+)'/", $arguments, $keys);
+            foreach ($keys[1] as $permission) {
+                if (in_array($permission, PermissionCatalog::keys(), true) && PermissionCatalog::risk($permission) !== PermissionCatalog::NORMAL) {
+                    $found[$relative.'::'.$permission] = true;
+                }
             }
         }
     }
