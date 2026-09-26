@@ -13,7 +13,10 @@
   var SCOPES = { 'services:read': ['čtení služeb', 'read services'], 'services:power': ['start a restart služeb', 'power services'], 'invoices:read': ['čtení faktur', 'read invoices'], 'tickets:write': ['zakládání tiketů', 'write tickets'], 'dns:write': ['zápis DNS', 'write DNS'], 'domains:read': ['čtení domén', 'read domains'], 'wallet:read': ['čtení kreditu', 'read wallet'], 'services:console': ['konzole, terminál a příkazy', 'consoles, terminal and commands'] };
   /* A console is neither a read nor a restart (C13-H2c): no preset carries it, the customer ticks it on purpose. */
   var EXPLICIT_ONLY = ['services:console'];
-  var ROLES = [['owner', 'vlastník', 'owner'], ['org_admin', 'administrátor', 'administrator'], ['billing_admin', 'fakturace', 'billing'], ['domain_manager', 'správce domén', 'domain manager'], ['dns_manager', 'správce DNS', 'DNS manager'], ['developer', 'vývojář', 'developer'], ['cloud_operator', 'správce serverů', 'cloud operator'], ['game_operator', 'správce herních serverů', 'game operator'], ['viewer', 'jen čtení', 'viewer']];
+  /* Every customer preset of RoleCatalog (TASK-0035, IF-17: the list showed nine of fourteen). `partner` is commission only —
+     it never had reseller powers, whatever its old name said. Guest and partner are organization-only: projects are not offered them. */
+  var ROLES = [['owner', 'vlastník', 'owner'], ['org_admin', 'administrátor', 'administrator'], ['billing_admin', 'fakturace', 'billing'], ['domain_manager', 'správce domén', 'domain manager'], ['dns_manager', 'správce DNS', 'DNS manager'], ['developer', 'vývojář', 'developer'], ['cloud_operator', 'správce serverů', 'cloud operator'], ['game_operator', 'správce herních serverů', 'game operator'], ['mail_manager', 'správce pošty', 'mail manager'], ['security_auditor', 'bezpečnostní auditor', 'security auditor'], ['support_contact', 'kontakt pro podporu', 'support contact'], ['viewer', 'jen čtení', 'viewer'], ['guest', 'host (jen sdílené služby)', 'guest (shared services only)'], ['partner', 'partner (jen provize)', 'partner (commission only)']];
+  var ORG_ONLY = ['guest', 'partner'];
 
   function A() { return window.OnhostApi; }
   function me() { return (window.ONHOST && window.ONHOST.user) || null; }
@@ -319,7 +322,7 @@
       crumb: _('Nastavení', 'Settings'), title: _('Nastavení účtu', 'Account settings'),
       stats: [
         H.stat(_('Zákazníkem od', 'Customer since'), u.since ? day(u.since, cs) : '—', '', 3, 40, 10, 'ok'),
-        H.stat(_('Organizace', 'Organization'), o.name || '—', roleLabel(u.member_role || 'owner', cs), 11, 90, 6, 'ok'),
+        H.stat(_('Organizace', 'Organization'), o.name || '—', u.member_role ? roleLabel(u.member_role, cs) : '—', 11, 90, 6, 'ok'),
         H.stat(_('Kredit', 'Credit'), money(kpi.credit), '', 19, 60, 10, 'ok'),
         H.stat(_('Dvoufázové ověření', 'Two-factor'), mfaOn() ? _('zapnuto', 'on') : _('vypnuto', 'off'), '', 27, mfaOn() ? 100 : 30, 8, mfaOn() ? 'ok' : 'warn')
       ],
@@ -393,14 +396,39 @@
     var cs = isCs(cmp), s = cmp.state, u = me() || {};
     if (orgId()) load(cmp, 'org', '/organizations/' + encodeURIComponent(orgId()));
     var org = S.org || null, members = (org && org.members) || [];
-    var canManage = (u.member_role || 'owner') === 'owner' || u.member_role === 'org_admin';
+    /* TASK-0035 (IF-17): the admin controls follow the role the server reports. The old default made a person whose role was
+       not reported an owner here; no reported role is no admin — the server refuses either way, the page must not pretend. */
+    var myRole = u.member_role || null;
+    var canManage = myRole === 'owner' || myRole === 'org_admin';
     var invites = (org && org.invitations) || [];
+    var assignable = ROLES.filter(function (r) { return r[0] !== 'owner'; }); // the owner changes only by a transfer
+    var removeLabel = _('— odebrat z týmu —', '— remove from the team —');
+    var editing = canManage && s.teamEdit ? members.filter(function (m) { return m.user_id === s.teamEdit && m.role !== 'owner' && m.user_id !== u.id; })[0] : null;
+    var editForm = editing ? {
+      title: _('Upravit přístup: ', 'Edit access: ') + (editing.name || editing.email || '') + (editing.email ? ' · ' + editing.email : ''),
+      note: _('nová role platí hned · odebráním skončí i jeho Discord a action hooky', 'a new role applies at once · removal also ends their Discord link and action hooks'),
+      fields: [{ key: 'teamRole', label: _('Role', 'Role'), kind: 'select', options: assignable.map(function (r) { return cs ? r[1] : r[2]; }).concat([removeLabel]) }],
+      cta: _('Uložit přístup', 'Save access'), hint: _('Úpravu zavřete tlačítkem v řádku člena.', 'Close the edit with the button in the member\'s row.'),
+      submit: function () {
+        var pick = s.teamRole, base = '/organizations/' + encodeURIComponent(orgId()) + '/members/' + encodeURIComponent(editing.user_id), req;
+        if (pick === removeLabel) {
+          if (!window.confirm(_('Odebrat ' + (editing.email || editing.name) + ' z týmu? Přístup, Discord a jeho action hooky skončí okamžitě.', 'Remove ' + (editing.email || editing.name) + ' from the team? Access, Discord and their action hooks end at once.'))) return;
+          req = A().del(base);
+        } else {
+          var role = assignable.filter(function (r) { return r[1] === pick || r[2] === pick; })[0];
+          if (!role) { flash(cmp, _('Vyberte roli', 'Pick a role'), ''); return; }
+          if (role[0] === editing.role) { flash(cmp, _('Role se nemění', 'The role stays'), roleLabel(role[0], cs)); return; }
+          req = A().patch(base, { role: role[0] });
+        }
+        req.then(function () { cmp.setState({ teamEdit: null, teamRole: '' }); flash(cmp, _('Přístup upraven', 'Access updated'), editing.email || ''); reload(cmp, 'org'); }).catch(function (e) { fail(cmp, _, e); });
+      }
+    } : null;
     return {
       crumb: _('Nastavení', 'Settings'), title: _('Tým a práva', 'Team and roles'),
-      stats: [H.stat(_('Členů', 'Members'), String(members.length), '', 3, Math.min(100, members.length * 20), 12, 'ok'), H.stat(_('Vlastníků', 'Owners'), String(members.filter(function (m) { return m.role === 'owner'; }).length), '', 11, 40, 8, 'ok'), H.stat(_('Vaše role', 'Your role'), roleLabel(u.member_role || 'owner', cs), '', 19, 100, 6, 'ok'), H.stat(_('Rolí k dispozici', 'Roles available'), String(ROLES.length), '', 27, 60, 6, 'ok')],
-      form: canManage ? {
+      stats: [H.stat(_('Členů', 'Members'), String(members.length), '', 3, Math.min(100, members.length * 20), 12, 'ok'), H.stat(_('Vlastníků', 'Owners'), String(members.filter(function (m) { return m.role === 'owner'; }).length), '', 11, 40, 8, 'ok'), H.stat(_('Vaše role', 'Your role'), myRole ? roleLabel(myRole, cs) : '—', '', 19, 100, 6, myRole ? 'ok' : 'warn'), H.stat(_('Rolí k dispozici', 'Roles available'), String(ROLES.length), '', 27, 60, 6, 'ok')],
+      form: editForm || (canManage ? {
         title: _('Pozvat člena', 'Invite a member'), note: _('pozvánka platí 7 dní · role určuje rozsah, ne důvěru', 'the invitation is valid 7 days · a role grants scope, not trust'),
-        fields: [{ key: 'invEmail', label: 'E-mail', ph: 'kolega@firma.cz', kind: 'text' }, { key: 'invRole', label: _('Role', 'Role'), kind: 'select', options: ROLES.filter(function (r) { return r[0] !== 'owner'; }).map(function (r) { return cs ? r[1] : r[2]; }) }, { key: 'invUntil', label: _('Přístup do (volitelné)', 'Access until (optional)'), ph: 'RRRR-MM-DD', kind: 'text' }],
+        fields: [{ key: 'invEmail', label: 'E-mail', ph: 'kolega@firma.cz', kind: 'text' }, { key: 'invRole', label: _('Role', 'Role'), kind: 'select', options: assignable.map(function (r) { return cs ? r[1] : r[2]; }) }, { key: 'invUntil', label: _('Přístup do (volitelné)', 'Access until (optional)'), ph: 'RRRR-MM-DD', kind: 'text' }],
         cta: _('Poslat pozvánku', 'Send invitation'), hint: _('Pozvaný dostane e-mail s odkazem; do přijetí nemá k účtu přístup.', 'The invitee gets an e-mail link; no access until it is accepted.'),
         submit: function () {
           var email = String(s.invEmail || '').trim(), role = roleKey(s.invRole || (cs ? 'jen čtení' : 'viewer'));
@@ -413,7 +441,7 @@
           }
           A().post('/organizations/' + encodeURIComponent(orgId()) + '/invitations', until ? { email: email, role: role, access_until: until } : { email: email, role: role }, A().key()).then(function () { cmp.setState({ invEmail: '', invUntil: '' }); flash(cmp, _('Pozvánka odeslána', 'Invitation sent'), email + ' · ' + roleLabel(role, cs)); reload(cmp, 'org'); }).catch(function (e) { fail(cmp, _, e); });
         }
-      } : null,
+      } : null),
       tableTitle: _('Členové', 'Members'), tableNote: _('role a stav přístupu', 'role and access state'),
       cols: [_('Člen', 'Member'), _('Role', 'Role'), _('Stav', 'State'), _('Od', 'Since'), ''],
       rows: members.filter(function (m) { return H.match(m.name) || H.match(m.email); }).map(function (m) {
@@ -421,13 +449,11 @@
         return {
           name: (m.name || m.email || '—') + (self ? _(' (vy)', ' (you)') : ''), sub: (m.email || '') + (m.access_until ? _(' · přístup do ', ' · access until ') + day(m.access_until, cs) : ''), c2: roleLabel(m.role, cs),
           state: m.state === 'active' ? _('aktivní', 'active') : (m.state || '—'), stateStyle: H.pill(m.state === 'active' ? 'ok' : 'warn'), barStyle: H.bar(owner ? 100 : 60, 'ok'), metric: day(m.joined_at, cs), rowStyle: H.rowStyle,
-          action: canManage && !self && !owner ? _('Změnit roli', 'Change role') : (canManage && !self && owner ? '' : ''), actionCls: 'btn btn-secondary',
-          onAction: function () {
+          action: canManage && !self && !owner ? (editing && editing.user_id === m.user_id ? _('Zavřít úpravu', 'Close edit') : _('Upravit přístup', 'Edit access')) : '', actionCls: 'btn btn-secondary',
+          onAction: function () { // a role SELECT in the form above, never a typed key (IF-17: window.prompt took any text, "odebrat" removed without asking)
             if (!canManage || self || owner) return;
-            var pick = window.prompt(_('Nová role (', 'New role (') + ROLES.map(function (r) { return r[0]; }).join(', ') + _(') nebo "odebrat":', ') or "remove":'), m.role);
-            if (!pick) return;
-            var req = /^(odebrat|remove)$/i.test(pick.trim()) ? A().del('/organizations/' + encodeURIComponent(orgId()) + '/members/' + encodeURIComponent(m.user_id)) : A().patch('/organizations/' + encodeURIComponent(orgId()) + '/members/' + encodeURIComponent(m.user_id), { role: roleKey(pick.trim()) });
-            req.then(function () { flash(cmp, _('Přístup upraven', 'Access updated'), m.email || ''); reload(cmp, 'org'); }).catch(function (e) { fail(cmp, _, e); });
+            if (editing && editing.user_id === m.user_id) { cmp.setState({ teamEdit: null, teamRole: '' }); return; }
+            cmp.setState({ teamEdit: m.user_id, teamRole: roleLabel(m.role, cs) });
           }
         };
       }).concat(invites.filter(function (i) { return H.match(i.email); }).map(function (i) {
@@ -447,5 +473,5 @@
     };
   }
 
-  window.OnhostPanelAccount = { apiView: apiView, securityView: securityView, accountView: accountView, sessionsView: sessionsView, teamView: teamView, reload: reload, roles: ROLES, scopes: SCOPES };
+  window.OnhostPanelAccount = { apiView: apiView, securityView: securityView, accountView: accountView, sessionsView: sessionsView, teamView: teamView, reload: reload, roles: ROLES.filter(function (r) { return ORG_ONLY.indexOf(r[0]) < 0; }), scopes: SCOPES };
 })();
