@@ -222,3 +222,12 @@ Payload addition (TASK-0023 web-disk-total): once the plan total is enforced for
 
 Payload addition (TASK-0031 review round 1): `partner.payout.paid` also carries `transfer` — what was paid, the self-billing document's total (net + VAT for a VAT-payer partner); `amount` stays the commission (net).
 <!-- TASK-0031 vies: end -->
+
+<!-- TASK-0036 grant-policy: begin -->
+Producer additions (TASK-0036, permission program P0-07, IF-1..IF-3): the two member events are the contract TASK-0035 (Discord links, action hooks) consumes; their payload is unchanged.
+
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `organization.member.role_changed` | organization | `user_id`, `email`, `from`, `to` — published for every `change_role` of a member (up, down or sideways; a consumer compares `from`/`to` itself; an accepted invitation that widens a role does not publish it), and now also by an ownership transfer, once for each person: the previous owner (`owner` → `org_admin`) and the heir (their earlier role → `owner`). A role change of somebody who is not a current member no longer exists (404), so no event names a stranger. An accepted invitation that would lower a current membership keeps it and publishes nothing | OrganizationService::changeRole, ::transferOwnership |
+| `organization.member.removed` | organization | `user_id`, `email` — published only after a real membership was removed (by hand, a guest released, `onhost:access:expire`); a removal aimed at a non-member is refused with 404 by GrantPolicy before anything is written or published | OrganizationService::removeMember |
+<!-- TASK-0036 grant-policy: end -->

@@ -82,6 +82,11 @@ final class OrganizationService
     public function attachMember(Organization $organization, User $user, string $roleKey, CommandContext $context, bool $joinedNow = false, ?CarbonInterface $accessUntil = null): OrganizationMembership
     {
         $this->assertCustomerRole($roleKey);
+        // I4 (permission program, TD-1): the owner binding is written for the owner and for nobody else, and the owner's is never
+        // anything but `owner` — whoever calls. An accepted "viewer" invitation for the owner's address used to overwrite it here.
+        if (($organization->owner_user_id === $user->id) !== ($roleKey === 'owner')) {
+            throw new DomainError('owner_role_locked', 'The organization owner keeps the owner role and nobody else holds it; ownership moves by a transfer.', 403, ['field' => 'role']);
+        }
         if ($accessUntil !== null && ($roleKey === 'owner' || $organization->owner_user_id === $user->id)) {
             throw new DomainError('owner_access_cannot_expire', 'The owner of the organization cannot have access that ends on a date.', 422, ['field' => 'access_until']);
         }
@@ -115,10 +120,13 @@ final class OrganizationService
         }
 
         $current = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->first();
-        $membership = $this->attachMember($organization, $user, $roleKey, $context, joinedNow: false, accessUntil: $setAccess ? $accessUntil : $current?->expires_at);
+        if ($current === null) { // IF-2 (TD-2): a role change made a stranger a member — the way in is an invitation, never an id
+            throw DomainError::notFound('member');
+        }
+        $membership = $this->attachMember($organization, $user, $roleKey, $context, joinedNow: false, accessUntil: $setAccess ? $accessUntil : $current->expires_at);
         // a smaller role may no longer cover what the old one put on the panels (H332): the listener takes back the person's
         // SSH keys and collaborator accounts on the services they can no longer manage
-        if ($current !== null && $current->role_key !== $roleKey) {
+        if ($current->role_key !== $roleKey) {
             $this->outbox->publish(GenericEvent::of('organization.member.role_changed', 'organization', $organization->id, ['user_id' => $user->id, 'email' => mb_strtolower((string) $user->email), 'from' => $current->role_key, 'to' => $roleKey], $organization->id));
         }
 
@@ -130,12 +138,17 @@ final class OrganizationService
         if ($organization->owner_user_id === $user->id) {
             throw new DomainError('owner_cannot_be_removed', 'Transfer ownership before removing the owner.');
         }
-        DB::transaction(function () use ($organization, $user, $context) {
-            OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->delete();
+        $removed = DB::transaction(function () use ($organization, $user, $context) {
+            $removed = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->delete();
             PolicyBinding::query()->where('principal_type', 'user')->where('principal_id', $user->id)
                 ->where('organization_id', $organization->id)->delete();
             $this->audit->record($context->withScope($organization->id), 'organization.member.remove', 'succeeded', ['user_id' => $user->id], 'organization', $organization->id);
+
+            return $removed;
         });
+        if ($removed === 0) { // TASK-0036: nobody left who was never in — the listeners (TASK-0035) act on this event
+            return;
+        }
         // panel accounts are keyed by e-mail and would outlive the membership (H333): the listener removes them through audited operations
         $this->outbox->publish(GenericEvent::of('organization.member.removed', 'organization', $organization->id, ['user_id' => $user->id, 'email' => mb_strtolower((string) $user->email)], $organization->id));
     }
@@ -152,6 +165,14 @@ final class OrganizationService
         $this->assertCustomerRole($roleKey);
         if ($accessUntil !== null && ($roleKey === 'owner' || $accessUntil->isPast())) {
             throw new DomainError('access_until_invalid', 'access_until must be in the future and cannot be set for the owner role.', 422, ['field' => 'access_until']);
+        }
+        // IF-1 (TD-1): somebody who is a member already is not invited again — a second link for a lower role was how the owner
+        // was demoted by their own click. Their role is changed on the team page (GrantPolicy), not by a mail.
+        $address = mb_strtolower(trim($email));
+        $member = OrganizationMembership::query()->where('organization_id', $organization->id)->current()
+            ->whereIn('user_id', User::query()->whereRaw('LOWER(email) = ?', [$address])->select('id'))->exists();
+        if ($member) {
+            throw DomainError::conflict('already_member', 'This person is a member of the organization already; change their role instead.', ['field' => 'email']);
         }
         $token = Str::random(48);
         $invitation = OrganizationInvitation::query()->create([
@@ -209,8 +230,10 @@ final class OrganizationService
             $invitation->forceFill(['accepted_at' => now()])->save();
             // A guest invitation comes with a shared service. Somebody who became a real member in the meantime keeps the role they
             // have: attaching `guest` here replaced it — accepting the older link would have cost a developer their access.
+            // I9 (TD-1): the same holds for every older link — accepting never lowers a current membership, and the owner's least
+            // of all. Only a link that gives strictly more (and no earlier end) changes the role.
             $current = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $user->id)->current()->first();
-            if ($current !== null && $invitation->role_key === 'guest') {
+            if ($current !== null && ! GrantPolicy::widens($current, $invitation->role_key, $invitation->access_expires_at)) {
                 return $current;
             }
 
@@ -222,10 +245,19 @@ final class OrganizationService
     {
         return DB::transaction(function () use ($organization, $newOwner, $context) {
             $previous = User::query()->findOrFail($organization->owner_user_id);
+            if ($previous->id === $newOwner->id) {
+                return $organization;
+            }
+            $heirRole = OrganizationMembership::query()->where('organization_id', $organization->id)->where('user_id', $newOwner->id)->value('role_key');
             $organization->forceFill(['owner_user_id' => $newOwner->id])->save();
             $this->attachMember($organization, $newOwner, 'owner', $context, joinedNow: true);
             $this->attachMember($organization, $previous, 'org_admin', $context);
             $this->audit->record($context->withScope($organization->id), 'organization.ownership.transfer', 'succeeded', ['from' => $previous->id, 'to' => $newOwner->id], 'organization', $organization->id);
+            // TASK-0036: both people changed role — the one who gave the organization away above all (program I6/IF-15: listeners
+            // take back what the smaller role no longer covers). Before, the transfer wrote the roles without a word to anybody.
+            foreach ([[$previous, 'owner', 'org_admin'], [$newOwner, (string) $heirRole, 'owner']] as [$person, $from, $to]) {
+                $this->outbox->publish(GenericEvent::of('organization.member.role_changed', 'organization', $organization->id, ['user_id' => $person->id, 'email' => mb_strtolower((string) $person->email), 'from' => $from, 'to' => $to], $organization->id));
+            }
 
             return $organization->refresh();
         });

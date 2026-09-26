@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace Onhost\Domain\Organizations\Commands;
 
 use Illuminate\Support\Carbon;
-use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\OrganizationStatusService;
 use Onhost\Domain\Notifications\CalendarFeed;
+use Onhost\Domain\Organizations\GrantPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Organizations\OrganizationService;
@@ -22,7 +23,7 @@ use Onhost\Platform\Errors\DomainError;
 
 final class OrganizationsCommandHandler implements CommandHandler
 {
-    public function __construct(private readonly OrganizationService $organizations, private readonly ProjectService $projects, private readonly CalendarFeed $calendar) {}
+    public function __construct(private readonly OrganizationService $organizations, private readonly ProjectService $projects, private readonly CalendarFeed $calendar, private readonly GrantPolicy $grants) {}
 
     public function handle(Command $command, CommandContext $context): mixed
     {
@@ -43,12 +44,14 @@ final class OrganizationsCommandHandler implements CommandHandler
         return match ($command->op()) {
             'update' => ['organization' => $this->organizations->update($organization, array_diff_key($command->payload, array_flip(['op'])), $context)->fresh()],
             'status_page.verify' => app(OrganizationStatusService::class)->verifyDomain($organization, $context), // the customer's own status host (audit §5k-3)
-            'invite' => $this->mayGrant($organization, $context, (string) $command->get('role', 'viewer'), null) ?? $this->organizations->invite($organization, (string) $command->get('email'), (string) $command->get('role', 'viewer'), $context, self::until($command)),
+            // every grant, change and removal of a membership is decided by GrantPolicy first (permission program D1, P0-07)
+            'invite' => $this->invite($organization, $command, $context),
             'cancel_invitation' => ['invitation' => $this->organizations->cancelInvitation($organization, (string) $command->get('invitation_id'), $context), 'cancelled' => true],
-            'change_role' => $this->mayGrant($organization, $context, (string) $command->get('role'), $this->user($command)) ?? ['membership' => $this->organizations->changeRole($organization, $this->user($command), (string) $command->get('role'), $context, array_key_exists('access_until', $command->payload), self::until($command))], // an absent access_until keeps the end the member has
-
+            'change_role' => $this->changeRole($organization, $command, $context),
             'remove_member' => (function () use ($organization, $command, $context) {
-                $this->organizations->removeMember($organization, $this->user($command), $context);
+                $target = $this->user($command);
+                $this->grants->assertMayRemove($organization, $context, $target);
+                $this->organizations->removeMember($organization, $target, $context);
 
                 return ['removed' => true];
             })(),
@@ -56,52 +59,51 @@ final class OrganizationsCommandHandler implements CommandHandler
             'update_project' => ['project' => $this->projects->update($organization, $this->project($organization, $command), array_diff_key($command->payload, array_flip(['op', 'project_id'])), $context)],
             'archive_project' => ['project' => $this->projects->archive($organization, $this->project($organization, $command), $context)],
             'restore_project' => ['project' => $this->projects->restore($organization, $this->project($organization, $command), $context)],
-            'add_project_member' => ['membership' => $this->projects->addMember($organization, $this->project($organization, $command), $this->user($command), (string) $command->get('role', 'viewer'), $context, self::until($command))],
+            'add_project_member' => (function () use ($organization, $command, $context) {
+                [$project, $target, $role] = [$this->project($organization, $command), $this->user($command), (string) $command->get('role', 'viewer')];
+                $this->grants->assertMayGrantProjectRole($organization, $project, $context, $target, $role);
+
+                return ['membership' => $this->projects->addMember($organization, $project, $target, $role, $context, self::until($command))];
+            })(),
             'remove_project_member' => (function () use ($organization, $command, $context) {
-                $this->projects->removeMember($organization, $this->project($organization, $command), $this->user($command), $context);
+                [$project, $target] = [$this->project($organization, $command), $this->user($command)];
+                $this->grants->assertMayRemoveProjectRole($organization, $project, $context, $target);
+                $this->projects->removeMember($organization, $project, $target, $context);
 
                 return ['removed' => true];
             })(),
             'assign_service_project' => ['service' => $this->projects->assignService($organization, $this->service($organization, $command), $command->get('project_id') ? $this->project($organization, $command) : null, $context)],
             'rotate_calendar_feed' => ['feed' => $this->calendar->rotate($organization, $context)],
-            'transfer_ownership' => ['organization' => $this->organizations->transferOwnership($organization, $this->user($command), $context)],
+            'transfer_ownership' => (function () use ($organization, $command, $context) {
+                $heir = $this->user($command);
+                $this->grants->assertMayTransferOwnership($organization, $heir);
+
+                return ['organization' => $this->organizations->transferOwnership($organization, $heir, $context)];
+            })(),
             default => throw new DomainError('organization_op_unknown', "Unknown organization operation {$command->op()}.", 422),
         };
     }
 
-    /** The date an access ends (H343); the controller has validated it as a future date. */
-    /**
-     * Who may hand out what. `organization.members.manage` said only THAT somebody manages members; nothing compared the
-     * role being granted with the role of the one granting it, and nothing stopped a person from editing their own
-     * membership. An org admin could make anybody — themselves included — the owner, and a member on time-limited access
-     * (H343) could send `access_until: null` for themselves and stay for good.
-     *  · the owner role is not handed out here: ownership moves by a transfer;
-     *  · nobody changes their own membership, neither the role nor its end;
-     *  · a role can be granted only by somebody whose own role covers every permission in it. Staff are not bound.
-     * Returns null when the grant is allowed (so it chains with `??`), throws otherwise.
-     */
-    private function mayGrant(Organization $organization, CommandContext $context, string $roleKey, ?User $target): mixed
+    /** @return array{invitation: OrganizationInvitation, token: string} */
+    private function invite(Organization $organization, OrganizationCommand $command, CommandContext $context): array
     {
-        $actor = $context->actorType === 'user' && $context->actorId !== null ? User::query()->find($context->actorId) : null;
-        if ($actor === null || $actor->is_staff) {
-            return null; // the system (an accepted invitation, a seeder) and staff acting for the customer
-        }
-        if ($roleKey === 'owner' && ! ($target !== null && $organization->owner_user_id === $target->id)) {
-            throw new DomainError('owner_role_locked', 'The owner role is not granted here; ownership moves by a transfer.', 403, ['field' => 'role']);
-        }
-        if ($target !== null && $target->id === $actor->id && $organization->owner_user_id !== $actor->id) { // the owner's own membership is locked by the service itself (owner role, no end)
-            throw new DomainError('self_membership_locked', 'Nobody changes their own role or the end of their own access; ask another administrator.', 403);
-        }
-        $own = OrganizationMembership::query()->current()->where('organization_id', $organization->id)->where('user_id', $actor->id)->value('role_key');
-        $roles = RoleCatalog::all();
-        $missing = array_diff((array) ($roles[$roleKey]['permissions'] ?? []), (array) ($roles[(string) $own]['permissions'] ?? []));
-        if ($missing !== []) {
-            throw new DomainError('role_above_own', 'A role can be granted only by somebody whose own role covers it.', 403, ['field' => 'role', 'missing' => array_values(array_slice($missing, 0, 5))]);
-        }
+        $role = (string) $command->get('role', 'viewer');
+        $this->grants->assertMayInvite($organization, $context, $role);
 
-        return null;
+        return $this->organizations->invite($organization, (string) $command->get('email'), $role, $context, self::until($command));
     }
 
+    /** An absent access_until keeps the end the member has; `null` removes it. @return array{membership: OrganizationMembership} */
+    private function changeRole(Organization $organization, OrganizationCommand $command, CommandContext $context): array
+    {
+        $target = $this->user($command);
+        $role = (string) $command->get('role');
+        $this->grants->assertMayChangeRole($organization, $context, $target, $role);
+
+        return ['membership' => $this->organizations->changeRole($organization, $target, $role, $context, array_key_exists('access_until', $command->payload), self::until($command))];
+    }
+
+    /** The date an access ends (H343); the controller has validated it as a future date. */
     private static function until(OrganizationCommand $command): ?Carbon
     {
         $value = $command->get('access_until');

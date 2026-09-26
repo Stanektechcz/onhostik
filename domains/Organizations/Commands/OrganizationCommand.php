@@ -24,8 +24,10 @@ final class OrganizationCommand extends BaseOrganizationCommand
     public function permission(): ?string
     {
         return match ($this->op()) {
-            'invite', 'cancel_invitation', 'change_role', 'remove_member' => 'organization.members.manage',
-            'create_project', 'update_project', 'archive_project', 'restore_project', 'add_project_member', 'remove_project_member', 'assign_service_project' => 'project.manage',
+            // IF-3 (TD-3): a project role is a membership grant like any other — HIGH, with a fresh step-up, not the NORMAL
+            // `project.manage` under which a project role that deletes VMs used to be handed out
+            'invite', 'cancel_invitation', 'change_role', 'remove_member', 'add_project_member', 'remove_project_member' => 'organization.members.manage',
+            'create_project', 'update_project', 'archive_project', 'restore_project', 'assign_service_project' => 'project.manage',
             'transfer_ownership' => 'organization.close',
             default => 'organization.manage',
         };
