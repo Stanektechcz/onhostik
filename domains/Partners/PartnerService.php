@@ -803,7 +803,8 @@ final class PartnerService
         if ($payer && in_array($country, array_map('strtoupper', (array) data_get($rules, 'eu_members', VatNumber::EU_MEMBERS)), true)) {
             return ['rate' => 0.0, 'category' => TaxEngine::CAT_REVERSE_CHARGE, 'note_vat' => 'Daň odvede odběratel (reverse charge, čl. 196 směrnice 2006/112/ES).', 'vat_review' => false, 'vat_review_reason' => null];
         }
-        $refused = in_array($standing['reason'], ['vat_country_mismatch', 'name_mismatch'], true);
+        // closing review: a supplier finance has not confirmed (or that renamed itself since) is refused like a name VIES disowns
+        $refused = in_array($standing['reason'], ['vat_country_mismatch', 'name_mismatch', 'identity_unconfirmed', 'identity_changed'], true);
         $said = in_array($standing['reason'], ['invalid', 'staff_override'], true); // a check of this number, or staff, said "not a payer"
         if ($refused || (! $said && VatStanding::subject($organization)?->isWellFormed() === true)) {
             return ['rate' => 0.0, 'category' => TaxEngine::CAT_EXEMPT, 'note_vat' => 'Registrace dodavatele k DPH neověřena.', 'vat_review' => true, 'vat_review_reason' => $refused ? $standing['reason'] : 'unknown'];

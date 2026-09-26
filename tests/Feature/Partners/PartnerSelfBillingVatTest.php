@@ -11,6 +11,8 @@ use Onhost\Domain\Partners\Models\PartnerCommission;
 use Onhost\Domain\Partners\Models\PartnerPayout;
 use Onhost\Domain\Partners\PartnerPresenters;
 use Onhost\Domain\Partners\PartnerService;
+use Onhost\Domain\Tax\Commands\OverrideVatStatusCommand;
+use Onhost\Domain\Tax\Commands\OverrideVatStatusHandler;
 use Onhost\Domain\Tax\Commands\RecordVatCheckCommand;
 use Onhost\Domain\Tax\Models\TaxRuleVersion;
 use Onhost\Domain\WalletLedger\Models\LedgerAccount;
@@ -48,6 +50,18 @@ function vatPartnerRecordValid(Organization $organization, string $number): void
     app(CommandBus::class)->dispatch(new RecordVatCheckCommand($organization->id, 'vat-partner:'.$organization->id.':'.uniqid('', true), ['number' => $number, 'status' => 'valid', 'consultation_number' => 'WAPIPARTNER', 'trigger' => 'operator', 'source' => 'vies']), CommandContext::system('test'));
 }
 
+/**
+ * A Czech VAT payer as the closing review requires it before VAT is paid out: finance confirmed the supplier (the CRITICAL
+ * override to valid, which keeps the name it was given for), then the operator's VIES check of the number replaced the override.
+ */
+function vatPartnerRecordConfirmedPayer(Organization $organization, string $number): void
+{
+    app(OverrideVatStatusHandler::class)->handle(new OverrideVatStatusCommand('vat-partner-confirm:'.uniqid('', true), [
+        'organization_id' => $organization->id, 'status' => 'valid', 'reason' => 'Dodavatel ověřen podle smlouvy a registru', 'evidence' => 'výpis z registru plátců DPH', 'days' => 30,
+    ]), CommandContext::system('test'));
+    vatPartnerRecordValid($organization, $number);
+}
+
 function vatPartnerPayout(Partner $partner): PartnerPayout
 {
     return app(PartnerService::class)->requestPayout($partner, Money::minor(100000, 'CZK'), 'CZ6508000000192000145399', CommandContext::system('test')->withScope($partner->organization_id));
@@ -55,7 +69,7 @@ function vatPartnerPayout(Partner $partner): PartnerPayout
 
 it('bills VAT at the standard rate of the rule set for a Czech partner whose DIČ VIES confirmed', function () {
     [, $org] = $this->customerWithOrganization([], ['name' => 'Agentura Pixel s.r.o.', 'country' => 'CZ', 'dic' => 'CZ12345678']);
-    vatPartnerRecordValid($org, 'CZ12345678');
+    vatPartnerRecordConfirmedPayer($org, 'CZ12345678');
 
     $snapshot = vatPartnerPayout(vatPartnerWithBalance($org->fresh()))->self_billing;
     expect((float) $snapshot['tax_rate'])->toBe(21.0)->and(data_get($snapshot, 'tax.minor'))->toBe(21000)->and($snapshot['tax_category'])->toBe('S')
@@ -71,7 +85,7 @@ it('bills no VAT for a partner that is not a VAT payer, and says so', function (
 
 it('refuses the payout when the active rule set has no rate for the partner country, and writes nothing', function () {
     [, $org] = $this->customerWithOrganization([], ['name' => 'Agentura Pixel s.r.o.', 'country' => 'CZ', 'dic' => 'CZ12345678']);
-    vatPartnerRecordValid($org, 'CZ12345678');
+    vatPartnerRecordConfirmedPayer($org, 'CZ12345678');
     $partner = vatPartnerWithBalance($org->fresh());
     $rules = TaxRuleVersion::query()->where('version', 1)->firstOrFail()->rules;
     unset($rules['standard_rates']['CZ']);
@@ -83,7 +97,7 @@ it('refuses the payout when the active rule set has no rate for the partner coun
 
 it('ignores the legacy rates key and reads standard_rates only', function () {
     [, $org] = $this->customerWithOrganization([], ['name' => 'Agentura Pixel s.r.o.', 'country' => 'CZ', 'dic' => 'CZ12345678']);
-    vatPartnerRecordValid($org, 'CZ12345678');
+    vatPartnerRecordConfirmedPayer($org, 'CZ12345678');
     $partner = vatPartnerWithBalance($org->fresh());
     $rules = TaxRuleVersion::query()->where('version', 1)->firstOrFail()->rules;
     TaxRuleVersion::query()->create(['version' => 2, 'effective_from' => now()->subDay(), 'state' => 'active', 'note' => 'test legacy key', 'rules' => $rules + ['rates' => ['CZ' => 99]]]);
@@ -123,7 +137,7 @@ function vatPartnerPostings(?string $transactionId): array
  */
 it('pays a VAT-payer partner the total of its self-billing document and books the input VAT', function () {
     [, $org] = $this->customerWithOrganization([], ['name' => 'Agentura Pixel s.r.o.', 'country' => 'CZ', 'dic' => 'CZ12345678']);
-    vatPartnerRecordValid($org, 'CZ12345678');
+    vatPartnerRecordConfirmedPayer($org, 'CZ12345678');
     $partners = app(PartnerService::class);
     $payout = vatPartnerPayout(vatPartnerWithBalance($org->fresh()));
     $partners->approvePayout($payout, CommandContext::system('test'));

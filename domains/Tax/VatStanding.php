@@ -237,6 +237,14 @@ final class VatStanding
      *   another trader (review round 3): ONhost would pay that VAT out in cash and deduct it as input VAT the tax office
      *   denies, where a customer's reverse charge only moves the tax to the buyer — so the name is part of the proof here, and
      *   the reason is `name_mismatch`. A number of another country reads `vat_country_mismatch`.
+     * - VAT paid out in cash — a partner of the supplier's own country, billed at the standard rate — needs finance's
+     *   confirmation of the supplier on top (closing review, security + billing MEDIUM): the partner edits its own name, and a
+     *   name edit neither resets the check nor queues one, so a partner that typed a real company's DIČ and that company's VIES
+     *   name — before or after the check — passed the name rule. The confirmation is the newest staff evidence row for the
+     *   current number (the CRITICAL override to valid, four eyes) and the organization name it was given for; it outlives the
+     *   override's 1–30 days, so the VIES answer carries on from there, and it covers a genuine name difference finance
+     *   accepted. None: `identity_unconfirmed`; the name changed since: `identity_changed`; a changed number has none.
+     *   A partner of another member state is billed under reverse charge — no VAT is paid out — and needs no confirmation.
      *
      * @return array{payer:bool, reason:string}
      */
@@ -252,8 +260,43 @@ final class VatStanding
         if ($verdict['status'] !== self::VALID || $verdict['reason'] === 'legacy_unverified') {
             return ['payer' => false, 'reason' => $verdict['reason']];
         }
+        $identity = self::supplierIdentity($organization);
+        if ($identity === 'confirmed') {
+            return ['payer' => true, 'reason' => $verdict['reason']];
+        }
+        if ($verdict['name_mismatch']) {
+            return ['payer' => false, 'reason' => 'name_mismatch'];
+        }
 
-        return $verdict['name_mismatch'] ? ['payer' => false, 'reason' => 'name_mismatch'] : ['payer' => true, 'reason' => $verdict['reason']];
+        return strtoupper((string) $organization->country) === VatNumber::supplierCountry()
+            ? ['payer' => false, 'reason' => $identity]
+            : ['payer' => true, 'reason' => $verdict['reason']];
+    }
+
+    /**
+     * Whether finance confirmed the supplier the organization is now (closing review): the newest staff evidence row about the
+     * current number said `valid`, and the organization still carries the name that row was set for — the same words once case,
+     * accents, punctuation and the legal form are set aside (a renamed legal form is the same supplier; any other rename is not).
+     *
+     * @return 'confirmed'|'identity_changed'|'identity_unconfirmed'
+     */
+    private static function supplierIdentity(Organization $organization): string
+    {
+        $subject = self::subject($organization);
+        if ($subject === null || $organization->id === null) {
+            return 'identity_unconfirmed';
+        }
+        $row = VatValidation::query()->where('organization_id', $organization->id)->where('vat_id', $subject->value)->where('source', 'staff')
+            ->orderByDesc('checked_at')->orderByDesc('id')->first();
+        if ($row === null || (string) $row->status !== self::VALID) {
+            return 'identity_unconfirmed';
+        }
+        $confirmed = self::nameWords((string) $row->name);
+        $current = self::nameWords((string) $organization->name);
+        sort($confirmed);
+        sort($current);
+
+        return $confirmed !== [] && $confirmed === $current ? 'confirmed' : 'identity_changed';
     }
 
     /**
@@ -342,7 +385,10 @@ final class VatStanding
     public static function payerUnverified(Organization $organization): bool
     {
         $subject = self::subject($organization);
-        if ($subject === null || ! $subject->isWellFormed() || (string) $organization->vat_checked_number === $subject->value) {
+        // an override that ended is not an answer either (closing review): finance's confirmation outlives it, but only a new
+        // check of the number carries the partner on — without one it would stay "not verified" for good
+        $ended = (string) $organization->vat_checked_number === (string) $subject?->value && self::standing($organization)['reason'] === 'override_expired';
+        if ($subject === null || ! $subject->isWellFormed() || ((string) $organization->vat_checked_number === $subject->value && ! $ended)) {
             return false;
         }
 

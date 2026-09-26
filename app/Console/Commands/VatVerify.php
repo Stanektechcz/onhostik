@@ -51,7 +51,7 @@ final class VatVerify extends Command
             $counts = ['valid' => 0, 'invalid' => 0, 'unknown' => 0, 'skipped' => 0];
             $pause = max(0, (int) $this->option('pause-ms'));
             foreach ($candidates as $i => $candidate) {
-                if ($candidate['group'] === 'name_mismatch') {
+                if (in_array($candidate['group'], ['name_mismatch', 'supplier_identity'], true)) {
                     $counts['skipped']++; // a person looks at who holds the number; asking VIES again tells nothing new
 
                     continue;
@@ -109,7 +109,7 @@ final class VatVerify extends Command
             $out[] = ['organization' => $organization, 'group' => $group, 'row' => [
                 $organization->id, mb_substr((string) $organization->name, 0, 40), (string) $organization->country, $subject->value, (string) $organization->vat_status,
                 $standing['status'].' ('.$standing['reason'].')', $group, $organization->vat_checked_at?->toDateString() ?? '—', self::treatment($organization),
-                $apply ? '' : ($group === 'name_mismatch' ? 'nothing (finance: VIES names another trader)' : ($subject->isWellFormed() ? 'check in VIES' : 'record invalid (malformed, no call)')),
+                $apply ? '' : ($group === 'name_mismatch' ? 'nothing (finance: VIES names another trader)' : ($group === 'supplier_identity' ? 'nothing (finance: confirm the supplier with the override)' : ($subject->isWellFormed() ? 'check in VIES' : 'record invalid (malformed, no call)'))),
             ]];
             if (count($out) >= $limit) {
                 break;
@@ -141,7 +141,14 @@ final class VatVerify extends Command
         }
 
         // the name rule as the tax decision reads it (VatStanding::verdict, review round 3), not a second copy of it here
-        return VatStanding::snapshot($organization)['name_mismatch'] ? 'name_mismatch' : null;
+        if (VatStanding::snapshot($organization)['name_mismatch']) {
+            return 'name_mismatch';
+        }
+
+        // a partner VIES confirmed whose VAT is not paid out until finance confirms the supplier (closing review): VIES has
+        // nothing more to say, the list tells the operator whom finance still has to look at
+        return VatHealth::isPartner($organization) && in_array(VatStanding::payerStanding($organization)['reason'], ['identity_unconfirmed', 'identity_changed'], true)
+            ? 'supplier_identity' : null;
     }
 
     /** How the organization is charged today, in the words of the tax decision. */

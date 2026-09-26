@@ -90,7 +90,7 @@ function vatR2Patch($test, $owner, Organization $org, string $vatId): void
 
 // ── an existing Czech partner reaches the check (billing HIGH) ─────────────────────────────────────────────────────────
 
-it('lists an existing Czech partner with an unchecked DIČ in the dry run and makes it a VAT payer on --apply', function () {
+it('lists an existing Czech partner with an unchecked DIČ in the dry run, checks it on --apply, and pays VAT once finance confirmed it', function () {
     $partner = vatR2ExistingCzechPartner();
     $customer = Organization::query()->create(['slug' => 'domestic-r2', 'name' => 'Domestic s.r.o.', 'owner_user_id' => 'usr_dom', 'country' => 'CZ', 'dic' => 'CZ87654321', 'customer_class' => 'b2b']);
     config(['onhost.vies.enabled' => true]);
@@ -103,6 +103,9 @@ it('lists an existing Czech partner with an unchecked DIČ in the dry run and ma
 
     expect(Artisan::call('onhost:vat:verify', ['--apply' => true, '--pause-ms' => 0]))->toBe(0);
     Http::assertSentCount(1);
+    // closing review: VIES alone does not pay VAT out — the partner edits its own name — finance confirms the supplier once
+    expect(VatStanding::payerStanding($partner->fresh()))->toBe(['payer' => false, 'reason' => 'identity_unconfirmed']);
+    vatR2Override($partner->fresh(), 'valid');
     expect(VatStanding::isVatPayer($partner->fresh()))->toBeTrue();
     $snapshot = vatR2Payout($partner->fresh());
     expect($snapshot['tax_category'])->toBe('S')->and((float) $snapshot['tax_rate'])->toBe(21.0);

@@ -110,7 +110,9 @@ Options: `--limit=200`, `--organization=<id>` (repeatable), `--country=DE` (repe
    finance only, valid numbers VIES registers to another name (`name_mismatch`, not asked again). Group `partner`: a partner
    (not closed) whose well-formed number — **a Czech DIČ included** — no check has spoken about; the quote never asks about
    a Czech DIČ, so without `--apply` an existing Czech VAT-payer partner keeps self-billing documents without VAT. An
-   organization under a staff override is never listed and never asked (the override holds until it ends).
+   organization under a staff override is never listed and never asked (the override holds until it ends); a partner whose
+   override ended is listed in `partner` again. Group `supplier_identity`, for finance only (never asked again): a Czech
+   partner VIES confirmed whose VAT is not paid out until finance confirms the supplier with the override.
 2. **Documents for the accountant**: invoices already issued **with VAT** to EU business customers of another member state
    who had given a VAT ID (the same predicate as the `vat_review` flag on new documents). They are listed, never changed.
    In the CSV a cell the customer typed that starts with `=`, `+`, `-` or `@` is written with a leading apostrophe, so a
@@ -156,11 +158,22 @@ its own name, country and number, and the VAT on its document is cash we pay out
 another country or of another trader proves nothing. A genuine name difference is accepted only by a staff override to valid
 (CRITICAL, four eyes). Registration does not lapse in a month: no 30-day window for the payer.
 
+**VAT paid out needs finance once (closing review).** The name rule alone was the partner's to pass: the name is a
+self-service field, and a partner that typed a real company's DIČ and that company's VIES name (before or after the check)
+met every rule. So a Czech partner is billed `S` only after finance confirmed the supplier with the staff override to valid
+(CRITICAL, four eyes, `POST /v1/staff/customers/{organization}/vat-status`). The override's evidence row keeps the number and
+the organization name it was given for, and the confirmation **outlives the override's 1–30 days**: afterwards the VIES answer
+about that number carries on (the operator's `--apply` lists a partner whose override ended in group `partner`), including a
+name difference finance accepted. A later change of the number, or of the name beyond case, accents, punctuation and the legal
+form, needs finance again (`identity_changed`). Nothing is needed for a partner of another member state: reverse charge pays
+no VAT out.
+
 | Partner | Rate | Category | Note on the document |
 | --- | --- | --- | --- |
-| VAT payer in CZ (a CZ DIČ VIES-valid under the partner's name, a staff override to valid, or a legacy `payer`) | `standard_rates.CZ` of the active tax rules (21 %) | `S` | Dodavatel je plátcem DPH. |
+| VAT payer in CZ (a staff override to valid in force; a CZ DIČ VIES-valid for a supplier finance confirmed under its current name; or a legacy `payer`) | `standard_rates.CZ` of the active tax rules (21 %) | `S` | Dodavatel je plátcem DPH. |
 | VAT payer in another EU state (a valid number of its own country) | 0 % | `AE` | Daň odvede odběratel (reverse charge, čl. 196 směrnice 2006/112/ES). |
 | a valid number of another country than the partner's, or one VIES registers to another trader | 0 % | `E` | Registrace dodavatele k DPH neověřena. (snapshot `vat_review: true`, `vat_review_reason`: `vat_country_mismatch` / `name_mismatch`) |
+| a Czech partner VIES confirmed but finance has not (or that renamed itself since) | 0 % | `E` | Registrace dodavatele k DPH neověřena. (snapshot `vat_review: true`, `vat_review_reason`: `identity_unconfirmed` / `identity_changed`) |
 | a well-formed number nothing has proved either way (never checked, a legacy row, an ended override) | 0 % | `E` | Registrace dodavatele k DPH neověřena. (snapshot `vat_review: true`, `vat_review_reason: unknown`) |
 | anybody else (no number, or a check of the number or staff said it is not a payer) | 0 % | `E` | Dodavatel není plátcem DPH. |
 
@@ -180,7 +193,8 @@ requested before this change carry their own snapshot and are paid what it says.
 freshness applies.
 
 Edge case for the accountant: an *identifikovaná osoba* (registered for VAT only for cross-border services) has a DIČ that
-VIES confirms, but it is not a VAT payer for domestic supplies. The code treats any VIES-valid CZ partner as a payer.
+VIES confirms, but it is not a VAT payer for domestic supplies. The code treats a VIES-valid CZ partner that finance confirmed as
+a payer, so finance checks this when it confirms the supplier.
 
 ## Doctor rows (area `tax`, never blocking, no HTTP call)
 
@@ -202,7 +216,7 @@ VIES confirms, but it is not a VAT payer for domestic supplies. The code treats 
    later. `php artisan onhost:doctor`: area `tax`, the first and the last row green.
 3. A test quote for a DE business customer with a verified VAT ID shows reverse charge (`AE`, 0 %).
 4. `php artisan onhost:vat:verify --csv=…` (dry run); the accountant reviews the organizations and the documents.
-5. `php artisan onhost:vat:verify --apply`; then the dry run again: the `name_mismatch` group goes to finance.
+5. `php artisan onhost:vat:verify --apply`; then the dry run again: the `name_mismatch` and `supplier_identity` groups go to finance.
 
 To switch it off again: `ONHOST_VIES_ENABLED=false`. Nothing is asked any more; recorded answers stay and keep counting until
 their 30 days run out, after which those customers pay destination VAT with the review flag.

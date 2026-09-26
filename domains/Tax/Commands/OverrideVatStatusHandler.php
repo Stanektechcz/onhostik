@@ -68,6 +68,9 @@ final class OverrideVatStatusHandler implements CommandHandler
             'source' => 'staff', 'reason' => 'staff', 'note' => mb_substr($reason, 0, 1000), 'evidence' => mb_substr($evidence, 0, 1000),
             'actor' => mb_substr((string) ($context->actorId ?? $context->actorType), 0, 60), 'country_code' => $subject->toIsoCountry(),
             'consultation_number' => null, 'raw' => null, 'checked_at' => now(), 'expires_at' => $until,
+            // the supplier finance confirmed (closing review): VatStanding::supplierIdentity compares the organization's name with it
+            // before VAT is paid out to a partner, so a later rename — a self-service field — needs finance again
+            'name' => mb_substr((string) $organization->name, 0, 250),
         ]);
         $organization->forceFill([
             'vat_status' => $status,
