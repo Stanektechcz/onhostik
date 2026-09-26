@@ -1,0 +1,308 @@
+# Staging launch — "production staging", phase 1 (TASK-0032)
+
+**Status:** PREPARED, not executed. This page is the one ordered procedure for bringing `staging.onhost.cz` onto the
+gated deployer and making it a faithful rehearsal of production **without touching live customers or live panels**.
+The AI prepared it and runs nothing on any host, panel or vendor. A named operator executes every step on the host as
+root; the owner gives the written decisions. Stop at the first failed verification.
+
+What phase 1 proves: the release path (drain → maintenance → backup + verify → switch → build → gate → start → up), the
+gate's refusals, rollback by SHA, a restore drill, the application's own flows without panels (sign-in, registration,
+order and Comgate test payment up to *paid*, mail to a sink). What it does NOT prove: provisioning on panels — that is
+phase 2, per panel, after the owner decides (question 3).
+
+Constants used below (adjust if S0 finds other paths):
+
+```bash
+SITE=staging.onhost.cz
+APP=/www/wwwroot/$SITE
+P=/www/server/php/83/bin/php
+STATE=/var/lib/onhost-deploy/$SITE
+G="git -c safe.directory=$APP -c core.hooksPath=/dev/null -c core.fsmonitor=false -C $APP"   # read-only git as root before S1b
+```
+
+Every `$P artisan …` run as root writes logs as root: end each session on the host with
+`chown -R www:www $APP/storage $APP/bootstrap/cache && chmod -R o-rwx $APP/storage $APP/bootstrap/cache` (the deployer does
+this itself).
+
+## A. Owner decisions (written, before S0 ends; a missing one is NO-GO)
+
+| # | Decision | Recorded default until the owner answers |
+| --- | --- | --- |
+| O1 | Host: own host sharing no PostgreSQL, Redis, `/etc/onhost`, backup bucket or customer sites with production or the web nodes | the existing `staging.onhost.cz`, **contained** (S0 gate); nothing changes on it before the S0 read-only discovery |
+| O2 | Live resources the existing staging created on ISPConfig, aaPanel, Pterodactyl (`docs/context/CURRENT_STATE.md`: every change was tried there against the real panels) | **contained indefinitely**: freeze, drained units, instances disabled, database kept. Retirement only through the platform's purge path (`onhost:services:purge`), one panel at a time with a written go-ahead — never by dropping the database, never by hand on a panel (historical resources the platform did not create are untouchable) |
+| O3 | Data | keep the existing staging database, contained. An empty database only on a new host, or after O2 retirement. No copy of production or dev data |
+| O4 | Credentials | none, except the Comgate **test** merchant; no WEDOS or Fio production credentials; mail to the log or a sink; own Discord app or none; no pager key; no Hetzner ordering credentials. Backup disk: local, with the root-only checksum copy in `$STATE/runs/*/backup.out` (or a staging-only S3 bucket) |
+| O5 | Front door | basic auth on the whole vhost; loopback, `/up` and `/v1/webhooks/payments/<provider>` open; `X-Robots-Tag: noindex` |
+| O6 | Four eyes | `ONHOST_FOUR_EYES=false`, recorded as a deliberate solo-owner choice in the release record |
+| O7 | Maintenance window (503) | staging only. For production: sized from production's nightly `platform.backup` + `platform.backup.verify` durations (automation ledger) plus the build time measured in S7; before production has run a night, from the S7 measurement scaled by database size. No deploys 02:00–03:00 |
+| O8 | Who creates and pushes tags | the owner only |
+| O9 | Production signing key | the owner's SSH public key in `/var/lib/onhost-deploy/onhost.cz/allowed_signers`; until it exists every production deploy is refused |
+| O10 | GATED doctor rows (`APP_URL uses https`, `queue driver`, `secrets driver`, `CA bundle for outbound TLS`, `metering gap ratchet`, `platform backup disk off the server`) | all of them stop a deploy; a row moves to report-only only by a change of `deploy-gate.php` |
+
+### Owner questions (defaults taken meanwhile)
+
+1. **Staging host:** does `staging.onhost.cz` run on its own host that shares no PostgreSQL, Redis, `/etc/onhost`, backup
+   bucket or customer sites with production or the web nodes? *Default: treat it as the existing staging, contained, and
+   do nothing on the host until the S0 read-only discovery has been done.*
+2. **Live resources** the existing staging created on ISPConfig, aaPanel and Pterodactyl: retire through the platform's
+   purge path with a separate go-ahead per panel, or keep contained indefinitely? *Default: contained. No panel calls, no
+   database drop, no rebuild.*
+3. **Phase 2 test panels:** per panel, a dedicated test panel/node, or writes limited to one new `onh_` test client?
+   *Default: none. Provisioning stays frozen and no panel instance is active.*
+4. **Staging credentials:** a WEDOS sub-login or none, no Fio token, the Comgate test merchant, Subreg demoreg or none,
+   a separate Discord app? *Default: none, except the Comgate test merchant; mail goes to the log or a sink.*
+5. **Staging backup disk:** a dedicated S3 bucket, or local? *Default: local, with a root-only copy of the checksums in
+   `/var/lib/onhost-deploy`.*
+6. **Maintenance window:** a 503 window of about the production nightly backup + verify duration plus the build time,
+   with no deploys between 02:00 and 03:00? *Default: staging only; production is decided after S7 has measured it.*
+7. **Production release signing:** which SSH public key goes into `allowed_signers`, and do you accept that production
+   deploys are refused until it is there? *Default: production deploys are refused.*
+8. **GATED rows:** keep all six as deploy-stopping rows, or move one to report-only? *Default: all of them gate.*
+9. **Restore-drill freshness** before production go-live: is 7 days the right rule? *Default: one drill is required
+   before go-live; the freshness rule stays a proposal.*
+10. **Four eyes on staging:** two deciders, or `ONHOST_FOUR_EYES=false` recorded as a deliberate solo-owner choice?
+    *Default: `ONHOST_FOUR_EYES=false` recorded in the release record.*
+11. **Git access** of the host to `Stanektechcz/onhostik` (private repository?): who provides a read-only deploy key?
+    *Default: the operator installs a read-only deploy key; no credential goes through the AI.*
+12. **Comgate:** does it retry payment callbacks that got a 503 during the window? *Default: ASSUMED no; deploy outside
+    business hours and reconcile payments by hand after each deploy.*
+
+## B. Preconditions (in the repository)
+
+- PR #24 and TASK-0032 are merged into `development`; CI is green on the SHA to deploy (`STAGING_SHA`): `tests`
+  (`pest`, `pest-postgres`, **`deploy-scripts`**) and `e2e`. Check with `gh run list --branch development --limit 3`.
+- `/ai-release-check 2426c17..<STAGING_SHA>` wrote `.ai/releases/<date>-<sha7>.md` with verdict READY-for-staging. It
+  records the sha256 of `infra/aapanel/{install.sh,deploy.sh,deploy-gate.php,install-deployer.sh}` at `STAGING_SHA`,
+  the SHA the deployer is installed from (= `STAGING_SHA`), the migrations (`git diff --stat 2426c17..STAGING_SHA --
+  database/migrations`) and the new env keys.
+- The owner decisions of section A are recorded in that release record.
+
+## C. Steps
+
+### S0 — Discovery (read-only; answers the unknowns, changes nothing)
+
+```bash
+hostname; ls /www/wwwroot; ss -ltnp
+ls -la /etc/onhost; systemctl list-units 'onhost-*' --all
+git --version                                     # 2.32+ (production host: 2.34+ for SSH-signed tags)
+curl --version | head -1
+ss -ltnp | grep ':443'                            # nginx must answer on 127.0.0.1:443 (the deployer's HTTP gate)
+stat -c '%U %a %n' $APP/.git $APP/.git/config
+git config --file $APP/.git/config --list         # review: no foreign core.hooksPath, core.fsmonitor, url.*.insteadOf, filters
+ls $APP/.git/hooks | grep -v '\.sample$'          # review: nothing expected
+$G rev-parse HEAD; $G status --porcelain --untracked-files=all
+command -v setpriv && setpriv --reuid=www --regid=www --init-groups id   # a fact for the follow-up (www execution)
+grep -E 'opcache.validate_timestamps|opcache.revalidate_freq' /www/server/php/83/etc/php.ini; ls /etc/init.d | grep -i php-fpm
+command -v pg_dump pg_restore psql; ls /www/server/pgsql/bin 2>/dev/null
+$P -r 'echo ini_get("disable_functions"), PHP_EOL;'   # proc_open must not be listed
+su - postgres -c "psql -c '\du'"                  # the app role has CREATEDB, or the postgres superuser is usable (S6)
+cd $APP && $P artisan about --only=environment
+$P artisan onhost:staging:report                  # WITHOUT --check: writes storage/app/onhost-staging-report.json, asks no panel
+$P artisan onhost:doctor --json > /root/staging-doctor-s0.json
+grep -n '"providers"' -A3 /root/staging-doctor-s0.json | grep 'credentials stored'   # instances holding credentials
+$P artisan tinker --execute="dump(DB::table('users')->whereIn('email',['admin@onhost.cz','noc@onhost.cz','finance@onhost.cz','support@onhost.cz','demo@onhost.cz','agentura@onhost.cz'])->count(), DB::table('provider_instances')->get(['key','state']))"
+```
+
+Record: git version, owner/mode of `.git`, the FPM reload command (`/etc/init.d/php-fpm-83 reload` is ASSUMED), opcache
+settings, the pg binary directory (`ONHOST_PG_BIN`), the instances and their state, the dev-account count, and every
+provider row whose detail says *credentials stored*.
+
+**GATE S0.** If any panel instance is active or holds credentials, or live-panel bindings exist, contain first (owner
+go-ahead; staging only; nothing is sent to any panel):
+
+```bash
+cd $APP
+$P artisan onhost:provisioning:freeze "staging containment"
+systemctl stop onhost-scheduler.service 'onhost-queue@*'
+# staff console → Integrations: set every panel instance to state "disabled" (keeps its bindings and credentials unused)
+install -d -m 0700 $STATE && touch $STATE/expect-freeze   # the deployer re-asserts the freeze on every staging release
+# KEEP the database. Report the inventory (staging report + doctor JSON) to the owner for O2.
+```
+
+Verify: `onhost:staging:report` again shows no instance `active`; `systemctl list-units 'onhost-*'` shows the units
+inactive. The freeze is secondary (cache-based, it can be lost with the cache): the primary controls are *no active
+instance* and *no credentials beyond O4*, checked daily in S10.
+
+### S1 — Front door
+
+Paste the **staging block** of `infra/aapanel/nginx-site.conf` into the vhost (basic-auth realm switched off for
+`127.0.0.1`, `::1`, `/up` and `/v1/webhooks/payments/<provider>`; `X-Robots-Tag: noindex`), create the password file,
+`nginx -t && nginx -s reload`.
+
+Verify:
+
+```bash
+curl -sI https://$SITE/ | head -1                                  # from OUTSIDE the host: 401
+curl -s -o /dev/null -w '%{http_code}\n' https://$SITE/up          # from outside: 200 (503 while in maintenance)
+curl -sI https://$SITE/ | grep -i x-robots-tag                     # noindex, nofollow
+curl -s -o /dev/null -w '%{http_code}\n' --resolve $SITE:443:127.0.0.1 https://$SITE/v1/status   # ON the host: 200, not 401
+```
+
+### S1b — One-time git hardening (after the S0 review found nothing foreign)
+
+```bash
+chown -R root:root $APP/.git && chmod -R go-w $APP/.git && chmod 700 $APP/.git
+install -d -m 0700 $STATE
+printf '[safe]\n\tdirectory = %s\n' "$APP" > $STATE/gitconfig && chmod 600 $STATE/gitconfig   # the deployer also creates it
+```
+
+The host's read-only deploy key (question 11) is the operator's; it never passes through the AI.
+
+### S2 — Fresh install (ONLY a new host, or after O2 retirement; an existing staging skips S2 and S4)
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/Stanektechcz/onhostik/<STAGING_SHA>/infra/aapanel/install.sh" -o /root/onhost-install.sh
+sha256sum /root/onhost-install.sh                  # = the value in the release record, else STOP
+REF=<STAGING_SHA> EXPECTED_SHA=<STAGING_SHA> START_UNITS=0 bash /root/onhost-install.sh   # clones, writes /etc/onhost/app.env, stops
+```
+
+### S3 — `app.env` isolation (new host: fill; existing staging: review)
+
+Keys from `.env.example`: `APP_ENV=staging`, `APP_DEBUG=false`, `APP_URL=https://staging.onhost.cz`; `MAIL_MAILER=log` or SMTP
+to a sink; `COMGATE_TEST=true` with the test merchant; `WEDOS_TEST_MODE=true`; the Let's Encrypt staging directory in
+`ONHOST_ACME_DIRECTORY`; empty `ONHOST_BANK_FIO_TOKEN` and `POWERDNS_HIDDEN01_URL`; `ONHOST_FOUR_EYES` per O6;
+`ONHOST_PLATFORM_BACKUP_DISK` per O4; `QUEUE_CONNECTION=redis`; `ONHOST_SECRETS_DRIVER=db`; a distinct `REDIS_PREFIX` if Redis
+is ever shared; Turnstile test keys.
+
+```bash
+grep -E '^(APP_ENV|APP_DEBUG|APP_URL|MAIL_MAILER|COMGATE_TEST|WEDOS_TEST_MODE|ONHOST_ACME_DIRECTORY|ONHOST_FOUR_EYES|ONHOST_PLATFORM_BACKUP_DISK|QUEUE_CONNECTION|ONHOST_SECRETS_DRIVER)=' /etc/onhost/app.env
+grep -cE '^(ONHOST_BANK_FIO_TOKEN|POWERDNS_HIDDEN01_URL)=.+' /etc/onhost/app.env    # 0
+```
+
+### S4 — Second install run (new host only)
+
+```bash
+REF=<STAGING_SHA> EXPECTED_SHA=<STAGING_SHA> START_UNITS=0 bash /root/onhost-install.sh
+cd $APP && $P artisan onhost:provisioning:freeze "staging phase 1 - no panels"
+touch $STATE/expect-freeze
+# staff console → Integrations: wedos-main (created by InfrastructureSeeder) → state "disabled"
+```
+
+Verify: `$STATE/installed` exists; the doctor JSON has no *credentials stored* row beyond the O4 list and no `active`
+instance beyond it; `stat -c '%a %U %n' $APP/storage /etc/onhost /etc/onhost/app.env` = storage `o-rwx` www, `750`/`640`
+root:www. Only then start the units: `systemctl start onhost-scheduler.service 'onhost-queue@default.service'
+'onhost-queue@mails.service'` (the provider queues stay stopped in phase 1).
+
+### S4b — Install the gated deployer (both paths)
+
+```bash
+GIT_CONFIG_GLOBAL=$STATE/gitconfig git -C $APP fetch --tags origin
+GIT_CONFIG_GLOBAL=$STATE/gitconfig git -C $APP show <STAGING_SHA>:infra/aapanel/install-deployer.sh > /root/install-deployer.sh
+sha256sum /root/install-deployer.sh                 # = the release record
+SHA=<STAGING_SHA> FIRST=1 bash /root/install-deployer.sh
+cat /usr/local/lib/onhost-deploy/source-sha         # = STAGING_SHA
+```
+
+### S5 — Staff
+
+```bash
+$P artisan onhost:staff:create <owner-email> --name="<name>" --role=platform_owner   # hidden password prompt
+```
+
+Each person signs in and enrols MFA themselves. **Never run `DevAccountSeeder` here.** A second approver only per O6.
+Verify: the S0 tinker query shows 0 development accounts (an existing staging that has them: disable them in the staff
+console and report — do not delete).
+
+### S7 — First gated deploy
+
+On an existing staging start the units that belong to phase 1 first (S4 list) so the drain is exercised.
+
+```bash
+REF=<STAGING_SHA> EXPECTED_SHA=<STAGING_SHA> DEPLOY_OPERATOR=<name> PHP_FPM_RELOAD='<reload command from S0>' \
+  /usr/local/sbin/onhost-deploy; echo rc=$?
+```
+
+Verify:
+
+- `rc=0`; `cat $APP/VERSION` = `STAGING_SHA STAGING_SHA`; `cat $STATE/last-good.json` has `sha` = STAGING_SHA.
+- `tail -1 $STATE/deploy.log`: operator, `drain_s`, `window_s`, `set=platform-backups/…`, `override=""`.
+- `$STATE/runs/<ts>-<sha12>/verdict.out` ends with `VERDICT pass` and lists no `HARD-FAIL`/`GATED-FAIL`; `report.json` has
+  every HARD and GATED row `OK`.
+- The units listed in `drained-units` before the run are active again; units stopped for containment stay stopped.
+- `$P artisan onhost:doctor` six minutes or more later: the liveness rows (scheduler, worker) OK for the running units.
+- Record `drain_s` and `window_s` next to the backup duration in `backup.out` (O7).
+
+### S8 — Negative rehearsals (staging only; each ends recovered)
+
+| | Do | Expect | Recover |
+| --- | --- | --- | --- |
+| a | `APP_DEBUG=true` in `app.env`, run S7's command | rc 5 (HARD); the site stays 503; units stay stopped; `storage/framework/down` has `"secret":null` | `APP_DEBUG=false`, run the printed command → rc 0 |
+| b | switch the rule `platform.backup` off (staff console → Automations), run | rc 3; `$G rev-parse HEAD` unchanged; `/up` 200; units started again | switch the rule on |
+| c | `QUEUE_CONNECTION=sync`, run | rc 5 (GATED `storage|queue driver`); a plain re-run → rc 5 again (no laundering); re-run with `ALLOW_DOCTOR_FAIL="<first 12 of STAGING_SHA>:staging override rehearsal"` → rc 0, override logged | `QUEUE_CONNECTION=redis`, deploy → rc 0 |
+| d | deploy the next SHA (TASK-0032+1), then `REF=<STAGING_SHA>` | rc 0 both; the rollback over a migration takes a backup | roll forward → rc 0. Only targets that contain the gate |
+| e | change a tracked file (`touch -d yesterday` is not enough: edit it), run | rc 2, no `down` in the output | `$G checkout -- <file>` |
+| f | `$P artisan down` by hand, run | rc 0; the site stays down ("left down") | `$P artisan up` |
+| g | only if safe: `DRAIN_TIMEOUT=5` while a long job runs | rc 3, units back, nothing switched | — |
+
+Verify: `deploy.log` holds a line for every attempt with the expected `rc` and `stage`.
+
+### S9 — Functional smoke without panels (provisioning stays frozen)
+
+`GET /v1/status` 200 (through the basic auth); staff sign-in with MFA; a customer registration through Turnstile; an
+order paid with the Comgate test merchant up to *paid* — its operations stay held by the freeze and nothing reaches a
+panel; mail appears only in the log or sink; optionally `onhost:vat:verify` without `--apply`.
+**Do NOT run `onhost:smoke:order`, `onhost:nodes:discover` or `onhost:integrations:secret … --check`**: they reach live panels.
+
+### S6 — Restore drill (after S9, or on the contained database)
+
+```bash
+SET=$(tail -1 $STATE/deploy.log | sed -E 's/.* set=([^ ]+) .*/\1/')      # the set of the last release
+RUN=$(tail -1 $STATE/deploy.log | sed -E 's/.* run=([^ ]+)$/\1/')
+PGBIN=/www/server/pgsql/bin                                                 # the directory S0 found (ONHOST_PG_BIN)
+sha256sum $APP/storage/app/private/$SET/database.pgdump | cut -c1-16      # = the prefix in $RUN/backup.out (local disk)
+D=$(mktemp -d) && chown postgres $D && install -o postgres -m 0600 $APP/storage/app/private/$SET/database.pgdump $D/db.pgdump
+su - postgres -c "$PGBIN/createdb onhost_restore_drill"
+time su - postgres -c "$PGBIN/pg_restore --no-owner --no-privileges -d onhost_restore_drill $D/db.pgdump"; echo rc=$?   # rc=0
+for t in plans tax_rule_versions orders invoices users services; do
+  printf '%s ' $t; su - postgres -c "$PGBIN/psql -tA -d onhost_staging -c 'select count(*) from $t'"; su - postgres -c "$PGBIN/psql -tA -d onhost_restore_drill -c 'select count(*) from $t'"
+done                                                                        # each pair equal; plans, tax_rule_versions non-empty
+su - postgres -c "$PGBIN/dropdb onhost_restore_drill"; rm -r "$D"
+```
+
+(Table names are from the migrations; the set path assumes the local backup disk — adjust for S3 per `ONHOST_PLATFORM_BACKUP_DISK`.) Record
+the duration. The 7-day freshness rule is a proposal (question 9), not a gate.
+
+### S10 — Daily, for 24 h, then with every release
+
+- the freeze is on (`$P artisan tinker --execute="dump(app(Onhost\Domain\Provisioning\FreezeSwitch::class)->meta())"` prints the
+  reason, `null` = not frozen; the staff console shows a banner);
+- no `active` instance and no *credentials stored* row beyond O4 (`onhost:staging:report`, without `--check`);
+- `find $APP/storage/logs ! -user www` prints nothing;
+- mail only in the sink; no provider calls in the logs (`grep -il 'ispconfig\|aapanel\|pterodactyl\|proxmox' storage/logs/*`).
+
+## D. Go / no-go for "staging phase 1 live" (all must hold)
+
+- O1–O10 recorded; the release record lists the evidence below.
+- S1: 401 from outside, 200 for `/v1/status` over loopback; `.git` root-owned; the deployer installed from `STAGING_SHA`.
+- S7: rc 0 with every HARD and GATED row OK; S8 (a)–(f) gave their expected rc and recovered.
+- The restore drill passed, with the checksum compared first.
+- `drain_s`, `window_s` and the backup duration are recorded next to the production nightly backup duration (or the
+  S7-based estimate while production has not run).
+- The containment state matches the O2 decision: no active panel instance, no credentials beyond O4, freeze on.
+- Anything else is NO-GO. Phase 2 (test panels) has its own go/no-go after the owner's per-panel decision.
+
+## E. Rollback
+
+- A failed release: run the command the deployer printed (last good SHA, the backup is taken, not skipped); verify rc 0
+  and `/up` 200.
+- A staging database rebuild only after O2 retirement.
+- A database restore only with the owner, after a fresh backup, with the units stopped, the checksum compared first
+  (`docs/runbooks/release-and-rollback.md` § Rollback).
+- Never touch a panel as part of a rollback.
+
+## F. Promotion to production (outline; no AI action)
+
+- Only a SHA that passed S7–S10.
+- The owner creates and signs the annotated tag `vYYYY.MM.DD[-N]` with `Release-Record:` and `Verdict: READY`, plus an
+  `Accept-Gate:` line only for a GATED row he accepts (`.ai/releases/README.md`).
+- On the production host: `allowed_signers` with the owner's key (root, 0600), git 2.34+, the deployer installed from
+  the same SHA, then `REF=<tag> EXPECTED_SHA=<sha> DEPLOY_OPERATOR=<name> /usr/local/sbin/onhost-deploy`.
+- A separate production runbook review (go-live checklist) precedes it.
+
+## G. Assumptions to check on the host (NOT verified from the repository)
+
+git ≥ 2.32 (GIT_CONFIG_GLOBAL) and ≥ 2.34 on production (SSH `verify-tag`); nginx answers on `127.0.0.1:443`; the staging
+nginx block behaves as written (S1 proves it); the FPM reload command; `DRAIN_TIMEOUT=300` s is enough (a worker job may run
+900 s; the drain then fails with rc 3 and nothing changes); systemd queues a `start` issued behind a pending `stop`;
+Laravel's real environment overrides `.env` (the deployer compares the doctor's environment with its own reading either
+way); `PGOPTIONS` reaches `pdo_pgsql` through libpq; the pg binary directory; Comgate's retry behaviour after a 503.

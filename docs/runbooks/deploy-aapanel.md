@@ -2,12 +2,16 @@
 
 The control plane runs as a normal Laravel site under aaPanel's nginx + PHP-FPM 8.3, with PostgreSQL and Redis from the
 aaPanel App Store, the queue workers and the scheduler as systemd units, and the websocket console relay as a Node
-service. `infra/aapanel/install.sh` does the first installation, `infra/aapanel/deploy.sh` every later release. The
-scripts default to `SITE=staging.onhost.cz`; production is the same procedure with `SITE=onhost.cz`.
+service. `infra/aapanel/install.sh` does the first installation; every later release goes through the gated deployer
+(`infra/aapanel/deploy.sh`, installed root-owned as `/usr/local/sbin/onhost-deploy` by `infra/aapanel/install-deployer.sh`;
+stages, gate and exit codes: `docs/runbooks/release-and-rollback.md`). The scripts default to `SITE=staging.onhost.cz`;
+production is the same procedure with `SITE=onhost.cz`.
 
-**Staging = the production test bed.** It runs with the production configuration and real integrations, only the
-money and registry switches stay in test mode (`COMGATE_TEST=true`, `WEDOS_TEST_MODE=true`, Let's Encrypt staging
-directory). Everything the checklist in § 5 passes on staging is what production will do.
+**Staging = the production test bed — for the code path, not for live resources.** It runs the production configuration
+with the money and registry switches in test mode (`COMGATE_TEST=true`, `WEDOS_TEST_MODE=true`, Let's Encrypt staging
+directory). What it proves about panels depends on which panel instances it may reach: phase 1 of the staging launch
+(`docs/runbooks/staging-launch.md`) registers none and keeps provisioning frozen, so provisioning on live panels is NOT
+proven there.
 
 ## 1. aaPanel preparation (once, in the aaPanel UI)
 
@@ -25,17 +29,34 @@ directory). Everything the checklist in § 5 passes on staging is what productio
 ## 2. Installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Stanektechcz/onhostik/development/infra/aapanel/install.sh -o /root/onhost-install.sh
-bash /root/onhost-install.sh                 # clones the repository, writes /etc/onhost/app.env from .env.example, stops
+SHA=<40-hex sha of the release record>
+curl -fsSL "https://raw.githubusercontent.com/Stanektechcz/onhostik/$SHA/infra/aapanel/install.sh" -o /root/onhost-install.sh
+sha256sum /root/onhost-install.sh            # must equal the value in the release record (.ai/releases/)
+REF=$SHA EXPECTED_SHA=$SHA START_UNITS=0 bash /root/onhost-install.sh   # clones at $SHA, writes /etc/onhost/app.env, stops
 nano /etc/onhost/app.env                     # fill the values from § 4
-bash /root/onhost-install.sh                 # composer, key, migrations, seed, systemd units, caches, doctor
+REF=$SHA EXPECTED_SHA=$SHA START_UNITS=0 bash /root/onhost-install.sh   # composer, key, migrations, seed, units (enabled, not started), caches
 ```
 
-(`SITE=onhost.cz bash /root/onhost-install.sh` for production; `APP_DIR`, `PHP`, `RUN_USER`, `BRANCH` are overridable
-the same way.)
+(`SITE=onhost.cz …` for production; `APP_DIR`, `PHP`, `RUN_USER` are overridable the same way; `BRANCH` is refused.)
+`install.sh` refuses a site that is already installed — the `installed` marker in `/var/lib/onhost-deploy/<site>/`, or,
+for installs older than the marker, an `APP_KEY` in `app.env` — because its seed step must never run on a live database
+again. `INSTALL_REPAIR=1` repairs only storage/bootstrap ownership and the systemd units. The Composer installer is
+checked against `composer.github.io/installer.sig` (or install Composer yourself at `COMPOSER`). The doctor line at the
+end is informational; install.sh does not gate.
+
+Then install the gated deployer from the same SHA (root-owned, outside the site tree; `.git` must be root's):
+
+```bash
+chown -R root:root /www/wwwroot/staging.onhost.cz/.git && chmod -R go-w /www/wwwroot/staging.onhost.cz/.git
+git -C /www/wwwroot/staging.onhost.cz show $SHA:infra/aapanel/install-deployer.sh > /root/install-deployer.sh
+SHA=$SHA FIRST=1 bash /root/install-deployer.sh
+cat /usr/local/lib/onhost-deploy/source-sha  # = $SHA
+```
 
 Then paste `infra/aapanel/nginx-site.conf` into Website → staging.onhost.cz → Config (root = `…/public`), reload nginx
-and open `https://staging.onhost.cz/up` (200) and `https://staging.onhost.cz/healthz`.
+and open `https://staging.onhost.cz/up` (200) and `https://staging.onhost.cz/healthz`. On staging the site sits behind
+basic auth or an IP allow-list that **lets loopback through** (the realm is `off` for `127.0.0.1` and `::1` — the snippet's
+staging block): the deployer checks `/up` and `/v1/status` on `127.0.0.1` and refuses to start when they answer 401/403.
 
 Console relay:
 
@@ -50,11 +71,18 @@ cp /www/wwwroot/staging.onhost.cz/infra/systemd/onhost-console-relay.service /et
 ## 3. Releases
 
 ```bash
-bash /www/wwwroot/staging.onhost.cz/infra/aapanel/deploy.sh      # backup → pull → composer → migrate → caches → restart workers → doctor
+REF=<sha|tag> EXPECTED_SHA=<40-hex sha> DEPLOY_OPERATOR=<name> PHP_FPM_RELOAD='/etc/init.d/php-fpm-83 reload' \
+  /usr/local/sbin/onhost-deploy; echo rc=$?
+# drain → down → backup + verify → switch + build → gate (doctor by row name, /up + /v1/status) → start → up → record
 ```
 
-Rollback: `git checkout <previous tag>` + the same script with `SKIP_BACKUP=1`; migrations are backward compatible for
-one release (docs/runbooks/release-and-rollback.md).
+Production (`APP_ENV=production`) takes only an annotated tag signed by the owner's SSH key listed in
+`/var/lib/onhost-deploy/onhost.cz/allowed_signers` (root-owned; without it every production deploy is refused), plus
+`EXPECTED_SHA`. A target that carries a newer `deploy.sh`/`deploy-gate.php` than the installed deployer is refused
+until the deployer is installed from it (`install-deployer.sh`, the command is printed).
+
+Rollback: run the command the deployer printed (the last good release from `last-good.json`, through the same gate, the
+backup is taken — not skipped); migrations are backward compatible for one release (docs/runbooks/release-and-rollback.md).
 
 ## 4. Údaje k doplnění (co potřebujeme od vás pro plnohodnotné testování produkce)
 
@@ -137,19 +165,27 @@ php artisan onhost:doctor                       # 0 FAIL; WARN only for what you
 php artisan onhost:integrations:health          # every instance up
 php artisan onhost:game:bootstrap pterodactyl-gamepanel   # nodes, 22 templates, ports, placement
 php artisan onhost:platform:backup && php artisan onhost:platform:backup:verify
-php artisan db:seed --class=DevAccountSeeder --force      # staging only: demo customer, partner and staff accounts
 ```
+
+Never run `DevAccountSeeder` on staging or production: it creates known demo accounts (and, on some versions, service
+records bound to real panel ids). Staff come only from `onhost:staff:create --role=…` (§ 4 C); the staging launch
+procedure is `docs/runbooks/staging-launch.md`.
 
 Smoke test as a customer (docs/runbooks/go-live-checklist.md § 5): register → order web hosting by bank transfer →
 record the payment (Nastavení → Bankovní platby or Fio sync) → service ACTIVE on aaPanel → invoice PDF → card top-up
 against the Comgate test merchant → game server (Minecraft Paper) → console, file upload → domain check and order in
-WEDOS test mode → ticket → cancel → data export. Staff sign in with TOTP (`ONHOST_STAFF_MFA_REQUIRED=true`): the staff
-accounts from `DevAccountSeeder` (`admin@onhost.cz`, `noc@`, `finance@`, `support@`) — change their passwords and enrol
-MFA on first sign-in. What passes here is what production does; production differs only in `SITE=onhost.cz`,
+WEDOS test mode → ticket → cancel → data export. Staff sign in with TOTP (`ONHOST_STAFF_MFA_REQUIRED=true`) with the
+accounts created by `onhost:staff:create`; each person enrols MFA themselves. Steps that provision on a panel need a
+panel instance the owner released for staging (phase 2 of `docs/runbooks/staging-launch.md`); in phase 1 provisioning
+stays frozen. What passes here is what production does; production differs only in `SITE=onhost.cz`,
 `APP_ENV=production`, live Comgate, `WEDOS_TEST_MODE=false`, the production ACME directory, and
 `onhost:production:prepare --purge-dev-accounts --legal --cache` before the first customer.
 
-## 5. Ověření produkčního provozu (na stagingu, pak stejně na onhost.cz)
+## 6. Ověření produkčního provozu (na stagingu, pak stejně na onhost.cz)
+
+> Pozor: `onhost:nodes:discover` a `onhost:smoke:order` níže pracují se **živými** panely a zakládají skutečné služby.
+> Na stagingu jen ve fázi 2 s písemným souhlasem vlastníka pro konkrétní panel (`docs/runbooks/staging-launch.md`, O2/O3);
+> ve fázi 1 se nespouští.
 
 ```bash
 cd /www/wwwroot/staging.onhost.cz
@@ -174,7 +210,7 @@ $P artisan onhost:doctor
 
 Pojistky instance po opakovaných chybách: `onhost:integrations:breaker <instance> [--reset]` (reset až po opravě příčiny).
 
-### 5a. Životní cyklus zrušení (audit §5ab)
+### 6a. Životní cyklus zrušení (audit §5ab)
 
 Po nasazení ověřte, že se zálohy před zrušením daří sestavit na **každém** panelu — dřív, než něco zruší zákazník.
 `--create` nic nemaže, jen projde stejnou cestou jako zrušení:
