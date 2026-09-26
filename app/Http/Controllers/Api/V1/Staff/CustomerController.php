@@ -249,7 +249,7 @@ final class CustomerController extends ApiController
         $org = $this->api->can($request, 'billing.tax_rule.manage', CommandScope::global()) ? Organization::query()->find($organization) : null;
         $payload = [
             'organization_id' => $organization, 'status' => (string) $data['status'], 'reason' => (string) $data['reason'], 'evidence' => (string) $data['evidence'], 'days' => (int) ($data['days'] ?? config('onhost.vies.override_days', 30)),
-            'vat_number' => $org === null ? '' : (string) (VatStanding::subject($org)?->value ?? ''), 'organization_name' => (string) ($org?->name ?? ''),
+            'vat_number' => $org === null ? '' : (string) (VatStanding::subject($org)->value ?? ''), 'organization_name' => (string) ($org->name ?? ''),
         ];
 
         return $this->dispatch(new OverrideVatStatusCommand($this->onceKey($request, 'vat.override:'.$organization.':'.substr(hash('sha256', (string) json_encode($payload)), 0, 24)), $payload), $this->api->context($request, null, $payload['reason']), 202);

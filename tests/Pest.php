@@ -563,5 +563,5 @@ function vatOverrideSubject(Organization $organization): array
 {
     $current = Organization::query()->findOrFail($organization->id);
 
-    return ['vat_number' => (string) (VatStanding::subject($current)?->value ?? ''), 'organization_name' => (string) $current->name];
+    return ['vat_number' => (string) (VatStanding::subject($current)->value ?? ''), 'organization_name' => (string) $current->name];
 }

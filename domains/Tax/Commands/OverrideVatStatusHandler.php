@@ -56,7 +56,7 @@ final class OverrideVatStatusHandler implements CommandHandler
         // another company's DIČ and name meanwhile would have that company confirmed as its supplier identity and VAT paid out
         $boundNumber = $command->get('vat_number');
         $boundName = $command->get('organization_name');
-        if (! is_string($boundNumber) || ! is_string($boundName) || $boundNumber !== ($subject?->value ?? '') || $boundName !== (string) $organization->name) {
+        if (! is_string($boundNumber) || ! is_string($boundName) || $boundNumber !== ($subject->value ?? '') || $boundName !== (string) $organization->name) {
             throw new DomainError('vat_override_subject_changed', 'The VAT number or the name of the organization changed since the override was asked for; ask again for the organization as it is now.', 409, ['field' => 'vat_id']);
         }
         if ($subject === null) {
