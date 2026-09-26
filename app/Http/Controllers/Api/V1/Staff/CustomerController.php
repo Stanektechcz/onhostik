@@ -25,6 +25,9 @@ use Onhost\Domain\Provisioning\Commands\ProvisioningCommand;
 use Onhost\Domain\Risk\RiskWeights;
 use Onhost\Domain\Services\Limits\LimitRaiseService;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Tax\Commands\OverrideVatStatusCommand;
+use Onhost\Domain\Tax\VatNumberChecks;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
@@ -65,6 +68,7 @@ final class CustomerController extends ApiController
             'spendable' => $wallets->spendable($org, $org->currency),
             'can' => ['place_order' => $this->api->can($request, 'staff.order.manage', CommandScope::global()), 'move_money' => $this->api->can($request, 'billing.credit.adjust', CommandScope::global())], // H348: servicing a customer and moving their money are two permissions
             'invoices' => Invoice::query()->where('organization_id', $org->id)->where('state', '!=', Invoice::DRAFT)->orderByDesc('issued_at')->limit(50)->get()->map(fn (Invoice $i) => Presenters::invoice($i))->all(),
+            'vat' => VatStanding::snapshot($org) + ['needs_check' => VatStanding::needsCheck($org)], // TASK-0031: the VIES evidence behind the customer's VAT treatment
         ]]);
     }
 
@@ -190,7 +194,8 @@ final class CustomerController extends ApiController
             throw DomainError::notFound('organization');
         }
         $data = $request->validate(['items' => ['required', 'array', 'min:1', 'max:20'], 'items.*.product_key' => ['required', 'string', 'max:40'], 'items.*.plan_key' => ['nullable', 'string', 'max:40'], 'items.*.config' => ['nullable', 'array'], 'items.*.period' => ['nullable', 'in:month,year'], 'commit_months' => ['nullable', 'integer', 'in:1,12,24']]);
-        $quote = $quotes->quote($data['items'], $org->currency ?? 'CZK', ['country' => $org->country ?? 'CZ', 'customer_class' => $org->customer_class ?? 'b2c', 'vat_status' => $org->vat_status ?? 'unknown', 'ip_country' => null], (int) ($data['commit_months'] ?? 1), null, $org);
+        $org = app(VatNumberChecks::class)->refreshBeforeQuote($org); // TASK-0031 (D31.3b): the same brief VIES check as the customer's cart
+        $quote = $quotes->quote($data['items'], $org->currency ?? 'CZK', VatStanding::taxCustomer($org), (int) ($data['commit_months'] ?? 1), null, $org);
 
         return response()->json(['data' => ['quote_id' => $quote->id, 'lines' => $quote->lines, 'subtotal' => $quote->subtotal_minor, 'discount' => $quote->discount_minor, 'tax' => $quote->tax_minor, 'total' => $quote->total_minor, 'currency' => $quote->currency]]);
     }
@@ -203,6 +208,11 @@ final class CustomerController extends ApiController
             'items.*.period' => ['nullable', 'in:month,year'], 'items.*.config' => ['nullable', 'array'], 'items.*.line_id' => ['nullable', 'string', 'max:20'],
             'payment' => ['required', 'in:wallet,bank,postpaid'], 'commit_months' => ['nullable', 'integer', 'in:1,12,24'], 'note' => ['required', 'string', 'min:3', 'max:250'],
         ]);
+        // TASK-0031 (D31.3b): the VIES check runs here, before the bus — never inside its transaction; only for staff who may place it
+        $org = $this->api->can($request, 'staff.order.manage', CommandScope::global()) ? Organization::query()->find($organization) : null;
+        if ($org !== null) {
+            app(VatNumberChecks::class)->refreshBeforeQuote($org);
+        }
 
         return $this->dispatch(new StaffCustomerCommand($this->onceKey($request, "order.assisted:{$organization}"), ['op' => 'order.assisted', 'organization_id' => $organization] + $data), $this->api->context($request, null, $data['note']), 201);
     }
@@ -221,6 +231,22 @@ final class CustomerController extends ApiController
         $payload['price'] = $raises->listPrice($org, $payload['service_id'], $payload['metric'], $payload['units']);
 
         return $this->dispatch(new StaffCustomerCommand($this->onceKey($request, 'limit_raise.free:'.$org->id.':'.substr(hash('sha256', (string) json_encode($payload)), 0, 24)), $payload), $this->api->context($request, null, $payload['note']), 201);
+    }
+
+    /**
+     * Finance sets the VAT status by hand (TASK-0031, D31.5): VIES is down, or the customer proves the registration otherwise.
+     * Validated here, decided by the bus: `billing.tax_rule.manage`, CRITICAL — a fresh step-up and a second person (unless the
+     * platform runs with one operator); the override ends by itself after `days`.
+     */
+    public function overrideVatStatus(Request $request, string $organization): JsonResponse
+    {
+        $data = $request->validate([
+            'status' => ['required', 'in:valid,invalid'], 'reason' => ['required', 'string', 'min:10', 'max:1000'], 'evidence' => ['required', 'string', 'min:5', 'max:1000'],
+            'days' => ['nullable', 'integer', 'min:1', 'max:'.max(1, (int) config('onhost.vies.override_days', 30))],
+        ]);
+        $payload = ['organization_id' => $organization, 'status' => (string) $data['status'], 'reason' => (string) $data['reason'], 'evidence' => (string) $data['evidence'], 'days' => (int) ($data['days'] ?? config('onhost.vies.override_days', 30))];
+
+        return $this->dispatch(new OverrideVatStatusCommand($this->onceKey($request, 'vat.override:'.$organization.':'.substr(hash('sha256', (string) json_encode($payload)), 0, 24)), $payload), $this->api->context($request, null, $payload['reason']), 202);
     }
 
     /**

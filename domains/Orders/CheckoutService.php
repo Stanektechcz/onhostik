@@ -139,6 +139,7 @@ final class CheckoutService
                 'placed_at' => now(),
                 'meta' => array_filter(['tax_review_required' => (bool) ($quote->versions['tax_review_required'] ?? false), 'renewal_total_minor' => $quote->renewal_total_minor, 'fingerprint' => $fingerprint,
                     'customer_class' => (string) ($organization->customer_class ?: 'b2c'), // TASK-0025: the class the contract was concluded as decides a later withdrawal
+                    'vat_review' => (bool) ($quote->versions['vat_review'] ?? false), 'vat' => $quote->versions['vat'] ?? null, // TASK-0031: the VIES check the tax was decided on, for the document and for finance
 
                     'risk' => ['score' => $risk['score'], 'reasons' => $risk['reasons']], 'review' => $risk['hold'] ? ['state' => 'pending', 'score' => $risk['score'], 'reasons' => $risk['reasons'], 'opened_at' => now()->toIso8601String()] : null,
                     'approval' => $awaitApproval ? CreditOrderApprovals::opened($context) : null, 'renewal_consent' => $standingDefault ? 'organization_default' : null], fn ($v) => $v !== null),

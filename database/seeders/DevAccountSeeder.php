@@ -65,7 +65,8 @@ final class DevAccountSeeder extends Seeder
         // ── partner ────────────────────────────────────────────────────────
         $partnerOwner = $this->user('agentura@onhost.cz', 'Tomáš Pixel', self::PASSWORD, false);
         $partnerOrg = $organizations->create($partnerOwner, ['name' => 'Agentura Pixel s.r.o.', 'type' => 'company', 'country' => 'CZ', 'currency' => 'CZK', 'ico' => '27076551', 'street' => 'Křižíkova 148', 'city' => 'Praha', 'postal_code' => '18600', 'billing_email' => 'agentura@onhost.cz'], $ctx);
-        $partnerOrg->forceFill(['vat_status' => 'payer', 'dic' => 'CZ27076551'])->save();
+        // dev data, no VIES call: a VAT payer in the one vocabulary (TASK-0031), as if VIES had confirmed the DIČ today
+        $partnerOrg->forceFill(['dic' => 'CZ27076551', 'vat_id' => 'CZ27076551', 'vat_status' => 'valid', 'vat_status_source' => 'vies', 'vat_checked_at' => now(), 'vat_checked_number' => 'CZ27076551'])->save();
         $partners = app(PartnerService::class);
         $partner = $partners->approve($partners->apply($partnerOrg, ['model' => 'share', 'company' => 'Agentura Pixel s.r.o.', 'clients' => '11–50'], $ctx), $ctx);
 

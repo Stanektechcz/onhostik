@@ -22,6 +22,8 @@ use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatNumber;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -269,8 +271,9 @@ final class PartnerService
             throw new DomainError('payout_iban_invalid', 'Enter a valid IBAN (Czech IBAN is CZ followed by 22 digits).', 422, ['field' => 'iban']);
         }
         $organization = Organization::query()->findOrFail($partner->organization_id);
+        $vat = $this->selfBillingVat($organization); // decided before anything is written: a refused payout leaves nothing half-made
 
-        return DB::transaction(function () use ($partner, $amount, $iban, $method, $organization, $context) {
+        return DB::transaction(function () use ($partner, $amount, $iban, $method, $organization, $context, $vat) {
             $number = $this->payoutNumber();
             $payout = PartnerPayout::query()->create([
                 'partner_id' => $partner->id, 'number' => $number, 'amount_minor' => $amount->minor, 'currency' => $amount->currency->value, 'method' => $method, 'iban' => $iban ?: null,
@@ -292,7 +295,7 @@ final class PartnerService
                 $remaining -= $commission->amount_minor;
                 $allocated[] = $commission;
             }
-            $payout->forceFill(['self_billing' => $this->selfBilling($number, $partner, $organization, $amount, $allocated)])->save();
+            $payout->forceFill(['self_billing' => $this->selfBilling($number, $partner, $organization, $amount, $allocated, $vat)])->save();
             $partner->forceFill(['iban' => $iban ?: $partner->iban])->save();
             $this->audit->record($context->withScope($partner->organization_id), 'partner.payout.request', 'succeeded', ['number' => $number, 'amount' => $amount, 'method' => $method, 'commissions' => count($allocated)], 'partner_payout', $payout->id);
             $this->outbox->publish(GenericEvent::of('partner.payout.requested', 'partner_payout', $payout->id, ['number' => $number, 'amount' => $amount, 'method' => $method], $partner->organization_id));
@@ -749,12 +752,46 @@ final class PartnerService
         return $n === 0 ? $base : "{$base}-".($n + 1);
     }
 
-    /** Self-billed invoice snapshot: the partner is the supplier, ONhost's legal entity the customer. */
-    private function selfBilling(string $number, Partner $partner, Organization $organization, Money $amount, array $commissions): array
+    /**
+     * The VAT of the self-billing document (TASK-0031, D31.6), from the same recorded check as the tax decision: a partner that
+     * is a VAT payer in the supplier's country (a Czech DIČ is in VIES) is billed the standard rate of the active rule set; one
+     * of another EU state, under reverse charge; anybody else without VAT. It used to ask for a status `payer` (never
+     * written) and a `rates.<CC>` key the rule set does not have, falling back to 21: every document was 0 %. A missing rate is
+     * refused, never guessed.
+     *
+     * @return array{rate:float, category:string, note_vat:string}
+     */
+    private function selfBillingVat(Organization $organization): array
+    {
+        $rules = $this->tax->currentRules()->rules;
+        $supplier = strtoupper((string) data_get($rules, 'supplier.country', 'CZ'));
+        $country = strtoupper((string) $organization->country);
+        $payer = VatStanding::isVatPayer($organization);
+        if ($payer && $country === $supplier) {
+            $rate = data_get($rules, 'standard_rates.'.$country);
+            if (! is_numeric($rate)) {
+                throw new DomainError('tax_rate_missing', 'No standard VAT rate for '.$country.' in the active tax rules; the self-billing document cannot be issued.', 409, ['country' => $country]);
+            }
+
+            return ['rate' => (float) $rate, 'category' => TaxEngine::CAT_STANDARD, 'note_vat' => 'Dodavatel je plátcem DPH.'];
+        }
+        if ($payer && in_array($country, array_map('strtoupper', (array) data_get($rules, 'eu_members', VatNumber::EU_MEMBERS)), true)) {
+            return ['rate' => 0.0, 'category' => TaxEngine::CAT_REVERSE_CHARGE, 'note_vat' => 'Daň odvede odběratel (reverse charge, čl. 196 směrnice 2006/112/ES).'];
+        }
+
+        return ['rate' => 0.0, 'category' => TaxEngine::CAT_EXEMPT, 'note_vat' => 'Dodavatel není plátcem DPH.'];
+    }
+
+    /**
+     * Self-billed invoice snapshot: the partner is the supplier, ONhost's legal entity the customer. Written once; a later change
+     * of the partner's VAT status never rewrites it.
+     *
+     * @param  array{rate:float, category:string, note_vat:string}  $vat
+     */
+    private function selfBilling(string $number, Partner $partner, Organization $organization, Money $amount, array $commissions, array $vat): array
     {
         $entity = $this->invoices->legalEntity();
-        $rules = $this->tax->currentRules()->rules;
-        $rate = $organization->vat_status === 'payer' ? (float) data_get($rules, 'rates.'.strtoupper((string) $organization->country), 21) : 0.0;
+        $rate = $vat['rate'];
         $tax = $amount->percent((string) $rate);
         $byClient = collect($commissions)->groupBy('organization_id')->map(function (Collection $items, string $clientId) use ($partner) {
             $client = Organization::query()->find($clientId);
@@ -765,7 +802,8 @@ final class PartnerService
         return [
             'number' => $number, 'period' => now()->format('Y-m'), 'issued_at' => now()->toIso8601String(), 'self_billing' => true,
             'supplier' => $organization->only(['name', 'ico', 'dic', 'vat_id', 'street', 'city', 'postal_code', 'country']), 'customer' => ['name' => $entity->name ?? 'ONhost', 'ico' => $entity->ico ?? null, 'dic' => $entity->dic ?? null],
-            'lines' => $byClient, 'net' => $amount, 'tax_rate' => $rate, 'tax' => $tax, 'total' => $amount->add($tax), 'currency' => $amount->currency->value,
+            'lines' => $byClient, 'net' => $amount, 'tax_rate' => $rate, 'tax_category' => $vat['category'], 'tax' => $tax, 'total' => $amount->add($tax), 'currency' => $amount->currency->value,
+            'note_vat' => $vat['note_vat'], 'vat_check' => VatStanding::snapshot($organization),
             'note' => 'Doklad vystaven odběratelem v režimu samofakturace (§ 28 odst. 7 zákona o DPH) na základě partnerské smlouvy.',
         ];
     }

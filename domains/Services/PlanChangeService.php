@@ -18,6 +18,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -113,7 +114,7 @@ final class PlanChangeService
         $checkout = app(CheckoutService::class);
         $quote = $quotes->quote(
             [['line_id' => 'l1', 'product_key' => $service->product_key, 'plan_key' => $planKey, 'qty' => 1, 'config' => ['upgrade_of' => $service->id]]],
-            (string) $organization->currency, ['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status], 1, null, $organization,
+            (string) $organization->currency, VatStanding::taxCustomer($organization), 1, null, $organization,
         );
         $versions = $quotes->currentTermsVersions();
         $consents = [];

@@ -53,9 +53,12 @@ final class TaxEngine
     }
 
     /**
-     * @param  array{country:string, customer_class:string, vat_id?:?string, vat_status?:string, ip_country?:?string, product_class?:string, supply_date?:?string}  $customer
+     * `vat_status` is the standing VatStanding decided (unknown | valid | invalid), never the stored column; `vat_reason` says why
+     * (VatStanding::standing) — a reverse charge that rests only on a row from before the VIES check is flagged for review.
+     *
+     * @param  array{country:string, customer_class:string, vat_id?:?string, vat_status?:string, vat_reason?:?string, ip_country?:?string, product_class?:string, supply_date?:?string}  $customer
      * @param  list<array{key:string, net:Money, product_class?:string}>  $lines
-     * @return array{calculation:TaxCalculation, lines:list<array{key:string, net:Money, rate:string, category:string, tax:Money, total:Money, note:?string}>, tax_total:Money, review_required:bool, reasons:list<string>}
+     * @return array{calculation:TaxCalculation, lines:list<array{key:string, net:Money, rate:string, category:string, tax:Money, total:Money, note:?string}>, tax_total:Money, review_required:bool, vat_review:bool, reasons:list<string>}
      */
     public function calculate(array $customer, array $lines, Currency|string $currency, ?string $organizationId = null): array
     {
@@ -71,6 +74,7 @@ final class TaxEngine
         $ossRegistered = (bool) data_get($r, 'oss.registered', false);
         $reasons = [];
         $review = false;
+        $vatReview = false; // TASK-0031 (D31.4): a VAT ID was given and the decision could not rely on it — finance looks at it
 
         if (! data_get($r, 'supplier.vat_payer', true)) {
             $decision = ['rate' => '0', 'category' => self::CAT_EXEMPT, 'note' => 'Supplier is not a VAT payer'];
@@ -81,10 +85,18 @@ final class TaxEngine
             if ($class === 'b2b' && $vatStatus === 'valid') {
                 $decision = ['rate' => '0', 'category' => self::CAT_REVERSE_CHARGE, 'note' => 'Reverse charge — Article 196 of Council Directive 2006/112/EC; VAT to be accounted for by the recipient.'];
                 $reasons[] = 'intra-EU B2B with validated VAT ID';
+                if (($customer['vat_reason'] ?? null) === 'legacy_unverified') {
+                    $vatReview = $review = true; // today's money for a row written before the check, until onhost:vat:verify --apply
+                    $reasons[] = 'VAT ID valid only by a record from before the VIES check — review';
+                }
             } else {
                 if ($class === 'b2b' && $vatStatus !== 'valid') {
                     $reasons[] = 'B2B without validated VAT ID treated as B2C';
                     $review = $review || $vatStatus === 'invalid';
+                }
+                if (trim((string) ($customer['vat_id'] ?? '')) !== '' && $vatStatus !== 'valid') {
+                    $vatReview = $review = true;
+                    $reasons[] = "VAT ID given but not verified in VIES (status {$vatStatus}) — destination VAT, review";
                 }
                 if ($ossRegistered) {
                     $decision = ['rate' => (string) ($rates[$country] ?? $rates[$supplierCountry] ?? 0), 'category' => self::CAT_STANDARD, 'note' => "VAT of the Member State of consumption ({$country}) — OSS"];
@@ -125,11 +137,11 @@ final class TaxEngine
             'rule_version_id' => $rules->id,
             'organization_id' => $organizationId,
             'inputs' => array_merge($customer, ['currency' => $currency->value, 'lines' => array_map(fn ($l) => ['key' => $l['key'], 'net' => $l['net']->minor, 'product_class' => $l['product_class'] ?? 'esd'], $lines)]),
-            'result' => ['decision' => $decision, 'reasons' => $reasons, 'review_required' => $review, 'lines' => array_map(fn ($l) => ['key' => $l['key'], 'rate' => $l['rate'], 'category' => $l['category'], 'tax' => $l['tax']->minor], $outLines)],
+            'result' => ['decision' => $decision, 'reasons' => $reasons, 'review_required' => $review, 'vat_review' => $vatReview, 'lines' => array_map(fn ($l) => ['key' => $l['key'], 'rate' => $l['rate'], 'category' => $l['category'], 'tax' => $l['tax']->minor], $outLines)],
             'total_tax_minor' => $taxTotal->minor,
             'currency' => $currency->value,
         ]);
 
-        return ['calculation' => $calculation, 'lines' => $outLines, 'tax_total' => $taxTotal, 'review_required' => $review, 'reasons' => $reasons];
+        return ['calculation' => $calculation, 'lines' => $outLines, 'tax_total' => $taxTotal, 'review_required' => $review, 'vat_review' => $vatReview, 'reasons' => $reasons];
     }
 }

@@ -22,6 +22,7 @@ use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -399,7 +400,7 @@ final class SlaService
         $incident = Incident::query()->findOrFail($credit->incident_id);
         $service = Service::query()->withTrashed()->find($credit->service_id);
         $amount = Money::minor($credit->amount_minor, $credit->currency);
-        $calc = $this->tax->calculate(['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status], [['key' => 'sla', 'net' => $amount, 'product_class' => 'esd']], $credit->currency, $organization->id);
+        $calc = $this->tax->calculate(VatStanding::taxCustomer($organization), [['key' => 'sla', 'net' => $amount, 'product_class' => 'esd']], $credit->currency, $organization->id);
         $line = $calc['lines'][0];
         $scoped = $context->withScope($organization->id);
 

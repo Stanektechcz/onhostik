@@ -12,6 +12,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\Models\WorkOffer;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -136,7 +137,7 @@ final class WorkOfferService
             $organization = $this->organization($ticket);
             $scoped = $context->withScope($organization->id);
             $net = Money::minor($offer->price_net_minor, $offer->currency);
-            $decision = $this->tax->calculate(['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status], [['key' => 'work', 'net' => $net, 'product_class' => 'service']], $net->currency, $organization->id);
+            $decision = $this->tax->calculate(VatStanding::taxCustomer($organization), [['key' => 'work', 'net' => $net, 'product_class' => 'service']], $net->currency, $organization->id);
             $line = $decision['lines'][0];
             $tax = Money::minor((int) $line['tax']->minor, $net->currency);
             $gross = $net->add($tax);

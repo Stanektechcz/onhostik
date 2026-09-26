@@ -20,6 +20,8 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Partners\PartnerService;
 use Onhost\Domain\Risk\Turnstile;
+use Onhost\Domain\Tax\VatNumberChecks;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -101,9 +103,12 @@ final class CheckoutController extends ApiController
         });
 
         $context = new CommandContext('user', $user->id, $organization->id, null, $ip, $agent, $sessionId, correlationId: CommandContext::currentCorrelationId());
+        // TASK-0031 (D31.3b): outside the transaction — the queued check may already have run after the commit (hence the refresh);
+        // otherwise the number is asked about briefly before the quote, and a failure leaves it unknown (destination VAT, review)
+        $organization = app(VatNumberChecks::class)->refreshBeforeQuote($organization->refresh());
         $quote = $quotes->quote(
             array_values($data['items']), $data['currency'] ?? $organization->currency ?? 'CZK',
-            ['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status, 'ip_country' => null],
+            VatStanding::taxCustomer($organization),
             (int) ($data['commit_months'] ?? 1), $data['promo_code'] ?? null, $organization, $locale,
         );
         $result = (array) $this->bus->dispatch(new PlaceOrderCommand($organization->id, $key, ['quote_id' => $quote->id, 'consents' => $data['consents'], 'payment' => $data['payment'], 'source' => 'web']), $context);

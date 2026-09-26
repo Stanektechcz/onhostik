@@ -17,6 +17,7 @@ use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\GreenService;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -68,7 +69,8 @@ final class InvoiceService
             'period_from' => AccountingClock::date(), 'period_to' => $this->upgradePeriodEnd($item) ?? $this->periodEnd($item->period, (int) ($item->config['periods_billed'] ?? 1) * ($item->product_key === 'domain' ? (int) ($item->config['period_years'] ?? 1) : 1)),
             'service_id' => $item->service_id, 'order_item_id' => $item->id,
         ])->all();
-        $draft = $this->draft($organization, $type, $order->currency, $lines, $context, $order->id, ['payment_method' => $paymentMethod, 'postpaid' => $postpaid, 'order_number' => $order->number]);
+        // the document states the VIES check its lines were decided on at the quote (TASK-0031, D31.4), not a later one
+        $draft = $this->draft($organization, $type, $order->currency, $lines, $context, $order->id, array_filter(['payment_method' => $paymentMethod, 'postpaid' => $postpaid, 'order_number' => $order->number, 'vat' => $order->meta['vat'] ?? null], fn ($v) => $v !== null));
         $invoice = $this->issue($draft, $context, dueDays: $postpaid ? (int) config('onhost.billing.invoice_due_days', 14) : 0);
         if (! $postpaid) {
             $this->markPaid($invoice, $invoice->total(), $paymentMethod, $context, postLedger: false);
@@ -91,7 +93,7 @@ final class InvoiceService
             }
         }
         $decision = $this->tax->calculate(
-            ['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status],
+            VatStanding::taxCustomer($organization),
             [['key' => 'topup', 'net' => Money::zero($gross->currency), 'product_class' => 'esd']],
             $gross->currency,
             $organization->id,
@@ -130,6 +132,13 @@ final class InvoiceService
     public function draft(Organization $organization, string $type, string $currency, array $lines, CommandContext $context, ?string $orderId = null, array $meta = [], ?string $correctsInvoiceId = null): Invoice
     {
         $entity = $this->legalEntity();
+        $buyer = $this->buyerSnapshot($organization);
+        if (is_array($meta['vat'] ?? null)) {
+            $buyer['vat_check'] = $meta['vat']; // the check the order was quoted on
+        }
+        // finance looks at a document for a business of another EU state that gave a VAT ID and was not reverse-charged
+        // (or only by a row from before the check) — the predicate onhost:vat:verify uses for past documents (TASK-0031)
+        $meta['vat_review'] = VatStanding::invoiceNeedsReview($buyer, $lines);
         $subtotal = 0;
         $discount = 0;
         $tax = 0;
@@ -153,7 +162,7 @@ final class InvoiceService
             'discount_minor' => $discount,
             'tax_minor' => $tax,
             'total_minor' => $total,
-            'buyer' => $this->buyerSnapshot($organization),
+            'buyer' => $buyer,
             'seller' => $this->sellerSnapshot($entity),
             'tax_summary' => $this->taxSummary($lines),
             'payment_method' => $meta['payment_method'] ?? null,
@@ -537,7 +546,10 @@ final class InvoiceService
     private function buyerSnapshot(Organization $organization): array
     {
         return [
-            'name' => $organization->name, 'ico' => $organization->ico, 'dic' => $organization->dic, 'vat_id' => $organization->vat_id, 'vat_status' => $organization->vat_status,
+            // vat_id falls back to the DIČ (the number the document and the UBL buyer tax scheme print); vat_status is the standing
+            // the tax decision used, and vat_check the evidence behind it (TASK-0031)
+            'name' => $organization->name, 'ico' => $organization->ico, 'dic' => $organization->dic, 'vat_id' => $organization->vat_id ?: $organization->dic,
+            'vat_status' => VatStanding::effectiveStatus($organization), 'vat_check' => VatStanding::snapshot($organization),
             'street' => $organization->street, 'city' => $organization->city, 'postal_code' => $organization->postal_code, 'country' => $organization->country,
             'email' => $organization->billing_email, 'customer_class' => $organization->customer_class, 'organization_id' => $organization->id,
         ];

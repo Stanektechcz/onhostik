@@ -31,6 +31,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\OperationService;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\Models\WalletHold;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -275,7 +276,7 @@ final class DomainService
     {
         $price = $this->catalog->domainPrice($domain->tld, $organization->currency);
         $net = $price->renew()->multiply($years);
-        $calc = $this->tax->calculate(['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status], [['key' => 'renew', 'net' => $net, 'product_class' => 'domain']], $organization->currency, $organization->id);
+        $calc = $this->tax->calculate(VatStanding::taxCustomer($organization), [['key' => 'renew', 'net' => $net, 'product_class' => 'domain']], $organization->currency, $organization->id);
         $line = $calc['lines'][0];
 
         return ['net' => $net, 'tax' => $line['tax'], 'gross' => $line['total'], 'rate' => (string) $line['rate'], 'category' => (string) $line['category'], 'calculation_id' => $calc['calculation']->id];

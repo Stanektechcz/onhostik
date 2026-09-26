@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\Models\AutoTopupSetting;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Events\GenericEvent;
@@ -137,7 +138,7 @@ final class WalletForecast
     public function gross(Organization $organization, Subscription $subscription): Money
     {
         $net = Money::minor((int) $subscription->amount_minor, $subscription->currency);
-        $calc = $this->tax->calculate(['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status], [['key' => 'renewal', 'net' => $net, 'product_class' => 'esd']], $subscription->currency, $organization->id);
+        $calc = $this->tax->calculate(VatStanding::taxCustomer($organization), [['key' => 'renewal', 'net' => $net, 'product_class' => 'esd']], $subscription->currency, $organization->id);
 
         return $calc['lines'][0]['total'];
     }

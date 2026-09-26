@@ -147,8 +147,6 @@ final class VatVerify extends Command
      */
     private function documents(): array
     {
-        $supplier = VatNumber::supplierCountry();
-        $eu = VatNumber::euMembers();
         $query = Invoice::query()->whereIn('type', ['invoice', 'statement', 'receipt'])->where('state', '!=', 'DRAFT')->whereNotNull('issued_at')->where('tax_minor', '>', 0);
         $since = $this->since();
         if ($since !== null) {
@@ -158,14 +156,12 @@ final class VatVerify extends Command
         foreach ($query->lazyById(500) as $invoice) {
             $buyer = $invoice->getAttribute('buyer'); // the buyer as the document froze it (array cast; null on very old rows)
             $buyer = is_array($buyer) ? $buyer : [];
+            $lines = InvoiceLine::query()->where('invoice_id', $invoice->id)->get(['tax_category', 'tax_minor'])->map(fn (InvoiceLine $l) => ['tax_category' => (string) $l->tax_category, 'tax' => (int) $l->tax_minor]);
+            if (! VatStanding::invoiceNeedsReview($buyer, $lines)) { // the same predicate that flags a new document (InvoiceService::draft)
+                continue;
+            }
             $vatId = trim((string) ($buyer['vat_id'] ?? '')) !== '' ? trim((string) $buyer['vat_id']) : trim((string) ($buyer['dic'] ?? ''));
             $country = strtoupper((string) ($buyer['country'] ?? ''));
-            if ($vatId === '' || ($buyer['customer_class'] ?? '') !== 'b2b' || $country === $supplier || ! in_array($country, $eu, true)) {
-                continue;
-            }
-            if (! InvoiceLine::query()->where('invoice_id', $invoice->id)->where('tax_category', 'S')->where('tax_minor', '>', 0)->exists()) {
-                continue;
-            }
             $rows[] = [(string) $invoice->number, CarbonImmutable::parse($invoice->issued_at)->toDateString(), (string) ($buyer['name'] ?? $invoice->organization_id), $country, $vatId,
                 Money::minor((int) $invoice->tax_minor, (string) $invoice->currency)->format('cs')];
         }

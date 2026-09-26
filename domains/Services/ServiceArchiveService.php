@@ -13,6 +13,7 @@ use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -152,7 +153,7 @@ final class ServiceArchiveService
     private function chargeFee(Organization $organization, Backup $backup, Money $net, CommandContext $context): void
     {
         $decision = $this->tax->calculate(
-            ['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status],
+            VatStanding::taxCustomer($organization),
             [['key' => 'archive', 'net' => $net, 'product_class' => 'service']], $net->currency, $organization->id,
         );
         $line = $decision['lines'][0];

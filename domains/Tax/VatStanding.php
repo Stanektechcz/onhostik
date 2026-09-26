@@ -42,8 +42,8 @@ final class VatStanding
     }
 
     /**
-     * The effective status and why: staff_override, legacy_unverified, legacy_invalid, no_number, unchecked (never checked
-     * or checked for another number), fresh, stale, vat_country_mismatch, invalid, stored_unknown.
+     * The effective status and why: staff_override, override_expired, legacy_unverified, legacy_invalid, no_number, unchecked
+     * (never checked or checked for another number), fresh, stale, vat_country_mismatch, invalid, stored_unknown.
      *
      * @return array{status:string, reason:string}
      */
@@ -55,6 +55,10 @@ final class VatStanding
         $until = $organization->vat_override_until;
         if ($source === 'staff' && $until !== null && CarbonImmutable::parse($until)->greaterThan($at)) {
             return ['status' => $stored, 'reason' => 'staff_override'];
+        }
+        if ($source === 'staff') {
+            // an override that ended is not a VIES answer: it must not live on as a "fresh check" of the day it was set (TASK-0031 WP B)
+            return ['status' => self::UNKNOWN, 'reason' => 'override_expired'];
         }
         if ($source === null && $stored === self::VALID) {
             return ['status' => self::VALID, 'reason' => 'legacy_unverified']; // today's reverse charge until the operator re-checks it
@@ -86,15 +90,20 @@ final class VatStanding
      * The customer input of TaxEngine::calculate / QuoteService::quote — every caller builds it here, so no caller can pass
      * the stored column (or a vocabulary of its own) as the verdict.
      *
-     * @return array{country:string, customer_class:string, vat_id:?string, vat_status:string, ip_country:?string}
+     * `vat_reason` lets the engine flag a reverse charge that rests only on a row from before the check.
+     *
+     * @return array{country:string, customer_class:string, vat_id:?string, vat_status:string, vat_reason:string, ip_country:?string}
      */
     public static function taxCustomer(Organization $organization, ?string $ipCountry = null): array
     {
+        $standing = self::standing($organization);
+
         return [
             'country' => strtoupper((string) ($organization->country ?? 'CZ')),
             'customer_class' => (string) ($organization->customer_class ?? 'b2c'),
             'vat_id' => self::subject($organization)?->value,
-            'vat_status' => self::effectiveStatus($organization),
+            'vat_status' => $standing['status'],
+            'vat_reason' => $standing['reason'],
             'ip_country' => $ipCountry,
         ];
     }
@@ -154,8 +163,34 @@ final class VatStanding
         }
         $subject = self::subject($organization);
 
-        return $organization->vat_status_source !== null && (string) $organization->vat_status === self::VALID
+        return $organization->vat_status_source !== null && $organization->vat_status_source !== 'staff' && (string) $organization->vat_status === self::VALID
             && $subject !== null && (string) $organization->vat_checked_number === $subject->value;
+    }
+
+    /**
+     * Whether a document should be looked at by finance (D31.4): the buyer — as the document freezes it — is a business of
+     * another EU member state that gave a VAT ID, and a line still carries standard-rated VAT; or its reverse charge rests only
+     * on a row from before the check. The same predicate lists past documents for the accountant (`onhost:vat:verify`).
+     *
+     * @param  array<string,mixed>  $buyer  the buyer snapshot (vat_id, dic, country, customer_class, vat_check)
+     * @param  iterable<array<string,mixed>>  $lines  tax_category and tax (minor units)
+     */
+    public static function invoiceNeedsReview(array $buyer, iterable $lines): bool
+    {
+        $vatId = trim((string) ($buyer['vat_id'] ?? '')) !== '' ? trim((string) $buyer['vat_id']) : trim((string) ($buyer['dic'] ?? ''));
+        $country = strtoupper((string) ($buyer['country'] ?? ''));
+        if ($vatId === '' || ($buyer['customer_class'] ?? '') !== 'b2b' || $country === VatNumber::supplierCountry() || ! in_array($country, VatNumber::euMembers(), true)) {
+            return false;
+        }
+        $legacy = data_get($buyer, 'vat_check.reason') === 'legacy_unverified';
+        foreach ($lines as $line) {
+            $category = (string) ($line['tax_category'] ?? 'S');
+            if (($category === TaxEngine::CAT_STANDARD && (int) ($line['tax'] ?? 0) > 0) || ($legacy && $category === TaxEngine::CAT_REVERSE_CHARGE)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Rows written before the check (source NULL) whose stored value still changes money: `valid` or `payer`. */

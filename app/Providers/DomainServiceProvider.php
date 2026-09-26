@@ -94,6 +94,8 @@ use Onhost\Domain\Services\Metering\AnnounceDiskTotalHandler;
 use Onhost\Domain\Support\Commands\WorkOfferCommandHandler;
 use Onhost\Domain\Support\Commands\WorkOfferDecisionCommand;
 use Onhost\Domain\Support\Commands\WorkOfferStaffCommand;
+use Onhost\Domain\Tax\Commands\OverrideVatStatusCommand;
+use Onhost\Domain\Tax\Commands\OverrideVatStatusHandler;
 use Onhost\Domain\Tax\Commands\RecordVatCheckCommand;
 use Onhost\Domain\Tax\Commands\RecordVatCheckHandler;
 use Onhost\Domain\WalletLedger\Commands\AutoTopupCommand;
@@ -165,6 +167,7 @@ final class DomainServiceProvider extends ServiceProvider
         // ── end TASK-0023 web-disk-total ──
         // ── TASK-0031 ──
         RecordVatCheckCommand::class => RecordVatCheckHandler::class,
+        OverrideVatStatusCommand::class => OverrideVatStatusHandler::class, // WP B: finance sets the VAT status by hand, CRITICAL
         // ── end TASK-0031 ──
     ];
 

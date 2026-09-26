@@ -391,6 +391,9 @@ Route::middleware(['auth:sanctum', 'token.scope', 'throttle:api', 'idempotency']
         Route::post('customers/{organization}/services', [CustomerController::class, 'createService']); // a service without an order (audit §5o)
         // ── TASK-0022 limit-raise: a raise at no charge for one period, four eyes (a priced raise is an assisted order) ──
         Route::post('customers/{organization}/limit-raises/free', [CustomerController::class, 'grantFreeLimitRaise']);
+        // ── TASK-0031 ──
+        Route::post('customers/{organization}/vat-status', [CustomerController::class, 'overrideVatStatus']); // a VAT status set by hand, step-up + four eyes
+        // ── end TASK-0031 ──
         Route::get('services', [CustomerController::class, 'services']);
         Route::get('domains', [CustomerController::class, 'domains']);
         Route::get('integrations', [ProvisioningController::class, 'integrations']);

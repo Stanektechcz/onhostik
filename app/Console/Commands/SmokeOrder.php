@@ -23,6 +23,7 @@ use Onhost\Domain\Services\Models\GameServer;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -169,7 +170,7 @@ final class SmokeOrder extends Command
     private function run1(array $case, Organization $organization, QuoteService $quotes, CheckoutService $checkout, WalletService $wallets, ServiceService $services, CommandContext $context): bool
     {
         $currency = (string) ($organization->currency ?? 'CZK');
-        $quote = $quotes->quote([$case['item']], $currency, ['country' => $organization->country ?? 'CZ', 'customer_class' => $organization->customer_class ?? 'b2c', 'vat_status' => $organization->vat_status ?? 'unknown', 'ip_country' => null], 1, null, $organization);
+        $quote = $quotes->quote([$case['item']], $currency, VatStanding::taxCustomer($organization), 1, null, $organization);
         $total = $quote->total_minor / 100;
         $this->line(sprintf('  1. nabídka %s · %s %s s DPH', $quote->id, number_format($total, 2, ',', ' '), $currency));
         $spendable = $wallets->spendable($organization, $currency);

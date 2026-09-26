@@ -27,6 +27,7 @@ use Onhost\Domain\Services\PlanFit;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\Web\SiteNames;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Currency;
 use Onhost\Platform\Money\Money;
@@ -113,7 +114,7 @@ final class QuoteService
 
     /**
      * @param  list<array<string,mixed>>  $items
-     * @param  array{country?:string,customer_class?:string,vat_status?:string,ip_country?:?string}  $customer
+     * @param  array{country?:string,customer_class?:string,vat_id?:?string,vat_status?:string,vat_reason?:?string,ip_country?:?string}  $customer
      */
     public function quote(array $items, Currency|string $currency, array $customer, int $commitMonths = 1, ?string $promoCode = null, ?Organization $organization = null, string $locale = 'cs', ?LimitRaiseWaiver $waiver = null): Quote
     {
@@ -121,9 +122,11 @@ final class QuoteService
         if ($organization !== null) {
             // who the customer is for tax and for the regional price list is a fact of the organization — its country, whether it
             // is a business, what VIES said about its VAT number — never something a request can say. A cart that claimed
-            // `b2b` + `vat_status: valid` from another EU country was quoted, ordered and invoiced without VAT.
-            $customer = ['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status] + ['ip_country' => $customer['ip_country'] ?? null];
+            // `b2b` + `vat_status: valid` from another EU country was quoted, ordered and invoiced without VAT. What VIES said counts
+            // through VatStanding only (TASK-0031): the number that was checked, at most 30 days ago, or a staff override in force.
+            $customer = VatStanding::taxCustomer($organization, $customer['ip_country'] ?? null);
         } else {
+            $customer['vat_id'] = null;
             $customer['vat_status'] = 'unknown'; // a guest's quote is an estimate; a VAT number is verified on the account, not claimed in a cart
         }
         $items = $this->expandQuantities($items); // one line is one service: a quantity is that many lines
@@ -332,8 +335,10 @@ final class QuoteService
 
         $taxInput = [
             'country' => $country,
-            'customer_class' => $customer['customer_class'] ?? $organization?->customer_class ?? 'b2c',
-            'vat_status' => $customer['vat_status'] ?? $organization?->vat_status ?? 'unknown',
+            'customer_class' => $customer['customer_class'] ?? 'b2c',
+            'vat_id' => $customer['vat_id'] ?? null,
+            'vat_status' => $customer['vat_status'] ?? VatStanding::UNKNOWN,
+            'vat_reason' => $customer['vat_reason'] ?? null,
             'ip_country' => $customer['ip_country'] ?? null,
         ];
         $taxResult = $this->tax->calculate($taxInput, array_map(fn ($l) => ['key' => $l['line_id'], 'net' => $l['net'], 'product_class' => $l['product_class']], $lines), $currency, $organization?->id);
@@ -360,7 +365,7 @@ final class QuoteService
             'renewal_total_minor' => $renewalTotal->minor,
             'tax_calculation_id' => $taxResult['calculation']->id,
             'tax_rule_version_id' => $taxResult['calculation']->rule_version_id,
-            'versions' => array_merge($versions, ['promo' => $promo?->code, 'commit_months' => $commitMonths, 'price_region' => $region['key'], 'price_region_pct' => $region['adjust_pct'], 'loyalty_pct' => $loyaltyPct, 'tax_review_required' => $taxResult['review_required'], 'tax_reasons' => $taxResult['reasons'], 'terms' => $this->currentTermsVersions()]),
+            'versions' => array_merge($versions, ['promo' => $promo?->code, 'commit_months' => $commitMonths, 'price_region' => $region['key'], 'price_region_pct' => $region['adjust_pct'], 'loyalty_pct' => $loyaltyPct, 'tax_review_required' => $taxResult['review_required'], 'tax_reasons' => $taxResult['reasons'], 'vat_review' => $taxResult['vat_review'], 'vat' => $organization !== null ? VatStanding::snapshot($organization) : null, 'terms' => $this->currentTermsVersions()]),
             'valid_until' => now()->addHours(2),
             'state' => 'open',
         ]);

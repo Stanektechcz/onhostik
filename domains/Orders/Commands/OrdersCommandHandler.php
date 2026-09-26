@@ -12,6 +12,7 @@ use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\Limits\LimitRaiseService;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandContext;
@@ -117,7 +118,7 @@ final class OrdersCommandHandler implements CommandHandler
             throw new DomainError('note_required', 'Uveďte, na čí žádost objednávku zadáváte (např. číslo tiketu nebo telefonát).', 422, ['field' => 'note']);
         }
         $currency = (string) ($organization->currency ?? 'CZK');
-        $quote = $this->quotes->quote((array) $command->get('items', []), $currency, ['country' => $organization->country ?? 'CZ', 'customer_class' => $organization->customer_class ?? 'b2c', 'vat_status' => $organization->vat_status ?? 'unknown', 'ip_country' => null], (int) $command->get('commit_months', 1), null, $organization);
+        $quote = $this->quotes->quote((array) $command->get('items', []), $currency, VatStanding::taxCustomer($organization), (int) $command->get('commit_months', 1), null, $organization); // no VIES call inside the bus transaction: the controller asked before (TASK-0031)
         $staff = $context->actorType === 'user' && $context->actorId !== null ? User::query()->find($context->actorId) : null;
         $consents = [];
         foreach ($this->checkout->requiredDocuments($quote, $organization) as $key) { // assisted order: staff confirm the documents on the customer's request, recorded as such

@@ -28,6 +28,7 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceFreshness;
 use Onhost\Domain\Services\SuspensionHold;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Observability\Tracer;
 
@@ -61,7 +62,7 @@ final class Presenters
 
         return [
             'id' => $organization->id, 'slug' => $organization->slug, 'name' => $organization->name, 'type' => $organization->type, 'country' => $organization->country, 'currency' => $organization->currency, 'locale' => $organization->locale,
-            'billing' => ['email' => $organization->billing_email, 'mode' => $organization->billing_mode, 'ico' => $organization->ico, 'dic' => $organization->dic, 'vat_id' => $organization->vat_id, 'vat_status' => $organization->vat_status, 'street' => $organization->street, 'city' => $organization->city, 'postal_code' => $organization->postal_code],
+            'billing' => ['email' => $organization->billing_email, 'mode' => $organization->billing_mode, 'ico' => $organization->ico, 'dic' => $organization->dic, 'vat_id' => $organization->vat_id, 'vat_status' => VatStanding::effectiveStatus($organization), 'vat_checked_at' => $organization->vat_checked_at?->toIso8601String(), 'street' => $organization->street, 'city' => $organization->city, 'postal_code' => $organization->postal_code],
             'customer_class' => $organization->customer_class, 'state' => $organization->state, 'role' => $role,
             'settings' => ['digest' => ['frequency' => (string) data_get($organization->settings, 'digest.frequency', 'weekly')], 'status_page' => (array) data_get($organization->settings, 'status_page', ['enabled' => false]), 'loyalty_discount' => data_get($organization->settings, 'loyalty_discount')], // digest tuning (audit §5f-5), status page and streak discount (§5j)
             'feature_flags' => ['sandbox' => (bool) data_get($organization->feature_flags, 'sandbox', false)], 'referral_code' => $organization->referral_code,

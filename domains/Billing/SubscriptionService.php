@@ -20,6 +20,7 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -429,7 +430,7 @@ final class SubscriptionService
     private function periodLine(Subscription $subscription, Service $service, Organization $organization, Carbon $start, Carbon $end, string $what = 'Prodloužení služby'): array
     {
         $net = Money::minor((int) $subscription->amount_minor, $subscription->currency);
-        $calc = $this->tax->calculate(['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status], [['key' => 'renewal', 'net' => $net, 'product_class' => 'esd']], $subscription->currency, $organization->id);
+        $calc = $this->tax->calculate(VatStanding::taxCustomer($organization), [['key' => 'renewal', 'net' => $net, 'product_class' => 'esd']], $subscription->currency, $organization->id);
         $line = $calc['lines'][0];
         $invoiceLine = [
             'sku' => $service->product_key.'-renewal', 'description' => "{$what} {$service->name}".($service->hostname ? " ({$service->hostname})" : ''), 'qty' => 1, 'unit' => 'ks',
