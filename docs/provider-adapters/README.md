@@ -37,6 +37,7 @@ Shared rules (blueprint §30–§31):
 | `Wedos\WedosRegistrarProvider`, `Wedos\WedosZoneDnsProvider` | registrar, fallback DNS | [wedos.md](wedos.md) |
 | `Kubernetes\KubernetesAppsProvider` | apps / dev hosting on RKE2 | [kubernetes.md](kubernetes.md) |
 | `Ai\OpenAiCompatibleProvider`, `Ai\AnthropicProvider` | support assistant | [ai.md](ai.md) |
+| `Vies\ViesVatNumberValidator` (contract `VatNumberValidator`) | EU VAT number check before reverse charge (TASK-0031) | [vies.md](vies.md) |
 
 Operational notes per provider are in `docs/runbooks/provider-outage.md`; the vendor API references the
 prototype was built against are in `docs/development/docs-provider-apis.md`.

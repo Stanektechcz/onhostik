@@ -530,7 +530,7 @@
      ],
      [
       "DPH",
-      "Českým firmám i osobám účtujeme 21 %. Firmám z EU s platným DIČ účtujeme v režimu reverse charge bez DPH. DIČ ověřujeme automaticky proti systému VIES."
+      "Českým firmám i osobám účtujeme 21 %. Firmám z EU s platným DIČ účtujeme v režimu reverse charge bez DPH. DIČ ověřujeme automaticky proti systému VIES. Dokud DIČ ve VIES ověřené není (třeba když VIES zrovna neodpovídá), účtujeme DPH vaší země."
      ],
      [
       "Kredit",
@@ -1282,7 +1282,7 @@
      ],
      [
       "VAT",
-      "Czech companies and individuals are charged 21%. EU companies with a valid VAT ID are billed under reverse charge without VAT. We validate IDs automatically against VIES."
+      "Czech companies and individuals are charged 21%. EU companies with a valid VAT ID are billed under reverse charge without VAT. We validate IDs automatically against VIES. Until the VAT ID is verified in VIES (for example while VIES is not answering), we charge the VAT of your country."
      ],
      [
       "Credit",
