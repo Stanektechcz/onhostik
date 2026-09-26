@@ -3,7 +3,7 @@
 Everything the control plane needs before the first paying customer. Each line names where it is configured and
 how it is verified; nothing here is optional for production. Run through it top to bottom on the production host.
 
-**Status** (2026-09-25, stack tip of TASK-0027; nothing is deployed to production yet): **done** — in place and
+**Status** (2026-09-26, stack tip of TASK-0027 with TASK-0029 … TASK-0031; nothing is deployed to production yet): **done** — in place and
 verified in the repository or CI; **open** — work or procurement still missing; **operator** — the code is ready, an
 operator does it on the host at or after deploy; **owner-decision** — waits for the owner's decision; **legal** — waits
 for a lawyer. Every new behaviour that reaches existing services ships switched off (ADR-0007): section 6 lists those
@@ -83,10 +83,12 @@ php artisan onhost:openapi && git diff --stat contracts/               # the pub
 Then, as a real customer: register, order web hosting by bank transfer, pay the proforma, watch the service turn
 ACTIVE, open a ticket, download the invoice PDF and cancel the service. Every step is audited (`/v1/organizations/{id}/audit`).
 
-## 6. Switches and operator steps of the stack TASK-0017 … TASK-0027
+## 6. Switches and operator steps of the stack TASK-0017 … TASK-0031
 
 Everything below ships **off** (an AutomationLedger rule with `default_off`, or an `ONHOST_*` switch whose default keeps
-the old behaviour) or as an operator command with a dry run; the one exception is named. Run the read-only command first,
+the old behaviour) or as an operator command with a dry run; the exceptions are named (the password-change switch, the
+backup tick, and the authorization tightening of TASK-0029/TASK-0030, which changes no service or customer but refuses
+more at deploy). Run the read-only command first,
 switch on second, then watch `onhost:doctor`. Rules are switched in the staff console (Automatizace, fresh step-up);
 `ONHOST_*` switches go into the server's environment followed by `php artisan config:cache`.
 
@@ -109,6 +111,35 @@ switch on second, then watch `onhost:doctor`. Rules are switched in the staff co
 | Consumer withdrawal `billing.withdrawal` (decision 17) | legal review of `resources/legal/LEGAL_REVIEW_withdrawal.md` and the terms | `ONHOST_WITHDRAWAL_LEGAL_REVIEWED=true`, then the rule on | *consumer withdrawal reviewed by a lawyer*, *consumer withdrawals move on* | legal |
 | Was the ISPConfig ownership hole used before TASK-0005? (decision 16) | a production copy on staging | `php artisan onhost:audit:provider-calls` (read-only; report under `storage/app/private/reports`) | no CRITICAL row, or the incident steps of `docs/runbooks/provider-calls-audit.md` | operator |
 | Staging lifecycle run and the lost site | `docs/context/CURRENT_STATE.md` (*Next decision*) | `onhost:services:archive <service> --create` on each panel, then the purge; `onhost:ispconfig:restore-site` for `s4s.electree.cz` | archives verified; the site answers again | open |
+| Service actions and API tokens tightened (TASK-0029, TASK-0030, ADR-0008) — **no switch, active with the merge**; no service, customer or plan changes | the release note below; tell customers whose integrations use API keys | none (roles re-seeded by `AuthorizationSeeder`: only the descriptions of `svc_manage` / `svc_console` change) | an old "operate services" key gets 403 `The API token lacks the services:console scope.` on `…/console-token`; staff dunning run, capacity run and panel login ask a step-up | operator (announce before deploy) |
+| VIES and reverse charge (TASK-0031) — switch on together with the re-check | `docs/runbooks/vat-and-vies.md`; `php artisan onhost:vat:verify` (dry run: no HTTP call, no write) | `ONHOST_VIES_ENABLED=true` and `ONHOST_VIES_REQUESTER_VAT_ID=CZ<our DIČ>` (then `php artisan config:cache`, restart the queue workers); **at the same time** the rule `tax.vies_recheck` on (`default_off`, daily 04:20 `onhost:vat:recheck`) — without it a customer verified at the order pays destination VAT from its first renewal more than 30 days later | `onhost:doctor` area `tax`: the first and the last row green; a DE business quote with a verified VAT ID shows `AE` 0 % (row 61 in §3) | operator |
+| Accountant sign-off (D31.9) — **before** `--apply` | the past-invoice list: `php artisan onhost:vat:verify --csv=vat-<date>.csv` (written to `storage/app/private/reports/`, cells that start a formula neutralised) | the accountant signs off: the reverse-charge legend and the line with both VAT IDs and the consultation number ("registrace k DPH doložena mimo VIES" under an override); the past VAT invoices to EU business customers (never changed; a correction is a new document); partner self-billing categories (S at `standard_rates.CZ`, AE, E) incl. the *identifikovaná osoba* case and the gross payout with input VAT on `liability:vat`; "Registrace dodavatele k DPH neověřena."; SLA credits following the credited line; retention of `vat_validations` on erasure | written sign-off kept with the release | accountant + legal |
+| Existing organizations and partners checked (TASK-0031) | the dry run's groups: unchecked, stale, legacy, `partner`, `name_mismatch`, `supplier_identity` | `php artisan onhost:vat:verify --apply` after the sign-off, and before the first partner payout after go-live; `name_mismatch` and `supplier_identity` go to finance (a Czech partner is paid VAT only after finance confirms the supplier with the override, four eyes) | the dry run again lists only the finance groups; doctor row *no EU business customer with a VAT ID waits for a VIES answer* OK | operator + finance |
+
+### Release note: service actions and API tokens (TASK-0029, TASK-0030)
+
+For the announcement to customers (in Czech from TASK-0030's handoff, `.ai/handoffs/TASK-0030.md`) and the pull request.
+No existing service, customer or plan is changed; this is a tightening of authorization that applies at deploy.
+
+- API keys: consoles, the terminal, running commands and SSH keys are a scope of their own, `services:console`. Keys created
+  earlier ("operate services", "all scopes") no longer open them; create a new key with the scope ticked. High-risk actions
+  (terminating a service, restoring a backup, deleting backups, game backups, snapshots, databases or staging copies,
+  pushing staging, restoring an archive, DNSSEC) never go through an API key — only in the portal with a fresh
+  confirmation. Downloading the final archive of a cancelled service works in the portal only.
+- Deleting backups, game backups and VM snapshots takes its own permission and a fresh step-up (owner, org admin; a game
+  operator for game backups, a cloud operator for snapshots) — also through the backup schedule: keeping fewer days or
+  generations, or a more frequent schedule after which the kept history reaches less far back, counts as deleting.
+  Unlocking a game backup takes `game.manage`. `developer`, "Service: manage" guests and `services:power` keys lose these.
+- A fresh step-up is now asked for `database.delete`, `staging.push`, `staging.delete`, `archive.restore`, `backup.delete`,
+  `gbackup.delete` and `snapshot.delete`.
+- "Service: manage" guests can no longer reset root access, start rescue mode, create game sub-users or schedule console
+  commands. SSH keys and game sub-users of somebody who loses the console are revoked — when a role or a share ends, and
+  when a service is shared again without the console (the organization sees "Konzole služby odebrána"). A guest with the
+  "Service: console" role now gets the console the role promises.
+- Stored action hooks for `staging.push` stop with `step_up_required` (the hook stays enabled and says why); the Discord
+  "push staging" button and the assistant's "replace production with staging" proposal are gone; a repeated click on the
+  same Discord button no longer starts the action twice. Spec apply reports refused steps in `skipped`.
+- Staff: running dunning or the capacity pass by hand and signing into a customer's panel ask for a fresh step-up.
 
 ## One report of how the installation stands
 

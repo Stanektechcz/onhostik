@@ -21,6 +21,7 @@ recorded in the hash-chained audit log. Never edit rows in the database during a
 | [provisioning-queue.md](provisioning-queue.md) | failed or stuck operations, drift, freeze switch, capacity |
 | [domains-registrar.md](domains-registrar.md) | WEDOS credit, renewals at risk, async registrations, reconciliation |
 | [billing-dunning.md](billing-dunning.md) | past-due invoices, suspension/resume, refunds, reconciliation mismatches |
+| [vat-and-vies.md](vat-and-vies.md) | VAT numbers, VIES and reverse charge: the go-live switch, `onhost:vat:verify`, the re-check rule, the staff override, partner self-billing VAT (adapter: [../provider-adapters/vies.md](../provider-adapters/vies.md)) |
 | [compliance-requests.md](compliance-requests.md) | GDPR export/deletion, legal hold, DSA notices, regulatory timers |
 | [console-relay.md](console-relay.md) | VNC / game console access path and the relay service |
 | [release-and-rollback.md](release-and-rollback.md) | deploying the control plane, migrations, rollback, error-budget freeze |

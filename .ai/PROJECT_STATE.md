@@ -1,6 +1,6 @@
 # Project state (AI team)
 
-**Updated:** 2026-09-25 by TASK-0027 · **Integration branch:** `development` (at `2426c17`, PR #19)
+**Updated:** 2026-09-26 by TASK-0027 (docs of TASK-0029 … TASK-0031) · **Integration branch:** `development` (at `2426c17`, PR #19)
 
 ## What ONHOST is
 
@@ -15,8 +15,8 @@ The customer panel, public site and admin are a preserved HTML prototype made li
 | --- | --- |
 | Engineering invariants | `AGENTS.md`, `CLAUDE.md` |
 | Product state, priorities, open operational work | `docs/context/CURRENT_STATE.md`, `docs/runbooks/go-live-checklist.md` |
-| Findings with evidence | `docs/runbooks/production-readiness-audit.md` §7 (rows 1–119) |
-| Architecture and owner decisions | `.ai/DECISIONS.md` → `docs/adr/` (ADR-0007 = owner decisions of 2026-09-25; next number 0008), `.ai/decisions/` |
+| Findings with evidence | `docs/runbooks/production-readiness-audit.md` §7 (rows 1–122) |
+| Architecture and owner decisions | `.ai/DECISIONS.md` → `docs/adr/` (ADR-0007 = owner decisions of 2026-09-25; ADR-0008 = the three HIGH audit fixes; next number 0009), `.ai/decisions/` |
 | Map for agents | `.ai/ARCHITECTURE.md`, `.ai/DOMAIN_MAP.md`, `.ai/DEPENDENCY_MAP.md`, `.ai/TECH_STACK.md` |
 | How we work | `.ai/DEVELOPMENT_RULES.md`, `.ai/INTEGRATION_RULES.md`, `.ai/SECURITY_RULES.md`, `.ai/TESTING.md` |
 | Who is doing what now | `.\brain.ps1 task board` (live) |
@@ -44,19 +44,25 @@ The customer panel, public site and admin are a preserved HTML prototype made li
 ## Pending: the stack, one pull request
 
 Branch `fix/TASK-0027-stack-coherence-and-the-docs-that-descri` = `development @ 2426c17` + TASK-0019, TASK-0017,
-TASK-0020, TASK-0026, TASK-0024, TASK-0021, TASK-0022, TASK-0023, TASK-0025, cherry-picked TASK-0018 and TASK-0003, and
-TASK-0027 (coherence fixes C1–C4 and the docs). Everything reaches `development` in **one** pull request, only with the
-human's go-ahead. The pull request is **#24** (CI green incl. `pest-postgres` and e2e); TASK-0017, TASK-0018, TASK-0019
-and TASK-0003 were also pushed on their own as PRs #20–#23, now closed as superseded by #24. What each task does: `docs/context/CURRENT_STATE.md` (*The stack*), audit rows 104–119.
-New behaviour that reaches existing services is switched off by default; the operator steps are in
-`docs/runbooks/go-live-checklist.md` §6.
+TASK-0020, TASK-0026, TASK-0024, TASK-0021, TASK-0022, TASK-0023, TASK-0025, cherry-picked TASK-0018 and TASK-0003,
+TASK-0027 (coherence fixes C1–C4 and the docs) **plus TASK-0029, TASK-0030 and TASK-0031** (the three HIGH findings of
+the onboarding audit, stacked on the PR #24 tip `052ceff` in that order and fast-forwarded onto this branch at `62af410`
+on 2026-09-26, then this docs commit). Everything reaches `development` in **one** pull request, only with the human's
+go-ahead: **#24** carries the stack and TASK-0029 … TASK-0031 (the new commits are local until the human approves the
+push; #24's CI was green incl. `pest-postgres` and e2e before them). TASK-0017, TASK-0018, TASK-0019 and TASK-0003 were
+also pushed on their own as PRs #20–#23, now closed as superseded by #24. What each task does:
+`docs/context/CURRENT_STATE.md` (*The stack*), audit rows 104–122, ADR-0008 for TASK-0029 … TASK-0031. New behaviour that
+reaches existing services is switched off by default; the operator steps are in `docs/runbooks/go-live-checklist.md` §6
+(TASK-0029/0030 tighten authorization at deploy without a switch — release note there).
 
-## Baseline (`edb635b`, stack tip, 2026-09-25)
+## Baseline (`20f05d9`, stack tip with TASK-0029 … TASK-0031, 2026-09-26)
 
-`.\brain.ps1 gate -Task TASK-0027` (full) **PASS**: Pest 1 364/1 364 (18 258 assertions) · Larastan 0 errors (641 baseline
-entries / 1 013 suppressed, unchanged) · Pint, Vite build, composer/npm audit clean · 543 routes (493 `/v1`) · 61
-migrations apply on an empty SQLite file · `Orchestration.Tests.ps1` PASS · E2E and PostgreSQL only in CI. No known
-failing test (TASK-0018 fixed the order-dependent `RenewalGuardTest`).
+`.\brain.ps1 gate -Task TASK-0031` (full) **PASS** on `20f05d9` (`.ai/reports/TASK-0031-gate.md`; `62af410` after it
+changes only the task file and the gate report): Pest 1 558/1 558 (20 527 assertions) · Larastan 0 errors (639 baseline
+entries / 1 010 suppressed; the three tasks only removed entries, none added) · Pint, frontend build PASS · no regressions,
+no pre-existing failures · 62 migrations · OpenAPI regenerated (438 paths, 494 operations; one new route). Earlier stack
+tip `edb635b` (2026-09-25): Pest 1 364/1 364, composer/npm audit clean, 543 routes (493 `/v1`), `Orchestration.Tests.ps1`
+PASS. E2E and PostgreSQL only in CI — not yet run on TASK-0029 … TASK-0031.
 
 ## Known issues
 
@@ -90,20 +96,30 @@ failing test (TASK-0018 fixed the order-dependent `RenewalGuardTest`).
 9. **Onboarding audit (Fikoun, 2026-09-25)** — `.ai/audits/2026-09-25-onboarding-audit/`: the audit's `README.md` and
    `development-state.md`, and `response-verified-2026-09-25.md` checking all its claims against the stack tip (72 rows:
    45 confirmed, 21 partly, 5 wrong, 1 resolved by the stack; HIGH findings re-checked by adversarial challengers).
-   Three HIGH findings stand and must be fixed before go-live: service actions falling through
-   `ServiceActionCommand::permissionFor()` to `service.manage` at NORMAL risk (backup/snapshot deletion without step-up,
-   a `svc_manage` guest reaching root/console); `ApiContext::assertTokenScope` mapping every `service.*` permission to
-   `services:read` (a read-only token opens a console); reverse-charge VAT unreachable (`ViesClient` has no caller) while
-   public copy promises VIES checks. The audit's other pages (`security-posture.md`, `production-readiness.md`,
-   `ai-docs-and-tooling.md`, `needs-verification.md`) and its TASK-0028 branch are not pushed yet — **TASK-0028 is taken
-   by that branch; new task ids start at TASK-0029.**
+   **The three HIGH findings are fixed** on the stack branch (ADR-0008, audit rows 120–122): TASK-0029 (service actions
+   ask their own permission and risk; no default arm), TASK-0030 (explicit token scope map, `services:console`, no
+   step-up through a token, step-up for staff writes outside the bus), TASK-0031 (VIES through `providers/Vies`, reverse
+   charge on a fresh check or a staff override, partner self-billing VAT). Go-live items: the accountant's sign-off (D31.9)
+   before `onhost:vat:verify --apply`, and `ONHOST_VIES_ENABLED=true` together with the rule `tax.vies_recheck`
+   (`docs/runbooks/go-live-checklist.md` §6). Still open: the MEDIUM follow-ups of the handoffs — an operator command
+   (`--dry-run` default) for console access made before TASK-0029, the step-up decision for game sub-users / console
+   schedules, the Pterodactyl backup-rotation check on staging, family permissions (D29.8), four eyes for staff deletion
+   of customer copies, `ServiceController::fileDownload` for power tokens, the route layer asking `permissionFor` without
+   params (`TokenRouteScope`, `ServiceController::action`), a per-IP limit on guest VIES checks, VAT paid only to the
+   published account (§109 ZDPH), the `vat_validations` erasure policy, the qualifier in the prototype's
+   `onhost-content.js`, the flaky wall-clock bucket in `DiscordIntegrationTest` (TASK-0030 follow-up). The audit's other
+   pages (`security-posture.md`, `production-readiness.md`, `ai-docs-and-tooling.md`, `needs-verification.md`) and its
+   TASK-0028 branch are not pushed yet — **TASK-0028 is taken by that branch; the audit response's follow-up tasks
+   continue at TASK-0032** (numbering in its §6).
 
 ## Next safe steps
 
-1. Human: merge PR #24 into `development` (`gh pr merge 24 --rebase`); after the merge the post-integration gate and
-   `.\brain.ps1 task finish` per task.
-2. Fix the three HIGH findings of the verified onboarding-audit response (known issue 9) as TASK-0029+ before go-live;
-   coordinate with the second developer's TASK-0028 (portable `./brain`) so the two do not collide.
+1. Human: approve the push of the TASK-0029 … TASK-0031 commits to #24, let CI (`pest-postgres`, e2e) run on them, then
+   merge PR #24 into `development` (`gh pr merge 24 --rebase`); after the merge the post-integration gate and
+   `.\brain.ps1 task finish` for TASK-0003 and TASK-0017 … TASK-0031.
+2. Then TASK-0032+ from the onboarding-audit response (§6: TASK-0032 deploy gate, TASK-0033 production fail-closed
+   configuration, TASK-0034 …) and the MEDIUM follow-ups of known issue 9; coordinate with the second developer's
+   TASK-0028 (portable `./brain`) so the two do not collide.
 3. Staging: the lifecycle verification (archive on each panel, then the purge) and the restore of `s4s.electree.cz`.
 4. Then the go-live checklist on the production host with the stack's operator steps (§6), each default-off switch only
    after its read-only command; `onhost:audit:provider-calls` on a production copy.

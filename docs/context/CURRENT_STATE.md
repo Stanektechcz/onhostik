@@ -1,8 +1,8 @@
 # Current state
 
-**Updated:** 2026-09-25
-**Branch:** `development` (integrated through TASK-0016, PR #19) + the stack TASK-0017 … TASK-0027 on
-`fix/TASK-0027-stack-coherence-and-the-docs-that-descri`, waiting for one pull request into `development`
+**Updated:** 2026-09-26
+**Branch:** `development` (integrated through TASK-0016, PR #19) + the stack TASK-0017 … TASK-0027 and TASK-0029 …
+TASK-0031 on `fix/TASK-0027-stack-coherence-and-the-docs-that-descri`, waiting for one pull request into `development` (#24)
 
 ## Now
 
@@ -629,6 +629,36 @@
   `2026-09-shared-php-workers`, only through `onhost:catalog:revise`; each revision reads what is pending just before it
   runs) (C4). `PlanPromises::KNOWN_GAPS` holds 8 entries.
 
+The three HIGH findings of the onboarding audit (`.ai/audits/2026-09-25-onboarding-audit/response-verified-2026-09-25.md`)
+are fixed on the same branch (decisions in ADR-0008, audit rows 120–122):
+
+- **Service actions ask for their own permission** (TASK-0029, audit C13, row 120): an exhaustive permission map with no
+  default — an unmapped action is refused with 422 `service_action_unknown`; backup, game-backup and snapshot deletion ask
+  their own permission with a fresh step-up, every destructive action is HIGH + step-up, a backup schedule that keeps fewer
+  copies or a shorter history (also by a more frequent schedule) asks the same as deleting them, unlocking a game backup
+  asks `game.manage`, shells/root/rescue/game sub-users/console schedules are `service.console`; spec apply, action hooks,
+  Discord and the chat intents ask the same map and never run a step-up action; delegated SSH keys and game sub-users go
+  with the console, also when a share is given again without it (`service.access.reduced`). Open: console access made
+  before the fix stays until an operator command (`--dry-run` default, not written yet) revokes it; step-up for game
+  sub-users / console schedules awaits the owner's decision.
+- **API tokens are decided by one explicit map** (TASK-0030, audit C13-H2c and §4, row 121): `TokenScopes`, deny by
+  default; consoles, commands and SSH keys need the new scope `services:console`, which no preset in the panel carries; a
+  HIGH action through a token is always refused; console tokens are judged on the service; spec apply asks the same map
+  for every step (a console-scoped token may schedule a console command, a power token may not); three staff writes
+  outside the bus (dunning run, capacity forecast run, staff panel login) take a fresh step-up. Not behind a switch:
+  integrations on old keys lose consoles, deletions and HIGH actions at deploy (release note in
+  `docs/runbooks/go-live-checklist.md` §6).
+- **VIES wired, reverse charge reachable** (TASK-0031, audit C1a–C1d, row 122): VAT numbers are checked through the
+  provider contract `VatNumberValidator` (`providers/Vies`), on the queue after a number is given or changed and briefly
+  before a quote; the evidence lives in `vat_validations` and `organizations.vat_checked_*` (migration 000880). The tax
+  input is built only by `VatStanding::taxCustomer()`: reverse charge needs a VIES-valid number of another EU state
+  checked ≤ 30 days before the quote or issue, or a staff override (`tax.vat_status.override`, CRITICAL, 1–30 days);
+  otherwise destination VAT with `vat_review` on the quote, order, invoice and TaxCalculation. Partner self-billing VAT
+  comes from the same standing at `standard_rates`; a Czech partner is paid VAT only after finance confirmed the supplier
+  once. `ONHOST_VIES_ENABLED` defaults to false and is the go-live switch; `onhost:vat:verify` (dry run default), rule
+  `tax.vies_recheck` (default off, switched on together with VIES); the accountant's sign-off is a go-live item; runbook
+  `docs/runbooks/vat-and-vies.md`.
+
 **Operator switches introduced by the stack** (all default off unless stated; the steps are in
 `docs/runbooks/go-live-checklist.md` §6):
 
@@ -648,6 +678,9 @@
 - `ONHOST_WEB_DISK_TOTAL_ENFORCE_FROM` (a date, unset by default) — from when the plan total counts, for noticed services.
 - `ONHOST_PASSWORD_CHANGE_REVOKES_API_ACCESS` — **default on** (owner decision 14); `false` keeps personal tokens after a password change.
 - `onhost:catalog:revise --apply` (operator command, dry run by default) — publishes the three catalogue revisions.
+- `ONHOST_VIES_ENABLED` with `ONHOST_VIES_REQUESTER_VAT_ID` (TASK-0031) — VIES checks and reverse charge; together with
+  the rule `tax.vies_recheck`; `onhost:vat:verify` (dry run, `--csv` for the accountant) first, `--apply` after the
+  accountant's sign-off.
 
 ## Verified baseline
 
@@ -656,6 +689,10 @@ Measured on the stack tip `edb635b` (TASK-0027 C1–C4, before its docs commits)
 occurrences), Pest **1 364 tests / 18 258 assertions**, no failures, frontend build green. 543 routes (493 under `/v1`),
 61 migrations apply on an empty SQLite file, `composer validate`, `composer audit` and `npm audit --audit-level=high`
 clean (`.ai/baseline/baseline.json`). `development` itself (at `2426c17`, TASK-0016) is covered by its own CI runs.
+After TASK-0029 … TASK-0031 (2026-09-26, `.\brain.ps1 gate -Task TASK-0031` on `20f05d9`): **PASS** — Pint, Larastan 0
+errors (baseline 639 entries / 1 010 suppressed: the three tasks only removed entries), Pest **1 558 / 1 558** (20 527
+assertions), frontend build; 62 migrations; OpenAPI regenerated (one new route,
+`POST /v1/staff/customers/{organization}/vat-status`).
 
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
 - CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16 — `pest-postgres` is the only
