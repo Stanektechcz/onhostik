@@ -62,7 +62,13 @@ function vatRcCartQuote($test, User $owner, string $fqdn): array
     $test->actingAs($owner, 'sanctum');
     $test->putJson('/v1/cart', ['items' => [['product_key' => 'web-hosting', 'plan_key' => 'start', 'config' => ['fqdn' => $fqdn]]]])->assertOk();
 
-    return $test->postJson('/v1/cart/quote')->assertOk()->json('data');
+    $data = $test->postJson('/v1/cart/quote')->assertOk()->json('data');
+    // the VIES evidence and the review flag are staff-facing (review round 1): the customer's answer carries neither, the stored
+    // quote (what the order, the document and finance read) carries both
+    expect($data['versions'])->not->toHaveKeys(['vat', 'vat_review']);
+    $data['versions'] = Quote::query()->findOrFail($data['quote_id'])->versions;
+
+    return $data;
 }
 
 function vatRcConsents(): array

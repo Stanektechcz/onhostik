@@ -717,6 +717,8 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'override_days' => 30,        // a staff override ends after this many days unless confirmed again
         'retry_after_minutes' => 10,  // after an unknown answer a checkout does not ask again for this long
         'recheck_after_days' => 25,   // tax.vies_recheck asks again before the 30 days run out
+        // our own ceiling of VIES calls per minute (all triggers together); beyond it a number stays unknown for now (review round 1)
+        'per_minute' => (int) env('ONHOST_VIES_PER_MINUTE', 150), // above the 120 a minute the operator commands make at --pause-ms=500
     ],
     // ── end TASK-0031 VIES ──────────────────────────────────────────────────────────────────────────────────────────
 ];

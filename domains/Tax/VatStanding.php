@@ -6,7 +6,9 @@ namespace Onhost\Domain\Tax;
 
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Str;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Tax\Models\VatValidation;
 
 /**
  * What the platform may rely on about an organization's VAT number at a moment (TASK-0031, D31.2): the one vocabulary
@@ -54,6 +56,13 @@ final class VatStanding
         $source = $organization->vat_status_source;
         $until = $organization->vat_override_until;
         if ($source === 'staff' && $until !== null && CarbonImmutable::parse($until)->greaterThan($at)) {
+            // an override is about one number of one country (review round 1): a customer who moves to another member state keeps
+            // a prefixed number, and a German override must not reverse-charge an Austrian address — the same rule as a VIES answer
+            $subject = self::subject($organization);
+            if ($stored === self::VALID && ($subject === null || (string) $organization->vat_checked_number !== $subject->value || $subject->toIsoCountry() !== strtoupper((string) $organization->country))) {
+                return ['status' => self::UNKNOWN, 'reason' => 'vat_country_mismatch'];
+            }
+
             return ['status' => $stored, 'reason' => 'staff_override'];
         }
         if ($source === 'staff') {
@@ -90,9 +99,10 @@ final class VatStanding
      * The customer input of TaxEngine::calculate / QuoteService::quote — every caller builds it here, so no caller can pass
      * the stored column (or a vocabulary of its own) as the verdict.
      *
-     * `vat_reason` lets the engine flag a reverse charge that rests only on a row from before the check.
+     * `vat_reason` lets the engine flag a reverse charge that rests only on a row from before the check; `vat_name_mismatch` one
+     * whose number VIES registers to another trader (review round 1).
      *
-     * @return array{country:string, customer_class:string, vat_id:?string, vat_status:string, vat_reason:string, ip_country:?string}
+     * @return array{country:string, customer_class:string, vat_id:?string, vat_status:string, vat_reason:string, vat_name_mismatch:bool, ip_country:?string}
      */
     public static function taxCustomer(Organization $organization, ?string $ipCountry = null): array
     {
@@ -104,6 +114,7 @@ final class VatStanding
             'vat_id' => self::subject($organization)?->value,
             'vat_status' => $standing['status'],
             'vat_reason' => $standing['reason'],
+            'vat_name_mismatch' => $standing['status'] === self::VALID && self::nameMismatch($organization),
             'ip_country' => $ipCountry,
         ];
     }
@@ -111,7 +122,7 @@ final class VatStanding
     /**
      * The evidence behind a quote, an order or a document: which number, what counted and why it counted.
      *
-     * @return array{number:?string, status:string, reason:string, stored_status:string, source:?string, checked_at:?string, consultation_number:?string, override_until:?string}
+     * @return array{number:?string, status:string, reason:string, stored_status:string, source:?string, checked_at:?string, consultation_number:?string, override_until:?string, name_mismatch:bool}
      */
     public static function snapshot(Organization $organization): array
     {
@@ -126,6 +137,7 @@ final class VatStanding
             'checked_at' => $organization->vat_checked_at === null ? null : CarbonImmutable::parse($organization->vat_checked_at)->toIso8601String(),
             'consultation_number' => $organization->vat_consultation_number,
             'override_until' => $organization->vat_override_until === null ? null : CarbonImmutable::parse($organization->vat_override_until)->toIso8601String(),
+            'name_mismatch' => $standing['status'] === self::VALID && self::nameMismatch($organization),
         ];
     }
 
@@ -182,7 +194,8 @@ final class VatStanding
         if ($vatId === '' || ($buyer['customer_class'] ?? '') !== 'b2b' || $country === VatNumber::supplierCountry() || ! in_array($country, VatNumber::euMembers(), true)) {
             return false;
         }
-        $legacy = data_get($buyer, 'vat_check.reason') === 'legacy_unverified';
+        // a reverse charge resting only on a row from before the check, or on a number VIES registers to another trader (review round 1)
+        $legacy = data_get($buyer, 'vat_check.reason') === 'legacy_unverified' || data_get($buyer, 'vat_check.name_mismatch') === true;
         foreach ($lines as $line) {
             $category = (string) ($line['tax_category'] ?? 'S');
             if (($category === TaxEngine::CAT_STANDARD && (int) ($line['tax'] ?? 0) > 0) || ($legacy && $category === TaxEngine::CAT_REVERSE_CHARGE)) {
@@ -192,6 +205,56 @@ final class VatStanding
 
         return false;
     }
+
+    /**
+     * Whether VIES named somebody else as the holder of the number that counts as valid (review round 1): anybody can type a
+     * valid VAT number of a real company and was reverse-charged on it. The verdict stays — VIES said the number is valid, and a
+     * trader's register name often differs from the name in our form — but finance looks at it (`vat_review`, reason
+     * `name_mismatch`). Only a disclosed name is compared (several member states answer `---`); a check by format or a staff
+     * override has no name to compare.
+     */
+    public static function nameMismatch(Organization $organization): bool
+    {
+        if ($organization->vat_status_source !== 'vies' || (string) $organization->vat_status !== self::VALID || $organization->vat_validation_id === null) {
+            return false;
+        }
+        $registered = VatValidation::query()->whereKey($organization->vat_validation_id)->value('name');
+        if (! is_string($registered) || trim($registered) === '') {
+            return false;
+        }
+
+        return ! self::sameTrader((string) $organization->name, $registered);
+    }
+
+    /**
+     * Two spellings of one trader: the same words once case, accents, punctuation, the legal form and joining words are set
+     * aside — one name's words all found in the other's, or the same letters run together ("Pixel Art" / "PIXELART").
+     */
+    public static function sameTrader(string $ours, string $registered): bool
+    {
+        $a = self::nameWords($ours);
+        $b = self::nameWords($registered);
+        if ($a === [] || $b === []) {
+            return true; // nothing left to compare (a name that is only a legal form): no evidence of another trader
+        }
+
+        return array_diff($a, $b) === [] || array_diff($b, $a) === [] || implode('', $a) === implode('', $b);
+    }
+
+    /** @return list<string> */
+    private static function nameWords(string $name): array
+    {
+        $text = strtr(mb_strtolower($name), ['ä' => 'a', 'ö' => 'o', 'ü' => 'u', 'ß' => 'ss', '&' => ' ', '+' => ' ']);
+        $text = strtr(Str::ascii($text), ['ae' => 'a', 'oe' => 'o', 'ue' => 'u']);
+        $words = preg_split('/[^a-z0-9]+/', $text, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        return array_values(array_unique(array_filter($words, fn (string $w) => strlen($w) > 1 && ! in_array($w, self::NAME_NOISE, true))));
+    }
+
+    /** Legal forms and joining words that say nothing about who the trader is (after the folding in nameWords). */
+    private const NAME_NOISE = ['und', 'and', 'et', 'en', 'the', 'der', 'die', 'das', 'co', 'cie', 'gmbh', 'ag', 'kg', 'ohg', 'ug', 'se', 'ev', 'mbh', 'haftungsbeschrankt',
+        'sro', 'spol', 'as', 'vos', 'ks', 'zs', 'ltd', 'limited', 'plc', 'llc', 'inc', 'corp', 'sa', 'sas', 'sarl', 'srl', 'spa', 'snc', 'bv', 'nv', 'vof', 'oy', 'oyj', 'ab', 'aps',
+        'kft', 'zrt', 'nyrt', 'bt', 'doo', 'dd', 'sp', 'zoo', 'oo', 'eood', 'ood', 'ad', 'ou', 'uab', 'sia', 'teo', 'ehf', 'lda', 'sl', 'slu', 'aktiengesellschaft', 'gesellschaft', 'beschrankter', 'haftung', 'mit'];
 
     /** Rows written before the check (source NULL) whose stored value still changes money: `valid` or `payer`. */
     public static function isLegacy(Organization $organization): bool

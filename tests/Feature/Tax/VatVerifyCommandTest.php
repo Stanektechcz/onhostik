@@ -120,3 +120,24 @@ it('re-checks nobody while tax.vies_recheck is off, and only the stale valid one
     expect($stale->fresh()->vat_checked_at->isToday())->toBeTrue()->and($never->fresh()->vat_status)->toBe('unknown')
         ->and(app(AutomationLedger::class)->last('tax.vies_recheck')['stats'])->toMatchArray(['checked' => 1, 'valid' => 1]);
 });
+
+/*
+ * Review round 1 (QA, LOW): both kinds of row written before the check — a stored `valid` (reverse charge today) and a stored
+ * `payer` (self-billing VAT today), both without a source — are listed distinctly in the dry run, and --apply asks about both.
+ */
+it('lists a legacy valid and a legacy payer row side by side, and --apply checks both', function () {
+    Http::preventStrayRequests();
+    config(['onhost.vies.enabled' => true]);
+    $valid = vatVerifyOrganization('legacy-valid', 'DE', 'DE333333333', ['vat_status' => 'valid']);
+    $payer = vatVerifyOrganization('legacy-payer', 'CZ', 'CZ27076551', ['vat_status' => 'payer']);
+
+    expect(Artisan::call('onhost:vat:verify'))->toBe(0);
+    $out = Artisan::output();
+    expect($out)->toContain($valid->id)->toContain('valid (legacy_unverified)')->toContain('reverse charge')
+        ->toContain($payer->id)->toContain('domestic · self-billing VAT payer')->toContain('2 organizations would be checked');
+
+    Http::fake([VAT_VERIFY_ENDPOINT => fn ($request) => Http::response(['countryCode' => $request['countryCode'], 'vatNumber' => $request['vatNumber'], 'valid' => true, 'requestIdentifier' => 'WAPILEGACY', 'name' => 'ACME', 'address' => 'x'])]);
+    expect(Artisan::call('onhost:vat:verify', ['--apply' => true, '--pause-ms' => 0]))->toBe(0);
+    Http::assertSentCount(2);
+    expect($valid->fresh()->vat_status_source)->toBe('vies')->and($payer->fresh()->vat_status_source)->toBe('vies')->and($payer->fresh()->vat_status)->toBe('valid');
+});

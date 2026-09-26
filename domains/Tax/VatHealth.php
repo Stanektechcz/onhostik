@@ -44,8 +44,12 @@ final class VatHealth
                 "{$waiting} — charged destination VAT with a review flag; {$legacy} legacy (valid/payer written before the check, never verified); onhost:vat:verify lists them"),
             $this->row('VIES answered recently', $answered || $waiting === 0,
                 $lastAt === null ? 'no VIES answer recorded yet' : 'last answer '.$lastAt->toIso8601String().($answered ? '' : ' — older than '.self::ANSWER_MAX_DAYS.' days while customers wait')),
-            $this->row('no reverse charge lapses while tax.vies_recheck is off', $recheckOn || $lapsing === 0,
-                $recheckOn ? 'the monthly re-check is on' : "{$lapsing} VIES-valid organizations checked more than ".self::recheckAfterDays().' days ago; switch on tax.vies_recheck or run onhost:vat:verify --apply'),
+            // with VIES on, the re-check belongs to the switch (review round 1): without it every customer verified at the order is
+            // charged destination VAT at its first renewal more than 30 days later — red before the first one lapses, not after
+            $this->row('no reverse charge lapses while tax.vies_recheck is off', $recheckOn || ($lapsing === 0 && ! $enabled),
+                $recheckOn ? 'the monthly re-check is on' : "{$lapsing} VIES-valid organizations checked more than ".self::recheckAfterDays().' days ago'
+                    .($enabled ? '; VIES is on and tax.vies_recheck is off — a verified customer pays destination VAT from its first renewal more than '.VatStanding::freshnessDays().' days after the check' : '')
+                    .'; switch on tax.vies_recheck or run onhost:vat:verify --apply'),
         ];
     }
 

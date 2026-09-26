@@ -76,9 +76,12 @@ the EU, is never asked and never called invalid.
 
 ## Transport
 
-* `ProviderRequest` with provider, instance and **bucket `vies`**. The breaker is keyed by `vies`. No quota is configured for
-  the bucket today (`configureBucket` is not called), so VIES's own concurrency limits answer as the `*_MAX_CONCURRENT_REQ`
-  codes above. The operator command pauses 500 ms between two checks (`--pause-ms`).
+* `ProviderRequest` with provider, instance and **bucket `vies`**. The breaker is keyed by `vies`. The adapter configures the
+  bucket with our own ceiling, `onhost.vies.per_minute` (`ONHOST_VIES_PER_MINUTE`, 150 a minute, all triggers together):
+  beyond it the call is refused locally (`RATE_LIMIT`) and read as **unknown, retryable** — never a verdict — so a flood of
+  guest checkouts cannot get our address or requester blocked at VIES. VIES's own concurrency limits still answer as the
+  `*_MAX_CONCURRENT_REQ` codes above. The operator commands pause 500 ms between two checks (`--pause-ms`), 120 a minute at
+  most, under the ceiling.
 * `judgedByCaller: true`: the adapter records exactly one breaker verdict per answer (the table above). A refused number is
   VIES working, and one member state's outage is not VIES being down.
 * **`secretResponse: true`**: the answer names the trader (company name and address), so the `provider_calls` row keeps the

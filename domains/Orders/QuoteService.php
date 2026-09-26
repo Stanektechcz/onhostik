@@ -114,7 +114,7 @@ final class QuoteService
 
     /**
      * @param  list<array<string,mixed>>  $items
-     * @param  array{country?:string,customer_class?:string,vat_id?:?string,vat_status?:string,vat_reason?:?string,ip_country?:?string}  $customer
+     * @param  array{country?:string,customer_class?:string,vat_id?:?string,vat_status?:string,vat_reason?:?string,vat_name_mismatch?:bool,ip_country?:?string}  $customer
      */
     public function quote(array $items, Currency|string $currency, array $customer, int $commitMonths = 1, ?string $promoCode = null, ?Organization $organization = null, string $locale = 'cs', ?LimitRaiseWaiver $waiver = null): Quote
     {
@@ -339,6 +339,7 @@ final class QuoteService
             'vat_id' => $customer['vat_id'] ?? null,
             'vat_status' => $customer['vat_status'] ?? VatStanding::UNKNOWN,
             'vat_reason' => $customer['vat_reason'] ?? null,
+            'vat_name_mismatch' => (bool) ($customer['vat_name_mismatch'] ?? false),
             'ip_country' => $customer['ip_country'] ?? null,
         ];
         $taxResult = $this->tax->calculate($taxInput, array_map(fn ($l) => ['key' => $l['line_id'], 'net' => $l['net'], 'product_class' => $l['product_class']], $lines), $currency, $organization?->id);

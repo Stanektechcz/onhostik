@@ -75,9 +75,13 @@ final class CartController extends ApiController
             ? VatStanding::taxCustomer($organization)
             : ['country' => strtoupper((string) ($customer['country'] ?? 'CZ')), 'customer_class' => $customer['customer_class'] ?? 'b2c', 'vat_status' => 'unknown', 'ip_country' => null];
         $quote = $quotes->quote((array) $cart->items, $cart->currency ?? 'CZK', $customer, (int) ($cart->commit_months ?? 1), $cart->promo_code, $organization, (string) $request->query('locale', 'cs'));
+        // the VIES evidence and finance's review flag stay with the quote, the order and staff (TASK-0031 review round 1); the
+        // customer keeps the tax explanation it always had, less the note that finance will look at who holds the number
+        $versions = array_diff_key((array) $quote->versions, ['vat' => true, 'vat_review' => true]);
+        $versions['tax_reasons'] = array_values(array_filter((array) ($versions['tax_reasons'] ?? []), fn ($reason) => ! str_contains((string) $reason, 'name_mismatch')));
 
         return response()->json(['data' => [
-            'quote_id' => $quote->id, 'valid_until' => $quote->valid_until?->toIso8601String(), 'currency' => $quote->currency, 'lines' => $quote->lines, 'subtotal' => $quote->subtotal_minor, 'discount' => $quote->discount_minor, 'tax' => $quote->tax_minor, 'total' => $quote->total_minor, 'renewal_total' => $quote->renewal_total_minor, 'versions' => $quote->versions,
+            'quote_id' => $quote->id, 'valid_until' => $quote->valid_until?->toIso8601String(), 'currency' => $quote->currency, 'lines' => $quote->lines, 'subtotal' => $quote->subtotal_minor, 'discount' => $quote->discount_minor, 'tax' => $quote->tax_minor, 'total' => $quote->total_minor, 'renewal_total' => $quote->renewal_total_minor, 'versions' => $versions,
             'required_documents' => $organization ? app(CheckoutService::class)->requiredDocuments($quote, $organization) : null,
             'withdrawal_notice' => WithdrawalPolicy::checkoutNotice((array) $quote->lines, (string) $customer['customer_class']), // TASK-0025: a consumer hears before the order that a registered domain cannot be withdrawn
         ]]);

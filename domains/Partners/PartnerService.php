@@ -329,24 +329,32 @@ final class PartnerService
         return $payout;
     }
 
-    /** Bank transfer executed: post the commission expense and notify the partner (mail template `payout`). */
+    /**
+     * Bank transfer executed: post the commission expense and notify the partner (mail template `payout`). What is paid is the
+     * self-billing document's total (TASK-0031 review): a VAT-payer partner's document says net + VAT, and the partner owes that
+     * VAT on what it receives — the VAT is booked as input VAT against the VAT account, the commission stays the expense.
+     */
     public function markPayoutPaid(PartnerPayout $payout, string $paymentReference, CommandContext $context): PartnerPayout
     {
         if (! in_array($payout->state, ['requested', 'approved'], true)) {
             throw new DomainError('payout_not_open', 'Only open payouts can be paid.', 409);
         }
         $partner = Partner::query()->findOrFail($payout->partner_id);
-        $amount = Money::minor($payout->amount_minor, $payout->currency);
-        DB::transaction(function () use ($payout, $partner, $amount, $paymentReference, $context): void {
-            $transaction = $this->ledger->post('partner_payout', $amount->currency, [
-                ['account' => LedgerService::expenseAccount('partner_commission', $amount->currency), 'debit' => $amount->minor],
-                ['account' => LedgerService::bankAccount($payout->method === 'offset' ? 'offset' : 'bank', $amount->currency), 'credit' => $amount->minor],
-            ], "partner-payout:{$payout->id}", $partner->organization_id, 'partner_payout', $payout->id, "Partner payout {$payout->number}");
+        $amount = $payout->net();
+        $tax = $payout->documentTax();
+        $transfer = $payout->transferAmount();
+        DB::transaction(function () use ($payout, $partner, $amount, $tax, $transfer, $paymentReference, $context): void {
+            $postings = [['account' => LedgerService::expenseAccount('partner_commission', $amount->currency), 'debit' => $amount->minor]];
+            if ($tax->isPositive()) {
+                $postings[] = ['account' => LedgerService::vatAccount($amount->currency), 'debit' => $tax->minor];
+            }
+            $postings[] = ['account' => LedgerService::bankAccount($payout->method === 'offset' ? 'offset' : 'bank', $amount->currency), 'credit' => $transfer->minor];
+            $transaction = $this->ledger->post('partner_payout', $amount->currency, $postings, "partner-payout:{$payout->id}", $partner->organization_id, 'partner_payout', $payout->id, "Partner payout {$payout->number}");
             PartnerCommission::query()->where('payout_id', $payout->id)->update(['state' => 'paid']);
             $payout->forceFill(['state' => 'paid', 'paid_at' => now(), 'payment_reference' => $paymentReference, 'decided_by' => $context->actorId, 'ledger_transaction_id' => $transaction->id ?? null])->save();
-            $this->audit->record($context->withScope($partner->organization_id), 'partner.payout.paid', 'succeeded', ['number' => $payout->number, 'amount' => $amount, 'reference' => $paymentReference], 'partner_payout', $payout->id);
+            $this->audit->record($context->withScope($partner->organization_id), 'partner.payout.paid', 'succeeded', ['number' => $payout->number, 'amount' => $amount, 'tax' => $tax, 'transfer' => $transfer, 'reference' => $paymentReference], 'partner_payout', $payout->id);
         });
-        $this->outbox->publish(GenericEvent::of('partner.payout.paid', 'partner_payout', $payout->id, ['number' => $payout->number, 'amount' => $amount, 'period' => $payout->self_billing['period'] ?? substr($payout->number, 3), 'reference' => $paymentReference], $partner->organization_id));
+        $this->outbox->publish(GenericEvent::of('partner.payout.paid', 'partner_payout', $payout->id, ['number' => $payout->number, 'amount' => $amount, 'transfer' => $transfer, 'period' => $payout->self_billing['period'] ?? substr($payout->number, 3), 'reference' => $paymentReference], $partner->organization_id));
 
         return $payout;
     }

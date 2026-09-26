@@ -56,7 +56,7 @@ final class TaxEngine
      * `vat_status` is the standing VatStanding decided (unknown | valid | invalid), never the stored column; `vat_reason` says why
      * (VatStanding::standing) — a reverse charge that rests only on a row from before the VIES check is flagged for review.
      *
-     * @param  array{country:string, customer_class:string, vat_id?:?string, vat_status?:string, vat_reason?:?string, ip_country?:?string, product_class?:string, supply_date?:?string}  $customer
+     * @param  array{country:string, customer_class:string, vat_id?:?string, vat_status?:string, vat_reason?:?string, vat_name_mismatch?:bool, ip_country?:?string, product_class?:string, supply_date?:?string}  $customer
      * @param  list<array{key:string, net:Money, product_class?:string}>  $lines
      * @return array{calculation:TaxCalculation, lines:list<array{key:string, net:Money, rate:string, category:string, tax:Money, total:Money, note:?string}>, tax_total:Money, review_required:bool, vat_review:bool, reasons:list<string>}
      */
@@ -88,6 +88,10 @@ final class TaxEngine
                 if (($customer['vat_reason'] ?? null) === 'legacy_unverified') {
                     $vatReview = $review = true; // today's money for a row written before the check, until onhost:vat:verify --apply
                     $reasons[] = 'VAT ID valid only by a record from before the VIES check — review';
+                }
+                if ((bool) ($customer['vat_name_mismatch'] ?? false)) {
+                    $vatReview = $review = true; // the verdict stands, finance looks at who holds the number (TASK-0031 review round 1)
+                    $reasons[] = 'VAT ID valid in VIES but registered to another trader name (name_mismatch) — review';
                 }
             } else {
                 if ($class === 'b2b' && $vatStatus !== 'valid') {

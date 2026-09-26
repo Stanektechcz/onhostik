@@ -9,9 +9,12 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerCommission;
 use Onhost\Domain\Partners\Models\PartnerPayout;
+use Onhost\Domain\Partners\PartnerPresenters;
 use Onhost\Domain\Partners\PartnerService;
 use Onhost\Domain\Tax\Commands\RecordVatCheckCommand;
 use Onhost\Domain\Tax\Models\TaxRuleVersion;
+use Onhost\Domain\WalletLedger\Models\LedgerAccount;
+use Onhost\Domain\WalletLedger\Models\LedgerPosting;
 use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -104,4 +107,64 @@ it('never rewrites a payout document already issued when the VAT status changes'
 
     $org->fresh()->forceFill(['vat_status' => 'invalid'])->save();
     expect($payout->fresh()->self_billing)->toBe($before);
+});
+
+/** The ledger lines of one transaction as `account:direction => minor`. */
+function vatPartnerPostings(?string $transactionId): array
+{
+    return LedgerPosting::query()->where('transaction_id', (string) $transactionId)->get()
+        ->mapWithKeys(fn (LedgerPosting $p) => [LedgerAccount::query()->findOrFail($p->account_id)->code.':'.$p->direction => (int) $p->amount_minor])->all();
+}
+
+/*
+ * Review round 1 (billing, HIGH): the self-billing document of a VAT-payer partner says net + 21 %, but the payment posted and
+ * paid only the net — the partner owed output VAT on money it never received, and ONhost's ledger had no input VAT for a
+ * document it books. The transfer is the document's total; the VAT is booked against the VAT account.
+ */
+it('pays a VAT-payer partner the total of its self-billing document and books the input VAT', function () {
+    [, $org] = $this->customerWithOrganization([], ['name' => 'Agentura Pixel s.r.o.', 'country' => 'CZ', 'dic' => 'CZ12345678']);
+    vatPartnerRecordValid($org, 'CZ12345678');
+    $partners = app(PartnerService::class);
+    $payout = vatPartnerPayout(vatPartnerWithBalance($org->fresh()));
+    $partners->approvePayout($payout, CommandContext::system('test'));
+
+    $paid = $partners->markPayoutPaid($payout->fresh(), 'BANK-VAT-1', CommandContext::system('test'));
+    expect(vatPartnerPostings($paid->ledger_transaction_id))->toBe([
+        'expense:partner_commission:CZK:debit' => 100000,
+        'liability:vat:CZK:debit' => 21000,
+        'asset:bank:bank:CZK:credit' => 121000,
+    ]);
+    expect(PartnerPresenters::payout($paid)['transfer']->minor)->toBe(121000);
+});
+
+it('pays a partner without VAT, and one under reverse charge, exactly the commission', function (string $country, array $org) {
+    [, $organization] = $this->customerWithOrganization([], $org + ['country' => $country]);
+    if (isset($org['vat_id'])) {
+        vatPartnerRecordValid($organization, $org['vat_id']);
+    }
+    $partners = app(PartnerService::class);
+    $payout = vatPartnerPayout(vatPartnerWithBalance($organization->fresh()));
+
+    $paid = $partners->markPayoutPaid($payout, 'BANK-VAT-2', CommandContext::system('test'));
+    expect(vatPartnerPostings($paid->ledger_transaction_id))->toBe([
+        'expense:partner_commission:CZK:debit' => 100000,
+        'asset:bank:bank:CZK:credit' => 100000,
+    ]);
+    expect(PartnerPresenters::payout($paid)['transfer']->minor)->toBe(100000);
+})->with([
+    'not a VAT payer' => ['CZ', ['name' => 'Jan Novák', 'type' => 'person']],
+    'reverse charge' => ['SK', ['name' => 'Agentúra s.r.o.', 'vat_id' => 'SK1234567890']],
+]);
+
+/*
+ * Review round 1 (QA, HIGH): a row from before the VIES check that says `payer` (source NULL) keeps self-billing VAT until the
+ * operator re-checks it (owner rule: no mass change of existing partners' money).
+ */
+it('keeps VAT on a legacy payer row with no source until the operator re-checks it', function () {
+    [, $org] = $this->customerWithOrganization([], ['name' => 'Legacy Partner s.r.o.', 'country' => 'CZ', 'dic' => 'CZ27076551']);
+    $org->forceFill(['vat_status' => 'payer', 'vat_status_source' => null])->save();
+
+    $snapshot = vatPartnerPayout(vatPartnerWithBalance($org->fresh()))->self_billing;
+    expect((float) $snapshot['tax_rate'])->toBe(21.0)->and($snapshot['tax_category'])->toBe('S')->and(data_get($snapshot, 'total.minor'))->toBe(121000)
+        ->and($snapshot['vat_check']['source'])->toBeNull()->and($snapshot['vat_check']['stored_status'])->toBe('payer');
 });

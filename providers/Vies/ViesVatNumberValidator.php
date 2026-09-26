@@ -40,6 +40,9 @@ final class ViesVatNumberValidator implements VatNumberValidator
     {
         $country = strtoupper(trim($countryCode));
         $country = $country === 'GR' ? 'EL' : $country; // VIES knows Greece only as EL
+        // our own quota before VIES's (review round 1): a flood of guest checkouts must not get our address or requester blocked
+        // at VIES — that would end reverse charge for every customer. Beyond it the answer is unknown (destination VAT, retry).
+        $this->http->configureBucket(self::PROVIDER, max(1, (int) config('onhost.vies.per_minute', 150)), 60);
         try {
             $response = $this->http->send(new ProviderRequest(
                 provider: self::PROVIDER,

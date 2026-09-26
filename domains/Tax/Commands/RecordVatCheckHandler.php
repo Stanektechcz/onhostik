@@ -48,9 +48,15 @@ final class RecordVatCheckHandler implements CommandHandler
             return ['recorded' => false, 'reason' => 'number_changed'];
         }
 
-        $previous = VatStanding::effectiveStatus($organization);
-        $source = $command->get('source') === 'format' ? 'format' : 'vies';
         $trigger = mb_substr((string) $command->get('trigger', 'operator'), 0, 40);
+        $standing = VatStanding::standing($organization);
+        if ($standing['reason'] === 'staff_override' && $trigger !== 'operator') {
+            // the second line behind VatNumberChecks (review round 1): only the operator's explicit check replaces a staff override
+            return ['recorded' => false, 'reason' => 'staff_override'];
+        }
+        $previous = $standing['status'];
+        $previousSource = $organization->vat_status_source;
+        $source = $command->get('source') === 'format' ? 'format' : 'vies';
         $validation = VatValidation::query()->create([
             'organization_id' => $organization->id,
             'vat_id' => $number,
@@ -80,7 +86,7 @@ final class RecordVatCheckHandler implements CommandHandler
         $result = VatStanding::effectiveStatus($organization);
 
         $this->outbox->publish(GenericEvent::of('tax.vat_number.checked', 'organization', $organization->id, [
-            'result' => $status, 'previous' => $previous, 'changed' => $previous !== $result, 'effective' => $result, 'source' => $source, 'trigger' => $trigger,
+            'result' => $status, 'previous' => $previous, 'previous_source' => $previousSource, 'changed' => $previous !== $result, 'effective' => $result, 'source' => $source, 'trigger' => $trigger,
             'country' => $subject->toIsoCountry(), 'number_hint' => $subject->hint(), 'consultation_number' => $validation->consultation_number,
         ], $organization->id));
 

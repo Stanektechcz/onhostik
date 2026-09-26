@@ -6,6 +6,7 @@ use Database\Seeders\TaxRuleSeeder;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Provisioning\AutomationLedger;
 
 /*
  * TASK-0031 WP A (D31.8): the doctor says whether the VIES check is on and configured, how many EU business customers with
@@ -43,11 +44,27 @@ it('prints the four VIES rows and calls nobody', function () {
     Http::assertNothingSent();
 });
 
-it('shows the rows green when VIES is configured, answered today and nobody waits', function () {
+it('shows the rows green when VIES is configured with its monthly re-check, answered today and nobody waits', function () {
     config(['onhost.vies.enabled' => true, 'onhost.vies.requester_vat_id' => 'CZ12345678']);
+    app(AutomationLedger::class)->setEnabled('tax.vies_recheck', true, 'test');
 
     $rows = vatDoctorRows();
 
     expect(array_column($rows, 'status'))->toBe(['OK', 'OK', 'OK', 'OK']);
+    Http::assertNothingSent();
+});
+
+/*
+ * Review round 1 (billing, MEDIUM): with VIES on and the re-check off, every customer verified at the order loses reverse charge at
+ * its first renewal more than 30 days later — the go-live switch and the rule belong together, so the row is not green before
+ * any customer has lapsed.
+ */
+it('warns while VIES is on and the monthly re-check is off, before anybody has lapsed', function () {
+    config(['onhost.vies.enabled' => true, 'onhost.vies.requester_vat_id' => 'CZ12345678']);
+
+    $rows = vatDoctorRows();
+    $last = $rows[array_keys($rows)[3]];
+
+    expect($last['status'])->toBe('WARN')->and($last['detail'])->toContain('tax.vies_recheck')->toContain('renewal');
     Http::assertNothingSent();
 });

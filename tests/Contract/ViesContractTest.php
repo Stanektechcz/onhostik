@@ -155,3 +155,19 @@ it('answers unknown with the switch off, and the contract resolves to the switch
     expect(app(VatNumberValidator::class))->toBeInstanceOf(ViesVatNumberValidator::class);
     Http::assertNothingSent();
 });
+
+/*
+ * Review round 1 (security, LOW): the `vies` bucket had no quota — every guest checkout makes a new organization and one call,
+ * and a flood could get the platform's address or requester blocked at VIES (IP_BLOCKED / VAT_BLOCKED switch reverse charge off
+ * for everybody). A local quota refuses before VIES is reached, and a refused call is an unknown answer, never a verdict.
+ */
+it('keeps to its own per-minute quota and answers unknown beyond it without calling VIES', function () {
+    config(['onhost.vies.per_minute' => 2]);
+    vatViesAnswer(['countryCode' => 'DE', 'vatNumber' => '123456789', 'valid' => true, 'requestIdentifier' => 'WAPIQUOTA', 'name' => 'ACME GmbH', 'address' => 'Berlin']);
+
+    $results = array_map(fn () => vatViesValidator()->check('DE', '123456789', 8), [1, 2, 3]);
+
+    expect($results[0]->status)->toBe('valid')->and($results[1]->status)->toBe('valid')
+        ->and($results[2]->status)->toBe('unknown')->and($results[2]->retryable)->toBeTrue();
+    Http::assertSentCount(2);
+});

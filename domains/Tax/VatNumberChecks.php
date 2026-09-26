@@ -40,6 +40,11 @@ final class VatNumberChecks
         if (! (bool) config('onhost.vies.enabled', false)) {
             return 'skipped';
         }
+        if ($trigger !== 'operator' && VatStanding::standing($organization)['reason'] === 'staff_override') {
+            // a four-eyes decision holds until it ends (review round 1): a customer re-saving the form, a checkout or the monthly
+            // re-check must not let a VIES answer replace it — finance set "invalid" precisely because VIES says "valid"
+            return 'skipped';
+        }
         $subject = VatStanding::subject($organization);
         if ($subject === null || ! $subject->isEuPrefixed() || ! in_array(strtoupper((string) $organization->country), VatNumber::euMembers(), true)) {
             return 'skipped';

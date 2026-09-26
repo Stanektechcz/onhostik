@@ -91,3 +91,22 @@ it('refuses an override without a reason or evidence, or for a number that canno
     $this->postJson("/v1/staff/customers/{$swiss->id}/vat-status", vatOverrideBody())->assertUnprocessable()->assertJsonPath('error', 'vat_country_not_eu');
     expect(VatValidation::query()->count())->toBe(0);
 });
+
+/*
+ * Review round 1 (QA, MEDIUM): the route reuses billing.tax_rule.manage. A bearer token of a finance person — even one with
+ * every scope, even with the person's own fresh step-up and with one operator (no four eyes) — must never set the status:
+ * a CRITICAL command is not dispatched from a token.
+ */
+it('refuses the override from a bearer API token even with every scope and the owner\'s fresh step-up', function (bool $fourEyes) {
+    config(['onhost.identity.four_eyes' => $fourEyes]);
+    [, $org] = $this->customerWithOrganization([], ['name' => 'ACME GmbH', 'country' => 'DE', 'vat_id' => 'DE123456789']);
+    $finance = $this->staff('billing_finance_admin');
+    app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
+    $plain = $finance->createToken('finance export', ['*'])->plainTextToken;
+    $this->app['auth']->forgetGuards();
+
+    // today the token is stopped before the bus (`access_not_approved`: staff routes are not for tokens); whatever TASK-0030's scope
+    // map makes of that, the answer must stay a refusal and nothing may be written
+    $this->withHeader('Authorization', "Bearer {$plain}")->postJson("/v1/staff/customers/{$org->id}/vat-status", vatOverrideBody())->assertForbidden();
+    expect(VatValidation::query()->count())->toBe(0)->and($org->fresh()->vat_status_source)->toBeNull();
+})->with(['four eyes' => true, 'one operator' => false]);

@@ -24,7 +24,8 @@ final class PartnerPresenters
     public static function payout(PartnerPayout $p): array
     {
         return [
-            'id' => $p->id, 'number' => $p->number, 'partner_id' => $p->partner_id, 'amount' => Money::minor($p->amount_minor, $p->currency), 'method' => $p->method, 'state' => $p->state,
+            // `transfer` is what finance sends: the self-billing document's total, VAT included for a VAT-payer partner (TASK-0031)
+            'id' => $p->id, 'number' => $p->number, 'partner_id' => $p->partner_id, 'amount' => Money::minor($p->amount_minor, $p->currency), 'transfer' => $p->transferAmount(), 'method' => $p->method, 'state' => $p->state,
             'iban_masked' => $p->iban ? substr($p->iban, 0, 4).'…'.substr($p->iban, -4) : null, 'self_billing' => $p->self_billing, 'payment_reference' => $p->payment_reference, 'note' => $p->note,
             'requested_at' => $p->requested_at?->toIso8601String(), 'paid_at' => $p->paid_at?->toIso8601String(),
         ];

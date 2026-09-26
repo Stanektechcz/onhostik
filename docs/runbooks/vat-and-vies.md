@@ -26,8 +26,16 @@ and under it both VAT IDs and the VIES consultation number) only when **all** of
 
 Everything else is charged exactly as before TASK-0031: Czech customers pay Czech VAT, consumers and unverified businesses
 pay the VAT of their country (OSS). When a VAT ID was given but is not verified now, the quote, order, invoice and tax
-calculation carry `vat_review: true` for finance. No customer notification is sent for the flag (the customer's own quote
-response does carry it in `versions`).
+calculation carry `vat_review: true` for finance. The flag and the evidence (`versions.vat`) are staff-facing: no customer
+notification is sent for them, and the customer's own cart quote answer carries neither (the stored quote, the order and the
+invoice do).
+
+**Somebody else's number.** Anybody can type a valid VAT number of a real company. When VIES discloses the trader's name and it
+is not the organization's name (compared without case, accents, punctuation, legal form and joining words), the verdict
+stays `valid` and reverse charge applies, but the quote, the order, the invoice and the tax calculation carry `vat_review`
+(reason `name_mismatch`), and `onhost:vat:verify` lists the organization in the group `name_mismatch` (never asked again —
+VIES would say the same). Finance decides; a staff override to `invalid` is the way to stop it (it holds, see below).
+Several member states (e.g. DE) do not disclose the name: nothing is compared there.
 
 What the customer pays when **VIES is down**: the VAT of their country, with `vat_review`. The public article says so in
 one sentence ("Dokud DIČ ve VIES ověřené není (třeba když VIES zrovna neodpovídá), účtujeme DPH vaší země."). There is no
@@ -51,8 +59,17 @@ cannot be one (wrong length or characters) is recorded `invalid` from its shape,
 | Every day at 04:20, if switched on | rule `tax.vies_recheck` → `onhost:vat:recheck`: re-checks VIES-valid numbers older than 25 days so reverse charge does not lapse. **Default off.** It does not touch legacy rows | 8 s | system |
 | When the operator runs it | `onhost:vat:verify` (below) | 8 s | operator |
 
-An answer that says nothing (VIES or the member state down, busy, breaker open, our requester refused) writes nothing and
-publishes nothing: the organization keeps what it had. A verdict (`valid`/`invalid`) is recorded through
+An answer that says nothing (VIES or the member state down, busy, breaker open, our requester refused, our own quota spent)
+writes nothing and publishes nothing: the organization keeps what it had.
+
+Our own ceiling: at most `ONHOST_VIES_PER_MINUTE` (150) calls a minute, all triggers together (the provider bucket `vies`).
+Beyond it a number stays unknown for now — destination VAT, asked again later — so a flood of guest checkouts cannot get our
+address or requester blocked at VIES (`IP_BLOCKED` / `VAT_BLOCKED` would end reverse charge for everybody).
+
+The same number queued twice (registration and an immediate organization update): the second job finds the first one's
+answer (a number checked in the last hour is not asked again) and makes no call. Two jobs that run truly at the same time,
+before either has recorded, can both ask — two calls for one number, bounded by the quota; the row lock and the number match
+keep one consistent state. That is accepted rather than a lock around an eight-second HTTP call. A verdict (`valid`/`invalid`) is recorded through
 `RecordVatCheckCommand` (system actor only; nobody can declare their own number valid), as a `vat_validations` row
 (number, status, consultation number, name and address as VIES returned them, requester VAT ID, time) and on the
 organization (`vat_checked_at`, `vat_checked_number`, `vat_consultation_number`, `vat_validation_id`,
@@ -78,9 +95,13 @@ Options: `--limit=200`, `--organization=<id>` (repeatable), `--country=DE` (repe
 `--since=Y-m-d` for the documents.
 
 1. **Organizations** a check would decide: EU business numbers never checked, VIES answers older than 30 days, and legacy
-   rows (`valid`/`payer` without a source), each with how they are charged today and what `--apply` would do.
+   rows (`valid`/`payer` without a source), each with how they are charged today and what `--apply` would do; and, for
+   finance only, valid numbers VIES registers to another name (`name_mismatch`, not asked again). An organization under a
+   staff override is never listed and never asked (the override holds until it ends).
 2. **Documents for the accountant**: invoices already issued **with VAT** to EU business customers of another member state
    who had given a VAT ID (the same predicate as the `vat_review` flag on new documents). They are listed, never changed.
+   In the CSV a cell the customer typed that starts with `=`, `+`, `-` or `@` is written with a leading apostrophe, so a
+   spreadsheet shows it as text instead of running it.
 
 Go-live order: switch VIES on, run the dry run, give the CSV to the accountant, and only then `--apply`.
 
@@ -97,6 +118,12 @@ VIES has been down for days, or the customer proves the registration another way
 * Only a number of an EU member state can be overridden.
 * It writes a `vat_validations` row (source `staff`, reason, evidence, actor, `expires_at`), an audit record
   `tax.vat_status.override`, and the event with `source: staff`. It never writes the customer class or an issued document.
+* It **holds until it ends**: a customer re-saving the same number, a checkout and the monthly re-check ask VIES nothing and
+  record nothing over it (`VatNumberChecks` skips, `RecordVatCheckHandler` refuses `staff_override`); only an explicit
+  operator check replaces it, and its event then says `previous_source: staff`. A new number, or a removed one, ends the
+  override (the evidence belongs to one number).
+* It counts for **one number of one country**: an override to `valid` for a DE number does not reverse-charge once the
+  organization's country is AT (`vat_country_mismatch`), the same rule as a VIES answer.
 * It **ends by itself** after `days`. The standing then reads `unknown` (`override_expired`) until VIES answers or staff
   confirm again with a new override. The invoice under an override prints "registrace k DPH doložena mimo VIES" instead of
   the VIES line.
@@ -115,7 +142,12 @@ The self-billing document (the partner's commission invoice issued by us) uses t
 | anybody else | 0 % | `E` | Dodavatel není plátcem DPH. |
 
 A missing standard rate is refused with `409 tax_rate_missing` **before** a payout or a document is written; the rate is
-never guessed. Payout documents already issued are not changed. For self-billing, registration does not lapse: no 30-day
+never guessed.
+
+What is paid is the document's **total**: for a VAT-payer partner net + VAT (the payout's `transfer`, shown next to `amount`,
+the commission). Marking it paid posts: commission expense (net, debit), `liability:vat` (the VAT, debit — input VAT from the
+self-billed document), bank or offset (the total, credit). Reverse charge and non-payers are paid the net as before. Payouts
+requested before this change carry their own snapshot and are paid what it says. Payout documents already issued are not changed. For self-billing, registration does not lapse: no 30-day
 freshness applies.
 
 Edge case for the accountant: an *identifikovaná osoba* (registered for VAT only for cross-border services) has a DIČ that
@@ -128,18 +160,20 @@ VIES confirms, but it is not a VAT payer for domestic supplies. The code treats 
 | VIES checks are on and the requester VAT ID is set | `ONHOST_VIES_ENABLED=false`, or `ONHOST_VIES_REQUESTER_VAT_ID` empty or not a Czech VAT ID (VIES then answers without a consultation number) |
 | no EU business customer with a VAT ID waits for a VIES answer | N organizations charged destination VAT with a review flag, M legacy rows; `onhost:vat:verify` lists them |
 | VIES answered recently | no VIES answer in 7 days while customers wait (VIES down, our requester or IP refused, the breaker open) |
-| no reverse charge lapses while tax.vies_recheck is off | VIES-valid organizations checked more than 25 days ago; switch the rule on or run `--apply` |
+| no reverse charge lapses while tax.vies_recheck is off | VIES is on and the rule is off (red before anybody lapses: a customer verified at the order pays destination VAT from its first renewal more than 30 days later), or VIES-valid organizations checked more than 25 days ago; switch the rule on |
 
 ## Switching it on (go-live)
 
 1. `.env`: `ONHOST_VIES_ENABLED=true`, `ONHOST_VIES_REQUESTER_VAT_ID=CZ<our DIČ>`. Optional: `ONHOST_VIES_TIMEOUT` (8),
-   `ONHOST_VIES_CHECKOUT_TIMEOUT` (5), `VIES_ENDPOINT`. The binding is resolved per call from the configuration; with a cached
+   `ONHOST_VIES_CHECKOUT_TIMEOUT` (5), `ONHOST_VIES_PER_MINUTE` (150), `VIES_ENDPOINT`. The binding is resolved per call from the configuration; with a cached
    configuration run `php artisan config:cache` again, and restart the queue workers so they read it.
-2. `php artisan onhost:doctor`: area `tax`, the first row green.
+2. Switch on `tax.vies_recheck` (staff console → Automatizace, fresh step-up) **together with** the switch — required, not a
+   choice: renewals, usage and domain renewals judge the 30 days at issue and never ask VIES themselves, so without the rule
+   every customer verified at the order is charged destination VAT (from the wallet) at the first renewal more than 30 days
+   later. `php artisan onhost:doctor`: area `tax`, the first and the last row green.
 3. A test quote for a DE business customer with a verified VAT ID shows reverse charge (`AE`, 0 %).
 4. `php artisan onhost:vat:verify --csv=…` (dry run); the accountant reviews the organizations and the documents.
-5. `php artisan onhost:vat:verify --apply`; decide whether to switch on `tax.vies_recheck` (staff console → Automatizace,
-   fresh step-up).
+5. `php artisan onhost:vat:verify --apply`; then the dry run again: the `name_mismatch` group goes to finance.
 
 To switch it off again: `ONHOST_VIES_ENABLED=false`. Nothing is asked any more; recorded answers stay and keep counting until
 their 30 days run out, after which those customers pay destination VAT with the review flag.

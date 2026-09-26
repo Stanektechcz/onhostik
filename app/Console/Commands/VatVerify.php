@@ -21,7 +21,8 @@ use Throwable;
  * The operator's way to bring existing customers under the VIES check (TASK-0031, D31.3d). A dry run by default: it makes
  * no HTTP call and writes nothing. Part 1 lists the organizations whose standing a check would decide — an EU business
  * number never checked, a VIES answer too old to count, a row from before the check (legacy `valid`/`payer`) — with how
- * they are charged today. Part 2, for the accountant, lists the documents already issued with VAT to EU business customers
+ * they are charged today, and those whose valid number VIES registers to another trader name (`name_mismatch`, review round 1:
+ * listed for finance, never re-asked — VIES would say the same). Part 2, for the accountant, lists the documents already issued with VAT to EU business customers
  * of another member state who had given a VAT ID; they are never changed (corrections are the accountant's decision and
  * new documents). `--apply` asks VIES about part 1 and records the answers through the bus.
  */
@@ -49,6 +50,11 @@ final class VatVerify extends Command
             $counts = ['valid' => 0, 'invalid' => 0, 'unknown' => 0, 'skipped' => 0];
             $pause = max(0, (int) $this->option('pause-ms'));
             foreach ($candidates as $i => $candidate) {
+                if ($candidate['group'] === 'name_mismatch') {
+                    $counts['skipped']++; // a person looks at who holds the number; asking VIES again tells nothing new
+
+                    continue;
+                }
                 if ($i > 0 && $pause > 0) {
                     usleep($pause * 1000);
                 }
@@ -73,7 +79,7 @@ final class VatVerify extends Command
         return self::SUCCESS;
     }
 
-    /** @return list<array{organization:Organization, row:list<string>}> */
+    /** @return list<array{organization:Organization, group:string, row:list<string>}> */
     private function candidates(): array
     {
         $query = VatHealth::open()->where(fn ($q) => $q->where(fn ($v) => $v->whereNotNull('vat_id')->where('vat_id', '!=', ''))->orWhere(fn ($d) => $d->whereNotNull('dic')->where('dic', '!=', '')));
@@ -99,10 +105,10 @@ final class VatVerify extends Command
                 continue;
             }
             $standing = VatStanding::standing($organization);
-            $out[] = ['organization' => $organization, 'row' => [
+            $out[] = ['organization' => $organization, 'group' => $group, 'row' => [
                 $organization->id, mb_substr((string) $organization->name, 0, 40), (string) $organization->country, $subject->value, (string) $organization->vat_status,
                 $standing['status'].' ('.$standing['reason'].')', $group, $organization->vat_checked_at?->toDateString() ?? '—', self::treatment($organization),
-                $apply ? '' : ($subject->isWellFormed() ? 'check in VIES' : 'record invalid (malformed, no call)'),
+                $apply ? '' : ($group === 'name_mismatch' ? 'nothing (finance: VIES names another trader)' : ($subject->isWellFormed() ? 'check in VIES' : 'record invalid (malformed, no call)')),
             ]];
             if (count($out) >= $limit) {
                 break;
@@ -122,7 +128,11 @@ final class VatVerify extends Command
             return 'stale';
         }
 
-        return VatStanding::needsCheck($organization) ? 'unchecked' : null;
+        if (VatStanding::needsCheck($organization)) {
+            return 'unchecked';
+        }
+
+        return VatStanding::effectiveStatus($organization) === VatStanding::VALID && VatStanding::nameMismatch($organization) ? 'name_mismatch' : null;
     }
 
     /** How the organization is charged today, in the words of the tax decision. */
@@ -183,6 +193,15 @@ final class VatVerify extends Command
         }
     }
 
+    /**
+     * A cell a spreadsheet would run as a formula — a buyer name or a VAT ID the customer typed, starting with = + - or @ — is
+     * written as text, with a leading apostrophe: the rule of Staff\CustomerController::csvCell (review round 1).
+     */
+    private static function csvCell(string $value): string
+    {
+        return $value !== '' && preg_match('/^[\s]*[=+\-@]/', $value) === 1 ? "'".$value : $value;
+    }
+
     /** @param list<list<string>> $rows */
     private function csv(array $rows): string
     {
@@ -192,7 +211,7 @@ final class VatVerify extends Command
         }
         fputcsv($handle, ['number', 'issued_at', 'organization', 'country', 'vat_id', 'tax'], ',', '"', '');
         foreach ($rows as $row) {
-            fputcsv($handle, $row, ',', '"', '');
+            fputcsv($handle, array_map(self::csvCell(...), $row), ',', '"', '');
         }
         rewind($handle);
         $csv = (string) stream_get_contents($handle);
