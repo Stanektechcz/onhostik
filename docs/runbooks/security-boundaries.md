@@ -52,10 +52,12 @@ public — no loopback, private, link-local, CGNAT, multicast; local names such 
   token answers `step_up_required`. A token request is `token:<id>` whatever it carries: an Origin/Referer of a stateful
   domain makes Sanctum start a session for a bearer request, and `ApiContext::sessionId()` asks the token first.
 * **A token is asked for what the action does** on `POST /v1/services/{id}/actions` (`permissionFor` → TokenScopes, at the
-  route and in the controller): a console command needs `services:console` alone, a restart `services:power`. The route
-  and the controller ask without the action's params; the dispatch (`ApiController::dispatch`) asks the payload-aware
-  permission, so a schedule with a console command is refused to a `services:power` token there (and, for now, to a
-  console-only token too). Spec apply asks the same map for every step (`ServiceSpecService::tokenMay`, §26).
+  route and in the controller): a console command needs `services:console` alone, a restart `services:power`. The route,
+  the controller and the dispatch (`ApiController::dispatch`) all ask with the action's params, so a schedule with a
+  console command needs `services:console` at each of them: a `services:power` or read-only token is refused it already at
+  the route, a console-only token gets it (closed at the stack polish, TASK-0030 LOW; before, the route and the controller
+  asked without the params and saw such a schedule as managing). Spec apply asks the same map for every step
+  (`ServiceSpecService::tokenMay`, §26).
 * **Archives and dumps are not available to tokens:** `backup.download` (final archive, backup download) is `null` in the
   map. A `services:power` token can still read and write site files one by one (`GET …/files/download` is `service.manage`),
   so a power token is as sensitive as the site's credentials.

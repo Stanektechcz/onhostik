@@ -117,10 +117,10 @@ numbers.
 - Family permissions in the day-to-day actions (D29.8), four eyes for staff deletion of customer copies, `site.delete`
   asking `service.delete`, `monitoring.set` in hooks/Discord, `schedule.toggle`/`schedule.run` of an owner's console
   schedule, code execution through `service.manage` (cron, files, deploy hooks, game files and variables).
-- Tokens: `ServiceController::fileDownload` still asks `service.manage` (a power token reads site files one by one); the
-  route layer (`TokenRouteScope`, `ServiceController::action`) calls `permissionFor($action)` without the params, so a
-  console-only token is refused a console schedule on `/actions` (the dispatch still refuses a power-only one); a stored
-  `*` ability would pass every scope (no path mints one today).
+- Tokens: `ServiceController::fileDownload` still asks `service.manage` (a power token reads site files one by one); a
+  stored `*` ability would pass every scope (no path mints one today). (Closed at the stack polish: the route layer —
+  `TokenRouteScope`, `ServiceController::action` — now asks `permissionFor($action, $params)`, so a console schedule takes
+  `services:console` at the route too and a console-only token gets it on `/actions`.)
 - VAT: a per-IP limit on guest checkouts with a VAT number; paying self-billing VAT only to the account published for the
   DIČ (§109 ZDPH, needs a new provider); the erasure policy for `vat_validations`; the qualifier in the prototype's
   `onhost-content.js`.

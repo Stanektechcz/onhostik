@@ -64,10 +64,12 @@ final class TokenRouteScope
             // the generic action endpoint is decided by what the action is, through the same map the bus uses: the console's
             // commands need services:console and nothing else, a restart services:power (TASK-0030 review round 1 — a
             // console-only token was told it lacked services:power on the very commands its scope exists for). An unknown word
-            // keeps services:power and meets the controller's validator, the answer it always had
+            // keeps services:power and meets the controller's validator, the answer it always had. The params go along: a
+            // schedule with a `command` task is the console here too, not only at the dispatch (TASK-0030 LOW, closed at the
+            // stack polish — without them a console-only token was refused a console schedule, and a power-only one passed)
             $action = $request->input('action');
             if (is_string($action) && in_array($action, ServiceActionWorkflow::ACTIONS, true)) {
-                $needed = TokenScopes::for(ServiceActionCommand::permissionFor($action));
+                $needed = TokenScopes::for(ServiceActionCommand::permissionFor($action, (array) $request->input('params', [])));
             }
             if ($needed === null) {
                 throw DomainError::forbidden('This action is not available to API tokens; use the portal.');

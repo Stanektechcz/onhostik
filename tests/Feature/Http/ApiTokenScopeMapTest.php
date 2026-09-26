@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Middleware\TokenRouteScope;
 use App\Http\Support\ApiContext;
 use Database\Seeders\CatalogSeeder;
 use Database\Seeders\DnsTemplateSeeder;
@@ -439,6 +440,54 @@ it('lets a console token schedule a console command through spec apply, and refu
     $refused = app(ServiceSpecService::class)->apply($game->fresh(), $backupOnly, $gone, 'tok-spec-gone');
     expect($refused['skipped'])->toBe([['section' => 'schedules', 'reason' => 'token_scope:schedule.create']])
         ->and($refused['operations'])->toBe([]);
+});
+
+it('decides a console schedule on /actions by what it schedules, at the route as at the dispatch', function () {
+    // TASK-0030 LOW, closed at the stack polish (TASK-0027): TokenRouteScope and ServiceController::action asked
+    // permissionFor($action) without the params, so the route layer saw a schedule with a `command` task as service.manage.
+    // Red: a token holding only services:console was refused the console schedule it exists for ("lacks the services:power
+    // scope"), and the route let a power-only token through to the dispatch, which alone refused it
+    [$owner, $org] = $this->customerWithOrganization();
+    $game = featureGameService($org);
+    Http::fake(fn () => Http::response(['object' => 'list', 'data' => [], 'meta' => ['pagination' => ['total_pages' => 1]]]));
+    $headers = ['X-Organization' => $org->id];
+    $console = ['action' => 'schedule.create', 'params' => ['name' => 'konzole', 'cron' => '0 3 * * *', 'actions' => [['action' => 'command', 'payload' => 'save-all']]]];
+    $backup = ['action' => 'schedule.create', 'params' => ['name' => 'zaloha', 'cron' => '0 4 * * *', 'actions' => [['action' => 'backup', 'payload' => '']]]];
+
+    // (1) the route layer on its own — its defence in depth no longer rests on the dispatch
+    $route = function (array $scopes, array $body) use ($owner, $game): string {
+        $request = Request::create("/v1/services/{$game->id}/actions", 'POST', $body);
+        $user = $owner->fresh();
+        $user->withAccessToken($user->createToken('route', $scopes)->accessToken);
+        $request->setUserResolver(fn () => $user);
+        try {
+            app(TokenRouteScope::class)->handle($request, fn () => response('passed'));
+
+            return 'passed';
+        } catch (DomainError $e) {
+            return $e->getMessage();
+        }
+    };
+    expect($route(['services:read', 'services:power'], $console))->toBe('The API token lacks the services:console scope.')
+        ->and($route(['services:read'], $console))->toBe('The API token lacks the services:console scope.')
+        ->and($route(['services:console'], $console))->toBe('passed')
+        ->and($route(['services:read', 'services:power'], $backup))->toBe('passed') // a power or backup task stays managing
+        ->and($route(['services:console'], $backup))->toBe('The API token lacks the services:power scope.');
+
+    // (2) through HTTP: read-only and power-only tokens are refused the console schedule, nothing is queued
+    foreach (['read' => ['services:read'], 'power' => ['services:read', 'services:power']] as $label => $scopes) {
+        app('auth')->forgetGuards();
+        $response = $this->withToken(tokenScopeBearer($owner, $org, $scopes))->postJson("/v1/services/{$game->id}/actions", $console, $headers + ['Idempotency-Key' => "sched-{$label}"]);
+        expect($response->status())->toBe(403, "{$label}: {$response->status()} {$response->json('message')}")
+            ->and($response->json('message'))->toBe('The API token lacks the services:console scope.');
+    }
+    expect(Operation::query()->where('service_id', $game->id)->exists())->toBeFalse();
+
+    // (3) a token holding only services:console gets past every scope check and the schedule is queued as a console action
+    app('auth')->forgetGuards();
+    $only = $this->withToken(tokenScopeBearer($owner, $org, ['services:console']))->postJson("/v1/services/{$game->id}/actions", $console, $headers + ['Idempotency-Key' => 'sched-console-only']);
+    expect($only->status())->toBe(202, "console-only: {$only->status()} {$only->json('message')}")
+        ->and(Operation::query()->where('service_id', $game->id)->sole()->authorized_permission)->toBe('service.console');
 });
 
 it('decides a token scope for every permission the service action map can ask', function () {

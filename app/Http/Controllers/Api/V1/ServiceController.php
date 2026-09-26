@@ -104,9 +104,10 @@ final class ServiceController extends ApiController
         // the person finds the service as a reader. A console command asks the token for the console alone, as TokenRouteScope
         // did — a console-only token runs the console's commands without services:read (TASK-0030 review round 1); every other
         // action keeps asking the token for services:read here and for its own scope at the dispatch, as before
-        // Only a known action is asked about: an unknown word is the validator's answer below, not the map's (TASK-0029's map refuses one)
+        // Only a known action is asked about: an unknown word is the validator's answer below, not the map's (TASK-0029's map refuses one).
+        // With the params, as the bus asks: a schedule with a `command` task is a console command (TASK-0030 LOW, stack polish)
         $requested = $action ?? (is_string($request->input('action')) ? (string) $request->input('action') : '');
-        $console = in_array($requested, ServiceActionWorkflow::ACTIONS, true) && ServiceActionCommand::permissionFor($requested) === 'service.console' ? 'service.console' : null;
+        $console = in_array($requested, ServiceActionWorkflow::ACTIONS, true) && ServiceActionCommand::permissionFor($requested, (array) $request->input('params', [])) === 'service.console' ? 'service.console' : null;
         $model = $this->resolve($request, $service, 'service.read', $console);
         $data = $request->validate(['action' => [$action === null ? 'required' : 'nullable', 'string', 'in:'.implode(',', ServiceActionWorkflow::ACTIONS)], 'params' => ['nullable', 'array'], 'reason' => ['nullable', 'string', 'max:250'], 'confirm' => ['nullable', 'string', 'size:64']]);
         $action ??= $data['action'];
