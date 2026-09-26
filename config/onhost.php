@@ -115,6 +115,8 @@ return [
         'approval_ttl_hours' => (int) env('ONHOST_APPROVAL_TTL_HOURS', 24),
         // critical staff actions take a second person (ApprovalService). Off = one operator runs the platform alone: set on the server, never from the application
         'four_eyes' => (bool) env('ONHOST_FOUR_EYES', true),
+        // ── TASK-0021 (owner decision 14): a password change revokes the person's personal API tokens, a reset always does. Off = the old "tokens kept" path and its mail
+        'password_change_revokes_api_access' => (bool) env('ONHOST_PASSWORD_CHANGE_REVOKES_API_ACCESS', true),
         'oidc' => [
             'enabled' => (bool) env('OIDC_ENABLED', false),
             'issuer' => env('OIDC_ISSUER', 'https://id.onhost.cz/realms/onhost'),
@@ -242,6 +244,10 @@ return [
 
     // chargeback in credit: the share of the unused paid period returned when a customer leaves early (staff change it in the console; this is the default)
     'chargeback' => ['percent' => (int) env('ONHOST_CHARGEBACK_PERCENT', 70), 'cluster_threshold' => (int) env('ONHOST_CHARGEBACK_CLUSTER_THRESHOLD', 3), 'cluster_days' => (int) env('ONHOST_CHARGEBACK_CLUSTER_DAYS', 30)], // clusters of requests per node/product open an internal incident (audit §5j-6)
+    // ── TASK-0025 consumer withdrawal (switched on by the default-off automation rule `billing.withdrawal`): the statutory period has no
+    // override; a registered domain is fully performed; `legal_reviewed` is set on the server once a lawyer has reviewed the mechanism (doctor row) ──
+    'withdrawal' => ['days' => 14, 'excluded_products' => ['domain'], 'legal_reviewed' => (bool) env('ONHOST_WITHDRAWAL_LEGAL_REVIEWED', false)],
+    // ── end TASK-0025 ──
 
     // loyalty programme: points per action, levels with a promo-credit reward on reaching them (staff override the levels in system settings)
     'loyalty' => [
@@ -310,6 +316,12 @@ return [
         ],
         'n_plus_one_sell_ratio' => 0.75,
         'capacity_gate' => (bool) env('ONHOST_CAPACITY_GATE', true), // a server no registered node can take is refused in the cart (H04); off = accept and let provisioning wait
+        // ── TASK-0023 placement-capacity (owner decision 19) ─────────────────────────────────────────────────────────
+        // what a node's room is judged by, per dimension (CapacityBasis): disk becomes `sold` only after an operator read
+        // `php artisan onhost:capacity:basis`; RAM and CPU stay measured. A panel may override with options.capacity_basis.
+        'capacity_basis' => ['disk' => env('ONHOST_CAPACITY_DISK_BASIS', 'measured'), 'ram' => 'measured', 'cpu' => 'measured'],
+        'disk_sell_ratio' => (float) env('ONHOST_DISK_SELL_RATIO', 0.85), // share of a node's disk that may be sold (panel option disk_sell_ratio overrides)
+        // ── end TASK-0023 placement-capacity ─────────────────────────────────────────────────────────────────────────
         'default_region' => env('ONHOST_DEFAULT_REGION', 'cz1'),
         'hostname_suffix' => env('ONHOST_VM_HOSTNAME_SUFFIX', 'cust.onhost.cz'),
         'web_preview_suffix' => env('ONHOST_WEB_PREVIEW_SUFFIX', 'web.onhost.cz'),
@@ -344,6 +356,15 @@ return [
             'disposable_domains' => array_filter(array_map('trim', explode(',', (string) env('ONHOST_ORDER_RISK_DISPOSABLE', 'mailinator.com,guerrillamail.com,10minutemail.com,tempmail.com,temp-mail.org,yopmail.com,sharklasers.com,trashmail.com,dispostable.com,getnada.com,mohmal.com,throwawaymail.com')))),
             'free_mail_domains' => ['gmail.com', 'seznam.cz', 'email.cz', 'centrum.cz', 'post.cz', 'volny.cz', 'atlas.cz', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com', 'protonmail.com', 'proton.me', 'azet.sk', 'zoznam.sk'],
         ],
+        // ── TASK-0021 (owner decision 20): credit is spent by the owner and the billing admin (`billing.wallet.spend`). On: a credit-paid
+        // order (the modes below) of anybody else waits for their approval, and paying from credit at once (an invoice, a domain renewal,
+        // a marketplace order, approving paid support work, an archive download) is refused to them. Off (default) = everything as before.
+        'credit_approval' => [
+            'enabled' => (bool) env('ONHOST_ORDER_CREDIT_APPROVAL', false),
+            'modes' => ['wallet', 'postpaid'],
+            'expire_days' => (int) env('ONHOST_ORDER_CREDIT_APPROVAL_EXPIRE_DAYS', 7), // an order nobody decided is cancelled after this many days
+        ],
+        // ── end TASK-0021 ──
     ],
 
     'wapi' => [
@@ -646,4 +667,60 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
             'payments' => 'Payments', 'portal' => 'Customer Portal/API', 'ai' => 'AI',
         ],
     ],
+
+    // ── TASK-0022 limit-raise (owner decision 8): a paid raise of one limit of one service (domains/Services/Limits) ──
+    'limit_raise' => [
+        // a customer orders a raise in the panel only once this is on (on the server); staff place raises as assisted orders
+        'customer_orders' => (bool) env('ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS', false),
+        'max_units' => 100, // units of the option per raise
+        // v1: no cloud or data — a resize has no node-capacity check yet (and neither vds nor database sells an option)
+        'families' => ['web', 'managed', 'mail', 'game'],
+    ],
+    // every other add-on (ipv4, backups, mail, CDN) renews too — off until the owner decides: see TASK-0022 findings (ending one does not reach the panel/edge)
+    'addon_renewals' => (bool) env('ONHOST_ADDON_RENEWALS', false),
+
+    // ── TASK-0023 metering-core (owner decisions 9 and 12) ──────────────────────────────────────────────────────────
+    // usage samples (service_usage_samples): null = not measured, never 0; retention raw 45 d, daily 400 d, monthly for ever
+    'metering' => [
+        // a metric that never drove anything on a family before (e.g. memory of a managed database) is only observed until this is on
+        'enforce_new_metrics' => (bool) env('ONHOST_METERING_ENFORCE_NEW_METRICS', false),
+        'retention' => [
+            'raw_days' => (int) env('ONHOST_METERING_RAW_DAYS', 45),
+            'daily_days' => (int) env('ONHOST_METERING_DAILY_DAYS', 400),
+            // monthly rows are never pruned
+        ],
+        // ── TASK-0023 web-disk-total (owner decision 10) ──
+        // the plan space counts files + databases + mail together from this date (Y-m-d; empty = never, only shown) and only for
+        // a service told at least notice_min_days before it (onhost:usage:disk-total-notice) or ordered on or after it
+        'web_disk_total' => [
+            'enforce_from' => env('ONHOST_WEB_DISK_TOTAL_ENFORCE_FROM') ?: null,
+            'notice_min_days' => (int) env('ONHOST_WEB_DISK_TOTAL_NOTICE_DAYS', 30),
+            // read ISPConfig database sizes (databasequota_get_by_user) only once verified on a TEST panel (release step 2)
+            'database_sizes' => (bool) env('ONHOST_WEB_DISK_TOTAL_DATABASE_SIZES', false),
+            // enforce_from counts only once the operator confirmed databases and mail lie outside hd_quota (release step 3)
+            'parts_verified' => (bool) env('ONHOST_WEB_DISK_TOTAL_PARTS_VERIFIED', false),
+        ],
+        // ── end TASK-0023 web-disk-total ──
+    ],
+    // ── end TASK-0023 metering-core ─────────────────────────────────────────────────────────────────────────────────
+    // ── TASK-0031 VIES ──────────────────────────────────────────────────────────────────────────────────────────────
+    // a VAT number that was given is checked in the EU register (docs/runbooks/vat-and-vies.md). Off until go-live: without it
+    // every number stays `unknown` (destination VAT). billing.vies_endpoint above is the old, unused key and stays for now.
+    'vies' => [
+        'enabled' => (bool) env('ONHOST_VIES_ENABLED', false),
+        'endpoint' => env('VIES_ENDPOINT', 'https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number'),
+        // our own VAT ID as the requester: VIES then answers with a consultation number, the evidence for reverse charge
+        'requester_vat_id' => env('ONHOST_VIES_REQUESTER_VAT_ID', env('ONHOST_VAT_ID', env('ONHOST_DIC', ''))),
+        'timeout_seconds' => (int) env('ONHOST_VIES_TIMEOUT', 8),
+        'checkout_timeout_seconds' => (int) env('ONHOST_VIES_CHECKOUT_TIMEOUT', 5),
+        'freshness_days' => 30,       // a valid answer counts for reverse charge this long
+        'override_days' => 30,        // a staff override ends after this many days unless confirmed again
+        'retry_after_minutes' => 10,  // after an unknown answer a checkout does not ask again for this long
+        'recheck_after_days' => 25,   // tax.vies_recheck asks again before the 30 days run out
+        // our own ceiling of VIES calls per minute (all triggers together); beyond it a number stays unknown for now (review round 1)
+        'per_minute' => (int) env('ONHOST_VIES_PER_MINUTE', 150), // above the 120 a minute the operator commands make at --pause-ms=500
+        // one organization's questions an hour, every trigger but the operator's (review round 2): number flipping cannot starve the rest
+        'per_organization_per_hour' => 5,
+    ],
+    // ── end TASK-0031 VIES ──────────────────────────────────────────────────────────────────────────────────────────
 ];

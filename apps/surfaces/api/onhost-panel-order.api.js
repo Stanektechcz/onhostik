@@ -98,7 +98,8 @@
           if (redirectIfGateway(cmp, x)) return;
           var o = x.result.order || x.result;
           flash(cmp, _('Objednávka ', 'Order ') + (o.number || '') + _(' přijata', ' received'),
-            x.mode === 'wallet' ? _('Uhrazeno z kreditu (' + money(cmp, x.total) + '). Doménu registrujeme; sledujte sekci Domény, potvrzení jde na e-mail.', 'Paid from credit (' + money(cmp, x.total) + '). The domain is being registered; watch Domains, a confirmation goes by e-mail.')
+            x.result.approval === 'pending' ? _('Objednávka čeká na schválení vlastníkem nebo fakturačním správcem organizace; z kreditu se zatím nic nečerpalo. Dáme vám vědět, jak rozhodnou.', 'The order waits for the approval of the organization owner or billing admin; no credit has been used yet. You will hear how they decide.') // TASK-0021
+              : x.mode === 'wallet' ? _('Uhrazeno z kreditu (' + money(cmp, x.total) + '). Doménu registrujeme; sledujte sekci Domény, potvrzení jde na e-mail.', 'Paid from credit (' + money(cmp, x.total) + '). The domain is being registered; watch Domains, a confirmation goes by e-mail.')
               : _('Zálohová faktura je v záložce Fakturace (' + money(cmp, x.total) + '); doménu registrujeme po připsání platby.', 'The proforma is in the Billing tab (' + money(cmp, x.total) + '); the domain is registered once the payment arrives.'));
           if (window.OnhostStore && window.OnhostStore.refresh) window.OnhostStore.refresh();
           setTimeout(function () { location.reload(); }, 3000);
@@ -283,7 +284,8 @@
         if (redirectIfGateway(cmp, x)) return;
         var o = x.result.order || x.result;
         flash(cmp, _('Objednávka ', 'Order ') + (o.number || '') + _(' přijata', ' received'),
-          x.mode === 'wallet'
+          x.result.approval === 'pending' ? _('Objednávka čeká na schválení vlastníkem nebo fakturačním správcem organizace; z kreditu se zatím nic nečerpalo. Dáme vám vědět, jak rozhodnou.', 'The order waits for the approval of the organization owner or billing admin; no credit has been used yet. You will hear how they decide.') // TASK-0021
+            : x.mode === 'wallet'
             ? _('Uhrazeno z kreditu (' + money(cmp, x.total) + '). Služba se nasazuje — sledujte sekci Služby, potvrzení jde na e-mail.', 'Paid from credit (' + money(cmp, x.total) + '). The service is being deployed — watch the Services section; the confirmation goes by e-mail.')
             : _('Zálohová faktura je v záložce Fakturace (' + money(cmp, x.total) + '); po připsání platby službu spustíme. Rychlejší je dobít kredit.', 'The proforma is in the Billing tab (' + money(cmp, x.total) + '); the service starts once the payment arrives. Topping up credit is faster.'));
         if (window.OnhostStore && window.OnhostStore.refresh) window.OnhostStore.refresh();

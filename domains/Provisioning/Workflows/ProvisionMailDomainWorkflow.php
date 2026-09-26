@@ -11,6 +11,7 @@ use Onhost\Domain\Provisioning\Workflow\StepContext;
 use Onhost\Domain\Provisioning\Workflow\StepResult;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
 use Onhost\Domain\Provisioning\Workflows\Steps\ScheduleNodeStep;
+use Onhost\Domain\Services\Mail\MailboxBackupPolicy;
 use Onhost\Domain\Services\Mail\MailSettings;
 use Onhost\Domain\Services\Models\MailDomain;
 use Onhost\Domain\Services\Models\Service;
@@ -95,6 +96,7 @@ final class ProvisionMailDomainWorkflow implements Workflow
                         'remote_client_id' => isset($meta['client_id']) ? (int) $meta['client_id'] : null, 'remote_id' => (int) $ref->remoteId, 'remote_node' => $ref->node,
                         'dkim_selector' => $context->get('dkim_selector'), 'dkim_public' => $context->get('dkim_public'), 'sending_enabled' => true, 'state' => 'active',
                     ]);
+                    MailboxBackupPolicy::stampProvisioned($service, $context->get('already_existed') === true); // its mailboxes are made with the plan's backups (TASK-0024)
                     $context->container->make(ServiceService::class)->activate($service, $context->actor, $context->operation, ['domain' => $context->desired('domain'), 'dns_records_required' => $context->get('dns_records_required')]);
 
                     return StepResult::done(['activated' => true]);

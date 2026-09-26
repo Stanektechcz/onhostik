@@ -7,10 +7,12 @@ namespace Onhost\Domain\Support;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\DunningService;
 use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Support\Models\Ticket;
 use Onhost\Domain\Support\Models\WorkOffer;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -82,6 +84,9 @@ final class WorkOfferService
             if ($offer->state === ($approve ? WorkOffer::APPROVED : WorkOffer::DECLINED)) {
                 return $offer; // the same answer twice is one answer
             }
+            if ($approve) { // owner decision 20 (TASK-0021): the approved work is billed to the credit — the owner or the billing admin commits it
+                app(CreditOrderPolicy::class)->assertMaySpend((string) $offer->organization_id, $context, 'Požádejte vlastníka, aby nabídku schválil.');
+            }
             if ($offer->state === WorkOffer::PROPOSED && ! $offer->isOpen()) {
                 $offer->forceFill(['state' => WorkOffer::EXPIRED])->save();
             }
@@ -132,7 +137,7 @@ final class WorkOfferService
             $organization = $this->organization($ticket);
             $scoped = $context->withScope($organization->id);
             $net = Money::minor($offer->price_net_minor, $offer->currency);
-            $decision = $this->tax->calculate(['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status], [['key' => 'work', 'net' => $net, 'product_class' => 'service']], $net->currency, $organization->id);
+            $decision = $this->tax->calculate(VatStanding::taxCustomer($organization), [['key' => 'work', 'net' => $net, 'product_class' => 'service']], $net->currency, $organization->id);
             $line = $decision['lines'][0];
             $tax = Money::minor((int) $line['tax']->minor, $net->currency);
             $gross = $net->add($tax);

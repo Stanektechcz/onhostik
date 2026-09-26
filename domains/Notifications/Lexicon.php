@@ -174,6 +174,32 @@ final class Lexicon
         'Za hodinu začíná vaše on-call směna' => 'Your on-call shift starts in an hour', ' držíte pager; alerty najdete v konzoli.' => ' you carry the pager; the alerts are in the console.', 'Od ' => 'From ', // §5t-4
         // small words that appear inside composed strings
         ' · vrácení kreditu' => ' · credit refund', ' dnů' => ' days', 'včera' => 'yesterday', 'dnes' => 'today', 'zítra' => 'tomorrow',
+        // ── TASK-0021 (owner decision 20): credit orders waiting for the owner or a billing admin ──
+        ' čeká na vaše schválení' => ' is waiting for your approval', 'Člen organizace' => 'A member of the organization', ' ji zadal s platbou z kreditu (' => ' placed it, paid from credit (',
+        '). Kredit se použije až po vašem schválení.' => '). The credit is used only once you approve it.', ' schválena' => ' approved', 'Schválil(a) ' => 'Approved by ',
+        '; uhrazeno z kreditu, služby se zřizují.' => '; paid from credit, the services are being provisioned.', ' nebyla schválena' => ' was not approved', 'Důvod: ' => 'Reason: ',
+        '. Z kreditu se nic nečerpalo.' => '. No credit was used.', ' vypršela bez schválení' => ' expired without approval', 'Nikdo ji do ' => 'Nobody approved it within ',
+        ' dnů neschválil, proto jsme ji zrušili.' => ' days, so we cancelled it.',
+        // ── end TASK-0021 ──
+        // ── TASK-0025 consumer withdrawal ──
+        'Odstoupení od smlouvy přijato: ' => 'Withdrawal from the contract received: ', 'Odesláno ' => 'Sent ', 'Službu pozastavíme, ' => 'We suspend the service, ', 'Objednávku rušíme, ' => 'We cancel the order, ',
+        'na kredit vrátíme dobropisem odhadem ' => 'we return to your credit with a credit note about ', 'na kredit vrátíme dobropisem ' => 'we return to your credit with a credit note ',
+        'neuhrazené doklady snížíme o odhadem ' => 'we reduce your unpaid documents by about ', 'neuhrazené doklady snížíme o ' => 'we reduce your unpaid documents by ',
+        'na kredit se nic nevrací, vše už bylo vráceno dříve' => 'nothing returns to your credit, everything was returned before', 'na kredit se nic nevrací' => 'nothing returns to your credit',
+        ' a službu zrušíme.' => ' and cancel the service.', 'Odstoupení vyřízeno: ' => 'Withdrawal settled: ', 'neuhrazené doklady sníženy o ' => 'unpaid documents reduced by ',
+        'Vráceno na kredit po odstoupení: ' => 'Returned to credit after the withdrawal: ', ' · dobropis ' => ' · credit note ',
+        'Služba ukončena odstoupením: ' => 'Service ended by withdrawal: ', 'Smlouva je ukončena. Novou službu si můžete kdykoli objednat.' => 'The contract has ended. You can order a new service at any time.',
+        // ── end TASK-0025 ──
+        // ── TASK-0031 VAT numbers in VIES ──
+        'DIČ se nepodařilo ověřit ve VIES' => 'Your VAT number could not be verified in VIES', ' se nepodařilo ověřit ve VIES. ' => ' could not be verified in VIES. ',
+        'Dokud DIČ neověříme, účtujeme DPH vaší země.' => 'Until it is verified, we charge the VAT of your country.',
+        'Pokud je číslo správné, napište nám a ověříme ho ručně.' => 'If the number is correct, write to us and we will verify it by hand.',
+        ' Zkontrolujte ho ve fakturačních údajích.' => ' Please check it in your billing details.',
+        'DIČ ověřeno ve VIES' => 'VAT number verified in VIES', ' je platné.' => ' is valid.',
+        ' Na dokladech uplatníme přenesení daňové povinnosti (reverse charge).' => ' Your documents will apply the reverse charge.',
+        'DIČ ' => 'VAT number ', 'Stav DIČ nastaven ručně: ' => 'VAT number status set by hand: ',
+        'DIČ není v registru plátců DPH' => 'Your tax number is not in the VAT register', ' není v registru plátců DPH (VIES). Pokud jste plátce DPH, zkontrolujte ho ve fakturačních údajích.' => ' is not in the VAT register (VIES). If you are a VAT payer, please check it in your billing details.',
+        // ── end TASK-0031 ──
     ];
 
     public static function translate(?string $text, string $locale): ?string

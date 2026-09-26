@@ -1,5 +1,7 @@
 # Audit pěti ploch a příprava na Laravel
 
+> **Historický dokument — stav k 6. 9. 2026; aktuální stav: `docs/context/CURRENT_STATE.md`.** Audit prototypu před stavbou backendu. Aktuální platforma: Laravel 13 (13.30.1, modulární monolit `onhost-platform`), PHP 8.3, PostgreSQL 16 v produkci; živý aaPanel běží ve verzi 8.0.6 (ověřeno 2026-09-13, `docs/runbooks/preproduction-audit.md` §4). Rozhodnutí, která dokument ještě vede jako otevřená, jsou vzatá: **renderovací model** = prototypové plochy beze změny + datové švy (`docs/adr/0005-surfaces-preserved-with-data-seams.md`), administrace a e-maily v Blade, žádné Inertia/React/Livewire; **platby** = adaptéry Comgate, GoPay, Stripe a bankovní převod (`providers/Payments`), ke spuštění Comgate (`docs/runbooks/go-live-checklist.md` §3); **účetnictví a řady dokladů** v ONhostu (`docs/adr/0003-money-ledger-tax.md`); **druhý registrátor** = Subreg vedle WEDOS s výběrem nejlevnějšího (`docs/runbooks/domain-registrars.md`); **retence po zrušení** = lhůta na obnovu 30 dní a závěrečný archiv 60 dní (`config/onhost.php` `services.deletion`, `services.service_archive_days`); **LLM za asistentem** = pravidla napřed, pak OpenAI-kompatibilní nebo Anthropic poskytovatel jen se čtecími nástroji a návrhy, které zákazník potvrdí (`docs/provider-adapters/ai.md`).
+
 Stav k 6. 9. 2026. Předmět auditu je celý prototyp — **pět ploch**:
 
 | Plocha | Soubor | Role |

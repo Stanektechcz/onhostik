@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Onhost\Domain\Compliance\ComplianceService;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\Models\Backup;
@@ -49,6 +50,7 @@ it('does not let a copy of the data be destroyed by hand or by the schedule unde
     $old = Backup::query()->create(['service_id' => $service->id, 'organization_id' => $org->id, 'kind' => 'scheduled', 'state' => 'completed', 'protected' => false, 'remote_id' => 'bk-old', 'size_bytes' => 1024, 'started_at' => now()->subDays(40), 'finished_at' => now()->subDays(40), 'retention_until' => now()->subDays(5)]);
     app(ComplianceService::class)->setLegalHold($org, true, 'žádost PČR č. j. KRPA-1/2026', $this->contextFor($this->staff('compliance_legal')));
     Queue::fake();
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1'); // deleting a copy asks a fresh step-up (TASK-0029): the hold is what refuses here
     $this->actingAs($owner, 'sanctum');
 
     // by hand: the customer under investigation cannot thin out the evidence

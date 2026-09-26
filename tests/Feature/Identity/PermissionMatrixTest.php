@@ -6,6 +6,7 @@ use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
 
@@ -27,12 +28,14 @@ it('allows and denies the operations of every customer role as the matrix says, 
         'download a backup' => 'backup.download', 'restore a backup' => 'backup.restore',
         'manage members' => 'organization.members.manage', 'edit the organization' => 'organization.manage', 'close the organization' => 'organization.close',
         'top up the wallet' => 'billing.wallet.topup', 'place an order' => 'catalog.order.create', 'manage domains' => 'domain.manage', 'write DNS' => 'dns.zone.write', 'write a ticket' => 'support.ticket.write',
+        'set a service panel password' => 'service.panel_account.manage', // owner decision 15: the organization owner alone
+        'pay from credit' => 'billing.wallet.spend', // owner decision 20: the owner and the billing admin
     ];
     $all = array_keys($operations);
     $matrix = [
         'owner' => $all,
-        'org_admin' => array_values(array_diff($all, ['close the organization'])),
-        'billing_admin' => ['see services', 'top up the wallet', 'place an order'],
+        'org_admin' => array_values(array_diff($all, ['close the organization', 'set a service panel password', 'pay from credit'])),
+        'billing_admin' => ['see services', 'top up the wallet', 'place an order', 'pay from credit'],
         'domain_manager' => ['see services', 'manage domains', 'write DNS'],
         'dns_manager' => ['see services', 'write DNS'],
         'developer' => ['see services', 'manage a service', 'open a console', 'download a backup', 'write DNS', 'write a ticket'],
@@ -64,6 +67,23 @@ it('allows and denies the operations of every customer role as the matrix says, 
         }
     }
     expect($wrong)->toBe([]);
+});
+
+it('gives the password of a service\'s panel account to the organization owner alone: no admin, operator, shared or staff role holds it (owner decision 15)', function () {
+    $holders = array_keys(array_filter(RoleCatalog::all(), fn (array $role) => in_array('service.panel_account.manage', $role['permissions'], true)));
+    expect($holders)->toBe(['owner'])
+        ->and(PermissionCatalog::all()['service.panel_account.manage'])->toMatchArray(['risk' => PermissionCatalog::HIGH, 'audience' => 'customer'])
+        ->and(PermissionCatalog::OWNER_ONLY)->toContain('organization.close')->toContain('service.panel_account.manage')
+        ->and(ServiceActionCommand::permissionFor('panel.password'))->toBe('service.panel_account.manage');
+    // what the organization admin may not do is written down in one place, and it is at least what only the owner may do
+    expect(array_intersect(RoleCatalog::all()['org_admin']['permissions'], PermissionCatalog::OWNER_ONLY))->toBe([]);
+});
+
+it('lets only the owner and the billing admin spend the organization\'s credit, and nobody by an organization-admin role (owner decision 20)', function () {
+    $holders = array_keys(array_filter(RoleCatalog::all(), fn (array $role) => ! $role['staff'] && in_array('billing.wallet.spend', $role['permissions'], true)));
+    expect($holders)->toBe(['owner', 'billing_admin'])
+        ->and(PermissionCatalog::all()['billing.wallet.spend'])->toMatchArray(['risk' => PermissionCatalog::NORMAL, 'audience' => 'customer'])
+        ->and(RoleCatalog::orgAdminWithheld())->toContain('billing.wallet.spend');
 });
 
 it('leaves no console to the break-glass account alone: every staff permission is held by a named role, except the three that ARE break-glass', function () {

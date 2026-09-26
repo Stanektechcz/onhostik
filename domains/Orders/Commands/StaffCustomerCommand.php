@@ -13,6 +13,9 @@ use Onhost\Platform\Commands\GlobalCommand;
  *   wallet.credit   — organization_id, amount, currency?, kind (manual|promo), note — a manual credit adjustment (HIGH, step-up)
  *   order.assisted  — organization_id, items, payment (wallet|bank|postpaid), commit_months?, note — an order placed on the
  *                     customer's behalf through the same quote and checkout as the panel
+ *   limit_raise.free — organization_id, service_id, metric, units, note, price{currency,net_minor,period} — a raise of one limit
+ *                     at no charge for one period: money given away, so CRITICAL (a second person) under its own permission
+ *                     billing.limit_raise.waive; `price` is what it waives, bound into the approval (TASK-0022 limit-raise)
  *
  * Whoever services the customer may place the order; paying it is the customer's act — a proforma they pay themselves.
  * Spending their credit or putting the order on their invoice account moves their money without them, so those two
@@ -20,7 +23,7 @@ use Onhost\Platform\Commands\GlobalCommand;
  */
 final class StaffCustomerCommand extends GlobalCommand implements RiskAwareCommand
 {
-    public const OPS = ['wallet.credit', 'order.assisted'];
+    public const OPS = ['wallet.credit', 'order.assisted', 'limit_raise.free'];
 
     /** Payment modes of an assisted order that move the customer's money without the customer. */
     public const MONEY_MODES = ['wallet', 'postpaid'];
@@ -37,6 +40,10 @@ final class StaffCustomerCommand extends GlobalCommand implements RiskAwareComma
 
     public function permission(): string
     {
+        if ($this->op() === 'limit_raise.free') {
+            return 'billing.limit_raise.waive';
+        }
+
         return $this->movesMoney() ? 'billing.credit.adjust' : 'staff.order.manage';
     }
 
@@ -47,16 +54,20 @@ final class StaffCustomerCommand extends GlobalCommand implements RiskAwareComma
 
     public function riskLevel(): string
     {
+        if ($this->op() === 'limit_raise.free') {
+            return PermissionCatalog::CRITICAL;
+        }
+
         return $this->movesMoney() ? PermissionCatalog::HIGH : PermissionCatalog::NORMAL;
     }
 
     public function requiresStepUp(): bool
     {
-        return $this->movesMoney();
+        return $this->movesMoney() || $this->op() === 'limit_raise.free';
     }
 
     public function requiresApproval(): bool
     {
-        return false;
+        return $this->op() === 'limit_raise.free';
     }
 }

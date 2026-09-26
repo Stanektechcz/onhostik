@@ -32,9 +32,10 @@ final class PartnersCommandHandler implements CommandHandler
         return match ($command->op()) {
             'approve' => PartnerPresenters::partner($this->partners->approve($this->partner($command), $context), true),
             'state' => PartnerPresenters::partner($this->partners->setState($this->partner($command), (string) $command->get('state'), (string) $command->get('reason', ''), $context), true),
-            'payout.approve' => PartnerPresenters::payout($this->partners->approvePayout($this->payout($command), $context)),
-            'payout.reject' => PartnerPresenters::payout($this->partners->rejectPayout($this->payout($command), (string) $command->get('reason', ''), $context)),
-            'payout.pay' => PartnerPresenters::payout($this->partners->markPayoutPaid($this->payout($command), (string) $command->get('reference', ''), $context)),
+            // finance's answers carry the whole self-billing snapshot, review flag included (TASK-0031 review round 3)
+            'payout.approve' => PartnerPresenters::payout($this->partners->approvePayout($this->payout($command), $context), true),
+            'payout.reject' => PartnerPresenters::payout($this->partners->rejectPayout($this->payout($command), (string) $command->get('reason', ''), $context), true),
+            'payout.pay' => PartnerPresenters::payout($this->partners->markPayoutPaid($this->payout($command), (string) $command->get('reference', ''), $context), true),
             'tiers.recompute' => ['recomputed' => $this->partners->recomputeAllTiers()],
             'model.decide' => PartnerService::presentRequest($this->partners->decideModelChange(PartnerChangeRequest::query()->find((string) $command->get('request_id')) ?? throw DomainError::notFound('partner_request'), (string) $command->get('decision'), $command->get('note') !== null ? (string) $command->get('note') : null, $context)), // §5m-1
             default => throw new DomainError('partner_op_unknown', "Unknown partner operation {$command->op()}.", 422),

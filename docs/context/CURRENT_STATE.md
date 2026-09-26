@@ -1,7 +1,8 @@
 # Current state
 
-**Updated:** 2026-09-19
-**Branch:** `development`
+**Updated:** 2026-09-26
+**Branch:** `development` (integrated through TASK-0016, PR #19) + the stack TASK-0017 … TASK-0027 and TASK-0029 …
+TASK-0031 on `fix/TASK-0027-stack-coherence-and-the-docs-that-descri`, waiting for one pull request into `development` (#24)
 
 ## Now
 
@@ -267,8 +268,12 @@
 - **Access to a VPS after delivery:** `access.reset` sets new SSH keys / a password through cloud-init (step-up; never proposed
   by the assistant).
 
-- **The password mail tells the truth:** after a password CHANGE the API tokens stay valid — the mail said they were signed out; it
-  now says how many stay valid and where to revoke them (a reset still revokes them).
+- **A password change ends the old API tokens** (owner decision 14, TASK-0021, audit row 28): changing the password
+  revokes every personal API token of the user in every organization (a reset always did); the changing browser stays
+  signed in; service-account tokens and integration secrets are untouched. `ONHOST_PASSWORD_CHANGE_REVOKES_API_ACCESS=false`
+  restores the old "tokens kept" path with its truthful mail. **The game panel password is the owner's** (decision 15,
+  audit row 106): `panel.password` needs `service.panel_account.manage`, held only by the `owner` role, and
+  `OwnerOnlyActions` refuses anyone but the organization's `owner_user_id` in person.
 
 - **The model has a budget:** `AssistantBudget` — per person per hour, per organization per day, a daily ceiling of tokens; past it
   the assistant answers from the help centre (nothing is refused). The staff assistant's conversation id did not fit its column
@@ -491,8 +496,10 @@
   platform could suspend it, change its limits and, at the end of the service, delete it with its databases. Now a
   pre-existing resource is ours only when the panel says so — the `onhost:<service>` remark on aaPanel, the
   organization's `onh_…` client as owner on ISPConfig — and anything else is refused (`CONFLICT`) before a single
-  write, no client created, no binding written. Adoption of a historical site is an explicit operator decision of its
-  own (brain H304), never a side effect of an order. Found on the way, and worse: a mail service was bound without
+  write, no client created, no binding written. A historical site is taken over only at its
+  owner's explicit request, as a customer-run import into a NEW platform-created site with operator assistance
+  (ADR-0007, decision 22; `docs/runbooks/historical-site-import.md`); the historical resource itself is never bound
+  or modified, and never as a side effect of an order. Found on the way, and worse: a mail service was bound without
   its domain name, so every mailbox query (`LIKE '%@<domain>'`) read `'%@'` — every mailbox on the shared mail
   server. A suspended mail customer switched off sending for all of them, and a web hosting with no mail domain was
   shown every mailbox on the server and passed the ownership check for any of them. The mail domain now carries its
@@ -521,29 +528,212 @@
   `mailbox_not_found`, and a fetchmail destination must be an address in the service's domain (422) and one of its
   mailboxes.
 
+- **A plan promises only what is measured or enforced** (audit row 104, TASK-0017, brain H278) — `PlanPromises`
+  counted the price list (`CatalogPresentation`) as "code that reads this key", so `products`, `connections` and
+  `dedicated_outbound_ip` passed a guard that only the price list ever named. Presentation files are now excluded
+  from the scan, and every numeric promise is checked against `domains/Services/Metering/MetricRegistry.php` — a
+  hand-verified table of what actually measures or enforces each key, scoped to the plan's own product family (a
+  row verified only for mail must not pass a web plan selling the same key name) and to numeric strings as well as
+  ints/floats. Family-scoping itself surfaced one more honest gap (`backup_days`: a managed database is never backed
+  up on a schedule at all, and mail plans are selected by `BackupScheduler` but never scheduled) and two rows that were incomplete rather than wrong
+  (`nvme_gb`, `mailboxes`, extended once their real enforcement paths were confirmed). 14 tracked gaps remained in
+  `PlanPromises::KNOWN_GAPS` after this task (8 after the stack below) — a ratchet that may only shrink — shown as a standing WARN by `onhost:doctor`; any new,
+  untracked gap is a production FAIL.
+
+### The stack TASK-0017 … TASK-0027 (branch `fix/TASK-0027-stack-coherence-and-the-docs-that-descri`, one pull request into `development`, not merged yet)
+
+- **Owner decisions of 2026-09-25 are recorded in ADR-0007** (TASK-0026, audit row 117): 25 decisions, each naming its
+  implementing task TASK-0019 … TASK-0025; the 16 P0 vault cards are `assessed`. The standing rules of 2026-09-24 frame
+  them: historical sites are untouchable, the client account survives its services, measure everything; a price list
+  changes only as a new plan version, and new behaviour that reaches existing services ships behind a `default_off` rule
+  or a dry-run operator command.
+- **A test's credentials do not outlive the test** (TASK-0018, audit row 119): `CheckoutTest` left the Comgate
+  credentials in the process environment and `RenewalGuardTest` failed after it. A global hook in `tests/Pest.php`
+  restores `$_ENV` and `putenv()` after every test (removed keys too); the baseline lists no known failure any more.
+- **Servers and managed databases are backed up as sold, behind a switch** (TASK-0019, owner decision 1, audit row 105):
+  `db-s`/`db-m` and a VPS with an active backup add-on get scheduled vzdump backups on the Proxmox instance's
+  `backup_storage` under the rule `backups.compute`; an expired backup is deleted only when its volume carries the row's
+  marker, is the service's own guest, on its own storage and unprotected. `onhost:backups:compute-plan` shows who would be
+  touched. The backup tick now walks every web/managed/mail service instead of the first 100 by id — no switch; that
+  owner decision is still open (`docs/runbooks/backups.md`).
+- **Was the ownership hole used before TASK-0005 closed it?** (TASK-0020, owner decision 16, audit row 92)
+  `php artisan onhost:audit:provider-calls` reads the logged ISPConfig calls and the service actions that named a record by
+  id and reports whose each record was (CRITICAL/HIGH/MEDIUM/REVIEW), refusals after the fix (probing), writes no operation
+  explains and how far back the log reaches. Read-only (no DB write, no panel call), masked output, file under
+  `storage/app/private/reports` or stdout. Runbook `docs/runbooks/provider-calls-audit.md`; to be run by the operator on
+  staging with a production copy.
+- **Credit is the owner's and the billing admin's** (owner decision 20, TASK-0021, audit row 107): `billing.wallet.spend`
+  (owner, billing_admin; withheld from org_admin in `RoleCatalog::orgAdminWithheld()`, and an org_admin can no longer
+  grant billing_admin). With `ONHOST_ORDER_CREDIT_APPROVAL=true` (default off) a credit order of anybody else waits for
+  their approval (`POST /v1/orders/{id}/approval`, expiry 7 days in `onhost:commerce:prune`) and immediate credit payments
+  (invoice, domain renewal, marketplace, work offer, archive download, pay-and-restore) are refused to them; card and bank
+  are unaffected. Read-only `onhost:orders:credit-approval-report` before switching on.
+- **Honest plan versions and four eyes on prices** (TASK-0022, owner decisions 2, 4, 5, 6, 11, 13, 18, 21; audit rows 6,
+  108): every price or plan change in the admin configuration (`CatalogCommand`) takes a step-up and a second person
+  (billing_finance_admin or platform_owner approve; product_manager asks), withdrawals are one person with a step-up,
+  unknown catalogue ops are four-eyes, requests are pre-flight checked and bound to the plan version/setting they were
+  asked against (409 `catalog_changed_since_request`), automation switches need a step-up. Code-defined catalogue revisions
+  (`CatalogRevisions`, `onhost:catalog:revise`, dry run by default) publish new plan versions through `plan.publish`;
+  `2026-09-honest-promises` drops `pitr_days`/`connections` (db-s/db-m), `dedicated_outbound_ip` (mail-enterprise),
+  `dedicated_db` (managed-woo/shop-peak) and rewrites `backup_frequency` `1h` → `hourly`. `products` is fair use,
+  `CatalogSeeder` no longer rewrites a held version, the public `sol-edu` page is withdrawn.
+- **Paid limit raises** (TASK-0022, owner decision 8, audit row 109): product `limit-raise` (revision
+  `2026-09-limit-raise`) raises one enforced number of one running service at the parent product's option price × units ×
+  months, renewed by its own subscription; staff order it as an assisted order, customers only with
+  `ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS=true`; free = four eyes (`POST /v1/staff/customers/{org}/limit-raises/free`,
+  `billing.limit_raise.waive` CRITICAL, one period). Raw staff resize above the service and `service.create` above the
+  plan are refused (`limit_raise_required`, `plan_required`). The CommandBus hands handlers the approvals it consumed
+  (`CommandContext::verifiedApprovalIds`), spent by one conditional UPDATE. Other add-ons renew only with
+  `ONHOST_ADDON_RENEWALS=true`.
+- **Placement by what a plan sells, capacity per dimension** (TASK-0023, owner decisions 7 and 19, audit row 110): a web
+  plan that sells dedicated PHP workers (web-hosting/profi) runs only on ISPConfig — placements, staff pins, the scheduler,
+  the cart and plan changes enforce it; other plans say "Sdílené PHP workery". Node capacity is judged per dimension
+  (`CapacityBasis`: disk sold once `ONHOST_CAPACITY_DISK_BASIS=sold`, RAM/CPU measured; read `onhost:capacity:basis`
+  first). Web/managed cart lines are refused with `capacity_sold_out` when no node can take them.
+- **Usage samples, null never 0** (TASK-0023, owner decisions 9 and 12, audit row 111): every reading is kept in
+  `service_usage_samples` (migration `000860`); a number a panel does not report is not measured (null), never 0, and
+  `summary.usage.level` may be `unknown`. Daily/monthly rollups (`onhost:metering:rollup` 00:20) kept 45 days / 400 days /
+  for ever (`onhost:metering:prune` 04:35). The rule `usage.rotation` (default off, preview `onhost:metering:preview`)
+  lets the watch visit every service instead of the first 200; a first reading is a baseline; metrics new to a family are
+  observed until `ONHOST_METERING_ENFORCE_NEW_METRICS`; soft limits only notify; samples are never billed.
+- **Plan space in total** (TASK-0023, owner decision 10, audit row 112): files + databases + mail of the paying service and
+  its included sites are shown at once (`tags.usage.disk_total`, `partial` when a panel could not say) and count against
+  the plan only from `ONHOST_WEB_DISK_TOTAL_ENFORCE_FROM`, for services told at least 30 days before
+  (`onhost:usage:disk-total-notice --send`) or ordered after it; ISPConfig database sizes only with
+  `ONHOST_WEB_DISK_TOTAL_DATABASE_SIZES`, the date only with `ONHOST_WEB_DISK_TOTAL_PARTS_VERIFIED`. The usage API no
+  longer shows an aaPanel node's whole-node figures as the customer's usage (H286).
+- **Backup operations and mailbox backups** (TASK-0024, owner decisions 1, 3, 18; audit rows 113, 114): the doctor reports
+  server/database backup readiness (rule vs sold, missing `backup_storage`, delete-blocked and orphaned volumes, stalled or
+  paused schedules of every family, tick age/budget/errors); a retried Proxmox backup adopts its first marked volume
+  instead of dumping twice. `backups.as_sold` (default off, review `onhost:backups:frequency-plan`) backs plans up as often
+  and as long as sold; switching it off deletes nothing en masse. `mail.backup_retention` (default off, existing mailboxes
+  only via `onhost:mail:backup-retention`, dry run by default) sets ISPConfig mailbox backups from `backup_days` on
+  mailboxes proven to be the platform's; an autoresponder change no longer resets them.
+- **Pay and restore** (TASK-0025, owner decision 23, audit row 115): cancelled services come back inside their restore
+  window after payment (a paid dunning invoice, one new period from the credit, or a top-up covering a recorded request)
+  through the ordinary resume; undone cancellations are billed again; chargeback-cancelled services cannot be resumed by
+  the customer; the purge spares a paid service and its carried sites. Behind `services.reinstate` (default off);
+  read-only `onhost:billing:reinstatement-audit` before switching it on.
+- **Consumer withdrawal** (TASK-0025, owner decision 17, audit rows 16, 116): a consumer (class at order time) withdraws
+  within 14 days of the order in the panel, or finance records a letter by its sent date behind four eyes; the service is
+  suspended first, the unused part of the paid lines returns to the credit as credit notes, then the service is cancelled
+  and cannot be resumed by the customer. Registered domains and business orders are excluded. Behind `billing.withdrawal`
+  (default off); `onhost:withdrawals:finish` (hourly) completes refused steps; a lawyer's review is pending (doctor row,
+  `ONHOST_WITHDRAWAL_LEGAL_REVIEWED`).
+- **The stack agrees with itself** (TASK-0027, audit row 118): one credit gate — paying for a restore, taking back a
+  cancellation that bills again and a recorded restore request all ask `CreditOrderPolicy` (`credit_spend_not_allowed`);
+  the reinstate command needs `billing.wallet.topup` on the bus (C1). A restore never switches auto-renew on: it keeps the
+  subscription's previous value, nothing recorded = off (C2). Staff hear the four service troubles whose staff branch never
+  ran — restore test failed, database import failed, backup schedule paused/stalled (`NotificationRouter`, one arm per
+  event, C3). `eshop/shop-peak` stops promising dedicated PHP workers on aaPanel in a new plan version (revision
+  `2026-09-shared-php-workers`, only through `onhost:catalog:revise`; each revision reads what is pending just before it
+  runs) (C4). `PlanPromises::KNOWN_GAPS` holds 8 entries.
+
+The three HIGH findings of the onboarding audit (`.ai/audits/2026-09-25-onboarding-audit/response-verified-2026-09-25.md`)
+are fixed on the same branch (decisions in ADR-0008, audit rows 120–122):
+
+- **Service actions ask for their own permission** (TASK-0029, audit C13, row 120): an exhaustive permission map with no
+  default — an unmapped action is refused with 422 `service_action_unknown`; backup, game-backup and snapshot deletion ask
+  their own permission with a fresh step-up, every destructive action is HIGH + step-up, a backup schedule that keeps fewer
+  copies or a shorter history (also by a more frequent schedule) asks the same as deleting them, unlocking a game backup
+  asks `game.manage`, shells/root/rescue/game sub-users/console schedules are `service.console`; spec apply, action hooks,
+  Discord and the chat intents ask the same map and never run a step-up action; delegated SSH keys and game sub-users go
+  with the console, also when a share is given again without it (`service.access.reduced`). Open: console access made
+  before the fix stays until an operator command (`--dry-run` default, not written yet) revokes it; step-up for game
+  sub-users / console schedules awaits the owner's decision.
+- **API tokens are decided by one explicit map** (TASK-0030, audit C13-H2c and §4, row 121): `TokenScopes`, deny by
+  default; consoles, commands and SSH keys need the new scope `services:console`, which no preset in the panel carries; a
+  HIGH action through a token is always refused; console tokens are judged on the service; spec apply asks the same map
+  for every step (a console-scoped token may schedule a console command, a power token may not); three staff writes
+  outside the bus (dunning run, capacity forecast run, staff panel login) take a fresh step-up. Not behind a switch:
+  integrations on old keys lose consoles, deletions and HIGH actions at deploy (release note in
+  `docs/runbooks/go-live-checklist.md` §6).
+- **VIES wired, reverse charge reachable** (TASK-0031, audit C1a–C1d, row 122): VAT numbers are checked through the
+  provider contract `VatNumberValidator` (`providers/Vies`), on the queue after a number is given or changed and briefly
+  before a quote; the evidence lives in `vat_validations` and `organizations.vat_checked_*` (migration 000880). The tax
+  input is built only by `VatStanding::taxCustomer()`: reverse charge needs a VIES-valid number of another EU state
+  checked ≤ 30 days before the quote or issue, or a staff override (`tax.vat_status.override`, CRITICAL, 1–30 days);
+  otherwise destination VAT with `vat_review` on the quote, order, invoice and TaxCalculation. Partner self-billing VAT
+  comes from the same standing at `standard_rates`; a Czech partner is paid VAT only after finance confirmed the supplier
+  once. `ONHOST_VIES_ENABLED` defaults to false and is the go-live switch; `onhost:vat:verify` (dry run default), rule
+  `tax.vies_recheck` (default off, switched on together with VIES); the accountant's sign-off is a go-live item; runbook
+  `docs/runbooks/vat-and-vies.md`.
+
+**Operator switches introduced by the stack** (all default off unless stated; the steps are in
+`docs/runbooks/go-live-checklist.md` §6):
+
+- `backups.compute` (rule) — scheduled backups of managed databases and VPS with a backup add-on; `onhost:backups:compute-plan` first.
+- `backups.as_sold` (rule) — backup frequency and history as sold; `onhost:backups:frequency-plan` first.
+- `mail.backup_retention` (rule) — ISPConfig mailbox backups from `backup_days`; `onhost:mail:backup-retention` (dry run) first.
+- `usage.rotation` (rule) — the usage watch visits every service; `onhost:metering:preview` first.
+- `services.reinstate` (rule) — pay and restore; `onhost:billing:reinstatement-audit` first.
+- `billing.withdrawal` (rule) — consumer withdrawal; after the legal review and `ONHOST_WITHDRAWAL_LEGAL_REVIEWED=true`.
+- `ONHOST_ORDER_CREDIT_APPROVAL` — customer approval of credit orders; `onhost:orders:credit-approval-report` first.
+- `ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS` — customers may order limit raises themselves.
+- `ONHOST_ADDON_RENEWALS` — add-ons other than limit raises renew (new orders only).
+- `ONHOST_CAPACITY_DISK_BASIS` (`measured` → `sold`) — node disk judged by what is sold; `onhost:capacity:basis` first.
+- `ONHOST_METERING_ENFORCE_NEW_METRICS` — metrics new to a family count against the plan.
+- `ONHOST_WEB_DISK_TOTAL_DATABASE_SIZES` — ISPConfig database sizes are read for the plan total.
+- `ONHOST_WEB_DISK_TOTAL_PARTS_VERIFIED` — the operator confirmed the plan total counts nothing twice.
+- `ONHOST_WEB_DISK_TOTAL_ENFORCE_FROM` (a date, unset by default) — from when the plan total counts, for noticed services.
+- `ONHOST_PASSWORD_CHANGE_REVOKES_API_ACCESS` — **default on** (owner decision 14); `false` keeps personal tokens after a password change.
+- `onhost:catalog:revise --apply` (operator command, dry run by default) — publishes the three catalogue revisions.
+- `ONHOST_VIES_ENABLED` with `ONHOST_VIES_REQUESTER_VAT_ID` (TASK-0031) — VIES checks and reverse charge; together with
+  the rule `tax.vies_recheck`; `onhost:vat:verify` (dry run, `--csv` for the accountant) first, `--apply` after the
+  accountant's sign-off.
+
 ## Verified baseline
+
+Measured on the stack tip `edb635b` (TASK-0027 C1–C4, before its docs commits) on 2026-09-25 with `.\brain.ps1 gate`
+(full): **PASS** — Pint clean, Larastan level 5 0 errors (baseline file unchanged: 641 entries / 1 013 suppressed
+occurrences), Pest **1 364 tests / 18 258 assertions**, no failures, frontend build green. 543 routes (493 under `/v1`),
+61 migrations apply on an empty SQLite file, `composer validate`, `composer audit` and `npm audit --audit-level=high`
+clean (`.ai/baseline/baseline.json`). `development` itself (at `2426c17`, TASK-0016) is covered by its own CI runs.
+After TASK-0029 … TASK-0031 (2026-09-26, `.\brain.ps1 gate -Task TASK-0031` on `20f05d9`): **PASS** — Pint, Larastan 0
+errors (baseline 639 entries / 1 010 suppressed: the three tasks only removed entries), Pest **1 558 / 1 558** (20 527
+assertions), frontend build; 62 migrations; OpenAPI regenerated (one new route,
+`POST /v1/staff/customers/{organization}/vat-status`).
+
 - Remote: `github.com/Stanektechcz/onhostik`, default branch `development`.
-- Pest: 947 tests, 14 992 assertions green; Pint clean; Larastan level 5 clean (the baseline holds the older typing
-  debt, new code passes without it).
-- CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16), `security.yml` (gitleaks
-  over the history, Composer and npm advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
+- CI: `tests.yml` (Pint, Pest, Larastan, Composer audit, the same suite on PostgreSQL 16 — `pest-postgres` is the only
+  PostgreSQL run; it ran green on the separately pushed TASK-0017, TASK-0018, TASK-0019 and TASK-0003
+  branches — open PRs #20–#23 — but not on the whole stack), `security.yml` (gitleaks over the history, Composer and npm
+  advisories, frontend build), `e2e.yml`, `edge-role.yml`; Dependabot weekly.
 - Live orders were placed and verified through the panels for web hosting (ISPConfig and aaPanel), WordPress, e-shop,
-  a custom web, mail and a Minecraft Vanilla 1.21.8 game server.
+  a custom web, mail and a Minecraft Vanilla 1.21.8 game server. Nothing of the stack ran against a live panel.
 - `onhost:doctor` is the readiness gate: environment, storage, automation, secrets, TLS, providers, payments,
-  documents, identity, mail, observability and the deletion lifecycle.
+  documents, identity, mail, observability, the deletion lifecycle, and since the stack the catalogue revisions, the
+  metering-gap ratchet, limit raises, server/database/mailbox backups and consumer withdrawals.
 
 ## Known risk
 
 - A local `.env` holds provider credentials. It never enters prompts, logs, commits or generated context; the
   pre-commit hook (`git config core.hooksPath .githooks`) and the security workflow enforce that.
+- The stack is one large pull request (TASK-0017 … TASK-0027 plus TASK-0018 and TASK-0003): PostgreSQL behaviour of the
+  new JSON-path and roll-up queries of TASK-0020 … TASK-0027 is proven only by CI `pest-postgres` after the push; several provider calls are
+  unverified live (`databasequota_get_by_user`, mailbox `backup_interval`/`backup_copies`, Proxmox volume `notes` and
+  `protected`).
+- Two behaviour changes reach production with the merge without a switch: the backup tick visits every web/managed/mail
+  service (owner decision open, `docs/runbooks/backups.md`), and a password change revokes personal API tokens (owner
+  decision 14; `ONHOST_PASSWORD_CHANGE_REVOKES_API_ACCESS=false` undoes it). The deploy's `AuthorizationSeeder` changes
+  roles in every organization (billing_admin gains `billing.wallet.spend`, the panel password becomes owner-only).
+- A solo owner must set `ONHOST_FOUR_EYES=false` before deploying, or every price change waits for a second person.
 - One staging web service is still stuck mid-termination from before the archive fallback existed; it is unblocked
   with `onhost:services:purge --service=… --force --reason=…`.
 - `s4s.electree.cz` was deleted on the live ISPConfig node by the resource-type confusion fixed in §5z; the site is
   recreated from the panel's data log with `onhost:ispconfig:restore-site` and its node backup.
+- Consumer withdrawal waits for a lawyer; the document version of the edited legal texts (TASK-0025) and the date and
+  terms wording of the plan total (TASK-0023) are the owner's decisions.
 - The production-readiness audit still lists open P0/P1 items: `docs/runbooks/production-readiness-audit.md`.
 - Playwright: five panel navigation/session scenarios fail and keep the E2E gate advisory rather than blocking.
 
 ## Next decision
 
-Run the lifecycle verification on staging (archive on each panel with `onhost:services:archive --create`, then the
-purge), restore `s4s.electree.cz`, and only then move the go-live checklist to the production host.
+1. The human reviews the stack and decides the one pull request into `development` (push and merge only with their
+   go-ahead); then the post-integration gate and CI `pest-postgres` on the merge.
+2. Run the lifecycle verification on staging (archive on each panel with `onhost:services:archive --create`, then the
+   purge) and restore `s4s.electree.cz` with `onhost:ispconfig:restore-site`.
+3. Then the go-live checklist on the production host, including the stack's operator steps
+   (`docs/runbooks/go-live-checklist.md` §6): `AuthorizationSeeder` and the roles row after deploy,
+   `ONHOST_FOUR_EYES=false` for a solo owner, `onhost:catalog:revise --apply`, `onhost:audit:provider-calls` on a
+   production copy, and every default-off switch only after its read-only command.

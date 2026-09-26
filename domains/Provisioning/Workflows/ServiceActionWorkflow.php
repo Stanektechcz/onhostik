@@ -24,6 +24,8 @@ use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
 use Onhost\Domain\Services\IncludedServices;
 use Onhost\Domain\Services\LegalHold;
+use Onhost\Domain\Services\Limits\LimitRaises;
+use Onhost\Domain\Services\Mail\MailboxBackupPolicy;
 use Onhost\Domain\Services\Mail\MailDomains;
 use Onhost\Domain\Services\Mail\MailSettings;
 use Onhost\Domain\Services\Models\Backup;
@@ -66,6 +68,7 @@ use Onhost\Providers\Contracts\MailToolsProvider;
 use Onhost\Providers\Contracts\PowerCapable;
 use Onhost\Providers\Contracts\ProviderResult;
 use Onhost\Providers\Contracts\ResourceRef;
+use Onhost\Providers\Contracts\RetainedBackups;
 use Onhost\Providers\Contracts\WebHostingProvider;
 use Onhost\Providers\Contracts\WebToolsProvider;
 use Onhost\Providers\Shell\Q;
@@ -78,7 +81,7 @@ use Throwable;
  */
 final class ServiceActionWorkflow implements Workflow
 {
-    public const CORE_ACTIONS = ['power', 'suspend', 'resume', 'resize', 'terminate', 'purge', 'backup', 'restore', 'restore.test', 'archive.restore', 'snapshot', 'rollback_snapshot'];
+    public const CORE_ACTIONS = ['power', 'suspend', 'resume', 'resize', 'terminate', 'purge', 'backup', 'restore', 'restore.test', 'archive.restore', 'snapshot', 'rollback_snapshot', 'mailbox.backup_retention'];
 
     /** Feature actions: one provider call each, validated by ServiceService::featureParams, no service state change. */
     public const FEATURE_ACTIONS = [
@@ -154,7 +157,9 @@ final class ServiceActionWorkflow implements Workflow
             'power' => [$this->powerStep(), $this->verifyPowerStep()],
             'suspend' => [$this->suspendStep(), $this->pauseExtrasStep(), $this->holdIncludedServicesStep(true), $this->finishStateStep(ServiceStateMachine::SUSPENDED)],
             'resume' => [$this->resumeStep(), $this->resumeExtrasStep(), $this->holdIncludedServicesStep(false), $this->finishStateStep(ServiceStateMachine::ACTIVE)],
-            'resize' => [$this->resizeStep(), $this->finishResizeStep()],
+            // a paid plan change of a mail plan brings its mailboxes to the new backup_days, after the plan is saved (TASK-0024)
+            'resize' => [$this->resizeStep(), $this->finishResizeStep(), ...MailboxBackupRetentionStep::afterResize($operation)],
+            'mailbox.backup_retention' => [new MailboxBackupRetentionStep], // operator only: onhost:mail:backup-retention --apply
             'terminate' => [$this->identityStep(), $this->finalArchiveStep(), $this->deactivateStep(), $this->pauseExtrasStep(), $this->cancelAddonsStep(), $this->endIncludedServicesStep(), $this->revokeDelegationsStep(), $this->scheduleRemovalStep()],
             'purge' => [$this->identityStep(), $this->finalArchiveStep(anyOperation: true), $this->endIncludedServicesStep(), $this->removeMailDomainStep(), $this->terminateStep(), $this->platformDnsStep(), $this->releaseStep()],
             'backup' => [$this->backupStep()],
@@ -375,7 +380,14 @@ final class ServiceActionWorkflow implements Workflow
                         return $result;
                     })(),
                     'https.force' => $this->capability($context, WebHostingProvider::class)->forceHttps($ref, (bool) $p('enabled', true)),
-                    'snapshot.delete' => $this->capability($context, ComputeProvider::class)->deleteSnapshot($ref, (string) $p('name')),
+                    'snapshot.delete' => (function () use ($context, $ref, $p) {
+                        $row = Backup::query()->where('service_id', $this->service($context)->id)->where('remote_id', (string) $p('name'))->first();
+                        if ($row !== null && ($row->protected || $row->kind === 'final' || LegalHold::coversBackup($row))) { // asked again here: the row may have been protected since the request (TASK-0029)
+                            throw new ProviderException((string) $context->instance()->provider, ProviderErrorCode::VALIDATION, 'The snapshot is protected and cannot be deleted.');
+                        }
+
+                        return $this->capability($context, ComputeProvider::class)->deleteSnapshot($ref, (string) $p('name'));
+                    })(),
                     'firewall.apply' => (function () use ($context, $ref, $p) {
                         $result = $this->capability($context, ComputeProvider::class)->applyFirewall($ref, (array) $p('rules', []), (bool) $p('enabled', true));
                         $service = $this->service($context);
@@ -422,7 +434,7 @@ final class ServiceActionWorkflow implements Workflow
                     })(),
                     'command.send' => $this->capability($context, GameProvider::class)->sendCommand($ref, (string) $p('command')),
                     'schedule.create' => $this->capability($context, GameProvider::class)->createSchedule($ref, ['name' => $p('name'), 'cron' => $p('cron'), 'actions' => (array) $p('actions', [])]),
-                    'mailbox.create' => $this->capability($context, MailProvider::class)->createMailbox($ref, ['address' => $p('address'), 'password' => $p('password'), 'name' => $p('name'), 'quota_mb' => $p('quota_mb', 2048)]),
+                    'mailbox.create' => $this->capability($context, MailProvider::class)->createMailbox($ref, ['address' => $p('address'), 'password' => $p('password'), 'name' => $p('name'), 'quota_mb' => $p('quota_mb', 2048)] + MailboxBackupPolicy::onCreate($this->service($context))),
                     'mailbox.update' => $this->capability($context, MailProvider::class)->updateMailbox(new ResourceRef('mailbox', (string) $p('remote_id'), $ref->node, ['client_id' => $ref->meta['client_id'] ?? null], $ref->serviceId), (array) $p('changes', [])),
                     'mailbox.delete' => $this->capability($context, MailProvider::class)->deleteMailbox(new ResourceRef('mailbox', (string) $p('remote_id'), $ref->node, [], $ref->serviceId)),
                     'alias.create' => $this->capability($context, MailProvider::class)->createAlias($ref, ['source' => $p('source'), 'destination' => $p('destination')]),
@@ -613,6 +625,10 @@ final class ServiceActionWorkflow implements Workflow
                     'allocation.primary' => $this->capability($context, GameToolsProvider::class)->setPrimaryAllocation($ref, (string) $p('remote_id')),
                     'allocation.remove' => $this->capability($context, GameToolsProvider::class)->removeAllocation($ref, (string) $p('remote_id')),
                     'gbackup.delete' => (function () use ($context, $ref, $p) {
+                        $row = Backup::query()->where('service_id', $this->service($context)->id)->where('remote_id', (string) $p('remote_id'))->first();
+                        if ($row !== null && ($row->protected || $row->kind === 'final' || LegalHold::coversBackup($row))) { // asked again here, as for a web backup: the row may have been protected since the request (TASK-0029)
+                            throw new ProviderException((string) $context->instance()->provider, ProviderErrorCode::VALIDATION, 'The backup is protected and cannot be deleted.');
+                        }
                         $result = $this->capability($context, GameToolsProvider::class)->deleteBackup($ref, (string) $p('remote_id'));
                         Backup::query()->where('service_id', $this->service($context)->id)->where('remote_id', (string) $p('remote_id'))->update(['state' => 'deleted']);
 
@@ -903,6 +919,13 @@ final class ServiceActionWorkflow implements Workflow
                 $service = $this->service($context);
                 $actual = $this->capability($context, InfrastructureProvider::class)->getActualState($this->ref($context));
                 $target = (array) $context->get('target_entitlements', []);
+                // a number somebody changed while this resize ran (a limit raise delivered meanwhile) stays theirs: the target
+                // is a snapshot from the moment the resize was asked, and writing it back undid a raise that was paid for
+                $base = $context->desired('entitlements_base');
+                $held = (array) $service->entitlements;
+                if (is_array($base)) {
+                    $target = array_filter($target, fn ($value, $key) => ! array_key_exists($key, $held) || ($base[$key] ?? null) === $held[$key], ARRAY_FILTER_USE_BOTH);
+                }
                 $tags = (array) ($service->tags ?? []);
                 if ($context->get('site_nvme_gb') !== null) { // what of the plan's space this site holds after the change
                     $tags['sites'] = array_merge((array) ($tags['sites'] ?? []), ['quota_gb' => (int) $context->get('site_nvme_gb')]);
@@ -1083,6 +1106,11 @@ final class ServiceActionWorkflow implements Workflow
                     'reason' => mb_substr($reason, 0, 200), 'operation_id' => $context->operation->id, 'identity_matched' => $context->get('identity_matched'),
                     'revoked' => (array) $context->get('revoked_access', []), // H346: the delegated logins removed with the deactivation, apart from the runtime itself
                 ];
+                $before = Subscription::query()->where('service_id', $fresh->id)->whereNotIn('state', [Subscription::CANCELLED])->orderByDesc('created_at')->first();
+                if ($before !== null) { // TASK-0025: what the customer had chosen, so taking the cancellation back restores it
+                    $tags['deletion']['subscription'] = ['id' => $before->id, 'state' => $before->state, 'auto_renew' => (bool) $before->auto_renew, 'cancel_at_period_end' => (bool) $before->cancel_at_period_end, 'current_period_end' => $before->getAttribute('current_period_end') instanceof \DateTimeInterface ? $before->getAttribute('current_period_end')->format(DATE_ATOM) : null];
+                }
+                unset($tags['reinstatement']); // TASK-0025: a restore asked for during an earlier cancellation never pays for this one
                 $fresh->forceFill(['terminate_at' => $graceUntil, 'tags' => $tags])->save();
                 Subscription::query()->where('service_id', $fresh->id)->whereNotIn('state', [Subscription::CANCELLED])->update(['state' => Subscription::CANCELLED, 'auto_renew' => false]);
                 $context->container->make(OutboxPublisher::class)->publish(GenericEvent::of('service.deletion.scheduled', 'service', $fresh->id, [
@@ -1394,6 +1422,9 @@ final class ServiceActionWorkflow implements Workflow
                     return StepResult::done(['detached' => 'already']);
                 }
                 $result = $context->container->make(Addons::class)->revoke($parent, $addon);
+                if (LimitRaises::isRaise($addon)) { // the lower number reaches the panel too (TASK-0022 limit-raise)
+                    $context->container->make(LimitRaises::class)->afterRevoke($parent, $addon->fresh() ?? $addon, (string) $context->desired('reason', 'ended'));
+                }
 
                 return StepResult::done(['detached' => true, 'parent_service_id' => $parent->id, 'restored' => $result['restored'], 'kept' => $result['kept'], 'backup_policy' => $result['backup_policy']]);
             }
@@ -1566,10 +1597,26 @@ final class ServiceActionWorkflow implements Workflow
                 }
                 $adapter = $this->capability($context, BackupCapable::class);
                 $backup = Backup::query()->firstOrCreate(['operation_id' => $context->operation->id], ['service_id' => $service->id, 'organization_id' => $service->organization_id, 'provider_instance_id' => $service->provider_instance_id, 'kind' => $kind, 'state' => 'running', 'started_at' => now(), 'retention_until' => now()->addDays($days), 'protected' => (bool) $context->desired('protected', false)]);
+                if (! $backup->wasRecentlyCreated && $adapter instanceof RetainedBackups) {
+                    // a retry from the top (TASK-0024): the first attempt's vzdump may have run although its answer was lost. Its volume
+                    // names this row, so it is adopted here; dumping again left the first one on the storage for good (never the row's
+                    // remote id, never pruned).
+                    $retried = $this->adoptMarked($context, $backup);
+                    if ($retried !== null) {
+                        return $retried;
+                    }
+                }
 
                 // what the panel already holds is written down first: the backup of this run is the one that was not there before
                 $before = array_map(fn (array $b) => (string) $b['remote_id'], $adapter->listBackups($this->ref($context)));
-                $result = $adapter->backup($this->ref($context), (array) $context->desired('policy', []));
+                $policy = (array) $context->desired('policy', []);
+                if ($adapter instanceof RetainedBackups) {
+                    // the volume names its own row: it is adopted — and one day pruned — as THIS backup, never as an operator's own
+                    // vzdump of the same guest. The caller's label keeps only plain words, so it can never forge another row's marker.
+                    $label = mb_substr(trim((string) preg_replace('~[^A-Za-z0-9 ._-]~', '', (string) ($policy['notes'] ?? ''))), 0, 40);
+                    $policy['notes'] = trim('{{guestname}} {{vmid}} '.RetainedBackups::MARKER_PREFIX.$backup->id.' '.$label);
+                }
+                $result = $adapter->backup($this->ref($context), $policy);
                 $known = ['backup_id' => $backup->id, 'backup_before' => $before, 'backup_named' => (string) ($result->data['backup_uuid'] ?? '')];
                 if (! $result->isAsync()) { // panels that archive synchronously: the row is complete right away
                     return $this->adopt($context, $backup, $before, $known['backup_named']) ?? StepResult::done($known + ['backup_remote_id' => $backup->remote_id]);
@@ -1596,7 +1643,15 @@ final class ServiceActionWorkflow implements Workflow
             private function adopt(StepContext $context, Backup $backup, array $before, string $named, array $finished = []): ?StepResult
             {
                 $list = collect($this->capability($context, BackupCapable::class)->listBackups($this->ref($context)));
-                $made = $named !== '' ? $list->firstWhere('remote_id', $named) : $list->reject(fn (array $b) => in_array((string) $b['remote_id'], $before, true))->sortByDesc('created_at')->first();
+                $fresh = $list->reject(fn (array $b) => in_array((string) $b['remote_id'], $before, true));
+                $marker = $this->capability($context, BackupCapable::class) instanceof RetainedBackups ? RetainedBackups::MARKER_PREFIX.$backup->id : null;
+                $made = match (true) {
+                    $named !== '' => $list->firstWhere('remote_id', $named),
+                    // where the storage reports notes, only the volume that names this row is ours: the newest new one may be an
+                    // operator's own vzdump job of the same guest that happened to finish meanwhile
+                    $marker !== null && $fresh->contains(fn (array $b) => data_get($b, 'meta.notes') !== null) => $fresh->first(fn (array $b) => preg_match('~(^|\s)'.preg_quote($marker, '~').'(\s|$)~', (string) data_get($b, 'meta.notes', '')) === 1),
+                    default => $fresh->sortByDesc('created_at')->first(),
+                };
                 if (! is_array($made) && $named !== '' && (string) ($finished['uuid'] ?? '') === $named) { // a long list shows one page; the finished task named the archive itself
                     $made = ['remote_id' => $named, 'size_bytes' => $finished['bytes'] ?? null, 'verified' => true];
                 }
@@ -1604,9 +1659,54 @@ final class ServiceActionWorkflow implements Workflow
                     return StepResult::fail('the panel reports the backup done, but its list holds no archive that was not there before', true, ['backup_unconfirmed' => true], 120);
                 }
                 $backup->forceFill(['state' => 'completed', 'finished_at' => now(), 'remote_id' => (string) $made['remote_id'], 'size_bytes' => $made['size_bytes'] ?? null,
-                    'verify_status' => isset($made['verified']) ? ($made['verified'] ? 'ok' : 'pending') : null, 'remote_datastore' => $context->instance()->option('backup_storage')])->save();
+                    'verify_status' => isset($made['verified']) ? ($made['verified'] ? 'ok' : 'pending') : null, 'remote_datastore' => $context->instance()->option('backup_storage'),
+                    'meta' => self::withOrphans((array) $backup->meta, $marker === null ? [] : $list->filter(fn (array $b) => self::carries($b, $marker))->all(), (string) $made['remote_id'])])->save();
 
                 return null;
+            }
+
+            /**
+             * On a retry: the volume this row's marker names, adopted without a new vzdump; null when there is none (dump again).
+             * The newest is the row's; any other with the same marker is written down as an orphan (`meta.orphan_volumes`) for the
+             * doctor — it is never deleted here: only the retention path, with its own proof, removes a volume.
+             */
+            private function adoptMarked(StepContext $context, Backup $backup): ?StepResult
+            {
+                if ($backup->state === 'completed' && (string) $backup->remote_id !== '') {
+                    return StepResult::done(['backup_id' => $backup->id, 'backup_remote_id' => $backup->remote_id]);
+                }
+                $marker = RetainedBackups::MARKER_PREFIX.$backup->id;
+                $marked = collect($this->capability($context, BackupCapable::class)->listBackups($this->ref($context)))->filter(fn (array $b) => self::carries($b, $marker))
+                    ->sortByDesc(fn (array $b) => (string) ($b['created_at'] ?? ''))->values();
+                $made = $marked->first();
+                if (! is_array($made) || (string) ($made['remote_id'] ?? '') === '') {
+                    return null;
+                }
+                $backup->forceFill(['state' => 'completed', 'finished_at' => now(), 'remote_id' => (string) $made['remote_id'], 'size_bytes' => $made['size_bytes'] ?? null,
+                    'verify_status' => isset($made['verified']) ? ($made['verified'] ? 'ok' : 'pending') : null, 'remote_datastore' => $context->instance()->option('backup_storage'),
+                    'meta' => self::withOrphans((array) $backup->meta, $marked->all(), (string) $made['remote_id'])])->save();
+
+                return StepResult::done(['backup_id' => $backup->id, 'backup_remote_id' => $backup->remote_id, 'backup_adopted_on_retry' => true]);
+            }
+
+            /** @param  array<string,mixed>  $volume */
+            private static function carries(array $volume, string $marker): bool
+            {
+                return preg_match('~(^|\s)'.preg_quote($marker, '~').'(\s|$)~', (string) data_get($volume, 'meta.notes', '')) === 1;
+            }
+
+            /**
+             * @param  array<string,mixed>  $meta
+             * @param  array<int, array<string,mixed>>  $marked  every listed volume carrying this row's marker
+             * @return array<string,mixed>
+             */
+            private static function withOrphans(array $meta, array $marked, string $adopted): array
+            {
+                $orphans = array_values(array_unique(array_merge(array_map('strval', (array) ($meta['orphan_volumes'] ?? [])),
+                    array_values(array_filter(array_map(fn (array $b) => (string) ($b['remote_id'] ?? ''), $marked), fn (string $id) => $id !== '' && $id !== $adopted)))));
+                unset($meta['orphan_volumes']);
+
+                return $orphans === [] ? $meta : $meta + ['orphan_volumes' => $orphans];
             }
         };
     }

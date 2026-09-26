@@ -11,7 +11,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
+use Onhost\Domain\Identity\ApiAccessRevocation;
 use Onhost\Domain\Identity\Commands\ApiTokenCommand;
+use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Identity\StepUp\Totp;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -33,7 +35,7 @@ final class MeController extends ApiController
         return response()->json(['data' => Presenters::user($user)]);
     }
 
-    public function changePassword(Request $request, StepUpService $stepUp, AuditRecorder $audit, OutboxPublisher $outbox): JsonResponse
+    public function changePassword(Request $request, StepUpService $stepUp, AuditRecorder $audit, OutboxPublisher $outbox, ApiAccessRevocation $revocation): JsonResponse
     {
         $user = $this->api->user($request);
         $data = $request->validate(['current_password' => ['required', 'string'], 'password' => ['required', Password::min(12)->letters()->numbers()->uncompromised()]]);
@@ -50,6 +52,16 @@ final class MeController extends ApiController
                 $others->where('id', '!=', $current);
             }
             $others->delete();
+        }
+        // and so is every personal API token, in every organization (owner decision 14): a password changed because something
+        // leaked left the leaked token working. The operator switch brings back the old "kept" path and its mail.
+        if ((bool) config('onhost.identity.password_change_revokes_api_access', true)) {
+            $current = $user->currentAccessToken();
+            $revoked = $revocation->revokePersonalTokens($user, $current instanceof PersonalAccessToken ? $current : null);
+            $audit->record($this->api->context($request), 'me.password.change', 'succeeded', ['api_access' => 'revoked', 'api_access_count' => $revoked], 'user', $user->id);
+            $outbox->publish(GenericEvent::of('security.password_changed', 'user', $user->id, ['email' => $user->email, 'ip' => $request->ip(), 'api_access' => 'revoked', 'api_access_count' => $revoked]));
+
+            return response()->json(['data' => ['changed' => true]]);
         }
         $audit->record($this->api->context($request), 'me.password.change', 'succeeded', [], 'user', $user->id);
         $outbox->publish(GenericEvent::of('security.password_changed', 'user', $user->id, ['email' => $user->email, 'ip' => $request->ip(), 'api_access' => 'kept', 'api_access_count' => $user->tokens()->whereNull('revoked_at')->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->count()]));

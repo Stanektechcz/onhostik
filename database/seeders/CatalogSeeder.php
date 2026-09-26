@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
+use Onhost\Domain\Billing\Models\Subscription;
+use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\Models\DomainPrice;
 use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\PlanVersion;
@@ -14,12 +16,14 @@ use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
 use Onhost\Domain\Catalog\Models\TldPolicy;
 use Onhost\Domain\Domains\Models\RegistrarTldCost;
+use Onhost\Domain\Services\Models\Service;
 
 /**
  * Launch catalog derived from the approved prototype (apps/surfaces/onhost-svc-*.js,
  * onhost-data.js) with the real limits the blueprint demands (§43.7, §52). Prices
  * are net; the tax engine adds VAT. Renewal price is shown next to the first-period
- * price (§49.4). Idempotent: re-running updates definitions and keeps versions.
+ * price (§49.4). Idempotent: re-running updates definitions and keeps versions; a version a service or subscription holds is
+ * left exactly as it is (entitlements, limits, features and prices).
  */
 final class CatalogSeeder extends Seeder
 {
@@ -76,7 +80,7 @@ final class CatalogSeeder extends Seeder
             ['apps-business', ['cs' => 'Apps Business', 'en' => 'Apps Business'], 59000, 590000, 2290, 22900, false, 'ha', ['cpu_request' => '2', 'cpu_limit' => '4', 'ram_mb' => 4096, 'replicas' => 2, 'ephemeral_gb' => 20, 'builds_per_day' => 200, 'build_minutes' => 1500, 'workers' => 10, 'cron' => 20, 'custom_domains' => 25, 'tls' => 'Let’s Encrypt', 'logs_retention_days' => 30, 'zero_downtime' => true, 'private_network' => true], ['pids' => 1024, 'egress' => 'default-deny + allowlist']],
         ], state: 'draft'); // Kubernetes is not one of the operated executors (aaPanel, ISPConfig, Pterodactyl, Proxmox, registrars): kept in the catalogue as a draft
 
-        $this->product('database', 'data', 'proxmox', 'subscription', ['cs' => 'Managed databáze', 'en' => 'Managed database'], ['cs' => 'PostgreSQL, MariaDB a Redis jako služba — single-tenant KVM, zálohy a PITR.', 'en' => 'PostgreSQL, MariaDB and Redis as a service — single-tenant KVM, backups and PITR.'], 70, ['persona' => 'developer', 'engines' => ['postgresql-16', 'mariadb-11.4', 'redis-7']], [
+        $this->product('database', 'data', 'proxmox', 'subscription', ['cs' => 'Managed databáze', 'en' => 'Managed database'], ['cs' => 'PostgreSQL, MariaDB a Redis jako služba — single-tenant KVM a zálohy.', 'en' => 'PostgreSQL, MariaDB and Redis as a service — single-tenant KVM and backups.'], 70, ['persona' => 'developer', 'engines' => ['postgresql-16', 'mariadb-11.4', 'redis-7']], [
             ['db-s', ['cs' => 'DB S', 'en' => 'DB S'], 19900, 199000, 790, 7900, false, 'standard', ['vcpu' => 2, 'ram_mb' => 4096, 'nvme_gb' => 40, 'connections' => 100, 'pitr_days' => 7, 'backup_days' => 14, 'ha' => false, 'external_access' => 'off by default (TLS + allowlist)'], []],
             ['db-m', ['cs' => 'DB M', 'en' => 'DB M'], 49900, 499000, 1990, 19900, true, 'business', ['vcpu' => 4, 'ram_mb' => 16384, 'nvme_gb' => 160, 'connections' => 300, 'pitr_days' => 14, 'backup_days' => 30, 'ha' => false, 'external_access' => 'off by default (TLS + allowlist)'], []],
         ]);
@@ -88,6 +92,7 @@ final class CatalogSeeder extends Seeder
         $this->product('object-storage', 'data', null, 'metered', ['cs' => 'Object storage', 'en' => 'Object storage'], ['cs' => 'S3 kompatibilní úložiště (připravováno — bez executoru zatím není prodejné).', 'en' => 'S3-compatible storage (in preparation — not sellable without an executor).'], 90, ['persona' => 'business'], [], state: 'draft');
 
         $this->addonProducts();
+        $this->definedProducts();
         $this->options();
         $this->webOptions();
         $this->gameOptions();
@@ -115,6 +120,11 @@ final class CatalogSeeder extends Seeder
             $version = PlanVersion::query()->firstOrCreate(['plan_id' => $plan->id, 'version' => 1], [
                 'entitlements' => $entitlements, 'limits' => $limits, 'features' => $features, 'effective_from' => now()->subDay(),
             ]);
+            // a version somebody holds is a contract: a re-run of the installer must not rewrite what customers bought (prices included);
+            // a change reaches a running catalogue as a new version (PlanVersioning, CatalogRevisions / onhost:catalog:revise)
+            if (Service::query()->where('plan_version_id', $version->id)->exists() || Subscription::query()->where('plan_version_id', $version->id)->exists()) {
+                continue;
+            }
             $version->forceFill(['entitlements' => $entitlements, 'limits' => $limits, 'features' => $features])->save();
             foreach ([['CZK', $czkMonth, $czkYear], ['EUR', $eurMonth, $eurYear]] as [$currency, $month, $year]) {
                 $this->price($version->id, $currency, 'month', $month, $month);
@@ -168,6 +178,20 @@ final class CatalogSeeder extends Seeder
         $this->product('mail-hosting', 'addon', 'ispconfig', 'subscription', ['cs' => 'E-mail hosting', 'en' => 'Mail hosting'], ['cs' => 'Schránky s antispamem, DKIM a DMARC k vaší doméně.', 'en' => 'Mailboxes with anti-spam, DKIM and DMARC for your domain.'], 94, ['upsell' => 'mail'], [
             ['basic', ['cs' => 'E-mail hosting', 'en' => 'Mail hosting'], 3900, 39000, 159, 1590, true, 'standard', ['mailboxes' => 5, 'quota_mb' => 5120, 'dkim' => true], []],
         ]);
+    }
+
+    /**
+     * Products the code defines (CatalogRevisions::PRODUCTS, TASK-0022 limit-raise): created on a fresh install, never rewritten on
+     * a running one — there the operator creates them with `php artisan onhost:catalog:revise --apply`, since this seeder is not part
+     * of a deployment.
+     */
+    private function definedProducts(): void
+    {
+        foreach (array_keys(CatalogRevisions::PRODUCTS) as $key) {
+            if (! Product::query()->where('key', $key)->exists()) {
+                Product::query()->create(CatalogRevisions::productAttributes($key));
+            }
+        }
     }
 
     private function options(): void

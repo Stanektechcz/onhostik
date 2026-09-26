@@ -10,8 +10,11 @@ These rules are enforced by review and by the test suite.
    returns fake success.
 2. **Writes go through the CommandBus.** New mutations = a `Command` (`OrganizationCommand` or
    `GlobalCommand` + `RiskAwareCommand`) + handler registered in `DomainServiceProvider::HANDLERS`. Risk
-   levels: NORMAL (default), HIGH (fresh step-up), CRITICAL (step-up + four-eyes approval). Routine incident
-   work stays NORMAL; money, publishing to customers, credentials and legal actions are HIGH/CRITICAL.
+   levels: NORMAL (default), HIGH (fresh step-up only), CRITICAL (step-up + four-eyes approval). Routine incident
+   work stays NORMAL; money, publishing to customers, credentials and legal actions are HIGH/CRITICAL. Every price or
+   plan change in the admin configuration takes four eyes even under a HIGH permission (`requiresApproval()`, owner
+   decision 13); a new catalogue operation is four-eyes until it is classified in `CatalogCommand`. `ONHOST_FOUR_EYES=false`
+   on the server is the single-operator waiver (docs/runbooks/approvals.md).
 3. **Money is `Money`.** Minor units + currency; documents and ledger postings are append-only; corrections are
    new documents/transactions.
 4. **Provider adapters** implement contracts in `providers/Contracts`, throw `ProviderException` with the

@@ -21,8 +21,10 @@ use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Incidents\IncidentService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Invoicing\Models\LegalEntity;
+use Onhost\Domain\Orders\CreditOrderApprovals;
 use Onhost\Domain\Orders\Models\ConsentDocument;
 use Onhost\Domain\Orders\Models\Order;
+use Onhost\Domain\Orders\OrderStateMachine;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Payments\Models\PaymentIntent;
@@ -157,6 +159,17 @@ final class SurfaceDataController extends Controller
             if ($slug === 'web-hosting') {
                 $out[$slug]['builder'] = $this->builderRows($locale);
             }
+            if ($slug === 'database') { // the engines the product runs, instead of the prototype chips naming PITR and tools it does not ship
+                $engines = self::engineLabels((array) data_get($catalog->get('database'), 'meta.engines', []));
+                if ($engines !== []) {
+                    $out[$slug]['chips'] = $engines;
+                }
+            }
+            if ($slug === 'eshop') { // the authored lead promised dedicated PHP workers on every shop plan; only one plan sells them (decision 7, TASK-0023)
+                $out[$slug]['lead'] = $cs
+                    ? 'Košík mimo cache a škálování na hodiny. Kapacitu navýšíme na kampaň a po ní zase snížíme — platíte jen za dobu, kdy ji potřebujete.'
+                    : 'Cart outside cache and hourly scaling. We raise capacity for the campaign and lower it after — you pay only while you need it.';
+            }
             if (in_array('game', $keys, true)) { // the game pages name the templates the panel really offers (mapped and orderable), Minecraft flavours on the Minecraft page
                 $templates = app(GameTemplates::class);
                 $labels = [];
@@ -174,8 +187,44 @@ final class SurfaceDataController extends Controller
             }
         }
         $out['domains'] = $this->domainPageRows($locale);
+        foreach (array_keys(self::WITHDRAWN_PAGES) as $slug) {
+            $out[$slug] = self::withdrawnPage($cs);
+        }
 
         return $out;
+    }
+
+    /**
+     * Prototype pages that advertise an offer the platform does not make, withdrawn by the seam (api/onhost-svc-pages.api.js):
+     * their copy is replaced by a short notice. slug => why.
+     */
+    private const WITHDRAWN_PAGES = [
+        'sol-edu' => 'owner decision 21 (2026-09-25): student, school and freelance benefits are postponed until after launch; nothing of it is sold',
+    ];
+
+    /** @return array<string,mixed> */
+    private static function withdrawnPage(bool $cs): array
+    {
+        return [
+            'withdrawn' => true,
+            'kicker' => $cs ? 'Připravujeme' : 'In preparation',
+            'title' => $cs ? 'Programy pro školy a studenty zatím nenabízíme' : 'We do not offer programmes for schools and students yet',
+            'lead' => $cs ? 'Na podmínkách pracujeme a spustíme je až po zahájení provozu. Do té doby platí běžný ceník; napište nám a ozveme se, jakmile budou programy k dispozici.'
+                : 'We are working on the terms and will launch them after we go live. Until then the regular price list applies; get in touch and we will let you know when the programmes are available.',
+            'cta' => $cs ? 'Napsat nám' : 'Get in touch',
+        ];
+    }
+
+    /** @param list<mixed> $engines e.g. postgresql-16 @return list<string> e.g. PostgreSQL 16 */
+    private static function engineLabels(array $engines): array
+    {
+        $names = ['postgresql' => 'PostgreSQL', 'mariadb' => 'MariaDB', 'mysql' => 'MySQL', 'redis' => 'Redis'];
+
+        return array_values(array_map(function ($engine) use ($names): string {
+            [$name, $version] = array_pad(explode('-', (string) $engine, 2), 2, '');
+
+            return trim(($names[$name] ?? ucfirst($name)).' '.$version);
+        }, $engines));
     }
 
     /** Domains page: the most wanted TLDs with the catalogue prices; the CTA checks availability instead of adding a name-less domain to the cart. */
@@ -917,6 +966,10 @@ final class SurfaceDataController extends Controller
             'dunning' => (array) config('onhost.billing.dunning'),
             'wallet' => ['auto_topup' => $organization !== null ? app(AutoTopup::class)->settings($organization) : null, 'payment_methods' => $organization !== null ? app(PaymentService::class)->methods($organization) : []], // the automatic top-up policy row (audit §5e-2) and the stored cards (audit §5f-1)
             'sla' => $services->pluck('sla_class')->filter()->unique()->values()->all(),
+            // TASK-0021 (owner decision 20): credit orders waiting for the owner or a billing admin; the server refuses anybody else's decision
+            'approvals' => Order::query()->where('organization_id', $organizationId)->where('state', OrderStateMachine::NEW)->where('meta->approval->state', 'pending')->orderBy('placed_at')->limit(20)->get()
+                ->map(fn (Order $o) => ['id' => $o->id, 'number' => $o->number, 'total' => (float) $o->total()->toDecimal(), 'currency' => $o->currency, 'requester' => CreditOrderApprovals::of($o)['requester_name'] ?? null, 'placed' => $fmt($o->placed_at)])->values()->all(),
+            'approval_expire_days' => (int) config('onhost.orders.credit_approval.expire_days', 7),
         ];
     }
 

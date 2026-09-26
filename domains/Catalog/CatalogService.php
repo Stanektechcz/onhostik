@@ -180,6 +180,9 @@ final class CatalogService
         $currency = $currency instanceof Currency ? $currency : Currency::fromString($currency);
         $out = [];
         foreach ($this->products() as $product) {
+            if (data_get($product->meta, 'listed') === false) {
+                continue; // ordered for one running service, never from the price list (a limit raise, TASK-0022)
+            }
             $plans = [];
             foreach ($product->plans->where('state', 'active') as $plan) {
                 $version = $plan->versions->firstWhere('version', $plan->current_version);

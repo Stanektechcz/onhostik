@@ -208,7 +208,7 @@
       .then(function (r) {
         var res = r.data || r, o = res.order || res, url = res.redirect_url || (res.order && res.order.redirect_url);
         if (pay === 'card' && url) { location.href = url; return; }
-        set({ placing: false, done: { number: o.number || o.id || '', pay: pay, total: total, state: o.state || '' } });
+        set({ placing: false, done: { number: o.number || o.id || '', pay: pay, total: total, state: o.state || '', approval: res.approval || o.approval || null } });
         refreshCredit(); // the header, the billing tab and the next order see the balance after this order
         if (window.OnhostStore && window.OnhostStore.refresh) window.OnhostStore.refresh();
       })
@@ -407,6 +407,7 @@
         }).join('') + '</div>' +
         '<label class="ohs-field" style="margin-top:12px"><span>' + _('Slevový kód', 'Promo code') + '</span><input type="text" data-in="field" data-k="promo" value="' + esc(S.promo) + '" placeholder="' + _('volitelné', 'optional') + '"/></label>' +
         requiredDocs().map(function (k) { var d = docLabel(k); return '<label class="ohs-consent"><input type="checkbox" data-in="consent" data-k="' + esc(k) + '"' + (S.consents[k] ? ' checked' : '') + '/><span>' + (k === 'withdrawal_waiver' ? _('Žádám o ', 'I request ') + '<a href="' + esc(d[1]) + '" target="_blank" rel="noopener">' + esc(d[0]) + '</a>' : _(/^[zsšž]/i.test(d[0]) ? 'Souhlasím se ' : 'Souhlasím s ', 'I agree to the ') + '<a href="' + esc(d[1]) + '" target="_blank" rel="noopener">' + esc(d[0]) + '</a>') + '</span></label>'; }).join('') +
+        (q && q.withdrawal_notice ? '<p class="ohs-muted" style="margin:8px 0">' + esc(_(q.withdrawal_notice.text, q.withdrawal_notice.text_en || q.withdrawal_notice.text)) + ' <a href="' + esc(q.withdrawal_notice.terms_url) + '" target="_blank" rel="noopener">' + _('Poučení o odstoupení', 'Withdrawal notice') + '</a></p>' : '') + // TASK-0025: a registered domain cannot be withdrawn — said before the order
         '<button type="button" class="ohs-btn" data-a="order"' + (S.placing || !q ? ' disabled' : '') + '>' + (S.placing ? _('Odesílám…', 'Placing…') : _('Závazně objednat', 'Place the order')) + '</button>' +
         '<button type="button" class="ohs-btn2" data-a="back" data-v="1" style="width:100%;margin-top:8px">' + _('← Upravit konfiguraci', '← Edit the configuration') + '</button>';
     }
@@ -455,7 +456,8 @@
   function viewDone() {
     var d = S.done;
     return '<div class="ohs-done"><div class="ohs-h">' + _('Objednávka přijata', 'Order received') + '</div><h2>' + _('Děkujeme', 'Thank you') + (d.number ? ' · ' + esc(d.number) : '') + '</h2><p class="ohs-lead" style="font-size:16px">' +
-      (d.pay === 'wallet' ? _('Uhrazeno z kreditu (' + kc(d.total) + '). Službu právě nasazujeme — průběh uvidíte v sekci Služby, potvrzení dorazí e-mailem.', 'Paid from credit (' + kc(d.total) + '). The service is being deployed — follow it under Services; a confirmation is on its way by e-mail.')
+      (d.approval === 'pending' ? _('Objednávka čeká na schválení vlastníkem nebo fakturačním správcem organizace; z kreditu se zatím nic nečerpalo. Dáme vám vědět, jak rozhodnou.', 'The order waits for the approval of the organization owner or billing admin; no credit has been used yet. You will hear how they decide.') // TASK-0021: a credit order of a member who may not spend the credit
+        : d.pay === 'wallet' ? _('Uhrazeno z kreditu (' + kc(d.total) + '). Službu právě nasazujeme — průběh uvidíte v sekci Služby, potvrzení dorazí e-mailem.', 'Paid from credit (' + kc(d.total) + '). The service is being deployed — follow it under Services; a confirmation is on its way by e-mail.')
         : _('Zálohovou fakturu na ' + kc(d.total) + ' najdete v sekci Fakturace. Službu spustíme hned po připsání platby — rychlejší je zaplatit z kreditu.', 'The proforma for ' + kc(d.total) + ' is in Billing. The service starts as soon as the payment arrives — paying from credit is faster.')) +
       '</p><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:20px"><button type="button" class="ohs-btn" style="width:auto;margin:0" data-a="goto" data-v="' + (d.pay === 'wallet' ? 'services' : 'billing') + '">' + (d.pay === 'wallet' ? _('Přejít na služby', 'Go to services') : _('Otevřít fakturaci', 'Open billing')) + '</button><button type="button" class="ohs-btn2" data-a="again">' + _('Objednat další službu', 'Order another service') + '</button><button type="button" class="ohs-btn2" data-a="close">' + _('Zavřít', 'Close') + '</button></div></div>';
   }

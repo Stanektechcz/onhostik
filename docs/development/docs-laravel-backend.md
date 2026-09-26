@@ -1,5 +1,7 @@
 # Onhost — produkční backend v Laravelu
 
+> **Historický dokument — stav k 14. 9. 2026 (převzato do repozitáře, psáno pro prototyp); aktuální stav: `docs/context/CURRENT_STATE.md`.** Zadání psané před stavbou backendu. Aktuální platforma: Laravel 13 (13.30.1, modulární monolit `onhost-platform`), PHP 8.3, PostgreSQL 16 v produkci; živý aaPanel běží ve verzi 8.0.6 (ověřeno 2026-09-13, `docs/runbooks/preproduction-audit.md` §4). Tabulka „Stack“ v §1 neplatí: framework je Laravel 13, ne 11; Saloon, balíčky `spatie/*` ani Horizon se nepoužívají (HTTP klient Laravelu za kontrakty v `providers/Contracts`, stavové automaty jako data v `StateMachine`, role a oprávnění v `RoleCatalog`/`PermissionCatalog`, fronty `default`, `mails`, `provider-*` pod systemd). Rozhodnutí, která dokument ještě vede jako otevřená, jsou vzatá: **renderovací model** = prototypové plochy beze změny + datové švy (`docs/adr/0005-surfaces-preserved-with-data-seams.md`), administrace a e-maily v Blade, žádné Inertia/React/Livewire; **platby** = adaptéry Comgate, GoPay, Stripe a bankovní převod (`providers/Payments`), ke spuštění Comgate (`docs/runbooks/go-live-checklist.md` §3); **účetnictví a řady dokladů** v ONhostu (`docs/adr/0003-money-ledger-tax.md`); **druhý registrátor** = Subreg vedle WEDOS s výběrem nejlevnějšího (`docs/runbooks/domain-registrars.md`); **retence po zrušení** = lhůta na obnovu 30 dní a závěrečný archiv 60 dní (`config/onhost.php` `services.deletion`, `services.service_archive_days`); **LLM za asistentem** = pravidla napřed, pak OpenAI-kompatibilní nebo Anthropic poskytovatel jen se čtecími nástroji a návrhy, které zákazník potvrdí (`docs/provider-adapters/ai.md`).
+
 Zadání pro vývoj backendu k prototypu. Prototyp je hotová klientská strana: 22 ploch,
 provozní store se stavovými automaty, role a gate, reporty a testovací matice. Tento dokument
 říká, co z toho se má stát serverem, jak to rozdělit a v jakém pořadí to postavit.
@@ -159,7 +161,11 @@ Seznamy: `?limit=40&offset=` + hlavička `X-Total-Count` (UI kreslí okno 40 ř�
 | Leady | `POST /v1/leads`, `POST /v1/reseller/apply`, `POST /v1/tender/request` |
 
 Veřejné API pro zákazníky (dokumentované na `Onhost.dc.html#/api`) je podmnožina se scope tokeny:
-`services:read`, `services:power`, `invoices:read`, `tickets:write`, `dns:write`.
+`services:read`, `services:power`, `services:console`, `invoices:read`, `tickets:write`, `dns:write`, `domains:read`,
+`wallet:read`. Který scope pokrývá které oprávnění, říká jediná explicitní mapa `domains/Identity/Authorization/TokenScopes.php`;
+oprávnění, které v ní nemá rozhodnutí, tokenům dostupné není. `services:console` (konzole, terminál, příkazy, SSH klíče) není
+v žádné předvolbě formuláře — zákazník ho zaškrtává zvlášť. Token nikdy nemá step-up, takže akce s rizikem HIGH/CRITICAL
+přes token neprojdou.
 Limit 120 req/min na token, `429` s `Retry-After`.
 
 ## 6. Fronty a plánovač

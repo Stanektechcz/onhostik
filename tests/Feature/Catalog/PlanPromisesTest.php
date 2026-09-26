@@ -2,12 +2,19 @@
 
 declare(strict_types=1);
 
+use App\Http\Support\CatalogPresentation;
 use Database\Seeders\CatalogSeeder;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\PlanPromises;
 use Onhost\Domain\Catalog\PlanVersioning;
+use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
+use Onhost\Domain\Services\Metering\MetricRegistry;
+use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\UsageWatch;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 
 /*
@@ -22,6 +29,9 @@ use Onhost\Platform\Errors\DomainError;
 
 beforeEach(function () {
     $this->seed([CatalogSeeder::class]);
+    // the catalogue as production has it once the operator applied the code-defined revisions (onhost:catalog:revise --apply):
+    // the seeder only writes version 1, the revisions publish the versions without the promises the platform does not keep
+    app(CatalogRevisions::class)->apply(null, CommandContext::system('test:plan-promises'));
     Http::preventStrayRequests();
 });
 
@@ -83,4 +93,150 @@ it('lets a number leave a plan: the schema could only grow', function () {
     // a key the plan never had is still refused — a version may change the plan, not invent its schema
     expect(fn () => $versions->publish('web-hosting', 'start', ['entitlements' => ['vymyslene' => 5], 'reason' => 'nový klíč'], $context))
         ->toThrow(DomainError::class, 'is not part of this plan');
+});
+
+/*
+ * The guard used to trust "the word appears somewhere under domains/providers/platform/app" as proof a key was
+ * applied — and the price list itself (`CatalogPresentation`) names every key it sells, so it satisfied its own
+ * guard. `products`, `connections` and `dedicated_outbound_ip` passed that way (audit §5ad, brain card H278).
+ */
+it('does not count a key the price list only names as read code', function () {
+    $read = PlanPromises::readInSource();
+
+    // "connections" (managed database) and "dedicated_outbound_ip" (mail) are named only by
+    // app/Http/Support/CatalogPresentation.php — nothing else in the platform ever reads either literal
+    expect($read)->not->toContain('connections')
+        ->and($read)->not->toContain('dedicated_outbound_ip');
+});
+
+it('keeps KNOWN_GAPS equal to the gaps the platform actually has today', function () {
+    $read = PlanPromises::readInSource();
+    $actual = collect(PlanPromises::actualGaps($read))->sort()->values()->all();
+    $known = collect(array_keys(PlanPromises::KNOWN_GAPS))->sort()->values()->all();
+
+    // fails the moment a gap is fixed and the line is left behind (the ratchet may only shrink), and just the same
+    // the moment a new sold number keeps no promise and is not yet named here
+    expect($actual)->toBe($known);
+});
+
+it('names an enforcer for every hard-limit metric and a source for every measured one', function () {
+    foreach (MetricRegistry::REGISTRY as $key => $entry) {
+        if ($entry['status'] === MetricRegistry::ENFORCED_ONLY && $entry['limit_kind'] === MetricRegistry::HARD) {
+            expect(array_filter($entry['sources']))->not->toBe([], "{$key}: enforced_only + hard names no enforcer in its sources");
+        }
+        if ($entry['status'] === MetricRegistry::MEASURED) {
+            expect(array_filter($entry['sources']))->not->toBe([], "{$key}: measured names no source");
+        }
+        if ($entry['status'] === MetricRegistry::GAP) {
+            expect((string) $entry['reason'])->not->toBe('', "{$key}: gap carries no reason");
+        }
+    }
+});
+
+/*
+ * Every ratchet entry has to be backed by the registry it claims to come from — a key named in KNOWN_GAPS with no
+ * matching MetricRegistry row, or a row that is not actually a GAP, would let the ratchet's own explanation drift
+ * from what the table says (QA finding, audit §5ad). Confirmed failing-first by deleting the `aliases` row from
+ * `MetricRegistry::REGISTRY` and re-running: "KNOWN_GAPS key 'aliases' has no MetricRegistry row at all" — restored
+ * afterwards.
+ */
+it('names a GAP row in MetricRegistry, with a reason, for every KNOWN_GAPS key', function () {
+    foreach (array_keys(PlanPromises::KNOWN_GAPS) as $key) {
+        $entry = MetricRegistry::get($key);
+        expect($entry)->not->toBeNull("KNOWN_GAPS key '{$key}' has no MetricRegistry row at all");
+        expect($entry['status'])->toBe(MetricRegistry::GAP, "KNOWN_GAPS key '{$key}' is not recorded as a GAP in MetricRegistry")
+            ->and((string) $entry['reason'])->not->toBe('', "KNOWN_GAPS key '{$key}' carries no MetricRegistry reason");
+    }
+});
+
+/*
+ * MetricRegistry::isKept() used to ignore a row's `families` entirely, so a key verified only for e.g. mail passed
+ * for any plan that happened to sell the same key name (reviewer finding, audit §5ad). `quota_gb_per_mailbox` is
+ * measured/enforced only for `families => ['mail']`; selling it on a web-hosting plan must not pass on the row's
+ * own status alone.
+ */
+it('reports a registry key sold on a product family its row never verified', function () {
+    $entry = MetricRegistry::get('quota_gb_per_mailbox');
+    expect($entry)->not->toBeNull()->and($entry['families'])->toBe(['mail'])
+        ->and(MetricRegistry::isKept('quota_gb_per_mailbox', 'mail'))->toBeTrue()
+        ->and(MetricRegistry::isKept('quota_gb_per_mailbox', 'web'))->toBeFalse();
+
+    $version = Plan::query()->where('key', 'start')->firstOrFail()->currentVersion(); // web-hosting/start, family "web"
+    $version->entitlements = array_merge((array) $version->entitlements, ['quota_gb_per_mailbox' => 5]);
+    expect(PlanPromises::rawUnkept($version, PlanPromises::readInSource()))->toContain('quota_gb_per_mailbox');
+});
+
+/*
+ * Only is_int()/is_float() routed a numeric promise through the registry; a numeric *string* such as "500" fell
+ * through to the generous text-scan rule meant for capability flags (QA finding, audit §5ad). "aliases" is a
+ * MetricRegistry GAP (ISPConfig has no limit_mailalias), but the bare word "aliases" also appears elsewhere in the
+ * codebase as an unrelated feature-flag key — exactly the false "read" the text scan used to produce.
+ */
+it('routes a numeric-string promise through the registry exactly like an int, not the text scan', function () {
+    $read = PlanPromises::readInSource();
+    expect($read)->toContain('aliases'); // proves the old text-scan rule would have waved this one through
+
+    $version = Plan::query()->where('key', 'start')->firstOrFail()->currentVersion();
+    $version->entitlements = array_merge((array) $version->entitlements, ['aliases' => '50']);
+    expect(PlanPromises::rawUnkept($version, $read))->toContain('aliases');
+
+    // and a kept key sold as a numeric string is not wrongly flagged either
+    $version->entitlements = array_merge((array) $version->entitlements, ['aliases' => 0, 'mailboxes' => '5']);
+    expect(PlanPromises::rawUnkept($version, $read))->not->toContain('mailboxes');
+});
+
+/*
+ * Owner decision 5 (2026-09-25): the product count of an e-shop plan is a recommendation, not a limit — nothing reads a
+ * store's product count back and nothing caps it. It is declared fair use and worded as one on the price list.
+ */
+it('treats the e-shop product count as fair use: never a gap, worded as a recommendation', function () {
+    expect(PlanPromises::FAIR_USE)->toHaveKey('products')->and(PlanPromises::KNOWN_GAPS)->not->toHaveKey('products');
+    $start = Plan::query()->where('key', 'shop-start')->firstOrFail()->currentVersion();
+    expect($start?->entitlements['products'] ?? null)->toBe(1000)
+        ->and(PlanPromises::rawUnkept($start, PlanPromises::readInSource()))->not->toContain('products')
+        ->and(CatalogPresentation::bullets(['products' => 1000], 'managed', 'cs'))->toBe(['Doporučeno do 1 000 produktů'])
+        ->and(CatalogPresentation::bullets(['products' => 1000], 'managed', 'en'))->toBe(['Recommended up to 1,000 products'])
+        ->and(CatalogPresentation::bullets(['products' => 999999], 'managed', 'cs'))->toBe(['Bez limitu produktů']);
+});
+
+/*
+ * A revision stops selling a promise; the customers who bought the old version still hold it (owner rule: existing versions
+ * are never edited). Support has to see which versions in the hands of customers promise something the platform does not
+ * provide, so it can answer them honestly — the doctor lists them.
+ */
+it('reports the promises a version customers still hold keeps no longer', function () {
+    [, $org] = $this->customerWithOrganization();
+    $plan = Plan::query()->where('key', 'db-s')->firstOrFail();
+    $v1 = $plan->versions()->where('version', 1)->sole();
+    expect($plan->current_version)->toBe(2);
+    $read = PlanPromises::readInSource();
+    expect(PlanPromises::grandfatheredGaps($read))->toBe([]); // nobody holds v1 yet
+
+    $service = Service::query()->create(['organization_id' => $org->id, 'product_key' => 'database', 'family' => 'data', 'name' => 'DB S', 'state' => ServiceStateMachine::ACTIVE, 'region_code' => 'cz1',
+        'plan_version_id' => $v1->id, 'entitlements' => (array) $v1->entitlements, 'desired_spec' => ['family' => 'data'], 'sla_class' => 'standard', 'tags' => []]);
+    $gaps = PlanPromises::grandfatheredGaps($read);
+    expect(array_keys($gaps))->toBe(['database/db-s@v1'])->and($gaps['database/db-s@v1'])->toEqualCanonicalizing(['pitr_days', 'connections']);
+
+    $service->forceFill(['state' => ServiceStateMachine::TERMINATED])->save(); // an ended service holds nothing
+    expect(PlanPromises::grandfatheredGaps($read))->toBe([]);
+});
+
+/*
+ * TASK-0027 C4 (owner decision 7): `php_workers_dedicated` is a capability flag, so the text scan counts it as kept the moment
+ * PlacementRules names it — although only a panel with a PHP pool per site keeps it, and eshop/shop-peak sold it on aaPanel.
+ * Its MetricRegistry row is scoped to the web family; this ratchet holds every plan on sale to that row once the revisions are
+ * applied, so a plan that sells the flag where nothing keeps it fails here instead of passing the scan.
+ */
+it('sells dedicated PHP workers only where a pool per site keeps them, once the catalogue revisions are applied', function () {
+    $sold = [];
+    foreach (Plan::query()->where('state', 'active')->with('product')->get() as $plan) {
+        $entitlements = (array) $plan->currentVersion()?->entitlements;
+        if (! PlacementRules::dedicatedPhp($entitlements) || $plan->product === null) {
+            continue;
+        }
+        $sold[] = $plan->product->key.'/'.$plan->key;
+        expect(MetricRegistry::isKept('php_workers_dedicated', (string) $plan->product->family))->toBeTrue("{$plan->product->key}/{$plan->key} sells dedicated PHP workers in a family no pool keeps them for")
+            ->and(PlacementRules::undelivered((string) $plan->product->executor, $entitlements))->toBeFalse("{$plan->product->key}/{$plan->key} sells dedicated PHP workers on a node-wide pool");
+    }
+    expect($sold)->toBe(['web-hosting/profi']);
 });

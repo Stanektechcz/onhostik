@@ -79,11 +79,14 @@ final class CommandBus
         }
 
         $handler = $this->resolveHandler($command);
+        // the handler learns which second person (or which waiver) this very run consumed — never what the caller merely offered,
+        // and never what an outer command consumed: a command dispatched from inside a handler starts from nothing (also when empty)
+        $handlerContext = $context->withVerifiedApprovals($decision->approvalIds);
 
         Context::add('command', $command->name()); // the error tracker and the trace tag the command (audit §5q-2)
         try {
-            $result = $this->tracer->span('command '.$command->name(), ['onhost.command' => $command->name(), 'onhost.actor_type' => $context->actorType, 'onhost.actor_id' => $context->actorId, 'onhost.organization_id' => $context->organizationId, 'onhost.idempotency_key' => $command->idempotencyKey()], fn () => DB::transaction(function () use ($handler, $command, $context) {
-                $result = $handler->handle($command, $context);
+            $result = $this->tracer->span('command '.$command->name(), ['onhost.command' => $command->name(), 'onhost.actor_type' => $context->actorType, 'onhost.actor_id' => $context->actorId, 'onhost.organization_id' => $context->organizationId, 'onhost.idempotency_key' => $command->idempotencyKey()], fn () => DB::transaction(function () use ($handler, $command, $context, $handlerContext) {
+                $result = $handler->handle($command, $handlerContext);
                 $this->idempotency->remember($command->idempotencyKey(), $context, $result);
 
                 return $result;

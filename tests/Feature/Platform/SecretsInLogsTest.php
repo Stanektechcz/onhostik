@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Provisioning\IntegrationHealthProbe;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
@@ -52,7 +53,9 @@ it('keeps the ISPConfig session, the remote password and a customer\'s new passw
     expect(DB::table('provider_calls')->where('provider', 'ispconfig')->count())->toBeGreaterThan(2);
 
     // staff open the customer's panel through an audited single sign-on: the link is for them, not for the log
-    $this->actingAs($this->staff('shared_hosting_admin'), 'sanctum');
+    $staff = $this->staff('shared_hosting_admin');
+    $this->actingAs($staff, 'sanctum');
+    app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1'); // the single sign-on asks for a fresh step-up (TASK-0030 WP-B)
     $sso = $this->getJson("/v1/staff/services/{$service->id}/panel-login");
     expect($sso->status())->toBe(200, (string) $sso->getContent());
     Http::assertSent(fn (Request $r) => str_contains($r->url(), 'client_login_get')); // the call whose answer is the link really happened

@@ -8,10 +8,13 @@ use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Onhost\Domain\Billing\WithdrawalHealth;
+use Onhost\Domain\Catalog\CatalogRevisions;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\TldPolicy;
 use Onhost\Domain\Catalog\PlanPromises;
+use Onhost\Domain\Catalog\PriceChangeApprovers;
 use Onhost\Domain\Catalog\WafLevels;
 use Onhost\Domain\Dns\Models\DnsZone;
 use Onhost\Domain\Domains\DomainStateMachine;
@@ -40,9 +43,11 @@ use Onhost\Domain\Provisioning\OperationLatency;
 use Onhost\Domain\Provisioning\PanelVersionGate;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderInstanceService;
+use Onhost\Domain\Provisioning\Scheduling\CapacityDoctor;
 use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\DeletionPolicy;
 use Onhost\Domain\Services\FinalArchive;
+use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
@@ -50,10 +55,12 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\Models\SshKeyGrant;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\Web\BackupOperationsCheck;
 use Onhost\Domain\Services\Web\BackupScheduler;
 use Onhost\Domain\Support\Assistant\AssistantBudget;
 use Onhost\Domain\Tax\CnbRates;
 use Onhost\Domain\Tax\Models\ExchangeRate;
+use Onhost\Domain\Tax\VatHealth;
 use Onhost\Domain\WalletLedger\AutoTopup;
 use Onhost\Platform\Files\VirusScanner;
 use Onhost\Platform\Ops\PlatformBackup;
@@ -91,6 +98,14 @@ final class Doctor extends Command
         $this->deletionLifecycle();
         $this->authorizationCatalog();
         $this->controlPoints();
+        foreach (app(WithdrawalHealth::class)->checks() as $check) { // TASK-0025: the lawyer's review and stuck withdrawals
+            $this->add($check['area'], $check['check'], $check['ok'], $check['detail'], $check['blocking']);
+        }
+        // ── TASK-0031: VIES on and configured, customers waiting for an answer, the last answer, lapsing reverse charge (no HTTP) ──
+        foreach (app(VatHealth::class)->checks() as $check) {
+            $this->add($check['area'], $check['check'], $check['ok'], $check['detail'], $check['blocking']);
+        }
+        // ── end TASK-0031 ──
 
         $fails = count(array_filter($this->rows, fn ($r) => $r['status'] === 'FAIL'));
         $warns = count(array_filter($this->rows, fn ($r) => $r['status'] === 'WARN'));
@@ -173,7 +188,7 @@ final class Doctor extends Command
             $blocked === 0 ? '' : $blocked.' archive(s) past retention still at the provider — backups.meta.expiry_blocked says why', false);
 
         // a schedule that keeps missing its slot is a backup the customer paid for and did not get (H434, H446)
-        $stalled = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->where('tags->backup_schedule->missed', '>=', BackupScheduler::MISSES_BEFORE_ALARM)->count();
+        $stalled = Service::query()->whereIn('family', BackupScheduler::SCHEDULED_FAMILIES)->where('tags->backup_schedule->missed', '>=', BackupScheduler::MISSES_BEFORE_ALARM)->count();
         $this->add('lifecycle', 'backup schedules keeping up', $stalled === 0, $stalled === 0 ? '' : $stalled.' service(s) have missed '.BackupScheduler::MISSES_BEFORE_ALARM.'+ slots in a row — tags.backup_schedule says why', false);
 
         // a node nobody looked at is a node the scheduler would sell (H471): the waiting ones, and the ones already
@@ -203,18 +218,46 @@ final class Doctor extends Command
             $untested === 0 ? (count($promised) === 0 ? 'no plan promises one' : count($promised).' service(s) with a tested backup') : $untested.' service(s) sold a restore test have none that passed — onhost:services:restore-test', false);
 
         // a schedule that stopped itself after repeated failures waits for a person and nothing else will start it (H447)
-        $pausedSchedules = Service::query()->whereIn('family', ['web', 'managed', 'mail'])->whereNotNull('tags->backup_schedule->paused_at')->count();
+        $pausedSchedules = Service::query()->whereIn('family', BackupScheduler::SCHEDULED_FAMILIES)->whereNotNull('tags->backup_schedule->paused_at')->count();
         $this->add('lifecycle', 'no backup schedule is waiting for a person', $pausedSchedules === 0,
             $pausedSchedules === 0 ? '' : $pausedSchedules.' schedule(s) stopped after '.BackupScheduler::FAILURES_BEFORE_PAUSE.' failures in a row — fix the cause, then set the schedule again', false);
+        foreach (app(BackupOperationsCheck::class)->rows() as $row) { // server and database backups, the backup tick, frequency as sold (TASK-0024)
+            $this->add($row['area'], $row['check'], $row['ok'], $row['detail'], $row['blocking']);
+        }
 
         // an add-on is a billing row that changes its parent; one the platform cannot apply would be charged for nothing (audit §5ac)
         $undelivered = Addons::unsellable();
         $this->add('catalog', 'every add-on on sale is one the platform delivers', $undelivered === [],
             $undelivered === [] ? implode(', ', Addons::handled()) : 'sold and never applied: '.implode(', ', $undelivered).' — Onhost\Domain\Services\Addons::handled()');
         // a version published in the administration can put a number back long after the guard test was written (audit §5ad)
-        $promises = PlanPromises::onSaleProblems(PlanPromises::readInSource());
+        $read = PlanPromises::readInSource();
+        $promises = PlanPromises::onSaleProblems($read);
         $this->add('catalog', 'no plan on sale promises a number nothing applies', $promises === [],
             $promises === [] ? 'every number is enforced, applied, measured, or declared fair use' : implode(' · ', array_map(fn (string $plan, array $keys) => $plan.': '.implode(', ', $keys), array_keys($promises), $promises)), false);
+        // the honest, tracked backlog (audit §5ad, brain card H278): every gap here is a documented promise nothing
+        // yet keeps. It is a standing WARN — never hidden, never blocking a deploy by itself — until the list shrinks.
+        $knownGaps = PlanPromises::knownGapKeys();
+        $this->add('catalog', 'no known metering gap', $knownGaps === [],
+            $knownGaps === [] ? '' : count($knownGaps).' known gap(s), tracked in PlanPromises::KNOWN_GAPS: '.implode(', ', $knownGaps), false);
+        // a gap NOT on that ratchet is new — the platform started selling a number nothing measures or enforces —
+        // and that is not a known, accepted state: it fails a production deploy. The other half of the ratchet (a
+        // gap that was actually fixed but left on the list) is not this row's job — it is caught by the Pest test
+        // `PlanPromisesTest::'keeps KNOWN_GAPS equal to the gaps the platform actually has today'`, which compares
+        // the two lists for an exact match rather than a one-way diff.
+        $actualGaps = PlanPromises::actualGaps($read);
+        // a gap a catalogue revision retires left KNOWN_GAPS in the same commit; until the operator applies the revision it is
+        // pending work with a named command (the row below), not an untracked gap (TASK-0022 catalog-versions)
+        $revisions = app(CatalogRevisions::class);
+        $newGaps = array_values(array_diff($actualGaps, $knownGaps, $revisions->pendingKeys()));
+        $this->add('catalog', 'the metering gap ratchet is not growing', $newGaps === [],
+            $newGaps === [] ? 'every gap is on the known list' : 'new, untracked gap(s): '.implode(', ', $newGaps).' — add them to PlanPromises::KNOWN_GAPS with a reason, or fix them', true);
+        $pending = $revisions->pending();
+        $this->add('catalog', 'every catalogue revision is applied', $pending === [], $pending === [] ? implode(', ', CatalogRevisions::ids())
+            : CatalogRevisions::summary($pending).' — php artisan onhost:catalog:revise (dry run), then --apply', false);
+        // the versions customers hold keep what they were sold; support must know which of those promises nothing keeps
+        $grandfathered = PlanPromises::grandfatheredGaps($read);
+        $this->add('catalog', 'no customer holds a version promising an unkept number', $grandfathered === [], $grandfathered === [] ? ''
+            : implode(' · ', array_map(fn (string $version, array $keys) => $version.': '.implode(', ', $keys), array_keys($grandfathered), $grandfathered)).' — sold before the revision; the customers keep their version', false);
         // a WAF level is a line on the price list; the panels do not do the same things, and a level nobody defined
         // used to mean nothing at all (audit §5ad, the same rule as the numbers above)
         $waf = WafLevels::onSaleProblems(['ispconfig' => ServiceFeatures::securitySupports('ispconfig'), 'aapanel' => ServiceFeatures::securitySupports('aapanel')]);
@@ -224,6 +267,9 @@ final class Doctor extends Command
             ->whereNull('tags->parent_service_id')->count();
         $this->add('catalog', 'every add-on knows the service it belongs to', $addonsWithoutParent === 0,
             $addonsWithoutParent === 0 ? '' : $addonsWithoutParent.' × without a parent service — they change nothing and bill anyway', false);
+        // ── TASK-0022 limit-raise: a raise is billed every period or given with a second person's approval, and its number is on the panel ──
+        $raises = LimitRaises::problems();
+        $this->add('catalog', 'every limit raise is billed or approved', $raises === [], $raises === [] ? '' : implode(' · ', array_slice($raises, 0, 10)).(count($raises) > 10 ? ' …' : ''), false);
     }
 
     /**
@@ -400,6 +446,9 @@ final class Doctor extends Command
             }
         }
         $this->add('providers', 'every product can be provisioned', $missing === [], $missing === [] ? $placements->count().' placement(s), executors covered' : 'no usable instance or placement for: '.implode(', ', $missing));
+        foreach (app(CapacityDoctor::class)->rows() as $row) { // TASK-0023: dedicated PHP placement (decision 7) and the capacity basis (decision 19), standing WARNs
+            $this->add('capacity', $row['check'], $row['ok'], $row['detail'], false);
+        }
     }
 
     private function payments(): void
@@ -436,6 +485,9 @@ final class Doctor extends Command
         $deciders = ApprovalService::deciders()->count();
         $fourEyes = ApprovalService::enabled();
         $this->add('identity', 'four eyes in effect', $fourEyes && $deciders >= 2, $fourEyes ? "{$deciders} member(s) of staff may decide approvals".($deciders >= 2 ? '' : ' — grant iam.approval.decide to a second person, or run ONHOST_FOUR_EYES=false deliberately') : 'ONHOST_FOUR_EYES=false: critical actions take one person and a step-up (single-operator mode)', false);
+        // a price or plan change takes a second person who could make it themselves (owner decision 13, domains/Catalog/PriceChangeApprovers.php)
+        $prices = app(PriceChangeApprovers::class)->status();
+        $this->add('identity', 'price changes have a second person', $prices['ok'], $prices['detail'], false);
         $waiting = Approval::query()->where('state', 'pending')->where('expires_at', '>', now())->where('created_at', '<', now()->subHours(4))->count();
         $this->add('identity', 'no approval waiting for hours', $waiting === 0, $waiting === 0 ? '' : "{$waiting} request(s) older than four hours — /sprava/nastaveni/schvalovani", false);
     }

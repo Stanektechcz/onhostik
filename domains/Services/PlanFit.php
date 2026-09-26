@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
+use Onhost\Domain\Catalog\Models\Product;
+use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
+use Onhost\Domain\Services\Metering\UsageRecorder;
+use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\StagingLink;
 use Onhost\Domain\Services\Web\ServiceSites;
@@ -24,6 +29,8 @@ use Onhost\Platform\Errors\DomainError;
  */
 final class PlanFit
 {
+    public function __construct(private readonly UsageRecorder $recorder) {}
+
     /**
      * What the service holds that the target plan would not cover.
      *
@@ -52,7 +59,13 @@ final class PlanFit
                 $out[] = ['key' => 'nvme_gb', 'have' => $carried, 'offer' => $total,
                     'message' => 'Tarif nabízí '.$total.' GB a další weby služby mají přidělených '.$carried.' GB, takže na hlavní web by nezbylo nic. Zmenšete prostor některého webu, nebo některý odeberte.'];
             }
-            $usedGb = (int) ceil((int) data_get($service->tags, 'usage.metrics.disk.used', 0) / 1024 ** 3);
+            $used = $this->usedDiskBytes($service);
+            $usedGb = $used === null ? 0 : (int) ceil($used / 1024 ** 3);
+            if ($used === null && (bool) config('onhost.metering.enforce_new_metrics', false) && $total < (int) (($service->entitlements ?? [])['nvme_gb'] ?? 0)) {
+                // never measured is not "empty" (TASK-0023): a smaller plan waits for the first number, a bigger one never does
+                $out[] = ['key' => 'disk_unmeasured', 'have' => 'neměřeno', 'offer' => $total,
+                    'message' => 'Zatím nevíme, kolik služba zabírá; změna na menší tarif bude možná po prvním měření.'];
+            }
             if ($usedGb > $total) {
                 $out[] = ['key' => 'disk_used', 'have' => $usedGb, 'offer' => $total,
                     'message' => 'Služba má uloženo '.$usedGb.' GB, víc, než tarif nabízí ('.$total.' GB).'];
@@ -61,6 +74,15 @@ final class PlanFit
         if (($entitlements['staging'] ?? false) === false && StagingLink::query()->where('service_id', $service->id)->exists()) {
             $out[] = ['key' => 'staging', 'have' => 'ano', 'offer' => 'ne',
                 'message' => 'Tarif nenabízí testovací kopii webu a služba ji má. Nejdřív ji odeberte.'];
+        }
+        // dedicated PHP workers need a PHP pool per site; a service on a node-wide pool cannot be given them by a plan change,
+        // and the platform does not move a site to another kind of panel by itself (decision 7). A service that already holds
+        // the plan (a billing-period change, a service placed before the rule) is not refused what it has.
+        $provider = $service->provider_instance_id === null ? '' : (string) (ProviderInstance::query()->whereKey($service->provider_instance_id)->value('provider') ?? '');
+        $executor = (string) (Product::query()->where('key', $service->product_key)->value('executor') ?? '');
+        if ($provider !== '' && $executor !== '' && ! PlacementRules::dedicatedPhp((array) $service->entitlements) && ! PlacementRules::allows($executor, $provider, $entitlements)) {
+            $out[] = ['key' => 'php_workers_dedicated', 'have' => 'sdílené', 'offer' => 'vyhrazené',
+                'message' => 'Tarif s vyhrazenými PHP workery běží na jiném typu serveru, než na kterém je vaše služba; změnu tarifu provede podpora.'];
         }
         $versions = array_map('strval', (array) ($entitlements['php_versions'] ?? []));
         if ($versions !== []) {
@@ -73,6 +95,24 @@ final class PlanFit
         }
 
         return $out;
+    }
+
+    /**
+     * What the service stores: the watch's last reading, else the newest sample with a number, else null — never a false 0.
+     * Once the plan's total (files + databases + mail) is enforced for the service, a fully measured total is what it stores.
+     */
+    public function usedDiskBytes(Service $service): ?int
+    {
+        $total = WebDiskTotal::enforcedFor($service) ? WebDiskTotal::held($service) : null;
+        if ($total !== null && ($total['quality'] ?? null) === WebDiskTotal::MEASURED && is_numeric($total['total'] ?? null)) {
+            return (int) $total['total'];
+        }
+        $tagged = data_get($service->tags, 'usage.metrics.disk.used');
+        if (is_numeric($tagged)) {
+            return (int) $tagged;
+        }
+
+        return $this->recorder->latestMeasured($service, 'disk')?->value;
     }
 
     /** Refuses the change and names everything that stands in its way, so the customer fixes it in one go. */

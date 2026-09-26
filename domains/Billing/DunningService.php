@@ -6,9 +6,11 @@ namespace Onhost\Domain\Billing;
 
 use Onhost\Domain\Billing\Models\DunningAction;
 use Onhost\Domain\Billing\Models\DunningCase;
+use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Notifications\MailHealth;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
@@ -127,6 +129,15 @@ final class DunningService
         return $count;
     }
 
+    /**
+     * A case that ended in a cancellation stays TERMINATED when the service comes back through pay and restore (TASK-0025):
+     * what happened is history. The restore is written onto it, so whoever reads the case sees how the story ended.
+     */
+    public function noteReinstated(DunningCase $case, string $serviceId, CommandContext $context): void
+    {
+        $this->act($case, 'reinstate', ['service_id' => $serviceId, 'by' => $context->actorType], $context);
+    }
+
     private function resolveCase(DunningCase $case, CommandContext $context, string $reason): void
     {
         $wasSuspended = in_array($case->state, [DunningCase::SUSPENDED, DunningCase::TERMINATION_SCHEDULED], true);
@@ -164,6 +175,15 @@ final class DunningService
             if ($service !== null && $service->state === ServiceStateMachine::SUSPENDED) { // already down (paused by the customer, quarantined): it must not come back while unpaid
                 app(ServiceService::class)->imposeHold($service, SuspensionHold::PAYMENT, 'dunning', CommandContext::system('dunning')->withScope($service->organization_id));
             }
+            if ($service !== null && $this->endsUnpaid($service) && in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
+                // an add-on has nothing to suspend (every action but the cancellation is refused on it). It is not ended here
+                // either: a service suspended now comes back when paid, and a paid renewal must keep the add-on it paid for.
+                // The termination stage ends it, as it ends every unpaid service (TASK-0022 review: a raise ended on day 30
+                // stayed ended when the invoice was paid on day 45)
+                $this->act($case, 'addon_kept', ['service_id' => $service->id, 'ends_at_termination' => true], $context);
+
+                return;
+            }
             if ($service !== null && in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
                 try {
                     app(ServiceService::class)->requestAction($service, 'suspend', CommandContext::system('dunning')->withScope($service->organization_id), "dunning_suspend:{$case->id}", ['reason' => 'dunning']);
@@ -184,6 +204,24 @@ final class DunningService
     }
 
     /**
+     * Only an add-on sold as renewing is dunned as one (kept through the suspension stage, ended at the termination stage): a
+     * limit raise, or another add-on whose renewal subscription (created under ONHOST_ADDON_RENEWALS) still bills. An add-on
+     * sold before (paid once, no subscription) or one whose subscription already ended keeps the old behaviour — this change
+     * never touches an existing customer's add-on (owner rule: no mass change to existing services).
+     */
+    private function endsUnpaid(Service $service): bool
+    {
+        if ($service->family !== 'addon') {
+            return false;
+        }
+        if (LimitRaises::isRaise($service)) {
+            return true;
+        }
+
+        return (bool) config('onhost.addon_renewals', false) && Subscription::query()->where('service_id', $service->id)->whereIn('state', [Subscription::ACTIVE, Subscription::PAST_DUE])->exists();
+    }
+
+    /**
      * A suspension that did not happen — the panel refused it, another operation stood in the way, the operation failed —
      * was never asked for again: the case said SUSPENDED, the site ran, and the next thing that happened to it was the
      * termination date. It is asked for again once a day (a new idempotency key: the old one would answer with the failed
@@ -194,6 +232,9 @@ final class DunningService
         $service = $case->service_id !== null ? Service::query()->find($case->service_id) : null;
         if ($service === null || ! in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
             return;
+        }
+        if ($this->endsUnpaid($service)) {
+            return; // an add-on is not suspended: it stays until the termination stage (see suspend())
         }
         $meta = ['service_id' => $service->id, 'attempt' => $case->actions()->whereIn('action', ['suspend', 'suspend_retry'])->count() + 1];
         try {

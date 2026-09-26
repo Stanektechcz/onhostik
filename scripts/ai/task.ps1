@@ -126,6 +126,31 @@ function Get-TaskStatus {
     return '?'
 }
 
+# A task branch is integrated when the base contains it: as an ancestor (merge commit, fast-forward), or commit by
+# commit as a patch-equivalent copy - GitHub's "Rebase and merge" rewrites every SHA, so `branch --merged` alone never
+# sees it. The patch check runs against origin/<base> when this clone has that ref (the local base lags until someone
+# pulls). Squash merges are not recognised: one squashed commit is not patch-equivalent to several.
+function Test-BranchIntegrated {
+    param([string] $Repo, [string] $Branch, [string] $Base)
+    $ErrorActionPreference = 'Continue'
+    $ancestor = @(Invoke-OnhostGit $Repo branch --merged $Base --list $Branch)
+    if ($LASTEXITCODE -eq 0 -and $ancestor.Count -gt 0) {
+        return [pscustomobject]@{ merged = $true; how = "ancestor of $Base"; upstream = $Base; pending = @() }
+    }
+    [void](Invoke-OnhostGit $Repo rev-parse --verify --quiet "refs/remotes/origin/$Base")
+    $upstream = if ($LASTEXITCODE -eq 0) { "origin/$Base" } else { $Base }
+    $cherry = @(Invoke-OnhostGit $Repo cherry $upstream $Branch)
+    if ($LASTEXITCODE -ne 0) {
+        return [pscustomobject]@{ merged = $false; how = "git cherry failed: $($cherry -join ' ')"; upstream = $upstream; pending = $cherry }
+    }
+    # Anything but "- <sha>" (an unmerged "+ <sha>", or a line git cherry never prints) keeps the branch unmerged.
+    $pending = @($cherry | Where-Object { $_ -notmatch '^- [0-9a-f]{40}$' })
+    if ($pending.Count -gt 0) {
+        return [pscustomobject]@{ merged = $false; how = "$($pending.Count) commit(s) not in $upstream"; upstream = $upstream; pending = $pending }
+    }
+    return [pscustomobject]@{ merged = $true; how = "every commit patch-equivalent in $upstream"; upstream = $upstream; pending = @() }
+}
+
 function Update-Board {
     $rows = @()
     foreach ($lock in (Get-Locks | Sort-Object id)) {
@@ -281,8 +306,16 @@ switch ($Action) {
         if ($tree -and (Test-Path -LiteralPath $tree)) {
             $dirty = @(Invoke-OnhostGit $tree status --porcelain)
             if ($dirty.Count -gt 0) { $dirty | Out-Host; Write-Error "Worktree $tree has uncommitted changes; commit or hand them off first. Nothing was removed."; exit 1 }
-            $merged = @(Invoke-OnhostGit $here branch --merged $Base --list $lock.branch)
-            if ($merged.Count -eq 0) { Write-Error "Branch $($lock.branch) is not merged into $Base; integrate it first (ai-integrate). Nothing was removed."; exit 1 }
+            # Read-only for the checkouts: fetch only moves origin/<base>, so a merge done on GitHub is visible here.
+            $fetch = Invoke-GitChecked $here fetch --quiet origin $Base
+            if (-not $fetch.ok) { Write-Warning "Could not fetch origin $Base; judging with the refs this clone already has." }
+            $integrated = Test-BranchIntegrated $here $lock.branch $Base
+            if (-not $integrated.merged) {
+                $integrated.pending | Out-Host
+                Write-Error "Branch $($lock.branch) is not integrated into $($integrated.upstream) ($($integrated.how)); integrate it first (ai-integrate). Nothing was removed."
+                exit 1
+            }
+            Write-Host "Branch $($lock.branch): $($integrated.how)."
             $modules = Join-Path $tree 'node_modules'
             if ((Test-Path -LiteralPath $modules) -and ((Get-Item -LiteralPath $modules -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
                 & cmd.exe /c rmdir "$modules" | Out-Null   # removes the junction only, never the main checkout's node_modules

@@ -6,9 +6,12 @@ namespace Onhost\Domain\Notifications;
 
 use Carbon\CarbonImmutable;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\UsageWatch;
+use Onhost\Domain\Tax\VatNumber;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxEventDispatched;
 use Onhost\Platform\Outbox\OutboxMessage;
@@ -43,6 +46,12 @@ final class NotificationRouter
             'order.placed' => $this->both($m, 'order', "Nová objednávka {$p['number']}", ($org?->name ?? '').' · '.$money($p['total'] ?? null).' · '.($p['mode'] ?? ''), 'Objednávka přijata', "{$p['number']} · ".$money($p['total'] ?? null), '/sprava/objednavky', '/panel/objednavky', 'info', $email, 'order-received', ['cislo' => $p['number'], 'castka' => $money($p['total'] ?? null), 'jmeno' => $org?->name, 'url' => "{$portal}/panel/objednavky"]),
             'order.paid' => $this->customer($m, 'order', 'Objednávka zaplacena', "{$p['number']} · zřizujeme služby", '/panel/objednavky'),
             'order.active' => $this->customer($m, 'order', 'Objednávka je hotová', "{$p['number']} · všechny služby jsou aktivní", '/panel/sluzby'),
+            // ── TASK-0021 (owner decision 20): a credit order of a member who may not spend the credit waits for the owner or a billing admin ──
+            'order.approval.required' => $this->creditApprovers($m, "Objednávka {$number} čeká na vaše schválení", trim((string) ($p['requester'] ?? 'Člen organizace')).' ji zadal s platbou z kreditu ('.$money($p['total'] ?? null).'). Kredit se použije až po vašem schválení.', ['cislo' => $number, 'castka' => $money($p['total'] ?? null), 'zadal' => trim((string) ($p['requester'] ?? 'člen organizace')), 'url' => "{$portal}/panel/fakturace"]),
+            'order.approval.approved' => $this->customer($m, 'order', "Objednávka {$number} schválena", 'Schválil(a) '.(string) ($p['decider'] ?? '').'; uhrazeno z kreditu, služby se zřizují.', '/panel/objednavky'),
+            'order.approval.rejected' => $this->creditRequester($m, $p, "Objednávka {$number} nebyla schválena", 'Důvod: '.(string) ($p['reason'] ?? '').'. Z kreditu se nic nečerpalo.', 'order-approval-rejected', ['cislo' => $number, 'duvod' => (string) ($p['reason'] ?? ''), 'url' => "{$portal}/panel/objednavky"]),
+            'order.approval.expired' => $this->creditRequester($m, $p, "Objednávka {$number} vypršela bez schválení", 'Nikdo ji do '.(int) ($p['days'] ?? 7).' dnů neschválil, proto jsme ji zrušili. Z kreditu se nic nečerpalo.'),
+            // ── end TASK-0021 ──
             'provisioning.stranded.released' => $this->internal($m, 'provisioning', 'Služby uvolněné z mezistavu: '.(int) ($p['count'] ?? 0), implode(', ', array_map(fn ($s) => (string) ($s['name'] ?? $s['id'] ?? '').' ('.(string) ($s['from'] ?? '').' → '.(string) ($s['to'] ?? '').')', (array) ($p['services'] ?? []))), '/sprava/provoz', 'warn'),
             // four eyes: staff hear that somebody needs a second person, and what became of it
             'iam.approval.requested' => $this->internal($m, 'security', 'Žádost o schválení: '.($p['action'] ?? ''), trim((string) ($p['requester'] ?? '').' · '.(string) ($p['reason'] ?? ''), ' ·'), '/sprava/nastaveni/schvalovani', 'warn'),
@@ -130,10 +139,10 @@ final class NotificationRouter
             'service.resumed' => $this->customer($m, 'service', 'Služba byla obnovena', '', '/panel/sluzby'),
             'service.terminated' => $this->customer($m, 'service', 'Služba byla ukončena', 'Zálohy držíme po dobu retenční lhůty.', '/panel/sluzby', 'warn'),
             // the deletion lifecycle (audit §5ab): deactivation, the restore window, the removal and the archive
-            'service.restore_test.failed' => $this->customer($m, 'service', 'Záloha se nepodařilo obnovit na zkoušku', 'Pravidelný test obnovy u služby '.($p['label'] ?? '').' neprošel: '.($p['problem'] ?? '').' Vaše data ani databáze jsme nijak nezměnili — test běží stranou. Díváme se na to.', '/panel/sluzby', 'warn'),
-            'service.database.import.failed' => $this->customer($m, 'service', 'Import databáze se nedokončil', 'Import do databáze '.($p['database'] ?? '').' ('.($p['label'] ?? '').') se nedokončil'.(($p['restored'] ?? false) ? ' a vrátili jsme ji do stavu těsně před importem.' : '. Kopii z doby těsně před importem máme uloženou.').' Důvod: '.($p['reason'] ?? ''), '/panel/sluzby', 'warn'),
-            'service.backup.schedule.paused' => $this->customer($m, 'service', 'Plánování záloh jsme zastavili', 'Zálohy služby '.($p['label'] ?? '').' selhaly '.(int) ($p['failures'] ?? 0).'× po sobě ('.($p['reason'] ?? '').'), tak jsme plán zastavili, aby se pokusy neopakovaly donekonečna. Hotové zálohy zůstávají. Plán se rozeběhne, jakmile ho znovu nastavíte.', '/panel/sluzby', 'warn'),
-            'service.backup.schedule.stalled' => $this->customer($m, 'service', 'Plánovaná záloha se nespustila', 'Zálohu služby '.($p['label'] ?? '').' se nepodařilo spustit '.(int) ($p['missed'] ?? 0).'× po sobě ('.($p['reason'] ?? '').'). Díváme se na to; poslední hotová záloha zůstává k dispozici.', '/panel/sluzby', 'warn'),
+            'service.restore_test.failed' => $this->customerAndStaff($m, $p, 'Záloha se nepodařilo obnovit na zkoušku', 'Pravidelný test obnovy u služby '.($p['label'] ?? '').' neprošel: '.($p['problem'] ?? '').' Vaše data ani databáze jsme nijak nezměnili — test běží stranou. Díváme se na to.'),
+            'service.database.import.failed' => $this->customerAndStaff($m, $p, 'Import databáze se nedokončil', 'Import do databáze '.($p['database'] ?? '').' ('.($p['label'] ?? '').') se nedokončil'.(($p['restored'] ?? false) ? ' a vrátili jsme ji do stavu těsně před importem.' : '. Kopii z doby těsně před importem máme uloženou.').' Důvod: '.($p['reason'] ?? '')),
+            'service.backup.schedule.paused' => $this->customerAndStaff($m, $p, 'Plánování záloh jsme zastavili', 'Zálohy služby '.($p['label'] ?? '').' selhaly '.(int) ($p['failures'] ?? 0).'× po sobě ('.($p['reason'] ?? '').'), tak jsme plán zastavili, aby se pokusy neopakovaly donekonečna. Hotové zálohy zůstávají. Plán se rozeběhne, jakmile ho znovu nastavíte.'),
+            'service.backup.schedule.stalled' => $this->customerAndStaff($m, $p, 'Plánovaná záloha se nespustila', 'Zálohu služby '.($p['label'] ?? '').' se nepodařilo spustit '.(int) ($p['missed'] ?? 0).'× po sobě ('.($p['reason'] ?? '').'). Díváme se na to; poslední hotová záloha zůstává k dispozici.'),
             'service.rescue.started' => $this->customer($m, 'service', 'Server běží v záchranném režimu', 'Nastartovali jsme server ze záchranného obrazu ('.($p['image'] ?? '').'). Disky zůstaly nedotčené. Režim sám skončí '.($p['until'] ?? '').' a server nabootuje zpět do svého systému.', '/panel/sluzby', 'warn'),
             'service.rescue.ended' => $this->customer($m, 'service', 'Záchranný režim skončil', 'Server jsme vrátili do vlastního systému ('.($p['reason'] ?? '').').', '/panel/sluzby', 'info'),
             'service.deactivated' => $this->internal($m, 'service', 'Služba deaktivována ke zrušení', (string) ($p['reason'] ?? ''), '/sprava/sluzby'),
@@ -218,7 +227,7 @@ final class NotificationRouter
             'dns.zone.committed' => $this->customer($m, 'dns', "DNS {$p['name']}: verze {$p['version']} publikována", ($p['records'] ?? 0).' záznamů', '/panel/domeny'),
             'security.login' => $this->user($m, 'security.login', 'Nové přihlášení', ($p['ip'] ?? '').' · '.($p['user_agent'] ?? ''), '/panel/nastaveni', 'info', 'security-login', ['ip' => $p['ip'] ?? '', 'zarizeni' => $p['user_agent'] ?? '', 'cas' => $p['at'] ?? now()->toIso8601String(), 'url' => "{$portal}/panel/nastaveni"]),
             'security.mfa' => $this->user($m, 'security.mfa', 'Dvoufázové ověření změněno', (string) ($p['change'] ?? ''), '/panel/nastaveni', 'warn', 'security-mfa', ['zmena' => $p['change'] ?? '', 'url' => "{$portal}/panel/nastaveni"]),
-            // a reset revokes the API tokens, a change keeps them — the mail says which, and how many stay valid (it used to say "signed out" for both)
+            // a reset revokes the API tokens, and so does a change unless the operator switch `onhost.identity.password_change_revokes_api_access` is off (TASK-0021) — the mail says which, and how many stay valid
             'security.password_changed' => ($p['api_access'] ?? 'revoked') === 'kept'
                 ? $this->user($m, 'security.mfa', 'Heslo bylo změněno', trim(($p['ip'] ?? '').' · API tokeny zůstávají platné: '.(int) ($p['api_access_count'] ?? 0)), '/panel/nastaveni', 'warn', 'security-password-kept', ['ip' => $p['ip'] ?? '', 'pocet' => (string) (int) ($p['api_access_count'] ?? 0), 'url' => "{$portal}/panel/nastaveni"])
                 : $this->user($m, 'security.mfa', 'Heslo bylo změněno', ($p['ip'] ?? ''), '/panel/nastaveni', 'warn', 'security-password', ['ip' => $p['ip'] ?? '', 'url' => "{$portal}/panel/nastaveni"]),
@@ -257,7 +266,7 @@ final class NotificationRouter
             'catalog.plan.version_published', 'catalog.plan.version_activated' => $this->internal($m, 'finance', self::internalTitle($m->name, $p), 'Změněno: '.implode(', ', array_merge((array) ($p['changed']['entitlements'] ?? []), (array) ($p['changed']['limits'] ?? []), (array) ($p['changed']['prices'] ?? []))).' · důvod: '.($p['reason'] ?? ''), '/sprava/fakturace', 'warn'),
             'platform.mail.failing', 'platform.mail.recovered',
             'node.blocklisted', 'service.name_unproved', 'service.certificate.problem', 'service.resume.incomplete', 'service.suspend.incomplete', 'service.purge.leftover',
-            'registrar.credit.low', 'integration.down', 'integration.maintenance.lifted', 'integration.maintenance.overdue', 'security.ssh_key.revocation.stuck', 'platform.load_shedding.started', 'platform.load_shedding.ended', 'platform.queue.stalled', 'platform.queue.backlog', 'node.drained', 'node.resumed', 'node.qualified', 'node.disk.low', 'service.integrity.suspicious', 'node.synthetic.leftover', 'service.relocated', 'service.backup.schedule.stalled', 'service.backup.schedule.paused', 'service.database.import.failed', 'service.restore_test.failed', 'capacity.unavailable', 'ipam.exhausted', 'ipam.threshold', 'ipam.rdns.unpublished', 'ipam.rdns.failed', 'provisioning.drift.detected', 'operation.failed', 'finance.reconciliation.mismatch', 'registrar.notification.dead', 'domain.reconcile.missing_remote', 'domain.reconcile.unknown_remote', 'payment.orphan_callback', 'security.incident.opened', 'abuse.case.opened', 'compliance.timer.due', 'compliance.timer.missed', 'sla.burn_rate', 'sla.budget.exhausted', 'maintenance.unapproved' => $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), mb_substr(json_encode(array_diff_key($p, array_flip(['row', 'raw'])), JSON_UNESCAPED_UNICODE) ?: '', 0, 250), self::internalSurface($m->name), 'hot'),
+            'registrar.credit.low', 'integration.down', 'integration.maintenance.lifted', 'integration.maintenance.overdue', 'security.ssh_key.revocation.stuck', 'platform.load_shedding.started', 'platform.load_shedding.ended', 'platform.queue.stalled', 'platform.queue.backlog', 'node.drained', 'node.resumed', 'node.qualified', 'node.disk.low', 'service.integrity.suspicious', 'node.synthetic.leftover', 'service.relocated', 'capacity.unavailable', 'ipam.exhausted', 'ipam.threshold', 'ipam.rdns.unpublished', 'ipam.rdns.failed', 'provisioning.drift.detected', 'operation.failed', 'finance.reconciliation.mismatch', 'registrar.notification.dead', 'domain.reconcile.missing_remote', 'domain.reconcile.unknown_remote', 'payment.orphan_callback', 'security.incident.opened', 'abuse.case.opened', 'compliance.timer.due', 'compliance.timer.missed', 'sla.burn_rate', 'sla.budget.exhausted', 'maintenance.unapproved' => $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), self::internalBody($p), self::internalSurface($m->name), 'hot'),
             // marketplace (audit §5j-1): the partner gets the brief, the customer the delivery; disputes reach support and the partner
             'marketplace.ordered' => $this->customer($m, 'order', 'Objednávka z marketplace: '.($p['title'] ?? ''), 'Partner dostal zadání; dodání do '.self::when($p['due_at'] ?? null).'. Zaplaceno z kreditu ('.$money($p['total'] ?? null).').', '/panel/nastaveni', 'info'),
             'marketplace.assigned' => $this->customer($m, 'order', 'Nová zakázka z marketplace: '.($p['title'] ?? ''), 'Zákazník '.($p['customer'] ?? '').' · dodání do '.self::when($p['due_at'] ?? null).' · '.mb_substr((string) ($p['brief'] ?? ''), 0, 200), '/partner', 'warn', $email, 'marketplace-assigned', ['sluzba' => (string) ($p['title'] ?? ''), 'zakaznik' => (string) ($p['customer'] ?? ''), 'termin' => self::when($p['due_at'] ?? null), 'zadani' => mb_substr((string) ($p['brief'] ?? ''), 0, 500), 'url' => "{$portal}/partner"]),
@@ -330,10 +339,102 @@ final class NotificationRouter
             // operations (audit §5j-4, §5j-6, §5j-9)
             'rebalance.plan' => $this->internal($m, 'infra', 'Noční plán přerozdělení: '.(int) ($p['moves'] ?? 0).' přesunů ('.($p['basis'] ?? 'usage').')', 'horké uzly: '.implode(', ', (array) ($p['hot'] ?? [])).' · '.implode(' · ', (array) ($p['summary'] ?? [])), '/sprava#/fleet', (int) ($p['moves'] ?? 0) > 0 ? 'warn' : 'info'),
             'chargeback.cluster' => $this->internal($m, 'finance', 'Odchody zákazníků se hromadí: '.($p['label'] ?? ''), (int) ($p['count'] ?? 0).'× · téma '.($p['theme'] ?? '').' · incident '.($p['number'] ?? ''), '/sprava#/incidents', 'hot'),
+            // ── TASK-0023 web-disk-total: the dated notice that the plan space counts files + databases + mail together ──
+            'service.disk_total.announced' => (function () use ($m, $p, $email, $portal) {
+                $v = WebDiskTotal::noticeVars($p);
+                $this->customer($m, 'service', 'Od '.$v['datum'].' se prostor tarifu služby '.$v['sluzba'].' počítá celkem', 'Do limitu tarifu se bude počítat součet souborů, databází a pošty. Dnes: '.$v['celkem'].' z '.$v['limit'].'. '.$v['stav'],
+                    '/panel/sluzby', ! empty($p['over']) ? 'warn' : 'info', $email, 'service-disk-total-notice', $v + ['url' => "{$portal}/panel/sluzby"]);
+            })(),
+            // ── end TASK-0023 web-disk-total ──
             'tenant.sandbox' => $this->customer($m, 'account', ! empty($p['enabled']) ? 'Účet je v režimu sandbox' : 'Režim sandbox ukončen', ! empty($p['enabled']) ? 'Služby se zřizují v laboratorním prostředí; kredit '.$money(['minor' => (int) ($p['credit'] ?? 0), 'currency' => $org?->currency ?? 'CZK']).' je určen k testování.' : 'Nové objednávky jdou do produkce.', '/panel/nastaveni'),
+            // ── TASK-0022 limit-raise: the customer hears the new number (billing contact); a raise given at no charge reaches staff too ──
+            'service.limit_raised' => (function () use ($m, $p, $email, $portal) {
+                $what = (string) ($p['metric_label'] ?? $p['metric'] ?? '').' +'.(int) ($p['delta'] ?? 0).' → '.(int) ($p['new_value'] ?? 0);
+                $this->customer($m, 'service', 'Limit služby '.($p['label'] ?? '').' navýšen', $what.(! empty($p['waived']) ? ' · na jedno období zdarma' : ' · účtuje se s každým obdobím'), '/panel/sluzby', 'info', $email, 'service-limit-raised',
+                    ['sluzba' => (string) ($p['label'] ?? ''), 'limit' => $what, 'uctovani' => ! empty($p['waived']) ? 'Navýšení je na jedno období zdarma a potom skončí.' : 'Navýšení se účtuje s každým obdobím, dokud ho nezrušíte.', 'url' => $portal.'/panel/sluzby']);
+                if (! empty($p['waived'])) {
+                    $this->internal($m, 'finance', 'Navýšení limitu zdarma: '.($p['label'] ?? ''), $what.' · schválení '.implode(', ', (array) ($p['approval_ids'] ?? [])), '/sprava/objednavky');
+                }
+            })(),
+            'service.limit_raise_ended' => $this->customer($m, 'service', 'Navýšení limitu služby '.($p['label'] ?? '').' skončilo', (string) ($p['metric_label'] ?? $p['metric'] ?? '').' −'.(int) ($p['delta'] ?? 0).' → '.(int) ($p['new_value'] ?? 0), '/panel/sluzby', 'info'),
+            // ── TASK-0025 pay and restore (rule services.reinstate): a cancelled service came back after payment, waits for it, its resume was refused (nothing taken), or a request was dropped ──
+            'service.reinstated' => $this->customer($m, 'service', 'Služba je zpět: '.($p['label'] ?? ''), (is_array($p['amount'] ?? null) ? 'Zaplaceno '.$money($p['amount']).' · ' : 'Zaplacené období trvá · ').'plánované odstranění jsme zrušili, služba se znovu spouští.', '/panel/sluzby', 'info', $email, 'service-reinstated', ['sluzba' => (string) ($p['label'] ?? ''), 'castka' => is_array($p['amount'] ?? null) ? $money($p['amount']) : '—', 'url' => "{$portal}/panel/sluzby"]),
+            'service.reinstatement.awaiting_payment' => $this->customer($m, 'service', 'Obnovení služby čeká na platbu: '.($p['label'] ?? ''), 'K úhradě '.$money($p['amount'] ?? null).((int) data_get($p, 'shortfall.minor', 0) > 0 ? ' · na kreditu chybí '.$money($p['shortfall'] ?? null) : '').' · obnovit lze do '.substr((string) ($p['grace_until'] ?? ''), 0, 10), '/panel/fakturace', 'warn'),
+            'service.reinstatement.failed' => $this->internal($m, 'service', 'Zaplacená služba se neobnovila: '.($p['label'] ?? ''), 'obnovení odmítnuto: '.(string) ($p['error'] ?? '').' · nic nestrženo, odstranění dál naplánováno · obnovte ručně nebo se ozvěte zákazníkovi', '/sprava/sluzby', 'hot'),
+            'service.reinstatement.dropped' => $this->customer($m, 'service', 'Žádost o obnovení služby zrušena: '.($p['label'] ?? ''), 'Kdo o obnovení požádal, už nesmí platit z kreditu organizace, a tak jsme nic nestrhli. Obnovit ji může vlastník nebo správce fakturace do '.substr((string) ($p['grace_until'] ?? ''), 0, 10).'.', '/panel/sluzby', 'warn'),
+            // TASK-0025 consumer withdrawal: the confirmation of receipt is a mandatory legal notice (mail `withdrawal-accepted`); finance sees every refund; a refused step goes to finance as hot
+            // the notice promises only what will really reach the credit; what only makes unpaid documents smaller is named apart (TASK-0025 review)
+            'withdrawal.accepted' => (function () use ($m, $p, $org, $money, $email, $portal, $locale): void {
+                $about = ! empty($p['estimate']) ? 'odhadem ' : '';
+                $toCredit = (int) data_get($p, 'to_credit.minor', 0) > 0;
+                $offDocuments = (int) data_get($p, 'off_documents.minor', 0) > 0;
+                $what = implode(', ', array_filter([
+                    $toCredit ? 'na kredit vrátíme dobropisem '.$about.$money($p['to_credit']) : null,
+                    $offDocuments ? 'neuhrazené doklady snížíme o '.$about.$money($p['off_documents']) : null,
+                    $toCredit || $offDocuments ? null : (! empty($p['already_returned']) ? 'na kredit se nic nevrací, vše už bylo vráceno dříve' : 'na kredit se nic nevrací'),
+                ]));
+                $steps = ($p['service_id'] ?? null) !== null ? 'Službu pozastavíme, '.$what.' a službu zrušíme.' : 'Objednávku rušíme, '.$what.'.';
+                $this->internal($m, 'finance', 'Odstoupení spotřebitele přijato: '.($p['label'] ?? ''), ($org->name ?? '').' · '.(! empty($p['estimate']) ? 'odhad: ' : '').'na kredit '.$money($p['to_credit'] ?? null).' · z neuhrazených dokladů '.$money($p['off_documents'] ?? null).' · '.(($p['channel'] ?? '') === 'staff' ? 'zaznamenal tým' : 'v panelu'), '/sprava#/money', 'info');
+                $this->customer($m, 'legal.notice', 'Odstoupení od smlouvy přijato: '.($p['label'] ?? ''), 'Odesláno '.substr((string) ($p['sent_at'] ?? ''), 0, 10).'. '.$steps, '/panel/sluzby', 'info', $email, 'withdrawal-accepted',
+                    ['sluzba' => (string) ($p['label'] ?? ''), 'objednavka' => (string) ($p['order_number'] ?? ''), 'odeslano' => substr((string) ($p['sent_at'] ?? ''), 0, 10), 'postup' => (string) Lexicon::translate($steps, $locale), 'url' => "{$portal}/panel/fakturace"]);
+            })(),
+            'withdrawal.refunded' => (function () use ($m, $p, $org, $money): void {
+                $this->internal($m, 'finance', 'Odstoupení spotřebitele: vráceno '.$money($p['refund'] ?? null), ($org->name ?? '').' · '.($p['label'] ?? '').' · na kredit '.$money($p['to_credit'] ?? null).' · z neuhrazených dokladů '.$money($p['off_documents'] ?? null).' · dobropisy '.implode(', ', (array) ($p['credit_notes'] ?? [])), '/sprava#/money', 'info');
+                $credited = (int) data_get($p, 'to_credit.minor', 0) > 0;
+                $reduced = (int) data_get($p, 'off_documents.minor', 0) > 0 ? 'neuhrazené doklady sníženy o '.$money($p['off_documents']) : null;
+                $this->customer($m, 'wallet', $credited ? 'Vráceno na kredit po odstoupení: '.$money($p['to_credit']) : 'Odstoupení vyřízeno: '.($reduced ?? 'na kredit se nic nevrací'),
+                    ($p['label'] ?? '').($credited && $reduced !== null ? ' · '.$reduced : '').' · dobropis '.implode(', ', (array) ($p['credit_notes'] ?? [])), '/panel/fakturace', 'info');
+            })(),
+            'withdrawal.completed' => $this->customer($m, 'service', 'Služba ukončena odstoupením: '.($p['label'] ?? ''), 'Smlouva je ukončena. Novou službu si můžete kdykoli objednat.', '/panel/sluzby', 'info'),
+            'withdrawal.stalled' => $this->internal($m, 'finance', 'Odstoupení se zastavilo: '.($p['label'] ?? ''), 'krok '.(string) ($p['step'] ?? '').' odmítnut: '.(string) ($p['error'] ?? '').' · vráceno: '.(! empty($p['refunded']) ? 'ano' : 'ne').' · onhost:withdrawals:finish to zkusí znovu', '/sprava#/money', 'hot'),
+            // ── end TASK-0025 ──
+            // ── TASK-0029 service-access-reduced: a share given again without the console takes the person's SSH keys and game sub-users on it (RevokeDelegatedAccess) ──
+            'service.access.reduced' => $this->customer($m, 'account', 'Konzole služby odebrána: '.($p['service'] ?? ''), ($p['email'] ?? '').' · přístup zůstává ('.implode(', ', (array) ($p['capabilities'] ?? [])).'), SSH klíče a herní sub-uživatelé této osoby se odebírají', '/panel/sluzby'),
+            // ── end TASK-0029 service-access-reduced ──
+            // ── TASK-0031: a VAT number checked in VIES — the billing contacts hear an invalid number, finance hears a staff override ──
+            'tax.vat_number.checked' => $this->vatNumberChecked($m, $p, $org, $email, $portal, $locale),
+            // ── end TASK-0031 ──
             default => null,
         };
     }
+
+    // ── TASK-0031 ──
+    /**
+     * What a VIES verdict means for the customer (D31.8). An invalid number of another EU state is told to the billing contacts
+     * with the mail: their country's VAT is charged meanwhile. A Czech organization is charged Czech VAT either way and gets an
+     * info note in the portal only (review round 2); a number from outside the EU is never checked, so nobody there hears "invalid".
+     * A number that became valid is an in-app note; a staff override goes to finance.
+     *
+     * @param  array<string,mixed>  $p
+     */
+    private function vatNumberChecked(OutboxMessage $m, array $p, ?Organization $org, ?string $email, string $portal, string $locale): void
+    {
+        $hint = (string) ($p['number_hint'] ?? '');
+        if (($p['source'] ?? '') === 'staff') {
+            $this->internal($m, 'finance', 'Stav DIČ nastaven ručně: '.($org->name ?? ''), $hint.' · '.(string) ($p['result'] ?? '').(isset($p['until']) ? ' · do '.substr((string) $p['until'], 0, 10) : ''), '/sprava#/money', 'info');
+
+            return;
+        }
+        $supplier = ($p['country'] ?? '') === VatNumber::supplierCountry() || strtoupper((string) ($org->country ?? '')) === VatNumber::supplierCountry();
+        if (($p['result'] ?? '') === 'invalid' && $supplier) {
+            // every Czech legal entity has a DIČ, and one that is not a VAT payer is rightly not in VIES (review round 2): a note in
+            // the portal in plain words, no warning mail inviting a needless manual check — domestic VAT does not change either way
+            $this->customer($m, 'billing', 'DIČ není v registru plátců DPH', 'DIČ '.$hint.' není v registru plátců DPH (VIES). Pokud jste plátce DPH, zkontrolujte ho ve fakturačních údajích.', '/panel/nastaveni', 'info');
+
+            return;
+        }
+        if (($p['result'] ?? '') === 'invalid') {
+            $effect = 'Dokud DIČ neověříme, účtujeme DPH vaší země.';
+            $this->customer($m, 'billing', 'DIČ se nepodařilo ověřit ve VIES', 'DIČ '.$hint.' se nepodařilo ověřit ve VIES. '.$effect.' Zkontrolujte ho ve fakturačních údajích.', '/panel/nastaveni', 'warn', $email, 'vat-number-invalid',
+                ['dic' => $hint, 'dopad' => (string) Lexicon::translate($effect, $locale), 'url' => $portal.'/panel/nastaveni']);
+
+            return;
+        }
+        if (($p['result'] ?? '') === 'valid' && ! empty($p['changed'])) {
+            $this->customer($m, 'billing', 'DIČ ověřeno ve VIES', 'DIČ '.$hint.' je platné.'.($supplier || ! ($org?->isB2b() ?? false) ? '' : ' Na dokladech uplatníme přenesení daňové povinnosti (reverse charge).'), '/panel/nastaveni', 'info');
+        }
+    }
+    // ── end TASK-0031 ──
 
     /** What is wrong with the domain, in the words the customer can act on. */
     private static function dnsProblems(array $payload): string
@@ -381,6 +482,29 @@ final class NotificationRouter
         $this->customer($m, $kind, $customerTitle, $customerBody, $customerSurface, $severity, $mailTo, $template, $vars);
     }
 
+    /**
+     * A service trouble the events catalog promises to "customer + operator": staff hear it as the staff list words it
+     * (hot), the customer in their own words (warn). One arm per event — PHP's match runs only the first arm that names it,
+     * which is how these four once reached the customer alone (TASK-0027).
+     *
+     * @param  array<string,mixed>  $p
+     */
+    private function customerAndStaff(OutboxMessage $m, array $p, string $title, string $body): void
+    {
+        $this->internal($m, self::internalKind($m->name), self::internalTitle($m->name, $p), self::internalBody($p), self::internalSurface($m->name), 'hot');
+        $this->customer($m, 'service', $title, $body, '/panel/sluzby', 'warn');
+    }
+
+    /**
+     * What staff read under an internal title: the payload without raw rows, cut to the column.
+     *
+     * @param  array<string,mixed>  $p
+     */
+    private static function internalBody(array $p): string
+    {
+        return mb_substr(json_encode(array_diff_key($p, array_flip(['row', 'raw'])), JSON_UNESCAPED_UNICODE) ?: '', 0, 250);
+    }
+
     /** User-addressed security events: aggregate is the user, mail goes to that user. */
     private function user(OutboxMessage $m, string $kind, string $title, string $body, string $surface, string $severity, string $template, array $vars): void
     {
@@ -390,6 +514,31 @@ final class NotificationRouter
             $this->notifications->queueMail($template, $user->email, $vars + ['jmeno' => $user->name], 'user', $user->id, $m->organization_id, $user->locale ?? 'cs', $user->id);
         }
     }
+
+    // ── TASK-0021 (owner decision 20) ──
+    /** Every owner and billing admin of the organization, each in person: in-app and by mail. @param array<string,string> $vars */
+    private function creditApprovers(OutboxMessage $m, string $title, string $body, array $vars): void
+    {
+        foreach (CreditOrderPolicy::approvers((string) $m->organization_id) as $approver) {
+            $this->notifications->notify('customer', 'order', $title, $body, '/panel/fakturace', $m->organization_id, $approver->id, $m->aggregate_type, $m->aggregate_id, $m->name, 'warn', $approver->locale ?? 'cs');
+            $this->notifications->queueMail('order-approval-required', $approver->email, $vars + ['jmeno' => $approver->name], $m->aggregate_type, $m->aggregate_id, $m->organization_id, $approver->locale ?? 'cs', $approver->id);
+        }
+    }
+
+    /** The member who placed the held order hears the outcome in person; the organization's inbox keeps the line. @param array<string,string> $vars */
+    private function creditRequester(OutboxMessage $m, array $p, string $title, string $body, ?string $template = null, array $vars = []): void
+    {
+        $this->notifications->notify('customer', 'order', $title, $body, '/panel/objednavky', $m->organization_id, null, $m->aggregate_type, $m->aggregate_id, $m->name, 'warn');
+        $requester = isset($p['requester_id']) ? User::query()->find((string) $p['requester_id']) : null;
+        if ($requester === null) {
+            return;
+        }
+        $this->notifications->notify('customer', 'order', $title, $body, '/panel/objednavky', $m->organization_id, $requester->id, $m->aggregate_type, $m->aggregate_id, $m->name, 'warn', $requester->locale ?? 'cs');
+        if ($template !== null) {
+            $this->notifications->queueMail($template, $requester->email, $vars + ['jmeno' => $requester->name], $m->aggregate_type, $m->aggregate_id, $m->organization_id, $requester->locale ?? 'cs', $requester->id);
+        }
+    }
+    // ── end TASK-0021 ──
 
     private function mailOnly(OutboxMessage $m, string $to, string $template, array $vars, string $locale): void
     {

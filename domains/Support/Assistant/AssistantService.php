@@ -940,9 +940,6 @@ final class AssistantService
         }
         $name = (string) ($service->hostname ?: ($service->label ?: $service->name));
         $label = AssistantProposals::label($action, $params, $name, $locale); // the platform's words, never the model's
-        if ($action === 'staging.push') {
-            $params['confirm'] = true;
-        }
         $proposed[] = ['kind' => 'service_action', 'label' => $label, 'service_id' => $service->id, 'action' => $action, 'params' => $params, 'confirm' => true, 'class' => $scope->staff ? 'STAFF_WRITE' : 'SAFE_WRITE', 'service' => $name];
 
         return ['ok' => true, 'proposed' => $label, 'note' => 'shown to the customer as a button to confirm'];

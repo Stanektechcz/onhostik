@@ -17,6 +17,14 @@ final class PermissionCatalog
 
     public const CRITICAL = 'critical';
 
+    // ── TASK-0021 ──
+    /**
+     * Customer permissions that belong to the organization owner alone (owner decisions 14/15): no admin, operator, shared
+     * (svc_*) or staff role holds them. RoleCatalog withholds them from org_admin; PermissionMatrixTest keeps it that way.
+     */
+    public const OWNER_ONLY = ['organization.close', 'service.panel_account.manage'];
+    // ── end TASK-0021 ──
+
     /**
      * @return array<string, array{description:string, risk:string, audience:string}>
      */
@@ -44,13 +52,17 @@ final class PermissionCatalog
             'billing.payment_method.manage' => $c('Manage saved payment methods', self::HIGH),
             'billing.budget.manage' => $c('Set budgets, spend limits and alerts'),
             'catalog.order.create' => $c('Place orders and change plans'),
+            // TASK-0021 (owner decision 20): paying from the organization's credit — the owner and the billing admin; anybody else's credit order waits for them
+            'billing.wallet.spend' => $c('Pay from account credit (orders, invoices, renewals) and approve credit-paid orders of other members'),
 
             // ── customer: services ───────────────────────────────────────────
             'service.read' => $c('View services, metrics, logs and activity'),
             'service.manage' => $c('Start/stop/restart, resize, configure services'),
             'service.delete' => $c('Terminate services (with retention grace)', self::HIGH),
-            'service.console' => $c('Open consoles and shells for own services'),
+            'service.console' => $c('Open consoles and shells, set root access and SSH keys, rescue mode, game sub-users and console schedules'),
             'service.credentials.rotate' => $c('Rotate service credentials', self::HIGH),
+            // TASK-0021 (owner decision 15): the panel account opens every server of the account — the organization owner alone
+            'service.panel_account.manage' => $c('Set the password of the service panel account (game panel); organization owner only', self::HIGH),
             'compute.vm.manage' => $c('Manage VPS/VDS: power, resize, snapshots, firewall'),
             'compute.vm.delete' => $c('Delete VMs and snapshots', self::HIGH),
             'apps.deploy' => $c('Deploy, roll back and configure applications'),
@@ -60,6 +72,9 @@ final class PermissionCatalog
             'backup.read' => $c('View backups and restore points'),
             'backup.download' => $c('Download backup archives and data exports'), // seeing that a backup exists is not taking the data away (H344)
             'backup.restore' => $c('Restore from backups', self::HIGH),
+            // CRITICAL stays as documentation of what deletion is; the customer action (ServiceActionCommand) is HIGH with a fresh
+            // step-up, because IdentityCommandAuthorizer forces CRITICAL for staff-audience permissions only and customers have no
+            // four-eyes (TASK-0029, D29.2)
             'backup.delete' => $c('Delete backup generations', self::CRITICAL),
 
             // ── customer: domains & DNS ──────────────────────────────────────
@@ -151,6 +166,8 @@ final class PermissionCatalog
             'catalog.manage' => $s('Edit products, plans and prices', self::HIGH),
             'partner.manage' => $s('Manage reseller partners, commissions, payouts', self::HIGH),
             'feature_flag.manage' => $s('Toggle feature flags', self::HIGH),
+            // ── TASK-0022 limit-raise: a raise of a limit at no charge is money given away — a second person (docs/runbooks/approvals.md) ──
+            'billing.limit_raise.waive' => $s('Grant a limit raise at no charge for one period (four eyes)', self::CRITICAL),
         ];
     }
 

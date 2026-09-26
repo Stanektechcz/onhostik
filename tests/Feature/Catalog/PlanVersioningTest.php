@@ -12,6 +12,7 @@ use Onhost\Domain\Billing\Models\Subscription;
 use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Price;
+use Onhost\Domain\Identity\Authorization\Models\Approval;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Orders\QuoteService;
@@ -24,7 +25,8 @@ use Tests\TestCase;
 /*
  * Versions of a plan from the administration (Brain card H01: "verzovat tarif a dostupnost"). A plan is never edited:
  * a change of limits or prices is a new version for new orders, those who bought keep theirs, and a version that
- * turned out wrong is taken off sale by putting the earlier one back — all with a fresh step-up, a reason and a trail.
+ * turned out wrong is taken off sale by putting the earlier one back — all with a fresh step-up, a second person (owner
+ * decision 13), a reason and a trail.
  */
 
 beforeEach(function () {
@@ -36,6 +38,15 @@ beforeEach(function () {
 function planVersionPost(TestCase $test, string $uri, array $data = []): TestResponse
 {
     return $test->withHeader('Idempotency-Key', (string) Str::ulid())->postJson($uri, $data);
+}
+
+/** A price or plan change takes a second person (owner decision 13): refused, approved by somebody else, repeated as it was. */
+function planVersionApproved(TestCase $test, string $uri, array $data = []): TestResponse
+{
+    $id = (string) planVersionPost($test, $uri, $data)->assertForbidden()->assertJsonPath('error', 'approval_required')->json('approval_id');
+    secondPersonApproves($id);
+
+    return planVersionPost($test, $uri, $data);
 }
 
 function planVersionQuote(array $org): int
@@ -61,7 +72,7 @@ it('publishes a new version for new orders only, shows who stays on the old one,
     expect(PlanVersion::query()->where('plan_id', $plan->id)->count())->toBe(1);
     app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
 
-    $published = planVersionPost($this, $uri, $change)->assertCreated()->json();
+    $published = planVersionApproved($this, $uri, $change)->assertCreated()->json();
     expect($published['version'])->toBe(2)->and($published['plan']['current_version'])->toBe(2);
     $v2 = PlanVersion::query()->where('plan_id', $plan->id)->where('version', 2)->sole();
     expect($v2->entitlements['ram_mb'])->toBe(12288)->and($v2->entitlements['vcpu'])->toBe($v1->entitlements['vcpu']) // what was not mentioned is carried over
@@ -89,11 +100,11 @@ it('publishes a new version for new orders only, shows who stays on the old one,
     expect(Notification::query()->where('event', 'catalog.plan.version_published')->sole()->title)->toContain('vps/compute-4')->toContain('v2');
 
     // the version was a mistake: version 1 goes back on sale, version 2 stays for whoever bought it, numbers are never reused
-    planVersionPost($this, "{$uri}/1/activate", ['reason' => 'Ceník v2 vydán omylem'])->assertOk()->assertJsonPath('plan.current_version', 1);
+    planVersionApproved($this, "{$uri}/1/activate", ['reason' => 'Ceník v2 vydán omylem'])->assertOk()->assertJsonPath('plan.current_version', 1);
     expect(planVersionQuote($customer))->toBe(44900)->and(PlanVersion::query()->where('plan_id', $plan->id)->count())->toBe(2)->and($v1->fresh()->effective_to)->toBeNull();
     planVersionPost($this, "{$uri}/1/activate", ['reason' => 'ještě jednou'])->assertStatus(422)->assertJsonPath('error', 'plan_version_unchanged');
     planVersionPost($this, "{$uri}/9/activate", ['reason' => 'neexistuje'])->assertNotFound();
-    expect(planVersionPost($this, $uri, ['reason' => 'Druhý pokus o ceník', 'prices' => [['currency' => 'CZK', 'period' => 'month', 'amount' => '479']]])->assertCreated()->json('version'))->toBe(3);
+    expect(planVersionApproved($this, $uri, ['reason' => 'Druhý pokus o ceník', 'prices' => [['currency' => 'CZK', 'period' => 'month', 'amount' => '479']]])->assertCreated()->json('version'))->toBe(3);
 });
 
 it('refuses a version that would break the plan: unknown keys, retyped values, a vanished period, a slipped decimal place, no change, no reason', function () {
@@ -122,7 +133,8 @@ it('refuses a version that would break the plan: unknown keys, retyped values, a
     expect(PlanVersion::query()->where('plan_id', $plan->id)->count())->toBe(1)->and((int) $plan->fresh()->current_version)->toBe(1);
 
     // a large change is possible — said out loud
-    planVersionPost($this, $uri, ['reason' => 'Nová generace hardwaru', 'confirm_large_change' => true, 'prices' => [['currency' => 'CZK', 'period' => 'month', 'amount' => '899']]])->assertCreated();
+    expect(Approval::query()->count())->toBe(0); // every refusal above came before anybody was asked to approve
+    planVersionApproved($this, $uri, ['reason' => 'Nová generace hardwaru', 'confirm_large_change' => true, 'prices' => [['currency' => 'CZK', 'period' => 'month', 'amount' => '899']]])->assertCreated();
 
     // and nobody without the right to manage the catalogue gets near it
     $support = $this->staff('support_l2');

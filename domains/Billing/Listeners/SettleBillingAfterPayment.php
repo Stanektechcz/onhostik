@@ -6,6 +6,7 @@ namespace Onhost\Domain\Billing\Listeners;
 
 use Onhost\Domain\Billing\DunningService;
 use Onhost\Domain\Billing\RatingService;
+use Onhost\Domain\Billing\ServiceReinstatement;
 use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Domains\DomainRenewalScheduler;
 use Onhost\Platform\Commands\CommandContext;
@@ -17,7 +18,7 @@ use Onhost\Platform\Outbox\OutboxMessage;
  */
 final class SettleBillingAfterPayment
 {
-    public function __construct(private readonly DunningService $dunning, private readonly RatingService $rating, private readonly SubscriptionService $subscriptions, private readonly DomainRenewalScheduler $domainRenewals) {}
+    public function __construct(private readonly DunningService $dunning, private readonly RatingService $rating, private readonly SubscriptionService $subscriptions, private readonly DomainRenewalScheduler $domainRenewals, private readonly ServiceReinstatement $reinstatement) {}
 
     public function handle(OutboxMessage $message): void
     {
@@ -28,11 +29,13 @@ final class SettleBillingAfterPayment
         $context = CommandContext::system("settle after {$message->name}")->withScope($organizationId);
         if ($message->name === 'invoice.paid') {
             $this->dunning->resolve($organizationId, $message->aggregate_id, null, $context);
+            $this->reinstatement->afterInvoicePaid($organizationId, (string) $message->aggregate_id, $context); // a service cancelled for this invoice comes back (TASK-0025, off by default)
 
             return;
         }
         $this->rating->chargeDeferred($organizationId, $context);
         $this->subscriptions->retryPastDue($organizationId, $context);
+        $this->reinstatement->afterTopUp($organizationId, $context); // a restore the customer asked for and could not pay (TASK-0025, off by default)
         $this->domainRenewals->wake($organizationId); // a domain renewal that waited for money is tried on the next pass, not tomorrow
     }
 }

@@ -5,9 +5,12 @@
 DUE → OVERDUE_NOTICE (day 3, 7, 14 notices) → GRACE → SUSPENDED (day 30) → TERMINATION_SCHEDULED (day 60)
 → TERMINATED, or RESOLVED as soon as the invoice is paid or the wallet covers the renewal.
 
-* `onhost:billing:dunning` runs daily 06:00; `POST /v1/staff/dunning/run` runs it on demand.
+* `onhost:billing:dunning` runs daily 06:00; `POST /v1/staff/dunning/run` runs it on demand (fresh step-up: the run can
+  suspend and terminate, so it asks for the same step-up the bus would — TASK-0030 WP-B).
 * Suspension runs the regular suspend saga per service (provider-side, reversible); resume is automatic on
-  payment (`SettleBillingAfterPayment`). Termination keeps the retention window
+  payment (`SettleBillingAfterPayment`) — for a *suspension* only. Once the case is TERMINATED the service is
+  cancelled (deactivated, restore window running) and a later payment brings it back only through "Pay and restore"
+  below, which is off until the owner switches it on. Termination keeps the retention window
   (`compliance.retention_after_termination_days`) with a final backup.
 * Domains are excluded from suspension: a domain renewal that cannot be paid follows the renewal runbook.
 
@@ -253,3 +256,101 @@ Czech National Bank valid for the day the tax is due (§ 4). It carried neither 
   fixed monthly rate would need another source here.
 
 Tests: `tests/Feature/Finance/ForeignCurrencyVatTest.php`.
+
+## Pay and restore (owner decision 23, TASK-0025)
+
+A cancelled service waits out its restore window deactivated (state SUSPENDED, `terminate_at`, `tags.deletion`). Before
+TASK-0025 only the customer's own cancellation could be taken back, and nothing restarted its billing. Now, with the
+automation rule **`services.reinstate`** switched on (staff console → Automatizace; `default_off`):
+
+| Situation | What happens |
+| --- | --- |
+| Dunning cancelled the service (case TERMINATED) and the invoice is paid later | `invoice.paid` → `ServiceReinstatement::afterInvoicePaid`: when the paid invoice still covers the period, the service comes back with no further charge; otherwise the customer is told what is missing (`service.reinstatement.awaiting_payment`) |
+| The subscription expired or dunning cancelled a wallet renewal | the customer uses **Zaplatit a obnovit** (`GET /v1/services/{id}/reinstatement` quote, `POST /v1/services/{id}/reinstate`); one new period from today at the subscription's own price is charged from the credit (statement, `meta.reinstatement = true`), or invoiced for a postpaid organization |
+| The credit is short | the wish is recorded (`tags.reinstatement`, bound to this cancellation and to who asked), the answer is `awaiting_payment` with the shortfall; the next top-up restores it (never at a higher price than quoted — then the customer is told instead). A top-up alone never charges a service nobody asked to restore. The wish ends with its cancellation (any resume, a new cancellation) and is dropped before any charge when who asked may no longer spend the credit (`service.reinstatement.dropped`) |
+| An overdue invoice still belongs to the service | `awaiting_invoices`: the invoice is paid through the ordinary invoice payment and the restore follows it |
+| The customer takes back their own cancellation | taking it back bills the service again, so two things are asked (TASK-0027 + review round 1): first the restore command's own permission `billing.wallet.topup` (the permission of paying an invoice from the credit) held by a user at the organization — a developer, cloud or game operator, a `svc_manage`/`svc_console` guest of the one service, their `services:power` token, an assistant or a service account get `403 credit_spend_not_allowed` with `permission: billing.wallet.topup` whatever the switch says; then the one credit gate (`Orders\CreditOrderPolicy`): with `ONHOST_ORDER_CREDIT_APPROVAL` on only the owner and the billing admin (`billing.wallet.spend`), so an org_admin gets `403 credit_spend_not_allowed` with `permission: billing.wallet.spend`; with it off (default) the owner and the org_admin (the billing admin holds no `service.manage` for the resume itself and pays with `POST /reinstate`), as for paying an invoice from the credit. Staff are not asked. The plain resume works while the paid period runs, and the subscription runs on (`RestartBillingAfterRestore`); after the period ended the resume answers `402 reinstatement_payment_required` with the quote (the credit and the invoices in it only for `billing.wallet.read`) |
+| Abuse or staff hold, legal hold, purged, window over, add-on, carried site | refused (`409 reinstatement_refused`, `reason`); money never lifts a quarantine |
+
+Order of the restore (inside one transaction, the service row locked): charge (key `sub_reinstate:{subscription}:{cancellation}`,
+so a retry or a second click never charges twice) → the scheduled removal is called off (`service.deletion.cancelled`) →
+the ordinary `resume` as the platform, lifting only the `payment` hold → `service.reinstated`. If the resume is refused
+on the spot (a provisioning freeze, a maintenance window), all of it is rolled back — nothing is charged, the removal stays
+scheduled — and the answer is `409 reinstatement_refused` (`reason` resume_refused, `cause`); when a payment triggered it,
+`service.reinstatement.failed` goes to staff.
+While the parent's resume has not run yet, the nightly purge refuses its carried sites (`parent_reinstated`).
+
+Spending the credit goes through the one credit gate every other payment from the credit uses (`Orders\CreditOrderPolicy`,
+TASK-0027): `POST …/reinstate` needs `billing.wallet.topup` on the bus (the permission of paying an invoice from the credit;
+never an API token), and while `ONHOST_ORDER_CREDIT_APPROVAL` is on only the owner and the billing admin
+(`billing.wallet.spend`) pass — anybody else gets `403 credit_spend_not_allowed`. A recorded request is paid only while who
+asked still holds `billing.wallet.topup` and passes the gate as it stands at the payment, otherwise it is dropped
+(`service.reinstatement.dropped`). The next renewals end on the day the period restarted (`tags.billing_anchor_day`).
+
+A chargeback-cancelled service (the unused period was returned as credit) can never be resumed by the customer for
+free: with the rule off the resume answers `409 chargeback_cancelled`; with it on, a whole new period is owed. Staff can
+still resume; its billing then restarts from today. A service the consumer withdrew from cannot get a chargeback at any
+stage (`409 withdrawn` for the request, the decision and the cancellation).
+
+A restore never switches auto-renew on (TASK-0027), whoever triggers it — a payment, staff, the audit command's `--apply`,
+the customer: the subscription keeps the auto-renew recorded for it at this cancellation (`deletion.subscription` /
+`deletion_cancelled.subscription`), else the cancelled row's own value, and nothing recorded means off. A service whose
+customer had auto-renew off and whose paid period is over therefore ends again at the next renewal pass unless it is paid
+for (`reinstate`) or the owner or billing admin switches auto-renew on — `--apply` warns about exactly that, and so does
+the answer to a staff resume (`warning.code: restore_ends_at_renewal`). The renewal pass asks for one termination per
+period that ended (`sub_expire:<subscription>:<period end>`, review round 1): with a key of the subscription alone the
+second expiry got the first expiry's operation back and the restored service ran on unbilled.
+
+**Before switching the rule on:** `php artisan onhost:billing:reinstatement-audit` (read-only) lists (a) undone
+cancellations whose subscription stayed CANCELLED and run unbilled, (b) services in the window whose dunning invoice is
+already paid, (c) services in the window held for payment, (d) undone cancellations whose carried sites were purged
+(only a support `archive.restore` helps those). `--apply --service=<id>` restarts the billing of one service of list (a)
+from today, without billing the free time back — one service at a time, the owner decides each. Not restored: add-ons
+cancelled with the parent (the quote lists them in `addons_not_restored`) and delegated panel logins removed at the
+deactivation.
+
+## Consumer withdrawal within 14 days (owner decision 17, TASK-0025)
+
+Off until the owner switches on the automation rule `billing.withdrawal` (staff console → automation). Before that a lawyer
+reviews the mechanism (`resources/legal/LEGAL_REVIEW_withdrawal.md`); afterwards set `ONHOST_WITHDRAWAL_LEGAL_REVIEWED=true`
+on the server — until then the doctor row "consumer withdrawal reviewed by a lawyer" warns while the rule is on.
+
+- **Who:** consumers only — the class the order was placed as (`orders.meta.customer_class`, older orders: a recorded
+  `withdrawal_waiver` consent means a consumer). An IČO added later keeps the right; a business order never had it.
+- **Until when:** 14 days from the order day (`orders.placed_at`, accounting day), to the end of the 14th day. The day the
+  notice was **sent** decides. A registered domain is never withdrawn (`withdrawal_not_applicable`, `why=domain_registered`);
+  the cart says so (`withdrawal_notice` in the quote). An add-on goes with its service; a carried site has no contract.
+- **Panel:** `GET /v1/services/{id}/withdrawal` (eligibility, deadline, estimate); `POST` with
+  `confirm_refund_to_credit: true` (the consumer's express agreement to a refund to the credit, recorded as a consent),
+  `service.delete`, HIGH, fresh step-up. A paid order nothing of which was delivered: `GET/POST /v1/orders/{id}/withdrawal`
+  (the order is cancelled, every line credited, the reserved credit freed).
+- **Letter or e-mail:** finance records it with the day it was sent: `POST /v1/staff/withdrawals`
+  (`organization_id`, `service_id` or `order_id`, `sent_at`, `refund_to_credit_agreed`, `reason`), `billing.refund.execute`,
+  step-up and a second person. Without the consumer's agreement to a credit refund the old manual path stands: a refund by
+  the original payment method through the finance tools.
+- **What happens, in this order:** the service is suspended (hold `withdrawal`), then a credit note for exactly the unused
+  part of each paid line (prorated by days, the notice day counts as used; add-on lines included; an unpaid invoice is
+  reduced instead of money being paid out) goes back to the credit with `returnToCredit`, then the service is cancelled
+  through the ordinary terminate saga with its final backup. Auto-renewal is switched off at the notice; an open chargeback
+  request becomes `withdrawn`; one cancelling blocks the withdrawal (`chargeback_in_progress`).
+- **Once:** one withdrawal per order line (`withdrawals.subject_key` unique); the refund is made once under a row lock; the
+  operations carry fixed keys (`withdrawal:{id}:suspend|terminate`).
+- **Stuck:** a refused step (legal hold, frozen provisioning, panel refusal) is kept on the row (`error`), sent once to the
+  finance inbox (`withdrawal.stalled`) and retried hourly by `onhost:withdrawals:finish` (`--dry-run` lists). The refund is
+  never taken back because the cancellation waits. `GET /v1/staff/withdrawals?state=open` lists them; the doctor row
+  "consumer withdrawals move on" counts refused steps and notices not refunded after 7 days.
+- **Afterwards:** the customer cannot resume the service (`service_suspension_held`, hold `withdrawal`) and pay and restore
+  refuses it (`held`); staff can resume it with a reason — the refund stays, so that is a deliberate decision.
+
+## Who may pay from the credit (owner decision 20, TASK-0021)
+
+With `ONHOST_ORDER_CREDIT_APPROVAL` off (the default) whoever holds a payment's own permission pays from the credit, as
+before. Switched on, only the owner and the billing admin (`billing.wallet.spend`) do: a credit order of anybody else is
+held for their approval, and every immediate payment from the credit — an invoice, a manual domain renewal, the
+marketplace, a work offer, the archive download fee, pay-and-restore — asks the one gate (`Orders\CreditOrderPolicy`,
+`credit_spend_not_allowed`). The approval flow and the operator steps are in `docs/runbooks/approvals.md`, the rule in
+`docs/runbooks/security-boundaries.md` §22.
+
+Known wording gap: the customer notice `service.deletion.scheduled` says *Obnovit službu můžete do N dnů*. That is true
+for a cancellation the customer takes back, and for pay-and-restore only once `services.reinstate` is on; with the rule
+off a service cancelled for non-payment comes back only through support (TASK-0025 handoff, concern 6).

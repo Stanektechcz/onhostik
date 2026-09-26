@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -127,6 +128,9 @@ it('runs the toolkit on an aaPanel-backed site: terminal, PHP settings, monitori
 
     // 5. backup schedule within the plan
     $this->putJson("{$base}/backups/schedule", ['frequency' => '15m'])->assertUnprocessable()->assertJsonPath('error', 'backup_frequency_above_plan');
+    // 3 days / 2 generations is fewer than the plan's 7/7: the next tick prunes to it, so it takes a fresh step-up (TASK-0029 review round 2)
+    $this->putJson("{$base}/backups/schedule", ['frequency' => 'daily', 'days' => 3, 'generations' => 2], ['Idempotency-Key' => 'wt-sched-nostepup'])->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    app(StepUpService::class)->grant($user, 'totp', null, '127.0.0.1');
     $schedule = $this->putJson("{$base}/backups/schedule", ['frequency' => 'daily', 'days' => 3, 'generations' => 2, 'offsite' => true])->assertOk()->json('schedule');
     expect($schedule)->toMatchArray(['frequency' => 'daily', 'days' => 3, 'generations' => 2, 'offsite' => false, 'offsite_available' => false]);
     expect(BackupPolicy::query()->where('service_id', $service->id)->value('retention'))->toBe(['days' => 3, 'generations' => 2]);
@@ -176,5 +180,8 @@ it('runs the toolkit on an aaPanel-backed site: terminal, PHP settings, monitori
 
     // 8. staff single sign-on into the panel: not available on this executor, and never for customers
     $this->getJson("/v1/staff/services/{$service->id}/panel-login")->assertStatus(403);
-    $this->actingAs($this->staff(), 'sanctum')->getJson("/v1/staff/services/{$service->id}/panel-login")->assertStatus(409)->assertJsonPath('error', 'panel_login_unavailable');
+    $staff = $this->staff();
+    $this->actingAs($staff, 'sanctum')->getJson("/v1/staff/services/{$service->id}/panel-login")->assertStatus(403)->assertJsonPath('error', 'step_up_required'); // a login into the customer's panel (TASK-0030 WP-B)
+    app(StepUpService::class)->grant($staff, 'totp', null, '127.0.0.1');
+    $this->getJson("/v1/staff/services/{$service->id}/panel-login")->assertStatus(409)->assertJsonPath('error', 'panel_login_unavailable');
 });

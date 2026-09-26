@@ -61,8 +61,9 @@ renewal price. Page: **Nastavení systému → Tarify a verze** (`/sprava/nastav
   (services, live subscriptions): the impact of a change before it is made.
 * `POST …/versions` `{reason, entitlements?, limits?, features?, prices?[{currency, period, amount, renewal_amount?, setup?,
   monthly_cap?}], confirm_large_change?}` — publishes version N+1 from the one on sale. What is not mentioned is carried
-  over, so a currency or a billing period can neither appear nor vanish by omission. `catalog.manage`, risk HIGH, fresh
-  step-up, reason kept in the audit trail; finance gets a notification.
+  over, so a currency or a billing period can neither appear nor vanish by omission. `catalog.manage`, a fresh step-up
+  **and a second person** (owner decision 13, docs/runbooks/approvals.md), reason kept in the audit trail; finance gets a
+  notification. A `null` takes a key off the new version.
 * `POST …/versions/{n}/activate` `{reason}` — puts an existing version (back) on sale: the rollback. Customers of the
   version in between keep it; version numbers are never reused.
 
@@ -73,8 +74,78 @@ either way needs `confirm_large_change`: a slipped decimal place is the usual wa
 `plan_version_unchanged`, `reason_required`.
 
 The prices of an old version stay `active` on purpose — renewals and hourly rating of the services sold with it read
-them. Do not retire them by hand. A promo price (`promo_amount_minor`) belongs to its version and is not carried over.
-`CatalogSeeder` writes version 1 only and never moves `current_version`; it is not part of a deployment.
+them. Do not retire them by hand. A promo price (`promo_amount_minor`) belongs to its version and is not carried over by a
+staff publish; a catalogue revision (below) carries it over unchanged, because a revision changes no price.
+`CatalogSeeder` writes version 1 only and never moves `current_version`; it is not part of a deployment (only a fresh
+`install.sh` seeds it). It used to rewrite version 1 — entitlements, features and prices — on every run, i.e. the version
+customers hold; since TASK-0022 it leaves a version alone as soon as a service or a subscription points at it.
+
+## Catalogue revisions (2026-09)
+
+A change the code base decides — a promise the platform turned out not to keep — reaches a running catalogue as new plan
+versions, never as an edit of the seeder or a migration. The revision is written down in
+`domains/Catalog/CatalogRevisions.php` and published by an operator:
+
+```bash
+php artisan onhost:catalog:revise            # dry run: plans, keys each loses, who keeps the old version, promo prices carried over
+php artisan onhost:catalog:revise --apply    # publishes (asks first; --yes for a scripted window)
+```
+
+Each plan is one `CatalogCommand plan.publish` through the bus (system actor `cli:catalog:revise`, bound to the version it
+was previewed against): audited, finance gets one *Nová verze tarifu* notification per plan, the prices of the current
+version are carried over unchanged (a revision cannot pass prices or features), everybody on an older version keeps it.
+The command is stateless — what is pending is read from the current versions — so a key staff already removed is skipped,
+a second run prints *Nothing pending*, and a rollback to an old version makes it pending again. The dry run counts every
+revision from today's version; `--apply` reads each revision just before it runs, so when two revisions change one plan
+the dry run says so (`eshop/shop-peak is changed by 2 revisions: --apply publishes them one after another (v1 → v2 → v3)`). A refused plan does not
+undo the others; run it again after fixing the cause. Shell access to the server is the gate (no second person exists for
+the system actor); the content of a revision is reviewed as code.
+
+**`2026-09-honest-promises`** (owner decisions 2, 4, 6 and 18):
+
+| Plan | New version without | Also |
+| --- | --- | --- |
+| `database/db-s`, `database/db-m` | `pitr_days`, `connections` | product description no longer says PITR (`product.describe`, a step-up operation) |
+| `mail/mail-enterprise` | `dedicated_outbound_ip` | |
+| `wordpress/managed-woo` | `dedicated_db` | `backup_frequency` `1h` → `hourly` |
+| `eshop/shop-growth` | — | `backup_frequency` `1h` → `hourly` |
+| `eshop/shop-peak` | `dedicated_db` | |
+
+Without a new version: `products` on the e-shop plans is fair use (decision 5, worded *Doporučeno do N produktů*),
+`cron_concurrency` is shown as *Naplánované úlohy* / *N naplánovaných úloh* (decision 11), and a new managed database
+instance never claims `pitr` (decision 2; an existing row keeps its flag). Before `--apply`, read the dry run: a promo
+price on the current version is carried into the new one unchanged (`keep_promos`, CLI revisions only — the console API
+does not accept it; ending an introductory price would be a price rise nobody approved), and a features line staff wrote that
+still names PITR, connections or a dedicated IP/DB is only reported — edit it in *Tarify a verze*. Afterwards
+`onhost:doctor` shows *every catalogue revision is applied* OK and lists, under *no customer holds a version promising an
+unkept number*, the old versions customers still hold (support answers them; nothing about them changes).
+
+**`2026-09-shared-php-workers`** (owner decision 7, TASK-0027): every plan whose current version sells
+`php_workers_dedicated` on a product whose panel runs one PHP pool for the whole node (`PlacementRules::undelivered()`:
+today `eshop/shop-peak` on aaPanel) gets a new version without it — found at run time (`drop_undelivered`), not from a fixed
+list. The price list then says *Sdílené PHP workery* instead of *24 PHP workerů (dedikované)*; `php_workers` itself stays.
+`web-hosting/profi` keeps the promise (ISPConfig, one PHP-FPM pool per site). Versions customers hold keep it; the services
+on them are listed by `onhost:capacity:basis` and the doctor's capacity rows (never moved). Run together with
+`2026-09-honest-promises`, `shop-peak` goes v1 → v2 (−`dedicated_db`) → v3 (−`php_workers_dedicated`): each revision reads
+what is pending just before it publishes, on top of the version the one before it made.
+
+**`2026-09-limit-raise`** (owner decision 8): creates the product `limit-raise` (family `addon`, no executor, `meta.listed:
+false`) when the catalogue does not have it — a revision's `create` list, one `CatalogCommand product.create` per product
+(only a product `CatalogRevisions::PRODUCTS` defines; four eyes in the console, the system actor on the CLI). It has **no plan
+and no price**: a raise is priced by `LimitRaiseLine` at the parent product's option price per unit × units × months of the
+service's period (no commitment, promo, loyalty or regional adjustment), so the option unit prices in *Slevy a doplňky* are
+now also the raise prices. It is never on the price list and never a cart upsell. Staff order a raise as an assisted order
+(`items: [{product_key: limit-raise, config: {limit_raise: {service_id, metric, units}}}]`); customers only once
+`ONHOST_LIMIT_RAISE_CUSTOMER_ORDERS=true`; at no charge only with a second person (docs/runbooks/approvals.md). Only a number
+`MetricRegistry` marks enforced for the family and priced by an option can be raised; no cloud, and no vCPU/RAM/disk of a
+game server in v1. The service must run, renew (`limit_raise_parent_ending` when its subscription ends at the period end or
+does not auto-renew: the raise would be paid for months the service never runs) and still do so when the order is paid —
+a raise paid after the service was cancelled is not delivered, the line fails and the settlement returns the money to
+credit. The option's `max` counts raises already ordered and not yet delivered. A raise whose service ended without taking
+it along stops renewing (`SubscriptionService::tick`) and the doctor names it. Unpaid, a raise is kept through the dunning
+suspension stage (a payment then keeps it) and ends at the termination stage, like every unpaid service. **No refund:** a
+prepaid raise that ends early — its service terminated, or the customer ending it — is not credited for the unused days. `onhost:limit-raise list` shows the raises, `onhost:limit-raise push {raise} --apply` repeats a panel push
+that was refused; the doctor row *every limit raise is billed or approved* names both kinds of problem.
 
 ## The configurator ("Tarif na míru")
 
@@ -143,4 +214,36 @@ limit of a hosting plan never applied to anything.
 After a deploy the seeded plans are only the starting point: plan versions already published on the server keep whatever
 they carried, so publish a new version (reason: "nikdo to neuplatňuje") to drop the old numbers. The doctor lists them.
 
-Tests: `tests/Feature/Catalog/PlanPromisesTest.php`.
+**"Read by code outside the catalogue" is not trusted by name alone any more (2026-09-25, TASK-0017, audit §5ad).**
+The price list itself (`CatalogPresentation`) names every key it sells, so the plain text-scan rule above was
+satisfied by the very file it should have caught: `products`, `connections` and `dedicated_outbound_ip` passed
+because only the price list ever said the word. The presentation/prototype-surface files
+(`app/Http/Support/CatalogPresentation.php`, `app/Http/Support/SurfaceRenderer.php`) are now excluded from the scan,
+and every **numeric** promise (an int, a float, or a numeric string such as `"500"` — `is_numeric()`, not the
+narrower `is_int()`/`is_float()` this used to check) is instead checked against a hand-verified table,
+`domains/Services/Metering/MetricRegistry.php`: what actually measures or enforces each entitlement/limit key today,
+with a source cited for every row that claims one. A non-numeric capability flag keeps the original text-scan rule.
+
+The registry check is **scoped to the plan's own product family** (`Plan → Product::family`, looked up from the
+version being checked): a row verified only for `families => ['mail']` must not pass for a web-hosting plan that
+happens to sell the same key name — `MetricRegistry::isKept($key, $family)` fails the family check before it ever
+looks at `status`. Family-scoping this way surfaced two rows that were simply incomplete (their real enforcement
+does reach a family the row hadn't listed yet — `nvme_gb` on the managed-database family and `mailboxes` sold
+through the `mail-hosting` add-on — both extended once the enforcing code was confirmed) and one genuinely new,
+honest gap (`backup_days` sold on mail plans and on a managed database, neither of which `BackupScheduler` ever
+schedules). `vcpu` on game plans is enforced: provisioning raises `cpu_pct` to at least `vcpu` × 100.
+
+A key that is neither measured, enforced, fair use, nor read may still be listed once, honestly, in
+`PlanPromises::KNOWN_GAPS` — a ratchet that may only shrink (fixing a gap without removing the line, or a new gap
+appearing without one, both fail the guard test) — currently 8 entries. The boolean `dedicated_outbound_ip` and
+`dedicated_db`, the numeric `pitr_days` and `connections` left it with the revision `2026-09-honest-promises` (the owner
+decided they are not provided), `products` became fair use, and `php_workers_dedicated` left it once placement binds a
+dedicated-PHP web plan to ISPConfig, one PHP-FPM pool per site (`PlacementRules`, decision 7). Its `MetricRegistry` row is
+kept for the web family only; the managed-family promise (`eshop/shop-peak`) is retired by the revision
+`2026-09-shared-php-workers`, and `PlanPromisesTest` holds every plan on sale to that row once the revisions are applied
+(a capability flag otherwise passes the text scan as soon as any code names it). `onhost:doctor` shows the tracked list as a standing WARN
+(`catalog: no known metering gap`) and any *new*, untracked gap as a production FAIL
+(`catalog: the metering gap ratchet is not growing`) — except a key a revision not yet applied still has to remove,
+which is the WARN `catalog: every catalogue revision is applied` naming `onhost:catalog:revise`.
+
+Tests: `tests/Feature/Catalog/PlanPromisesTest.php`, `tests/Feature/Platform/DoctorCommandTest.php`.

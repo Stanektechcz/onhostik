@@ -7,7 +7,11 @@ namespace Onhost\Domain\Orders\Models;
 use Onhost\Platform\Eloquent\Model;
 use Onhost\Platform\Money\Money;
 
-/** Immutable price snapshot (product/price/tax versions locked in, §78). */
+/**
+ * Immutable price snapshot (product/price/tax versions locked in, §78).
+ *
+ * @property array<int, array<string, mixed>> $lines the priced cart lines (cast from JSON)
+ */
 final class Quote extends Model
 {
     protected static string $idPrefix = 'qt';

@@ -755,7 +755,7 @@ Artisan::command('onhost:orders:settle {--limit=200}', function (OrderSettlement
     $this->info('settled orders: '.$settlement->sweep((int) $this->option('limit')));
 })->purpose('Charge what an order delivered and give back what it did not (orders whose settlement was interrupted)');
 
-Artisan::command('onhost:backups:run {--limit=100}', function (BackupScheduler $scheduler, AutomationLedger $ledger) {
+Artisan::command('onhost:backups:run {--limit=100 : services read per chunk; every eligible service is visited}', function (BackupScheduler $scheduler, AutomationLedger $ledger) {
     if ($ledger->off('backups.run')) {
         $this->warn('switched off by staff (console → automation)');
 
@@ -773,6 +773,20 @@ Artisan::command('onhost:backups:run {--limit=100}', function (BackupScheduler $
     }
     $this->table(['started', 'skipped', 'deleted', 'offsite', 'errors', 'archives', 'verified', 'corrupt'], [$result]);
 })->purpose('Start scheduled backups, apply retention and generation caps, copy off-site');
+
+/*
+ * Servers and managed databases were sold with backups nobody took (TASK-0019). Starting them on existing services is
+ * the owner's decision, so the rule `backups.compute` is off until staff switch it on; this lists, read-only, whom it
+ * would start backing up and whether their Proxmox instance has a `backup_storage` to put the backups on.
+ */
+Artisan::command('onhost:backups:compute-plan {--limit=500 : services read per chunk; every one is listed}', function (BackupScheduler $scheduler, AutomationLedger $ledger) {
+    $rows = $scheduler->computePlan(max(1, (int) $this->option('limit')));
+    $this->table(['service', 'family', 'plan', 'frequency', 'days', 'generations', 'backup storage'], array_map(fn (array $r) => array_values($r), $rows));
+    $this->info(sprintf('%d service(s) would be backed up · rule %s: %s · nothing was changed', count($rows), BackupScheduler::COMPUTE_RULE, $ledger->enabled(BackupScheduler::COMPUTE_RULE) ? 'on' : 'off'));
+    // OWNER DECISION: since TASK-0019 every tick visits every web/managed/mail service, not only the first hundred by id
+    $web = $scheduler->webWindow(max(1, (int) $this->option('limit')));
+    $this->info(sprintf('web/managed/mail: %d eligible · %d beyond the old first-%d window (newly visited by every tick) · %d of them with a backup schedule', $web['eligible'], $web['beyond_old_window'], BackupScheduler::OLD_WINDOW, $web['beyond_with_schedule']));
+})->purpose('Dry run: servers and managed databases the backups.compute rule would start backing up (writes nothing)');
 
 /*
  * Services stranded in a transient state (SUSPENDING, RESUMING, RESIZING) with no operation left to finish it. Until
@@ -1316,3 +1330,16 @@ Schedule::command('onhost:access:expire')->everyFiveMinutes()->withoutOverlappin
 Schedule::command('onhost:ssh-keys:settle')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:cdn:refresh')->hourlyAt(35)->withoutOverlapping()->onOneServer();
 Schedule::command('onhost:web-tools:prune')->hourlyAt(50)->onOneServer();
+
+// ── TASK-0023 metering-core (owner decision 12): usage samples → days/months, then the retention ──────────────────
+Schedule::command('onhost:metering:rollup')->dailyAt('00:20')->withoutOverlapping()->onOneServer();
+Schedule::command('onhost:metering:prune')->dailyAt('04:35')->withoutOverlapping()->onOneServer();
+// ── end TASK-0023 metering-core ──────────────────────────────────────────────────────────────────────────────────
+
+// ── TASK-0025 consumer withdrawal: finish what consumers asked for (a refused suspension/cancellation again, a refund once the service is off); never starts one ──
+Schedule::command('onhost:withdrawals:finish')->hourlyAt(25)->withoutOverlapping()->onOneServer();
+// ── end TASK-0025 ──
+
+// ── TASK-0031: re-check the VIES-valid VAT numbers before their 30 days run out (tax.vies_recheck, off by default) ──
+Schedule::command('onhost:vat:recheck')->dailyAt('04:20')->withoutOverlapping()->onOneServer();
+// ── end TASK-0031 ──

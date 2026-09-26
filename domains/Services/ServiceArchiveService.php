@@ -6,12 +6,14 @@ namespace Onhost\Domain\Services;
 
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -96,6 +98,8 @@ final class ServiceArchiveService
         if (! (bool) data_get($backup->meta, 'download.paid', false)) {
             $fee = $this->policy->downloadFeeMinor($currency);
             if ($fee > 0) {
+                // owner decision 20 (TASK-0021): the fee is paid from credit — by the owner or the billing admin
+                app(CreditOrderPolicy::class)->assertMaySpend($organization, $context, 'Požádejte vlastníka o stažení archivu.');
                 $this->chargeFee($organization, $backup, Money::minor($fee, $currency), $context);
                 $charged = true;
             }
@@ -149,7 +153,7 @@ final class ServiceArchiveService
     private function chargeFee(Organization $organization, Backup $backup, Money $net, CommandContext $context): void
     {
         $decision = $this->tax->calculate(
-            ['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status],
+            VatStanding::taxCustomer($organization),
             [['key' => 'archive', 'net' => $net, 'product_class' => 'service']], $net->currency, $organization->id,
         );
         $line = $decision['lines'][0];

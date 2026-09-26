@@ -1,6 +1,7 @@
 # Daily workflow
 
-Run commands from `C:\Users\medion\Desktop\ONHOST-BRAIN\ONHOST-NEW\onhost-platform`.
+Run commands from `C:\Users\medion\Desktop\ONHOST-NEW\onhost-platform` (the main checkout) or from a task worktree under
+`C:\Users\medion\Desktop\ONHOST-NEW\onhost-worktrees\TASK-NNNN-…`. Code changes happen only in a task worktree.
 
 ## Start work
 
@@ -10,7 +11,16 @@ Run commands from `C:\Users\medion\Desktop\ONHOST-BRAIN\ONHOST-NEW\onhost-platfo
 git status --short --branch
 ```
 
-Read `AGENTS.md`, `docs/context/CURRENT_STATE.md`, and only the domain material needed. Create a focused branch from `development`. Describe the expected behavior and validation before implementation.
+Read `CLAUDE.md`, `AGENTS.md`, `.ai/PROJECT_STATE.md`, the live board (`.\brain.ps1 task board`) and only the domain
+material needed. Every code change is a task on its own branch and worktree, never on `development` directly:
+
+```powershell
+.\brain.ps1 task start -Title "Short outcome" -Owner onhost-<agent> -Paths "domains/X,tests/Feature/X" -Type fix
+```
+
+It creates `<type>/TASK-NNNN-<slug>` from `development`, the worktree `..\onhost-worktrees\TASK-NNNN-<slug>` and the task
+file `.ai/tasks/TASK-NNNN.md`, and locks the paths (`.ai/DEVELOPMENT_RULES.md` §4–5). Describe the expected behavior and
+validation in the task file before implementation.
 
 ## Choose the client
 
@@ -44,7 +54,7 @@ Risks: known limits or “none found”
 Next: one concrete action
 ```
 
-Review `git diff --check` and `git status`. The repository hook blocks private runtime paths, runs Gitleaks when available, and validates AI configuration. Commit only files that belong to the change; open a pull request into `development`.
+Review `git diff --check` and `git status`. The repository hook blocks private runtime paths, runs Gitleaks when available, and validates AI configuration. Commit only files that belong to the change (stage paths explicitly) on the task branch, run `.\brain.ps1 gate -Task TASK-NNNN` and write the handoff (`.ai/handoffs/TASK-NNNN.md`). **Pushing, opening a pull request into `development` and merging happen only with the human's explicit go-ahead** (`CLAUDE.md`, `.ai/INTEGRATION_RULES.md`); the orchestrator integrates, the task session does not.
 
 ## Authentication
 

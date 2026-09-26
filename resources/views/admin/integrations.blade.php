@@ -91,7 +91,7 @@
       <div class="field span2"><label>Přístupové údaje</label><div class="grid" id="f-credentials" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px"></div><span class="hint">prázdné pole ponechá uloženou hodnotu</span></div>
       <div class="field"><label><input type="checkbox" id="f-verify" checked> ověřovat TLS certifikát</label><span class="hint">vypnutí je možné jen mimo produkci; v produkci připněte certifikát níže</span></div>
       <div class="field span2"><label for="f-ca">Připnutý certifikát / CA (PEM)</label><textarea id="f-ca" placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----END CERTIFICATE-----"></textarea><span class="hint">pro samopodepsané certifikáty (Proxmox, PBS, aaPanel); uloží se jako option tls_ca</span></div>
-      <div class="field span2"><label for="f-options">Další volby (JSON)</label><textarea id="f-options" placeholder='{"storage": "nvme", "bridge": "vmbr0", "server_id": 1, "shell": "api|ssh", "ssh_host": "…", "agent_chroot": "jailkit", "webmail_url": "https://…", "deploy_strategy": "symlink|rsync", "redis_host": "127.0.0.1"}'></textarea><span class="hint">Proxmox: storage, bridge, pbs_datastore · ISPConfig: server_id / server_ip (jinak se odvodí) · Pterodactyl: nest_id, egg_id · PowerDNS: server_id</span></div>
+      <div class="field span2"><label for="f-options">Další volby (JSON)</label><textarea id="f-options" placeholder='{"storage": "nvme", "bridge": "vmbr0", "server_id": 1, "shell": "api|ssh", "ssh_host": "…", "agent_chroot": "jailkit", "webmail_url": "https://…", "deploy_strategy": "symlink|rsync", "redis_host": "127.0.0.1"}'></textarea><span class="hint">Proxmox: storage, bridge, backup_storage · ISPConfig: server_id / server_ip (jinak se odvodí) · Pterodactyl: nest_id, egg_id · PowerDNS: server_id</span></div>
       <div class="actions span2">
         <button class="btn primary" type="submit" id="f-submit">Uložit instanci</button>
         <button class="btn" type="button" id="f-reset">Nová instance</button>
@@ -314,7 +314,7 @@
     }).then(function (r) {
       return r.text().then(function (t) {
         var j = {}; try { j = t ? JSON.parse(t) : {}; } catch (e) { j = { message: t.slice(0, 200) }; }
-        if (!r.ok) { var e = new Error(j.message || r.statusText); e.error = j.error; e.status = r.status; e.errors = j.errors; e.payload = j; throw e; }
+        if (!r.ok) { var e = new Error(j.message || r.statusText); e.error = j.error; e.status = r.status; e.errors = j.errors; e.payload = j; e.approvalId = j.approval_id; throw e; }
         return j;
       });
     });
@@ -323,9 +323,17 @@
   function say(text, ok) { var a = $('alert'); a.hidden = false; a.className = 'msg' + (ok ? ' ok' : ''); a.textContent = text; }
   function log(title, data) { $('console').textContent = title + '\n' + (typeof data === 'string' ? data : JSON.stringify(data, null, 2)); }
 
+  /* Price and plan changes take a second person (owner decision 13): the refusal carries the request it opened. The form stays as it is: once
+     somebody else approves, the same change is sent again unchanged and goes through. */
+  function pendingApproval(e) {
+    var p = new Error('Změna čeká na schválení druhou osobou (žádost ' + (e.approvalId || '?') + '). Po schválení ji odešlete znovu beze změny — /sprava/nastaveni/schvalovani');
+    p.error = 'approval_required'; p.approvalId = e.approvalId; p.status = e.status; p.payload = e.payload;
+    return p;
+  }
   /* HIGH-risk commands answer step_up_required until the session holds a fresh grant: ask, verify, retry. */
   function guarded(action) {
     return action().catch(function (e) {
+      if (e.error === 'approval_required') throw pendingApproval(e);
       if (e.error !== 'step_up_required') throw e;
       return new Promise(function (resolve, reject) {
         state.retry = function () { return action().then(resolve, reject); };

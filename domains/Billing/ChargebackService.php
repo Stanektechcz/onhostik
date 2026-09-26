@@ -9,6 +9,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Billing\Models\ChargebackRequest;
 use Onhost\Domain\Billing\Models\Subscription;
+use Onhost\Domain\Billing\Models\Withdrawal;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Invoicing\InvoiceService;
@@ -78,11 +79,11 @@ final class ChargebackService
      *
      * @return array{currency:string, period_end:?string, unused_minor:int, percent:int, refund_minor:int, subscription_id:?string, lines:list<array{line_id:string, invoice_id:string, number:?string, paid:bool, period_from:string, period_to:string, days:int, days_left:int, left_minor:int, unused_minor:int, refund_minor:int}>}
      */
-    public function estimate(Service $service, ?int $percent = null): array
+    public function estimate(Service $service, ?int $percent = null, ?CarbonImmutable $asOf = null): array
     {
         $percent ??= $this->percent();
         $subscription = Subscription::query()->where('service_id', $service->id)->whereNotIn('state', [Subscription::CANCELLED])->orderByDesc('created_at')->first();
-        $today = CarbonImmutable::parse(AccountingClock::date());
+        $today = $asOf?->startOfDay() ?? CarbonImmutable::parse(AccountingClock::date()); // a withdrawal counts from the day the notice was sent (TASK-0025)
         $items = OrderItem::query()->where('service_id', $service->id)->get();
         $itemIds = $items->pluck('id')->all();
         // a change of the billing period was priced MINUS the unused rest of the period before it (PlanChangeService): every line
@@ -133,6 +134,7 @@ final class ChargebackService
 
     public function request(Service $service, ?User $user, string $reason, CommandContext $context): ChargebackRequest
     {
+        self::assertNotWithdrawn($service->id);
         if (! in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED], true)) {
             throw new DomainError('service_state_invalid', "A chargeback cannot be requested while the service is {$service->state}.", 409, ['state' => $service->state]);
         }
@@ -167,6 +169,7 @@ final class ChargebackService
         if (! in_array($decision, ['approve', 'reject'], true)) {
             throw new DomainError('chargeback_decision_invalid', 'Decision must be approve or reject.', 422, ['field' => 'decision']);
         }
+        self::assertNotWithdrawn((string) $request->service_id);
         $service = Service::query()->withTrashed()->find($request->service_id);
         $estimate = $service !== null ? $this->estimate($service) : null;
         $request->forceFill([
@@ -185,23 +188,43 @@ final class ChargebackService
      */
     public function cancelService(ChargebackRequest $request, CommandContext $context, ?string $authorizedPermission = null): ChargebackRequest
     {
-        if ($request->state !== ChargebackRequest::APPROVED) {
-            throw new DomainError('chargeback_not_approved', 'Support has not approved this request yet.', 409, ['state' => $request->state]);
-        }
-        $service = Service::query()->find($request->service_id);
-        if ($service === null) {
-            throw DomainError::notFound('service');
-        }
-        $estimate = $this->estimate($service, $request->percent);
-        $request->forceFill(['unused_minor' => $estimate['unused_minor'], 'refund_minor' => $estimate['refund_minor'], 'currency' => $estimate['currency'], 'cancelled_at' => now(), 'basis' => $estimate['lines']])->save(); // the lines and amounts are fixed now: a renewal or a day more cannot change them
-        if ($service->state === ServiceStateMachine::TERMINATED) {
-            return $this->settle($request, $context);
-        }
-        $operation = $this->services->requestAction($service, 'terminate', $context, "chargeback:{$request->id}:terminate", ['reason' => 'chargeback '.$request->id, 'final_backup' => true], authorizedPermission: $authorizedPermission);
-        $request->forceFill(['state' => ChargebackRequest::CANCELLING, 'operation_id' => $operation->id])->save();
-        $this->audit->record($context->withScope($service->organization_id, $service->project_id), 'chargeback.cancel', 'succeeded', ['chargeback' => $request->id, 'operation_id' => $operation->id, 'refund_minor' => $request->refund_minor], 'service', $service->id);
+        return DB::transaction(function () use ($request, $context, $authorizedPermission) {
+            // the service row first, then the request — the order a withdrawal takes them in (it writes WITHDRAWN under the service
+            // lock); the request is read again under its lock, so a copy from before a withdrawal cannot overwrite what it wrote
+            $service = Service::query()->lockForUpdate()->find($request->service_id);
+            $request = ChargebackRequest::query()->lockForUpdate()->find($request->id) ?? throw DomainError::notFound('chargeback');
+            if ($request->state !== ChargebackRequest::APPROVED) {
+                throw new DomainError('chargeback_not_approved', 'Support has not approved this request yet.', 409, ['state' => $request->state]);
+            }
+            if ($service === null) {
+                throw DomainError::notFound('service');
+            }
+            self::assertNotWithdrawn($service->id);
+            $estimate = $this->estimate($service, $request->percent);
+            $request->forceFill(['unused_minor' => $estimate['unused_minor'], 'refund_minor' => $estimate['refund_minor'], 'currency' => $estimate['currency'], 'cancelled_at' => now(), 'basis' => $estimate['lines']])->save(); // the lines and amounts are fixed now: a renewal or a day more cannot change them
+            if ($service->state === ServiceStateMachine::TERMINATED) {
+                return $this->settle($request, $context);
+            }
+            $operation = $this->services->requestAction($service, 'terminate', $context, "chargeback:{$request->id}:terminate", ['reason' => 'chargeback '.$request->id, 'final_backup' => true], authorizedPermission: $authorizedPermission);
+            $request->forceFill(['state' => ChargebackRequest::CANCELLING, 'operation_id' => $operation->id])->save();
+            $this->audit->record($context->withScope($service->organization_id, $service->project_id), 'chargeback.cancel', 'succeeded', ['chargeback' => $request->id, 'operation_id' => $operation->id, 'refund_minor' => $request->refund_minor], 'service', $service->id);
 
-        return $request;
+            return $request;
+        }, 3);
+    }
+
+    /**
+     * A consumer who withdrew from the contract has had the whole unused part back (TASK-0025, review round 2): a chargeback on
+     * top of it would count the days already used as unused and give a share of them back a second time. A withdrawal row
+     * stays for good, so this holds however far the unwinding got (a stalled one included).
+     *
+     * @throws DomainError `withdrawn` (409)
+     */
+    private static function assertNotWithdrawn(string $serviceId): void
+    {
+        if (Withdrawal::query()->where('service_id', $serviceId)->exists()) {
+            throw new DomainError('withdrawn', 'Od smlouvy k této službě bylo odstoupeno a nevyužitá část už byla vrácena; chargeback k ní nelze žádat ani vyřídit.', 409);
+        }
     }
 
     /** Called when a service is terminated: a chargeback waiting for it gets its credit. */

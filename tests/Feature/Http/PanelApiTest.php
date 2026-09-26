@@ -10,6 +10,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\MailOutbox;
 use Onhost\Domain\Notifications\Models\Notification;
@@ -26,8 +27,10 @@ use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditEvent;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Money;
+use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
 
 function panelVps(Organization $org, string $state = ServiceStateMachine::ACTIVE): Service
@@ -179,7 +182,38 @@ it('changes the password from the panel: wrong current password refused, other s
     $this->getJson('/v1/me')->assertOk(); // the session that changed the password is still signed in
 });
 
-it('tells the truth about API tokens after a password change: they stay valid, and the mail says so', function () {
+it('revokes every personal API token of the user on a password change, in every organization, and keeps the session that changed it (owner decision 14)', function () {
+    [$user, $org] = $this->customerWithOrganization(['password' => 'Stare-Heslo-2026a']);
+    [, $second] = $this->customerWithOrganization();
+    app(OrganizationService::class)->attachMember($second, $user, 'developer', CommandContext::system('test'), true);
+    $user->createToken('CI deploy', ['services:read'])->accessToken->forceFill(['organization_id' => $org->id])->save();
+    $user->createToken('druhá organizace', ['services:read'])->accessToken->forceFill(['organization_id' => $second->id])->save();
+    $user->createToken('starý, zrušený', ['services:read'])->accessToken->forceFill(['revoked_at' => now()->subDay()])->save();
+    // a machine's token is not the person's: the password of a colleague says nothing about the CI pipeline of the organization
+    $machine = ServiceAccount::query()->create(['organization_id' => $org->id, 'name' => 'Terraform', 'state' => 'active']);
+    $machine->createToken('terraform', ['services:read']);
+    [$colleague] = $this->customerWithOrganization();
+    $colleague->createToken('kolega', ['services:read']);
+    $this->actingAs($user, 'sanctum');
+
+    $this->postJson('/v1/me/password', ['current_password' => 'Stare-Heslo-2026a', 'password' => 'Nove-Heslo-2026b'])->assertOk();
+    app(OutboxPublisher::class)->relayPending();
+
+    // somebody who changes the password because something leaked must not be left with the leaked token working
+    expect($user->tokens()->whereNull('revoked_at')->count())->toBe(0)
+        ->and($machine->tokens()->whereNull('revoked_at')->count())->toBe(1)
+        ->and($colleague->tokens()->whereNull('revoked_at')->count())->toBe(1);
+    $this->getJson('/v1/me')->assertOk(); // the session that changed the password is still signed in
+    $event = OutboxMessage::query()->where('name', 'security.password_changed')->sole();
+    expect($event->payload['api_access'])->toBe('revoked')->and($event->payload['api_access_count'])->toBe(2);
+    expect(AuditEvent::query()->where('action', 'me.password.change')->sole()->detail)->toMatchArray(['api_access' => 'revoked', 'api_access_count' => 2]);
+    $mail = MailOutbox::query()->where('to', $user->email)->where('template_key', 'like', 'security-password%')->sole();
+    expect($mail->template_key)->toBe('security-password');
+    expect(NotificationTemplate::query()->where('key', 'security-password')->where('locale', 'cs')->firstOrFail()->body)->toContain('API tokeny byly odhlášeny');
+});
+
+it('keeps the API tokens and says so when the operator switched the revocation off', function () {
+    config()->set('onhost.identity.password_change_revokes_api_access', false);
     [$user] = $this->customerWithOrganization(['password' => 'Stare-Heslo-2026a']);
     $user->createToken('CI deploy', ['services:read']);
     $user->createToken('starý, zrušený', ['services:read'])->accessToken->forceFill(['revoked_at' => now()])->save();
@@ -188,8 +222,7 @@ it('tells the truth about API tokens after a password change: they stay valid, a
     $this->postJson('/v1/me/password', ['current_password' => 'Stare-Heslo-2026a', 'password' => 'Nove-Heslo-2026b'])->assertOk();
     app(OutboxPublisher::class)->relayPending();
 
-    // a CHANGE keeps the tokens (a reset revokes them) — and the mail used to say "all other sessions and API tokens were signed out":
-    // somebody who changed the password because something leaked believed the tokens were dead
+    // the switch brings back the old path word for word — and the mail must not say "signed out" about tokens that still work
     expect($user->tokens()->whereNull('revoked_at')->count())->toBe(1);
     $mail = MailOutbox::query()->where('to', $user->email)->where('template_key', 'like', 'security-password%')->sole();
     expect($mail->template_key)->toBe('security-password-kept')->and($mail->vars['pocet'])->toBe('1');

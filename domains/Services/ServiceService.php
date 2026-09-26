@@ -9,6 +9,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\Models\Subscription;
+use Onhost\Domain\Billing\ServiceReinstatement;
 use Onhost\Domain\Billing\SubscriptionService;
 use Onhost\Domain\Catalog\Models\PlanVersion;
 use Onhost\Domain\Catalog\Models\Product;
@@ -25,6 +26,7 @@ use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\OperationService;
 use Onhost\Domain\Provisioning\PlacementService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
+use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
 use Onhost\Domain\Provisioning\Workflow\Workflow;
 use Onhost\Domain\Provisioning\Workflows\CdnWorkflow;
 use Onhost\Domain\Provisioning\Workflows\CertificateWorkflow;
@@ -39,6 +41,9 @@ use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Provisioning\Workflows\SiteWorkflow;
 use Onhost\Domain\Provisioning\Workflows\StagingWorkflow;
 use Onhost\Domain\Provisioning\Workflows\WordPressWorkflow;
+use Onhost\Domain\Services\Access\OwnerOnlyActions;
+use Onhost\Domain\Services\Limits\LimitRaises;
+use Onhost\Domain\Services\Metering\CustomerUsage;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\DatabaseInstance;
 use Onhost\Domain\Services\Models\Service;
@@ -154,6 +159,9 @@ final class ServiceService
             throw new DomainError('addon_parent_required', "Addon {$product->key} needs a parent service in the same organization.", 422);
         }
         Addons::assertSellable($product->key); // an add-on the platform cannot deliver is not billed for nothing (audit §5ac)
+        if ($product->key === LimitRaises::PRODUCT) {
+            LimitRaises::assertParentTakesRaise($parent, atDelivery: true); // paid after the service was cancelled: the line fails, the money goes back
+        }
         $entitlements = (array) ($config['entitlements'] ?? $version?->entitlements ?? []);
         $service = Service::query()->create([
             'organization_id' => $organization->id, 'product_key' => $product->key, 'plan_version_id' => $version?->id, 'family' => 'addon', 'name' => $item->name, 'state' => ServiceStateMachine::ACTIVE, 'activated_at' => now(),
@@ -165,6 +173,11 @@ final class ServiceService
         $applied = app(Addons::class)->apply($parent, $service);
         if ($product->key === 'ipv4' && $parent->isActive() && $parent->family === 'cloud') {
             $this->requestAction($parent, 'resize', $context, "addon:{$item->id}", ['entitlements' => ['ipv4' => (int) ($entitlements['addresses'] ?? 1)], 'reason' => 'ipv4 addon']);
+        }
+        if ($product->key === LimitRaises::PRODUCT) { // a paid raise renews every period and reaches the panel (TASK-0022 limit-raise)
+            app(LimitRaises::class)->afterAttach($parent, $service, $item, $context);
+        } elseif ((bool) config('onhost.addon_renewals', false)) { // an add-on is sold per period; it was billed once and never renewed
+            app(SubscriptionService::class)->ensureForService($service, $item, $context);
         }
         $this->audit->record($context->withScope($organization->id), 'service.addon.attach', 'succeeded', ['addon' => $product->key, 'parent' => $parent->id, 'applied' => $applied['patch'], 'backup_policy' => $applied['backup_policy']], 'service', $service->id);
         $this->outbox->publish(GenericEvent::of('service.activated', 'service', $service->id, ['product_key' => $product->key, 'parent_service_id' => $parent->id, 'order_item_id' => $item->id], $organization->id));
@@ -210,9 +223,14 @@ final class ServiceService
         if ($fresh->family === 'data') {
             $engine = (string) data_get($fresh->desired_spec, 'engine', 'postgresql-16');
             [$name, $ver] = array_pad(explode('-', $engine, 2), 2, null);
-            DatabaseInstance::query()->updateOrCreate(['service_id' => $fresh->id], ['engine' => $name, 'version' => $ver, 'host' => $access['ipv6'] ?? $access['ipv4'] ?? $fresh->hostname, 'port' => match ($name) {
+            $instance = DatabaseInstance::query()->firstOrNew(['service_id' => $fresh->id]);
+            $instance->fill(['engine' => $name, 'version' => $ver, 'host' => $access['ipv6'] ?? $access['ipv4'] ?? $fresh->hostname, 'port' => match ($name) {
                 'mariadb' => 3306, 'redis' => 6379, default => 5432
-            }, 'pitr' => (bool) $fresh->entitlement('pitr_days'), 'external_access' => false, 'allowlist' => [], 'state' => 'active']);
+            }, 'external_access' => false, 'allowlist' => [], 'state' => 'active']);
+            if (! $instance->exists) {
+                $instance->pitr = false; // point-in-time recovery is not provided (owner decision 2): a new instance never claims it; an existing row keeps its flag
+            }
+            $instance->save();
         }
         $item = $operation->order_item_id !== null ? OrderItem::query()->find($operation->order_item_id) : null;
         if ($item !== null) {
@@ -420,7 +438,7 @@ final class ServiceService
         }
         $tags = (array) $service->tags;
         $deletion = $tags['deletion'] ?? [];
-        unset($tags['deletion']);
+        unset($tags['deletion'], $tags['reinstatement']); // TASK-0025: a pay-and-restore request belongs to the cancellation it was made for
         $tags['deletion_cancelled'] = array_merge(is_array($deletion) ? $deletion : [], ['cancelled_at' => now()->toIso8601String()]);
         $this->outbox->publish(GenericEvent::of('service.deletion.cancelled', 'service', $service->id, [
             'product_key' => $service->product_key, 'grace_until' => $service->terminate_at?->toIso8601String(),
@@ -458,6 +476,9 @@ final class ServiceService
         if ($service->family === 'addon' && ! in_array($action, ['terminate', 'purge'], true)) {
             throw new DomainError('addon_action_unsupported', 'Doplněk se spravuje přes službu, ke které patří; zrušit jej lze samostatně.', 422, ['action' => $action]);
         }
+        if ($action === 'terminate' && $context->actorType !== 'system' && LimitRaises::isRaise($service)) {
+            LimitRaises::assertCanEnd($service); // a raise the service already uses is not ended by hand; an unpaid one ends anyway (system)
+        }
         // one thing at a time per service — except a declarative apply, which deliberately queues several steps; the queue runs them one after another (RunOperation is WithoutOverlapping per service)
         if (! $chained && Operation::query()->where('service_id', $service->id)->whereIn('state', [Operation::PENDING, Operation::RUNNING, Operation::WAITING])->exists()) {
             throw new DomainError('operation_in_progress', 'Another operation is still running on this service; wait for it to finish.', 409);
@@ -482,6 +503,7 @@ final class ServiceService
         if ($action === 'power' && ! in_array($params['power_action'] ?? '', ['start', 'stop', 'shutdown', 'reboot', 'reset', 'kill'], true)) {
             throw new DomainError('power_action_invalid', 'power_action must be one of start, stop, shutdown, reboot, reset, kill.', 422);
         }
+        OwnerOnlyActions::assert($service, $action, $context); // TASK-0021: the panel account password is the organization owner's alone
         if (in_array($action, LegalHold::DESTRUCTIVE_ACTIONS, true) && LegalHold::coversService($service)) {
             throw new DomainError('legal_hold', 'The service is under legal hold: backups and snapshots cannot be deleted and the server cannot be reinstalled until it is lifted.', 423, ['action' => $action]);
         }
@@ -504,8 +526,12 @@ final class ServiceService
             if (! empty($params['force']) && $context->actorType === 'user' && (string) ($params['reason'] ?? '') === '') {
                 throw new DomainError('reason_required', 'Předčasné odstranění služby vyžaduje důvod.', 422);
             }
+            if (empty($params['force'])) {
+                app(ServiceReinstatement::class)->assertPurgeAllowed($service); // TASK-0025: a carried site of a parent that was paid for and brought back stays
+            }
         }
         if ($action === 'resume') {
+            app(ServiceReinstatement::class)->assertCustomerMayResume($service, $context); // TASK-0025: no free undo of a refunded or unpaid cancellation
             $service = $this->liftHolds($service, $context, $params);
         }
         self::assertCoreActionOffered($service, $action);
@@ -526,6 +552,9 @@ final class ServiceService
         }
         if ($action === 'resize' && empty($params['entitlements'])) {
             throw new DomainError('resize_target_required', 'Resize needs the target entitlements.', 422);
+        }
+        if ($action === 'resize') { // what the service held when this was asked: a number changed while it runs is not undone by it (TASK-0022)
+            $params['entitlements_base'] = (array) $service->entitlements;
         }
         if (! in_array($action, ServiceActionWorkflow::CORE_ACTIONS, true)) {
             $params = $this->featureParams($service, $action, $params);
@@ -583,6 +612,7 @@ final class ServiceService
             'restore.test' => ['web', 'managed'], // a set of database dumps is what can be restored into a copy and compared
             'snapshot', 'rollback_snapshot' => ['cloud', 'data'],
             'power' => ['cloud', 'data', 'game'],
+            'mailbox.backup_retention' => ['mail'], // a mail plan's mailbox backups (TASK-0024)
             default => null,
         };
         if ($families !== null && ! in_array($service->family, $families, true)) {
@@ -659,6 +689,13 @@ final class ServiceService
             return $value;
         };
         $remote = fn () => $need('remote_id', '/^[A-Za-z0-9:_.-]{1,120}$/', 'remote_id is required.');
+        // a copy the platform keeps — protected, the final archive, or under a legal hold — is not deleted or unlocked by an action
+        // of the service, whichever panel holds it: the web path always asked this, the game and VM paths did not (TASK-0029)
+        $unprotected = function (?Backup $row, string $field = 'remote_id', string $message = 'Tato záloha je chráněná a nelze ji smazat.'): void {
+            if ($row !== null && ($row->protected || $row->kind === 'final' || LegalHold::coversBackup($row))) {
+                throw new DomainError('backup_protected', $message, 409, ['field' => $field]);
+            }
+        };
         $hostname = '/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i';
         // The plan's limit is counted at the panel. When the panel is away the count cannot be had — and refusing the request
         // for that would break the promise of a durable queue (H02): the change is accepted, the limit travels with it as
@@ -735,7 +772,12 @@ final class ServiceService
             // "does it point at us" (DomainPointing) cannot tell them apart — only who holds the name can (SiteNames).
             'ssl.issue' => ['domains' => array_values(array_unique(array_map(fn ($d) => SiteNames::assertAllowed($service, (string) $d, 'domains'), array_filter((array) ($params['domains'] ?? []), fn ($d) => is_string($d) || is_int($d)))))],
             'https.force' => ['enabled' => filter_var($params['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN)],
-            'snapshot.delete' => ['name' => $need('name', '/^[A-Za-z0-9_-]{1,40}$/', 'name is required')],
+            'snapshot.delete' => (function () use ($need, $service, $unprotected) { // the platform's own safety snapshots are protected rows
+                $name = $need('name', '/^[A-Za-z0-9_-]{1,40}$/', 'name is required');
+                $unprotected(Backup::query()->where('service_id', $service->id)->where('remote_id', $name)->first(), 'name', 'Tento snapshot je chráněný a nelze jej smazat.');
+
+                return ['name' => $name];
+            })(),
             'firewall.apply' => (function () use ($params, $action) {
                 $rules = [];
                 foreach ((array) ($params['rules'] ?? []) as $rule) {
@@ -1274,7 +1316,13 @@ final class ServiceService
             'image.set' => ['image' => $need('image', '~^[a-z0-9][a-z0-9._/:@-]{2,200}$~i', 'image must be a container image reference')],
             'rename' => ['name' => $need('name', '/^[^\r\n<>]{1,60}$/u', 'name is required (max 60 characters)')],
             'reinstall' => ['confirm' => filter_var($params['confirm'] ?? false, FILTER_VALIDATE_BOOLEAN) ?: throw new DomainError('action_param_invalid', "{$action}: confirm=true is required; a reinstall rewrites the server files.", 422, ['field' => 'confirm'])],
-            'schedule.delete', 'schedule.run', 'gamedb.rotate', 'gamedb.delete', 'subuser.delete', 'allocation.primary', 'allocation.remove', 'gbackup.delete' => ['remote_id' => $remote()],
+            'schedule.delete', 'schedule.run', 'gamedb.rotate', 'gamedb.delete', 'subuser.delete', 'allocation.primary', 'allocation.remove' => ['remote_id' => $remote()],
+            'gbackup.delete' => (function () use ($service, $remote, $unprotected) {
+                $id = $remote();
+                $unprotected(Backup::query()->where('service_id', $service->id)->where('remote_id', $id)->first());
+
+                return ['remote_id' => $id];
+            })(),
             'schedule.toggle' => ['remote_id' => $remote(), 'active' => filter_var($params['active'] ?? true, FILTER_VALIDATE_BOOLEAN)],
             'gamedb.create' => (function () use ($need, $params, $limit, $action) {
                 $limit('game_databases', 'game_databases');
@@ -1332,7 +1380,15 @@ final class ServiceService
 
                 return [];
             })(),
-            'gbackup.lock' => ['remote_id' => $remote(), 'locked' => filter_var($params['locked'] ?? true, FILTER_VALIDATE_BOOLEAN)],
+            'gbackup.lock' => (function () use ($service, $remote, $params, $unprotected) {
+                $id = $remote();
+                $locked = filter_var($params['locked'] ?? true, FILTER_VALIDATE_BOOLEAN);
+                if (! $locked) { // unlocked on the panel, the copy could be deleted there: what the platform protects stays locked
+                    $unprotected(Backup::query()->where('service_id', $service->id)->where('remote_id', $id)->first(), 'remote_id', 'Tato záloha je chráněná a nelze ji odemknout.');
+                }
+
+                return ['remote_id' => $id, 'locked' => $locked];
+            })(),
             'panel.password' => ['password' => $password()],
             default => throw new DomainError('action_unknown', "Unknown action {$action}.", 422),
         } + ['reason' => $params['reason'] ?? null] + ($deferredLimit === null ? [] : ['_limit' => $deferredLimit]);
@@ -1377,7 +1433,7 @@ final class ServiceService
             throw new DomainError('usage_unsupported', 'This service type reports no usage.', 422);
         }
 
-        return $adapter->usage($binding->ref());
+        return CustomerUsage::of($service, $adapter->usage($binding->ref()));
     }
 
     public function transition(Service $service, string $to, CommandContext $context, ?string $note = null): Service
@@ -1460,13 +1516,15 @@ final class ServiceService
         $pinned = trim((string) ($config['placement_instance'] ?? ''));
         $item = $service->order_item_id !== null ? OrderItem::query()->with('order')->find($service->order_item_id) : null;
         $source = $item !== null && $item->order instanceof Order ? (string) $item->order->source : '';
-        $placement = $pinned !== '' && in_array($source, ['staff', 'cli'], true) ? app(PlacementService::class)->pinned($product, $pinned) : null;
-        $placement ??= app(PlacementService::class)->resolve($product->key, $version?->plan?->key, $service->region_code);
+        // …and what the plan sells decides too: dedicated PHP workers run only where a site has a pool of its own (PlacementRules, decision 7)
+        $ent = (array) $service->entitlements;
+        $placement = $pinned !== '' && in_array($source, ['staff', 'cli'], true) ? app(PlacementService::class)->pinned($product, $pinned, $ent) : null;
+        $placement ??= app(PlacementService::class)->resolve($product->key, $version?->plan?->key, $service->region_code, $ent);
         $base = [
-            'product_key' => $product->key, 'plan_key' => $version?->plan?->key, 'family' => $product->family, 'executor' => $placement?->providerInstance?->provider ?? $product->executor, 'region' => $service->region_code, 'sla_class' => $service->sla_class,
+            'product_key' => $product->key, 'plan_key' => $version?->plan?->key, 'family' => $product->family, 'executor' => PlacementRules::executorFor((string) $product->executor, $ent, $placement) ?: $product->executor, 'region' => $service->region_code, 'sla_class' => $service->sla_class,
             'placement' => $placement === null ? null : ['id' => $placement->id, 'instance_id' => $placement->provider_instance_id, 'instance_key' => $placement->providerInstance?->key, 'node_id' => $placement->node_id],
             'entitlements' => $service->entitlements, 'limits' => $limits, 'contact_email' => $organization->billing_email ?: ($organization->owner?->email ?? null), 'contact_name' => $organization->name, 'organization_name' => $organization->name,
-        ];
+        ] + array_filter(['requires' => PlacementRules::requires((string) $product->executor, $ent)]); // only specs made after decision 7 carry it: services already in flight are placed as before
         $specific = match ($product->family) {
             'cloud', 'data' => [
                 'hostname' => Str::lower((string) ($config['hostname'] ?? "vm-{$shortId}.".config('onhost.provisioning.hostname_suffix', 'cust.onhost.cz'))), 'image' => (string) ($config['image'] ?? ($product->family === 'data' ? (string) ($config['engine'] ?? ($meta['engines'][0] ?? 'postgresql-16')) : ($meta['images'][0] ?? 'debian-13'))),

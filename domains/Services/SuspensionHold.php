@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
+use Onhost\Domain\Billing\ServiceReinstatement;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Commands\CommandContext;
@@ -25,7 +26,10 @@ final class SuspensionHold
 
     public const REVIEW = 'review';
 
-    public const KINDS = [self::ABUSE, self::PAYMENT, self::REVIEW];
+    /** the consumer withdrew from the contract and got the unused part back (TASK-0025): nothing brings it back but staff */
+    public const WITHDRAWAL = 'withdrawal';
+
+    public const KINDS = [self::ABUSE, self::PAYMENT, self::REVIEW, self::WITHDRAWAL];
 
     /** The hold a suspension carries, judged by who imposed it and why; null = the customer's own pause. */
     public static function kindFor(CommandContext $context, string $reason): ?string
@@ -94,11 +98,29 @@ final class SuspensionHold
             'hold' => $first, 'holds' => $holds, 'customer_can_resume' => $holds === [], 'since' => $service->suspended_at->toIso8601String(),
             'message' => match ($first) {
                 self::ABUSE => 'Služba je pozastavená kvůli porušení podmínek. Odpovězte prosím na tiket, který jsme vám k tomu poslali; obnovit ji může jen náš tým.',
-                self::PAYMENT => 'Služba je pozastavená kvůli neuhrazené platbě nebo ukončenému předplatnému. Po úhradě ji obnovíme; pokud to nejde, napište podpoře.',
+                self::PAYMENT => self::paymentMessage($service),
                 self::REVIEW => 'Službu pozastavil náš tým. Napište prosím podpoře — obnovit ji může jen ona.',
+                self::WITHDRAWAL => 'Služba byla ukončena odstoupením od smlouvy a nevyužitá část vám byla vrácena na kredit; obnovit ji nelze. Novou službu si můžete kdykoli objednat.',
                 default => null,
             },
         ];
+    }
+
+    /**
+     * "Po úhradě ji obnovíme" is true of a suspension for an unpaid invoice; of a service that was cancelled for it (or whose
+     * subscription ran out) it was not — nothing brought such a service back (TASK-0025). With pay and restore switched on
+     * the customer is shown the way back; without it, who can still help.
+     */
+    private static function paymentMessage(Service $service): string
+    {
+        if ($service->terminate_at === null) {
+            return 'Služba je pozastavená kvůli neuhrazené platbě nebo ukončenému předplatnému. Po úhradě ji obnovíme; pokud to nejde, napište podpoře.';
+        }
+        $until = $service->terminate_at->format('j. n. Y');
+
+        return app(ServiceReinstatement::class)->enabled()
+            ? "Služba je zrušená kvůli neuhrazené platbě nebo ukončenému předplatnému. Do {$until} ji obnovíte zaplacením (Zaplatit a obnovit); pokud to nejde, napište podpoře."
+            : "Služba je zrušená kvůli neuhrazené platbě nebo ukončenému předplatnému. Obnovit ji do {$until} může podpora — napište jí prosím.";
     }
 
     private static function fromReason(string $reason): ?string
@@ -106,6 +128,7 @@ final class SuspensionHold
         $reason = mb_strtolower(trim($reason));
 
         return match (true) {
+            preg_match('/^withdrawal wdr_/', $reason) === 1 => self::WITHDRAWAL, // only the platform's own withdrawal steps ("withdrawal wdr_…") say so; an older staff reason that merely starts with the word stays what it was
             str_starts_with($reason, 'abuse') => self::ABUSE,
             str_starts_with($reason, 'dunning'), str_contains($reason, 'subscription ended'), str_contains($reason, 'subscription expired'), str_contains($reason, 'unpaid') => self::PAYMENT,
             str_starts_with($reason, 'risk'), str_starts_with($reason, 'security'), str_starts_with($reason, 'legal') => self::REVIEW,

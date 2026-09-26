@@ -5,11 +5,18 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Presenters\Presenters;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Onhost\Domain\Billing\ChargebackService;
 use Onhost\Domain\Billing\Commands\ChargebackCommand;
+use Onhost\Domain\Billing\Commands\ReinstateServiceCommand;
+use Onhost\Domain\Billing\Commands\WithdrawalCommand;
+use Onhost\Domain\Billing\Models\Withdrawal;
+use Onhost\Domain\Billing\ServiceReinstatement;
+use Onhost\Domain\Billing\WithdrawalPolicy;
+use Onhost\Domain\Billing\WithdrawalService;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Operation;
@@ -20,6 +27,7 @@ use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Commands\WebToolsCommand;
 use Onhost\Domain\Services\DestructivePreview;
 use Onhost\Domain\Services\Mail\MailboxPasswordLinks;
+use Onhost\Domain\Services\Metering\WebDiskTotal;
 use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\SshKeyGrant;
@@ -93,7 +101,14 @@ final class ServiceController extends ApiController
 
     public function action(Request $request, string $service, ?string $action = null): JsonResponse
     {
-        $model = $this->resolve($request, $service);
+        // the person finds the service as a reader. A console command asks the token for the console alone, as TokenRouteScope
+        // did — a console-only token runs the console's commands without services:read (TASK-0030 review round 1); every other
+        // action keeps asking the token for services:read here and for its own scope at the dispatch, as before
+        // Only a known action is asked about: an unknown word is the validator's answer below, not the map's (TASK-0029's map refuses one).
+        // With the params, as the bus asks: a schedule with a `command` task is a console command (TASK-0030 LOW, stack polish)
+        $requested = $action ?? (is_string($request->input('action')) ? (string) $request->input('action') : '');
+        $console = in_array($requested, ServiceActionWorkflow::ACTIONS, true) && ServiceActionCommand::permissionFor($requested, (array) $request->input('params', [])) === 'service.console' ? 'service.console' : null;
+        $model = $this->resolve($request, $service, 'service.read', $console);
         $data = $request->validate(['action' => [$action === null ? 'required' : 'nullable', 'string', 'in:'.implode(',', ServiceActionWorkflow::ACTIONS)], 'params' => ['nullable', 'array'], 'reason' => ['nullable', 'string', 'max:250'], 'confirm' => ['nullable', 'string', 'size:64']]);
         $action ??= $data['action'];
         $params = (array) ($data['params'] ?? []);
@@ -141,9 +156,9 @@ final class ServiceController extends ApiController
 
     public function consoleToken(Request $request, string $service): JsonResponse
     {
-        $model = $this->resolve($request, $service);
+        $model = $this->resolve($request, $service, 'service.console'); // asked of the person and the token before anything else (C13-H2c)
 
-        return $this->dispatch(new IssueConsoleTokenCommand($model->organization_id, 'console:'.$model->id.':'.now()->timestamp, ['service_id' => $model->id]), $this->api->context($request, Organization::query()->find($model->organization_id)));
+        return $this->dispatch(new IssueConsoleTokenCommand($model->organization_id, 'console:'.$model->id.':'.now()->timestamp, ['service_id' => $model->id, 'project_id' => $model->project_id]), $this->api->context($request, Organization::query()->find($model->organization_id)));
     }
 
     public function usage(Request $request, ServiceService $services, string $service): JsonResponse
@@ -151,7 +166,8 @@ final class ServiceController extends ApiController
         $model = $this->resolve($request, $service);
         $usage = $services->usage($model);
 
-        return response()->json(['data' => ['metrics' => $usage->metrics, 'observed_at' => $usage->observedAt]]);
+        // the plan's total (files + databases + mail) as the usage watch last stored it (TASK-0023)
+        return response()->json(['data' => ['metrics' => $usage->metrics, 'observed_at' => $usage->observedAt, 'disk_total' => WebDiskTotal::shownFor($model)]]);
     }
 
     public function operations(Request $request, string $service): JsonResponse
@@ -228,6 +244,42 @@ final class ServiceController extends ApiController
         $model = $this->resolve($request, $service, 'service.manage');
 
         return $this->dispatch(new ChargebackCommand($model->organization_id, $this->idempotencyKey($request, "chargeback.cancel:{$model->id}"), ['op' => 'cancel', 'service_id' => $model->id]), $this->api->context($request, Organization::query()->find($model->organization_id)), 202);
+    }
+
+    /** Pay and restore (TASK-0025): what bringing a cancelled service back costs now, and why it cannot be brought back if it cannot. */
+    public function reinstatement(Request $request, ServiceReinstatement $reinstatement, string $service): JsonResponse
+    {
+        $model = $this->resolve($request, $service);
+        $this->api->authorize($request, 'billing.wallet.read', CommandScope::organization($model->organization_id)); // the quote shows the credit
+
+        return response()->json(['data' => $reinstatement->quote($model)]);
+    }
+
+    /** Pay what the cancelled service owes from the credit and bring it back (202: the resume runs; or it waits for the money). */
+    public function reinstate(Request $request, string $service): JsonResponse
+    {
+        $model = $this->resolve($request, $service);
+
+        return $this->dispatch(new ReinstateServiceCommand($model->organization_id, $this->idempotencyKey($request, "service.reinstate:{$model->id}"), ['service_id' => $model->id]), $this->api->context($request, Organization::query()->find($model->organization_id)), 202);
+    }
+
+    /** Consumer withdrawal (TASK-0025): whether the contract can still be withdrawn from, until when, and what would come back. */
+    public function withdrawal(Request $request, WithdrawalPolicy $policy, WithdrawalService $withdrawals, string $service): JsonResponse
+    {
+        $model = $this->resolve($request, $service);
+        $this->api->authorize($request, 'billing.wallet.read', CommandScope::organization($model->organization_id)); // the refund, the paid lines and the order are the organization's money, not a service guest's
+        $record = Withdrawal::query()->where('service_id', $model->id)->orderByDesc('created_at')->first();
+
+        return response()->json(['data' => $policy->check($model) + ['enabled' => $policy->enabled(), 'estimate' => $withdrawals->estimate($model, CarbonImmutable::now()), 'withdrawal' => $record ? $withdrawals->present($record) : null, 'terms_url' => WithdrawalPolicy::TERMS_URL]]);
+    }
+
+    /** The consumer withdraws (fresh step-up): the service is switched off, the unused part comes back to the credit, the service is cancelled. */
+    public function requestWithdrawal(Request $request, string $service): JsonResponse
+    {
+        $model = $this->resolve($request, $service, 'service.delete');
+        $data = $request->validate(['confirm_refund_to_credit' => ['accepted'], 'statement' => ['nullable', 'string', 'max:2000']]);
+
+        return $this->dispatch(new WithdrawalCommand($model->organization_id, $this->idempotencyKey($request, "withdrawal:{$model->id}"), ['op' => 'service', 'service_id' => $model->id, 'statement' => $data['statement'] ?? null]), $this->api->context($request, Organization::query()->find($model->organization_id)), 202);
     }
 
     /** The customer moves a scheduled migration inside the window staff gave (audit §5h-3). */
@@ -323,13 +375,13 @@ final class ServiceController extends ApiController
         return response()->json(['data' => ['log' => $data['log'] ?? 'access', 'lines' => $features->logs($model, $data['log'] ?? 'access', (int) ($data['lines'] ?? 200))]]);
     }
 
-    private function resolve(Request $request, string $id, string $permission = 'service.read'): Service
+    private function resolve(Request $request, string $id, string $permission = 'service.read', ?string $tokenPermission = null): Service
     {
         $service = Service::query()->find($id);
         if ($service === null) {
             throw DomainError::notFound('service');
         }
-        $this->api->authorize($request, $permission, CommandScope::resource($service->id, $service->organization_id, $service->project_id)); // a project role covers the services of that project
+        $this->api->authorize($request, $permission, CommandScope::resource($service->id, $service->organization_id, $service->project_id), $tokenPermission); // a project role covers the services of that project
 
         return $service;
     }

@@ -11,12 +11,16 @@ use Onhost\Domain\Catalog\Models\Price;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Invoicing\AccountingClock;
 use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Addons;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\SuspensionHold;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -91,9 +95,16 @@ final class SubscriptionService
         $due = Subscription::query()->whereNotNull('service_id')->whereIn('state', [Subscription::ACTIVE, Subscription::PAST_DUE])->where('next_renewal_at', '<=', now())->orderBy('next_renewal_at')->limit(500)->get();
         foreach ($due as $subscription) {
             $service = Service::query()->find($subscription->service_id);
-            if ($service === null || in_array($service->state, [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING, ServiceStateMachine::FAILED], true)) {
+            // an add-on whose service is gone or ending renews no more than that service does (TASK-0022: a raise delivered after
+            // the service's add-ons were cancelled billed on for a service that was gone)
+            if ($service === null || in_array($service->state, [ServiceStateMachine::TERMINATED, ServiceStateMachine::TERMINATING, ServiceStateMachine::FAILED], true) || Addons::parentEnded($service)) {
                 $subscription->forceFill(['state' => Subscription::CANCELLED])->save();
                 $stats['cancelled']++;
+
+                continue;
+            }
+            if ($this->addonWaitsForParent($service)) { // tried again tomorrow, after the parent's own retry (review round 2)
+                $subscription->forceFill(['next_renewal_at' => now()->addDay()])->save();
 
                 continue;
             }
@@ -127,21 +138,31 @@ final class SubscriptionService
         return $stats;
     }
 
+    /**
+     * An add-on's renewal waits while its parent is failed (an operator brings it back; ending the add-on for good left it
+     * delivered and unbilled) or unpaid (its renewal past due, or stopped by dunning): money that comes in goes to the service
+     * the customer is about to lose, not to an add-on of it that fell due a little earlier (review round 2).
+     */
+    private function addonWaitsForParent(Service $addon): bool
+    {
+        $parent = Addons::parentOf($addon);
+        if ($parent === null) {
+            return false;
+        }
+
+        return $parent->state === ServiceStateMachine::FAILED
+            || in_array(SuspensionHold::PAYMENT, SuspensionHold::holds($parent), true)
+            || Subscription::query()->where('service_id', $parent->id)->where('state', Subscription::PAST_DUE)->exists();
+    }
+
     /** @return 'renewed'|'invoiced'|'failed' */
     public function renew(Subscription $subscription, Service $service, CommandContext $context): string
     {
         $organization = Organization::query()->findOrFail($subscription->organization_id);
-        $net = Money::minor((int) $subscription->amount_minor, $subscription->currency);
-        $calc = $this->tax->calculate(['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status], [['key' => 'renewal', 'net' => $net, 'product_class' => 'esd']], $subscription->currency, $organization->id);
-        $line = $calc['lines'][0];
         $periodKey = $subscription->current_period_end->format('Ymd');
         $newStart = $subscription->current_period_end->copy();
-        $newEnd = BillingPeriod::end($newStart, (string) $subscription->period, 1, $service->activated_at?->day); // anchored on the day the service started: 31 Jan → 28 Feb → 31 Mar
-        $invoiceLine = [
-            'sku' => $service->product_key.'-renewal', 'description' => "Prodloužení služby {$service->name}".($service->hostname ? " ({$service->hostname})" : ''), 'qty' => 1, 'unit' => 'ks',
-            'unit_net' => $net->minor, 'discount' => 0, 'net' => $net->minor, 'tax_rate' => (string) $line['rate'], 'tax_category' => (string) $line['category'], 'tax' => $line['tax']->minor, 'total' => $line['total']->minor,
-            'period_from' => AccountingClock::date($newStart), 'period_to' => AccountingClock::date($newEnd->copy()->subDay()), 'service_id' => $service->id, // accounting days; the last day of the period, as on an order's line
-        ];
+        $newEnd = BillingPeriod::end($newStart, (string) $subscription->period, 1, self::anchorDay($service)); // anchored on the day the service started: 31 Jan → 28 Feb → 31 Mar
+        ['line' => $line, 'invoice_line' => $invoiceLine] = $this->periodLine($subscription, $service, $organization, $newStart, $newEnd);
         if ($organization->billing_mode === 'postpaid' && $this->wallets->approvedCreditLine($organization->id, $subscription->currency)->isPositive()) {
             $draft = $this->invoices->draft($organization, 'invoice', $subscription->currency, [$invoiceLine], $context, null, ['payment_method' => 'invoice', 'postpaid' => true, 'subscription_id' => $subscription->id, 'renewal_period' => $periodKey]);
             $invoice = $this->invoices->issue($draft, $context, dueDays: (int) config('onhost.billing.invoice_due_days', 14));
@@ -208,6 +229,9 @@ final class SubscriptionService
 
     public function setAutoRenew(Subscription $subscription, bool $enabled, CommandContext $context): Subscription
     {
+        if ($enabled && ! $subscription->auto_renew) { // owner decision 20 (TASK-0021): a standing renewal from credit — the owner or the billing admin switches it on
+            app(CreditOrderPolicy::class)->assertMaySpend($subscription->organization_id, $context, 'Požádejte vlastníka o zapnutí automatického prodloužení.');
+        }
         $subscription->forceFill(['auto_renew' => $enabled, 'cancel_at_period_end' => $enabled ? false : $subscription->cancel_at_period_end])->save();
         $this->audit->record($context->withScope($subscription->organization_id), 'subscription.auto_renew', 'succeeded', ['enabled' => $enabled], 'subscription', $subscription->id);
 
@@ -228,6 +252,195 @@ final class SubscriptionService
         return $count;
     }
 
+    /**
+     * The day of the month a service's periods end on. It is the day the service started, until a period was started again
+     * on another day (a restore after the paid time had run out): from then on that day — the renewal would otherwise drift
+     * back to the old one, a restore on the 15th billed until the 31st.
+     */
+    public static function anchorDay(Service $service): ?int
+    {
+        $day = data_get($service->tags, 'billing_anchor_day');
+
+        return is_numeric($day) && (int) $day >= 1 && (int) $day <= 31 ? (int) $day : $service->activated_at?->day;
+    }
+
+    /**
+     * What one new period of a cancelled subscription costs if it started now (pay and restore, TASK-0025): the subscription's
+     * own price — the one the customer had, no discount added or taken — taxed like a renewal.
+     *
+     * @return array{start:Carbon, end:Carbon, net:Money, tax:Money, gross:Money}
+     */
+    public function restartPrice(Subscription $subscription, Service $service): array
+    {
+        $organization = Organization::query()->findOrFail($subscription->organization_id);
+        $start = now();
+        $end = BillingPeriod::end($start, (string) $subscription->period, 1, $start->day);
+        ['line' => $line] = $this->periodLine($subscription, $service, $organization, $start, $end);
+
+        return ['start' => $start, 'end' => $end, 'net' => Money::minor((int) $subscription->amount_minor, $subscription->currency), 'tax' => $line['tax'], 'gross' => $line['total']];
+    }
+
+    /**
+     * Bring the CANCELLED subscription of a cancelled service back (pay and restore, TASK-0025). A period that is still paid
+     * for simply runs on; otherwise one new period starts now and is paid like a renewal — from the credit with a statement,
+     * or with a postpaid invoice and its receivable. Unlike a renewal nothing turns PAST_DUE and no dunning case opens when
+     * the credit is short: the caller asked for a restore, the refusal goes back to it and nothing is written.
+     *
+     * @return array{result:'covered'|'renewed'|'invoiced', document_id:?string, amount:?Money, period_end:string}
+     *
+     * @throws DomainError `insufficient_funds` / `budget_*` from the wallet
+     */
+    public function reinstate(Subscription $subscription, Service $service, CommandContext $context, string $walletKey, bool $paidPeriodCounts = true): array
+    {
+        $organization = Organization::query()->findOrFail($subscription->organization_id);
+        $restore = ['cancel_at_period_end' => false, 'auto_renew' => self::previousAutoRenew($service, $subscription)];
+        if (self::isMetered(Product::query()->where('key', $service->product_key)->first())) {
+            $this->rollMetered($subscription);
+            $subscription->forceFill($restore)->save();
+
+            return ['result' => 'covered', 'document_id' => null, 'amount' => null, 'period_end' => (string) self::periodEnd($subscription)?->toIso8601String()];
+        }
+        if ($paidPeriodCounts && self::periodEnd($subscription)?->isFuture()) {
+            $this->runOn($subscription, $restore);
+
+            return ['result' => 'covered', 'document_id' => null, 'amount' => null, 'period_end' => (string) self::periodEnd($subscription)?->toIso8601String()];
+        }
+        $start = now();
+        $end = BillingPeriod::end($start, (string) $subscription->period, 1, $start->day);
+        ['line' => $line, 'invoice_line' => $invoiceLine] = $this->periodLine($subscription, $service, $organization, $start, $end, 'Obnovení služby');
+        $meta = ['subscription_id' => $subscription->id, 'renewal_period' => 'reinstate-'.$start->format('Ymd'), 'reinstatement' => true];
+        if ($organization->billing_mode === 'postpaid' && $this->wallets->approvedCreditLine($organization->id, $subscription->currency)->isPositive()) {
+            $draft = $this->invoices->draft($organization, 'invoice', $subscription->currency, [$invoiceLine], $context, null, $meta + ['payment_method' => 'invoice', 'postpaid' => true]);
+            $document = $this->invoices->issue($draft, $context, dueDays: (int) config('onhost.billing.invoice_due_days', 14));
+            $this->dunning->open($organization->id, $document->id, $service->id, $document->due_at ?? now()->addDays(14));
+            $result = 'invoiced';
+        } else {
+            $this->wallets->charge($organization, $line['total'], $service->family, $walletKey, $context, 'subscription', $subscription->id, $line['tax']);
+            $draft = $this->invoices->draft($organization, 'statement', $subscription->currency, [$invoiceLine], $context, null, $meta + ['payment_method' => 'wallet']);
+            $document = $this->invoices->issue($draft, $context, dueDays: 0);
+            $this->invoices->markPaid($document, $document->total(), 'wallet', $context, postLedger: false);
+            $result = 'renewed';
+        }
+        $this->advance($subscription, $start, $end);
+        $subscription->forceFill($restore)->save();
+        $service->forceFill(['tags' => array_replace((array) $service->tags, ['billing_anchor_day' => $start->day])])->save(); // the next periods end on this day
+        $this->audit->record($context->withScope($organization->id), 'subscription.reinstated', 'succeeded', ['service_id' => $service->id, 'amount' => $line['total'], 'document' => $document->number, 'mode' => $result], 'subscription', $subscription->id);
+        $this->outbox->publish(GenericEvent::of('subscription.renewed', 'subscription', $subscription->id, ['service_id' => $service->id, 'invoice_id' => $document->id, 'mode' => $result === 'invoiced' ? 'postpaid' : 'wallet', 'amount' => $line['total'], 'period_end' => $end->toIso8601String(), 'reinstated' => true], $organization->id));
+
+        return ['result' => $result, 'document_id' => $document->id, 'amount' => $line['total'], 'period_end' => $end->toIso8601String()];
+    }
+
+    /**
+     * A cancellation was taken back (the customer's own resume, staff, a paid dunning case): the service runs again and so
+     * does its bill. The terminate saga had set the subscription CANCELLED and nothing ever set it back — an undone
+     * cancellation ran unbilled for good (TASK-0025). A period still paid for runs on; one that has run out restarts today,
+     * so the next renewal bills a full period from now: the dead time is not billed and nothing is free.
+     *
+     * @return ?string 'covered' | 'restarted', null when there was nothing to restart
+     */
+    public function restartAfterRestore(Service $service, CommandContext $context, bool $paidPeriodCounts = true): ?string
+    {
+        $subscription = Subscription::query()->where('service_id', $service->id)->where('state', Subscription::CANCELLED)->orderByDesc('created_at')->first();
+        if ($subscription === null) {
+            return null;
+        }
+        $organization = Organization::query()->findOrFail($subscription->organization_id);
+        $restore = ['cancel_at_period_end' => false, 'auto_renew' => self::previousAutoRenew($service, $subscription)];
+        if (self::isMetered(Product::query()->where('key', $service->product_key)->first())) {
+            $this->rollMetered($subscription);
+            $subscription->forceFill($restore)->save();
+            $outcome = 'covered';
+        } elseif ($paidPeriodCounts && self::periodEnd($subscription)?->isFuture()) { // a period a refund gave back does not count
+            $this->runOn($subscription, $restore);
+            $outcome = 'covered';
+        } else {
+            // the period restarts today and renews at once — from the credit only where auto-renew was on before the cancellation.
+            // It is never switched on here (TASK-0027): whoever brought it back (staff, an operator, a payment) is not the
+            // holder who agreed to renewals from the credit, so a service whose customer had it off ends again at the renewal
+            // pass unless it is paid for (`reinstate`) or a holder switches auto-renew on.
+            $now = now();
+            $subscription->forceFill(['state' => Subscription::ACTIVE, 'current_period_start' => $now, 'current_period_end' => $now, 'next_renewal_at' => $now, 'renewal_failures' => 0] + $restore)->save();
+            $service->forceFill(['tags' => array_replace((array) $service->tags, ['billing_anchor_day' => $now->day])])->save();
+            $outcome = 'restarted';
+        }
+        $this->audit->record($context->withScope($organization->id), 'subscription.restarted', 'succeeded', ['service_id' => $service->id, 'outcome' => $outcome, 'period_end' => self::periodEnd($subscription)?->toIso8601String()], 'subscription', $subscription->id);
+
+        return $outcome;
+    }
+
+    /**
+     * Whether `restartAfterRestore()` would now take the `restarted` branch with auto-renew off: a zero-length period that the
+     * next renewal pass ends again (`expire()`), because nobody who may spend the credit agreed to renew it.
+     */
+    public function restartEndsAgain(Service $service, bool $paidPeriodCounts = true): bool
+    {
+        $subscription = Subscription::query()->where('service_id', $service->id)->where('state', Subscription::CANCELLED)->orderByDesc('created_at')->first();
+        if ($subscription === null || self::isMetered(Product::query()->where('key', $service->product_key)->first())) {
+            return false;
+        }
+        if ($paidPeriodCounts && self::periodEnd($subscription)?->isFuture()) {
+            return false;
+        }
+
+        return ! self::previousAutoRenew($service, $subscription);
+    }
+
+    /**
+     * Whether the customer had auto-renew on before this cancellation — as the terminate saga recorded it for the cancellation
+     * being taken back (`deletion` while it runs, `deletion_cancelled` once it was undone; never an earlier cancellation's
+     * record, never another subscription's). Without such a record, the cancelled row's own value as the cancellation left it
+     * (the saga and `expire()` write false); nothing at all means off, never the organization's default: a subscription that
+     * expired because the customer switched auto-renew off or asked to end it with the period has no record, and a restore
+     * must not start charging the next periods against that choice (TASK-0025 review). The same for every restore, whoever
+     * triggers it — a payment, staff, an operator, the customer (TASK-0027).
+     */
+    private static function previousAutoRenew(Service $service, Subscription $subscription): bool
+    {
+        $tags = (array) $service->tags;
+        $record = is_array($tags['deletion'] ?? null) ? $tags['deletion'] : ($tags['deletion_cancelled'] ?? null);
+        $before = data_get($record, 'subscription');
+        $forThis = is_array($before) && array_key_exists('auto_renew', $before) && (! isset($before['id']) || (string) $before['id'] === (string) $subscription->id);
+        if (! $forThis) {
+            $before = ['auto_renew' => (bool) ($subscription->auto_renew ?? false), 'cancel_at_period_end' => (bool) ($subscription->cancel_at_period_end ?? false)];
+        }
+
+        return (bool) $before['auto_renew'] && ! (bool) ($before['cancel_at_period_end'] ?? false);
+    }
+
+    /** @param array<string,mixed> $restore */
+    private function runOn(Subscription $subscription, array $restore): void
+    {
+        $lead = (self::periodEnd($subscription) ?? now())->subDays((int) config('onhost.billing.renew_lead_days', 7));
+        $subscription->forceFill(['state' => Subscription::ACTIVE, 'next_renewal_at' => $lead->max(now()), 'renewal_failures' => 0] + $restore)->save();
+    }
+
+    /** The end of the paid period as a date (the model reads it through its cast; this says so to the type checker). */
+    private static function periodEnd(Subscription $subscription): ?Carbon
+    {
+        $end = $subscription->getAttribute('current_period_end');
+
+        return $end instanceof \DateTimeInterface ? Carbon::instance($end) : null;
+    }
+
+    /**
+     * One period of the subscription as a document line, taxed for the organization.
+     *
+     * @return array{line:array{rate:mixed, category:mixed, tax:Money, total:Money}, invoice_line:array<string,mixed>}
+     */
+    private function periodLine(Subscription $subscription, Service $service, Organization $organization, Carbon $start, Carbon $end, string $what = 'Prodloužení služby'): array
+    {
+        $net = Money::minor((int) $subscription->amount_minor, $subscription->currency);
+        $calc = $this->tax->calculate(VatStanding::taxCustomer($organization), [['key' => 'renewal', 'net' => $net, 'product_class' => 'esd']], $subscription->currency, $organization->id);
+        $line = $calc['lines'][0];
+        $invoiceLine = [
+            'sku' => $service->product_key.'-renewal', 'description' => "{$what} {$service->name}".($service->hostname ? " ({$service->hostname})" : ''), 'qty' => 1, 'unit' => 'ks',
+            'unit_net' => $net->minor, 'discount' => 0, 'net' => $net->minor, 'tax_rate' => (string) $line['rate'], 'tax_category' => (string) $line['category'], 'tax' => $line['tax']->minor, 'total' => $line['total']->minor,
+            'period_from' => AccountingClock::date($start), 'period_to' => AccountingClock::date($end->copy()->subDay()), 'service_id' => $service->id, // accounting days; the last day of the period, as on an order's line
+        ];
+
+        return ['line' => $line, 'invoice_line' => $invoiceLine];
+    }
+
     private function advance(Subscription $subscription, Carbon $start, Carbon $end): void
     {
         $subscription->forceFill(['state' => Subscription::ACTIVE, 'current_period_start' => $start, 'current_period_end' => $end, 'next_renewal_at' => $end->copy()->subDays((int) config('onhost.billing.renew_lead_days', 7)), 'last_renewed_at' => now(), 'renewal_failures' => 0])->save();
@@ -242,11 +455,14 @@ final class SubscriptionService
     private function expire(Subscription $subscription, Service $service, CommandContext $context): void
     {
         DB::transaction(function () use ($subscription, $service) {
-            $subscription->forceFill(['state' => Subscription::CANCELLED])->save();
+            $subscription->forceFill(['state' => Subscription::CANCELLED, 'auto_renew' => false])->save(); // it ended because it was not to renew: the row says so for a later restore
             $this->outbox->publish(GenericEvent::of('subscription.expired', 'subscription', $subscription->id, ['service_id' => $service->id], $subscription->organization_id));
         });
         if (in_array($service->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED, ServiceStateMachine::SUSPENDED], true)) {
-            app(ServiceService::class)->requestAction($service, 'terminate', CommandContext::system('subscription expired')->withScope($service->organization_id), "sub_expire:{$subscription->id}", ['reason' => 'subscription ended', 'final_backup' => true]);
+            // one termination per period that ended (TASK-0027 review round 1): a subscription a restore started again ends
+            // again, and a key of the subscription alone handed back the earlier expiry's operation — the service ran on unbilled
+            $ended = self::periodEnd($subscription)?->getTimestamp() ?? 0;
+            app(ServiceService::class)->requestAction($service, 'terminate', CommandContext::system('subscription expired')->withScope($service->organization_id), "sub_expire:{$subscription->id}:{$ended}", ['reason' => 'subscription ended', 'final_backup' => true]);
         }
     }
 }

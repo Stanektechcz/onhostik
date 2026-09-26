@@ -95,7 +95,9 @@ trait IspConfigMailTools
                 $params[$field] = substr((string) $settings[$k], 0, 10).($k === 'start' ? ' 00:00:00' : ' 23:59:59');
             }
         }
-        $this->api->call('mail_user_update', ['client_id' => (int) ($mailbox->meta['client_id'] ?? 0), 'primary_id' => (int) $mailbox->remoteId, 'params' => $params], true);
+        // merged into the stored record: sent alone, the panel filled the rest in from its form defaults — the mailbox's
+        // backup retention among them (TASK-0024)
+        $this->updateMailUser($mailbox, $params);
 
         return ProviderResult::accepted($this->jobqueueHandle((int) $mailbox->node), $mailbox, ['enabled' => $params['autoresponder'] === 'y']);
     }

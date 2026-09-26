@@ -46,7 +46,8 @@ it('refuses every customer route addressed with another organization\'s identifi
     $zone = DnsZone::query()->create(['organization_id' => $org->id, 'domain_id' => $domain->id, 'name' => 'tenant-a.cz', 'provider' => 'powerdns', 'state' => 'active']);
     $ticket = app(TicketService::class)->create(['subject' => 'Interní dotaz organizace A', 'body' => 'Tohle nesmí vidět nikdo jiný.'], $ctx, $org, $owner);
     $consents = ['terms' => ['version' => '4.0'], 'privacy' => ['version' => '4.0'], 'withdrawal_waiver' => ['version' => '4.0'], 'dpa' => ['version' => '4.0'], 'sla' => ['version' => '4.0']];
-    $quote = app(QuoteService::class)->quote([['product_key' => 'web-hosting', 'plan_key' => 'profi']], 'CZK', ['country' => 'CZ', 'customer_class' => 'b2c'], 12, null, $org);
+    // Standard, not Profi: this lab has only an aaPanel web node, and a plan with dedicated PHP workers is sold out there (decision 7, TASK-0023)
+    $quote = app(QuoteService::class)->quote([['product_key' => 'web-hosting', 'plan_key' => 'standard']], 'CZK', ['country' => 'CZ', 'customer_class' => 'b2c'], 12, null, $org);
     $order = app(CheckoutService::class)->placeOrder($quote, $org, $owner, $consents, ['mode' => 'bank'], 'iso:q1', $ctx)['order'];
     $subscription = Subscription::query()->create(['organization_id' => $org->id, 'service_id' => $service->id, 'currency' => 'CZK', 'period' => 'month', 'amount_minor' => 10000, 'state' => 'active', 'auto_renew' => true, 'current_period_start' => now()->subDays(3), 'current_period_end' => now()->addDays(27), 'next_renewal_at' => now()->addDays(27)]);
 

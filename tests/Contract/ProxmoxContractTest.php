@@ -169,3 +169,73 @@ it('issues a console token that hides the VNC ticket from the browser', function
     expect($console['url'])->toContain('/console/ws/con_')->and($console['token'])->toStartWith('con_')->and(json_encode($console))->not->toContain('secret-ticket');
     expect(Cache::get('onhost:console:'.$console['token'])['vncticket'])->toBe('PVEVNC:secret-ticket');
 });
+
+/**
+ * The backup storage for a retention delete: the attributes of each volume, and every call that reached it.
+ *
+ * @param  array{volumes:array<string,array<string,mixed>>, calls:list<string>}  $pbs
+ */
+function pveRetainedBackupFake(array &$pbs): void
+{
+    Http::fake(function (Request $r) use (&$pbs) {
+        $path = rawurldecode((string) parse_url($r->url(), PHP_URL_PATH));
+        $pbs['calls'][] = $r->method().' '.$path;
+        if (str_ends_with($path, '/nodes')) {
+            return Http::response(['data' => [['node' => 'prg1-n2', 'status' => 'online']]]);
+        }
+        if (preg_match('~/storage/pbs-cz1/content/(.+)$~', $path, $m) === 1) {
+            if (! array_key_exists($m[1], $pbs['volumes'])) {
+                return Http::response(['errors' => ['volume' => 'does not exist']], 404);
+            }
+            if ($r->method() === 'DELETE') {
+                unset($pbs['volumes'][$m[1]]);
+
+                return Http::response(['data' => 'UPID:prg1-n2:delete']);
+            }
+
+            return Http::response(['data' => $pbs['volumes'][$m[1]]]);
+        }
+
+        return Http::response(['data' => null], 500);
+    });
+}
+
+it('deletes a scheduled backup of its own guest that carries the platform marker, without ever unprotecting anything', function () {
+    $volid = 'pbs-cz1:backup/vzdump-qemu-1042-2026_09_01-02_30_00.vma.zst';
+    $pbs = ['volumes' => [$volid => ['format' => 'vma.zst', 'protected' => 0, 'notes' => 'vm-test 1042 onhost backup:bkp_01abc scheduled daily']], 'calls' => []];
+    pveRetainedBackupFake($pbs);
+
+    $result = pveAdapter()->deleteRetainedBackup($volid, '1042', 'onhost backup:bkp_01abc');
+
+    expect($result->data['deleted'])->toBeTrue()->and($pbs['volumes'])->toBe([])
+        ->and(array_values(array_filter($pbs['calls'], fn (string $c) => str_contains($c, '/content/'))))->toBe([
+            'GET /api2/json/nodes/prg1-n2/storage/pbs-cz1/content/'.$volid, // the attributes are read first
+            'DELETE /api2/json/nodes/prg1-n2/storage/pbs-cz1/content/'.$volid,
+        ]);
+});
+
+it('refuses a protected volume, a volume of another guest and one without the marker, sending nothing but the read', function (array $attributes, string $vmid, string $volid) {
+    $pbs = ['volumes' => [$volid => $attributes], 'calls' => []];
+    pveRetainedBackupFake($pbs);
+
+    expect(fn () => pveAdapter()->deleteRetainedBackup($volid, $vmid, 'onhost backup:bkp_01abc'))->toThrow(ProviderException::class);
+
+    expect($pbs['volumes'])->toHaveKey($volid)
+        ->and(array_filter($pbs['calls'], fn (string $c) => str_starts_with($c, 'PUT') || str_starts_with($c, 'DELETE')))->toBe([]);
+})->with([
+    'protected by an operator' => [['protected' => 1, 'notes' => 'vm-test 1042 onhost backup:bkp_01abc'], '1042', 'pbs-cz1:backup/vzdump-qemu-1042-2026_09_01-02_30_00.vma.zst'],
+    'another guest (the attributes say so)' => [['vmid' => 1043, 'protected' => 0, 'notes' => 'onhost backup:bkp_01abc'], '1042', 'pbs-cz1:backup/vzdump-qemu-1042-2026_09_01-02_30_00.vma.zst'],
+    'another guest (the volume id says so)' => [['protected' => 0, 'notes' => 'onhost backup:bkp_01abc'], '104', 'pbs-cz1:backup/vzdump-qemu-1042-2026_09_01-02_30_00.vma.zst'],
+    'the operator\'s own vzdump job' => [['protected' => 0, 'notes' => 'vm-test nightly'], '1042', 'pbs-cz1:backup/vzdump-qemu-1042-2026_09_01-02_30_00.vma.zst'],
+    'the marker of another backup row' => [['protected' => 0, 'notes' => 'onhost backup:bkp_01abcd'], '1042', 'pbs-cz1:backup/vm/1042/2026-09-01T02:30:00Z'],
+    'another storage' => [['protected' => 0, 'notes' => 'onhost backup:bkp_01abc'], '1042', 'local:backup/vzdump-qemu-1042-2026_09_01-02_30_00.vma.zst'],
+]);
+
+it('takes a volume that is already gone as gone', function () {
+    $pbs = ['volumes' => [], 'calls' => []];
+    pveRetainedBackupFake($pbs);
+
+    $result = pveAdapter()->deleteRetainedBackup('pbs-cz1:backup/vm/1042/2026-09-01T02:30:00Z', '1042', 'onhost backup:bkp_01abc');
+
+    expect($result->alreadyExisted)->toBeTrue()->and(array_filter($pbs['calls'], fn (string $c) => str_starts_with($c, 'DELETE')))->toBe([]);
+});

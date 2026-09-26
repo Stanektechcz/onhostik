@@ -15,7 +15,11 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerCommission;
 use Onhost\Domain\Partners\PartnerService;
+use Onhost\Domain\Tax\Commands\OverrideVatStatusCommand;
+use Onhost\Domain\Tax\Commands\OverrideVatStatusHandler;
+use Onhost\Domain\Tax\Commands\RecordVatCheckCommand;
 use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
+use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Outbox\OutboxPublisher;
@@ -34,6 +38,20 @@ function paidClientInvoice(Organization $client, int $net = 100000): Invoice
     app(OutboxPublisher::class)->relayPending();
 
     return $invoice->fresh();
+}
+
+/**
+ * A VIES verdict recorded the way the platform's own check records it (system actor, through the bus; TASK-0031), after finance
+ * confirmed the supplier with the override (closing review: VAT is paid out to a Czech partner only on that confirmation).
+ */
+function recordValidVatForTest(Organization $organization, string $number): void
+{
+    app(OverrideVatStatusHandler::class)->handle(new OverrideVatStatusCommand('vat-partners-confirm:'.$organization->id.':'.$number, [
+        'organization_id' => $organization->id, 'status' => 'valid', 'reason' => 'Dodavatel ověřen podle smlouvy a registru', 'evidence' => 'výpis z registru plátců DPH', 'days' => 30, ...vatOverrideSubject($organization),
+    ]), CommandContext::system('test'));
+    app(CommandBus::class)->dispatch(new RecordVatCheckCommand($organization->id, 'vat-partners-test:'.$organization->id.':'.$number, [
+        'number' => $number, 'status' => 'valid', 'consultation_number' => 'WAPIPARTNERS', 'trigger' => 'operator', 'source' => 'vies',
+    ]), CommandContext::system('test'));
 }
 
 it('turns a reseller application into a partner awaiting approval, and approval opens the portal', function () {
@@ -62,7 +80,8 @@ it('turns a reseller application into a partner awaiting approval, and approval 
 it('accrues commission from paid client invoices, reverses on credit notes, follows tiers, and pays out by self-billing after step-up', function () {
     $this->seed([CatalogSeeder::class, TaxRuleSeeder::class, LegalEntitySeeder::class]);
     [$owner, $partnerOrg] = $this->customerWithOrganization([], ['name' => 'Agentura Pixel s.r.o.']);
-    $partnerOrg->forceFill(['vat_status' => 'payer', 'dic' => 'CZ12345678'])->save(); // VAT payer → self-billed invoice carries 21 % VAT
+    $partnerOrg->forceFill(['dic' => 'CZ12345678'])->save();
+    recordValidVatForTest($partnerOrg, 'CZ12345678'); // VAT payer (finance confirmed the supplier, VIES the DIČ) → self-billed invoice carries 21 % VAT from standard_rates
     $partners = app(PartnerService::class);
     $partner = $partners->approve($partners->apply($partnerOrg, ['model' => 'share'], CommandContext::system('test')), CommandContext::system('test'));
     [$clientOwner, $client] = $this->customerWithOrganization(['email' => 'petra@bezvazasilky.cz'], ['name' => 'Bezvazásilky s.r.o.']);

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Http;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
 use Onhost\Providers\Contracts\Naming;
@@ -101,6 +102,7 @@ it('creates and deletes a database, a cron job and an FTP account on aaPanel thr
     $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'database.create', 'params' => ['name' => 'no spaces here', 'password' => 'Correct-Horse-Battery-9']], ['Idempotency-Key' => 'db-2'])->assertUnprocessable()->assertJsonPath('error', 'action_param_invalid');
     $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'database.create', 'params' => ['name' => 'shop2', 'password' => 'short']], ['Idempotency-Key' => 'db-3'])->assertUnprocessable()->assertJsonPath('errors.password.0', fn ($m) => str_contains($m, '12'));
 
+    app(StepUpService::class)->grant($user, 'totp', null, '127.0.0.1'); // deleting a database destroys data: a fresh step-up (TASK-0029)
     $deleted = $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'database.delete', 'params' => ['remote_id' => '9']], ['Idempotency-Key' => 'db-4'])->assertAccepted();
     expect(driveOperation(Operation::query()->findOrFail($deleted->json('operation_id')))->state)->toBe(Operation::SUCCEEDED);
     Http::assertSent(fn ($r) => str_contains($r->url(), 'DeleteDatabase') && (int) $r['id'] === 9 && $r['name'] === "{$prefix}_shop");

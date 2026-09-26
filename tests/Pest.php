@@ -27,6 +27,7 @@ use Onhost\Domain\Provisioning\OperationService;
 use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
 use Tests\TestCase;
@@ -37,6 +38,32 @@ pest()->extend(TestCase::class)
 
 // Contract tests must never reach a real vendor API.
 pest()->beforeEach(fn () => Http::preventStrayRequests())->in('Contract');
+
+// A credential a test puts into $_ENV or putenv() must not outlive it: the `env` secrets driver reads both, so a leftover
+// key made later tests see a configured gateway or panel depending on file order (CheckoutTest → RenewalGuardTest).
+// The snapshot is taken after the application booted (its .env is in place) and before the test file's own hooks run.
+pest()->beforeEach(function () {
+    $this->envBaseline = ['env' => $_ENV, 'process' => getenv()];
+})->afterEach(fn () => restoreEnvironment($this->envBaseline))->in('Feature', 'Contract', 'Unit');
+
+/** Undoes every $_ENV and putenv() key a test added, changed or removed, leaving the rest of the process environment alone. */
+function restoreEnvironment(array $baseline): void
+{
+    foreach (array_diff_key($_ENV, $baseline['env']) as $key => $value) {
+        unset($_ENV[$key]);
+    }
+    foreach ($baseline['env'] as $key => $value) {
+        $_ENV[$key] = $value;
+    }
+    foreach (array_diff_key(getenv(), $baseline['process']) as $key => $value) {
+        putenv($key);
+    }
+    foreach ($baseline['process'] as $key => $value) {
+        if (getenv($key) !== $value) {
+            putenv($key.'='.$value);
+        }
+    }
+}
 
 expect()->extend('toBeMoney', function (int $minor, string $currency) {
     return $this->minor->toBe($minor)->and($this->value->currency->value)->toBe($currency);
@@ -524,4 +551,17 @@ function secondPersonApproves(string $approvalId, ?User $decider = null): string
     app(ApprovalService::class)->decide($approval, $decider, 'approved', null, new CommandContext('user', $decider->id, null, null, '127.0.0.1', 'pest', 'second-person', stepUpMethod: 'totp'));
 
     return $approvalId;
+}
+
+/**
+ * The subject a staff VAT override confirms, as the requester sees it now (stack polish): the normalised number and the
+ * organization name. OverrideVatStatusHandler refuses a payload whose subject is not the organization's any more.
+ *
+ * @return array{vat_number:string, organization_name:string}
+ */
+function vatOverrideSubject(Organization $organization): array
+{
+    $current = Organization::query()->findOrFail($organization->id);
+
+    return ['vat_number' => (string) (VatStanding::subject($current)->value ?? ''), 'organization_name' => (string) $current->name];
 }

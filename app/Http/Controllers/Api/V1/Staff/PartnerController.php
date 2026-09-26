@@ -77,7 +77,7 @@ final class PartnerController extends ApiController
         $this->api->authorize($request, 'partner.manage', CommandScope::global());
         $query = PartnerPayout::query()->when($request->filled('state'), fn ($q) => $q->where('state', (string) $request->query('state')));
 
-        return $this->api->paginate($request, $query, fn (PartnerPayout $p) => PartnerPresenters::payout($p), 'requested_at');
+        return $this->api->paginate($request, $query, fn (PartnerPayout $p) => PartnerPresenters::payout($p, true), 'requested_at');
     }
 
     public function approvePayout(Request $request, string $payout): JsonResponse

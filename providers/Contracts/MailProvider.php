@@ -10,7 +10,7 @@ interface MailProvider extends ProviderAdapter
 
     public function deleteMailDomain(ResourceRef $domain): ProviderResult;
 
-    /** @param array{address:string,password:string,quota_mb:int,name?:string} $mailbox */
+    /** @param array{address:string,password:string,quota_mb:int,name?:string,backup_copies?:int} $mailbox `backup_copies`: daily mailbox backups to keep (a mail plan's backup_days), only where the provider keeps them */
     public function createMailbox(ResourceRef $domain, array $mailbox): ProviderResult;
 
     public function updateMailbox(ResourceRef $mailbox, array $changes): ProviderResult;

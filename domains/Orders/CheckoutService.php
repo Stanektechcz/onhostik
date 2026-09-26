@@ -18,6 +18,7 @@ use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Payments\Models\PaymentIntent;
 use Onhost\Domain\Payments\PaymentService;
+use Onhost\Domain\Services\Limits\LimitRaisePolicy;
 use Onhost\Domain\WalletLedger\Models\WalletHold;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -43,6 +44,7 @@ final class CheckoutService
         private readonly AuditRecorder $audit,
         private readonly OutboxPublisher $outbox,
         private readonly OrderRiskService $risk,
+        private readonly CreditOrderPolicy $creditPolicy,
     ) {}
 
     /**
@@ -71,10 +73,16 @@ final class CheckoutService
         if (! in_array($mode, ['wallet', 'gateway', 'bank', 'postpaid'], true)) {
             throw new DomainError('payment_mode_invalid', 'Unsupported payment mode.');
         }
+        LimitRaisePolicy::assertOrderable($quote, $source, $context); // customers order a raise once the switch is on; a free raise is staff's (TASK-0022)
         if ($mode === 'postpaid' && $this->wallets->approvedCreditLine($organization->id, $quote->currency)->isZero()) {
             throw new DomainError('postpaid_not_approved', 'Postpaid billing requires an approved credit line.', 403);
         }
-
+        // owner decision 20 (TASK-0021): a credit order of somebody who may not spend the credit waits for the owner or the billing admin;
+        // what the organization could not pay anyway is refused now, not after somebody approved it
+        $quoted = Money::minor((int) $quote->total_minor, $quote->currency);
+        $awaitApproval = $this->creditPolicy->mustAwaitApproval($organization, $context, $mode, $source, $quoted);
+        // what a non-holder orders (by card or bank too) renews only under the organization's standing auto-renew default
+        $standingDefault = $this->creditPolicy->followsStandingDefault($organization, $context);
         $requiredDocs = $this->requiredDocuments($quote, $organization);
         foreach ($requiredDocs as $key) {
             if (! isset($consents[$key])) {
@@ -92,11 +100,14 @@ final class CheckoutService
 
             return ['order' => $duplicate, 'redirect_url' => $duplicate->meta['redirect_url'] ?? null, 'payment_intent_id' => $duplicate->payment_intent_id, 'bank_instructions' => $duplicate->meta['bank_instructions'] ?? null];
         }
+        if ($awaitApproval) { // after the duplicate lookup: a resubmitted held cart gets the order that already waits, not a 402
+            $this->assertCoverable($organization, $quoted, collect($quote->lines)->contains(fn ($line) => ($line['product_key'] ?? null) === 'domain'), $context);
+        }
 
         // intake pre-check (audit §5f-8): scored before anything is written; a held order is placed and paid like any other, only its fulfilment waits for staff
         $risk = $this->risk->assess($quote, $organization, $user, $context, $source);
 
-        return DB::transaction(function () use ($quote, $organization, $user, $consents, $payment, $idempotencyKey, $context, $source, $mode, $fingerprint, $risk) {
+        return DB::transaction(function () use ($quote, $organization, $user, $consents, $payment, $idempotencyKey, $context, $source, $mode, $fingerprint, $risk, $awaitApproval, $standingDefault) {
             $quote->forceFill(['state' => 'accepted', 'organization_id' => $organization->id])->save();
             // a promo code is used when an order is placed with it — counted here, under a lock, so "the first hundred" is a
             // hundred even when two checkouts race. The counter existed and nothing ever wrote to it: every limited code was unlimited.
@@ -127,7 +138,11 @@ final class CheckoutService
                 'idempotency_key' => $idempotencyKey,
                 'placed_at' => now(),
                 'meta' => array_filter(['tax_review_required' => (bool) ($quote->versions['tax_review_required'] ?? false), 'renewal_total_minor' => $quote->renewal_total_minor, 'fingerprint' => $fingerprint,
-                    'risk' => ['score' => $risk['score'], 'reasons' => $risk['reasons']], 'review' => $risk['hold'] ? ['state' => 'pending', 'score' => $risk['score'], 'reasons' => $risk['reasons'], 'opened_at' => now()->toIso8601String()] : null], fn ($v) => $v !== null),
+                    'customer_class' => (string) ($organization->customer_class ?: 'b2c'), // TASK-0025: the class the contract was concluded as decides a later withdrawal
+                    'vat_review' => (bool) ($quote->versions['vat_review'] ?? false), 'vat' => $quote->versions['vat'] ?? null, // TASK-0031: the VIES check the tax was decided on, for the document and for finance
+
+                    'risk' => ['score' => $risk['score'], 'reasons' => $risk['reasons']], 'review' => $risk['hold'] ? ['state' => 'pending', 'score' => $risk['score'], 'reasons' => $risk['reasons'], 'opened_at' => now()->toIso8601String()] : null,
+                    'approval' => $awaitApproval ? CreditOrderApprovals::opened($context) : null, 'renewal_consent' => $standingDefault ? 'organization_default' : null], fn ($v) => $v !== null),
             ]);
             foreach ($quote->lines as $line) {
                 OrderItem::query()->create([
@@ -161,11 +176,11 @@ final class CheckoutService
             }
             if ($total->isZero()) { // nothing to pay (a plan downgrade): paid at once, whatever method was chosen
                 $this->markPaid($order, $context, 'wallet');
+            } elseif ($awaitApproval) { // nothing reserved, documented or provisioned: the owner or the billing admin decides (CreditOrderApprovals)
+                $this->audit->record($context->withScope($organization->id), 'order.approval.request', 'succeeded', ['number' => $number, 'total' => $total, 'mode' => $mode], 'order', $order->id);
+                $this->outbox->publish(GenericEvent::of('order.approval.required', 'order', $order->id, ['number' => $number, 'total' => $total, 'mode' => $mode, 'requester_id' => CreditOrderApprovals::of($order)['requester_id'] ?? null, 'requester' => CreditOrderApprovals::of($order)['requester_name'] ?? null], $organization->id));
             } elseif ($mode === 'wallet' || $mode === 'postpaid') {
-                // no expiry: the reservation lasts until the order is settled (OrderSettlement) — a registry can take days, a risk review too
-                $hold = $this->wallets->hold($organization, $total, 'order', "order:{$order->id}", $context, 'order', $order->id, $this->hasDomain($order) ? 'domain' : 'normal', null);
-                $order->forceFill(['wallet_hold_id' => $hold->id])->save();
-                $this->markPaid($order, $context, 'wallet');
+                $this->payFromCredit($order, $context);
             } elseif ($mode === 'gateway') {
                 $intent = $this->payments->createIntent($organization, $total, 'order', 'order', $order->id, $context, [
                     'provider' => $payment['provider'] ?? null,
@@ -185,10 +200,40 @@ final class CheckoutService
                 $result['bank_instructions'] = $intent->raw['instructions'] ?? null;
             }
 
-            $this->outbox->publish(GenericEvent::of('order.placed', 'order', $order->id, ['number' => $number, 'state' => $order->refresh()->state, 'total' => $total, 'mode' => $mode], $organization->id));
+            $this->outbox->publish(GenericEvent::of('order.placed', 'order', $order->id, ['number' => $number, 'state' => $order->refresh()->state, 'total' => $total, 'mode' => $mode] + ($awaitApproval ? ['approval' => 'pending'] : []), $organization->id));
 
             return $result;
         }, 3);
+    }
+
+    /**
+     * Reserves the order's total on the credit and marks it paid: at placement by whoever may spend the credit, and when an owner or
+     * billing admin approves a held credit order (CreditOrderApprovals). No expiry: the reservation lasts until the order is settled
+     * (OrderSettlement) — a registry can take days, a risk review too.
+     */
+    public function payFromCredit(Order $order, CommandContext $context): Order
+    {
+        $hold = $this->wallets->hold($order->organization_id, $order->total(), 'order', "order:{$order->id}", $context, 'order', $order->id, $this->hasDomain($order) ? 'domain' : 'normal', null);
+        $order->forceFill(['wallet_hold_id' => $hold->id])->save();
+
+        return $this->markPaid($order, $context, 'wallet');
+    }
+
+    /**
+     * A held credit order is refused at once when the organization could not pay it anyway (read only: nothing is reserved).
+     * The same arithmetic as the hold the approval will make (WalletService::hold): an order without a domain may not use the
+     * money kept aside for domain renewals.
+     */
+    private function assertCoverable(Organization $organization, Money $total, bool $hasDomain, CommandContext $context): void
+    {
+        $spendable = $this->wallets->spendable($organization, $total->currency);
+        if (! $hasDomain) {
+            $spendable = $spendable->subtract($this->wallets->domainReserve($organization->id, $total->currency));
+        }
+        if ($spendable->lessThan($total)) {
+            throw new DomainError('insufficient_funds', 'Insufficient wallet balance for this operation.', 402, ['required' => $total, 'available' => $spendable, 'hint' => 'Top up the wallet or enable auto top-up.']);
+        }
+        $this->wallets->assertWithinBudget($organization, $total, $context);
     }
 
     /** Called by the wallet path immediately and by the payment settlement listener after a verified payment. */
@@ -279,13 +324,17 @@ final class CheckoutService
             throw new DomainError('reason_required', 'Uveďte důvod zrušení zaplacené objednávky (zapíše se do auditu a na opravný doklad).', 422, ['field' => 'reason']);
         }
 
-        return $this->transition($order, OrderStateMachine::CANCELLED, $context, $reason);
+        return $this->transition($order, OrderStateMachine::CANCELLED, $context, $reason, $allowed);
     }
 
-    public function transition(Order $order, string $to, CommandContext $context, ?string $note = null): Order
+    /** @param list<string>|null $onlyFrom the states the caller decided on; the locked row must still be in one (an approval may have paid it meanwhile) */
+    public function transition(Order $order, string $to, CommandContext $context, ?string $note = null, ?array $onlyFrom = null): Order
     {
-        return DB::transaction(function () use ($order, $to, $context, $note) {
+        return DB::transaction(function () use ($order, $to, $context, $note, $onlyFrom) {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ($onlyFrom !== null && ! in_array($order->state, $onlyFrom, true)) {
+                throw new DomainError('order_state_changed', "Objednávka se mezitím změnila (je {$order->state}); načtěte ji znovu.", 409, ['state' => $order->state]);
+            }
             OrderStateMachine::machine()->assertTransition($order->state, $to);
             $from = $order->state;
             $patch = ['state' => $to];

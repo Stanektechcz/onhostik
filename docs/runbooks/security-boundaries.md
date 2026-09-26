@@ -13,7 +13,7 @@ live in one array, so everything the customer sends has to pass an **allow-list 
 | Core service actions (`power`, `backup`, `restore`, `terminate`, …) | only the listed keys survive; `resize` is refused (the size follows the plan) | `Services\CustomerActionParams::filter()` — used by the API, stored action hooks (create **and** run) and Discord | `tests/Feature/Services/CustomerActionParamsTest.php` |
 | Feature actions | parameters are rebuilt from scratch | `ServiceService::featureParams()` | the feature tests |
 | Cart line `config` | options normalized to what the product sells, within range; `limits`/`entitlements` dropped; unknown `region` refused; foreign `project_id` ignored | `CatalogService::normalizeOptions()`, `QuoteService`, `ServiceService::create()` | `tests/Feature/Orders/PaidForIsWhatYouGetTest.php` |
-| Tax treatment and price region | facts of the organization, never of the request; a guest never claims a verified VAT number | `QuoteService::quote()`, `CartController::quote()` | same file |
+| Tax treatment and price region | facts of the organization, never of the request; a guest never claims a verified VAT number. A customer can never claim a VAT status: the cart and the organization quote ignore request input; only the system actor records a VIES verdict (`tax.vat_number.record`, 403 `system_only` for anyone else); a staff override (`tax.vat_status.override`) is CRITICAL (step-up + four eyes), audited, evidenced in `vat_validations` and lapses after 1–30 days; it binds the number and the name the requester saw, so a subject changed before the approved run is refused (409 `vat_override_subject_changed`, stack polish). The VIES answer (trader name/address) never enters `provider_calls`, the command audit or the event (TASK-0031) | `QuoteService::quote()`, `CartController::quote()`, `Tax\VatStanding`, `Tax\Commands\RecordVatCheckHandler` | same file; `tests/Feature/Tax/VatStatusOverrideTest.php`, `tests/Feature/Tax/VatOverrideSubjectTest.php`, `tests/Feature/Tax/VatNumberCheckTest.php` |
 | Custom vhost directives | judged statement by statement: allow-list for nginx, deny-list for Apache, no inline `#`, Apache line continuations joined | `Services\Web\CustomDirectives` | `tests/Unit/CustomDirectivesTest.php` |
 
 ## 2. Destinations a customer names are public, pinned and not redirected
@@ -40,9 +40,44 @@ public — no loopback, private, link-local, CGNAT, multicast; local names such 
   decided before the controller runs): `services`, `invoices`/`documents`, `wallet`, `tickets`, `dns`/`zones`,
   `domains`, and `GET /v1/me`. The account, the step-up, tokens, organizations, webhooks and orders are portal-only.
   A new route family for tokens is added to `TokenRouteScope::FAMILIES` on purpose. Test: `tests/Feature/Http/PanelApiTest.php`.
+* **What a token may do is one explicit map** (`domains/Identity/Authorization/TokenScopes.php`, TASK-0030): one row per
+  catalogue permission, the scope that carries it or `null` = not available to tokens; a permission that is not in the
+  map — or a command without a permission — is refused to a token. Consoles, the terminal, commands and SSH keys are the
+  scope `services:console` (a console is neither a read nor a restart); no preset of the panel's key form carries it, the
+  customer ticks it on purpose. `ApiContext::can()` asks the token too, so a read-only token of a manager sees only what a
+  reader sees. A new permission gets its token decision in the same commit (ApiTokenScopeMapTest fails otherwise).
+  Test: `tests/Feature/Http/ApiTokenScopeMapTest.php`.
+* **A token never holds a step-up.** It cannot step up (`/v1/auth/step-up` is closed to tokens) and a grant made without a
+  session is not matched for a `token:` session (`StepUpService::activeGrant`), so every HIGH/CRITICAL action through a
+  token answers `step_up_required`. A token request is `token:<id>` whatever it carries: an Origin/Referer of a stateful
+  domain makes Sanctum start a session for a bearer request, and `ApiContext::sessionId()` asks the token first.
+* **A token is asked for what the action does** on `POST /v1/services/{id}/actions` (`permissionFor` → TokenScopes, at the
+  route and in the controller): a console command needs `services:console` alone, a restart `services:power`. The route,
+  the controller and the dispatch (`ApiController::dispatch`) all ask with the action's params, so a schedule with a
+  console command needs `services:console` at each of them: a `services:power` or read-only token is refused it already at
+  the route, a console-only token gets it (closed at the stack polish, TASK-0030 LOW; before, the route and the controller
+  asked without the params and saw such a schedule as managing). Spec apply asks the same map for every step
+  (`ServiceSpecService::tokenMay`, §26).
+* **Archives and dumps are not available to tokens:** `backup.download` (final archive, backup download) is `null` in the
+  map. A `services:power` token can still read and write site files one by one (`GET …/files/download` is `service.manage`),
+  so a power token is as sensitive as the site's credentials.
+* **A password change ends the person's API tokens** (owner decision 14, TASK-0021). Changing the password revokes every
+  personal API token of the user in every organization (a reset always did); the browser that made the change stays
+  signed in. A service account's tokens and the integration secrets (action hooks, on-call feeds, SLA probes, Discord)
+  are not personal and are never touched: `Identity\ApiAccessRevocation` goes through the morph-scoped `User::tokens()`.
+  Switch `onhost.identity.password_change_revokes_api_access` (`ONHOST_PASSWORD_CHANGE_REVOKES_API_ACCESS`, default
+  **on**); off restores the old "tokens kept" path with its truthful mail (`security-password-kept`).
+  Test: `tests/Feature/Http/PanelApiTest.php`.
 * **Step-up:** once TOTP is enrolled the password is not a second factor (customers and staff). The setting is
   `onhost.identity.staff_mfa_required`; `tests/Feature/Platform/ConfigKeysTest.php` fails on any `config('onhost.*')`
   key the configuration does not define.
+* **A staff write that does its work outside the bus asks for the step-up itself** (`ApiContext::authorizeAction`,
+  TASK-0030): a HIGH permission needs the same fresh grant the bus would ask for (403 `step_up_required` → the console's
+  dialog repeats the request); a CRITICAL permission there is a programming error (it goes through the bus for the second
+  person). Today: `POST /v1/staff/dunning/run`, `POST /v1/staff/capacity/forecast/run`,
+  `GET /v1/staff/services/{id}/panel-login`. Reads keep `authorize()`. Every `->authorize()` with a HIGH/CRITICAL
+  permission in `app/Http/Controllers` is classified in `tests/Feature/Http/StaffTriggerStepUpTest.php`; a new one fails
+  there until it is classified.
 
 ## 4. Roles
 
@@ -62,6 +97,18 @@ Test: `tests/Feature/Organizations/AccessExpiryTest.php`.
   when an unpaid order is cancelled.
 * `throttle:auth` has an e-mail bucket only when the request carries an e-mail (`email` or `customer.email`).
   Tests: `tests/Feature/Orders/CheckoutTest.php`.
+* **Paying to restore a cancelled service** (owner decision 23, TASK-0025, rule `services.reinstate`, default off) goes
+  through the one credit gate of §22: `POST /v1/services/{id}/reinstate` needs `billing.wallet.topup` on the bus (the
+  permission of paying an invoice from the credit; no API-token scope) and `CreditOrderPolicy::assertMaySpend()`; money
+  lifts only the `payment` hold, never a quarantine or a staff hold. Taking a cancellation back bills again and asks the
+  same gate. The payment-required answer shows the organization's credit and invoices only to `billing.wallet.read`. A
+  restore never switches auto-renew on (TASK-0027 C2). Test: `tests/Feature/Billing/PayAndRestoreTest.php`.
+* **Withdrawing from a contract** (owner decision 17, TASK-0025, rule `billing.withdrawal`, default off) needs
+  `service.delete` at organization scope with a fresh step-up (not a service guest, an API token or the assistant); the
+  staff record of a mailed notice is `billing.refund.execute`, CRITICAL (four eyes), because it can be dated back. The
+  estimate is read with `billing.wallet.read` at organization scope. An order held for the staff risk review cannot be
+  withdrawn by the customer, and a service the consumer withdrew from never gets a chargeback. Test:
+  `tests/Feature/Billing/WithdrawalTest.php`.
 
 ## 6. Secrets that are handed out once are not kept
 
@@ -73,8 +120,8 @@ Test: `tests/Feature/Organizations/AccessExpiryTest.php`.
 * The replay store (`idempotency_keys.result`) and a **sent** mail (`mail_outbox.vars`) keep the shape, not the secret;
   `GET /v1/staff/outbox` never shows it; a mail whose link is gone is not resent (`mail_secret_not_kept`).
   Tests: `tests/Feature/Domains/TransferCodeSecrecyTest.php`, `tests/Feature/Notifications/MailOutboxSecretsTest.php`.
-* Still open: `operations.desired/context/result` keep generated passwords (the customer reads the WordPress admin
-  password from the operation result). See `production-readiness-audit.md` §"Review 2026-09-20".
+* Generated passwords in `operations.desired/context/result` are forgotten after the run (the WordPress admin password
+  is shown for 30 minutes to `service.manage` only): §11 below.
 
 ## 7. Accounts
 
@@ -85,7 +132,8 @@ Test: `tests/Feature/Organizations/AccessExpiryTest.php`.
 * Enrolling TOTP takes a step-up (`step_up_required` → the portal's confirmation dialog repeats the request).
 * The GDPR export is downloaded by whoever may `organization.manage` — not by a read-only member and not by staff who
   may only read customers — and every download is audited (`compliance.data_export.download`).
-* A console token is judged by the service it was issued for; a token with no known owner is nobody's.
+* A console token is issued on the service (resource scope: a `svc_console` guest and a project role get it, a `svc_manage`
+  guest and a viewer do not) and judged by the service it was issued for; a token with no known owner is nobody's.
 * A CSV cell never starts a formula (`'` is put in front of `= + - @`).
   Tests: `tests/Feature/Http/AuthApiTest.php`, `tests/Feature/Compliance/ComplianceTest.php`,
   `tests/Feature/Http/SurfaceTest.php`, `tests/Feature/Orders/OrderRiskFeedbackTest.php`.
@@ -321,8 +369,16 @@ Tests: `tests/Feature/Services/SiteNameClaimsTest.php`, `tests/Feature/Services/
   service holds is covered. A listing that fails is a provider error and retries; it never reads as "not yours".
 * **aaPanel was clean**: every method there resolves the id against the site's own listing, and the two it cannot do
   (`deleteDbUser`, `setShellKey`) refuse outright. The defect was ISPConfig-only.
+* The tools that act on **one mailbox** (autoresponder, spam policy, filters, mailbox backup/restore, fetchmail) had the
+  same hole and resolve the mailbox in the service's own mail domains first (`ServiceActionWorkflow::OWN_MAIL_TARGETS`,
+  `MailDomains::ownRow`, TASK-0016).
+* **Past exploitation.** Whether the hole was used before the fix is answered read-only by
+  `php artisan onhost:audit:provider-calls` (TASK-0020, runbook `provider-calls-audit.md`): verdict and severity per
+  action from the platform's own logged listings, probing after the fix, unexplained writes, log coverage. It writes
+  nothing and calls no panel; to be run by the operator on staging with a production copy.
 
-Tests: `tests/Contract/IspConfigOwnershipTest.php`, `tests/Feature/Provisioning/MailboxOwnershipTest.php`.
+Tests: `tests/Contract/IspConfigOwnershipTest.php`, `tests/Feature/Provisioning/MailboxOwnershipTest.php`,
+`tests/Feature/Provisioning/ProviderCallsAuditTest.php`.
 
 ## 20. Managing a shared service is not a shell on it
 
@@ -334,14 +390,146 @@ Tests: `tests/Contract/IspConfigOwnershipTest.php`, `tests/Feature/Provisioning/
   terminal (`command.run`), the SSH accounts (`shell.create`, `shell.key`, `shell.delete`) and the game console
   (`command.send`) among them. So the one role that exists to grant managing without a shell granted a shell: the
   agency could open a terminal on the site, read `wp-config.php` and with it the database, or put their own key on it.
-* Those five actions now ask for `service.console`. Nothing else moves, and no role loses anything it had:
-  owner and organization admin hold every customer permission, and `developer`, `cloud_operator` and `game_operator`
-  already carried both. The only role affected is `svc_manage`, which is the point.
+* Those actions ask for `service.console`, and since TASK-0029 so does everything else that hands over the server itself:
+  `access.reset` (new root password / keys), `rescue.start`, a game panel sub-user (`subuser.create` — the panel and its console,
+  under another e-mail that outlives a revocation) and a schedule with a console command (`schedule.create` unless every task is
+  power or backup — fail closed). Ending access (`rescue.stop`, `subuser.delete`) stays managing. FTP and database logins stay
+  `service.manage`: they give what managing already gives. SSH keys and game sub-users of somebody who loses the console are
+  revoked (`RevokeDelegatedAccess`), even when they keep managing — also when the owner shares the service again with the same
+  person without the console: `ServiceAccessService::share` publishes `service.access.reduced` when the dropped capabilities
+  took `service.console`, and the listener takes it down the revocation's path.
 * `permissionFor()` is one map for the bus, for the operation row (a long run asks again before each privileged step,
   H315) and for `ServiceFeatures::features($service, $actor)` — so the panel stops offering the terminal to a
   colleague who may not use it, instead of showing a button that answers 403.
 
 Tests: `tests/Feature/Services/ServiceAccessShareTest.php`.
+
+## 21. A panel account password belongs to the organization owner
+
+* `panel.password` (the customer's game-panel account, which opens every server of that account) maps to
+  `service.panel_account.manage` (HIGH, step-up), which only the `owner` role holds — `PermissionCatalog::OWNER_ONLY`,
+  `RoleCatalog::orgAdminWithheld()` and `RoleCatalog::STAFF_NEVER` keep it off org_admin, the `svc_*` share roles and
+  platform_owner (owner decision 15, TASK-0021).
+* `Services\Access\OwnerOnlyActions` refuses in `ServiceService::requestAction` anyone who is not the organization's
+  `owner_user_id` acting in person — staff, the system, the assistant and impersonation included (`owner_only_action`).
+  The platform never shows the panel password.
+
+Tests: `tests/Feature/Identity/PermissionMatrixTest.php`, `tests/Feature/Provisioning/GameToolsFeatureTest.php`.
+
+## 22. Spending the organization's credit
+
+* `Orders\CreditOrderPolicy` decides who may pay from the credit (owner decision 20, TASK-0021). With
+  `ONHOST_ORDER_CREDIT_APPROVAL` **off** (the default) nothing changes: whoever holds the command's own permission pays.
+  With it **on**, only holders of `billing.wallet.spend` in the organization (owner, billing_admin; withheld from org_admin)
+  or the literal `owner_user_id`. The principal is read as the bus reads it (`onBehalfOfUserId ?? actorId`), so an AI run
+  or a service account without a person fails closed; the `system` actor is exempt.
+* Orders paid from credit by anybody else are held (`CreditOrderApprovals`: nothing is reserved, issued or provisioned
+  until the owner or a billing admin approves, `POST /v1/orders/{id}/approval`; 7 days without a decision cancel it).
+  Immediate payments from credit call `assertMaySpend()` → 403 `credit_spend_not_allowed` with the permission named:
+  invoice from credit, manual domain renewal, marketplace, an approved work offer, the archive download fee, and
+  **pay-and-restore** — paying for a restore, taking back a cancellation that bills again and a recorded restore request
+  (TASK-0027 C1: one gate for all three; before, the restore had a second gate with its own switch). Card and bank
+  transfer stay open to everybody.
+* A role that carries `billing.wallet.spend` cannot be granted by an org_admin (`mayGrant` → `role_above_own`).
+* **Every new path that spends credit calls `CreditOrderPolicy::assertMaySpend()` or goes through a held order.**
+* Before switching on: `php artisan onhost:orders:credit-approval-report` (read-only).
+
+Tests: `tests/Feature/Orders/CreditOrderApprovalTest.php`, `tests/Feature/Orders/CreditSpendGateTest.php`,
+`tests/Feature/Billing/PayAndRestoreTest.php`, `tests/Feature/Identity/PermissionMatrixTest.php`.
+
+## 23. Prices, plans and the second person
+
+* Catalogue writes go through `Staff\PricingController::catalog()`: the permission is checked before the pre-flight
+  check (nobody without `catalog.manage` learns anything from validation), the binding (`base` / `base_version`) is part
+  of the approved payload and of the idempotency key, and header-less keys carry the minute (`onceKey`). The rules of the
+  second person: `docs/runbooks/approvals.md` (owner decision 13, TASK-0022).
+* A handler that must prove its second person reads `CommandContext::verifiedApprovalIds` — the approval ids (or
+  `waived:single-operator`) the authorizer consumed for this very command, set by the CommandBus — never `approvalIds`
+  (what the caller offered) and never a search by payload hash. The free limit raise checks that the consumed approval's
+  own payload names the organization, service, metric, units and price.
+* An approval is spent exactly once: the authorizer marks it with one conditional UPDATE (state approved, `consumed_at`
+  null) and denies unless exactly one row changed.
+* Staff `resize` / staff `service.create` hold every entitlement and limit to what the service (plan) has: a value passes
+  only if it is the same, a smaller positive number, or switching off; -1, words, `true`, null/0 on a counted number and
+  new keys are refused (`limit_raise_required`); a product with plans needs a plan with a current version
+  (`plan_required`). A customer-ordered limit raise requires `catalog.order.create` at the parent service's resource scope
+  and a context project equal to the service's (`limit_raise_scope`).
+* `onhost:catalog:revise --apply` and `onhost:catalog:state` publish as the system actor without a second person; the
+  gate is shell access and code review of `CatalogRevisions` (a revision cannot pass prices or features).
+
+Tests: `tests/Feature/Catalog/CatalogFourEyesTest.php`, `tests/Feature/Orders/LimitRaiseTest.php`,
+`tests/Unit/Catalog/CatalogCommandRiskTest.php`.
+
+## 24. A panel number is read only from what is provably the service's
+
+* **Mailbox backup retention** (TASK-0024): `mailbox.backup_retention` is operator-only (`CustomerActionParams` → 403
+  `operator_only`; HIGH for staff). The ISPConfig adapter writes a mailbox's retention only after proving the mail domain
+  (`onh_` client, its group, the domain name) and the mailbox (same group, address inside the domain); the copy count
+  comes from the service's entitlements, never from a request.
+* **Database sizes for the plan total** (TASK-0023): the ISPConfig read (`databasequota_get_by_user`) is per client; only
+  databases the panel lists under the service's own web domain (`parent_domain_id`) are counted, so a historical site of
+  the same client never becomes this customer's usage; a remote id that is not a positive domain id is refused and a row
+  without its own `parent_domain_id` is not counted. Nothing is called until `ONHOST_WEB_DISK_TOTAL_DATABASE_SIZES=true`.
+  The disk-total notice command is system-only (a user context is refused by the handler). A guest shared one included
+  site sees the plan figures and only that site's row (`WebDiskTotal::shownFor`), never the sibling sites or test copies.
+* A shared web node's whole-node CPU, memory and disk are never shown as the customer's usage (`CustomerUsage`, H286).
+
+Tests: `tests/Feature/Services/MailBackupRetentionTest.php`, `tests/Contract/IspConfigDatabaseSizeContractTest.php`,
+`tests/Feature/Services/WebDiskTotalTest.php`, `tests/Feature/Services/DiskTotalNoticeTest.php`.
+
+## 25. A resource the platform did not create is not ours
+
+* Historical sites, mail domains and databases on the live ISPConfig and aaPanel are never bound, changed, suspended or
+  deleted (owner rule of 2026-09-24, TASK-0014): a pre-existing resource is ours only when the panel proves it — the
+  `onhost:<service>` remark on aaPanel, the organization's `onh_…` client as owner on ISPConfig — and anything else is
+  refused with `CONFLICT` before a single write. A mail binding carries its domain name; an empty name is refused before
+  any mailbox query (it once read `'%@'`, every mailbox on the shared mail server).
+* Taking over a historical site never binds it: the only procedure is a customer-run import into a NEW site with an
+  operator's help (`docs/runbooks/historical-site-import.md`, ADR-0007 decision 22), and no staff path runs `import.run`
+  for a customer.
+
+Tests: `tests/Feature/Provisioning/ResourceProvenanceTest.php`.
+
+## 26. A service action asks for its own permission
+
+* `ServiceActionCommand::PERMISSIONS` names every `ServiceActionWorkflow::ACTIONS` entry once and has no default: an action
+  nobody placed in the map is refused with 422 `service_action_unknown` before anything runs, whoever asks (the system included).
+  A default arm had sent 121 of 132 actions to `service.manage` at NORMAL risk (audit C13-H1; TASK-0029, ADR-0008).
+* Deleting a copy is its own permission — `backup.delete` for web/managed/mail sets, `game.manage` for a game backup,
+  `compute.vm.delete` for a VM snapshot — at HIGH with a fresh step-up. The catalogue rates `backup.delete` CRITICAL; that stays
+  documentation, because the authorizer forces CRITICAL only for staff-audience permissions and customers have no four-eyes
+  (D29.2). The day-to-day manager (developer, a `svc_manage` guest, a `services:power` token) cannot thin out the owner's backups
+  — neither by deleting them nor through the backup schedule: keeping fewer days or generations than the schedule keeps now, or
+  a frequency after which the kept history reaches less far back (with the same generations a more frequent schedule covers
+  less time), is a deletion (the next tick prunes to it) and asks the same `backup.delete` decision with a fresh step-up
+  (`WebToolsCommandHandler::assertMayThin`). The reach is `BackupScheduler::historyReach()` — the prune's own keeper decision
+  and `BackupDailyKeepers::historyMinutes()`, pinned against the prune's selectors for five schedules — so the gate compares
+  what the prune really leaves. Unlocking a game backup asks `game.manage`, as deleting one does.
+* Every `DestructivePreview` action is HIGH with a fresh step-up (`archive.restore` was the one restore without it, C13-H1c).
+  No service action is CRITICAL; the operator's `mailbox.backup_retention` (`backup.policy.manage`) takes four-eyes only when it
+  prunes.
+* A copy the platform keeps — protected, the final archive, under a legal hold — is not deleted or unlocked by a service action on
+  any panel: 409 `backup_protected` at request, and the run asks again before the panel call.
+* Secondary gates ask the same map: spec apply authorizes every step as its own `ServiceActionCommand` and reports a refused step
+  in `skipped`; on a token session every step also asks the token scope map as `/actions` does (`ServiceSpecService::tokenMay`,
+  integration of TASK-0029 with TASK-0030): a step the token's scopes do not carry is skipped as `token_scope:<action>`, so a
+  `services:power` token cannot schedule a console command while a token given `services:console` can, and a token session
+  whose token is gone is refused. Action hooks and Discord buttons never run an action that needs a fresh step-up (a URL or a
+  chat click cannot give one), and refuse an unmapped action. Each run carries the step's own permission for the H315 re-check.
+* Residual: `service.manage` still reaches code execution as the site user (cron, `file.save`, `node.create`, uploads, deploy
+  hooks) and inside a game container (`gfile.save`, `gfile.upload`, `variable.set`); `schedule.run` fires an existing schedule,
+  also a console one the owner made, and `schedule.toggle` can switch such a schedule back on. The console line covers shells
+  and root, not code execution.
+* Residual (not verified): if the installed Pterodactyl rotates the oldest unlocked backup away when a scheduled backup task
+  reaches the limit, a backup schedule made by somebody who only manages can thin out the copies the owner left unlocked; a
+  locked copy is the owner's protection.
+* Residual: console access made before TASK-0029 through the old default (game sub-users, root password / SSH keys, console
+  schedules) stays until an operator command (`--dry-run` by default, not written yet) lists and revokes it;
+  `RevokeDelegatedAccess` acts only on future events. A game sub-user and a console schedule ask `service.console` but no fresh
+  step-up (owner decision open).
+
+Tests: `tests/Feature/Services/ServiceActionPermissionMapTest.php`, `tests/Feature/Services/ServiceActionRoleMatrixTest.php`,
+`tests/Feature/Services/ServiceActionSecondaryGatesTest.php`, `tests/Feature/Http/ApiTokenScopeMapTest.php`.
 
 ## What to look at on staging after deploying this
 
@@ -350,7 +538,17 @@ Tests: `tests/Feature/Services/ServiceAccessShareTest.php`.
 * `provider_calls` of the last 90 days still hold what was logged before the new masks (Subreg password and session ids, private keys) — rotate the Subreg API password after deploying and let retention age the rows out, or delete `provider_calls` of `subreg` older than the deploy;
 * audit trail: `service.action.resize` by an actor who is neither staff nor the system;
 * order items whose `config.options` hold keys the product does not sell or values above the option's range;
-* orders/invoices of EU organizations with reverse charge whose `vat_status` was never verified by VIES;
+* every reverse-charge (AE) decision carries its evidence: `orders.meta.vat` / `invoices.buyer.vat_check` with status valid
+  and reason fresh or staff_override (legacy_unverified only on rows from before TASK-0031, flagged `vat_review`). A row
+  without it is a finding. Query (PostgreSQL; columns checked against migration `000200`, the query itself not run yet):
+  `SELECT i.id, i.number, i.issued_at, i.buyer->>'vat_id' AS vat_id, i.buyer->'vat_check'->>'reason' AS reason FROM invoices i WHERE EXISTS (SELECT 1 FROM invoice_lines l WHERE l.invoice_id = i.id AND l.tax_category = 'AE') AND (i.buyer->'vat_check' IS NULL OR i.buyer->'vat_check'->>'status' <> 'valid' OR i.buyer->'vat_check'->>'reason' NOT IN ('fresh','staff_override')) ORDER BY i.issued_at;`
+  — documents issued before TASK-0031 have no vat_check and are expected in the result (none should be AE, since nothing
+  wrote `valid` before);
 * uptime monitors, webhooks and proxies pointing at private addresses (they now fail with `destination_not_allowed`);
 * promo codes with `max_uses`: their `uses` start from zero now — set the real count by hand if a campaign is running;
 * web and mail services that already share one name: `select hostname, family, count(*) from services where state <> 'TERMINATED' and hostname is not null group by hostname, family having count(*) > 1` — the refusal only stops new ones, and whichever vhost the node loads first is serving that name today.
+* roles: `AuthorizationSeeder` runs with the deploy (`infra/aapanel/deploy.sh`); afterwards `onhost:doctor` must report the
+  roles in the database equal to the catalogue — billing_admin holds `billing.wallet.spend`, only `owner` holds
+  `service.panel_account.manage`, an org_admin can no longer grant billing_admin (TASK-0021);
+* `php artisan onhost:audit:provider-calls` on a production copy (read-only, §19) before the first customer is told
+  anything about the ISPConfig ownership hole.

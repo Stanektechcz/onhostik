@@ -15,8 +15,10 @@ use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Limits\LimitRaises;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -112,7 +114,7 @@ final class PlanChangeService
         $checkout = app(CheckoutService::class);
         $quote = $quotes->quote(
             [['line_id' => 'l1', 'product_key' => $service->product_key, 'plan_key' => $planKey, 'qty' => 1, 'config' => ['upgrade_of' => $service->id]]],
-            (string) $organization->currency, ['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status], 1, null, $organization,
+            (string) $organization->currency, VatStanding::taxCustomer($organization), 1, null, $organization,
         );
         $versions = $quotes->currentTermsVersions();
         $consents = [];
@@ -153,7 +155,7 @@ final class PlanChangeService
         if ($service->product_key !== $product->key) {
             throw new DomainError('plan_change_product_mismatch', 'The plan belongs to a different product than the service.', 422);
         }
-        $entitlements = $this->services->entitlementsFor($version, (array) ($config['options'] ?? []), $product);
+        $entitlements = LimitRaises::withActiveDeltas($service, $this->services->entitlementsFor($version, (array) ($config['options'] ?? []), $product)); // the paid raises stay on top of the new plan
         app(PlanFit::class)->assertFits($service, $entitlements); // the service may have grown between the order and its payment
         $from = (string) (data_get($config, 'plan_change.from_plan') ?? '');
         $to = (string) ($version->plan?->key ?? '');
@@ -161,7 +163,8 @@ final class PlanChangeService
 
         // the node first: a busy or non-active service refuses the resize and the line fails without touching billing (a period change on the same plan touches no node)
         if (! ($periodChange && $from === $to)) {
-            $this->services->requestAction($service, 'resize', $context, "plan-change:{$item->id}", ['entitlements' => $entitlements, 'limits' => (array) ($version->limits ?? []), 'reason' => "plan change {$from} → {$to}"]);
+            $this->services->requestAction($service, 'resize', $context, "plan-change:{$item->id}", ['entitlements' => $entitlements, 'limits' => (array) ($version->limits ?? []), 'reason' => "plan change {$from} → {$to}"]
+                + ($service->family === 'mail' ? ['apply_mailbox_backup' => true] : [])); // the mailboxes follow the paid plan's backup_days (TASK-0024); a drift repair never carries this
         }
 
         $service->forceFill(['plan_version_id' => $version->id, 'sla_class' => (string) ($version->plan?->sla_class ?? $service->sla_class)])->save();

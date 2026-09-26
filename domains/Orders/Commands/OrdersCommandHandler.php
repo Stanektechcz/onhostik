@@ -6,10 +6,13 @@ namespace Onhost\Domain\Orders\Commands;
 
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Orders\CheckoutService;
+use Onhost\Domain\Orders\CreditOrderApprovals;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\Quote;
 use Onhost\Domain\Orders\QuoteService;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Limits\LimitRaiseService;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\Command;
 use Onhost\Platform\Commands\CommandContext;
@@ -35,6 +38,9 @@ final class OrdersCommandHandler implements CommandHandler
 
             return ['order_id' => $reviewed->id, 'number' => $reviewed->number, 'state' => $reviewed->state, 'review' => $reviewed->meta['review'] ?? null];
         }
+        if ($command instanceof DecideOrderApprovalCommand) { // owner decision 20 (TASK-0021): the owner or a billing admin decides a held credit order
+            return $this->decideApproval($command, $context);
+        }
         if ($command instanceof CancelOrderCommand || $command instanceof StaffCancelOrderCommand) {
             $order = Order::query()->find((string) $command->get('order_id'));
             if ($order === null || ($command instanceof CancelOrderCommand && $order->organization_id !== $command->organizationId)) {
@@ -57,7 +63,23 @@ final class OrdersCommandHandler implements CommandHandler
 
         $order = $result['order']->fresh();
 
-        return ['order_id' => $order->id, 'number' => $order->number, 'state' => $order->state, 'redirect_url' => $result['redirect_url'], 'payment_intent_id' => $result['payment_intent_id'], 'bank_instructions' => $result['bank_instructions'], 'total' => (int) $order->total_minor, 'subtotal' => (int) $order->subtotal_minor, 'discount' => (int) $order->discount_minor, 'tax' => (int) $order->tax_minor, 'currency' => $order->currency, 'payment_mode' => $order->payment_mode];
+        return ['order_id' => $order->id, 'number' => $order->number, 'state' => $order->state, 'redirect_url' => $result['redirect_url'], 'payment_intent_id' => $result['payment_intent_id'], 'bank_instructions' => $result['bank_instructions'], 'total' => (int) $order->total_minor, 'subtotal' => (int) $order->subtotal_minor, 'discount' => (int) $order->discount_minor, 'tax' => (int) $order->tax_minor, 'currency' => $order->currency, 'payment_mode' => $order->payment_mode, 'approval' => CreditOrderApprovals::of($order)['state'] ?? null];
+    }
+
+    /** @return array<string,mixed> */
+    private function decideApproval(DecideOrderApprovalCommand $command, CommandContext $context): array
+    {
+        $order = Order::query()->find((string) $command->get('order_id'));
+        if ($order === null || $order->organization_id !== $command->organizationId) {
+            throw DomainError::notFound('order');
+        }
+        $decider = in_array($context->actorType, ['user', 'ai'], true) ? User::query()->find($context->onBehalfOfUserId ?? $context->actorId) : null;
+        if ($decider === null) {
+            throw DomainError::forbidden('A held order is approved by a person: the owner or a billing admin.');
+        }
+        $decided = app(CreditOrderApprovals::class)->decide($order, $decider, (string) $command->get('decision'), $command->get('reason'), $context);
+
+        return ['order_id' => $decided->id, 'number' => $decided->number, 'state' => $decided->state, 'approval' => CreditOrderApprovals::of($decided)['state'] ?? null];
     }
 
     /** Staff work on a customer's account (audit §5y): a manual credit, an order placed on the customer's behalf. */
@@ -84,6 +106,11 @@ final class OrdersCommandHandler implements CommandHandler
 
             return ['topup_id' => $topup->id, 'amount' => $amount, 'kind' => $promo ? 'promo' : 'manual', 'balances' => $this->wallets->balances($organization, $currency), 'spendable' => $this->wallets->spendable($organization, $currency)];
         }
+        if ($command->op() === 'limit_raise.free') { // a raise at no charge, proven by the second person the bus consumed (TASK-0022 limit-raise)
+            $order = app(LimitRaiseService::class)->grantFree($organization, (string) $command->get('service_id'), (string) $command->get('metric'), (int) $command->get('units'), $note, (array) $command->get('price', []), $command->idempotencyKey, $ctx);
+
+            return ['order_id' => $order->id, 'number' => $order->number, 'state' => $order->state, 'total' => $order->total()];
+        }
         if ($command->op() !== 'order.assisted') {
             throw new \LogicException('Unsupported staff customer op '.$command->op());
         }
@@ -91,7 +118,7 @@ final class OrdersCommandHandler implements CommandHandler
             throw new DomainError('note_required', 'Uveďte, na čí žádost objednávku zadáváte (např. číslo tiketu nebo telefonát).', 422, ['field' => 'note']);
         }
         $currency = (string) ($organization->currency ?? 'CZK');
-        $quote = $this->quotes->quote((array) $command->get('items', []), $currency, ['country' => $organization->country ?? 'CZ', 'customer_class' => $organization->customer_class ?? 'b2c', 'vat_status' => $organization->vat_status ?? 'unknown', 'ip_country' => null], (int) $command->get('commit_months', 1), null, $organization);
+        $quote = $this->quotes->quote((array) $command->get('items', []), $currency, VatStanding::taxCustomer($organization), (int) $command->get('commit_months', 1), null, $organization); // no VIES call inside the bus transaction: the controller asked before (TASK-0031)
         $staff = $context->actorType === 'user' && $context->actorId !== null ? User::query()->find($context->actorId) : null;
         $consents = [];
         foreach ($this->checkout->requiredDocuments($quote, $organization) as $key) { // assisted order: staff confirm the documents on the customer's request, recorded as such

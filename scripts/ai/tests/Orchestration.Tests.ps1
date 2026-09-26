@@ -2,7 +2,8 @@
 param()
 
 # Guards the AI orchestration layer (.ai/, .claude/agents, .claude/skills, gate/task scripts) against drift.
-# Read-only: it never runs the gate, starts tasks or writes coordination state.
+# Read-only for this checkout: it never runs the gate, starts tasks or writes coordination state; the one behavioural
+# check builds a throw-away Git repository under %TEMP% and deletes it again.
 
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
@@ -97,6 +98,56 @@ Assert-True ($brain -match "'gate'\s*\{" -and $brain -match "'task'\s*\{") 'brai
 $task = Read-Text 'scripts\ai\task.ps1'
 Assert-True ($task -match 'composer\.phar' -and $task -notmatch 'mklink /J "\$tree\\vendor"') 'task worktrees install vendor for real (no vendor junction)'
 Assert-True ($task -match "branch --merged") 'task finish refuses unmerged branches'
+Assert-True ($task -match 'cherry \$upstream \$Branch' -and $task -match 'refs/remotes/origin/\$Base') 'task finish recognises rebase merges against origin/<base>'
+Assert-True ($task -match 'fetch --quiet origin \$Base' -and $task -match 'Test-BranchIntegrated \$here') 'task finish fetches the base before judging'
+
+# Test-BranchIntegrated for real, in a throw-away repository under %TEMP% (never this checkout)
+$taskAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'scripts\ai\task.ps1'), [ref]$null, [ref]$null)
+$integratedAst = $taskAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Test-BranchIntegrated' }, $true)
+Assert-True ($null -ne $integratedAst) 'task.ps1 defines Test-BranchIntegrated'
+if ($integratedAst) {
+    . (Join-Path $root 'scripts\ai\common.ps1')
+    . ([scriptblock]::Create($integratedAst.Extent.Text))
+    $scratch = Join-Path ([IO.Path]::GetTempPath()) ("onhost-orch-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    function Invoke-ScratchGit {
+        $ErrorActionPreference = 'Continue'
+        $out = & git -c user.name=orch-test -c user.email=orch-test@invalid -c commit.gpgsign=false -C $scratch @args 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') failed: $out" }
+    }
+    function Add-ScratchCommit { param([string] $File, [string] $Text)
+        [IO.File]::WriteAllText((Join-Path $scratch $File), $Text); Invoke-ScratchGit add -- $File; Invoke-ScratchGit commit -q -m "$File $Text"
+    }
+    try {
+        [void](New-Item -ItemType Directory -Path $scratch)
+        Invoke-ScratchGit init -q -b base
+        Add-ScratchCommit 'a.txt' 'one'
+        Invoke-ScratchGit checkout -q -b topic
+        Add-ScratchCommit 'b.txt' 'two'
+        Add-ScratchCommit 'c.txt' 'three'
+        Invoke-ScratchGit checkout -q base
+        Add-ScratchCommit 'd.txt' 'other'
+        Assert-True (-not (Test-BranchIntegrated $scratch 'topic' 'base').merged) 'unmerged branch is not integrated'
+        Invoke-ScratchGit cherry-pick topic~1
+        $half = Test-BranchIntegrated $scratch 'topic' 'base'
+        Assert-True ((-not $half.merged) -and $half.pending.Count -eq 1) 'half cherry-picked branch is not integrated and names the missing commit'
+        Invoke-ScratchGit cherry-pick topic
+        $rebased = Test-BranchIntegrated $scratch 'topic' 'base'
+        Assert-True ($rebased.merged -and $rebased.upstream -eq 'base' -and $rebased.how -like '*patch-equivalent*') 'rebase-merged branch (new SHAs) is integrated'
+        # origin/base carries the rebase merge, the local base lags behind it (nobody pulled yet)
+        Invoke-ScratchGit update-ref refs/remotes/origin/base base
+        Invoke-ScratchGit reset -q --hard HEAD~2
+        $remote = Test-BranchIntegrated $scratch 'topic' 'base'
+        Assert-True ($remote.merged -and $remote.upstream -eq 'origin/base') 'integration is judged against origin/<base> when the local base lags'
+        Invoke-ScratchGit merge -q --no-ff --no-edit topic
+        $ancestor = Test-BranchIntegrated $scratch 'topic' 'base'
+        Assert-True ($ancestor.merged -and $ancestor.how -like 'ancestor*') 'merge-committed branch is integrated as an ancestor'
+        Assert-True (-not (Test-BranchIntegrated $scratch 'no-such-branch' 'base').merged) 'a missing branch is never integrated'
+    } catch {
+        Assert-True $false "Test-BranchIntegrated scratch repository: $_"
+    } finally {
+        if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force }
+    }
+}
 
 # CLAUDE.md points new sessions at the recovery path
 $claude = Read-Text 'CLAUDE.md'

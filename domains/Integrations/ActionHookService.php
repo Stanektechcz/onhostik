@@ -9,6 +9,7 @@ use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Integrations\Models\ActionHook;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\CustomerActionParams;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\ServiceFeatures;
@@ -25,7 +26,8 @@ use Onhost\Platform\Errors\DomainError;
  */
 final class ActionHookService
 {
-    public const ALLOWED = ['backup', 'power', 'deploy.run', 'staging.refresh', 'staging.push', 'wp.update', 'wp.cache', 'cdn.purge', 'cron.run', 'ssl.issue', 'https.force', 'php.set', 'redirect.set', 'monitoring.set'];
+    /** Never an action that needs a fresh step-up (staging.push since TASK-0029): a URL called by a bot cannot give one. */
+    public const ALLOWED = ['backup', 'power', 'deploy.run', 'staging.refresh', 'wp.update', 'wp.cache', 'cdn.purge', 'cron.run', 'ssl.issue', 'https.force', 'php.set', 'redirect.set', 'monitoring.set'];
 
     public function __construct(private readonly ServiceService $services, private readonly ServiceFeatures $features, private readonly Authorizer $authorizer, private readonly AuditRecorder $audit) {}
 
@@ -52,13 +54,17 @@ final class ActionHookService
         if (! in_array($action, $this->features->actions($service), true)) {
             throw new DomainError('feature_unavailable', "The service does not offer {$action}.", 422);
         }
-        if (! $this->authorizer->can($user, 'service.manage', CommandScope::organization($organization->id))) {
-            throw DomainError::forbidden('Missing permission service.manage');
+        $params = CustomerActionParams::filter($action, $params); // a stored action is a customer's words too (H21)
+        $permission = ServiceActionCommand::permissionFor($action, $params); // the action's own permission, as the bus asks it (TASK-0029 D29.7)
+        if (ServiceActionCommand::needsFreshStepUp($action)) {
+            throw new DomainError('step_up_required', 'Tato akce vyžaduje čerstvé ověření totožnosti; hook ho dát nemůže.', 403, ['requirement' => 'step_up']);
+        }
+        if (! $this->authorizer->can($user, $permission, CommandScope::organization($organization->id))) {
+            throw DomainError::forbidden("Missing permission {$permission}");
         }
         if (ActionHook::query()->where('organization_id', $organization->id)->count() >= 50) {
             throw new DomainError('hook_limit', 'At most 50 action hooks per organization.', 422);
         }
-        $params = CustomerActionParams::filter($action, $params); // a stored action is a customer's words too (H21)
         $token = 'ahk_'.Str::random(40);
         $hook = ActionHook::query()->create(['organization_id' => $organization->id, 'service_id' => $service->id, 'created_by' => $user->id, 'name' => mb_substr(trim($name), 0, 80) ?: $action, 'action' => $action, 'params' => $params, 'token_hash' => hash('sha256', $token), 'enabled' => true]);
         $this->audit->record($context->withScope($organization->id), 'integration.hook.create', 'succeeded', ['action' => $action, 'name' => $hook->name], 'action_hook', $hook->id);
@@ -97,14 +103,33 @@ final class ActionHookService
 
             return ['accepted' => false, 'reason' => 'hook_stale', 'operation_id' => null, 'state' => null, 'hook' => $hook->name];
         }
-        if (! $this->authorizer->can($user, 'service.manage', CommandScope::organization($service->organization_id))) {
-            $hook->forceFill(['last_result' => 'forbidden'])->save();
+        // The hook asks the permission of its own action, as the bus would (TASK-0029 D29.7): an action nobody mapped any more is
+        // not run, and one that needs a fresh step-up (a staging.push stored by an older release) cannot be run by a URL. The hook
+        // stays enabled and says why, so its owner sees it in the list.
+        $action = (string) $hook->action;
+        $refused = null;
+        $params = [];
+        $permission = null;
+        try {
+            $params = CustomerActionParams::filter($action, (array) $hook->params); // hooks stored before the filter existed are read through it as well
+            $permission = ServiceActionCommand::permissionFor($action, $params);
+        } catch (DomainError $e) {
+            $refused = $e->error;
+        }
+        if ($refused === null && ServiceActionCommand::needsFreshStepUp($action)) {
+            $refused = 'step_up_required';
+        }
+        if ($refused === null && ! $this->authorizer->can($user, (string) $permission, CommandScope::organization($service->organization_id))) {
+            $refused = 'forbidden';
+        }
+        if ($refused !== null) {
+            $hook->forceFill(['last_result' => mb_substr($refused, 0, 40)])->save();
 
-            return ['accepted' => false, 'reason' => 'forbidden', 'operation_id' => null, 'state' => null, 'hook' => $hook->name];
+            return ['accepted' => false, 'reason' => $refused, 'operation_id' => null, 'state' => null, 'hook' => $hook->name];
         }
         $context = new CommandContext('user', $user->id, $service->organization_id, null, $ip, 'action-hook', 'hook:'.$hook->id, 'action hook '.$hook->name);
         try {
-            $operation = $this->services->requestAction($service, $hook->action, $context, 'hook:'.$hook->id.':'.intdiv(time(), 10), CustomerActionParams::filter((string) $hook->action, (array) $hook->params)); // hooks stored before the filter existed are read through it as well
+            $operation = $this->services->requestAction($service, $action, $context, 'hook:'.$hook->id.':'.intdiv(time(), 10), $params, authorizedPermission: $permission); // the run re-checks the same permission (H315)
         } catch (DomainError $e) {
             $hook->forceFill(['uses' => $hook->uses + 1, 'last_used_at' => now(), 'last_result' => mb_substr($e->error, 0, 40)])->save();
             $this->audit->record($context, 'integration.hook.trigger', 'failed', ['action' => $hook->action, 'error' => $e->error], 'action_hook', $hook->id);

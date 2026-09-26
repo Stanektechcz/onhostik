@@ -37,7 +37,9 @@ final class ArchiveController extends ApiController
     public function download(Request $request, string $backup): JsonResponse
     {
         $organization = $this->api->organization($request);
-        $this->api->assertTokenScope($request, 'backup.restore');
+        // taking the data away, not restoring it: backup.download is not available to tokens (TokenScopes), so no token pays the
+        // fee and walks off with wp-config.php and .env (TASK-0030 review round 1; it was checked as backup.restore = services:power)
+        $this->api->assertTokenScope($request, 'backup.download');
         $result = (array) $this->bus->dispatch(new ServiceArchiveCommand($organization->id, $this->idempotencyKey($request, 'archive.download:'.$backup), ['op' => 'download', 'backup_id' => $backup]), $this->api->context($request));
 
         return $this->ok($result + [

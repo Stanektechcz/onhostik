@@ -43,7 +43,7 @@ Segments are stable identifiers with human labels, predicates, priority, active 
 
 | Admin area | Elements | Existing source to reuse | Publication risk |
 | --- | --- | --- | --- |
-| Catalogue | categories, plans, SKUs, periods, add-ons, availability, regional pricing | `Catalog`, `PricingRules`, panel navigation | high for price/publish |
+| Catalogue | categories, plans, SKUs, periods, add-ons, availability, regional pricing | `Catalog`, `PricingRules`, panel navigation | price/plan: step-up + second person; withdrawal: step-up; navigation: normal |
 | Providers | provider instances, capabilities, regions, nodes, placement rules, health | integrations API and provider registry | critical for credentials/infra |
 | Orders and billing | payment routes, invoice rules, dunning, tax, refund and credit limits | Billing, Payments, Tax, Risk | critical |
 | Provisioning | workflow selection, retries, capacity thresholds, maintenance windows | Provisioning and operations board | critical |
@@ -118,10 +118,30 @@ stateDiagram-v2
     Published --> RolledBack: publish previous values as new version
 ```
 
-- Low-risk changes may combine approval and publication when the actor has the permission.
-- HIGH changes require a second person.
-- CRITICAL changes require step-up authentication, a second person, a change window and a tested rollback.
-- An author cannot approve their own HIGH or CRITICAL change.
+Who a change takes (owner decision 13, 2026-09-25; code: `IdentityCommandAuthorizer`, `ApprovalService`, `CatalogCommand`;
+runbook: `docs/runbooks/approvals.md`):
+
+- **NORMAL**: the permission alone, no step-up. Low-risk changes may combine approval and publication when the actor has the permission.
+- **HIGH**: a fresh step-up of the author, **no second person**.
+- **CRITICAL**: a fresh step-up **and a second person**. The second person is not the requester, holds `iam.approval.decide`
+  **and** the permission of the action itself, confirms with a step-up of their own, and the approval is good for one command
+  with one payload, once, for 24 h (`ONHOST_APPROVAL_TTL_HOURS`).
+- **Every change of a price or a plan in the admin configuration** takes a step-up and a second person, regardless of the
+  permission's own level (`catalog.manage` is HIGH; `CatalogCommand::requiresApproval()` adds the second person): commitment
+  discounts, regional pricing, domain discounts, active promo codes, option and add-on unit prices and their removal,
+  publishing or rolling back a plan version, putting a product on sale, the deletion lifecycle (archive download fee). An
+  operation the command does not classify is treated as a price change (fail closed).
+- **Withdrawals** are HIGH (one person with a step-up): deleting a domain discount or a promo code, pausing or retiring a
+  promo code, taking a product off sale (also `onhost:catalog:state draft` from the server), and composing a product's
+  add-on list from products already on sale. The panel navigation is NORMAL.
+- A price/plan change is checked before the request for approval is opened (a change that would be refused never reaches
+  an approver) and is bound to what it was asked against (the plan version on sale, a digest of a replaced setting): an
+  approval given against one state is not spent on another (`409 catalog_changed_since_request`).
+- **Single operator**: `ONHOST_FOUR_EYES=false`, set on the server only, waives the second person; the step-up stays and the
+  audit records `approval_ids: ["waived:single-operator"]`.
+- An author can never approve their own CRITICAL or price/plan change.
+- A change window and a tested rollback for CRITICAL changes are the design target of configuration sets below; **nothing
+  enforces them today**.
 - Publishing goes through a `GlobalCommand` or `OrganizationCommand` plus `RiskAwareCommand`, `CommandBus`, `AuditRecorder` and outbox event.
 
 ## Admin information architecture
@@ -188,7 +208,6 @@ Use narrow permissions rather than `is_staff` alone:
 configuration.read
 configuration.draft.manage
 configuration.validate
-configuration.approve.high
 configuration.approve.critical
 configuration.publish
 configuration.rollback
@@ -245,7 +264,7 @@ Expose read-only generated status first. Add Git-backed proposals only after thr
 - One value has one owner and one authoritative storage location.
 - Draft values never affect runtime.
 - Effective values include provenance and publication checksum.
-- HIGH/CRITICAL publication enforces separation of duties and step-up.
+- HIGH publication enforces a step-up; CRITICAL and price/plan publication enforce a step-up and separation of duties (a second person).
 - Secrets are references and never round-trip through the browser.
 - Publish and rollback are idempotent, audited and emit outbox events.
 - UI preserves the existing admin surface and design tokens.

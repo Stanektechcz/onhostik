@@ -15,11 +15,13 @@ use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Invoicing\Models\Invoice;
 use Onhost\Domain\Marketplace\Models\MarketplaceListing;
 use Onhost\Domain\Marketplace\Models\MarketplaceOrder;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerCommission;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -118,6 +120,8 @@ final class MarketplaceService
     /** @param  array{brief?:string, service_id?:string}  $input */
     public function order(Organization $organization, ?User $user, MarketplaceListing $listing, array $input, CommandContext $context): MarketplaceOrder
     {
+        // owner decision 20 (TASK-0021): a marketplace order is paid from credit at once — by the owner or the billing admin
+        app(CreditOrderPolicy::class)->assertMaySpend($organization, $context, 'Požádejte vlastníka, aby službu objednal.');
         if ($listing->state !== MarketplaceListing::PUBLISHED) {
             throw new DomainError('marketplace_listing_unavailable', 'This service is not available right now.', 409, ['state' => $listing->state]);
         }
@@ -140,7 +144,7 @@ final class MarketplaceService
             throw new DomainError('marketplace_currency_mismatch', "The listing is priced in {$listing->currency}; your account runs in {$organization->currency}.", 409, ['listing' => $listing->currency, 'account' => $organization->currency]);
         }
         $net = Money::minor((int) $listing->price_minor, $listing->currency);
-        $decision = $this->tax->calculate(['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status], [['key' => 'mkt', 'net' => $net, 'product_class' => 'service']], $net->currency, $organization->id);
+        $decision = $this->tax->calculate(VatStanding::taxCustomer($organization), [['key' => 'mkt', 'net' => $net, 'product_class' => 'service']], $net->currency, $organization->id);
         $line = $decision['lines'][0];
         $gross = Money::minor((int) $net->minor + (int) $line['tax']->minor, $net->currency);
         $commission = $net->percent((string) $listing->commission_pct);
@@ -515,7 +519,7 @@ final class MarketplaceService
                 continue;
             }
             $net = Money::minor((int) $subscription->amount_minor, $subscription->currency);
-            $decision = $this->tax->calculate(['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status], [['key' => 'mkt', 'net' => $net, 'product_class' => 'service']], $net->currency, $organization->id);
+            $decision = $this->tax->calculate(VatStanding::taxCustomer($organization), [['key' => 'mkt', 'net' => $net, 'product_class' => 'service']], $net->currency, $organization->id);
             $line = $decision['lines'][0];
             $gross = Money::minor((int) $net->minor + (int) $line['tax']->minor, $net->currency);
             $periodKey = $subscription->current_period_end->format('Ymd');

@@ -1,0 +1,489 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
+use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Provisioning\AutomationLedger;
+use Onhost\Domain\Provisioning\Models\Node;
+use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Provisioning\Models\ProviderBinding;
+use Onhost\Domain\Provisioning\OperationRunner;
+use Onhost\Domain\Services\Addons;
+use Onhost\Domain\Services\FinalArchive;
+use Onhost\Domain\Services\Models\Backup;
+use Onhost\Domain\Services\Models\BackupPolicy;
+use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\ServiceFeatures;
+use Onhost\Domain\Services\ServiceService;
+use Onhost\Domain\Services\Web\BackupScheduler;
+
+/*
+ * A managed database (db-s / db-m, family `data`, one KVM VM on Proxmox) is sold with 14 or 30 days of backups, and
+ * nothing ever took one: the scheduler looked at web, managed and mail only, and the features of a server had no
+ * backup schedule to read. The same held for a VPS whose customer bought a backup add-on — the add-on wrote a policy
+ * nobody read (TASK-0019).
+ *
+ * Starting to back up existing servers is the owner's decision, so it sits behind the automation rule
+ * `backups.compute`, off by default; `onhost:backups:compute-plan` shows who it would touch before it is switched on.
+ */
+
+beforeEach(function () {
+    Http::preventStrayRequests();
+    Queue::fake(); // the backup operation itself is not the subject here: what the scheduler asks for is
+    $this->travelTo(now()->startOfDay()->setTime(3, 5)); // after the daily slot of 02:30, inside the same day
+});
+
+/** A managed database the platform provisioned on the lab Proxmox: an instance, a binding, the plan's backup days. */
+function computeBackupDataService(Organization $org, array $entitlements = ['vcpu' => 2, 'ram_mb' => 4096, 'nvme_gb' => 40, 'backup_days' => 14, 'pitr_days' => 7], string $family = 'data', string $vmid = '2042'): Service
+{
+    $instance = pveLab();
+    $node = Node::query()->where('name', 'prg1-n2')->firstOrFail();
+    $service = Service::query()->create([
+        'organization_id' => $org->id, 'product_key' => $family === 'data' ? 'database' : 'vps', 'family' => $family, 'name' => $family === 'data' ? 'DB S' : 'Compute 4', 'hostname' => 'db-'.$vmid.'.cust.onhost.cz',
+        'state' => ServiceStateMachine::ACTIVE, 'region_code' => 'cz1', 'provider_instance_id' => $instance->id, 'node_id' => $node->id,
+        'desired_spec' => ['executor' => 'proxmox', 'family' => $family, 'entitlements' => $entitlements], 'entitlements' => $entitlements, 'sla_class' => 'standard', 'activated_at' => now(), 'tags' => [],
+    ]);
+    ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $instance->id, 'remote_type' => 'qemu', 'remote_id' => $vmid, 'remote_node' => 'prg1-n2', 'meta' => ['name' => 'db-'.$vmid], 'ownership' => ['managed_by' => 'onhost'], 'idempotency_key' => "provision:{$service->id}:qemu", 'adapter_version' => '1.0.0']);
+
+    return $service;
+}
+
+/** The backup add-on bought for a VPS, as checkout leaves it: an active add-on service and the policy it wrote. */
+function computeBackupAddon(Service $parent, string $product = 'backup-plus', array $entitlements = ['daily' => 30, 'weekly' => 4, 'monthly' => 6, 'offsite' => true, 'restore_test' => 'monthly'], string $state = ServiceStateMachine::ACTIVE): Service
+{
+    $addon = Service::query()->create(['organization_id' => $parent->organization_id, 'product_key' => $product, 'family' => 'addon', 'name' => 'Zálohy VPS', 'state' => $state, 'region_code' => 'cz1',
+        'entitlements' => $entitlements, 'desired_spec' => ['parent_service_id' => $parent->id, 'addon' => $product], 'tags' => ['parent_service_id' => $parent->id], 'sla_class' => 'standard', 'activated_at' => now()]);
+    BackupPolicy::query()->create((array) Addons::backupPolicy($product, $entitlements) + ['service_id' => $parent->id, 'product_key' => $product, 'state' => 'active']);
+
+    return $addon;
+}
+
+/**
+ * Many web sites on the lab ISPConfig, each with its own site id (a binding is unique per instance and remote id).
+ *
+ * @return Collection<int, Service>
+ */
+function computeBackupWebFleet(Organization $org, int $count)
+{
+    $first = featureWebService($org, 'ispconfig');
+    $binding = $first->primaryBinding();
+
+    return collect([$first])->concat(collect(range(2, $count))->map(function (int $i) use ($first, $binding) {
+        $service = $first->replicate(['id', 'name_prefix'])->fill(['name' => 'Webhosting '.$i, 'hostname' => 'shop'.$i.'.cz']);
+        $service->save();
+        ProviderBinding::query()->create(['service_id' => $service->id, 'provider_instance_id' => $binding->provider_instance_id, 'remote_type' => $binding->remote_type, 'remote_id' => (string) (1000 + $i),
+            'remote_node' => $binding->remote_node, 'meta' => $binding->meta, 'ownership' => ['managed_by' => 'onhost'], 'idempotency_key' => "fleet:{$service->id}", 'adapter_version' => '1.0.0']);
+
+        return $service;
+    }));
+}
+
+/** `driveOperation()` for this file, whose queue is faked: each step is run by the runner itself, not through the queue. */
+function computeBackupDriveSync(Operation $operation, int $maxTicks = 60): Operation
+{
+    for ($i = 0; $i < $maxTicks; $i++) {
+        $operation->refresh();
+        if ($operation->isTerminal() || $operation->state === Operation::FAILED) {
+            break;
+        }
+        if ($operation->next_run_at !== null && $operation->next_run_at->isFuture()) {
+            Date::setTestNow($operation->next_run_at->copy()->addSecond());
+        }
+        app(OperationRunner::class)->tick($operation, 60);
+    }
+
+    return $operation->refresh();
+}
+
+function computeBackupSwitch(bool $on): void
+{
+    app(AutomationLedger::class)->setEnabled(BackupScheduler::COMPUTE_RULE, $on, 'test');
+}
+
+/** @return Collection<int, Operation> */
+function computeBackupOperations(Service $service)
+{
+    return Operation::query()->where('service_id', $service->id)->where('idempotency_key', 'like', 'backup:auto:'.$service->id.':%')->get();
+}
+
+/**
+ * The backup storage as Proxmox shows it: the attributes of each volume (`protected`, `notes`, sometimes `vmid`), a
+ * PUT that changes `protected`, and a DELETE that refuses a protected volume — as Proxmox does.
+ *
+ * @param  array{volumes:array<string,array<string,mixed>>, calls:list<string>}  $pve
+ */
+function computeBackupStorageFake(array &$pve): void
+{
+    Http::fake(function (Request $r) use (&$pve) {
+        $path = rawurldecode((string) parse_url($r->url(), PHP_URL_PATH));
+        $pve['calls'][] = $r->method().' '.$path;
+        if (str_ends_with($path, '/nodes')) {
+            return Http::response(['data' => [['node' => 'prg1-n2', 'status' => 'online']]]);
+        }
+        if (preg_match('~/storage/pbs-cz1/content/(.+)$~', $path, $m) === 1) {
+            $volid = $m[1];
+            if (! array_key_exists($volid, $pve['volumes'])) {
+                return Http::response(['errors' => ['volume' => 'does not exist']], 404);
+            }
+            if ($r->method() === 'PUT') {
+                $pve['volumes'][$volid]['protected'] = (bool) ($r->data()['protected'] ?? true);
+
+                return Http::response(['data' => null]);
+            }
+            if ($r->method() === 'DELETE') {
+                if (! empty($pve['volumes'][$volid]['protected'])) {
+                    return Http::response(['errors' => ['volume' => 'backup is protected']], 400);
+                }
+                unset($pve['volumes'][$volid]);
+
+                return Http::response(['data' => 'UPID:prg1-n2:delete']);
+            }
+
+            return Http::response(['data' => $pve['volumes'][$volid] + ['format' => 'vma.zst', 'size' => 1024]]);
+        }
+
+        return Http::response(['data' => []]);
+    });
+}
+
+/** What a volume the platform made carries: unprotected, its row's marker in the notes. @return array<string,mixed> */
+function computeBackupMarked(Backup $row, bool $protected = false): array
+{
+    return ['protected' => $protected ? 1 : 0, 'notes' => 'db '.$row->service_id.' onhost backup:'.$row->id.' scheduled daily'];
+}
+
+/** A finished vzdump backup of the service's VM, as the backup step leaves it. */
+function computeBackupRow(Service $service, string $volid, string $kind, array $extra = []): Backup
+{
+    return Backup::query()->create(array_merge(['service_id' => $service->id, 'organization_id' => $service->organization_id, 'provider_instance_id' => $service->provider_instance_id, 'kind' => $kind, 'state' => 'completed',
+        'started_at' => now()->subDays(20), 'finished_at' => now()->subDays(20), 'retention_until' => now()->subDays(6), 'protected' => false, 'remote_id' => $volid, 'remote_datastore' => 'pbs-cz1'], $extra));
+}
+
+it('keeps the rule off by default: a managed database sold with backups gets none, web backups run as before', function () {
+    [, $org] = $this->customerWithOrganization();
+    $database = computeBackupDataService($org);
+    $web = featureWebService($org, 'ispconfig');
+
+    expect(app(AutomationLedger::class)->enabled(BackupScheduler::COMPUTE_RULE))->toBeFalse(); // nobody switched it on
+    $stats = app(BackupScheduler::class)->tick();
+
+    expect(computeBackupOperations($database))->toHaveCount(0)
+        ->and(computeBackupOperations($web))->toHaveCount(1) // today's behaviour for the web
+        ->and($stats['started'])->toBe(1)
+        ->and(BackupScheduler::health($database->fresh()))->toBe([]) // not even a record is written on the server
+        ->and(app(ServiceFeatures::class)->features($database->fresh()))->not->toHaveKey('backup_schedule'); // the customer's feature list is unchanged
+});
+
+it('backs a managed database up once per slot with the retention its plan sells, once the rule is on', function () {
+    [, $org] = $this->customerWithOrganization();
+    $database = computeBackupDataService($org);
+    computeBackupSwitch(true);
+
+    app(BackupScheduler::class)->tick();
+    $ops = computeBackupOperations($database);
+    expect($ops)->toHaveCount(1);
+    $op = $ops->first();
+    expect($op->idempotency_key)->toBe('backup:auto:'.$database->id.':'.now()->format('Ymd').'0230')
+        ->and($op->desired['action'])->toBe('backup')
+        ->and($op->desired['kind'])->toBe('scheduled')
+        ->and($op->desired['retention_days'])->toBe(14); // db-s sells 14 days
+
+    app(BackupScheduler::class)->tick(); // the same slot looked at again
+    expect(computeBackupOperations($database))->toHaveCount(1);
+
+    $schedule = app(BackupScheduler::class)->scheduleFor($database->fresh());
+    expect($schedule['frequency'])->toBe('daily')->and($schedule['days'])->toBe(14)->and($schedule['generations'])->toBe(14);
+});
+
+it('lets the customer set a database schedule within its plan only while the rule is on', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    $database = computeBackupDataService($org);
+    $url = "/v1/services/{$database->id}/backups/schedule";
+
+    $this->actingAs($user, 'sanctum')->putJson($url, ['frequency' => 'daily'])->assertUnprocessable()->assertJsonPath('error', 'feature_unavailable');
+
+    computeBackupSwitch(true);
+    $this->actingAs($user, 'sanctum')->withHeader('Idempotency-Key', 'db-sched-1')->putJson($url, ['frequency' => 'hourly'])->assertUnprocessable()->assertJsonPath('error', 'backup_frequency_above_plan');
+    $this->actingAs($user, 'sanctum')->withHeader('Idempotency-Key', 'db-sched-2')->putJson($url, ['frequency' => 'weekly', 'days' => 40, 'generations' => 40])->assertOk();
+
+    $policy = BackupPolicy::query()->where('service_id', $database->id)->sole();
+    expect($policy->schedule['frequency'])->toBe('weekly')->and($policy->retention['days'])->toBe(14)->and($policy->retention['generations'])->toBe(14); // never above what db-s sells
+});
+
+it('gives a managed database with no backup days no schedule, rule on or not', function () {
+    [, $org] = $this->customerWithOrganization();
+    $database = computeBackupDataService($org, ['vcpu' => 2, 'ram_mb' => 4096, 'nvme_gb' => 40, 'backup_days' => 0]);
+    computeBackupSwitch(true);
+
+    app(BackupScheduler::class)->tick();
+
+    expect(computeBackupOperations($database))->toHaveCount(0);
+});
+
+it('backs a VPS up only while the backup add-on bought for it is active', function () {
+    [, $org] = $this->customerWithOrganization();
+    $vps = computeBackupDataService($org, ['vcpu' => 4, 'ram_mb' => 8192, 'nvme_gb' => 160, 'backup' => 'addon'], 'cloud', '3042');
+    computeBackupSwitch(true);
+
+    app(BackupScheduler::class)->tick();
+    expect(computeBackupOperations($vps))->toHaveCount(0); // a VPS without the add-on sells no backups
+
+    $addon = computeBackupAddon($vps);
+    app(BackupScheduler::class)->tick();
+    $ops = computeBackupOperations($vps);
+    expect($ops)->toHaveCount(1)->and($ops->first()->desired['retention_days'])->toBe(30);
+    $schedule = app(BackupScheduler::class)->scheduleFor($vps->fresh());
+    expect($schedule['frequency'])->toBe('daily')->and($schedule['generations'])->toBe(40);
+
+    // the add-on cancelled, but its policy row left behind (the customer re-saved it under the plan's own key): no more free backups
+    $addon->forceFill(['state' => ServiceStateMachine::SUSPENDED])->save();
+    expect(app(BackupScheduler::class)->scheduleFor($vps->fresh()))->toBeNull();
+});
+
+it('removes an expired scheduled backup from the backup storage, and never a final archive, a protected one or one under legal hold', function () {
+    [, $org] = $this->customerWithOrganization();
+    $database = computeBackupDataService($org);
+    $held = computeBackupDataService($org, vmid: '2043');
+    $held->forceFill(['legal_hold' => true])->save();
+    computeBackupSwitch(true);
+    $old = 'pbs-cz1:backup/vzdump-qemu-2042-2026_09_01-02_30_00.vma.zst';
+    $final = 'pbs-cz1:backup/vzdump-qemu-2042-2026_08_01-02_30_00.vma.zst';
+    $kept = 'pbs-cz1:backup/vzdump-qemu-2042-2026_09_02-02_30_00.vma.zst';
+    $heldVol = 'pbs-cz1:backup/vzdump-qemu-2043-2026_09_01-02_30_00.vma.zst';
+    $expired = computeBackupRow($database, $old, 'scheduled');
+    $finalRow = computeBackupRow($database, $final, 'final'); // even unprotected, the final archive is FinalArchive's alone
+    $protectedRow = computeBackupRow($database, $kept, 'scheduled', ['protected' => true]);
+    $heldRow = computeBackupRow($held, $heldVol, 'scheduled');
+    $pve = ['volumes' => [$old => computeBackupMarked($expired), $final => computeBackupMarked($finalRow), $kept => computeBackupMarked($protectedRow, true), $heldVol => computeBackupMarked($heldRow)], 'calls' => []];
+    computeBackupStorageFake($pve);
+
+    $stats = app(BackupScheduler::class)->tick();
+
+    expect($stats['deleted'])->toBe(1)
+        ->and($expired->refresh()->state)->toBe('deleted')
+        ->and(data_get($expired->meta, 'deleted_by'))->toBe('retention')
+        ->and($pve['volumes'])->not->toHaveKey($old); // gone from the backup storage, not only from our table
+    // the volume is read first and then deleted — never unprotected (that is the final archive's expiry, not a retention delete)
+    $calls = array_values(array_filter($pve['calls'], fn (string $c) => str_contains($c, '/content/')));
+    expect($calls)->toBe(['GET /api2/json/nodes/prg1-n2/storage/pbs-cz1/content/'.$old, 'DELETE /api2/json/nodes/prg1-n2/storage/pbs-cz1/content/'.$old]);
+
+    expect($finalRow->refresh()->state)->toBe('completed')->and($pve['volumes'])->toHaveKey($final)
+        ->and($protectedRow->refresh()->state)->toBe('completed')->and($pve['volumes'])->toHaveKey($kept)
+        ->and($heldRow->refresh()->state)->toBe('completed')->and($pve['volumes'])->toHaveKey($heldVol);
+});
+
+it('never destroys a volume an operator protected at the hypervisor, nor one without this row\'s marker', function () {
+    [, $org] = $this->customerWithOrganization();
+    $database = computeBackupDataService($org);
+    computeBackupSwitch(true);
+    $pinned = 'pbs-cz1:backup/vzdump-qemu-2042-2026_09_01-02_30_00.vma.zst';
+    $foreign = 'pbs-cz1:backup/vm/2042/2026-09-02T02:30:00Z';
+    $pinnedRow = computeBackupRow($database, $pinned, 'scheduled'); // unprotected in OUR table…
+    $foreignRow = computeBackupRow($database, $foreign, 'scheduled');
+    $pve = ['volumes' => [$pinned => computeBackupMarked($pinnedRow, true), // …but an operator protected it in the Proxmox UI
+        $foreign => ['protected' => 0, 'notes' => 'db-2042 nightly'], // an operator's own vzdump job, adopted before the marker existed
+    ], 'calls' => []];
+    computeBackupStorageFake($pve);
+
+    $stats = app(BackupScheduler::class)->tick();
+
+    expect($stats['deleted'])->toBe(0)
+        ->and($pve['volumes'])->toHaveKey($pinned)->toHaveKey($foreign)
+        ->and($pinnedRow->refresh()->state)->toBe('completed')->and($foreignRow->refresh()->state)->toBe('completed')
+        ->and(data_get($pinnedRow->meta, 'delete_blocked.why'))->toContain('protected')
+        ->and(data_get($foreignRow->meta, 'delete_blocked.why'))->toContain('marker')
+        ->and(array_filter($pve['calls'], fn (string $c) => str_starts_with($c, 'PUT') || str_starts_with($c, 'DELETE')))->toBe([]); // nothing but reads
+});
+
+it('keeps the row when the backup storage could not remove the volume, and tries again next time', function () {
+    [, $org] = $this->customerWithOrganization();
+    $database = computeBackupDataService($org);
+    computeBackupSwitch(true);
+    $vol = 'pbs-cz1:backup/vzdump-qemu-2042-2026_09_01-02_30_00.vma.zst';
+    $row = computeBackupRow($database, $vol, 'scheduled');
+    Http::fake(fn () => Http::response(['errors' => ['node' => 'down']], 500));
+
+    $stats = app(BackupScheduler::class)->tick();
+
+    expect($row->refresh()->state)->toBe('completed')->and($stats['deleted'])->toBe(0)
+        ->and(data_get($row->meta, 'delete_blocked.why'))->not->toBeNull(); // the row says why the volume is still there
+});
+
+it('never takes a volume it cannot prove belongs to the service\'s own VM, and says so once', function (string $vmid, string $stranger) {
+    [, $org] = $this->customerWithOrganization();
+    $database = computeBackupDataService($org, vmid: $vmid);
+    computeBackupSwitch(true);
+    $row = computeBackupRow($database, $stranger, 'scheduled'); // another VM's backup, adopted by mistake
+    $pve = ['volumes' => [$stranger => computeBackupMarked($row)], 'calls' => []];
+    computeBackupStorageFake($pve);
+
+    app(BackupScheduler::class)->tick();
+    $first = data_get($row->refresh()->meta, 'delete_blocked');
+    $this->travel(20)->minutes();
+    app(BackupScheduler::class)->tick();
+
+    expect($row->refresh()->state)->toBe('completed')->and($pve['volumes'])->toHaveKey($stranger)
+        ->and(array_filter($pve['calls'], fn (string $c) => str_contains($c, '/content/')))->toBe([]) // not even asked
+        ->and($first)->not->toBeNull()
+        ->and(data_get($row->meta, 'delete_blocked'))->toBe($first); // written once, not again at every tick
+})->with([
+    'another VMID' => ['2042', 'pbs-cz1:backup/vzdump-qemu-777-2026_09_01-02_30_00.vma.zst'],
+    'a VMID that only starts like ours' => ['10', 'pbs-cz1:backup/vzdump-qemu-100-2026_09_01-02_30_00.vma.zst'],
+    'a PBS snapshot of a VMID that only starts like ours' => ['10', 'pbs-cz1:backup/vm/100/2026-09-01T02:30:00Z'],
+    'our VMID on another storage' => ['2042', 'local:backup/vzdump-qemu-2042-2026_09_01-02_30_00.vma.zst'],
+    'a shape nobody knows' => ['2042', 'pbs-cz1:backup/whatever-2042-x'],
+]);
+
+it('never prunes a final archive of a web service either, even an unprotected one past its date', function () {
+    Storage::fake('local');
+    [, $org] = $this->customerWithOrganization();
+    $web = featureWebService($org, 'ispconfig');
+    $set = FinalArchive::PREFIX.'/'.$org->id.'/'.$web->id.'-20260801-020000';
+    Storage::disk('local')->put($set.'/manifest.json', '{}');
+    $final = Backup::query()->create(['service_id' => $web->id, 'organization_id' => $org->id, 'kind' => 'final', 'state' => 'completed', 'protected' => false,
+        'started_at' => now()->subDays(70), 'finished_at' => now()->subDays(70), 'retention_until' => now()->subDays(10), 'meta' => ['set' => $set]]);
+
+    app(BackupScheduler::class)->tick();
+
+    expect($final->refresh()->state)->toBe('completed')->and(Storage::disk('local')->exists($set.'/manifest.json'))->toBeTrue();
+});
+
+it('lists the servers the rule would start backing up, and writes nothing', function () {
+    [, $org] = $this->customerWithOrganization();
+    $database = computeBackupDataService($org);
+    $covered = computeBackupDataService($org, ['vcpu' => 4, 'ram_mb' => 8192, 'nvme_gb' => 160], 'cloud', '3051');
+    computeBackupAddon($covered, 'backup-hourly', ['interval_hours' => 1, 'retention_days' => 30, 'offsite' => true]);
+    $plain = computeBackupDataService($org, ['vcpu' => 4, 'ram_mb' => 8192, 'nvme_gb' => 160], 'cloud', '3050'); // no add-on: not listed
+    $web = featureWebService($org, 'ispconfig');
+    $operations = Operation::query()->count();
+    $backups = Backup::query()->count();
+    $policies = BackupPolicy::query()->count();
+
+    expect(Artisan::call('onhost:backups:compute-plan'))->toBe(0);
+    $out = Artisan::output();
+
+    expect($out)->toContain($database->id)->toContain('data')->toContain('daily')->toContain('14')->toContain('pbs-cz1')->toContain('off')
+        ->toContain($covered->id)->toContain('hourly')->toContain('720')
+        ->not->toContain($plain->id)->not->toContain($web->id);
+    expect(Operation::query()->count())->toBe($operations)
+        ->and(Backup::query()->count())->toBe($backups)
+        ->and(BackupPolicy::query()->count())->toBe($policies)
+        ->and($database->fresh()->tags)->toBe([])
+        ->and(app(AutomationLedger::class)->enabled(BackupScheduler::COMPUTE_RULE))->toBeFalse();
+});
+
+it('visits every due service in one tick, not only the first hundred', function () {
+    [, $org] = $this->customerWithOrganization();
+    $webs = computeBackupWebFleet($org, 105);
+
+    $stats = app(BackupScheduler::class)->tick(); // the command's default --limit=100 is now the size of one chunk
+
+    $started = Operation::query()->where('idempotency_key', 'like', 'backup:auto:%')->pluck('service_id')->unique();
+    expect($started)->toHaveCount(105)->and($stats['started'])->toBe(105)
+        ->and($webs->pluck('id')->diff($started)->all())->toBe([]); // before: the services after the first hundred by id never got a backup
+
+    app(BackupScheduler::class)->tick(); // the same slot again: still one operation per service
+    expect(Operation::query()->where('idempotency_key', 'like', 'backup:auto:%')->count())->toBe(105);
+});
+
+it('walks the servers in chunks too: a chunk of one still reaches every managed database', function () {
+    [, $org] = $this->customerWithOrganization();
+    $databases = collect(['2101', '2102', '2103'])->map(fn (string $vmid) => computeBackupDataService($org, vmid: $vmid));
+    computeBackupSwitch(true);
+
+    app(BackupScheduler::class)->tick(1);
+
+    expect($databases->every(fn (Service $db) => computeBackupOperations($db)->count() === 1))->toBeTrue()
+        ->and(app(BackupScheduler::class)->computePlan(1))->toHaveCount(3);
+});
+
+it('leaves a managed database alone that the platform did not provision or that is not running', function () {
+    [, $org] = $this->customerWithOrganization();
+    $unbound = computeBackupDataService($org, vmid: '2201');
+    $unbound->bindings()->delete(); // found on the hypervisor, never provisioned by the platform
+    $suspended = computeBackupDataService($org, vmid: '2202');
+    $suspended->forceFill(['state' => ServiceStateMachine::SUSPENDED])->save();
+    computeBackupSwitch(true);
+
+    app(BackupScheduler::class)->tick();
+
+    expect(computeBackupOperations($unbound))->toHaveCount(0)->and(computeBackupOperations($suspended))->toHaveCount(0)
+        ->and(BackupScheduler::health($unbound->fresh()))->toBe([])->and(BackupScheduler::health($suspended->fresh()))->toBe([])
+        ->and(app(BackupScheduler::class)->computePlan())->toBe([]);
+});
+
+it('never lets a stored policy go above what the server is sold now', function () {
+    [, $org] = $this->customerWithOrganization();
+    $database = computeBackupDataService($org); // db-s: daily, 14 days
+    $vps = computeBackupDataService($org, ['vcpu' => 4, 'ram_mb' => 8192, 'nvme_gb' => 160], 'cloud', '3060');
+    computeBackupAddon($vps, 'backup-plus'); // daily, 30 days, 40 copies
+    // rows left from a bigger plan / an hourly add-on that was cancelled since
+    BackupPolicy::query()->create(['service_id' => $database->id, 'product_key' => 'database', 'schedule' => ['frequency' => 'hourly'], 'retention' => ['days' => 90, 'generations' => 500], 'offsite' => false, 'state' => 'active']);
+    BackupPolicy::query()->where('service_id', $vps->id)->sole()->forceFill(['schedule' => ['frequency' => 'hourly'], 'retention' => ['days' => 30, 'generations' => 720]])->save();
+    computeBackupSwitch(true);
+
+    $db = app(BackupScheduler::class)->scheduleFor($database->fresh());
+    $vm = app(BackupScheduler::class)->scheduleFor($vps->fresh());
+
+    expect([$db['frequency'], $db['days'], $db['generations']])->toBe(['daily', 14, 14])
+        ->and([$vm['frequency'], $vm['days'], $vm['generations']])->toBe(['daily', 30, 40]);
+});
+
+it('gives a VPS with two backup add-ons the most generous of them', function () {
+    [, $org] = $this->customerWithOrganization();
+    $vps = computeBackupDataService($org, ['vcpu' => 4, 'ram_mb' => 8192, 'nvme_gb' => 160], 'cloud', '3070');
+    computeBackupAddon($vps, 'backup-plus'); // daily, 30 days, 40 copies — bought first
+    Service::query()->create(['organization_id' => $org->id, 'product_key' => 'backup-hourly', 'family' => 'addon', 'name' => 'Hodinové zálohy', 'state' => ServiceStateMachine::ACTIVE, 'region_code' => 'cz1',
+        'entitlements' => ['interval_hours' => 1, 'retention_days' => 30, 'offsite' => true], 'desired_spec' => [], 'tags' => ['parent_service_id' => $vps->id], 'sla_class' => 'standard', 'activated_at' => now()->addMinute()]);
+
+    expect(app(ServiceFeatures::class)->computeBackupSchedule($vps->fresh()))->toBe(['frequency' => 'hourly', 'days' => 30, 'generations' => 720]);
+});
+
+it('marks the volume of a server backup with its own row and adopts only that one, not an operator\'s vzdump that finished meanwhile', function () {
+    [$user, $org] = $this->customerWithOrganization();
+    $database = computeBackupDataService($org);
+    $dumped = false;
+    $notes = null;
+    Http::fake([
+        PVE.'/nodes/prg1-n2/vzdump' => function (Request $r) use (&$dumped, &$notes) {
+            $dumped = true;
+            $notes = (string) $r['notes-template'];
+
+            return Http::response(['data' => 'UPID:prg1-n2:000A1C30:0004E2F9:66F0AB15:vzdump:2042:onhost@pve!cp:']);
+        },
+        PVE.'/nodes/prg1-n2/storage/pbs-cz1/content*' => function () use (&$dumped, &$notes) {
+            $operator = ['volid' => 'pbs-cz1:backup/vzdump-qemu-2042-2026_09_25-03_06_00.vma.zst', 'ctime' => time() + 120, 'size' => 999, 'protected' => 0, 'notes' => 'db-2042 nightly by hand']; // newer
+            $ours = ['volid' => 'pbs-cz1:backup/vzdump-qemu-2042-2026_09_25-03_05_30.vma.zst', 'ctime' => time(), 'size' => 4242, 'protected' => 0, 'notes' => str_replace(['{{guestname}}', '{{vmid}}'], ['db-2042', '2042'], (string) $notes)];
+
+            return Http::response(['data' => $dumped ? [$operator, $ours] : []]);
+        },
+        PVE.'/nodes/prg1-n2/tasks/*/status' => Http::response(['data' => ['status' => 'stopped', 'exitstatus' => 'OK']]),
+    ]);
+
+    $operation = computeBackupDriveSync(app(ServiceService::class)->requestAction($database, 'backup', $this->contextFor($user, $org), 'db-backup-marker', ['kind' => 'scheduled', 'retention_days' => 14, 'policy' => ['notes' => 'scheduled daily onhost backup:bkp_forged']]));
+
+    expect($operation->state)->toBe(Operation::SUCCEEDED, (string) data_get($operation->error, 'message', ''));
+    $backup = Backup::query()->where('operation_id', $operation->id)->sole();
+    expect($notes)->toContain('onhost backup:'.$backup->id)->not->toContain('onhost backup:bkp_forged') // a caller's label can never carry another row's marker
+        ->and(substr_count((string) $notes, 'onhost backup:'))->toBe(1)
+        ->and($backup->remote_id)->toBe('pbs-cz1:backup/vzdump-qemu-2042-2026_09_25-03_05_30.vma.zst')->and($backup->size_bytes)->toBe(4242);
+});
+
+it('shows the owner what visiting every web service changes, and writes nothing', function () {
+    [, $org] = $this->customerWithOrganization();
+    computeBackupWebFleet($org, 102);
+    $operations = Operation::query()->count();
+
+    expect(Artisan::call('onhost:backups:compute-plan'))->toBe(0);
+
+    expect(Artisan::output())->toContain('web/managed/mail: 102 eligible · 2 beyond the old first-100 window (newly visited by every tick) · 2 of them with a backup schedule');
+    expect(Operation::query()->count())->toBe($operations)->and(Service::query()->whereNotNull('tags->backup_schedule')->count())->toBe(0);
+});

@@ -160,8 +160,8 @@ it('says so when the archive does not come back whole', function () {
 
     app(OutboxPublisher::class)->relayPending();
     $told = Notification::query()->where('event', 'service.restore_test.failed')->get();
-    expect($told->pluck('audience')->unique()->all())->toContain('customer')
-        ->and($told->first()->body)->toContain('nezměnili');
+    expect($told->pluck('audience')->unique()->all())->toContain('customer')->toContain('internal') // staff hear it too (TASK-0027: the second arm never ran)
+        ->and($told->firstWhere('audience', 'customer')->body)->toContain('nezměnili');
 });
 
 it('asks for nothing when the plan does not promise a test', function () {

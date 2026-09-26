@@ -14,6 +14,6 @@ final class VatValidation extends Model
 
     protected function casts(): array
     {
-        return ['valid' => 'boolean', 'raw' => 'array', 'checked_at' => 'datetime'];
+        return ['valid' => 'boolean', 'raw' => 'array', 'checked_at' => 'datetime', 'expires_at' => 'datetime'];
     }
 }

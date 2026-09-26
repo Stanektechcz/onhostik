@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Presenters;
 
+use Onhost\Domain\Billing\ServiceReinstatement;
 use Onhost\Domain\Dns\Models\DnsChange;
 use Onhost\Domain\Dns\Models\DnsRecord;
 use Onhost\Domain\Dns\Models\DnsZone;
@@ -11,6 +12,7 @@ use Onhost\Domain\Domains\Models\Domain;
 use Onhost\Domain\Domains\Models\RegistrarConnection;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Orders\CreditOrderApprovals;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\Models\OrderItem;
 use Onhost\Domain\Orders\OrderStateMachine;
@@ -26,6 +28,7 @@ use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceFreshness;
 use Onhost\Domain\Services\SuspensionHold;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Money\Money;
 use Onhost\Platform\Observability\Tracer;
 
@@ -59,7 +62,7 @@ final class Presenters
 
         return [
             'id' => $organization->id, 'slug' => $organization->slug, 'name' => $organization->name, 'type' => $organization->type, 'country' => $organization->country, 'currency' => $organization->currency, 'locale' => $organization->locale,
-            'billing' => ['email' => $organization->billing_email, 'mode' => $organization->billing_mode, 'ico' => $organization->ico, 'dic' => $organization->dic, 'vat_id' => $organization->vat_id, 'vat_status' => $organization->vat_status, 'street' => $organization->street, 'city' => $organization->city, 'postal_code' => $organization->postal_code],
+            'billing' => ['email' => $organization->billing_email, 'mode' => $organization->billing_mode, 'ico' => $organization->ico, 'dic' => $organization->dic, 'vat_id' => $organization->vat_id, 'vat_status' => VatStanding::effectiveStatus($organization), 'vat_checked_at' => $organization->vat_checked_at?->toIso8601String(), 'street' => $organization->street, 'city' => $organization->city, 'postal_code' => $organization->postal_code],
             'customer_class' => $organization->customer_class, 'state' => $organization->state, 'role' => $role,
             'settings' => ['digest' => ['frequency' => (string) data_get($organization->settings, 'digest.frequency', 'weekly')], 'status_page' => (array) data_get($organization->settings, 'status_page', ['enabled' => false]), 'loyalty_discount' => data_get($organization->settings, 'loyalty_discount')], // digest tuning (audit §5f-5), status page and streak discount (§5j)
             'feature_flags' => ['sandbox' => (bool) data_get($organization->feature_flags, 'sandbox', false)], 'referral_code' => $organization->referral_code,
@@ -86,6 +89,7 @@ final class Presenters
             'deletion' => $service->terminate_at === null ? null : [
                 'grace_until' => $service->terminate_at->toIso8601String(), 'days_left' => max(0, (int) now()->diffInDays($service->terminate_at, false)),
                 'archive_backup_id' => data_get($service->tags, 'deletion.archive_backup_id'), 'reason' => data_get($service->tags, 'deletion.reason'),
+                'pay_to_restore' => app(ServiceReinstatement::class)->enabled(), // TASK-0025: the panel offers "Zaplatit a obnovit" only while the rule is on
             ],
             // what the world answers for the customer's domain, against what the platform published for it (PublicDnsCheck)
             'dns' => self::dnsCheck($service),
@@ -189,6 +193,9 @@ final class Presenters
         $out['provisioning'] = self::provisioning($order);
         $review = is_array($order->meta['review'] ?? null) ? $order->meta['review'] : null; // intake pre-check (audit §5f-8): the customer sees "checking", staff see the score and reasons
         $out['review'] = $review === null ? null : ['state' => $review['state'] ?? 'pending', 'score' => $review['score'] ?? null, 'reasons' => $review['reasons'] ?? [], 'opened_at' => $review['opened_at'] ?? null, 'decided_at' => $review['decided_at'] ?? null];
+        $approval = CreditOrderApprovals::of($order); // a credit order waiting for the owner or a billing admin (TASK-0021)
+        $out['approval'] = $approval === [] ? null : ['state' => $approval['state'] ?? 'pending', 'requester' => isset($approval['requester_id']) ? ['id' => $approval['requester_id'], 'name' => $approval['requester_name'] ?? null] : null,
+            'opened_at' => $approval['opened_at'] ?? null, 'decided_at' => $approval['decided_at'] ?? null, 'decided_by' => isset($approval['decided_by']) ? ['id' => $approval['decided_by'], 'name' => $approval['decider_name'] ?? null] : null, 'reason' => $approval['reason'] ?? null];
 
         return $out;
     }
@@ -218,13 +225,13 @@ final class Presenters
         return ['id' => $item->id, 'sku' => $item->sku, 'product_key' => $item->product_key, 'name' => $item->name, 'qty' => $item->qty, 'period' => $item->period, 'unit_net' => self::money((int) $item->unit_net_minor, $currency), 'total' => self::money((int) $item->total_minor, $currency), 'state' => $item->state, 'service_id' => $item->service_id, 'domain_id' => $item->domain_id, 'config' => array_diff_key((array) $item->config, array_flip(['entitlements', 'registrant']))];
     }
 
-    public static function invoice(Invoice $invoice, bool $withLines = false): array
+    public static function invoice(Invoice $invoice, bool $withLines = false, bool $forStaff = false): array
     {
         $out = [
             'id' => $invoice->id, 'number' => $invoice->number, 'type' => $invoice->type, 'series' => $invoice->series, 'state' => $invoice->state, 'currency' => $invoice->currency,
             'subtotal' => self::money((int) $invoice->subtotal_minor, $invoice->currency), 'tax' => self::money((int) $invoice->tax_minor, $invoice->currency), 'total' => self::money((int) $invoice->total_minor, $invoice->currency), 'paid' => self::money((int) $invoice->paid_minor, $invoice->currency),
             'issued_at' => $invoice->issued_at?->toIso8601String(), 'due_at' => $invoice->due_at?->toIso8601String(), 'paid_at' => $invoice->paid_at?->toIso8601String(), 'payment_method' => $invoice->payment_method, 'payment_reference' => $invoice->payment_reference,
-            'order_id' => $invoice->order_id, 'corrects_invoice_id' => $invoice->corrects_invoice_id, 'pdf' => $invoice->pdf_hash !== null, 'buyer' => $invoice->buyer, 'tax_summary' => $invoice->tax_summary, 'green' => data_get($invoice->meta, 'green'),
+            'order_id' => $invoice->order_id, 'corrects_invoice_id' => $invoice->corrects_invoice_id, 'pdf' => $invoice->pdf_hash !== null, 'buyer' => $forStaff ? $invoice->buyer : self::invoiceBuyer((array) $invoice->buyer), 'tax_summary' => $invoice->tax_summary, 'green' => data_get($invoice->meta, 'green'),
             // a tax document in another currency: its VAT in CZK at the national bank's rate (null for CZK documents; `pending` while the rate is not known yet)
             'czk' => data_get($invoice->meta, 'czk'), 'czk_pending' => (bool) data_get($invoice->meta, 'czk_pending', false),
         ];
@@ -233,6 +240,25 @@ final class Presenters
         }
 
         return $out;
+    }
+
+    /**
+     * The buyer as the customer sees it (TASK-0031 review round 2): the VIES check reduced to what the document prints — when it
+     * was checked, the consultation number, and whether it rests on VIES or on evidence staff accepted. Who VIES names as the
+     * holder (name_mismatch), the reason and the stored status are for finance: the cart quote does not tip off somebody using
+     * another trader's number, and neither does the invoice.
+     *
+     * @param  array<string,mixed>  $buyer
+     * @return array<string,mixed>
+     */
+    private static function invoiceBuyer(array $buyer): array
+    {
+        if (! is_array($buyer['vat_check'] ?? null)) {
+            return $buyer;
+        }
+        $buyer['vat_check'] = VatStanding::customerEvidence($buyer['vat_check']); // the same reduction as the partner's self-billing document (review round 3)
+
+        return $buyer;
     }
 
     public static function domain(Domain $domain): array

@@ -23,7 +23,11 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Provisioning\Commands\ProvisioningCommand;
 use Onhost\Domain\Risk\RiskWeights;
+use Onhost\Domain\Services\Limits\LimitRaiseService;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Tax\Commands\OverrideVatStatusCommand;
+use Onhost\Domain\Tax\VatNumberChecks;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Errors\DomainError;
@@ -63,7 +67,8 @@ final class CustomerController extends ApiController
             'orders' => Order::query()->where('organization_id', $org->id)->orderByDesc('placed_at')->limit(50)->get()->map(fn (Order $o) => Presenters::order($o, false) + ['source' => $o->source, 'bank_instructions' => $o->meta['bank_instructions'] ?? null])->all(), // §5y: staff confirm a transfer by its variable symbol
             'spendable' => $wallets->spendable($org, $org->currency),
             'can' => ['place_order' => $this->api->can($request, 'staff.order.manage', CommandScope::global()), 'move_money' => $this->api->can($request, 'billing.credit.adjust', CommandScope::global())], // H348: servicing a customer and moving their money are two permissions
-            'invoices' => Invoice::query()->where('organization_id', $org->id)->where('state', '!=', Invoice::DRAFT)->orderByDesc('issued_at')->limit(50)->get()->map(fn (Invoice $i) => Presenters::invoice($i))->all(),
+            'invoices' => Invoice::query()->where('organization_id', $org->id)->where('state', '!=', Invoice::DRAFT)->orderByDesc('issued_at')->limit(50)->get()->map(fn (Invoice $i) => Presenters::invoice($i, forStaff: true))->all(), // staff see the whole VIES check (TASK-0031)
+            'vat' => VatStanding::snapshot($org) + ['needs_check' => VatStanding::needsCheck($org)], // TASK-0031: the VIES evidence behind the customer's VAT treatment
         ]]);
     }
 
@@ -189,7 +194,8 @@ final class CustomerController extends ApiController
             throw DomainError::notFound('organization');
         }
         $data = $request->validate(['items' => ['required', 'array', 'min:1', 'max:20'], 'items.*.product_key' => ['required', 'string', 'max:40'], 'items.*.plan_key' => ['nullable', 'string', 'max:40'], 'items.*.config' => ['nullable', 'array'], 'items.*.period' => ['nullable', 'in:month,year'], 'commit_months' => ['nullable', 'integer', 'in:1,12,24']]);
-        $quote = $quotes->quote($data['items'], $org->currency ?? 'CZK', ['country' => $org->country ?? 'CZ', 'customer_class' => $org->customer_class ?? 'b2c', 'vat_status' => $org->vat_status ?? 'unknown', 'ip_country' => null], (int) ($data['commit_months'] ?? 1), null, $org);
+        $org = app(VatNumberChecks::class)->refreshBeforeQuote($org); // TASK-0031 (D31.3b): the same brief VIES check as the customer's cart
+        $quote = $quotes->quote($data['items'], $org->currency ?? 'CZK', VatStanding::taxCustomer($org), (int) ($data['commit_months'] ?? 1), null, $org);
 
         return response()->json(['data' => ['quote_id' => $quote->id, 'lines' => $quote->lines, 'subtotal' => $quote->subtotal_minor, 'discount' => $quote->discount_minor, 'tax' => $quote->tax_minor, 'total' => $quote->total_minor, 'currency' => $quote->currency]]);
     }
@@ -202,8 +208,51 @@ final class CustomerController extends ApiController
             'items.*.period' => ['nullable', 'in:month,year'], 'items.*.config' => ['nullable', 'array'], 'items.*.line_id' => ['nullable', 'string', 'max:20'],
             'payment' => ['required', 'in:wallet,bank,postpaid'], 'commit_months' => ['nullable', 'integer', 'in:1,12,24'], 'note' => ['required', 'string', 'min:3', 'max:250'],
         ]);
+        // TASK-0031 (D31.3b): the VIES check runs here, before the bus — never inside its transaction; only for staff who may place it
+        $org = $this->api->can($request, 'staff.order.manage', CommandScope::global()) ? Organization::query()->find($organization) : null;
+        if ($org !== null) {
+            app(VatNumberChecks::class)->refreshBeforeQuote($org);
+        }
 
         return $this->dispatch(new StaffCustomerCommand($this->onceKey($request, "order.assisted:{$organization}"), ['op' => 'order.assisted', 'organization_id' => $organization] + $data), $this->api->context($request, null, $data['note']), 201);
+    }
+
+    /**
+     * A raise of one limit at no charge for one period (owner decision 8, TASK-0022 limit-raise). The permission first (nobody without
+     * it learns anything from the checks), then the raise is checked and priced the way the order will be — a raise that cannot be
+     * had is refused before a second person is asked — and the price it waives goes into the request the approver reads and binds.
+     */
+    public function grantFreeLimitRaise(Request $request, LimitRaiseService $raises, string $organization): JsonResponse
+    {
+        $this->api->authorize($request, 'billing.limit_raise.waive', CommandScope::global());
+        $org = Organization::query()->find($organization) ?? throw DomainError::notFound('organization');
+        $data = $request->validate(['service_id' => ['required', 'string', 'max:40'], 'metric' => ['required', 'string', 'max:40'], 'units' => ['required', 'integer', 'min:1', 'max:10000'], 'note' => ['required', 'string', 'min:3', 'max:250']]);
+        $payload = ['op' => 'limit_raise.free', 'organization_id' => $org->id, 'service_id' => (string) $data['service_id'], 'metric' => (string) $data['metric'], 'units' => (int) $data['units'], 'note' => (string) $data['note']];
+        $payload['price'] = $raises->listPrice($org, $payload['service_id'], $payload['metric'], $payload['units']);
+
+        return $this->dispatch(new StaffCustomerCommand($this->onceKey($request, 'limit_raise.free:'.$org->id.':'.substr(hash('sha256', (string) json_encode($payload)), 0, 24)), $payload), $this->api->context($request, null, $payload['note']), 201);
+    }
+
+    /**
+     * Finance sets the VAT status by hand (TASK-0031, D31.5): VIES is down, or the customer proves the registration otherwise.
+     * Validated here, decided by the bus: `billing.tax_rule.manage`, CRITICAL — a fresh step-up and a second person (unless the
+     * platform runs with one operator); the override ends by itself after `days`. The subject being confirmed — the normalised
+     * number and the organization's name as they are now — goes into the payload, so the approval's hash binds it and the second
+     * person reads it; the handler refuses it once either changed (stack polish). Read only for staff who may ask at all.
+     */
+    public function overrideVatStatus(Request $request, string $organization): JsonResponse
+    {
+        $data = $request->validate([
+            'status' => ['required', 'in:valid,invalid'], 'reason' => ['required', 'string', 'min:10', 'max:1000'], 'evidence' => ['required', 'string', 'min:5', 'max:1000'],
+            'days' => ['nullable', 'integer', 'min:1', 'max:'.max(1, (int) config('onhost.vies.override_days', 30))],
+        ]);
+        $org = $this->api->can($request, 'billing.tax_rule.manage', CommandScope::global()) ? Organization::query()->find($organization) : null;
+        $payload = [
+            'organization_id' => $organization, 'status' => (string) $data['status'], 'reason' => (string) $data['reason'], 'evidence' => (string) $data['evidence'], 'days' => (int) ($data['days'] ?? config('onhost.vies.override_days', 30)),
+            'vat_number' => $org === null ? '' : (string) (VatStanding::subject($org)->value ?? ''), 'organization_name' => (string) ($org->name ?? ''),
+        ];
+
+        return $this->dispatch(new OverrideVatStatusCommand($this->onceKey($request, 'vat.override:'.$organization.':'.substr(hash('sha256', (string) json_encode($payload)), 0, 24)), $payload), $this->api->context($request, null, $payload['reason']), 202);
     }
 
     /**

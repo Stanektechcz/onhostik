@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Staff;
 use App\Http\Controllers\Api\V1\ApiController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Onhost\Domain\Catalog\CatalogPreflight;
 use Onhost\Domain\Catalog\CatalogService;
 use Onhost\Domain\Catalog\Commands\CatalogCommand;
 use Onhost\Domain\Catalog\Models\Product;
@@ -26,6 +27,9 @@ use Onhost\Platform\Commands\CommandScope;
  */
 final class PricingController extends ApiController
 {
+    /** Why a price changes: the second person reads it on the approvals page. */
+    private const REASON = ['nullable', 'string', 'max:250'];
+
     public function index(Request $request, PricingRules $rules, CatalogService $catalog): JsonResponse
     {
         $this->api->authorize($request, 'catalog.manage', CommandScope::global());
@@ -52,48 +56,54 @@ final class PricingController extends ApiController
 
     public function setCommitDiscounts(Request $request): JsonResponse
     {
-        $data = $request->validate(['default' => ['nullable', 'array'], 'default.*' => ['numeric', 'min:0', 'max:90'], 'families' => ['nullable', 'array'], 'families.*' => ['array'], 'families.*.*' => ['numeric', 'min:0', 'max:90']]);
+        $data = $request->validate(['default' => ['nullable', 'array'], 'default.*' => ['numeric', 'min:0', 'max:90'], 'families' => ['nullable', 'array'], 'families.*' => ['array'], 'families.*.*' => ['numeric', 'min:0', 'max:90'], 'reason' => self::REASON]);
 
-        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, 'catalog.commit_discounts'), ['op' => 'pricing.commit_discounts.set', 'config' => ['default' => $data['default'] ?? [], 'families' => $data['families'] ?? []]]), $this->api->context($request));
+        return $this->catalog($request, 'catalog.commit_discounts', ['op' => 'pricing.commit_discounts.set', 'config' => ['default' => $data['default'] ?? [], 'families' => $data['families'] ?? []]], $data['reason'] ?? null);
     }
 
     /** Regional pricing (audit §5j-8): country groups with a suggested currency and a percentage on the list price; an empty list restores the defaults. */
     public function setRegions(Request $request): JsonResponse
     {
-        $data = $request->validate(['regions' => ['present', 'array', 'max:20'], 'regions.*.key' => ['required', 'string', 'max:20'], 'regions.*.label' => ['nullable', 'string', 'max:40'], 'regions.*.countries' => ['required', 'array', 'min:1'], 'regions.*.countries.*' => ['string', 'size:2'], 'regions.*.currency' => ['nullable', 'in:CZK,EUR'], 'regions.*.adjust_pct' => ['nullable', 'numeric', 'min:-50', 'max:100'], 'reason' => ['nullable', 'string', 'max:250']]);
+        $data = $request->validate(['regions' => ['present', 'array', 'max:20'], 'regions.*.key' => ['required', 'string', 'max:20'], 'regions.*.label' => ['nullable', 'string', 'max:40'], 'regions.*.countries' => ['required', 'array', 'min:1'], 'regions.*.countries.*' => ['string', 'size:2'], 'regions.*.currency' => ['nullable', 'in:CZK,EUR'], 'regions.*.adjust_pct' => ['nullable', 'numeric', 'min:-50', 'max:100'], 'reason' => self::REASON]);
 
-        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, 'catalog.regions:'.now()->format('YmdHi')), ['op' => 'pricing.regions.set', 'regions' => $data['regions']]), $this->api->context($request, null, $data['reason'] ?? null));
+        return $this->catalog($request, 'catalog.regions', ['op' => 'pricing.regions.set', 'regions' => $data['regions']], $data['reason'] ?? null);
     }
 
     public function setDomainDiscount(Request $request): JsonResponse
     {
         $data = $request->validate([
             'tld' => ['required', 'string', 'max:32'], 'register' => ['nullable', 'numeric', 'min:0', 'max:100'], 'renew' => ['nullable', 'numeric', 'min:0', 'max:100'], 'transfer' => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'valid_from' => ['nullable', 'date'], 'valid_to' => ['nullable', 'date'], 'label' => ['nullable', 'string', 'max:120'],
+            'valid_from' => ['nullable', 'date'], 'valid_to' => ['nullable', 'date'], 'label' => ['nullable', 'string', 'max:120'], 'reason' => self::REASON,
         ]);
+        $reason = $data['reason'] ?? null;
+        unset($data['reason']);
 
-        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, 'catalog.domain_discount:'.$data['tld']), ['op' => 'pricing.domain_discount.set', 'tld' => $data['tld'], 'discount' => $data]), $this->api->context($request));
+        return $this->catalog($request, 'catalog.domain_discount:'.$data['tld'], ['op' => 'pricing.domain_discount.set', 'tld' => $data['tld'], 'discount' => $data], $reason);
     }
 
+    /** A withdrawal: the TLD goes back to its list price. One person with a step-up (CatalogCommand::STEP_UP_OPS). */
     public function deleteDomainDiscount(Request $request, string $tld): JsonResponse
     {
-        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, 'catalog.domain_discount.delete:'.$tld), ['op' => 'pricing.domain_discount.delete', 'tld' => $tld]), $this->api->context($request));
+        return $this->catalog($request, 'catalog.domain_discount.delete:'.$tld, ['op' => 'pricing.domain_discount.delete', 'tld' => $tld]);
     }
 
+    /** An active code is a price change (second person); pausing or retiring one is a withdrawal (step-up). */
     public function upsertPromo(Request $request): JsonResponse
     {
         $data = $request->validate([
             'code' => ['required', 'string', 'max:40'], 'kind' => ['required', 'in:percent,fixed'], 'value' => ['required', 'numeric', 'min:0'], 'currency' => ['nullable', 'in:CZK,EUR'],
             'valid_from' => ['nullable', 'date'], 'valid_to' => ['nullable', 'date'], 'max_uses' => ['nullable', 'integer', 'min:1'], 'applies_to' => ['nullable', 'array', 'max:20'], 'applies_to.*' => ['string', 'max:24'],
-            'first_period_only' => ['nullable', 'boolean'], 'state' => ['nullable', 'in:active,paused,retired'],
+            'first_period_only' => ['nullable', 'boolean'], 'state' => ['nullable', 'in:active,paused,retired'], 'reason' => self::REASON,
         ]);
+        $reason = $data['reason'] ?? null;
+        unset($data['reason']);
 
-        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, 'catalog.promo:'.strtoupper($data['code'])), ['op' => 'promo.upsert', 'promo' => $data]), $this->api->context($request));
+        return $this->catalog($request, 'catalog.promo:'.strtoupper($data['code']), ['op' => 'promo.upsert', 'promo' => $data], $reason);
     }
 
     public function deletePromo(Request $request, string $code): JsonResponse
     {
-        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, 'catalog.promo.delete:'.strtoupper($code)), ['op' => 'promo.delete', 'code' => $code]), $this->api->context($request));
+        return $this->catalog($request, 'catalog.promo.delete:'.strtoupper($code), ['op' => 'promo.delete', 'code' => $code]);
     }
 
     public function upsertOption(Request $request): JsonResponse
@@ -103,22 +113,26 @@ final class PricingController extends ApiController
             'label' => ['required', 'array'], 'label.cs' => ['required', 'string', 'max:120'], 'label.en' => ['nullable', 'string', 'max:120'], 'desc' => ['nullable', 'array'], 'desc.cs' => ['nullable', 'string', 'max:250'], 'desc.en' => ['nullable', 'string', 'max:250'],
             'unit' => ['nullable', 'string', 'max:24'], 'min' => ['nullable', 'numeric'], 'max' => ['nullable', 'numeric'], 'step' => ['nullable', 'numeric', 'gt:0'], 'default' => ['nullable', 'numeric'],
             'price_czk' => ['required', 'numeric', 'min:0'], 'price_eur' => ['nullable', 'numeric', 'min:0'], 'choices' => ['nullable', 'array', 'max:20'], 'choices.*.key' => ['required_with:choices', 'string', 'max:40'], 'choices.*.units' => ['nullable', 'numeric', 'min:0'],
-            'entitlement' => ['nullable', 'array'], 'sort' => ['nullable', 'integer', 'min:0'],
+            'entitlement' => ['nullable', 'array'], 'sort' => ['nullable', 'integer', 'min:0'], 'reason' => self::REASON,
         ]);
+        $reason = $data['reason'] ?? null;
+        unset($data['reason']);
 
-        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, 'catalog.option:'.$data['product_key'].':'.$data['key']), ['op' => 'option.upsert', 'product_key' => $data['product_key'], 'option' => $data]), $this->api->context($request));
+        return $this->catalog($request, 'catalog.option:'.$data['product_key'].':'.$data['key'], ['op' => 'option.upsert', 'product_key' => $data['product_key'], 'option' => $data], $reason);
     }
 
     public function deleteOption(Request $request, string $product, string $key): JsonResponse
     {
-        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, 'catalog.option.delete:'.$product.':'.$key), ['op' => 'option.delete', 'product_key' => $product, 'key' => $key]), $this->api->context($request));
+        $data = $request->validate(['reason' => self::REASON]);
+
+        return $this->catalog($request, 'catalog.option.delete:'.$product.':'.$key, ['op' => 'option.delete', 'product_key' => $product, 'key' => $key], $data['reason'] ?? null);
     }
 
     public function setAddonProducts(Request $request): JsonResponse
     {
         $data = $request->validate(['product_key' => ['required', 'string', 'max:60'], 'addon_products' => ['present', 'array', 'max:20'], 'addon_products.*' => ['string', 'max:60']]);
 
-        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, 'catalog.addon_products:'.$data['product_key']), ['op' => 'pricing.addon_products.set', 'product_key' => $data['product_key'], 'addon_products' => $data['addon_products']]), $this->api->context($request));
+        return $this->catalog($request, 'catalog.addon_products:'.$data['product_key'], ['op' => 'pricing.addon_products.set', 'product_key' => $data['product_key'], 'addon_products' => $data['addon_products']]);
     }
 
     /** Every version of a plan with its prices and who is on it (H01): the impact of a change before it is made. */
@@ -129,7 +143,7 @@ final class PricingController extends ApiController
         return $this->ok($versions->history($product, $plan));
     }
 
-    /** Publish a new version of a plan: changed limits and/or prices for new orders; nobody's agreed version changes. HIGH, step-up. */
+    /** Publish a new version of a plan: changed limits and/or prices for new orders; nobody's agreed version changes. Step-up and a second person, bound to the version on sale. */
     public function publishPlanVersion(Request $request, string $product, string $plan): JsonResponse
     {
         $data = $request->validate([
@@ -138,15 +152,15 @@ final class PricingController extends ApiController
             'prices.*.renewal_amount' => ['nullable', 'numeric', 'min:0'], 'prices.*.setup' => ['nullable', 'numeric', 'min:0'], 'prices.*.monthly_cap' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, "catalog.plan.publish:{$product}/{$plan}"), ['op' => 'plan.publish', 'product_key' => $product, 'plan_key' => $plan] + $data), $this->api->context($request, null, $data['reason']), 201);
+        return $this->catalog($request, "catalog.plan.publish:{$product}/{$plan}", ['op' => 'plan.publish', 'product_key' => $product, 'plan_key' => $plan] + $data, $data['reason'], 201);
     }
 
-    /** Put an existing version (back) on sale — the rollback of a published version. HIGH, step-up. */
+    /** Put an existing version (back) on sale — the rollback of a published version. Step-up and a second person, bound to the version on sale. */
     public function activatePlanVersion(Request $request, string $product, string $plan, int $version): JsonResponse
     {
         $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:250']]);
 
-        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, "catalog.plan.activate:{$product}/{$plan}/{$version}"), ['op' => 'plan.activate_version', 'product_key' => $product, 'plan_key' => $plan, 'version' => $version, 'reason' => $data['reason']]), $this->api->context($request, null, $data['reason']));
+        return $this->catalog($request, "catalog.plan.activate:{$product}/{$plan}/{$version}", ['op' => 'plan.activate_version', 'product_key' => $product, 'plan_key' => $plan, 'version' => $version, 'reason' => $data['reason']], $data['reason']);
     }
 
     /** The customer panel's sidebar: category switches, order, labels, optional links — plus what the catalogue offers and who owns what. */
@@ -176,6 +190,7 @@ final class PricingController extends ApiController
         return $this->ok(['lifecycle' => $policy->all()]);
     }
 
+    /** The archive download fee is a price: step-up and a second person, bound to the whole stored policy. */
     public function setLifecycle(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -183,9 +198,39 @@ final class PricingController extends ApiController
             'retention_days' => ['nullable', 'integer', 'min:30', 'max:3650'],
             'identity_checks' => ['nullable', 'integer', 'min:5', 'max:12'],
             'download_fee_minor' => ['nullable', 'array'], 'download_fee_minor.*' => ['integer', 'min:0', 'max:10000000'],
+            'reason' => self::REASON,
         ]);
+        $reason = $data['reason'] ?? null;
+        unset($data['reason']);
 
-        return $this->dispatch(new CatalogCommand($this->idempotencyKey($request, 'catalog.lifecycle'), ['op' => 'lifecycle.set', 'config' => $data]), $this->api->context($request));
+        return $this->catalog($request, 'catalog.lifecycle', ['op' => 'lifecycle.set', 'config' => $data], $reason);
+    }
+
+    /**
+     * Every catalogue write goes here. The permission first, so nobody without it learns anything from the check; then the
+     * pre-flight check, so a change that would be refused is refused before anybody is asked to approve it; then the binding
+     * to what the change was asked against (the plan version on sale, a digest of the replaced setting), which becomes part of
+     * the approved payload; then the bus, where CatalogCommand says who it takes (owner decision 13: a price or plan change
+     * takes a step-up and a second person). The binding is part of the idempotency key as well, and without an Idempotency-Key
+     * header so is the minute (onceKey): the same body asked against another state of the catalogue, or sent again later (a code
+     * deleted, recreated and deleted again), is a new command — never the replay of an old answer that would spend an approval,
+     * or pull an emergency brake, for nothing.
+     *
+     * @param  array<string,mixed>  $payload
+     */
+    private function catalog(Request $request, string $keyPrefix, array $payload, ?string $reason = null, int $status = 200): JsonResponse
+    {
+        $this->api->authorize($request, 'catalog.manage', CommandScope::global());
+        $preflight = app(CatalogPreflight::class);
+        $probe = new CatalogCommand('catalog-preflight', $payload);
+        $preflight->check($probe);
+        $binding = $preflight->bind($probe);
+        if ($reason !== null && ! array_key_exists('reason', $payload)) {
+            $payload['reason'] = $reason; // the approver reads why (ApprovalService::reasonOf)
+        }
+        $anchor = $binding === [] ? '' : '@'.substr(hash('sha256', (string) json_encode($binding)), 0, 16);
+
+        return $this->dispatch(new CatalogCommand($this->onceKey($request, $keyPrefix.$anchor), $payload + $binding), $this->api->context($request, null, $reason), $status);
     }
 
     /** @return array<string,mixed> */

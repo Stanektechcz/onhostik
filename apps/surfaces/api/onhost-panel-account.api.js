@@ -10,7 +10,9 @@
   'use strict';
   if (window.OnhostPanelAccount) return;
   var S = { tokens: null, org: null, webhooks: null, discord: null, totp: null, lastToken: null, recovery: null, pw: false, prefilled: false, busy: {} };
-  var SCOPES = { 'services:read': ['čtení služeb', 'read services'], 'services:power': ['start a restart služeb', 'power services'], 'invoices:read': ['čtení faktur', 'read invoices'], 'tickets:write': ['zakládání tiketů', 'write tickets'], 'dns:write': ['zápis DNS', 'write DNS'], 'domains:read': ['čtení domén', 'read domains'], 'wallet:read': ['čtení kreditu', 'read wallet'] };
+  var SCOPES = { 'services:read': ['čtení služeb', 'read services'], 'services:power': ['start a restart služeb', 'power services'], 'invoices:read': ['čtení faktur', 'read invoices'], 'tickets:write': ['zakládání tiketů', 'write tickets'], 'dns:write': ['zápis DNS', 'write DNS'], 'domains:read': ['čtení domén', 'read domains'], 'wallet:read': ['čtení kreditu', 'read wallet'], 'services:console': ['konzole, terminál a příkazy', 'consoles, terminal and commands'] };
+  /* A console is neither a read nor a restart (C13-H2c): no preset carries it, the customer ticks it on purpose. */
+  var EXPLICIT_ONLY = ['services:console'];
   var ROLES = [['owner', 'vlastník', 'owner'], ['org_admin', 'administrátor', 'administrator'], ['billing_admin', 'fakturace', 'billing'], ['domain_manager', 'správce domén', 'domain manager'], ['dns_manager', 'správce DNS', 'DNS manager'], ['developer', 'vývojář', 'developer'], ['cloud_operator', 'správce serverů', 'cloud operator'], ['game_operator', 'správce herních serverů', 'game operator'], ['viewer', 'jen čtení', 'viewer']];
 
   function A() { return window.OnhostApi; }
@@ -70,8 +72,9 @@
     var presets = [
       [_('jen čtení', 'read only'), ['services:read', 'invoices:read', 'domains:read', 'wallet:read']],
       [_('provoz služeb', 'operate services'), ['services:read', 'services:power', 'domains:read', 'dns:write', 'tickets:write']],
-      [_('všechny rozsahy', 'all scopes'), Object.keys(SCOPES)]
+      [_('všechny rozsahy', 'all scopes'), Object.keys(SCOPES).filter(function (k) { return EXPLICIT_ONLY.indexOf(k) < 0; })]
     ];
+    var consoleYes = _('ano — klíč otevře konzoli serveru a spustí na něm příkazy', 'yes — the key opens the server console and runs commands on it');
     var failing = hooks.filter(function (h) { return (h.failures || 0) > 0; }).length;
     return {
       crumb: _('Vývoj', 'Development'), title: _('API klíče a webhooky', 'API keys and webhooks'),
@@ -86,19 +89,21 @@
         fields: [
           { key: 'keyName', label: _('Název klíče', 'Key name'), ph: 'deploy-bot', kind: 'text' },
           { key: 'keyScope', label: _('Rozsah', 'Scope'), kind: 'select', options: presets.map(function (p) { return p[0]; }) },
+          { key: 'keyConsole', label: _('Konzole a příkazy (services:console)', 'Consoles and commands (services:console)'), kind: 'select', options: [_('ne', 'no'), consoleYes] },
           { key: 'keyDays', label: _('Platnost (dní, max. 365)', 'Validity (days, max. 365)'), ph: '365', kind: 'text' }
         ],
         cta: _('Vytvořit klíč', 'Create key'),
-        hint: _('Klíč uvidíte jen jednou, hned po vytvoření. Posílá se v hlavičce Authorization: Bearer.', 'The key is shown once, right after creation. Send it in the Authorization: Bearer header.'),
+        hint: _('Klíč uvidíte jen jednou, hned po vytvoření. Posílá se v hlavičce Authorization: Bearer. Konzole a příkazy dávejte jen klíči, který je opravdu potřebuje: kdo klíč má, dostane se do serveru.', 'The key is shown once, right after creation. Send it in the Authorization: Bearer header. Give consoles and commands only to a key that really needs them: whoever holds the key gets into the server.'),
         submit: function () {
           var name = String(s.keyName || '').trim();
           if (!name) { flash(cmp, _('Chybí název', 'Name missing'), _('Pojmenujte klíč, ať víte, kdo ho používá.', 'Name the key so you know who uses it.')); return; }
           var preset = presets.filter(function (p) { return p[0] === s.keyScope; })[0] || presets[0];
           var days = parseInt(s.keyDays, 10);
-          A().post('/tokens', { name: name, scopes: preset[1], expires_in_days: days > 0 ? Math.min(365, days) : 365 }, A().key()).then(function (r) {
+          var scopes = preset[1].concat(s.keyConsole === consoleYes ? ['services:console'] : []);
+          A().post('/tokens', { name: name, scopes: scopes, expires_in_days: days > 0 ? Math.min(365, days) : 365 }, A().key()).then(function (r) {
             var d = r.data || r;
             S.lastToken = { name: d.name || name, token: d.token, expires: d.expires_at };
-            cmp.setState({ keyName: '' });
+            cmp.setState({ keyName: '', keyConsole: '' });
             flash(cmp, _('Klíč vytvořen', 'Key created'), _('Zkopírujte si ho z rámečku nad tabulkou — podruhé se nezobrazí.', 'Copy it from the box above the table — it will not be shown again.'));
             reload(cmp, 'tokens');
           }).catch(function (e) { fail(cmp, _, e); });
@@ -111,7 +116,7 @@
         return {
           name: t.name, sub: (t.scopes || []).map(function (k) { return SCOPES[k] ? (cs ? SCOPES[k][0] : SCOPES[k][1]) : k; }).join(', ') || '—',
           c2: (t.scopes || []).join(', '),
-          state: expired ? _('vypršel', 'expired') : _('aktivní', 'active'), stateStyle: H.pill(expired ? 'off' : 'ok'),
+          state: expired ? _('vypršel', 'expired') : ((t.scopes || []).indexOf('services:console') >= 0 ? _('aktivní · konzole', 'active · console') : _('aktivní', 'active')), stateStyle: H.pill(expired ? 'off' : ((t.scopes || []).indexOf('services:console') >= 0 ? 'warn' : 'ok')),
           barStyle: H.bar(expired ? 5 : 100, expired ? 'off' : 'ok'), metric: (t.last_used_at ? when(t.last_used_at, cs) : _('nepoužit', 'unused')) + (t.expires_at ? ' · ' + _('platí do ', 'valid until ') + day(t.expires_at, cs) : ''), rowStyle: H.rowStyle,
           action: _('Zrušit', 'Revoke'), actionCls: 'btn btn-secondary',
           onAction: function () {

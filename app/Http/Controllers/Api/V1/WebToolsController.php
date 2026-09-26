@@ -210,7 +210,7 @@ final class WebToolsController extends ApiController
     /** Staff single sign-on link into the customer's panel account (recorded; expires within a minute). */
     public function panelLogin(Request $request, ServiceFeatures $features, AuditRecorder $audit, string $service): JsonResponse
     {
-        $this->api->authorize($request, 'staff.console', CommandScope::global());
+        $this->api->authorizeAction($request, 'staff.console', CommandScope::global()); // a login into the customer's panel: a fresh step-up first
         $model = Service::query()->find($service);
         if ($model === null) {
             throw DomainError::notFound('service');

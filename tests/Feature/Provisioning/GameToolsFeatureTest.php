@@ -5,14 +5,18 @@ declare(strict_types=1);
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Services\Access\ServiceAccessService;
 use Onhost\Domain\Services\DelegatedAccessReview;
 use Onhost\Domain\Services\Models\Backup;
+use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\ServiceSpecService;
 use Onhost\Domain\Services\UsageWatch;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
@@ -226,6 +230,48 @@ it('offers the game tabs, runs every change as an operation, enforces plan limit
     $this->postJson("/v1/services/{$service->id}/actions", ['action' => 'panel.password', 'params' => ['password' => 'Nove-Heslo-1234567']])->assertForbidden()->assertJsonPath('error', 'step_up_required');
     expect($state['panel_password'])->toBeNull();
     expect(DB::table('provider_calls')->where('instance_key', 'pterodactyl-games01')->pluck('request')->implode(' '))->not->toContain('CLIENTKEY')->not->toContain('APPLICATIONKEY');
+});
+
+it('lets only the organization owner set the game panel password: not an admin, an operator, a shared console or staff (owner decision 15)', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = featureGameService($org);
+    $state = gameToolsState();
+    gameToolsFake($state);
+    $organizations = app(OrganizationService::class);
+    $stepUp = app(StepUpService::class);
+    $members = [];
+    foreach (['org_admin', 'game_operator'] as $role) {
+        $members[$role] = $this->customer();
+        $organizations->attachMember($org, $members[$role], $role, CommandContext::system('test'), true);
+    }
+    $members['guest'] = $this->customer(['email' => 'agentura@liga.test']);
+    $organizations->attachMember($org, $members['guest'], 'guest', CommandContext::system('test'), true);
+    app(ServiceAccessService::class)->share($org, $service, 'agentura@liga.test', ['console'], $this->contextFor($owner, $org, 'totp'));
+
+    // the panel account opens every server of the account: whoever else may manage the service is shown the tab closed and refused
+    foreach ($members as $role => $member) {
+        $this->actingAs($member, 'sanctum');
+        $stepUp->grant($member, 'totp', null, '127.0.0.1');
+        expect($this->getJson("/v1/services/{$service->id}/features")->assertOk()->json('data.features.panel_access'))->toBe(['enabled' => false, 'reason' => ServiceFeatures::REASON_PERMISSION], $role);
+        $this->withHeader('Idempotency-Key', "g-panel-{$role}")->postJson("/v1/services/{$service->id}/actions", ['action' => 'panel.password', 'params' => ['password' => 'Nove-Heslo-1234567']])->assertForbidden()->assertJsonPath('error', 'access_not_approved');
+    }
+    expect($state['panel_password'])->toBeNull()->and(Operation::query()->where('service_id', $service->id)->count())->toBe(0);
+
+    // the owner, with a fresh step-up, does it
+    $this->actingAs($owner, 'sanctum');
+    $stepUp->grant($owner, 'totp', null, '127.0.0.1');
+    expect($this->getJson("/v1/services/{$service->id}/features")->assertOk()->json('data.features.panel_access.enabled'))->toBeTrue();
+    $id = $this->withHeader('Idempotency-Key', 'g-panel-owner')->postJson("/v1/services/{$service->id}/actions", ['action' => 'panel.password', 'params' => ['password' => 'Nove-Heslo-2026b']])->assertStatus(202)->json('operation_id');
+    expect(driveOperation(Operation::query()->findOrFail($id))->state)->toBe(Operation::SUCCEEDED)->and($state['panel_password'])->toBe('Nove-Heslo-2026b');
+
+    // past the bus the rule still holds: an admin's context, a staff break-glass account, a system run
+    $ownerOnly = fn (CommandContext $context, string $key) => expect(fn () => app(ServiceService::class)->requestAction($service->fresh(), 'panel.password', $context, $key, ['password' => 'Nove-Heslo-1234567']))
+        ->toThrow(fn (DomainError $e) => expect([$e->error, $e->status])->toBe(['owner_only_action', 403]));
+    $ownerOnly($this->contextFor($members['org_admin'], $org, 'totp'), 'g-panel-direct-admin');
+    $ownerOnly($this->contextFor($this->staff('platform_owner'), $org, 'totp'), 'g-panel-direct-staff');
+    $ownerOnly(CommandContext::system('test'), 'g-panel-direct-system');
+    $ownerOnly(new CommandContext('user', $owner->id, $org->id, stepUpMethod: 'totp', onBehalfOfUserId: $members['org_admin']->id), 'g-panel-direct-impersonated');
+    expect($state['panel_password'])->toBe('Nove-Heslo-2026b');
 });
 
 it('reads and applies the declarative spec of a game server and measures its usage', function () {

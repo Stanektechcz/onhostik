@@ -31,6 +31,7 @@ use Onhost\Domain\Provisioning\ProviderRegistry;
 use Onhost\Domain\Provisioning\Reconciler;
 use Onhost\Domain\Provisioning\Scheduling\NodeRebalancer;
 use Onhost\Domain\Provisioning\ServiceMigrationService;
+use Onhost\Domain\Services\Limits\LimitRaisePolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\ServiceService;
@@ -174,17 +175,7 @@ final class ProvisioningCommandHandler implements CommandHandler
             })(),
             // rebalancing (audit §5i): the plan's moves become migrations, usually inside a window the customers may move
             // sandbox tenant (audit §5j-9): provisioning goes to lab instances, a promo credit to test with, no loyalty and no commissions
-            'service.create' => (function () use ($command, $context) { // §5o: a staff quick action — the same create path an order takes
-                $organization = Organization::query()->find((string) $command->get('organization_id')) ?? throw DomainError::notFound('organization');
-                $product = Product::query()->where('key', (string) $command->get('product_key'))->first() ?? throw DomainError::notFound('product');
-                $planKey = (string) $command->get('plan_key', '');
-                $plan = $planKey !== '' ? Plan::query()->where('product_id', $product->id)->where('key', $planKey)->first() ?? throw DomainError::notFound('plan') : null;
-                $config = (array) $command->get('config', []);
-                $service = $this->services->create($organization, $product, $plan?->currentVersion(), $config, $context->withScope($organization->id), null, isset($config['label']) && $config['label'] !== '' ? (string) $config['label'] : null);
-                $operation = Operation::query()->where('service_id', $service->id)->orderByDesc('queued_at')->first();
-
-                return ['service' => Presenters::service($service->refresh()), 'operation_id' => $operation?->id, 'operation_state' => $operation?->state];
-            })(),
+            'service.create' => $this->createService($command, $context), // §5o: a staff quick action — the same create path an order takes
             'tenant.sandbox' => (function () use ($command, $context) {
                 $organization = Organization::query()->find((string) $command->get('organization_id')) ?? throw DomainError::notFound('organization');
                 $enabled = filter_var($command->get('enabled', true), FILTER_VALIDATE_BOOL);
@@ -279,6 +270,34 @@ final class ProvisioningCommandHandler implements CommandHandler
             })(),
             default => throw new DomainError('provisioning_op_unknown', "Unknown provisioning operation {$command->op()}.", 422),
         };
+    }
+
+    /**
+     * A service without an order gets its plan, not more: more is a raise, and a raise is an order (TASK-0022 limit-raise). A product
+     * that sells plans takes one with a current version (review round 3: without it the options check was skipped and every option
+     * was free); more than the plan sells only with a second person's waiver bound to exactly this request, recorded on the service.
+     *
+     * @return array<string,mixed>
+     */
+    private function createService(ProvisioningCommand $command, CommandContext $context): array
+    {
+        $organization = Organization::query()->find((string) $command->get('organization_id')) ?? throw DomainError::notFound('organization');
+        $product = Product::query()->where('key', (string) $command->get('product_key'))->first() ?? throw DomainError::notFound('product');
+        $planKey = (string) $command->get('plan_key', '');
+        $plan = $planKey !== '' ? Plan::query()->where('product_id', $product->id)->where('key', $planKey)->first() ?? throw DomainError::notFound('plan') : null;
+        $version = LimitRaisePolicy::staffCreateVersion($product, $plan);
+        $config = (array) $command->get('config', []);
+        $waiver = $command->waivesLimits() ? LimitRaisePolicy::staffCreateWaiver($command, $context, (string) $command->get('note', '')) : null;
+        if ($waiver === null) {
+            LimitRaisePolicy::assertStaffCreateWithinPlan($version, $config, fn ($v, array $options) => $this->services->entitlementsFor($v, $options, $product));
+        }
+        $service = $this->services->create($organization, $product, $version, $config, $context->withScope($organization->id), null, isset($config['label']) && $config['label'] !== '' ? (string) $config['label'] : null);
+        if ($waiver !== null) { // what was given above the plan, and on whose second signature
+            $service->forceFill(['tags' => array_replace((array) $service->fresh()?->tags, ['limit_waiver' => $waiver->toArray()])])->save();
+        }
+        $operation = Operation::query()->where('service_id', $service->id)->orderByDesc('queued_at')->first();
+
+        return ['service' => Presenters::service($service->refresh()), 'operation_id' => $operation?->id, 'operation_state' => $operation?->state];
     }
 
     private function findInstance(ProvisioningCommand $command): ProviderInstance

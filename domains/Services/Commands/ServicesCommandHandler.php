@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services\Commands;
 
+use Onhost\Domain\Billing\ServiceReinstatement;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Services\CustomerActionParams;
+use Onhost\Domain\Services\Limits\LimitRaisePolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Platform\Commands\Command;
@@ -15,6 +17,15 @@ use Onhost\Platform\Errors\DomainError;
 
 final class ServicesCommandHandler implements CommandHandler
 {
+    /**
+     * A cancelled service brought back after its paid period ran out, whose customer had auto-renew off (TASK-0027 review
+     * round 1): billing restarts today, but nobody who may spend the credit agreed to renew it, so it ends again at the next
+     * renewal pass. The resume goes ahead; whoever sent it (in practice staff — a customer is asked to pay first) is told.
+     */
+    private const ENDS_AGAIN = 'restore_ends_at_renewal';
+
+    private const ENDS_AGAIN_MESSAGE = 'Služba se obnoví, ale zaplacené období už skončilo a automatické prodlužování zůstává vypnuté, jak ho zákazník nechal: při příštím průchodu obnov služba znovu skončí, pokud ji zákazník nezaplatí (obnovení s platbou) nebo vlastník či správce fakturace nezapne automatické prodlužování.';
+
     public function __construct(private readonly ServiceService $services) {}
 
     public function handle(Command $command, CommandContext $context): mixed
@@ -37,10 +48,15 @@ final class ServicesCommandHandler implements CommandHandler
         $params = (array) $command->get('params', []);
         if (! $this->isStaff($context)) { // a customer's request keeps only what a customer may choose (H21)
             $params = CustomerActionParams::filter($action, $params);
+        } elseif ($action === 'resize') { // staff repair or lower; more than the service holds is a raise, and a raise is an order (TASK-0022)
+            LimitRaisePolicy::assertNoUnbilledRaise($service, (array) ($params['entitlements'] ?? []));
+            LimitRaisePolicy::assertNoUnbilledLimits($service, (array) ($params['limits'] ?? []));
         }
+        $endsAgain = $action === 'resume' && app(ServiceReinstatement::class)->restoreEndsAgain($service); // read before the resume undoes the cancellation
         $operation = $this->services->requestAction($service, $action, $context, $command->idempotencyKey, $params, authorizedPermission: $command->permission()); // the permission the bus just checked is the one the run asks for again before each step (H315)
 
-        return ['operation_id' => $operation->id, 'state' => $operation->state, 'kind' => $operation->kind, 'service_state' => $service->fresh()->state];
+        return ['operation_id' => $operation->id, 'state' => $operation->state, 'kind' => $operation->kind, 'service_state' => $service->fresh()->state]
+            + ($endsAgain ? ['warning' => ['code' => self::ENDS_AGAIN, 'message' => self::ENDS_AGAIN_MESSAGE]] : []);
     }
 
     /** Staff work through the same command (a forced purge with a reason); everybody else is a customer, whatever they are: a person, a token, an assistant. */

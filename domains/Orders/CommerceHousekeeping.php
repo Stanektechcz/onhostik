@@ -40,7 +40,8 @@ final class CommerceHousekeeping
             }
         }
 
-        return $expired;
+        // TASK-0021: a credit order nobody approved is unpaid as well; it expires after its own deadline (credit_approval.expire_days)
+        return $expired + app(CreditOrderApprovals::class)->expirePending();
     }
 
     /** @return array{quotes:int, carts:int} */

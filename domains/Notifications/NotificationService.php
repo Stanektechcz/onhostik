@@ -32,6 +32,8 @@ final class NotificationService
         'incident' => 'incident.affecting', 'incident-resolved' => 'incident.affecting', 'maintenance' => 'incident.affecting', 'payout' => 'partner', 'sla-credit' => 'invoice.issued', 'data-export' => 'legal.notice', 'legal-notice' => 'legal.notice',
         'site-down' => 'service', 'site-up' => 'service', 'service-stopped' => 'service', 'service-running' => 'service', 'deploy-failed' => 'service', 'import-finished' => 'service', 'certificate-failed' => 'service',
         'wallet-topup' => 'wallet', 'payment-received' => 'invoice.issued', 'wallet-runway' => 'wallet',
+        'order-approval-required' => 'order', 'order-approval-rejected' => 'order', // TASK-0021
+        'withdrawal-accepted' => 'legal.notice', // TASK-0025: the confirmation of a consumer's withdrawal is a mandatory legal notice
     ];
 
     public function notify(string $audience, string $kind, string $title, ?string $body = null, ?string $surface = null, ?string $organizationId = null, ?string $userId = null, ?string $refType = null, ?string $refId = null, ?string $event = null, string $severity = 'info', string $locale = 'cs'): ?Notification

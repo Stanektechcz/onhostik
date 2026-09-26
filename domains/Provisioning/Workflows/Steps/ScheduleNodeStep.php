@@ -6,6 +6,7 @@ namespace Onhost\Domain\Provisioning\Workflows\Steps;
 
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
+use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
 use Onhost\Domain\Provisioning\Workflow\StepContext;
 use Onhost\Domain\Provisioning\Workflow\StepResult;
 use Onhost\Domain\Provisioning\Workflows\ServiceStep;
@@ -32,9 +33,16 @@ final class ScheduleNodeStep extends ServiceStep
             return StepResult::done(['node_id' => $service->node_id, 'node_name' => $node?->name, 'provider_instance_id' => $service->provider_instance_id, 'region' => $service->region_code]);
         }
         $ent = (array) $service->entitlements;
+        // what the plan sells may bind it to some panels (PlacementRules, decision 7); only specs made after the rule carry `requires`,
+        // so a service already in flight is placed exactly as before
+        $providers = PlacementRules::providersFor((array) $context->desired('requires', []));
+        $provider = $this->provider ?? $context->desired('executor');
+        if ($providers !== null && ! in_array((string) $provider, $providers, true)) {
+            return StepResult::fail("placement_rule_violation: the plan cannot run on a {$provider} panel", false, ['requires' => (array) $context->desired('requires', [])]);
+        }
         try {
             $pick = $context->container->make(NodeScheduler::class)->place($service, array_filter([ // picks and holds in one step: a parallel placement waits and counts this one (H04)
-                'role' => $this->role, 'provider' => $this->provider ?? $context->desired('executor'), 'region' => $service->region_code ?? $context->desired('region'),
+                'role' => $this->role, 'provider' => $provider, 'providers' => $providers, 'region' => $service->region_code ?? $context->desired('region'),
                 'ram_mb' => (int) ($ent['ram_mb'] ?? 0), 'cpu_cores' => (int) ($ent['vcpu'] ?? 0), 'disk_gb' => (int) ($ent['nvme_gb'] ?? 0),
                 'anti_affinity' => (array) $context->desired('anti_affinity', []), 'affinity_failure_domain' => $context->desired('failure_domain'),
                 'placement' => (array) $context->desired('placement', []),

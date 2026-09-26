@@ -105,7 +105,12 @@ final class IdentityCommandAuthorizer implements CommandAuthorizer
             if ($approval === null) {
                 return AuthorizationDecision::deny('This action takes a second person: a request for approval was opened. Repeat it with approval_ids once somebody else has approved it.', 'approval');
             }
-            $approval->forceFill(['consumed_at' => now(), 'state' => 'consumed'])->save();
+            // spent once: two requests that both read it as unused race here, and only the one whose update changes the row goes on
+            // (TASK-0022 review round 2 — a plain save let one approval carry two free raises or one price change twice)
+            $spent = Approval::query()->whereKey($approval->id)->where('state', 'approved')->whereNull('consumed_at')->update(['consumed_at' => now(), 'state' => 'consumed']);
+            if ($spent !== 1) {
+                return AuthorizationDecision::deny('This approval has just been used by another request. Ask for a new one.', 'approval');
+            }
             $approvalIds[] = $approval->id;
         }
 

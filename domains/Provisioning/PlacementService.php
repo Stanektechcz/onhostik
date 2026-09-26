@@ -8,6 +8,7 @@ use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Provisioning\Models\Node;
 use Onhost\Domain\Provisioning\Models\PlanPlacement;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Provisioning\Scheduling\PlacementRules;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -26,8 +27,13 @@ final class PlacementService
 
     public function __construct(private readonly AuditRecorder $audit) {}
 
-    /** A one-order placement on a named instance (staff pin, audit §5z): unsaved, only when the instance is usable and compatible with the product. */
-    public function pinned(Product $product, string $instanceKey): PlanPlacement
+    /**
+     * A one-order placement on a named instance (staff pin, audit §5z): unsaved, only when the instance is usable and compatible with the product
+     * — and with what the plan sells (`PlacementRules`: dedicated PHP workers never go to a node-wide pool).
+     *
+     * @param  array<string,mixed>  $entitlements  the plan's entitlements
+     */
+    public function pinned(Product $product, string $instanceKey, array $entitlements = []): PlanPlacement
     {
         $instance = ProviderInstance::query()->where('key', $instanceKey)->orWhere('id', $instanceKey)->first();
         if ($instance === null || ! $instance->isUsable()) {
@@ -37,6 +43,7 @@ final class PlacementService
         if (! in_array($instance->provider, $allowed, true)) {
             throw new DomainError('placement_incompatible', "Product {$product->key} ({$product->executor}) cannot run on a {$instance->provider} instance.", 422, ['field' => 'placement_instance']);
         }
+        self::assertPlanAllows($product, $instance, $entitlements, 'placement_instance');
         $placement = new PlanPlacement(['product_key' => $product->key, 'provider_instance_id' => $instance->id, 'priority' => 0, 'state' => 'active', 'note' => 'pinned for one order']);
         $placement->setRelation('providerInstance', $instance);
         $placement->setRelation('node', null);
@@ -44,14 +51,22 @@ final class PlacementService
         return $placement;
     }
 
-    /** The placement that applies to a plan in a region, or null when scheduling should fall back to roles. */
-    public function resolve(string $productKey, ?string $planKey, ?string $regionCode): ?PlanPlacement
+    /**
+     * The placement that applies to a plan in a region, or null when scheduling should fall back to roles. A placement on a panel the plan may not
+     * run on (`PlacementRules`, e.g. a product-wide aaPanel placement for a plan with dedicated PHP workers) does not apply to it.
+     *
+     * @param  array<string,mixed>  $entitlements  the plan's entitlements
+     */
+    public function resolve(string $productKey, ?string $planKey, ?string $regionCode, array $entitlements = []): ?PlanPlacement
     {
+        $executor = PlacementRules::dedicatedPhp($entitlements) ? (string) Product::query()->where('key', $productKey)->value('executor') : '';
+
         return PlanPlacement::query()->with(['providerInstance', 'node'])->where('product_key', $productKey)->where('state', 'active')
             ->where(fn ($q) => $q->whereNull('plan_key')->when($planKey !== null, fn ($q) => $q->orWhere('plan_key', $planKey)))
             ->where(fn ($q) => $q->whereNull('region_code')->when($regionCode !== null, fn ($q) => $q->orWhere('region_code', $regionCode)))
             ->get()
             ->filter(fn (PlanPlacement $p) => $p->providerInstance !== null && $p->providerInstance->isUsable() && ($p->node_id === null || ($p->node !== null && $p->node->isSchedulable())))
+            ->filter(fn (PlanPlacement $p) => $executor === '' || PlacementRules::allows($executor, $p->providerInstance instanceof ProviderInstance ? (string) $p->providerInstance->provider : '', $entitlements))
             ->sortBy([fn ($a, $b) => $b->specificity() <=> $a->specificity(), fn ($a, $b) => $a->priority <=> $b->priority])
             ->first();
     }
@@ -75,6 +90,9 @@ final class PlacementService
         if (! in_array($instance->provider, $allowed, true)) {
             throw new DomainError('placement_incompatible', "Product {$product->key} ({$product->executor}) cannot run on a {$instance->provider} instance; allowed: ".implode(', ', $allowed).'.', 422, ['field' => 'provider_instance_key']);
         }
+        if ($planKey !== null) {
+            self::assertPlanAllows($product, $instance, (array) $product->plans()->where('key', $planKey)->first()?->currentVersion()?->entitlements, 'provider_instance_key');
+        }
         $node = null;
         if (! empty($input['node_id'])) {
             $node = Node::query()->where('provider_instance_id', $instance->id)->where(fn ($q) => $q->where('id', (string) $input['node_id'])->orWhere('name', (string) $input['node_id']))->first();
@@ -90,6 +108,14 @@ final class PlacementService
         $this->audit->record($context, 'placement.upsert', 'succeeded', ['product' => $product->key, 'plan' => $planKey, 'region' => $regionCode, 'instance' => $instance->key, 'node' => $node?->name], 'plan_placement', $placement->id);
 
         return $placement->load(['providerInstance', 'node']);
+    }
+
+    /** @param array<string,mixed> $entitlements */
+    private static function assertPlanAllows(Product $product, ProviderInstance $instance, array $entitlements, string $field): void
+    {
+        if (! PlacementRules::allows((string) $product->executor, (string) $instance->provider, $entitlements)) {
+            throw new DomainError('placement_requires_dedicated_php', 'This plan sells dedicated PHP workers; it can only run on a panel that gives every site a PHP pool of its own.', 422, ['field' => $field]);
+        }
     }
 
     public function delete(string $id, CommandContext $context): void

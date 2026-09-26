@@ -12,6 +12,7 @@ use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Integrations\Models\DiscordLink;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\CustomerActionParams;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -40,8 +41,8 @@ final class DiscordService
 {
     public const COMMAND_NAME = 'onhost';
 
-    /** Actions a Discord button may confirm (never terminate/restore: those need the panel and a step-up). */
-    public const BUTTON_ACTIONS = ['power', 'backup', 'deploy.run', 'deploy.rollback', 'staging.refresh', 'staging.push', 'wp.update', 'wp.cache', 'cdn.purge', 'cron.run', 'ssl.issue', 'https.force', 'monitoring.set'];
+    /** Actions a Discord button may confirm (never terminate/restore, never a step-up action such as staging.push: those need the panel and a step-up). */
+    public const BUTTON_ACTIONS = ['power', 'backup', 'deploy.run', 'deploy.rollback', 'staging.refresh', 'wp.update', 'wp.cache', 'cdn.purge', 'cron.run', 'ssl.issue', 'https.force', 'monitoring.set'];
 
     public function __construct(
         private readonly ServiceService $services, private readonly ServiceFeatures $features, private readonly Authorizer $authorizer, private readonly AssistantService $assistant,
@@ -342,24 +343,37 @@ final class DiscordService
             return ['type' => 7, 'data' => ['content' => 'Služba už neexistuje.', 'components' => []]];
         }
         $t = fn (string $cs, string $en) => $link->locale === 'en' ? $en : $cs;
-        $operation = $this->execute($link, $organization, $user, $service, (string) $proposal['action'], (array) $proposal['params']);
+        // the button's own key (TASK-0029 review round 2): a double click or Discord's retry can read the proposal twice before the
+        // forget above; the second start then finds this operation instead of starting the action again
+        $operation = $this->execute($link, $organization, $user, $service, (string) $proposal['action'], (array) $proposal['params'], 'discord:'.$link->id.':'.substr($customId, 4));
 
         return ['type' => 7, 'data' => ['content' => '▶️ '.$t('Spuštěno: ', 'Started: ').$proposal['label'].' · '.$t('operace ', 'operation ').substr($operation->id, -6).$t('. Průběh v panelu nebo `/onhost status`.', '. Progress in the panel or `/onhost status`.'), 'components' => []]];
     }
 
     // ── execution ────────────────────────────────────────────────────────────────────────────────────────
 
-    private function execute(DiscordLink $link, Organization $organization, User $user, Service $service, string $action, array $params): Operation
+    /** @param  string|null  $idempotencyKey  a button's own key; a typed command is a new request each time */
+    private function execute(DiscordLink $link, Organization $organization, User $user, Service $service, string $action, array $params, ?string $idempotencyKey = null): Operation
     {
         if (in_array($action, ['terminate', 'restore', 'rollback_snapshot', 'suspend', 'resume', 'resize'], true)) {
             throw new DomainError('discord_action_forbidden', 'This action needs the client panel and a second verification.', 403);
         }
-        $permission = in_array($action, ['restore', 'rollback_snapshot'], true) ? 'backup.restore' : 'service.manage';
+        // the action's own permission, as the bus asks it (TASK-0029 D29.7): a button is no way around the map. An action nobody
+        // mapped is refused like a forbidden one, and one that needs a fresh step-up cannot be confirmed by a click in a chat.
+        $params = CustomerActionParams::filter($action, $params);
+        try {
+            $permission = ServiceActionCommand::permissionFor($action, $params);
+        } catch (DomainError $e) {
+            throw $e->error === 'service_action_unknown' ? new DomainError('discord_action_forbidden', 'This action is not available on Discord.', 403) : $e;
+        }
+        if (ServiceActionCommand::needsFreshStepUp($action)) {
+            throw new DomainError('discord_action_forbidden', 'This action needs the client panel and a second verification.', 403);
+        }
         if (! $this->authorizer->can($user, $permission, CommandScope::organization($organization->id))) {
             throw new DomainError('forbidden', 'Your account may not manage this service.', 403);
         }
         $context = $this->context($link, $user, $action);
-        $operation = $this->services->requestAction($service, $action, $context, 'discord:'.$link->id.':'.$action.':'.Str::lower(Str::random(12)), CustomerActionParams::filter($action, $params));
+        $operation = $this->services->requestAction($service, $action, $context, $idempotencyKey ?? 'discord:'.$link->id.':'.$action.':'.Str::lower(Str::random(12)), $params, authorizedPermission: $permission); // the run re-checks the same permission (H315)
         $this->audit->record($context, 'integration.discord.command', 'succeeded', ['action' => $action, 'params' => array_keys($params), 'operation_id' => $operation->id], 'service', $service->id);
 
         return $operation;

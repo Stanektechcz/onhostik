@@ -48,7 +48,7 @@ Zpracování osobních údajů popisují Zásady ochrany osobních údajů; zpra
 
 ## 8. Ustanovení pro spotřebitele
 
-1. Spotřebitel může od smlouvy odstoupit do 14 dnů od jejího uzavření bez udání důvodu. Požádá-li spotřebitel o zahájení poskytování služby před uplynutím této lhůty, hradí poměrnou část ceny za již poskytnuté plnění; u služeb zcela poskytnutých s jeho výslovným souhlasem právo na odstoupení zaniká.
+1. Spotřebitel může od smlouvy odstoupit do 14 dnů od jejího uzavření bez udání důvodu. Požádá-li spotřebitel o zahájení poskytování služby před uplynutím této lhůty, hradí poměrnou část ceny za již poskytnuté plnění; u služeb zcela poskytnutých s jeho výslovným souhlasem právo na odstoupení zaniká. Takovou službou je zejména registrace domény, která je dokončena zápisem do registru; od provedené registrace domény nelze odstoupit. Postup odstoupení a způsob vrácení plateb popisuje Poučení o právu na odstoupení ({{portal}}/dokumenty/odstoupeni).
 2. Spory lze řešit mimosoudně u České obchodní inspekce (www.coi.cz) nebo prostřednictvím platformy pro řešení sporů online Evropské komise.
 
 ## 9. Závěrečná ustanovení

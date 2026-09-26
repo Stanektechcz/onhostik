@@ -31,6 +31,7 @@ use Onhost\Platform\Secrets\OpenBaoSecretStore;
 use Onhost\Platform\Secrets\SecretStore;
 use Onhost\Providers\AaPanel\AaPanelWebProvider;
 use Onhost\Providers\Contracts\IpGeoProvider;
+use Onhost\Providers\Contracts\VatNumberValidator;
 use Onhost\Providers\IpGeo\HttpIpGeoProvider;
 use Onhost\Providers\IpGeo\NullIpGeoProvider;
 use Onhost\Providers\IspConfig\IspConfigWebProvider;
@@ -40,6 +41,8 @@ use Onhost\Providers\PowerDns\PowerDnsProvider;
 use Onhost\Providers\Proxmox\ProxmoxComputeProvider;
 use Onhost\Providers\Pterodactyl\PterodactylGameProvider;
 use Onhost\Providers\Subreg\SubregRegistrarProvider;
+use Onhost\Providers\Vies\DisabledVatNumberValidator;
+use Onhost\Providers\Vies\ViesVatNumberValidator;
 use Onhost\Providers\Wedos\WedosRegistrarProvider;
 use Onhost\Providers\Wedos\WedosZoneDnsProvider;
 use RuntimeException;
@@ -78,6 +81,10 @@ final class PlatformServiceProvider extends ServiceProvider
 
             return $endpoint === '' ? new NullIpGeoProvider : new HttpIpGeoProvider($app->make('cache.store'), $endpoint, (int) config('onhost.orders.risk.geo.timeout_seconds', 2));
         });
+        // ── TASK-0031 ──
+        // VAT numbers in VIES (D31.1): off until go-live (ONHOST_VIES_ENABLED); resolved per call, so the switch needs no restart
+        $this->app->bind(VatNumberValidator::class, fn ($app): VatNumberValidator => (bool) config('onhost.vies.enabled', false) ? $app->make(ViesVatNumberValidator::class) : new DisabledVatNumberValidator);
+        // ── end TASK-0031 ──
         $this->app->singleton(Authorizer::class); // every holder shares it, so a revoked binding is forgotten everywhere at once
         $this->app->singleton(CommandAuthorizer::class, IdentityCommandAuthorizer::class);
         $this->app->singleton(CommandBus::class);

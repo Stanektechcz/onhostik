@@ -12,10 +12,15 @@ use Onhost\Domain\Identity\Authorization\RoleCatalog;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Incidents\OrganizationStatusService;
 use Onhost\Domain\Notifications\NotificationService;
+use Onhost\Domain\Orders\CreditOrderPolicy;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
+use Onhost\Domain\Tax\Jobs\CheckVatNumber;
+use Onhost\Domain\Tax\VatNumber;
+use Onhost\Domain\Tax\VatNumberChecks;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Errors\DomainError;
@@ -63,6 +68,7 @@ final class OrganizationService
 
             $this->audit->record($context->withScope($organization->id), 'organization.create', 'succeeded', ['name' => $name], 'organization', $organization->id);
             $this->outbox->publish(GenericEvent::of('organization.created', 'organization', $organization->id, ['name' => $name], $organization->id));
+            $this->queueVatCheck($organization); // TASK-0031: the number given at registration or in the guest checkout is checked in VIES
 
             return $organization;
         });
@@ -231,6 +237,10 @@ final class OrganizationService
         $allowed = ['name', 'type', 'ico', 'dic', 'vat_id', 'billing_email', 'street', 'city', 'postal_code', 'country', 'locale', 'auto_renew_default', 'ui_mode', 'domain_renewal_reserve_days', 'currency'];
         $before = $organization->only($allowed);
         $changes = array_intersect_key($attributes, array_flip($allowed));
+        if (array_key_exists('auto_renew_default', $changes) && (bool) $changes['auto_renew_default'] && ! (bool) $organization->auto_renew_default) {
+            // owner decision 20 (TASK-0021): the standing auto-renew default is the holder's consent to renewals paid from credit — the owner or the billing admin switches it on
+            app(CreditOrderPolicy::class)->assertMaySpend($organization, $context, 'Požádejte vlastníka o zapnutí automatického prodloužení.');
+        }
         if (isset($changes['currency'])) { // the account currency the customer picks (audit §5j-8): quotes, documents and the default wallet follow it; wallets are per currency already
             $changes['currency'] = strtoupper((string) $changes['currency']);
             if (! in_array($changes['currency'], ['CZK', 'EUR'], true)) {
@@ -252,12 +262,19 @@ final class OrganizationService
         }
         if (isset($changes['vat_id']) || isset($changes['ico'])) {
             $changes['customer_class'] = ! empty($changes['vat_id'] ?? $organization->vat_id) || ! empty($changes['ico'] ?? $organization->ico) ? 'b2b' : 'b2c';
-            if (isset($changes['vat_id']) && $changes['vat_id'] !== $organization->vat_id) {
-                $changes['vat_status'] = 'unknown';
-                $changes['vat_validated_at'] = null;
-            }
+        }
+        // TASK-0031: the recorded check belongs to one number. When the number the check is about changes — a new VAT ID, one
+        // removed, a DIČ changed while no VAT ID is set, a country that changes an unprefixed number — the evidence goes with it
+        $subjectBefore = VatNumber::forOrganization($organization)?->value;
+        $subjectAfter = VatNumber::forOrganization((clone $organization)->forceFill($changes))?->value;
+        if ($subjectBefore !== $subjectAfter) {
+            $changes = array_merge($changes, ['vat_status' => 'unknown', 'vat_validated_at' => null, 'vat_checked_at' => null, 'vat_checked_number' => null,
+                'vat_consultation_number' => null, 'vat_validation_id' => null, 'vat_status_source' => null, 'vat_override_until' => null]);
         }
         $organization->forceFill($changes)->save();
+        if ($subjectBefore !== $subjectAfter || array_intersect(array_keys($attributes), ['vat_id', 'dic']) !== []) {
+            $this->queueVatCheck($organization); // a re-submitted number that is not valid now is asked about again (the job skips one checked within the hour)
+        }
         $this->audit->record($context->withScope($organization->id), 'organization.update', 'succeeded', ['fields' => array_keys($changes)], 'organization', $organization->id, before: $before, after: $organization->only($allowed));
 
         return $organization;
@@ -284,6 +301,23 @@ final class OrganizationService
         $this->audit->record($context->withScope($organization->id, $project->id), 'project.create', 'succeeded', ['name' => $name], 'project', $project->id);
 
         return $project;
+    }
+
+    /**
+     * TASK-0031 (D31.3a): the VIES check of a number the organization gave runs on the queue after the commit, as the system
+     * — the customer never waits for the register, and nothing is asked while the switch is off or the number counts now.
+     */
+    private function queueVatCheck(Organization $organization): void
+    {
+        if (! (bool) config('onhost.vies.enabled', false) || VatNumber::forOrganization($organization) === null || VatStanding::effectiveStatus($organization) === VatStanding::VALID) {
+            return;
+        }
+        // review round 2: a number a staff override holds is not asked about, and an organization that has used its hourly VIES
+        // budget queues nothing (the job would only find the budget spent)
+        if (VatStanding::standing($organization)['reason'] === 'staff_override' || ! VatNumberChecks::withinBudget($organization)) {
+            return;
+        }
+        CheckVatNumber::dispatch($organization->id)->afterCommit();
     }
 
     private function assertCustomerRole(string $roleKey): void

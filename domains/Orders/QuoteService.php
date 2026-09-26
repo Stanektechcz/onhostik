@@ -16,7 +16,10 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Provisioning\GameConfigurator;
 use Onhost\Domain\Provisioning\GameTemplates;
 use Onhost\Domain\Provisioning\Models\Region;
+use Onhost\Domain\Provisioning\Scheduling\CartCapacity;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
+use Onhost\Domain\Services\Limits\LimitRaises;
+use Onhost\Domain\Services\Limits\LimitRaiseWaiver;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
 use Onhost\Domain\Services\PlanChangeService;
@@ -24,6 +27,7 @@ use Onhost\Domain\Services\PlanFit;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\Web\SiteNames;
 use Onhost\Domain\Tax\TaxEngine;
+use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Errors\DomainError;
 use Onhost\Platform\Money\Currency;
 use Onhost\Platform\Money\Money;
@@ -42,6 +46,7 @@ final class QuoteService
         private readonly CatalogService $catalog,
         private readonly TaxEngine $tax,
         private readonly PricingRules $rules,
+        private readonly LimitRaiseLine $limitRaise,
     ) {}
 
     /**
@@ -82,7 +87,7 @@ final class QuoteService
                 throw new DomainError('quantity_too_large', "At most {$max} of one service fit on one order line.", 422, ['field' => "items.{$index}.qty", 'max' => $max]);
             }
             $named = array_values(array_filter(['fqdn', 'domain', 'hostname'], fn (string $key) => ! empty($config[$key])));
-            if (($item['product_key'] ?? '') === 'domain' || ! empty($config['upgrade_of']) || $named !== []) {
+            if (($item['product_key'] ?? '') === 'domain' || ($item['product_key'] ?? '') === LimitRaises::PRODUCT || ! empty($config['upgrade_of']) || $named !== []) {
                 throw new DomainError('quantity_unsupported', 'This line names one thing (a domain name, a site, a service that changes its plan); add another line for another one.', 422, ['field' => "items.{$index}.qty"]);
             }
             for ($copy = 1; $copy <= $qty; $copy++) {
@@ -109,17 +114,19 @@ final class QuoteService
 
     /**
      * @param  list<array<string,mixed>>  $items
-     * @param  array{country?:string,customer_class?:string,vat_status?:string,ip_country?:?string}  $customer
+     * @param  array{country?:string,customer_class?:string,vat_id?:?string,vat_status?:string,vat_reason?:?string,vat_name_mismatch?:bool,ip_country?:?string}  $customer
      */
-    public function quote(array $items, Currency|string $currency, array $customer, int $commitMonths = 1, ?string $promoCode = null, ?Organization $organization = null, string $locale = 'cs'): Quote
+    public function quote(array $items, Currency|string $currency, array $customer, int $commitMonths = 1, ?string $promoCode = null, ?Organization $organization = null, string $locale = 'cs', ?LimitRaiseWaiver $waiver = null): Quote
     {
         $currency = $currency instanceof Currency ? $currency : Currency::fromString($currency);
         if ($organization !== null) {
             // who the customer is for tax and for the regional price list is a fact of the organization — its country, whether it
             // is a business, what VIES said about its VAT number — never something a request can say. A cart that claimed
-            // `b2b` + `vat_status: valid` from another EU country was quoted, ordered and invoiced without VAT.
-            $customer = ['country' => $organization->country, 'customer_class' => $organization->customer_class, 'vat_status' => $organization->vat_status] + ['ip_country' => $customer['ip_country'] ?? null];
+            // `b2b` + `vat_status: valid` from another EU country was quoted, ordered and invoiced without VAT. What VIES said counts
+            // through VatStanding only (TASK-0031): the number that was checked, at most 30 days ago, or a staff override in force.
+            $customer = VatStanding::taxCustomer($organization, $customer['ip_country'] ?? null);
         } else {
+            $customer['vat_id'] = null;
             $customer['vat_status'] = 'unknown'; // a guest's quote is an estimate; a VAT number is verified on the account, not claimed in a cart
         }
         $items = $this->expandQuantities($items); // one line is one service: a quantity is that many lines
@@ -161,6 +168,7 @@ final class QuoteService
         $discount = Money::zero($currency);
         $renewalTotal = Money::zero($currency);
 
+        $raised = []; // limit raises of this cart per service and number (LimitRaiseLine)
         $parentProducts = []; // cart lines that may carry add-ons (line id → product key)
         foreach ($items as $index => $item) {
             if (($item['product_key'] ?? '') !== 'domain' && empty($item['config']['parent_line_id'])) {
@@ -204,6 +212,15 @@ final class QuoteService
                 $subtotal = $subtotal->add($net);
                 $discount = $discount->add($lineDiscount);
                 $renewalTotal = $renewalTotal->add($renewal);
+
+                continue;
+            }
+            if ($productKey === LimitRaises::PRODUCT) { // one number of one service, at its product's option price (TASK-0022 limit-raise)
+                $line = $this->limitRaise->build($organization, $item, $currency, $lineId, $raised, $waiver, $locale);
+                $lines[] = $line;
+                $subtotal = $subtotal->add($line['unit_net']);
+                $discount = $discount->add($line['discount']);
+                $renewalTotal = $renewalTotal->add($line['renewal_net']);
 
                 continue;
             }
@@ -293,7 +310,7 @@ final class QuoteService
                 ]]);
             }
             if ($change === null) { // a server that no node can take is refused while it is a cart, not after it was paid (H04)
-                $this->assertCapacity($product, app(ServiceService::class)->entitlementsFor($resolved['version'], (array) ($config['options'] ?? []), $product), $config, $organization);
+                $this->assertCapacity($product, app(ServiceService::class)->entitlementsFor($resolved['version'], (array) ($config['options'] ?? []), $product), $config, $organization, (string) $planKey);
                 $this->assertNamesFree($product, $config, $organization, $claimed); // and neither is a name somebody else already serves
             }
             $versions['plans'][] = $resolved['version']->id;
@@ -318,8 +335,11 @@ final class QuoteService
 
         $taxInput = [
             'country' => $country,
-            'customer_class' => $customer['customer_class'] ?? $organization?->customer_class ?? 'b2c',
-            'vat_status' => $customer['vat_status'] ?? $organization?->vat_status ?? 'unknown',
+            'customer_class' => $customer['customer_class'] ?? 'b2c',
+            'vat_id' => $customer['vat_id'] ?? null,
+            'vat_status' => $customer['vat_status'] ?? VatStanding::UNKNOWN,
+            'vat_reason' => $customer['vat_reason'] ?? null,
+            'vat_name_mismatch' => (bool) ($customer['vat_name_mismatch'] ?? false),
             'ip_country' => $customer['ip_country'] ?? null,
         ];
         $taxResult = $this->tax->calculate($taxInput, array_map(fn ($l) => ['key' => $l['line_id'], 'net' => $l['net'], 'product_class' => $l['product_class']], $lines), $currency, $organization?->id);
@@ -346,7 +366,7 @@ final class QuoteService
             'renewal_total_minor' => $renewalTotal->minor,
             'tax_calculation_id' => $taxResult['calculation']->id,
             'tax_rule_version_id' => $taxResult['calculation']->rule_version_id,
-            'versions' => array_merge($versions, ['promo' => $promo?->code, 'commit_months' => $commitMonths, 'price_region' => $region['key'], 'price_region_pct' => $region['adjust_pct'], 'loyalty_pct' => $loyaltyPct, 'tax_review_required' => $taxResult['review_required'], 'tax_reasons' => $taxResult['reasons'], 'terms' => $this->currentTermsVersions()]),
+            'versions' => array_merge($versions, ['promo' => $promo?->code, 'commit_months' => $commitMonths, 'price_region' => $region['key'], 'price_region_pct' => $region['adjust_pct'], 'loyalty_pct' => $loyaltyPct, 'tax_review_required' => $taxResult['review_required'], 'tax_reasons' => $taxResult['reasons'], 'vat_review' => $taxResult['vat_review'], 'vat' => $organization !== null ? VatStanding::snapshot($organization) : null, 'terms' => $this->currentTermsVersions()]),
             'valid_until' => now()->addHours(2),
             'state' => 'open',
         ]);
@@ -386,17 +406,14 @@ final class QuoteService
      * @param  array<string,mixed>  $entitlements
      * @param  array<string,mixed>  $config
      */
-    private function assertCapacity(Product $product, array $entitlements, array $config, ?Organization $organization): void
+    private function assertCapacity(Product $product, array $entitlements, array $config, ?Organization $organization, ?string $planKey = null): void
     {
-        $role = ['proxmox' => 'compute', 'pterodactyl' => 'game'][(string) $product->executor] ?? null;
-        if ($role === null || ! config('onhost.provisioning.capacity_gate', true)) {
+        if (! config('onhost.provisioning.capacity_gate', true)) {
             return;
         }
         $region = (string) ($config['region'] ?? config('onhost.provisioning.default_region', 'cz1'));
-        $fits = app(NodeScheduler::class)->canHost([
-            'role' => $role, 'provider' => (string) $product->executor, 'region' => $region, 'sandbox' => NodeScheduler::sandboxFor($organization?->id),
-            'ram_mb' => (int) ($entitlements['ram_mb'] ?? 0), 'cpu_cores' => (int) ($entitlements['vcpu'] ?? 0), 'disk_gb' => (int) ($entitlements['nvme_gb'] ?? 0),
-        ]);
+        // servers since H04, web and managed hosting since TASK-0023 (the plan's placement, its panel rule and the disk it sells)
+        $fits = app(CartCapacity::class)->fits($product, $entitlements, $region, $planKey, NodeScheduler::sandboxFor($organization?->id));
         if ($fits === false) {
             throw new DomainError('capacity_sold_out', "{$product->key} of this size is sold out in {$region} right now. Nothing was ordered or charged; a smaller plan or another location may be available.", 409, ['field' => 'items', 'product' => $product->key, 'region' => $region]);
         }
@@ -459,7 +476,7 @@ final class QuoteService
             throw new DomainError('plan_change_same_plan', 'The service already runs this plan.', 422, ['field' => 'items']);
         }
         // …and it has to fit what the service already holds: a plan that sells one site does not take a service with three
-        app(PlanFit::class)->assertFits($service, (array) $version->entitlements);
+        app(PlanFit::class)->assertFits($service, LimitRaises::withActiveDeltas($service, (array) $version->entitlements)); // its paid raises go with it
 
         return [
             'service' => $service, 'subscription' => $subscription, 'from_plan' => $fromPlan, 'period' => $periodChange ? $requestedPeriod : $fromPeriod, 'from_period' => $fromPeriod, 'period_change' => $periodChange,

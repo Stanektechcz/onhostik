@@ -23,6 +23,13 @@
     Object.keys(ov).forEach(function (slug) {
       var page = pages[slug], o = ov[slug];
       if (!page || !o) return;
+      if (o.withdrawn) { // an offer the platform does not make (e.g. the school/student programmes, owner decision 21): a short notice instead of the advert
+        page.kicker = o.kicker || ''; page.title = o.title || page.title; page.lead = o.lead || '';
+        page.kpis = []; page.chips = []; page.plans = []; page.plansTitle = o.kicker || page.plansTitle; page.plansNote = o.lead || '';
+        page.feats = []; page.tech = []; page.bench = []; page.benchNote = ''; page.cases = []; page.faq = []; page.config = false; page.roi = false;
+        delete page.cmp; delete page.hourly;
+        return;
+      }
       if (o.unavailable) { // the product exists but is not on sale: no prices, no order buttons, a contact request instead
         page.kicker = o.kicker || page.kicker;
         page.plansNote = o.note || page.plansNote;
@@ -40,6 +47,7 @@
       if (o.cmp && o.cmp.rows && o.cmp.rows.length) page.cmp = { cols: o.cmp.cols, rows: o.cmp.rows };
       if (o.cmpTitle) page.cmpTitle = o.cmpTitle;
       if (o.kicker) page.kicker = o.kicker;
+      if (o.lead) page.lead = o.lead; // a lead that promised more than the plans sell (eshop, decision 7)
       if (o.chips && o.chips.length) page.chips = o.chips; // game pages: the templates the panel really offers
       if (o.kpi_games && page.kpis && page.kpis.length) page.kpis = [o.kpi_games].concat(page.kpis.slice(1));
     });

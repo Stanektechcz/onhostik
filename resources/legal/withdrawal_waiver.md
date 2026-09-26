@@ -6,8 +6,9 @@
 ## 1. Poučení o právu na odstoupení (spotřebitelé)
 
 1. Jako spotřebitel máte právo odstoupit od smlouvy uzavřené na dálku do 14 dnů od jejího uzavření bez udání důvodu.
-2. Odstoupení oznamte v zákaznickém panelu (sekce Účet) nebo e-mailem na {{entity_email}}; můžete použít vzorový formulář níže.
-3. Přijaté platby vrátíme do 14 dnů od doručení odstoupení stejným způsobem, jakým byly uhrazeny, nedohodneme-li se jinak.
+2. Odstoupení oznamte v zákaznickém panelu u dané služby (záložka Provoz a NOC, řádek „Odstoupení od smlouvy“) nebo e-mailem na {{entity_email}} či dopisem na adresu uvedenou níže; můžete použít vzorový formulář. Lhůta je zachována, odešlete-li oznámení před jejím uplynutím.
+3. Přijaté platby vrátíme do 14 dnů od doručení odstoupení stejným způsobem, jakým byly uhrazeny, nedohodneme-li se jinak. Při odstoupení v zákaznickém panelu můžete výslovně souhlasit s vrácením nevyužité zaplacené části dobropisem na kredit svého účtu; bez tohoto souhlasu vrátíme platbu původním způsobem na základě vaší žádosti podpoře.
+4. Registrace domény je dokončena jejím zápisem do registru; od provedené registrace domény proto odstoupit nelze. Tuto skutečnost uvádíme i v objednávce před jejím odesláním.
 
 ## 2. Žádost o zahájení plnění před uplynutím lhůty
 

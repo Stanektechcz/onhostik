@@ -7,6 +7,7 @@ namespace Onhost\Domain\Provisioning;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Onhost\Domain\Provisioning\Models\CapacityRequest;
 use Onhost\Domain\Provisioning\Models\Node;
+use Onhost\Domain\Provisioning\Scheduling\CapacityBasis;
 use Onhost\Domain\Provisioning\Scheduling\NodeRebalancer;
 use Onhost\Domain\Provisioning\Scheduling\NodeScheduler;
 use Onhost\Domain\Services\Models\Service;
@@ -26,7 +27,7 @@ final class CapacityForecast
     public function __construct(private readonly NodeScheduler $scheduler, private readonly NodeRebalancer $rebalancer, private readonly OutboxPublisher $outbox, private readonly CacheRepository $cache) {}
 
     /**
-     * @return list<array{role:string, region:?string, nodes:int, sellable_mb:int, sold_mb:int, used_mb:int, headroom_mb:int, growth_mb_per_day:int, days_left:?int, low:bool, basis:string}>
+     * @return list<array{role:string, region:?string, nodes:int, sellable_mb:int, sold_mb:int, used_mb:int, headroom_mb:int, growth_mb_per_day:int, days_left:?int, low:bool, basis:string, disk_basis:string, disk_sellable_gb:int, disk_sold_gb:int, disk_used_gb:int, disk_headroom_gb:int}>
      */
     public function forecast(): array
     {
@@ -57,11 +58,37 @@ final class CapacityForecast
             $demand = max($sold, $used);
             $headroom = max(0, $sellable - $demand);
             $daysLeft = $growth > 0 ? (int) floor($headroom / $growth) : null;
-            $out[] = ['role' => $role, 'region' => $region, 'nodes' => $group->count(), 'sellable_mb' => $sellable, 'sold_mb' => $sold, 'used_mb' => $used, 'headroom_mb' => $headroom, 'growth_mb_per_day' => $growth, 'days_left' => $daysLeft, 'low' => ($daysLeft !== null && $daysLeft < $warnDays) || ($sellable > 0 && $headroom === 0), 'basis' => $basis];
+            $disk = $this->disk($group->all()); // web pools sell disk, not RAM (decision 19)
+            $diskLow = in_array($role, ['web', 'managed'], true) && $disk['disk_basis'] === CapacityBasis::SOLD && $disk['disk_sellable_gb'] > 0 && $disk['disk_headroom_gb'] === 0;
+            $out[] = ['role' => $role, 'region' => $region, 'nodes' => $group->count(), 'sellable_mb' => $sellable, 'sold_mb' => $sold, 'used_mb' => $used, 'headroom_mb' => $headroom, 'growth_mb_per_day' => $growth, 'days_left' => $daysLeft, 'low' => ($daysLeft !== null && $daysLeft < $warnDays) || ($sellable > 0 && $headroom === 0) || $diskLow, 'basis' => $basis] + $disk;
         }
         usort($out, fn ($a, $b) => [$a['role'], (string) $a['region']] <=> [$b['role'], (string) $b['region']]);
 
         return $out;
+    }
+
+    /**
+     * The disk of a pool, per node under the node's own basis (`NodeScheduler::headroom`): what may be sold (the sell ratio of each
+     * node), what is sold on root services (included sites and test copies are part of their owner's space), what is stored, and
+     * what is left under the basis. `disk_basis` is `sold` when any node of the pool is judged by sold disk.
+     *
+     * @param  array<int, Node>  $nodes
+     * @return array{disk_basis:string, disk_sellable_gb:int, disk_sold_gb:int, disk_used_gb:int, disk_headroom_gb:int}
+     */
+    private function disk(array $nodes): array
+    {
+        $sellable = $sold = $used = $headroom = 0.0;
+        $basis = CapacityBasis::MEASURED;
+        foreach ($nodes as $node) {
+            $room = $this->scheduler->headroom($node);
+            $sellable += $room['disk']['limit'];
+            $sold += $room['disk']['sold'];
+            $used += $node->use('disk_used_gb');
+            $headroom += max(0.0, $room['disk']['free']);
+            $basis = $room['basis']['disk'] === CapacityBasis::SOLD ? CapacityBasis::SOLD : $basis;
+        }
+
+        return ['disk_basis' => $basis, 'disk_sellable_gb' => (int) floor($sellable), 'disk_sold_gb' => (int) round($sold), 'disk_used_gb' => (int) round($used), 'disk_headroom_gb' => (int) floor($headroom)];
     }
 
     /**

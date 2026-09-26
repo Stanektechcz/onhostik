@@ -7,7 +7,12 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Presenters\Presenters;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Onhost\Domain\Billing\Commands\WithdrawalCommand;
+use Onhost\Domain\Billing\Models\Withdrawal;
+use Onhost\Domain\Billing\WithdrawalPolicy;
+use Onhost\Domain\Billing\WithdrawalService;
 use Onhost\Domain\Orders\Commands\CancelOrderCommand;
+use Onhost\Domain\Orders\Commands\DecideOrderApprovalCommand;
 use Onhost\Domain\Orders\Commands\PlaceOrderCommand;
 use Onhost\Domain\Orders\Models\Order;
 use Onhost\Domain\Orders\OrderStateMachine;
@@ -25,6 +30,9 @@ final class OrderController extends ApiController
         $query = Order::query()->where('organization_id', $organization->id);
         if ($request->filled('state')) {
             $query->where('state', strtoupper((string) $request->query('state')));
+        }
+        if ($request->query('approval') === 'pending') { // credit orders waiting for the owner or a billing admin (TASK-0021)
+            $query->where('state', OrderStateMachine::NEW)->where('meta->approval->state', 'pending');
         }
 
         return $this->api->paginate($request, $query, fn (Order $o) => Presenters::order($o, false), 'placed_at');
@@ -62,6 +70,38 @@ final class OrderController extends ApiController
         $this->bus->dispatch($command, $this->api->context($request, $organization, $data['reason'] ?? null));
 
         return response()->json(['data' => Presenters::order($model->refresh())]);
+    }
+
+    /**
+     * The owner or a billing admin decides a credit order another member placed (owner decision 20, TASK-0021). The order is
+     * found and the caller authorized for its organization before anything of the request is validated.
+     */
+    public function approval(Request $request, string $order): JsonResponse
+    {
+        $model = $this->resolve($request, $order);
+        $data = $request->validate(['decision' => ['required', 'in:approve,reject'], 'reason' => ['nullable', 'string', 'max:250']]);
+        $organization = Organization::query()->findOrFail($model->organization_id);
+
+        return $this->dispatch(new DecideOrderApprovalCommand($organization->id, $this->idempotencyKey($request, "order.approval:{$model->id}"), ['order_id' => $model->id, 'decision' => $data['decision'], 'reason' => $data['reason'] ?? null]), $this->api->context($request, $organization, $data['reason'] ?? null));
+    }
+
+    /** Consumer withdrawal from a paid order nothing of which was delivered yet (TASK-0025): whether it is still possible and until when. */
+    public function withdrawal(Request $request, WithdrawalPolicy $policy, WithdrawalService $withdrawals, string $order): JsonResponse
+    {
+        $model = $this->resolve($request, $order);
+        $this->api->authorize($request, 'billing.wallet.read', CommandScope::organization($model->organization_id)); // the refund, the credit notes and what went back to the credit are the organization's money
+        $record = Withdrawal::query()->where('subject_key', 'order:'.$model->id)->first();
+
+        return response()->json(['data' => $policy->check($model) + ['enabled' => $policy->enabled(), 'withdrawal' => $record ? $withdrawals->present($record) : null, 'terms_url' => WithdrawalPolicy::TERMS_URL]]);
+    }
+
+    /** The consumer withdraws from the order (fresh step-up): it is cancelled, every line credited and the credit freed. */
+    public function requestWithdrawal(Request $request, string $order): JsonResponse
+    {
+        $model = $this->resolve($request, $order);
+        $data = $request->validate(['confirm_refund_to_credit' => ['accepted'], 'statement' => ['nullable', 'string', 'max:2000']]);
+
+        return $this->dispatch(new WithdrawalCommand($model->organization_id, $this->idempotencyKey($request, "withdrawal:{$model->id}"), ['op' => 'order', 'order_id' => $model->id, 'statement' => $data['statement'] ?? null]), $this->api->context($request, Organization::query()->find($model->organization_id)), 202);
     }
 
     /** @return array{to:string, reason?:?string} */
