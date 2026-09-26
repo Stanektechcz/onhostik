@@ -400,9 +400,9 @@ final class NotificationRouter
 
     // ── TASK-0031 ──
     /**
-     * What a VIES verdict means for the customer (D31.8). An invalid number is told to the billing contacts with the mail;
-     * only a customer in another EU state hears that their country's VAT is charged meanwhile — a Czech organization is
-     * charged Czech VAT either way, and a number from outside the EU is never checked, so nobody there hears "invalid".
+     * What a VIES verdict means for the customer (D31.8). An invalid number of another EU state is told to the billing contacts
+     * with the mail: their country's VAT is charged meanwhile. A Czech organization is charged Czech VAT either way and gets an
+     * info note in the portal only (review round 2); a number from outside the EU is never checked, so nobody there hears "invalid".
      * A number that became valid is an in-app note; a staff override goes to finance.
      *
      * @param  array<string,mixed>  $p
@@ -416,8 +416,15 @@ final class NotificationRouter
             return;
         }
         $supplier = ($p['country'] ?? '') === VatNumber::supplierCountry() || strtoupper((string) ($org->country ?? '')) === VatNumber::supplierCountry();
+        if (($p['result'] ?? '') === 'invalid' && $supplier) {
+            // every Czech legal entity has a DIČ, and one that is not a VAT payer is rightly not in VIES (review round 2): a note in
+            // the portal in plain words, no warning mail inviting a needless manual check — domestic VAT does not change either way
+            $this->customer($m, 'billing', 'DIČ není v registru plátců DPH', 'DIČ '.$hint.' není v registru plátců DPH (VIES). Pokud jste plátce DPH, zkontrolujte ho ve fakturačních údajích.', '/panel/nastaveni', 'info');
+
+            return;
+        }
         if (($p['result'] ?? '') === 'invalid') {
-            $effect = $supplier ? 'Pokud je číslo správné, napište nám a ověříme ho ručně.' : 'Dokud DIČ neověříme, účtujeme DPH vaší země.';
+            $effect = 'Dokud DIČ neověříme, účtujeme DPH vaší země.';
             $this->customer($m, 'billing', 'DIČ se nepodařilo ověřit ve VIES', 'DIČ '.$hint.' se nepodařilo ověřit ve VIES. '.$effect.' Zkontrolujte ho ve fakturačních údajích.', '/panel/nastaveni', 'warn', $email, 'vat-number-invalid',
                 ['dic' => $hint, 'dopad' => (string) Lexicon::translate($effect, $locale), 'url' => $portal.'/panel/nastaveni']);
 

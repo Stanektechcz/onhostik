@@ -7,6 +7,7 @@ namespace Onhost\Domain\Tax;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Onhost\Domain\Organizations\Models\Organization;
+use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Tax\Models\VatValidation;
 
@@ -30,6 +31,7 @@ final class VatHealth
         $configured = $enabled && preg_match('/^CZ\d{8,10}$/', $requester) === 1;
         $waiting = $this->waiting();
         $legacy = $this->legacy()->count();
+        $partners = $this->partnersUnverified();
         $last = VatValidation::query()->where('source', 'vies')->max('checked_at');
         $lastAt = $last === null ? null : CarbonImmutable::parse((string) $last);
         $answered = $lastAt !== null && $lastAt->greaterThanOrEqualTo(now()->subDays(self::ANSWER_MAX_DAYS));
@@ -40,8 +42,9 @@ final class VatHealth
             $this->row('VIES checks are on and the requester VAT ID is set', $configured, $configured
                 ? "requester {$requester}"
                 : ($enabled ? '' : 'ONHOST_VIES_ENABLED=false — no VAT number is checked, every EU business customer pays destination VAT; ').($requester === '' ? 'ONHOST_VIES_REQUESTER_VAT_ID (or ONHOST_VAT_ID) is empty — VIES answers without a consultation number' : (preg_match('/^CZ\d{8,10}$/', $requester) === 1 ? "requester {$requester}" : "ONHOST_VIES_REQUESTER_VAT_ID {$requester} is not a Czech VAT ID"))),
-            $this->row('no EU business customer with a VAT ID waits for a VIES answer', $waiting === 0 && $legacy === 0,
-                "{$waiting} — charged destination VAT with a review flag; {$legacy} legacy (valid/payer written before the check, never verified); onhost:vat:verify lists them"),
+            $this->row('no EU business customer with a VAT ID waits for a VIES answer', $waiting === 0 && $legacy === 0 && $partners === 0,
+                "{$waiting} — charged destination VAT with a review flag; {$legacy} legacy (valid/payer written before the check, never verified); "
+                ."{$partners} partner(s) whose DIČ/VAT ID was never checked (self-billing without VAT, flagged for review); onhost:vat:verify lists them"),
             $this->row('VIES answered recently', $answered || $waiting === 0,
                 $lastAt === null ? 'no VIES answer recorded yet' : 'last answer '.$lastAt->toIso8601String().($answered ? '' : ' — older than '.self::ANSWER_MAX_DAYS.' days while customers wait')),
             // with VIES on, the re-check belongs to the switch (review round 1): without it every customer verified at the order is
@@ -78,6 +81,30 @@ final class VatHealth
 
         return self::open()->where('customer_class', 'b2b')->whereIn('country', array_values(array_diff(VatNumber::euMembers(), [$supplier])))
             ->where(fn (Builder $q) => $q->where(fn (Builder $v) => $v->whereNotNull('vat_id')->where('vat_id', '!=', ''))->orWhere(fn (Builder $d) => $d->whereNotNull('dic')->where('dic', '!=', '')));
+    }
+
+    /**
+     * Partners (not closed) whose number no check has spoken about (review round 2) — a Czech DIČ included: until the
+     * operator's command asks, their self-billing documents carry no VAT and say the registration is not verified.
+     */
+    public function partnersUnverified(): int
+    {
+        $count = 0;
+        $query = self::open()->whereIn('id', Partner::query()->where('state', '!=', 'closed')->select('organization_id'))
+            ->where(fn (Builder $q) => $q->where(fn (Builder $v) => $v->whereNotNull('vat_id')->where('vat_id', '!=', ''))->orWhere(fn (Builder $d) => $d->whereNotNull('dic')->where('dic', '!=', '')));
+        foreach ($query->lazyById(500) as $organization) {
+            if (VatStanding::payerUnverified($organization)) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /** Whether the organization is a partner whose self-billing depends on its VAT standing (a closed partner is not paid). */
+    public static function isPartner(Organization $organization): bool
+    {
+        return Partner::query()->where('organization_id', $organization->id)->where('state', '!=', 'closed')->exists();
     }
 
     /**

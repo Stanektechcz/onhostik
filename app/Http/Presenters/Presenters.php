@@ -225,13 +225,13 @@ final class Presenters
         return ['id' => $item->id, 'sku' => $item->sku, 'product_key' => $item->product_key, 'name' => $item->name, 'qty' => $item->qty, 'period' => $item->period, 'unit_net' => self::money((int) $item->unit_net_minor, $currency), 'total' => self::money((int) $item->total_minor, $currency), 'state' => $item->state, 'service_id' => $item->service_id, 'domain_id' => $item->domain_id, 'config' => array_diff_key((array) $item->config, array_flip(['entitlements', 'registrant']))];
     }
 
-    public static function invoice(Invoice $invoice, bool $withLines = false): array
+    public static function invoice(Invoice $invoice, bool $withLines = false, bool $forStaff = false): array
     {
         $out = [
             'id' => $invoice->id, 'number' => $invoice->number, 'type' => $invoice->type, 'series' => $invoice->series, 'state' => $invoice->state, 'currency' => $invoice->currency,
             'subtotal' => self::money((int) $invoice->subtotal_minor, $invoice->currency), 'tax' => self::money((int) $invoice->tax_minor, $invoice->currency), 'total' => self::money((int) $invoice->total_minor, $invoice->currency), 'paid' => self::money((int) $invoice->paid_minor, $invoice->currency),
             'issued_at' => $invoice->issued_at?->toIso8601String(), 'due_at' => $invoice->due_at?->toIso8601String(), 'paid_at' => $invoice->paid_at?->toIso8601String(), 'payment_method' => $invoice->payment_method, 'payment_reference' => $invoice->payment_reference,
-            'order_id' => $invoice->order_id, 'corrects_invoice_id' => $invoice->corrects_invoice_id, 'pdf' => $invoice->pdf_hash !== null, 'buyer' => $invoice->buyer, 'tax_summary' => $invoice->tax_summary, 'green' => data_get($invoice->meta, 'green'),
+            'order_id' => $invoice->order_id, 'corrects_invoice_id' => $invoice->corrects_invoice_id, 'pdf' => $invoice->pdf_hash !== null, 'buyer' => $forStaff ? $invoice->buyer : self::invoiceBuyer((array) $invoice->buyer), 'tax_summary' => $invoice->tax_summary, 'green' => data_get($invoice->meta, 'green'),
             // a tax document in another currency: its VAT in CZK at the national bank's rate (null for CZK documents; `pending` while the rate is not known yet)
             'czk' => data_get($invoice->meta, 'czk'), 'czk_pending' => (bool) data_get($invoice->meta, 'czk_pending', false),
         ];
@@ -240,6 +240,27 @@ final class Presenters
         }
 
         return $out;
+    }
+
+    /**
+     * The buyer as the customer sees it (TASK-0031 review round 2): the VIES check reduced to what the document prints — when it
+     * was checked, the consultation number, and whether it rests on VIES or on evidence staff accepted. Who VIES names as the
+     * holder (name_mismatch), the reason and the stored status are for finance: the cart quote does not tip off somebody using
+     * another trader's number, and neither does the invoice.
+     *
+     * @param  array<string,mixed>  $buyer
+     * @return array<string,mixed>
+     */
+    private static function invoiceBuyer(array $buyer): array
+    {
+        if (! is_array($buyer['vat_check'] ?? null)) {
+            return $buyer;
+        }
+        $check = $buyer['vat_check'];
+        $buyer['vat_check'] = ['checked_at' => $check['checked_at'] ?? null, 'consultation_number' => $check['consultation_number'] ?? null,
+            'source' => ($check['source'] ?? null) === 'staff' ? 'staff' : (empty($check['checked_at']) ? null : 'vies')];
+
+        return $buyer;
     }
 
     public static function domain(Domain $domain): array

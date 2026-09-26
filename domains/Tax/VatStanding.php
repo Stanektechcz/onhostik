@@ -69,6 +69,16 @@ final class VatStanding
             // an override that ended is not a VIES answer: it must not live on as a "fresh check" of the day it was set (TASK-0031 WP B)
             return ['status' => self::UNKNOWN, 'reason' => 'override_expired'];
         }
+        $override = self::numberOverride($organization, $at);
+        if ($override !== null) {
+            // the override belongs to the number, not to the row (review round 2): a customer who changes the number and changes it
+            // back wipes the row, and the next VIES answer would undo a four-eyes decision taken because VIES says "valid"
+            if ($override->status === self::VALID && self::subject($organization)?->toIsoCountry() !== strtoupper((string) $organization->country)) {
+                return ['status' => self::UNKNOWN, 'reason' => 'vat_country_mismatch'];
+            }
+
+            return ['status' => (string) $override->status, 'reason' => 'staff_override'];
+        }
         if ($source === null && $stored === self::VALID) {
             return ['status' => self::VALID, 'reason' => 'legacy_unverified']; // today's reverse charge until the operator re-checks it
         }
@@ -127,16 +137,19 @@ final class VatStanding
     public static function snapshot(Organization $organization): array
     {
         $standing = self::standing($organization);
+        // an override the number carries while the row was reset (review round 2) is evidence like one the row carries
+        $override = $standing['reason'] === 'staff_override' && $organization->vat_status_source !== 'staff' ? self::numberOverride($organization) : null;
 
         return [
             'number' => self::subject($organization)?->value,
             'status' => $standing['status'],
             'reason' => $standing['reason'],
             'stored_status' => (string) ($organization->vat_status ?? self::UNKNOWN),
-            'source' => $organization->vat_status_source,
-            'checked_at' => $organization->vat_checked_at === null ? null : CarbonImmutable::parse($organization->vat_checked_at)->toIso8601String(),
-            'consultation_number' => $organization->vat_consultation_number,
-            'override_until' => $organization->vat_override_until === null ? null : CarbonImmutable::parse($organization->vat_override_until)->toIso8601String(),
+            'source' => $override !== null ? 'staff' : $organization->vat_status_source,
+            'checked_at' => $override !== null || $organization->vat_checked_at === null ? null : CarbonImmutable::parse($organization->vat_checked_at)->toIso8601String(),
+            'consultation_number' => $override !== null ? null : $organization->vat_consultation_number,
+            'override_until' => $override !== null ? ($override->expires_at === null ? null : CarbonImmutable::parse($override->expires_at)->toIso8601String())
+                : ($organization->vat_override_until === null ? null : CarbonImmutable::parse($organization->vat_override_until)->toIso8601String()),
             'name_mismatch' => $standing['status'] === self::VALID && self::nameMismatch($organization),
         ];
     }
@@ -255,6 +268,43 @@ final class VatStanding
     private const NAME_NOISE = ['und', 'and', 'et', 'en', 'the', 'der', 'die', 'das', 'co', 'cie', 'gmbh', 'ag', 'kg', 'ohg', 'ug', 'se', 'ev', 'mbh', 'haftungsbeschrankt',
         'sro', 'spol', 'as', 'vos', 'ks', 'zs', 'ltd', 'limited', 'plc', 'llc', 'inc', 'corp', 'sa', 'sas', 'sarl', 'srl', 'spa', 'snc', 'bv', 'nv', 'vof', 'oy', 'oyj', 'ab', 'aps',
         'kft', 'zrt', 'nyrt', 'bt', 'doo', 'dd', 'sp', 'zoo', 'oo', 'eood', 'ood', 'ad', 'ou', 'uab', 'sia', 'teo', 'ehf', 'lda', 'sl', 'slu', 'aktiengesellschaft', 'gesellschaft', 'beschrankter', 'haftung', 'mit'];
+
+    /**
+     * A number the partner's self-billing document depends on that no check has spoken about (review round 2): a well-formed
+     * EU number — a Czech DIČ included, which the quote never asks about because domestic VAT does not depend on it — that is
+     * not a VAT payer's, with no recorded check for it and no staff override. The operator's command checks these; until then
+     * the document says the registration is not verified, not that the partner is not a VAT payer.
+     */
+    public static function payerUnverified(Organization $organization): bool
+    {
+        $subject = self::subject($organization);
+        if ($subject === null || ! $subject->isWellFormed() || (string) $organization->vat_checked_number === $subject->value) {
+            return false;
+        }
+
+        return ! self::isVatPayer($organization) && self::standing($organization)['reason'] !== 'staff_override';
+    }
+
+    /**
+     * The staff override in force for the organization's current number, when the row no longer carries it (review round 2):
+     * the newest piece of evidence about this number is a staff decision that has not ended. A later verdict about the same
+     * number — only the operator's check can record one over an override — is newer and wins; so does the row itself whenever
+     * it holds a recorded check of the current number.
+     */
+    private static function numberOverride(Organization $organization, ?CarbonImmutable $at = null): ?VatValidation
+    {
+        $subject = self::subject($organization);
+        if ($subject === null || $organization->id === null || (string) $organization->vat_checked_number === $subject->value) {
+            return null;
+        }
+        $latest = VatValidation::query()->where('organization_id', $organization->id)->where('vat_id', $subject->value)
+            ->orderByDesc('checked_at')->orderByDesc('id')->first();
+        if ($latest === null || $latest->source !== 'staff' || ! in_array((string) $latest->status, [self::VALID, self::INVALID], true)) {
+            return null;
+        }
+
+        return $latest->expires_at !== null && CarbonImmutable::parse($latest->expires_at)->greaterThan($at ?? CarbonImmutable::now()) ? $latest : null;
+    }
 
     /** Rows written before the check (source NULL) whose stored value still changes money: `valid` or `payer`. */
     public static function isLegacy(Organization $organization): bool

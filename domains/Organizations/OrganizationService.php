@@ -19,6 +19,7 @@ use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\Project;
 use Onhost\Domain\Tax\Jobs\CheckVatNumber;
 use Onhost\Domain\Tax\VatNumber;
+use Onhost\Domain\Tax\VatNumberChecks;
 use Onhost\Domain\Tax\VatStanding;
 use Onhost\Platform\Audit\AuditRecorder;
 use Onhost\Platform\Commands\CommandContext;
@@ -309,6 +310,11 @@ final class OrganizationService
     private function queueVatCheck(Organization $organization): void
     {
         if (! (bool) config('onhost.vies.enabled', false) || VatNumber::forOrganization($organization) === null || VatStanding::effectiveStatus($organization) === VatStanding::VALID) {
+            return;
+        }
+        // review round 2: a number a staff override holds is not asked about, and an organization that has used its hourly VIES
+        // budget queues nothing (the job would only find the budget spent)
+        if (VatStanding::standing($organization)['reason'] === 'staff_override' || ! VatNumberChecks::withinBudget($organization)) {
             return;
         }
         CheckVatNumber::dispatch($organization->id)->afterCommit();

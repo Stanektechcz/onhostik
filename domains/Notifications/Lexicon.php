@@ -198,6 +198,7 @@ final class Lexicon
         'DIČ ověřeno ve VIES' => 'VAT number verified in VIES', ' je platné.' => ' is valid.',
         ' Na dokladech uplatníme přenesení daňové povinnosti (reverse charge).' => ' Your documents will apply the reverse charge.',
         'DIČ ' => 'VAT number ', 'Stav DIČ nastaven ručně: ' => 'VAT number status set by hand: ',
+        'DIČ není v registru plátců DPH' => 'Your tax number is not in the VAT register', ' není v registru plátců DPH (VIES). Pokud jste plátce DPH, zkontrolujte ho ve fakturačních údajích.' => ' is not in the VAT register (VIES). If you are a VAT payer, please check it in your billing details.',
         // ── end TASK-0031 ──
     ];
 

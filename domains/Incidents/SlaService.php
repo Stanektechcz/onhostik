@@ -19,6 +19,8 @@ use Onhost\Domain\Incidents\Models\SlaProbe;
 use Onhost\Domain\Incidents\Models\SloWindow;
 use Onhost\Domain\Incidents\Models\StatusComponent;
 use Onhost\Domain\Invoicing\InvoiceService;
+use Onhost\Domain\Invoicing\Models\Invoice;
+use Onhost\Domain\Invoicing\Models\InvoiceLine;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Tax\TaxEngine;
@@ -390,7 +392,7 @@ final class SlaService
         return $credit;
     }
 
-    /** Issue: DK credit note (negative line, tax per engine) + non-refundable promo-bucket wallet credit + `sla.credit.issued`. */
+    /** Issue: DK credit note (negative line, tax of the credited supply, else per engine) + non-refundable promo-bucket wallet credit + `sla.credit.issued`. */
     public function issue(SlaCredit $credit, CommandContext $context): SlaCredit
     {
         if ($credit->state !== 'approved') {
@@ -400,8 +402,8 @@ final class SlaService
         $incident = Incident::query()->findOrFail($credit->incident_id);
         $service = Service::query()->withTrashed()->find($credit->service_id);
         $amount = Money::minor($credit->amount_minor, $credit->currency);
-        $calc = $this->tax->calculate(VatStanding::taxCustomer($organization), [['key' => 'sla', 'net' => $amount, 'product_class' => 'esd']], $credit->currency, $organization->id);
-        $line = $calc['lines'][0];
+        $line = $this->creditedTax($organization, $credit, $incident, $amount)
+            ?? $this->tax->calculate(VatStanding::taxCustomer($organization), [['key' => 'sla', 'net' => $amount, 'product_class' => 'esd']], $credit->currency, $organization->id)['lines'][0];
         $scoped = $context->withScope($organization->id);
 
         $credit = DB::transaction(function () use ($credit, $organization, $incident, $service, $amount, $line, $scoped) {
@@ -421,6 +423,34 @@ final class SlaService
         $this->outbox->publish(GenericEvent::of('sla.credit.issued', 'sla_credit', $credit->id, ['amount' => $amount, 'incident' => $incident->number, 'percent' => $credit->credit_percent, 'service_id' => $credit->service_id, 'credit_note_id' => $credit->invoice_id], $organization->id));
 
         return $credit;
+    }
+
+    /**
+     * The tax of the supply the credit reduces (TASK-0031 review round 2): the invoice line of the service whose period covers
+     * the incident. A credit note corrects that supply, so it takes that line's category and rate — a reverse-charged month
+     * is credited without VAT even when the customer's VIES check has lapsed since (no output VAT reduced that was never
+     * charged). Null when no issued line covers it; the credit is then taxed by today's decision, as before.
+     *
+     * @return array{rate:string, category:string, tax:Money, total:Money}|null
+     */
+    private function creditedTax(Organization $organization, SlaCredit $credit, Incident $incident, Money $amount): ?array
+    {
+        if ($credit->service_id === null) {
+            return null;
+        }
+        $day = Carbon::parse($incident->started_at)->toDateString();
+        $original = InvoiceLine::query()->where('service_id', $credit->service_id)->where('net_minor', '>', 0)
+            ->whereIn('invoice_id', Invoice::query()->select('id')->where('organization_id', $organization->id)->whereIn('type', ['invoice', 'statement'])
+                ->where('state', '!=', Invoice::DRAFT)->whereNotNull('issued_at')->where('currency', $credit->currency))
+            ->whereDate('period_from', '<=', $day)->whereDate('period_to', '>=', $day)
+            ->orderByDesc('period_from')->orderByDesc('created_at')->orderByDesc('id')->first();
+        if ($original === null) {
+            return null;
+        }
+        $rate = (string) (0 + (float) $original->tax_rate);
+        $tax = $amount->percent($rate);
+
+        return ['rate' => $rate, 'category' => (string) $original->tax_category, 'tax' => $tax, 'total' => $amount->add($tax)];
     }
 
     /** Incident downtime minus overlap with SLA-excluded maintenance windows. */

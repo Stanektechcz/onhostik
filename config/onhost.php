@@ -719,6 +719,8 @@ exec java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.a
         'recheck_after_days' => 25,   // tax.vies_recheck asks again before the 30 days run out
         // our own ceiling of VIES calls per minute (all triggers together); beyond it a number stays unknown for now (review round 1)
         'per_minute' => (int) env('ONHOST_VIES_PER_MINUTE', 150), // above the 120 a minute the operator commands make at --pause-ms=500
+        // one organization's questions an hour, every trigger but the operator's (review round 2): number flipping cannot starve the rest
+        'per_organization_per_hour' => 5,
     ],
     // ── end TASK-0031 VIES ──────────────────────────────────────────────────────────────────────────────────────────
 ];

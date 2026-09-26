@@ -21,8 +21,10 @@ use Onhost\Domain\Partners\Models\PartnerPayout;
 use Onhost\Domain\Provisioning\AutomationLedger;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Tax\Jobs\CheckVatNumber;
 use Onhost\Domain\Tax\TaxEngine;
 use Onhost\Domain\Tax\VatNumber;
+use Onhost\Domain\Tax\VatNumberChecks;
 use Onhost\Domain\Tax\VatStanding;
 use Onhost\Domain\WalletLedger\LedgerService;
 use Onhost\Platform\Audit\AuditRecorder;
@@ -72,6 +74,7 @@ final class PartnerService
             'whitelabel' => ['domain' => null, 'hide_brand' => false, 'own_mail' => false, 'own_prices' => false, 'own_support' => false, 'verified_at' => null],
         ]);
         $this->audit->record($context->withScope($organization->id), 'partner.apply', 'succeeded', ['model' => $model, 'code' => $partner->code], 'partner', $partner->id);
+        $this->queueVatCheck($organization);
         $this->outbox->publish(GenericEvent::of('partner.application.received', 'partner', $partner->id, ['code' => $partner->code, 'model' => $model, 'company' => $application['company'] ?? $organization->name], $organization->id));
 
         return $partner;
@@ -83,6 +86,10 @@ final class PartnerService
             return $partner;
         }
         $partner->forceFill(['state' => 'active', 'approved_by' => $context->actorId, 'approved_at' => now()])->save();
+        $organization = Organization::query()->find($partner->organization_id);
+        if ($organization !== null) {
+            $this->queueVatCheck($organization);
+        }
         $this->audit->record($context->withScope($partner->organization_id), 'partner.approve', 'succeeded', ['code' => $partner->code], 'partner', $partner->id);
         $this->outbox->publish(GenericEvent::of('partner.approved', 'partner', $partner->id, ['code' => $partner->code, 'tier' => $partner->tier, 'rate' => $partner->rate_pct], $partner->organization_id));
 
@@ -767,7 +774,10 @@ final class PartnerService
      * written) and a `rates.<CC>` key the rule set does not have, falling back to 21: every document was 0 %. A missing rate is
      * refused, never guessed.
      *
-     * @return array{rate:float, category:string, note_vat:string}
+     * A number no check has spoken about yet is not proof of the opposite (review round 2): the document then says the
+     * registration is not verified and carries `vat_review` for finance, instead of stating that the partner is not a payer.
+     *
+     * @return array{rate:float, category:string, note_vat:string, vat_review:bool}
      */
     private function selfBillingVat(Organization $organization): array
     {
@@ -781,20 +791,36 @@ final class PartnerService
                 throw new DomainError('tax_rate_missing', 'No standard VAT rate for '.$country.' in the active tax rules; the self-billing document cannot be issued.', 409, ['country' => $country]);
             }
 
-            return ['rate' => (float) $rate, 'category' => TaxEngine::CAT_STANDARD, 'note_vat' => 'Dodavatel je plátcem DPH.'];
+            return ['rate' => (float) $rate, 'category' => TaxEngine::CAT_STANDARD, 'note_vat' => 'Dodavatel je plátcem DPH.', 'vat_review' => false];
         }
         if ($payer && in_array($country, array_map('strtoupper', (array) data_get($rules, 'eu_members', VatNumber::EU_MEMBERS)), true)) {
-            return ['rate' => 0.0, 'category' => TaxEngine::CAT_REVERSE_CHARGE, 'note_vat' => 'Daň odvede odběratel (reverse charge, čl. 196 směrnice 2006/112/ES).'];
+            return ['rate' => 0.0, 'category' => TaxEngine::CAT_REVERSE_CHARGE, 'note_vat' => 'Daň odvede odběratel (reverse charge, čl. 196 směrnice 2006/112/ES).', 'vat_review' => false];
+        }
+        if (VatStanding::payerUnverified($organization)) {
+            return ['rate' => 0.0, 'category' => TaxEngine::CAT_EXEMPT, 'note_vat' => 'Registrace dodavatele k DPH neověřena.', 'vat_review' => true];
         }
 
-        return ['rate' => 0.0, 'category' => TaxEngine::CAT_EXEMPT, 'note_vat' => 'Dodavatel není plátcem DPH.'];
+        return ['rate' => 0.0, 'category' => TaxEngine::CAT_EXEMPT, 'note_vat' => 'Dodavatel není plátcem DPH.', 'vat_review' => false];
+    }
+
+    /**
+     * A partner's number decides the VAT of its self-billing documents (review round 2, D31.6): when an organization applies
+     * or is approved, a number no check has spoken about is asked about on the queue — as the system, like a number the
+     * customer has just given. Existing partners are reached by the operator's command only (owner rule).
+     */
+    private function queueVatCheck(Organization $organization): void
+    {
+        if (! (bool) config('onhost.vies.enabled', false) || ! VatStanding::payerUnverified($organization) || ! VatNumberChecks::withinBudget($organization)) {
+            return;
+        }
+        CheckVatNumber::dispatch($organization->id)->afterCommit();
     }
 
     /**
      * Self-billed invoice snapshot: the partner is the supplier, ONhost's legal entity the customer. Written once; a later change
      * of the partner's VAT status never rewrites it.
      *
-     * @param  array{rate:float, category:string, note_vat:string}  $vat
+     * @param  array{rate:float, category:string, note_vat:string, vat_review:bool}  $vat
      */
     private function selfBilling(string $number, Partner $partner, Organization $organization, Money $amount, array $commissions, array $vat): array
     {
@@ -811,7 +837,7 @@ final class PartnerService
             'number' => $number, 'period' => now()->format('Y-m'), 'issued_at' => now()->toIso8601String(), 'self_billing' => true,
             'supplier' => $organization->only(['name', 'ico', 'dic', 'vat_id', 'street', 'city', 'postal_code', 'country']), 'customer' => ['name' => $entity->name ?? 'ONhost', 'ico' => $entity->ico ?? null, 'dic' => $entity->dic ?? null],
             'lines' => $byClient, 'net' => $amount, 'tax_rate' => $rate, 'tax_category' => $vat['category'], 'tax' => $tax, 'total' => $amount->add($tax), 'currency' => $amount->currency->value,
-            'note_vat' => $vat['note_vat'], 'vat_check' => VatStanding::snapshot($organization),
+            'note_vat' => $vat['note_vat'], 'vat_review' => $vat['vat_review'], 'vat_check' => VatStanding::snapshot($organization),
             'note' => 'Doklad vystaven odběratelem v režimu samofakturace (§ 28 odst. 7 zákona o DPH) na základě partnerské smlouvy.',
         ];
     }

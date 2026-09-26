@@ -81,7 +81,9 @@ the EU, is never asked and never called invalid.
   beyond it the call is refused locally (`RATE_LIMIT`) and read as **unknown, retryable** — never a verdict — so a flood of
   guest checkouts cannot get our address or requester blocked at VIES. VIES's own concurrency limits still answer as the
   `*_MAX_CONCURRENT_REQ` codes above. The operator commands pause 500 ms between two checks (`--pause-ms`), 120 a minute at
-  most, under the ceiling.
+  most, under the ceiling. Before the adapter is reached, `VatNumberChecks` also keeps a per-organization budget
+  (`onhost.vies.per_organization_per_hour`, 5, every trigger but the operator's): one customer flipping the number cannot
+  use up the bucket for everybody else.
 * `judgedByCaller: true`: the adapter records exactly one breaker verdict per answer (the table above). A refused number is
   VIES working, and one member state's outage is not VIES being down.
 * **`secretResponse: true`**: the answer names the trader (company name and address), so the `provider_calls` row keeps the

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Onhost\Domain\Tax;
 
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Tax\Commands\RecordVatCheckCommand;
@@ -23,7 +24,8 @@ use Onhost\Providers\Contracts\VatNumberValidator;
  * wrong. A number with an EU prefix that cannot be one is recorded `invalid` from its shape alone, without a call.
  *
  * Outcomes: valid | invalid | unknown (ask again later) | unavailable (asking again will not help: the check is off at
- * VIES's side, our requester details were refused) | skipped (nothing to ask) | discarded (the number changed meanwhile).
+ * VIES's side, our requester details were refused) | limited (this organization has used its hourly budget of questions;
+ * nothing is asked, nothing re-queued) | skipped (nothing to ask) | discarded (the number changed meanwhile).
  */
 final class VatNumberChecks
 {
@@ -62,6 +64,12 @@ final class VatNumberChecks
             return 'unknown'; // every cart quote would ask again a VIES that has just not answered
         }
 
+        if ($trigger !== 'operator' && ! $this->spend($organization)) {
+            // one customer changing the number back and forth must not use up the platform's VIES budget or get our requester
+            // blocked (review round 2): the number stays unknown — destination VAT with a review flag — until the hour is over
+            return 'limited';
+        }
+
         $result = app(VatNumberValidator::class)->check((string) $subject->countryCode(), $subject->number(), $timeoutSeconds ?? (int) config('onhost.vies.timeout_seconds', 8));
         if (! $result->isKnown()) {
             $this->cache->put($throttle, (string) $result->errorCode, now()->addMinutes(max(1, (int) config('onhost.vies.retry_after_minutes', 10))));
@@ -91,9 +99,39 @@ final class VatNumberChecks
     {
         return match ($outcome) {
             'valid', 'invalid' => $outcome,
-            'unknown', 'unavailable' => 'unknown',
+            'unknown', 'unavailable', 'limited' => 'unknown',
             default => 'skipped',
         };
+    }
+
+    /**
+     * Whether the organization may still ask VIES this hour (review round 2): `onhost.vies.per_organization_per_hour` questions
+     * across every trigger but the operator's. Read-only — for not even queueing a check that could not ask.
+     */
+    public static function withinBudget(Organization $organization): bool
+    {
+        return ! RateLimiter::tooManyAttempts(self::budgetKey($organization), self::budget());
+    }
+
+    /** Takes one question from the organization's hourly budget; false when it is spent. */
+    private function spend(Organization $organization): bool
+    {
+        if (! self::withinBudget($organization)) {
+            return false;
+        }
+        RateLimiter::hit(self::budgetKey($organization), 3600);
+
+        return true;
+    }
+
+    private static function budgetKey(Organization $organization): string
+    {
+        return 'onhost:vies:organization:'.$organization->id;
+    }
+
+    private static function budget(): int
+    {
+        return max(1, (int) config('onhost.vies.per_organization_per_hour', 5));
     }
 
     private function record(Organization $organization, VatNumber $subject, VatCheckResult $result, string $trigger, string $source): string

@@ -98,7 +98,9 @@ final class TaxEngine
                     $reasons[] = 'B2B without validated VAT ID treated as B2C';
                     $review = $review || $vatStatus === 'invalid';
                 }
-                if (trim((string) ($customer['vat_id'] ?? '')) !== '' && $vatStatus !== 'valid') {
+                // only a business customer (review round 2): the same predicate as VatStanding::invoiceNeedsReview, so the quote,
+                // the order and the invoice never disagree about the same buyer
+                if ($class === 'b2b' && trim((string) ($customer['vat_id'] ?? '')) !== '' && $vatStatus !== 'valid') {
                     $vatReview = $review = true;
                     $reasons[] = "VAT ID given but not verified in VIES (status {$vatStatus}) — destination VAT, review";
                 }

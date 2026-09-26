@@ -22,7 +22,8 @@ use Throwable;
  * no HTTP call and writes nothing. Part 1 lists the organizations whose standing a check would decide — an EU business
  * number never checked, a VIES answer too old to count, a row from before the check (legacy `valid`/`payer`) — with how
  * they are charged today, and those whose valid number VIES registers to another trader name (`name_mismatch`, review round 1:
- * listed for finance, never re-asked — VIES would say the same). Part 2, for the accountant, lists the documents already issued with VAT to EU business customers
+ * listed for finance, never re-asked — VIES would say the same), and partners whose number — a Czech DIČ included — no check
+ * has spoken about (`partner`, review round 2: their self-billing VAT depends on it). Part 2, for the accountant, lists the documents already issued with VAT to EU business customers
  * of another member state who had given a VAT ID; they are never changed (corrections are the accountant's decision and
  * new documents). `--apply` asks VIES about part 1 and records the answers through the bus.
  */
@@ -118,7 +119,11 @@ final class VatVerify extends Command
         return $out;
     }
 
-    /** Why a check would matter: a row from before the check, an answer too old to count, a number never asked about. */
+    /**
+     * Why a check would matter: a row from before the check, an answer too old to count, a number never asked about — and
+     * a partner's number no check has spoken about (review round 2): a Czech DIČ is never asked about at the quote, so an
+     * existing Czech partner that is a VAT payer would otherwise get self-billing documents without VAT for ever.
+     */
     private static function group(Organization $organization): ?string
     {
         if (VatStanding::isLegacy($organization)) {
@@ -130,6 +135,9 @@ final class VatVerify extends Command
 
         if (VatStanding::needsCheck($organization)) {
             return 'unchecked';
+        }
+        if (VatStanding::payerUnverified($organization) && VatHealth::isPartner($organization)) {
+            return 'partner';
         }
 
         return VatStanding::effectiveStatus($organization) === VatStanding::VALID && VatStanding::nameMismatch($organization) ? 'name_mismatch' : null;

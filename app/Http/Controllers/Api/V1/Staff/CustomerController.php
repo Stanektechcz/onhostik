@@ -67,7 +67,7 @@ final class CustomerController extends ApiController
             'orders' => Order::query()->where('organization_id', $org->id)->orderByDesc('placed_at')->limit(50)->get()->map(fn (Order $o) => Presenters::order($o, false) + ['source' => $o->source, 'bank_instructions' => $o->meta['bank_instructions'] ?? null])->all(), // §5y: staff confirm a transfer by its variable symbol
             'spendable' => $wallets->spendable($org, $org->currency),
             'can' => ['place_order' => $this->api->can($request, 'staff.order.manage', CommandScope::global()), 'move_money' => $this->api->can($request, 'billing.credit.adjust', CommandScope::global())], // H348: servicing a customer and moving their money are two permissions
-            'invoices' => Invoice::query()->where('organization_id', $org->id)->where('state', '!=', Invoice::DRAFT)->orderByDesc('issued_at')->limit(50)->get()->map(fn (Invoice $i) => Presenters::invoice($i))->all(),
+            'invoices' => Invoice::query()->where('organization_id', $org->id)->where('state', '!=', Invoice::DRAFT)->orderByDesc('issued_at')->limit(50)->get()->map(fn (Invoice $i) => Presenters::invoice($i, forStaff: true))->all(), // staff see the whole VIES check (TASK-0031)
             'vat' => VatStanding::snapshot($org) + ['needs_check' => VatStanding::needsCheck($org)], // TASK-0031: the VIES evidence behind the customer's VAT treatment
         ]]);
     }
