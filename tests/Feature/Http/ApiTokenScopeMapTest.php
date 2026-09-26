@@ -7,6 +7,7 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\DnsTemplateSeeder;
 use Database\Seeders\LegalEntitySeeder;
 use Database\Seeders\TaxRuleSeeder;
+use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -30,6 +31,7 @@ use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\DeploySource;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
+use Onhost\Domain\Services\ServiceSpecService;
 use Onhost\Domain\WalletLedger\WalletService;
 use Onhost\Platform\Audit\AuditEvent;
 use Onhost\Platform\Commands\CommandContext;
@@ -393,11 +395,74 @@ it('does not show a read-only token what only managing shows', function () {
 
 it('keeps a power-only token from creating a console schedule through spec apply', function () {
     // PUT services/{id}/spec is checked as service.manage (services:power) and chains per-action commands through the bus,
-    // which never sees token scopes. TASK-0029 adds the fail-closed skip for console actions on token sessions; the
-    // orchestrator enables this case when the stack carries it — and writes it first: taking ->skip() away alone goes red
-    // here instead of passing with no assertion (review round 2)
-    $this->fail('write the power-token spec-apply assertion (TASK-0029 integration): a schedule.create whose task is `command` is refused/skipped, nothing reaches the panel');
-})->skip('needs TASK-0029 (console schedules through spec apply) — enabled at integration');
+    // which never sees token scopes. TASK-0029 asks each step its own permission (a schedule with a `command` task is the
+    // console) and the spec asks the token's scope for it; enabled at the 0029–0031 integration (was ->skip() until then)
+    [$owner, $org] = $this->customerWithOrganization();
+    $game = featureGameService($org);
+    $sent = [];
+    Http::fake(function (HttpClientRequest $request) use (&$sent) {
+        if ($request->method() !== 'GET') {
+            $sent[] = $request->method().' '.$request->url();
+        }
+
+        return Http::response(['object' => 'list', 'data' => [], 'meta' => ['pagination' => ['total_pages' => 1]]]);
+    });
+    $operations = Operation::query()->count();
+    $spec = ['schedules' => [['name' => 'konzole', 'cron' => '0 3 * * *', 'actions' => [['action' => 'command', 'payload' => 'op attacker']]]]];
+
+    $plain = tokenScopeBearer($owner, $org, ['services:read', 'services:power']);
+    $result = $this->withToken($plain)->putJson("/v1/services/{$game->id}/spec", ['spec' => $spec], ['X-Organization' => $org->id, 'Idempotency-Key' => 'tok-spec-console'])->assertOk()->json();
+
+    expect($result['skipped'])->toBe([['section' => 'schedules', 'reason' => 'token_scope:schedule.create']])
+        ->and($result['operations'])->toBe([])
+        ->and(Operation::query()->count())->toBe($operations)
+        ->and($sent)->toBe([]); // nothing reached the panel
+});
+
+it('lets a console token schedule a console command through spec apply, and refuses a token session whose token is gone', function () {
+    // the spec asks the token the same map as /actions (TokenScopes): TASK-0029's first guard refused every console step on a
+    // token session, also for a token its owner gave `services:console` on purpose — the scope exists for exactly this
+    [$owner, $org] = $this->customerWithOrganization();
+    $game = featureGameService($org);
+    Http::fake(fn () => Http::response(['object' => 'list', 'data' => [], 'meta' => ['pagination' => ['total_pages' => 1]]]));
+    $spec = ['schedules' => [['name' => 'konzole', 'cron' => '0 3 * * *', 'actions' => [['action' => 'command', 'payload' => 'save-all']]]]];
+
+    $plain = tokenScopeBearer($owner, $org, ['services:read', 'services:power', 'services:console']);
+    $result = $this->withToken($plain)->putJson("/v1/services/{$game->id}/spec", ['spec' => $spec], ['X-Organization' => $org->id, 'Idempotency-Key' => 'tok-spec-console-ok'])->assertOk()->json();
+    expect($result['skipped'])->toBe([])
+        ->and(array_column($result['operations'], 'action'))->toBe(['schedule.create'])
+        ->and(Operation::query()->findOrFail($result['operations'][0]['operation_id'])->authorized_permission)->toBe('service.console');
+
+    // fail closed: a `token:` session whose token no longer exists takes nothing, not even what managing takes
+    $gone = new CommandContext('user', $owner->id, $org->id, null, '127.0.0.1', 'pest', 'token:does-not-exist');
+    $backupOnly = ['schedules' => [['name' => 'zaloha', 'cron' => '0 4 * * *', 'actions' => [['action' => 'backup', 'payload' => '']]]]];
+    $refused = app(ServiceSpecService::class)->apply($game->fresh(), $backupOnly, $gone, 'tok-spec-gone');
+    expect($refused['skipped'])->toBe([['section' => 'schedules', 'reason' => 'token_scope:schedule.create']])
+        ->and($refused['operations'])->toBe([]);
+});
+
+it('decides a token scope for every permission the service action map can ask', function () {
+    // the seam of TASK-0029 (one permission per action) and TASK-0030 (one scope per permission), pinned at their integration:
+    // a permission the action map starts to return without a decision here would be silently closed to every token
+    $asked = array_values(array_unique(array_merge(
+        array_values(ServiceActionCommand::PERMISSIONS),
+        [ServiceActionCommand::permissionFor('schedule.create', ['actions' => [['action' => 'command', 'payload' => 'x']]]), ServiceActionCommand::permissionFor('gbackup.lock', ['locked' => false])],
+    )));
+    $scopes = array_combine($asked, array_map(fn (string $permission) => TokenScopes::for($permission), $asked));
+    ksort($scopes);
+
+    expect($scopes)->toBe([
+        'backup.delete' => TokenScopes::SERVICES_POWER, // HIGH with a fresh step-up: a token never holds one
+        'backup.policy.manage' => null, // the operator's mailbox retention
+        'backup.restore' => TokenScopes::SERVICES_POWER, // HIGH with a fresh step-up
+        'compute.vm.delete' => TokenScopes::SERVICES_POWER,
+        'game.manage' => TokenScopes::SERVICES_POWER,
+        'service.console' => TokenScopes::SERVICES_CONSOLE,
+        'service.delete' => TokenScopes::SERVICES_POWER, // HIGH with a fresh step-up
+        'service.manage' => TokenScopes::SERVICES_POWER,
+        'service.panel_account.manage' => null, // owner only, portal only
+    ]);
+});
 
 it('refuses a restore through a token even when the person has stepped up — the archive and the service alike', function () {
     tokenScopePveFakes();
@@ -436,10 +501,10 @@ it('refuses a restore through a token even when the person has stepped up — th
 });
 
 it('refuses deleting a backup through a token even when the person has stepped up', function () {
-    // TokenScopes gives backup.delete to services:power and relies on the step-up rule. On this branch alone the rule does not
-    // reach it: the `backup.delete` action is decided as service.manage at NORMAL risk (the default arm of permissionFor), so a
-    // power token deletes a backup — red, 202 (review round 2). TASK-0029 maps the action to backup.delete with a step-up
-    // (DestructivePreview::ACTIONS); the orchestrator takes ->skip() away after the rebase onto it.
+    // TokenScopes gives backup.delete to services:power and relies on the step-up rule. Without TASK-0029 the rule did not
+    // reach it: the `backup.delete` action was decided as service.manage at NORMAL risk (the default arm of permissionFor), so a
+    // power token deleted a backup — red, 202 (review round 2). TASK-0029 maps the action to backup.delete with a step-up
+    // (DestructivePreview::ACTIONS); enabled at the 0029–0031 integration (was ->skip() until then).
     [$owner, $org] = $this->customerWithOrganization();
     $web = featureWebService($org, 'aapanel');
     $backup = Backup::query()->create([
@@ -455,7 +520,7 @@ it('refuses deleting a backup through a token even when the person has stepped u
         ->and(Backup::query()->findOrFail($backup->id)->state)->toBe('completed')
         ->and(Operation::query()->where('service_id', $web->id)->exists())->toBeFalse();
     unset($_ENV['AAPANEL_MANAGED01_API_KEY']);
-})->skip('needs TASK-0029 (backup.delete asks for its own permission with a step-up) — enabled at integration');
+});
 
 it('lets an unknown action word reach the validator, not the scope map', function () {
     // TokenRouteScope asks the map only about a word in ServiceActionWorkflow::ACTIONS; anything else keeps the family's write

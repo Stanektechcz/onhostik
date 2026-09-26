@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Services;
 
+use Onhost\Domain\Identity\Authorization\TokenScopes;
+use Onhost\Domain\Identity\Models\PersonalAccessToken;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Web\UptimeMonitor;
@@ -183,9 +185,10 @@ final class ServiceSpecService
                 return;
             }
             // PUT /spec is in the token's `services` family and is checked as `service.manage`, which `services:power` covers; the
-            // bus never sees token scopes, so a console step on a token session is refused here (fails closed; TASK-0030 owns
-            // the scope map and may replace this with it)
-            if (str_starts_with((string) $context->sessionId, 'token:') && $command->permission() === 'service.console') {
+            // bus never sees token scopes, so each step on a token session asks the token's own scope for its permission — the
+            // one map the /actions path asks (TokenScopes, TASK-0030 C13-H2c; replaced TASK-0029's console-only refusal at the
+            // 0029–0031 integration). A console step needs `services:console`, a step the map does not open is refused
+            if (! $this->tokenMay($context, $command->permission())) {
                 $out['skipped'][] = ['section' => $section, 'reason' => 'token_scope:'.$action];
 
                 return;
@@ -468,6 +471,23 @@ final class ServiceSpecService
         }
 
         return $out;
+    }
+
+    /**
+     * Whether the API token behind `$context` carries the scope `$permission` needs (TokenScopes). The portal's own session is
+     * not a token and is decided by the bus alone. Fails closed: a token session whose token is gone, or a permission the map
+     * does not open to tokens, is refused — the same answer ApiContext::assertTokenScope gives on the /actions path.
+     */
+    private function tokenMay(CommandContext $context, ?string $permission): bool
+    {
+        $session = (string) $context->sessionId;
+        if (! str_starts_with($session, 'token:')) {
+            return true;
+        }
+        $token = PersonalAccessToken::query()->find(substr($session, strlen('token:')));
+        $needed = TokenScopes::for($permission);
+
+        return $token instanceof PersonalAccessToken && $needed !== null && $token->can($needed);
     }
 
     /** @param  list<array<string,mixed>>  $a @param  list<array<string,mixed>>  $b */
