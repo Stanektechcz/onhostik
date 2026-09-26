@@ -9,9 +9,11 @@ use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\OrganizationService;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Provisioning\Models\ProviderBinding;
 use Onhost\Domain\Services\Access\ServiceAccessService;
 use Onhost\Domain\Services\DelegatedAccessReview;
 use Onhost\Domain\Services\Models\Backup;
+use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceService;
 use Onhost\Domain\Services\ServiceSpecService;
@@ -30,6 +32,12 @@ use Onhost\Platform\Outbox\OutboxPublisher;
 beforeEach(fn () => Http::preventStrayRequests());
 
 /** One game-panel fake: the server's state the test moves through by reference. */
+/** Panel user 9 is the account the platform made for the organization of the lab server 77 (external id = organization id, TASK-0033). */
+function gameToolsPanelOwner(): string
+{
+    return (string) Service::query()->whereKey(ProviderBinding::query()->where('remote_type', 'server')->where('remote_id', '77')->value('service_id'))->value('organization_id');
+}
+
 function gameToolsFake(array &$state): void
 {
     Http::fake(function (Request $request) use (&$state) {
@@ -142,7 +150,7 @@ function gameToolsFake(array &$state): void
 
                 return $ok($state['allocations'][$id], 'allocation');
             })(),
-            str_ends_with($path, '/api/application/users/9') && $m === 'GET' => $ok(['id' => 9, 'username' => 'liga_ab12cd', 'email' => 'owner@liga.test', 'first_name' => 'Liga', 'last_name' => 'Customer', 'language' => 'en', 'root_admin' => false], 'user'),
+            str_ends_with($path, '/api/application/users/9') && $m === 'GET' => $ok(['id' => 9, 'external_id' => gameToolsPanelOwner(), 'username' => 'liga_ab12cd', 'email' => 'owner@liga.test', 'first_name' => 'Liga', 'last_name' => 'Customer', 'language' => 'en', 'root_admin' => false], 'user'),
             str_ends_with($path, '/api/application/users/9') && $m === 'PATCH' => (function () use ($request, &$state, $ok) {
                 $state['panel_password'] = (string) $request['password'];
 

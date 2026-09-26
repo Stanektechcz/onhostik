@@ -31,6 +31,12 @@ beforeEach(function () {
     Http::preventStrayRequests();
 });
 
+/** The organization of the lab game service: the panel users of both lab panels are its own (external id = organization id, TASK-0033). */
+function gameMigrationPanelOwner(): string
+{
+    return (string) Service::query()->where('family', 'game')->orderBy('created_at')->value('organization_id');
+}
+
 /** The panel double for a two-node game panel; `$state` records what happened, `$failUpload` breaks the transfer. */
 /**
  * The collaborators endpoint of the panel's client API, per server identifier. `$state['panel_widens']` makes the panel
@@ -122,6 +128,7 @@ function gameMigrationPanel(array &$state, bool $failUpload = false): void
                 return Http::response('', 204);
             })(),
             $path === '/api/client/account' => Http::response(['object' => 'user', 'attributes' => ['id' => 1, 'admin' => true]]),
+            $path === '/api/application/users/9' && $m === 'GET' => Http::response(['object' => 'user', 'attributes' => ['id' => 9, 'external_id' => gameMigrationPanelOwner(), 'email' => 'org-x@game-users.onhost.invalid', 'username' => 'liga', 'root_admin' => false]]), // a collaborator is carried only onto the organization's own account (TASK-0033)
             preg_match('#^/api/client/servers/(e4c1abcd|f00dbabe)/users(?:/([\w-]+))?$#', $path, $u) === 1 => gameMigrationUsers($state, $request, $u[1], $u[2] ?? null),
             default => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => "no fake for {$m} {$path}"]]], 404),
         };
@@ -230,7 +237,8 @@ function gameMigrationSecondPanel(array &$state): ProviderInstance
             'limits' => ['memory' => 8192, 'swap' => 0, 'disk' => 61440, 'io' => 500, 'cpu' => 300], 'feature_limits' => ['databases' => 2, 'allocations' => 2, 'backups' => 5], 'container' => ['startup_command' => 'java -jar {{SERVER_JARFILE}}', 'image' => 'ghcr.io/pterodactyl/yolks:java_21', 'installed' => $status === null ? 1 : 0, 'environment' => ['SERVER_JARFILE' => 'server.jar', 'MOTD' => 'Vitejte']]]]);
 
         return match (true) {
-            $path === '/api/application/users' && $m === 'GET' => $list([['id' => 44, 'email' => 'billing@example.cz', 'username' => 'test']], 'user'),
+            // the customer's account on the other panel is found by the organization id alone, never by an e-mail (TASK-0033)
+            $path === '/api/application/users/external/'.gameMigrationPanelOwner() && $m === 'GET', $path === '/api/application/users/44' && $m === 'GET' => Http::response(['object' => 'user', 'attributes' => ['id' => 44, 'external_id' => gameMigrationPanelOwner(), 'email' => 'billing@example.cz', 'username' => 'test', 'root_admin' => false]]),
             $path === '/api/application/nodes' => $list([['id' => 1, 'name' => 'games-b01', 'fqdn' => 'wings03.test']], 'node'),
             $path === '/api/application/nodes/1/allocations' => $list([['id' => 71, 'ip' => '198.51.100.5', 'alias' => null, 'port' => 27015, 'assigned' => false]], 'allocation'),
             str_starts_with($path, '/api/application/servers/external/') => Http::response(['errors' => [['code' => 'NotFoundHttpException', 'status' => '404', 'detail' => 'no server']]], 404),

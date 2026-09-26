@@ -49,11 +49,12 @@ final class ProvisionGameServerWorkflow implements Workflow
                 {
                     $service = $this->service($context);
                     $organization = Organization::query()->findOrFail($service->organization_id);
-                    $email = (string) ($context->desired('contact_email') ?: $organization->billing_email ?: $organization->owner?->email);
-                    if ($email === '') {
-                        return StepResult::fail('Organization has no e-mail for the game panel account', false);
-                    }
-                    $user = $this->capability($context, GameProvider::class)->ensureUser($email, (string) ($organization->name ?: 'ONhost customer'), $organization->id);
+                    // The panel user is the organization's by its id alone (TASK-0033, IF-6 / D12). The e-mail used to find it
+                    // was customer-typed, so it could name a stranger's account (PA-01); now it only seeds the login name, and an
+                    // organization without one still gets its account. A user that is not exactly this organization's is
+                    // refused by the adapter (not retried) and waits for an operator (`onhost:game:panel-identity --dry-run`).
+                    $email = (string) ($context->desired('contact_email') ?: $organization->billing_email ?: $organization->owner?->email ?: '');
+                    $user = $this->capability($context, GameProvider::class)->ensureUser($email, (string) ($organization->name ?: 'ONhost customer'), (string) $organization->id);
 
                     return StepResult::done(['ptero_user_id' => (int) $user['remote_id'], 'ptero_user_created' => (bool) ($user['created'] ?? false)]);
                 }

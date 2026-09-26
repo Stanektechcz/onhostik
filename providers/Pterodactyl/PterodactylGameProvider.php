@@ -8,6 +8,7 @@ use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
+use Onhost\Domain\Services\Models\Service;
 use Onhost\Platform\Errors\ProviderErrorCode;
 use Onhost\Platform\Errors\ProviderException;
 use Onhost\Platform\ProviderHttp\ProviderHttpClient;
@@ -36,6 +37,9 @@ use Onhost\Providers\Contracts\Usage;
  */
 final class PterodactylGameProvider implements GameProvider, GameToolsProvider, SelfProbing
 {
+    /** The reserved domain of the synthetic e-mails of new panel users (TASK-0033, owner default O2): it reaches nobody. */
+    public const SYNTHETIC_EMAIL_DOMAIN = 'game-users.onhost.invalid';
+
     public function __construct(
         private readonly ProviderInstance $instance,
         private readonly array $credentials,
@@ -146,20 +150,129 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         return $out;
     }
 
+    /**
+     * The organization's panel user, found only by `GET /users/external/{organizationId}` (TASK-0033, IF-6 / D12). It used
+     * to be the first hit of `filter[email]` on the billing e-mail — a value the customer types — so an organization that
+     * wrote somebody else's address got its server under that person's account and could reset that person's password
+     * (PA-01). `$email` is now only the seed of the login name; a new user gets a synthetic e-mail of the platform (owner
+     * default O2: new users only, existing users keep theirs). A user the panel answers with that is not exactly this
+     * organization's (a partial match of the collation, an administrator) is refused, never adopted and never shadowed by
+     * a second user: an operator sorts it out (`onhost:game:panel-identity`). A create that timed out is found again by
+     * the same lookup on the retry.
+     */
     public function ensureUser(string $email, string $displayName, string $externalId): array
     {
-        $found = $this->request('GET', '/api/application/users', 'app', 'users.find', [], ['filter[email]' => $email]);
-        $existing = collect((array) ($found['data'] ?? []))->first();
-        if (is_array($existing)) {
-            return ['remote_id' => (string) $existing['attributes']['id'], 'created' => false];
+        if ($externalId === '' || trim($externalId) !== $externalId) {
+            throw new ProviderException('pterodactyl', ProviderErrorCode::VALIDATION, 'A game panel user needs the organization id as its external id');
+        }
+        $existing = $this->userByExternalId($externalId);
+        if ($existing !== null) {
+            $this->assertOwnUser(PanelIdentity::judge($existing, $externalId));
+
+            return ['remote_id' => (string) $existing['id'], 'created' => false];
         }
         [$first, $last] = array_pad(explode(' ', trim($displayName), 2), 2, 'Customer');
-        $created = $this->request('POST', '/api/application/users', 'app', 'users.create', [
-            'email' => $email, 'username' => Str::slug(Str::before($email, '@').'-'.substr(md5($externalId), 0, 6), '_'), 'first_name' => $first ?: 'ONhost', 'last_name' => $last ?: 'Customer',
+        $seed = Str::before($email, '@') !== '' ? Str::before($email, '@') : 'onhost';
+        $created = (array) ($this->request('POST', '/api/application/users', 'app', 'users.create', [
+            'email' => $this->syntheticEmail($externalId), 'username' => Str::slug($seed.'-'.substr(md5($externalId), 0, 6), '_'), 'first_name' => $first ?: 'ONhost', 'last_name' => $last ?: 'Customer',
             'external_id' => $externalId, 'root_admin' => false, 'language' => 'en',
-        ]);
+        ])['attributes'] ?? []);
+        $this->assertOwnUser(PanelIdentity::judge($created, $externalId)); // what the panel stored, not what was sent
 
-        return ['remote_id' => (string) $created['attributes']['id'], 'created' => true];
+        return ['remote_id' => (string) $created['id'], 'created' => true];
+    }
+
+    /**
+     * Whose panel user owns a server of a service, read from the panel (TASK-0033): the operator's triage list
+     * (`onhost:game:panel-identity --dry-run`) asks it for every game service; nothing is changed.
+     */
+    public function panelIdentity(ResourceRef $server, string $organizationId): PanelIdentity
+    {
+        $userId = $this->serverUserId($server);
+        try {
+            $attributes = (array) ($this->request('GET', "/api/application/users/{$userId}", 'app', 'users.get')['attributes'] ?? []);
+        } catch (ProviderException $e) {
+            if ($e->errorCode === ProviderErrorCode::NOT_FOUND) {
+                return PanelIdentity::judge(null, $organizationId, $userId);
+            }
+            throw $e;
+        }
+
+        return PanelIdentity::judge($attributes, $organizationId, $userId);
+    }
+
+    /**
+     * The panel user of a service's server, proven to be the service's organization's before the platform shows it or
+     * acts on it (panel password, a new collaborator — TASK-0033). The organization is read from the service itself, not
+     * carried in the binding: after a service changes hands, the old organization's panel account is not the new one's.
+     *
+     * @return array<string, mixed> the user's panel attributes, `id` = the proven user
+     *
+     * @throws ProviderException VALIDATION when the user is not the organization's (not retried; listed for an operator)
+     */
+    private function ownPanelUser(ResourceRef $server): array
+    {
+        $userId = $this->serverUserId($server);
+        $attributes = (array) ($this->request('GET', "/api/application/users/{$userId}", 'app', 'users.get')['attributes'] ?? []);
+        // a ref without a service, or a service that is gone, has no organization: then the account is nobody's (fail closed)
+        $organizationId = $server->serviceId === null ? null : Service::query()->whereKey($server->serviceId)->value('organization_id');
+        $this->assertOwnUser(PanelIdentity::judge($attributes, is_string($organizationId) ? $organizationId : '', $userId));
+
+        return array_merge($attributes, ['id' => $userId]); // the user that was proven is the one acted on
+    }
+
+    /** @throws ProviderException VALIDATION with no vendor detail and no foreign id in the message (customers see it) */
+    private function assertOwnUser(PanelIdentity $identity): void
+    {
+        if ($identity->owned()) {
+            return;
+        }
+        throw new ProviderException('pterodactyl', ProviderErrorCode::VALIDATION, $identity->verdict === PanelIdentity::ADMINISTRATOR
+            ? 'The server belongs to a panel administrator; its password is not managed here'
+            : 'The game panel account does not belong to this organization; support has to review it before it can be managed here');
+    }
+
+    /** @return array<string, mixed>|null */
+    private function userByExternalId(string $externalId): ?array
+    {
+        try {
+            $found = $this->request('GET', '/api/application/users/external/'.rawurlencode($externalId), 'app', 'users.external');
+        } catch (ProviderException $e) {
+            if ($e->errorCode === ProviderErrorCode::NOT_FOUND) {
+                return null;
+            }
+            throw $e;
+        }
+        $attributes = $found['attributes'] ?? null;
+
+        return is_array($attributes) ? $attributes : null;
+    }
+
+    /** The panel user the server was created under: the binding knows it, an older binding asks the panel. */
+    private function serverUserId(ResourceRef $server): string
+    {
+        $userId = (string) ($server->meta['user_id'] ?? '');
+        if ($userId === '') {
+            $userId = (string) ($this->request('GET', "/api/application/servers/{$server->remoteId}", 'app', 'servers.get')['attributes']['user'] ?? '');
+        }
+        if ($userId === '' || $userId === '0') {
+            throw new ProviderException('pterodactyl', ProviderErrorCode::PROVIDER_BUG, 'The panel names no owner for the game server');
+        }
+
+        return $userId;
+    }
+
+    /**
+     * A platform-made e-mail that is the same for every retry of one organization and belongs to nobody, so that no
+     * customer-typed address ever names a panel account (owner default O2). `options.synthetic_email_domain` overrides
+     * the reserved `.invalid` domain per panel.
+     */
+    private function syntheticEmail(string $externalId): string
+    {
+        $readable = substr(strtolower((string) preg_replace('/[^A-Za-z0-9]/', '', $externalId)), 0, 40);
+        $domain = trim((string) $this->instance->option('synthetic_email_domain', self::SYNTHETIC_EMAIL_DOMAIN));
+
+        return 'org-'.($readable !== '' ? $readable.'-' : '').substr(hash('sha256', $externalId), 0, 8).'@'.($domain !== '' ? $domain : self::SYNTHETIC_EMAIL_DOMAIN);
     }
 
     public function eggDefinition(int $nestId, int $eggId): array
@@ -610,8 +723,13 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         return $out;
     }
 
+    /**
+     * A new collaborator is a grant on a server whose owner is proven to be the service's organization's panel user first
+     * (TASK-0033, IF-6). Removing one (`deleteSubuser`) is not gated: taking access away is never held up by a triage.
+     */
     public function createSubuser(ResourceRef $server, string $email, array $permissions): ProviderResult
     {
+        $this->ownPanelUser($server);
         $created = $this->request('POST', "/api/client/servers/{$this->identifier($server)}/users", 'client', 'subusers.create', ['email' => $email, 'permissions' => array_values($permissions)], critical: true);
         $a = (array) ($created['attributes'] ?? []);
 
@@ -871,24 +989,22 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
         return ['bytes' => $bytes, 'file' => $fileName];
     }
 
+    /** Shown only when the account is the service's organization's (TASK-0033): a stranger's login name and e-mail are not. */
     public function panelAccount(ResourceRef $server): array
     {
-        $userId = (string) ($server->meta['user_id'] ?? '');
-        if ($userId === '') {
-            $userId = (string) ($this->request('GET', "/api/application/servers/{$server->remoteId}", 'app', 'servers.get')['attributes']['user'] ?? '');
-        }
-        $a = (array) ($this->request('GET', "/api/application/users/{$userId}", 'app', 'users.get')['attributes'] ?? []);
+        $a = $this->ownPanelUser($server);
 
-        return ['url' => rtrim((string) $this->instance->base_url, '/'), 'username' => $a['username'] ?? null, 'email' => $a['email'] ?? null, 'remote_id' => $userId];
+        return ['url' => rtrim((string) $this->instance->base_url, '/'), 'username' => $a['username'] ?? null, 'email' => $a['email'] ?? null, 'remote_id' => (string) $a['id']];
     }
 
+    /**
+     * The password opens every server of the panel account, so it is set only on the service's organization's own user,
+     * proven right before the change (TASK-0033, IF-6: a user once found by a customer-typed e-mail was a stranger's).
+     */
     public function setPanelPassword(ResourceRef $server, string $password): ProviderResult
     {
-        $account = $this->panelAccount($server);
-        $a = (array) ($this->request('GET', "/api/application/users/{$account['remote_id']}", 'app', 'users.get')['attributes'] ?? []);
-        if (! empty($a['root_admin'])) {
-            throw new ProviderException('pterodactyl', ProviderErrorCode::VALIDATION, 'The server belongs to a panel administrator; its password is not managed here');
-        }
+        $a = $this->ownPanelUser($server);
+        $account = ['url' => rtrim((string) $this->instance->base_url, '/'), 'remote_id' => (string) $a['id']];
         $this->request('PATCH', "/api/application/users/{$account['remote_id']}", 'app', 'users.password', ['email' => (string) ($a['email'] ?? ''), 'username' => (string) ($a['username'] ?? ''), 'first_name' => (string) ($a['first_name'] ?? 'ONhost'), 'last_name' => (string) ($a['last_name'] ?? 'Customer'), 'language' => (string) ($a['language'] ?? 'en'), 'password' => $password], critical: true);
 
         return ProviderResult::completed($server, ['username' => $a['username'] ?? null, 'url' => $account['url'], 'changed' => true]);
@@ -1131,8 +1247,15 @@ final class PterodactylGameProvider implements GameProvider, GameToolsProvider, 
             }
             throw $e;
         }
+        $attributes = $server['attributes'] ?? null;
+        if (is_array($attributes) && (string) ($attributes['external_id'] ?? '') !== $externalId) {
+            // the panel's lookup matches under a case- and trailing-space-insensitive collation: a server it hands back under
+            // another spelling is not the one this order created, and adopting it would give the customer somebody's server
+            // (TASK-0033, the same rule as for panel users)
+            throw new ProviderException('pterodactyl', ProviderErrorCode::VALIDATION, 'The panel answered the server lookup with a server of another external id; it is not adopted');
+        }
 
-        return $server['attributes'] ?? null;
+        return is_array($attributes) ? $attributes : null;
     }
 
     private function refFrom(array $attributes, string $serviceId): ResourceRef
