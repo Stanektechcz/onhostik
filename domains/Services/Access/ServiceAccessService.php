@@ -16,6 +16,7 @@ use Onhost\Domain\Organizations\Models\OrganizationInvitation;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Organizations\Models\ProjectMembership;
 use Onhost\Domain\Organizations\OrganizationService;
+use Onhost\Domain\Services\Listeners\RevokeDelegatedAccess;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\ServiceAccessGrant;
 use Onhost\Domain\Services\Models\ServiceStateMachine;
@@ -90,6 +91,7 @@ final class ServiceAccessService
 
         return DB::transaction(function () use ($organization, $service, $email, $capabilities, $context, $until, $note, $user, $member) {
             $grant = $this->openGrant($service, $email) ?? new ServiceAccessGrant(['organization_id' => $organization->id, 'service_id' => $service->id, 'email' => $email]);
+            $before = $grant->exists && $grant->state === ServiceAccessGrant::ACTIVE && $grant->user_id !== null ? (array) $grant->capabilities : [];
             $grant->forceFill(['capabilities' => $capabilities, 'expires_at' => $until, 'note' => $note !== null ? mb_substr(trim($note), 0, 250) : $grant->note, 'granted_by' => $context->actorId]);
             $vars = ['sluzba' => $this->serviceName($service), 'organizace' => (string) $organization->name, 'opravneni' => $this->describe($capabilities, (string) ($organization->locale ?? 'cs')), 'do' => $until?->format('j. n. Y') ?? '—'];
             if ($member && $user !== null) {
@@ -111,6 +113,7 @@ final class ServiceAccessService
             }
             $this->audit->record($context->withScope($organization->id), 'service.access.grant', 'succeeded', ['email' => $email, 'capabilities' => $capabilities, 'access_until' => $until?->toIso8601String(), 'state' => $grant->state], 'service', $service->id);
             $this->outbox->publish(GenericEvent::of('service.access.granted', 'service', $service->id, ['grant_id' => $grant->id, 'email' => $email, 'capabilities' => $capabilities, 'state' => $grant->state, 'expires_at' => $until?->toIso8601String(), 'service' => $this->serviceName($service)], $organization->id));
+            $this->publishReduced($organization, $service, $grant, $before, $capabilities);
 
             return $grant;
         }, 3);
@@ -302,6 +305,33 @@ final class ServiceAccessService
         }
 
         return true;
+    }
+
+    /**
+     * A share given again with less — svc_console down to svc_manage — only rewrote the bindings and said
+     * `service.access.granted`, so the SSH keys and game sub-users the person had put on the panels, console-level since
+     * TASK-0029, stayed (security review round 2, MEDIUM, fix round 1). When the capabilities dropped took the permission
+     * whose artefacts a revocation cleans up, `service.access.reduced` sends them down the revocation's own path
+     * (RevokeDelegatedAccess, which still keeps them for somebody another role gives the console). A raise, the same again,
+     * or a drop of anything else takes nothing.
+     *
+     * @param  list<string>  $before  what the ACTIVE grant held before this share ([] when it was new or pending)
+     * @param  list<string>  $after
+     */
+    private function publishReduced(Organization $organization, Service $service, ServiceAccessGrant $grant, array $before, array $after): void
+    {
+        if ($before === [] || $grant->state !== ServiceAccessGrant::ACTIVE || $grant->user_id === null) {
+            return;
+        }
+        $before = array_values(array_intersect($before, array_keys(self::CAPABILITIES))); // a stored name the catalogue no longer knows gave nothing
+        $lost = array_diff($this->permissionsOf($before), $this->permissionsOf($after));
+        if (! in_array(RevokeDelegatedAccess::ARTEFACT_PERMISSION, $lost, true)) {
+            return;
+        }
+        $this->outbox->publish(GenericEvent::of('service.access.reduced', 'service', $service->id, [
+            'grant_id' => $grant->id, 'user_id' => $grant->user_id, 'email' => $grant->email, 'organization_id' => $organization->id,
+            'capabilities' => $after, 'dropped' => array_values(array_diff($before, $after)), 'service' => $this->serviceName($service),
+        ], $organization->id));
     }
 
     /**

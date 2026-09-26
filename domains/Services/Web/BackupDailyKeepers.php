@@ -103,22 +103,29 @@ final class BackupDailyKeepers
 
     /**
      * How far back a schedule reaches, in minutes: `generations` copies of `minutes` each, never beyond `days` — and under
-     * the rule, for a plan backed up at least daily, the full `days` through the daily keepers.
+     * the rule the full `days` through the daily keepers. This is what `surplus()` / `beyondGenerations()` plus the expiry
+     * leave (pinned against them in ServiceActionSecondaryGatesTest), and the backup-schedule thinning gate compares it
+     * (TASK-0029). Under the rule a weekly schedule reaches the window too: every backup inside it is its day's newest, so
+     * `surplus()` keeps it — the former `$minutes <= 1440` condition said seven generations of weeks where the prune kept
+     * all of `days`.
      */
     public static function historyMinutes(int $minutes, int $days, int $generations, bool $keepers): int
     {
         $window = max(1, $days) * 1440;
         $copies = max(1, $generations) * max(1, $minutes);
 
-        return $keepers && $minutes <= 1440 ? $window : min($window, $copies);
+        return $keepers ? $window : min($window, $copies);
     }
 
     /** How many copies a schedule keeps at most (the generations, plus under the rule a keeper for every day they do not reach). */
     public static function copies(int $minutes, int $days, int $generations, bool $keepers): int
     {
         $byWindow = intdiv(max(1, $days) * 1440, max(1, $minutes));
-        if (! $keepers || $minutes > 1440) {
+        if (! $keepers) {
             return min(max(1, $generations), max(1, $byWindow));
+        }
+        if ($minutes >= 1440) {
+            return max(1, $byWindow); // at most one backup a day: under the rule every one inside the window is its day's keeper
         }
         $reachedDays = (int) ceil(max(1, $generations) * $minutes / 1440);
 

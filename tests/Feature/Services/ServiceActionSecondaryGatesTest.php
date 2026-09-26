@@ -14,19 +14,28 @@ use Onhost\Domain\Integrations\ActionHookService;
 use Onhost\Domain\Integrations\DiscordService;
 use Onhost\Domain\Integrations\Models\ActionHook;
 use Onhost\Domain\Integrations\Models\DiscordLink;
+use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Provisioning\Models\Operation;
+use Onhost\Domain\Provisioning\OperationRunner;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
+use Onhost\Domain\Services\Access\ServiceAccessService;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
+use Onhost\Domain\Services\Models\Backup;
 use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
+use Onhost\Domain\Services\Models\ServiceAccessGrant;
 use Onhost\Domain\Services\Models\SshKeyGrant;
 use Onhost\Domain\Services\ServiceFeatures;
 use Onhost\Domain\Services\ServiceSpecService;
+use Onhost\Domain\Services\Web\BackupDailyKeepers;
 use Onhost\Domain\Support\Assistant\ServiceIntent;
 use Onhost\Platform\Audit\AuditEvent;
+use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Events\GenericEvent;
+use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Tests\TestCase;
 
@@ -358,4 +367,196 @@ it('does not run a Discord button twice when the click arrives twice', function 
     $operation = Operation::query()->where('service_id', $web->id)->sole(); // one backup for one click
     expect($replies[0])->toContain('Spuštěno')->toContain(substr($operation->id, -6))
         ->and($replies[1])->toContain('Spuštěno')->toContain(substr($operation->id, -6)); // the repeat names the same operation
+});
+
+/** A web plan keeping 60 days and seven generations, its schedule set to `$frequency` (the owner's choice within the plan). */
+function sasgScheduleOf(Organization $org, string $frequency): Service
+{
+    $web = featureWebService($org, 'aapanel');
+    $web->forceFill(['entitlements' => array_merge((array) $web->entitlements, ['backup_days' => 60, 'backup_generations' => 7])])->save();
+    app(ServiceFeatures::class)->forget($web);
+    BackupPolicy::query()->create(['service_id' => $web->id, 'product_key' => $web->product_key, 'schedule' => ['frequency' => $frequency], 'retention' => ['days' => 60, 'generations' => 7], 'offsite' => false]);
+
+    return $web->fresh();
+}
+
+it('does not let a more frequent schedule thin out the history for somebody who may not delete backups', function () {
+    // security review round 2, MEDIUM (fix round 1): with `backups.as_sold` off the prune keeps the newest N generations
+    // (BackupDailyKeepers::beyondGenerations), so the owner's weekly x 7 reaches seven weeks back and daily x 7 one week —
+    // switching to daily prunes six weeks of history within a week while days and generations stay the same. A change after
+    // which the kept history reaches less far back is a deletion, as lowering days or generations is.
+    [$owner, $org] = $this->customerWithOrganization();
+    $web = sasgScheduleOf($org, 'weekly');
+    sasgPanels();
+    expect(app(ServiceFeatures::class)->features($web)['backup_schedule']['options'])->toMatchArray(['frequency' => 'daily', 'days' => 60, 'generations' => 7]); // daily is within the plan
+    $unchanged = fn () => expect(BackupPolicy::query()->where('service_id', $web->id)->sole()->schedule)->toBe(['frequency' => 'weekly']);
+
+    $developer = sasgMember($org, 'developer', [], 'dev@sasg.test');
+    app(StepUpService::class)->grant($developer, 'totp', null, '127.0.0.1'); // a fresh step-up changes nothing about a missing permission
+    $this->actingAs($developer, 'sanctum');
+    $response = sasgSchedulePut($this, $web, ['frequency' => 'daily'], 'sasg-bf-1')->assertForbidden()->assertJsonPath('error', 'access_not_approved');
+    expect((string) $response->json('message'))->toContain('backup.delete');
+    $unchanged();
+
+    // a svc_manage guest: refused before the handler already (WebToolsController asks service.manage at the organization)
+    $guest = sasgMember($org, 'svc_manage', [$web], 'agentura@sasg.test');
+    app(StepUpService::class)->grant($guest, 'totp', null, '127.0.0.1');
+    $this->actingAs($guest, 'sanctum');
+    sasgSchedulePut($this, $web, ['frequency' => 'daily'], 'sasg-bf-2')->assertForbidden()->assertJsonPath('error', 'access_not_approved');
+    $unchanged();
+
+    // a power-only token of the owner: no person to give the step-up
+    $this->app['auth']->forgetGuards();
+    $this->withToken($owner->createToken('ci', ['services:read', 'services:power'])->plainTextToken);
+    sasgSchedulePut($this, $web, ['frequency' => 'daily'], 'sasg-bf-3')->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    $unchanged();
+});
+
+it('lets the owner make the backup schedule more frequent with a fresh step-up', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $web = sasgScheduleOf($org, 'weekly');
+    sasgPanels();
+    $this->actingAs($owner, 'sanctum');
+
+    sasgSchedulePut($this, $web, ['frequency' => 'daily'], 'sasg-bf-4')->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    expect(BackupPolicy::query()->where('service_id', $web->id)->sole()->schedule)->toBe(['frequency' => 'weekly']);
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+    sasgSchedulePut($this, $web, ['frequency' => 'daily'], 'sasg-bf-5')->assertOk()->assertJsonPath('schedule.frequency', 'daily');
+    expect(BackupPolicy::query()->where('service_id', $web->id)->sole()->schedule)->toBe(['frequency' => 'daily'])
+        ->and(AuditEvent::query()->where('action', 'service.backup_schedule.set')->where('actor_id', $owner->id)->sole()->step_up_method)->toBe('totp');
+});
+
+it('lets somebody who manages make the backup schedule reach further back', function () {
+    [, $org] = $this->customerWithOrganization();
+    $web = sasgScheduleOf($org, 'daily');
+    sasgPanels();
+    $developer = sasgMember($org, 'developer', [], 'dev@sasg.test');
+    $this->actingAs($developer, 'sanctum');
+
+    // daily x 7 reaches a week back, weekly x 7 seven weeks: nothing kept now is pruned sooner, so it stays managing (no step-up)
+    sasgSchedulePut($this, $web, ['frequency' => 'weekly'], 'sasg-bf-up')->assertOk()->assertJsonPath('schedule.frequency', 'weekly');
+    expect(BackupPolicy::query()->where('service_id', $web->id)->sole()->schedule)->toBe(['frequency' => 'weekly']);
+});
+
+it('reckons the history a schedule keeps as far back as the prune leaves it', function (int $minutes, int $days, int $generations, bool $keepers) {
+    // one source of truth: the thinning gate compares BackupDailyKeepers::historyMinutes, so it must say what the prune's own
+    // selectors (beyondGenerations / surplus, plus the expiry at retention_until) really leave of a long run of scheduled backups
+    [, $org] = $this->customerWithOrganization();
+    $web = featureWebService($org, 'aapanel');
+    $this->travelTo(now()->startOfDay()->setTime(3, 5));
+    for ($k = 0; $k * $minutes <= 100 * 1440; $k++) {
+        $at = now()->subMinutes($k * $minutes);
+        Backup::query()->create(['service_id' => $web->id, 'organization_id' => $org->id, 'kind' => 'scheduled', 'state' => 'completed', 'protected' => false,
+            'started_at' => $at, 'finished_at' => $at->copy()->addMinutes(5), 'retention_until' => $at->copy()->addDays($days), 'size_bytes' => 1000]);
+    }
+    $pruned = ($keepers ? BackupDailyKeepers::surplus($web, $generations, $days, 10000) : BackupDailyKeepers::beyondGenerations($web, $generations, 10000))->pluck('id')->all();
+    $oldest = Backup::query()->where('service_id', $web->id)->whereNotIn('id', $pruned)->where('retention_until', '>=', now())->orderBy('started_at')->firstOrFail()->started_at;
+    $observed = (int) round($oldest->diffInMinutes(now(), true));
+
+    $history = BackupDailyKeepers::historyMinutes($minutes, $days, $generations, $keepers);
+    $grain = $keepers ? max($minutes, 1440) : $minutes; // a keeper is the newest backup of its calendar day: exact to the day
+    expect($observed)->toBeLessThanOrEqual($history)->toBeGreaterThanOrEqual($history - $grain);
+})->with([
+    'weekly x 7, rule off' => [10080, 60, 7, false],
+    'daily x 7, rule off' => [1440, 60, 7, false],
+    'six-hourly x 7 inside one day, rule off' => [360, 1, 7, false],
+    'six-hourly x 7, daily keepers' => [360, 30, 7, true],
+    'weekly x 3, daily keepers' => [10080, 60, 3, true],
+]);
+
+/** `driveOperation()` for this file, whose queue is faked: the runner takes each step itself. */
+function sasgRunOperation(Operation $operation, int $maxTicks = 20): Operation
+{
+    for ($i = 0; $i < $maxTicks && ! $operation->refresh()->isTerminal() && $operation->state !== Operation::FAILED; $i++) {
+        app(OperationRunner::class)->tick($operation, 60);
+    }
+
+    return $operation->refresh();
+}
+
+/** The game panel's collaborator list, by reference: listing and deleting a sub-user; everything else answers empty. */
+function sasgGamePanel(array &$subusers): void
+{
+    Http::fake(function (Request $request) use (&$subusers) {
+        $path = (string) parse_url($request->url(), PHP_URL_PATH);
+        $list = fn (array $items) => Http::response(['object' => 'list', 'data' => array_map(fn ($a) => ['object' => 'server_subuser', 'attributes' => $a], $items), 'meta' => ['pagination' => ['total_pages' => 1]]]);
+        if (str_starts_with($request->url(), PTERO) && str_ends_with($path, '/users') && $request->method() === 'GET') {
+            return $list(array_values($subusers));
+        }
+        if (str_starts_with($request->url(), PTERO) && preg_match('~/users/(su-\d+)$~', $path, $mm) === 1 && $request->method() === 'DELETE') {
+            unset($subusers[$mm[1]]);
+
+            return Http::response('', 204);
+        }
+
+        return str_starts_with($request->url(), PTERO) ? $list([]) : Http::response(['status' => true, 'msg' => 'ok', 'data' => []]);
+    });
+}
+
+/**
+ * A guest of the organization with an SSH key on the web and a sub-user on the game server, both services shared with
+ * `$capabilities` by the owner.
+ *
+ * @return array{0:User,1:Service,2:Service,3:SshKeyGrant}
+ */
+function sasgSharedWithArtefacts(CommandContext $owner, Organization $org, array $capabilities, array &$subusers): array
+{
+    $web = featureWebService($org, 'ispconfig');
+    $game = featureGameService($org, ['subusers' => 3]);
+    $guest = sasgMember($org, 'svc_view', [], 'agentura@sasg.test'); // a guest membership, nothing shared yet: the share binds
+    foreach ([$web, $game] as $service) {
+        expect(app(ServiceAccessService::class)->share($org, $service, $guest->email, $capabilities, $owner)->state)->toBe(ServiceAccessGrant::ACTIVE);
+    }
+    $key = SshKeyGrant::query()->create(['organization_id' => $org->id, 'service_id' => $web->id, 'target_remote_id' => '30', 'target_label' => 'deploy', 'owner_user_id' => $guest->id, 'key_type' => 'ssh-ed25519', 'fingerprint' => 'SHA256:'.Str::random(43), 'state' => SshKeyGrant::ACTIVE, 'installed_at' => now()]);
+    $subusers = ['su-1' => ['uuid' => 'su-1', 'email' => $guest->email, 'permissions' => ['control.console'], 'created_at' => null]];
+    app(OutboxPublisher::class)->relayPending();
+
+    return [$guest, $web, $game, $key];
+}
+
+it('takes the SSH keys and game sub-users of a guest whose share drops from console to managing', function () {
+    // security review round 2, MEDIUM (fix round 1): re-sharing an OPEN grant with fewer capabilities rewrote the bindings and
+    // published only service.access.granted — the guest's SSH key and game sub-user, console-level since TASK-0029, stayed on
+    // the panels although the console was taken back. The dropped console now takes them as a revocation would.
+    [$owner, $org] = $this->customerWithOrganization();
+    $subusers = [];
+    sasgGamePanel($subusers);
+    [$guest, $web, $game, $key] = sasgSharedWithArtefacts($this->contextFor($owner, $org, 'totp'), $org, ['console'], $subusers);
+    expect($key->fresh()->state)->toBe(SshKeyGrant::ACTIVE)->and(array_keys($subusers))->toBe(['su-1']); // not vacuous
+
+    foreach ([$web, $game] as $service) {
+        app(ServiceAccessService::class)->share($org, $service, $guest->email, ['manage'], $this->contextFor($owner, $org, 'totp'));
+    }
+    app(OutboxPublisher::class)->relayPending();
+
+    expect($key->fresh()->state)->toBe(SshKeyGrant::REVOKING)
+        ->and(OutboxMessage::query()->where('name', 'service.access.reduced')->pluck('payload')->map(fn ($p) => data_get($p, 'dropped'))->all())->toBe([['console'], ['console']])
+        ->and(Notification::query()->where('organization_id', $org->id)->where('title', 'like', 'Konzole služby odebrána%')->count())->toBe(2); // the organization hears it
+    $removal = Operation::query()->where('service_id', $game->id)->where('idempotency_key', 'like', 'member-removed:%')->sole();
+    expect(data_get($removal->desired, 'action'))->toBe('subuser.delete')
+        ->and(sasgRunOperation($removal)->state)->toBe(Operation::SUCCEEDED)
+        ->and($subusers)->toBe([]);
+    // managing stays: only what the console had put on the panels went
+    app(Authorizer::class)->forget($guest);
+    expect(app(Authorizer::class)->can($guest, 'service.manage', CommandScope::resource($game->id, $org->id, $game->project_id)))->toBeTrue()
+        ->and(app(Authorizer::class)->can($guest, 'service.console', CommandScope::resource($game->id, $org->id, $game->project_id)))->toBeFalse();
+});
+
+it('takes nothing when a share is raised to the console or given again unchanged', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $subusers = [];
+    sasgGamePanel($subusers);
+    [$guest, $web, $game, $key] = sasgSharedWithArtefacts($this->contextFor($owner, $org, 'totp'), $org, ['manage'], $subusers);
+
+    foreach ([['console'], ['console'], ['console', 'backups']] as $capabilities) { // raised, the same again, raised further
+        foreach ([$web, $game] as $service) {
+            app(ServiceAccessService::class)->share($org, $service, $guest->email, $capabilities, $this->contextFor($owner, $org, 'totp'));
+        }
+        app(OutboxPublisher::class)->relayPending();
+    }
+
+    expect($key->fresh()->state)->toBe(SshKeyGrant::ACTIVE)
+        ->and(array_keys($subusers))->toBe(['su-1'])
+        ->and(Operation::query()->where('idempotency_key', 'like', 'member-removed:%')->exists())->toBeFalse()
+        ->and(OutboxMessage::query()->where('name', 'service.access.reduced')->exists())->toBeFalse();
 });

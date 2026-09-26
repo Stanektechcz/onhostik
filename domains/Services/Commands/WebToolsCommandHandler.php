@@ -98,7 +98,7 @@ final class WebToolsCommandHandler implements CommandHandler
         $generations = max(1, min((int) ($plan['generations'] ?? 7), (int) ($params['generations'] ?? $plan['generations'] ?? 7)));
         $offsiteAllowed = (bool) data_get($service->entitlements, 'backup_offsite', false);
         $offsite = $offsiteAllowed && filter_var($params['offsite'] ?? false, FILTER_VALIDATE_BOOLEAN);
-        $stepUp = $this->assertMayThin($service, $plan, $days, $generations, $context);
+        $stepUp = $this->assertMayThin($service, (array) ($schedule['options'] ?? []), ['frequency' => $frequency, 'days' => $days, 'generations' => $generations], $context);
         $policy = BackupPolicy::query()->updateOrCreate(['service_id' => $service->id], ['product_key' => $service->product_key, 'schedule' => ['frequency' => $frequency], 'retention' => ['days' => $days, 'generations' => $generations], 'offsite' => $offsite]);
         $restarted = BackupScheduler::resume($service); // a schedule that had stopped itself after repeated failures starts again here, and only here (H447)
         $this->audit->record($context->withScope($service->organization_id), 'service.backup_schedule.set', 'succeeded', ['frequency' => $frequency, 'days' => $days, 'generations' => $generations, 'offsite' => $offsite], 'service', $service->id, stepUp: $stepUp);
@@ -112,27 +112,36 @@ final class WebToolsCommandHandler implements CommandHandler
      * backup beyond them (TASK-0029 review round 2, HIGH). So lowering asks exactly what deleting a backup by hand asks — the
      * bus's own decision on `backup.delete` at this service: `backup.delete`, a fresh step-up, never a token. Otherwise a
      * developer or a `services:power` token, which lost backup deletion (D29.2), could set one generation and let the tick do it.
-     * Keeping or raising the values stays `service.manage`, as this command was checked.
+     * The frequency is part of it (security review round 2, MEDIUM, fix round 1): with `backups.as_sold` off the prune keeps
+     * the newest N generations, so weekly x 7 reaches seven weeks back and daily x 7 one — switching to daily took six weeks of
+     * history within a week with days and generations untouched. So a change is thinning when the history kept afterwards
+     * reaches less far back (BackupScheduler::historyReach — the prune's own keeper decision and reach, not a second
+     * formula), or when it keeps fewer days or generations. Keeping or reaching further stays `service.manage`, as this
+     * command was checked.
      *
-     * @param  array<string,mixed>  $plan
-     * @return string|null the step-up the lowering was made under (for the audit row), null when nothing is lowered
+     * @param  array<string,mixed>  $options  the plan's backup_schedule options, as the scheduler reads them
+     * @param  array{frequency:string, days:int, generations:int}  $wanted
+     * @return string|null the step-up the thinning was made under (for the audit row), null when nothing is thinned
      */
-    private function assertMayThin(Service $service, array $plan, int $days, int $generations, CommandContext $context): ?string
+    private function assertMayThin(Service $service, array $options, array $wanted, CommandContext $context): ?string
     {
-        // what the prune reads today (the stored policy, else the plan); with no running schedule, what it would read once it runs
-        $stored = BackupPolicy::query()->where('service_id', $service->id)->first()?->retention;
-        $now = app(BackupScheduler::class)->scheduleFor($service)
-            ?? ['days' => max(1, (int) ($stored['days'] ?? $plan['days'] ?? 7)), 'generations' => max(1, (int) ($stored['generations'] ?? $plan['generations'] ?? 7))];
-        if ($days >= $now['days'] && $generations >= $now['generations']) {
+        // both sides resolved exactly as the tick resolves a schedule: what it runs today (the stored policy, else the plan)
+        // and what it would run once `$wanted` is stored — also when no schedule runs yet (it would read this once it runs)
+        $scheduler = app(BackupScheduler::class);
+        $now = $scheduler->scheduleFrom($service, $options);
+        $next = $scheduler->scheduleFrom($service, $options, null, $wanted);
+        $thins = $next['days'] < $now['days'] || $next['generations'] < $now['generations']
+            || BackupScheduler::historyReach($service, $next) < BackupScheduler::historyReach($service, $now);
+        if (! $thins) {
             return null;
         }
         $delete = new ServiceActionCommand($service->organization_id, 'backup-schedule-thin:'.$service->id, ['service_id' => $service->id, 'project_id' => $service->project_id, 'action' => 'backup.delete', 'params' => []]);
         $decision = app(CommandAuthorizer::class)->authorize($delete, $context);
         if (! $decision->allowed) {
             throw match ($decision->requirement) {
-                'step_up' => new DomainError('step_up_required', 'Keeping fewer backups deletes the ones beyond them; confirm it with a fresh step-up.', 403, ['requirement' => 'step_up', 'help' => '/v1/auth/step-up']),
+                'step_up' => new DomainError('step_up_required', 'Keeping fewer backups or a shorter history deletes the ones beyond it; confirm it with a fresh step-up.', 403, ['requirement' => 'step_up', 'help' => '/v1/auth/step-up']),
                 'approval', 'human' => new DomainError('approval_required', $decision->reason ?? 'A person has to confirm this.', 403, ['requirement' => $decision->requirement === 'human' ? 'human' : 'approval']),
-                default => DomainError::forbidden(($decision->reason ?? 'Permission denied').' (keeping fewer backups deletes the ones beyond them)'),
+                default => DomainError::forbidden(($decision->reason ?? 'Permission denied').' (keeping fewer backups or a shorter history deletes the ones beyond it)'),
             };
         }
 

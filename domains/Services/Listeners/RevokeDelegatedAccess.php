@@ -24,6 +24,12 @@ use Onhost\Platform\Outbox\OutboxMessage;
  */
 final class RevokeDelegatedAccess
 {
+    /**
+     * What SSH keys and game sub-users belong to (TASK-0029, C13-H1b): whoever no longer holds it loses them. Also what makes
+     * a share given again with less a revocation of them (ServiceAccessService, `service.access.reduced`).
+     */
+    public const ARTEFACT_PERMISSION = 'service.console';
+
     public function __construct(private readonly DelegatedAccessReview $review, private readonly SshKeyLedger $keys, private readonly Authorizer $authorizer) {}
 
     public function __invoke(OutboxEventDispatched $event): void
@@ -34,7 +40,9 @@ final class RevokeDelegatedAccess
 
             return;
         }
-        if (in_array($m->name, ['service.access.revoked', 'service.access.expired'], true)) {
+        // `reduced`: the share stays, with less — the console it no longer gives takes its artefacts as an ended share does
+        // (security review round 2, MEDIUM, fix round 1); the same check below keeps them while another role holds the console
+        if (in_array($m->name, ['service.access.revoked', 'service.access.expired', 'service.access.reduced'], true)) {
             $this->sharedServiceEnded($m);
 
             return;
@@ -87,13 +95,14 @@ final class RevokeDelegatedAccess
         if ($user !== null) {
             $this->authorizer->forget($user);
             // SSH keys and game sub-users are the console's (TASK-0029, C13-H1b): somebody who keeps only managing loses them
-            if ($this->authorizer->can($user, 'service.console', CommandScope::resource($service->id, $service->organization_id, $service->project_id))) {
-                return; // still theirs through a role in the organization or the project that holds the console
+            if ($this->authorizer->can($user, self::ARTEFACT_PERMISSION, CommandScope::resource($service->id, $service->organization_id, $service->project_id))) {
+                return; // still theirs through a role in the organization or the project (or the share itself) that holds the console
             }
         }
-        $context = CommandContext::system('shared service access ended');
+        $reason = $m->name === 'service.access.reduced' ? 'shared service console taken back' : 'shared service access ended';
+        $context = CommandContext::system($reason);
         if ($userId !== '') {
-            $this->keys->revokeForUser($organization, $userId, $context, 'shared service access ended', [$service->id]);
+            $this->keys->revokeForUser($organization, $userId, $context, $reason, [$service->id]);
         }
         if ($email !== '') {
             $this->review->revokeForMember($organization, $email, $context, [$service->id]);
@@ -115,7 +124,7 @@ final class RevokeDelegatedAccess
         }
 
         return array_values(Service::query()->where('organization_id', $organization->id)->when($projectId !== null, fn ($q) => $q->where('project_id', $projectId))->get()
-            ->reject(fn (Service $service) => $user !== null && $this->authorizer->can($user, 'service.console', CommandScope::resource($service->id, $service->organization_id, $service->project_id)))
+            ->reject(fn (Service $service) => $user !== null && $this->authorizer->can($user, self::ARTEFACT_PERMISSION, CommandScope::resource($service->id, $service->organization_id, $service->project_id)))
             ->pluck('id')->all());
     }
 }

@@ -387,6 +387,9 @@ final class NotificationRouter
             'withdrawal.completed' => $this->customer($m, 'service', 'Služba ukončena odstoupením: '.($p['label'] ?? ''), 'Smlouva je ukončena. Novou službu si můžete kdykoli objednat.', '/panel/sluzby', 'info'),
             'withdrawal.stalled' => $this->internal($m, 'finance', 'Odstoupení se zastavilo: '.($p['label'] ?? ''), 'krok '.(string) ($p['step'] ?? '').' odmítnut: '.(string) ($p['error'] ?? '').' · vráceno: '.(! empty($p['refunded']) ? 'ano' : 'ne').' · onhost:withdrawals:finish to zkusí znovu', '/sprava#/money', 'hot'),
             // ── end TASK-0025 ──
+            // ── TASK-0029 service-access-reduced: a share given again without the console takes the person's SSH keys and game sub-users on it (RevokeDelegatedAccess) ──
+            'service.access.reduced' => $this->customer($m, 'account', 'Konzole služby odebrána: '.($p['service'] ?? ''), ($p['email'] ?? '').' · přístup zůstává ('.implode(', ', (array) ($p['capabilities'] ?? [])).'), SSH klíče a herní sub-uživatelé této osoby se odebírají', '/panel/sluzby'),
+            // ── end TASK-0029 service-access-reduced ──
             default => null,
         };
     }

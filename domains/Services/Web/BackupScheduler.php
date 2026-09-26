@@ -83,6 +83,28 @@ final class BackupScheduler
     }
 
     /**
+     * Whether the prune keeps a backup a day beyond the generations for this schedule (`prune()` asks exactly this).
+     *
+     * @param  array<string,mixed>  $schedule  a schedule of scheduleFor() / scheduleFrom()
+     */
+    public static function keepsDailyKeepers(Service $service, array $schedule): bool
+    {
+        return ! empty($schedule['as_sold']) && in_array($service->family, self::DAILY_KEEPER_FAMILIES, true);
+    }
+
+    /**
+     * How far back, in minutes, the backups this schedule keeps reach — what `prune()` leaves: its own keeper decision and
+     * BackupDailyKeepers::historyMinutes, the reach of its selectors. One source for the backup-schedule thinning gate
+     * (TASK-0029): a change after which this is shorter deletes the history in between, whatever days and generations say.
+     *
+     * @param  array{minutes:int, days:int, generations:int}  $schedule  a schedule of scheduleFor() / scheduleFrom()
+     */
+    public static function historyReach(Service $service, array $schedule): int
+    {
+        return BackupDailyKeepers::historyMinutes($schedule['minutes'], $schedule['days'], $schedule['generations'], self::keepsDailyKeepers($service, $schedule));
+    }
+
+    /**
      * One pass over EVERY eligible service. `$limit` is the size of one chunk read from the database, not a cap: the tick
      * used to take the first hundred services by id and never look at the rest, so from the 101st service on nobody
      * got a scheduled backup at all. A slot stays idempotent (`backup:auto:{id}:{slot}`), so a long pass is harmless.
@@ -290,22 +312,28 @@ final class BackupScheduler
     }
 
     /**
-     * The schedule from what the plan sells (`$options`) and what the customer set within it (the policy).
+     * The schedule from what the plan sells (`$options`) and what the customer set within it (the policy) — or, with
+     * `$candidate` (frequency, days, generations), what it would be once the customer stores that instead: resolved by the
+     * same lines, so the backup-schedule thinning gate (TASK-0029) compares what the tick would really run.
      *
      * @param  array<string,mixed>  $options
+     * @param  array{frequency:string, days:int, generations:int}|null  $candidate
      * @return array{frequency:string, minutes:int, days:int, generations:int, offsite:bool, slot:string, window_start:Carbon}
      */
-    private function scheduleFrom(Service $service, array $options, ?bool $asSold = null): array
+    public function scheduleFrom(Service $service, array $options, ?bool $asSold = null, ?array $candidate = null): array
     {
         $asSold ??= $this->ledger->enabled(self::AS_SOLD_RULE);
         if (isset($options['frequency'])) {
             $options['frequency'] = self::normalizeFrequency((string) $options['frequency'], $asSold);
         }
         $policy = BackupPolicy::query()->where('service_id', $service->id)->first();
-        $frequency = self::normalizeFrequency((string) ($policy?->schedule['frequency'] ?? $options['frequency'] ?? 'daily'), $asSold);
+        $set = $candidate === null
+            ? ['frequency' => $policy?->schedule['frequency'] ?? null, 'days' => $policy?->retention['days'] ?? null, 'generations' => $policy?->retention['generations'] ?? null]
+            : $candidate;
+        $frequency = self::normalizeFrequency((string) ($set['frequency'] ?? $options['frequency'] ?? 'daily'), $asSold);
         $minutes = self::FREQUENCIES[$frequency] ?? self::FREQUENCIES['daily'];
-        $days = max(1, (int) ($policy?->retention['days'] ?? $options['days'] ?? 7));
-        $generations = max(1, (int) ($policy?->retention['generations'] ?? $options['generations'] ?? 7));
+        $days = max(1, (int) ($set['days'] ?? $options['days'] ?? 7));
+        $generations = max(1, (int) ($set['generations'] ?? $options['generations'] ?? 7));
         if (in_array($service->family, self::COMPUTE_FAMILIES, true)) {
             // on a server the options ARE the ceiling sold (plan or active add-ons), so a stored policy never goes above them: a
             // downgrade or a cancelled add-on does not keep an old hourly/long policy in force. (On the web a backup add-on's
@@ -498,7 +526,7 @@ final class BackupScheduler
         })
             // on a server only what this schedule made: a manual backup or a safety copy at the hypervisor was never its to take
             ->when($compute, fn ($q) => $q->where('kind', 'scheduled'))->get();
-        $keepers = ! empty($schedule['as_sold']) && in_array($service->family, self::DAILY_KEEPER_FAMILIES, true);
+        $keepers = self::keepsDailyKeepers($service, $schedule);
         if ($keepers) {
             BackupDailyKeepers::markKept($service, $schedule['days']); // so switching the rule off cannot take them all at once
         }

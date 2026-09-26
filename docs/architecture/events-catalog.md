@@ -208,3 +208,9 @@ judged by what was sold and no headroom is left.
 
 Payload addition (TASK-0023 web-disk-total): once the plan total is enforced for a service, `service.usage.high` may carry the metric `disk_total` in `metrics` / `top` (files + databases + mail against the plan's space).
 <!-- TASK-0023 web-disk-total: end -->
+
+<!-- TASK-0029 service-access-reduced: begin -->
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `service.access.reduced` | service | `grant_id`, `user_id`, `email`, `organization_id`, `capabilities[]` (what the share gives now), `dropped[]`, `service` — an ACTIVE share was given again with less, and what was dropped took `service.console` (svc_console → svc_manage): the person's SSH keys and game collaborator accounts on that service go as on `service.access.revoked` (`RevokeDelegatedAccess`, kept while another role still gives the console); the share itself stays. A raise, the same again or a drop of anything else publishes nothing. Customer in-app *Konzole služby odebrána* (TASK-0029, security review round 2) | ServiceAccessService::share |
+<!-- TASK-0029 service-access-reduced: end -->
