@@ -105,6 +105,11 @@ it('every HIGH or CRITICAL authorize() outside the bus is classified', function 
     // `File::permission` of every `->authorize($request, '<HIGH|CRITICAL>')` left in the controllers: each is a read, or a check in
     // front of a command whose bus asks for the step-up (and the second person) itself. A write that does its work without the
     // bus uses authorizeAction(). A new HIGH authorize() fails here until somebody decides which of the three it is.
+    // What this does NOT catch (review round 2, accepted): the key is `File::permission`, so a new write under a permission the
+    // same file already has classified as a read (e.g. ComplianceController::compliance.case.manage) passes unseen; and only
+    // literal arguments are seen — authorize($request, $permission, …) with a variable (InvoiceController, OrganizationController,
+    // SupportController, RegistrarConnectionController, ProjectController, WebToolsController) is never matched. A new
+    // authorize() call in those files is checked by hand in review.
     $classified = [
         'Api/V1/MeController.php::api_token.manage' => 'read: GET /v1/tokens (creating one is ApiTokenCommand)',
         'Api/V1/OrganizationController.php::organization.members.manage' => 'bus: resolve() in front of OrganizationCommand (invite, cancel, role, remove)',

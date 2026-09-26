@@ -67,7 +67,10 @@ final class TokenScopes
         'service.manage' => self::SERVICES_POWER,
         'service.delete' => self::SERVICES_POWER, // HIGH: still refused through a token by the step-up rule (a token session never holds one)
         'backup.restore' => self::SERVICES_POWER, // HIGH: as above
-        'backup.delete' => self::SERVICES_POWER,  // CRITICAL: as above, and four eyes
+        // CRITICAL in the catalogue, but the bus forces CRITICAL only for staff permissions: the command's own risk decides. The
+        // `backup.delete` service action asks for this permission with a step-up only with TASK-0029's action map (before it:
+        // service.manage, NORMAL — ApiTokenScopeMapTest "refuses deleting a backup through a token", skipped until then)
+        'backup.delete' => self::SERVICES_POWER,
         'compute.vm.manage' => self::SERVICES_POWER,
         'compute.vm.delete' => self::SERVICES_POWER,
         'game.manage' => self::SERVICES_POWER,

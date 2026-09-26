@@ -394,5 +394,112 @@ it('does not show a read-only token what only managing shows', function () {
 it('keeps a power-only token from creating a console schedule through spec apply', function () {
     // PUT services/{id}/spec is checked as service.manage (services:power) and chains per-action commands through the bus,
     // which never sees token scopes. TASK-0029 adds the fail-closed skip for console actions on token sessions; the
-    // orchestrator enables this case when the stack carries it.
+    // orchestrator enables this case when the stack carries it — and writes it first: taking ->skip() away alone goes red
+    // here instead of passing with no assertion (review round 2)
+    $this->fail('write the power-token spec-apply assertion (TASK-0029 integration): a schedule.create whose task is `command` is refused/skipped, nothing reaches the panel');
 })->skip('needs TASK-0029 (console schedules through spec apply) — enabled at integration');
+
+it('refuses a restore through a token even when the person has stepped up — the archive and the service alike', function () {
+    tokenScopePveFakes();
+    [$owner, $org] = $this->customerWithOrganization();
+    $cancelled = featureWebService($org, 'ispconfig');
+    $backup = tokenScopeArchive($org->id, $cancelled->id);
+    $target = tokenScopeVps($org);
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1'); // a grant without a session — tests make them, production does not
+    $plain = tokenScopeBearer($owner, $org, ['services:read', 'services:power']);
+    $headers = ['X-Organization' => $org->id];
+    $operations = Operation::query()->count();
+
+    // review round 2: TokenScopes gives backup.restore to services:power and relies on the step-up rule for the rest — both
+    // ways a restore is asked for through a token have to meet it, not only terminate
+    // (1) the archive of a cancelled service onto a live one (ServiceArchiveCommand op=restore, HIGH)
+    $this->withToken($plain)->postJson("/v1/services/archives/{$backup->id}/restore", ['service_id' => $target->id], $headers + ['Idempotency-Key' => 'tok-archive-restore'])
+        ->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    // (2) a restore of the service itself (ServiceActionCommand restore → backup.restore, HIGH), short route and generic endpoint
+    app('auth')->forgetGuards();
+    $this->withToken($plain)->postJson("/v1/services/{$target->id}/restore", ['params' => ['backup_id' => $backup->id]], $headers + ['Idempotency-Key' => 'tok-restore'])
+        ->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    app('auth')->forgetGuards();
+    $this->withToken($plain)->postJson("/v1/services/{$target->id}/actions", ['action' => 'rollback_snapshot', 'params' => ['snapshot' => 'before-update']], $headers + ['Idempotency-Key' => 'tok-rollback'])
+        ->assertForbidden()->assertJsonPath('error', 'step_up_required');
+
+    expect(Operation::query()->count())->toBe($operations)
+        ->and(Backup::query()->findOrFail($backup->id)->state)->toBe('completed')
+        ->and(data_get(Backup::query()->findOrFail($backup->id)->meta, 'restore'))->toBeNull();
+
+    // the grant is real: the same person in the portal gets past the step-up (whatever the restore itself answers then)
+    app('auth')->forgetGuards();
+    $this->flushHeaders();
+    $portal = $this->actingAs($owner->fresh(), 'sanctum')->postJson("/v1/services/{$target->id}/restore", ['params' => ['backup_id' => $backup->id]], $headers + ['Idempotency-Key' => 'portal-restore']);
+    expect($portal->json('error'))->not->toBe('step_up_required', "portal: {$portal->status()} {$portal->json('message')}");
+    unset($_ENV['ISPCONFIG_SHARED01_REMOTE_USER'], $_ENV['ISPCONFIG_SHARED01_REMOTE_PASSWORD']);
+});
+
+it('refuses deleting a backup through a token even when the person has stepped up', function () {
+    // TokenScopes gives backup.delete to services:power and relies on the step-up rule. On this branch alone the rule does not
+    // reach it: the `backup.delete` action is decided as service.manage at NORMAL risk (the default arm of permissionFor), so a
+    // power token deletes a backup — red, 202 (review round 2). TASK-0029 maps the action to backup.delete with a step-up
+    // (DestructivePreview::ACTIONS); the orchestrator takes ->skip() away after the rebase onto it.
+    [$owner, $org] = $this->customerWithOrganization();
+    $web = featureWebService($org, 'aapanel');
+    $backup = Backup::query()->create([
+        'service_id' => $web->id, 'organization_id' => $org->id, 'kind' => 'site', 'state' => 'completed', 'protected' => false, 'remote_id' => 'bk-scope-1',
+        'started_at' => now()->subDay(), 'finished_at' => now()->subDay(), 'size_bytes' => 1024, 'meta' => [],
+    ]);
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+    $plain = tokenScopeBearer($owner, $org, ['services:read', 'services:power']);
+
+    $response = $this->withToken($plain)->postJson("/v1/services/{$web->id}/actions", ['action' => 'backup.delete', 'params' => ['remote_id' => $backup->id]], ['X-Organization' => $org->id, 'Idempotency-Key' => 'tok-backup-delete']);
+    expect($response->status())->toBe(403, "backup.delete: {$response->status()} {$response->json('message')}")
+        ->and($response->json('error'))->toBe('step_up_required')
+        ->and(Backup::query()->findOrFail($backup->id)->state)->toBe('completed')
+        ->and(Operation::query()->where('service_id', $web->id)->exists())->toBeFalse();
+    unset($_ENV['AAPANEL_MANAGED01_API_KEY']);
+})->skip('needs TASK-0029 (backup.delete asks for its own permission with a step-up) — enabled at integration');
+
+it('lets an unknown action word reach the validator, not the scope map', function () {
+    // TokenRouteScope asks the map only about a word in ServiceActionWorkflow::ACTIONS; anything else keeps the family's write
+    // scope and meets the controller's `in:` validator. Written down so the reliance on that order is a test, not a comment.
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = tokenScopeVps($org);
+    $headers = ['X-Organization' => $org->id];
+
+    $plain = tokenScopeBearer($owner, $org, ['services:read', 'services:power']);
+    foreach (['made.up' => ['action' => 'made.up'], 'not a string' => ['action' => ['command.run']], 'missing' => []] as $label => $body) {
+        app('auth')->forgetGuards();
+        $response = $this->withToken($plain)->postJson("/v1/services/{$service->id}/actions", $body + ['params' => []], $headers + ['Idempotency-Key' => 'unknown-'.md5($label)]);
+        expect($response->status())->toBe(422, "{$label}: {$response->status()} {$response->json('message')}");
+    }
+
+    // without the write scope the route answers first, as for any write to the family
+    app('auth')->forgetGuards();
+    $read = tokenScopeBearer($owner, $org, ['services:read']);
+    $this->withToken($read)->postJson("/v1/services/{$service->id}/actions", ['action' => 'made.up'], $headers + ['Idempotency-Key' => 'unknown-read'])
+        ->assertForbidden()->assertJsonPath('message', 'The API token lacks the services:power scope.');
+    expect(Operation::query()->where('service_id', $service->id)->exists())->toBeFalse();
+});
+
+it('gives a svc_console guest with a services:console token the console, and a svc_manage guest with the same scope none', function () {
+    // the two checks on the console token — the person (Authorizer, resource scope) and the token (TokenScopes) — composed for
+    // the role the fix is named after, through a bearer token and not only a cookie session (review round 2)
+    tokenScopePveFakes();
+    [$owner, $org] = $this->customerWithOrganization();
+    $service = tokenScopeVps($org);
+
+    $guest = $this->customer(['email' => 'guest-console@example.cz']);
+    tokenScopeBind($org, $guest, 'svc_console', $service->id);
+    $plain = tokenScopeBearer($guest, $org, ['services:console']);
+    $console = $this->withToken($plain)->getJson("/v1/services/{$service->id}/console-token", ['X-Organization' => $org->id]);
+    expect($console->status())->toBe(200, "svc_console: {$console->status()} {$console->json('message')}")
+        ->and($console->json('token'))->toStartWith('con_');
+
+    // the token carries the scope, the person lacks the permission: the person's answer
+    app('auth')->forgetGuards();
+    $manager = $this->customer(['email' => 'guest-manage@example.cz']);
+    tokenScopeBind($org, $manager, 'svc_manage', $service->id);
+    $plain2 = tokenScopeBearer($manager, $org, ['services:console']);
+    $refused = $this->withToken($plain2)->getJson("/v1/services/{$service->id}/console-token", ['X-Organization' => $org->id]);
+    expect($refused->status())->toBe(403, "svc_manage: {$refused->status()} {$refused->json('message')}")
+        ->and($refused->json('message'))->not->toBe('The API token lacks the services:console scope.');
+    Http::assertSentCount(1); // one vncproxy call: the guest's; the manager never reached Proxmox
+});
