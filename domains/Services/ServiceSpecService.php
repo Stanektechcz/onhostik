@@ -484,7 +484,10 @@ final class ServiceSpecService
         if (! str_starts_with($session, 'token:')) {
             return true;
         }
-        $token = PersonalAccessToken::query()->find(substr($session, strlen('token:')));
+        // the key is a bigint: anything but digits is a token that does not exist (PostgreSQL refuses to compare it and the
+        // whole spec apply answered 500 instead of skipping the step)
+        $id = substr($session, strlen('token:'));
+        $token = ctype_digit($id) ? PersonalAccessToken::query()->find((int) $id) : null;
         $needed = TokenScopes::for($permission);
 
         return $token instanceof PersonalAccessToken && $needed !== null && $token->can($needed);
