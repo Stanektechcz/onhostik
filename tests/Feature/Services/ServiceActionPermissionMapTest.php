@@ -154,6 +154,24 @@ it('makes a schedule the console only when it carries a command', function () {
         ->and(sapmCommand('schedule.create', ['actions' => [['action' => 'command', 'payload' => 'x']]])->permission())->toBe('service.console');
 });
 
+it('makes unlocking a game backup what deleting one is', function () {
+    // review round 2, MEDIUM: an unlocked copy can be deleted on the panel (and rotated away by the panel's own scheduled backup
+    // task at the backup limit), so taking the owner's lock off is the game operator's, like gbackup.delete. Locking stays managing.
+    // Fail closed: only a definite "keep it locked" (or no word at all, which ServiceService::featureParams reads as locking) is
+    // managing — featureParams reads anything else as `false`, i.e. as an unlock.
+    $for = fn (array $params) => ServiceActionCommand::permissionFor('gbackup.lock', ['remote_id' => 'bk-1'] + $params);
+
+    expect($for(['locked' => false]))->toBe('game.manage')
+        ->and($for(['locked' => '0']))->toBe('game.manage')
+        ->and($for(['locked' => 'nonsense']))->toBe('game.manage')
+        ->and($for(['locked' => ['x']]))->toBe('game.manage')
+        ->and($for(['locked' => true]))->toBe('service.manage')
+        ->and($for(['locked' => 'true']))->toBe('service.manage')
+        ->and($for([]))->toBe('service.manage')
+        // the command the bus checks and the operation row re-checks are one map (H315)
+        ->and(sapmCommand('gbackup.lock', ['remote_id' => 'bk-1', 'locked' => false])->permission())->toBe('game.manage');
+});
+
 it('makes every destructive action HIGH with a fresh step-up, and none CRITICAL', function () {
     foreach (DestructivePreview::ACTIONS as $action) {
         expect(sapmCommand($action)->riskLevel())->toBe(PermissionCatalog::HIGH, $action)
@@ -202,6 +220,9 @@ it('keeps mailbox backup retention the operator\'s', function () {
         ->and(sapmCommand('mailbox.backup_retention')->requiresApproval())->toBeFalse()
         // pruning deletes backups: a second person, unless the operator runs the platform alone (ONHOST_FOUR_EYES=false)
         ->and(sapmCommand('mailbox.backup_retention', ['allow_prune' => true])->requiresApproval())->toBeTrue()
-        ->and(sapmCommand('mailbox.backup_retention', ['allow_prune' => '0'])->requiresApproval())->toBeFalse();
+        ->and(sapmCommand('mailbox.backup_retention', ['allow_prune' => '0'])->requiresApproval())->toBeFalse()
+        // review round 2, LOW: a non-scalar allow_prune neither crashes (filter_var answers false for an array on PHP 8.3) nor
+        // opens a prune without a second person — MailboxBackupRetentionStep prunes only on a literal `true`
+        ->and(sapmCommand('mailbox.backup_retention', ['allow_prune' => ['x' => 1]])->requiresApproval())->toBeFalse();
     expect(sapmError(fn () => CustomerActionParams::filter('mailbox.backup_retention', [])))->toBe('operator_only');
 });

@@ -40,6 +40,9 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
         // power token — must not be able to thin out the backups the owner relies on. Web/managed/mail sets ask `backup.delete`,
         // a game server's `game.manage` (the game operator's), a VM snapshot `compute.vm.delete` (the cloud operator's).
         'backup.delete' => 'backup.delete', 'gbackup.delete' => 'game.manage', 'snapshot.delete' => 'compute.vm.delete',
+        // locking a game backup is managing; unlocking one asks what deleting it asks (permissionFor): an unlocked copy can be
+        // deleted on the panel, and a Pterodactyl scheduled backup task is understood to rotate the oldest unlocked one away at
+        // the backup limit (review round 2; not verified against the installed panel version)
         'gbackup.lock' => 'service.manage', 'mailbox.backup' => 'service.manage', 'mailbox.restore' => 'service.manage',
         // what the server keeps, and whether it prunes, is the operator's (onhost:mail:backup-retention); CustomerActionParams
         // refuses customers too, as a second lock
@@ -124,7 +127,23 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
     {
         $permission = self::PERMISSIONS[$action] ?? throw new DomainError('service_action_unknown', "Unknown service action {$action}.", 422, ['action' => $action]);
 
-        return $action === 'schedule.create' && self::schedulesConsoleCommand($params) ? 'service.console' : $permission;
+        return match (true) {
+            $action === 'schedule.create' && self::schedulesConsoleCommand($params) => 'service.console',
+            $action === 'gbackup.lock' && ! self::keepsLocked($params) => self::PERMISSIONS['gbackup.delete'],
+            default => $permission,
+        };
+    }
+
+    /**
+     * Whether a gbackup.lock asks to lock (TASK-0029 review round 2): a `svc_manage` guest could take the owner's lock off and let
+     * the copy go on the panel. Fail closed: ServiceService::featureParams reads a missing `locked` as locking and anything that
+     * is not a definite yes as an unlock, so only a missing word or a definite yes stays managing.
+     *
+     * @param  array<string,mixed>  $params
+     */
+    private static function keepsLocked(array $params): bool
+    {
+        return filter_var($params['locked'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true;
     }
 
     /** Whether the action asks for a fresh step-up — for callers without a person at the keyboard (hooks, Discord), which cannot give one. */

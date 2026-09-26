@@ -28,7 +28,10 @@ final class WebToolsCommand extends OrganizationCommand implements RiskAwareComm
 
     public function riskLevel(): string
     {
-        return PermissionCatalog::NORMAL; // nothing here destroys data: disconnecting a repository keeps the deployed files, monitors and schedules are re-creatable
+        // disconnecting a repository keeps the deployed files, monitors are re-creatable. The one op that can destroy data — a
+        // backup schedule that keeps fewer days or generations, which the next tick prunes to — asks `backup.delete` with a fresh
+        // step-up of its own in WebToolsCommandHandler (TASK-0029 review round 2); keeping or raising them is managing
+        return PermissionCatalog::NORMAL;
     }
 
     public function requiresStepUp(): bool

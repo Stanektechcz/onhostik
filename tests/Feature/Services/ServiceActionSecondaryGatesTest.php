@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Integrations\ActionHookService;
 use Onhost\Domain\Integrations\DiscordService;
 use Onhost\Domain\Integrations\Models\ActionHook;
@@ -18,6 +19,7 @@ use Onhost\Domain\Organizations\Models\OrganizationMembership;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
 use Onhost\Domain\Services\Commands\ServiceActionCommand;
+use Onhost\Domain\Services\Models\BackupPolicy;
 use Onhost\Domain\Services\Models\Service;
 use Onhost\Domain\Services\Models\SshKeyGrant;
 use Onhost\Domain\Services\ServiceFeatures;
@@ -262,4 +264,98 @@ it('takes the SSH keys of somebody who keeps managing the service but lost its c
     // a key opens a shell, which is the console's: managing alone does not keep it; the console does
     expect($agencyKey->fresh()->state)->toBe(SshKeyGrant::REVOKING)
         ->and($devopsKey->fresh()->state)->toBe(SshKeyGrant::ACTIVE);
+});
+
+/** PUT the backup schedule of a service as whoever the test acts as. */
+function sasgSchedulePut(TestCase $test, Service $service, array $body, string $key, array $headers = [])
+{
+    return $test->putJson("/v1/services/{$service->id}/backups/schedule", $body, ['X-Organization' => $service->organization_id, 'Idempotency-Key' => $key] + $headers);
+}
+
+it('does not let the backup schedule thin out backups for somebody who may not delete them', function () {
+    // review round 2, HIGH: fewer generations or days is a deletion — the next BackupScheduler tick prunes every scheduled
+    // backup beyond them (BackupDailyKeepers::beyondGenerations/surplus, deleted_by `retention`) — so lowering either asks what
+    // deleting a backup by hand asks (`backup.delete` at the service, fresh step-up); keeping or raising stays managing
+    [$owner, $org] = $this->customerWithOrganization();
+    $web = featureWebService($org, 'aapanel');
+    sasgPanels();
+    expect(app(ServiceFeatures::class)->features($web)['backup_schedule']['options'])->toMatchArray(['days' => 7, 'generations' => 7]); // not vacuous
+    $developer = sasgMember($org, 'developer', [], 'dev@sasg.test');
+    app(StepUpService::class)->grant($developer, 'totp', null, '127.0.0.1'); // a fresh step-up changes nothing about a missing permission
+    $this->actingAs($developer, 'sanctum');
+
+    sasgSchedulePut($this, $web, ['frequency' => 'weekly', 'days' => 7, 'generations' => 7], 'sasg-bs-1')->assertOk(); // keeping is managing
+    foreach ([['generations' => 1], ['days' => 1], ['days' => 7, 'generations' => 6]] as $i => $lower) {
+        $response = sasgSchedulePut($this, $web, $lower, 'sasg-bs-low-'.$i)->assertForbidden()->assertJsonPath('error', 'access_not_approved');
+        expect((string) $response->json('message'))->toContain('backup.delete');
+    }
+    expect(BackupPolicy::query()->where('service_id', $web->id)->sole()->retention)->toBe(['days' => 7, 'generations' => 7]); // what the next prune reads
+
+    // the owner may, with a fresh step-up — and the audit row of the lowering says under which one
+    $this->actingAs($owner, 'sanctum');
+    sasgSchedulePut($this, $web, ['generations' => 2], 'sasg-bs-2')->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+    sasgSchedulePut($this, $web, ['days' => 3, 'generations' => 2], 'sasg-bs-3')->assertOk()->assertJsonPath('schedule.generations', 2);
+    expect(BackupPolicy::query()->where('service_id', $web->id)->sole()->retention)->toBe(['days' => 3, 'generations' => 2])
+        ->and(AuditEvent::query()->where('action', 'service.backup_schedule.set')->where('actor_id', $owner->id)->sole()->step_up_method)->toBe('totp');
+
+    // from the lowered value, raising it again is managing once more
+    $this->actingAs($developer, 'sanctum');
+    sasgSchedulePut($this, $web, ['days' => 7, 'generations' => 7], 'sasg-bs-4')->assertOk();
+    expect(BackupPolicy::query()->where('service_id', $web->id)->sole()->retention)->toBe(['days' => 7, 'generations' => 7]);
+});
+
+it('does not let a svc_manage guest lower what the backup schedule keeps', function () {
+    [, $org] = $this->customerWithOrganization();
+    $web = featureWebService($org, 'aapanel');
+    sasgPanels();
+    $guest = sasgMember($org, 'svc_manage', [$web], 'agentura@sasg.test');
+    app(StepUpService::class)->grant($guest, 'totp', null, '127.0.0.1');
+    $this->actingAs($guest, 'sanctum');
+
+    // refused before the handler already: WebToolsController asks `service.manage` at the ORGANIZATION, which a guest holds only
+    // on its services (so a guest cannot set the schedule at all). A regression guard — the thinning gate stands behind it.
+    $response = sasgSchedulePut($this, $web, ['generations' => 1], 'sasg-bsg-1')->assertForbidden()->assertJsonPath('error', 'access_not_approved');
+    expect((string) $response->json('message'))->toContain('service.manage')
+        ->and(BackupPolicy::query()->where('service_id', $web->id)->exists())->toBeFalse();
+});
+
+it('does not let a power-only API token lower what the backup schedule keeps', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $web = featureWebService($org, 'aapanel');
+    sasgPanels();
+    $token = $owner->createToken('ci', ['services:read', 'services:power'])->plainTextToken;
+
+    // the schedule PUT is in the token's `services` family; a token has no person to give the step-up that thinning takes
+    $this->withToken($token);
+    sasgSchedulePut($this, $web, ['generations' => 1], 'sasg-bst-1')->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    expect(BackupPolicy::query()->where('service_id', $web->id)->exists())->toBeFalse();
+    sasgSchedulePut($this, $web, ['frequency' => 'weekly'], 'sasg-bst-2')->assertOk(); // keeping what is kept is still the token's
+});
+
+it('does not run a Discord button twice when the click arrives twice', function () {
+    // review round 2, MEDIUM: a double click (or Discord's retry) can read the cached proposal twice before the first request
+    // forgets it. "One operation per service at a time" (ServiceService::requestAction) catches a second click only while the
+    // first run is still open, and only as a check before the insert; a quick action that already finished (or two requests
+    // between the check and the insert) started it twice under two random keys. The key is now the button's own, so the
+    // second start finds the first operation (and the unique index on the key stops a true race)
+    $keypair = sodium_crypto_sign_keypair();
+    config()->set('onhost.discord.public_key', bin2hex(sodium_crypto_sign_publickey($keypair)));
+    config()->set('onhost.discord.application_id', '123456789');
+    [$owner, $org] = $this->customerWithOrganization();
+    $web = featureWebService($org, 'aapanel');
+    sasgPanels();
+    $link = DiscordLink::query()->create(['organization_id' => $org->id, 'user_id' => $owner->id, 'discord_user_id' => '4344', 'discord_username' => 'jana', 'state' => 'linked', 'linked_at' => now()]);
+    $id = 'dblclick00000001';
+    $body = json_encode(['type' => 3, 'member' => ['user' => ['id' => '4344', 'username' => 'jana']], 'data' => ['custom_id' => 'act:'.$id]]);
+
+    $replies = [];
+    foreach ([1, 2] as $click) {
+        cache()->put('discord:proposal:'.$id, ['service_id' => $web->id, 'action' => 'backup', 'params' => ['kind' => 'manual'], 'label' => 'backup', 'link_id' => $link->id], 900); // both requests read it
+        $replies[] = (string) $this->call('POST', '/v1/integrations/discord/interactions', [], [], [], sasgDiscordSign(sodium_crypto_sign_secretkey($keypair), $body), $body)->assertOk()->json('data.content');
+        Operation::query()->where('service_id', $web->id)->update(['state' => Operation::SUCCEEDED]); // the backup was quick
+    }
+    $operation = Operation::query()->where('service_id', $web->id)->sole(); // one backup for one click
+    expect($replies[0])->toContain('Spuštěno')->toContain(substr($operation->id, -6))
+        ->and($replies[1])->toContain('Spuštěno')->toContain(substr($operation->id, -6)); // the repeat names the same operation
 });

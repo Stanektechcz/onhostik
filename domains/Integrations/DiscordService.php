@@ -343,14 +343,17 @@ final class DiscordService
             return ['type' => 7, 'data' => ['content' => 'Služba už neexistuje.', 'components' => []]];
         }
         $t = fn (string $cs, string $en) => $link->locale === 'en' ? $en : $cs;
-        $operation = $this->execute($link, $organization, $user, $service, (string) $proposal['action'], (array) $proposal['params']);
+        // the button's own key (TASK-0029 review round 2): a double click or Discord's retry can read the proposal twice before the
+        // forget above; the second start then finds this operation instead of starting the action again
+        $operation = $this->execute($link, $organization, $user, $service, (string) $proposal['action'], (array) $proposal['params'], 'discord:'.$link->id.':'.substr($customId, 4));
 
         return ['type' => 7, 'data' => ['content' => '▶️ '.$t('Spuštěno: ', 'Started: ').$proposal['label'].' · '.$t('operace ', 'operation ').substr($operation->id, -6).$t('. Průběh v panelu nebo `/onhost status`.', '. Progress in the panel or `/onhost status`.'), 'components' => []]];
     }
 
     // ── execution ────────────────────────────────────────────────────────────────────────────────────────
 
-    private function execute(DiscordLink $link, Organization $organization, User $user, Service $service, string $action, array $params): Operation
+    /** @param  string|null  $idempotencyKey  a button's own key; a typed command is a new request each time */
+    private function execute(DiscordLink $link, Organization $organization, User $user, Service $service, string $action, array $params, ?string $idempotencyKey = null): Operation
     {
         if (in_array($action, ['terminate', 'restore', 'rollback_snapshot', 'suspend', 'resume', 'resize'], true)) {
             throw new DomainError('discord_action_forbidden', 'This action needs the client panel and a second verification.', 403);
@@ -370,7 +373,7 @@ final class DiscordService
             throw new DomainError('forbidden', 'Your account may not manage this service.', 403);
         }
         $context = $this->context($link, $user, $action);
-        $operation = $this->services->requestAction($service, $action, $context, 'discord:'.$link->id.':'.$action.':'.Str::lower(Str::random(12)), $params, authorizedPermission: $permission); // the run re-checks the same permission (H315)
+        $operation = $this->services->requestAction($service, $action, $context, $idempotencyKey ?? 'discord:'.$link->id.':'.$action.':'.Str::lower(Str::random(12)), $params, authorizedPermission: $permission); // the run re-checks the same permission (H315)
         $this->audit->record($context, 'integration.discord.command', 'succeeded', ['action' => $action, 'params' => array_keys($params), 'operation_id' => $operation->id], 'service', $service->id);
 
         return $operation;

@@ -96,6 +96,8 @@ it('lets each role run exactly the dangerous actions its permissions promise', f
     $matrix = [
         ['backup.delete', $web, [], ['owner', 'org_admin']],
         ['gbackup.delete', $game, [], ['owner', 'org_admin', 'game_operator']],
+        ['gbackup.lock', $game, ['remote_id' => 'bk-1', 'locked' => false], ['owner', 'org_admin', 'game_operator']], // review round 2: unlocking is deleting's
+        ['gbackup.lock', $game, ['remote_id' => 'bk-1', 'locked' => true], [...$console, 'svc_manage']],
         ['snapshot.delete', $web, [], ['owner', 'org_admin', 'cloud_operator']],
         ['access.reset', $web, [], $console],
         ['rescue.start', $web, [], $console],
@@ -124,6 +126,15 @@ it('lets each role run exactly the dangerous actions its permissions promise', f
     foreach ([['backup.delete', $web], ['gbackup.delete', $game], ['snapshot.delete', $web]] as [$action, $service]) {
         expect(sarmCan($people['svc_console'], $service, $action))->toBeFalse($action);
     }
+    // …and what the two copy capabilities are for is still theirs (review round 2, LOW): excluded above is not stripped of all.
+    // `svc_backups` downloads archives (it never made backups: that is managing), `svc_restore` brings one back.
+    $can = fn (string $role, string $permission, Service $service) => app(Authorizer::class)->can($people[$role], $permission, CommandScope::resource($service->id, $service->organization_id, $service->project_id));
+    expect($can('svc_backups', 'backup.read', $web))->toBeTrue()
+        ->and($can('svc_backups', 'backup.download', $web))->toBeTrue()
+        ->and($can('svc_backups', 'backup.download', $game))->toBeTrue()
+        ->and(sarmCan($people['svc_backups'], $web, 'backup'))->toBeFalse()
+        ->and(sarmCan($people['svc_restore'], $web, 'restore'))->toBeTrue()
+        ->and(sarmCan($people['svc_restore'], $web, 'archive.restore'))->toBeTrue();
 });
 
 it('widens two staff roles to exactly what their permissions name', function () {
@@ -168,6 +179,7 @@ it('does not let a svc_manage guest open a shell, take root or delete backups', 
         [$game, 'schedule.create', ['name' => 'op', 'cron' => '* * * * *', 'actions' => [['action' => 'command', 'payload' => 'op guest']]], 'service.console'],
         [$web, 'backup.delete', ['remote_id' => 'bk-1'], 'backup.delete'],
         [$game, 'gbackup.delete', ['remote_id' => 'bk-1'], 'game.manage'],
+        [$game, 'gbackup.lock', ['remote_id' => 'bk-1', 'locked' => false], 'game.manage'], // review round 2: nor unlock the owner's copy
     ] as [$service, $action, $params, $missing]) {
         $response = sarmPost($this, $service, $action, $params)->assertForbidden()->assertJsonPath('error', 'access_not_approved');
         expect((string) $response->json('message'))->toContain($missing);

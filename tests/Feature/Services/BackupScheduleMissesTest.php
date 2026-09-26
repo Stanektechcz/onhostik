@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Notifications\Models\Notification;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Workflows\ServiceActionWorkflow;
@@ -96,7 +97,9 @@ it('stops a schedule whose backups keep failing, and starts it again only when a
     expect($told->pluck('audience')->unique()->all())->toContain('customer')->toContain('internal') // staff hear it too (TASK-0027: the second arm never ran)
         ->and($told->firstWhere('audience', 'customer')->body)->toContain('5×');
 
-    // the controlled resume: the customer looks at it and sets the schedule again
+    // the controlled resume: the customer looks at it and sets the schedule again. 7/7 is fewer than the 30/30 the add-on policy
+    // keeps, i.e. the next tick prunes to it — keeping fewer backups takes a fresh step-up (TASK-0029 review round 2)
+    app(StepUpService::class)->grant($user, 'totp', null, '127.0.0.1');
     $this->actingAs($user, 'sanctum')->putJson("/v1/services/{$service->id}/backups/schedule", ['frequency' => 'daily', 'days' => 7, 'generations' => 7])->assertOk();
     expect(BackupScheduler::pausedAt($service->fresh()))->toBeNull()
         ->and(BackupScheduler::health($service->fresh())['failures'])->toBe(0);
