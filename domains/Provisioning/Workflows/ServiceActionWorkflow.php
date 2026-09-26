@@ -165,7 +165,7 @@ final class ServiceActionWorkflow implements Workflow
             'backup' => [$this->backupStep()],
             'restore' => [$this->safetyCopyStep('pre_restore'), $this->restoreStep()],
             'restore.test' => [$this->restoreTestStep()], // restores into databases of its own: nothing live is touched, so no copy is needed
-            'archive.restore' => [$this->archiveRestoreStep()],
+            'archive.restore' => [$this->safetyCopyStep('pre_restore'), $this->archiveRestoreStep()], // the archive goes OVER a live site: a copy first, nothing written without it (TASK-0035, IF-11 / audit SE-2)
             'snapshot' => [$this->snapshotStep()],
             'rollback_snapshot' => [$this->safetyCopyStep('pre_rollback'), $this->rollbackSnapshotStep()],
             'reinstall' => [$this->safetyCopyStep('pre_reinstall'), $this->featureStep('reinstall')], // rewrites the server files
@@ -1958,7 +1958,11 @@ final class ServiceActionWorkflow implements Workflow
             {
                 $service = $this->service($context);
                 $existing = Backup::query()->where('operation_id', $context->operation->id)->where('kind', $this->kind)->first();
-                if ($existing !== null) {
+                // TASK-0035 (IF-11, "the copy fails closed"): only a finished copy — or the hypervisor snapshot this step started and
+                // waited for — counts. A web copy whose attempt FAILED was turned into "completed" by the retry, with its error in
+                // the meta and no site files in the set, and the restore then wrote over the live site with nothing kept.
+                $awaited = $existing !== null && $existing->state === 'running' && in_array($service->family, ['cloud', 'data'], true);
+                if ($existing !== null && ($existing->state === 'completed' || $awaited)) {
                     // the step is entered again after the provider task it waited for finished — one copy per operation, never two
                     if ($existing->state !== 'completed') {
                         $existing->forceFill(['state' => 'completed', 'finished_at' => now(), 'verified_at' => now(), 'verify_status' => 'ok'])->save();
