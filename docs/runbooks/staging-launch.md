@@ -18,7 +18,7 @@ environment asserted by the deployer on every release. The freeze stays, as a si
 
 | | **Path A — the existing staging, contained** | **Path B — a fresh install** (recommended) |
 | --- | --- | --- |
-| Database | the kept staging database (live-panel bindings, maybe real addresses, webhooks, queued mail) | empty, seeded by `install.sh`; the old staging database stays untouched on its host |
+| Database | the kept staging database (live-panel bindings, maybe real addresses, webhooks, queued mail) | empty, seeded by `install.sh`; the old staging database stays untouched on its host (same host: S1c parks the old install) |
 | Scheduler | **never** (it would back up, prune, purge, renew certificates, sync DNS, relay the outbox on live data) | runs (no live credential exists) |
 | Queue lanes | `default`, `mails` — only after every stored credential is revoked | `default`, `mails` |
 | Proves | the release path, the gate and its refusals, rollback by SHA, a restore drill, the web flows without panels | all of Path A **plus** a fresh `install.sh` run, the scheduler, nightly backup + verify under systemd, the nightly billing jobs running |
@@ -87,11 +87,15 @@ checkout writes there.
 | O11 | Doctor rows expected non-OK on staging (`$STATE/expected-nonok`) | the list in the release record, each row with the reason it is non-OK on staging (S4b drafts it); a row not on it stops a staging release |
 | O12 | Units that must run after every release (`$STATE/expected-units`) | Path A: `onhost-queue@default.service`, `onhost-queue@mails.service` (only after question 13 b is done **and the first S7 has run** — S7, Path A; before that: none). Path B: those two plus `onhost-scheduler.service`. The provider lanes never in phase 1 |
 
-### Owner questions (defaults taken meanwhile)
+### Owner questions 1–14 (defaults taken meanwhile)
+
+Fourteen questions; the decisions O1–O12 above answer several of them. The release record lists all fourteen with the
+answer or the default taken (a default taken by delegation is marked as such, and the owner may overrule it).
 
 1. **Path and host:** Path A or Path B (table above)? For B: a new host, or a new database on the staging host with the
-   old one left untouched? *Default: nothing runs on the host beyond S0 until answered; recommendation B — only B
-   rehearses `install.sh` and the scheduler, and it holds no live credential.*
+   old one left untouched (S1c: the old install contained and parked, nothing deleted)? *Default: nothing runs on the
+   host beyond S0 until answered; recommendation B — only B rehearses `install.sh` and the scheduler, and it holds no
+   live credential.*
 2. **Live resources** the existing staging created on ISPConfig, aaPanel and Pterodactyl: retire through the platform's
    purge path with a separate go-ahead per panel, or keep contained indefinitely? *Default: contained. No panel calls, no
    database drop, no rebuild.*
@@ -111,8 +115,13 @@ checkout writes there.
    before go-live; the freshness rule stays a proposal.*
 10. **Four eyes on staging:** two deciders, or `ONHOST_FOUR_EYES=false` recorded as a deliberate solo-owner choice?
     *Default: `ONHOST_FOUR_EYES=false` recorded in the release record.*
-11. **Git access** of the host to `Stanektechcz/onhostik` (private repository?): who provides a read-only deploy key?
-    *Default: the operator installs a read-only deploy key; no credential goes through the AI.*
+11. **Git access** of the host to `Stanektechcz/onhostik`. The repository is **public** (checked 2026-09-27 with
+    `gh repo view Stanektechcz/onhostik --json visibility`) and the owner keeps it public for now, so the host needs
+    **no deploy key** while it stays so: `install.sh` clones over anonymous HTTPS, S2 fetches it from
+    `raw.githubusercontent.com`, and root's `$R` fetches `origin` without a credential. The consequence is recorded in
+    the release record: every pushed branch — the breach register with its open holes included — is world-readable.
+    *If it turns private: before the next fetch the operator installs a read-only deploy key for `$R`'s origin (and S2
+    downloads `install.sh` another way); no credential goes through the AI.*
 12. **Comgate:** does it retry payment callbacks that got a 503 during the window? *Default: ASSUMED no; deploy outside
     business hours and reconcile payments by hand after each deploy.*
 13. **Credentials the existing staging holds (Path A).** Staging has run against the real ISPConfig, aaPanel,
@@ -136,7 +145,8 @@ checkout writes there.
   records the sha256 of `infra/aapanel/{install.sh,deploy.sh,deploy-gate.php,install-deployer.sh}` at `STAGING_SHA`,
   the SHA the deployer is installed from (= `STAGING_SHA`), the migrations and their mechanical safety check, the new
   env keys, the staging-vs-production value table and the expected non-OK doctor rows (O11).
-- The owner decisions of section A are recorded in that release record.
+- The owner decisions of section A (O1–O12 and questions 1–14) are recorded in that release record. The first one:
+  `.ai/releases/2026-09-27-40d6f1b.md` (Path B on the same host, decisions taken by delegation).
 
 ## C. Steps
 
@@ -239,7 +249,7 @@ GIT_CONFIG_GLOBAL=/dev/null $G fetch -q origin && $G show <STAGING_SHA>:infra/aa
 sha256sum /root/deploy-gate.php                     # = the release record, else STOP
 ```
 
-**GATE S0 — containment (Path A always; Path B when the host still runs an old staging).** Owner go-ahead; staging only;
+**GATE S0 — containment (Path A always; Path B when the host still runs an old staging — steps 1–2, then S1c).** Owner go-ahead; staging only;
 nothing is sent to any panel:
 
 ```bash
@@ -349,7 +359,7 @@ curl -sI -H 'X-Real-IP: 127.0.0.1' https://$SITE/ | head -1         # from OUTSI
 If any of the last two answers anything but 401, or `set_real_ip_from` trusts a range you do not control: STOP — the
 basic auth can be skipped with one header. Remove the `real_ip` setting (or narrow it to your own proxy) and re-verify.
 
-### S1b — One-time git hardening (after the S0 review found nothing foreign)
+### S1b — One-time git hardening (Path A, after the S0 review found nothing foreign; Path B on the same host: S1c instead)
 
 ```bash
 # the repository is $R (S0 made it; review round 2, security HIGH): the old .git leaves the tree — kept under /root for
@@ -374,9 +384,139 @@ diff $APP/.env /etc/onhost/app.env && ln -sfn /etc/onhost/app.env $APP/.env   # 
 The deployer decides production from `/etc/onhost/app.env` (root-owned) and refuses when `$APP/.env` is not that very
 file, or when `storage`, `bootstrap` or `bootstrap/cache` is a symbolic link.
 
-The host's read-only deploy key (question 11) is the operator's; it never passes through the AI.
+No deploy key while the repository is public (question 11); once it is private, the host's read-only deploy key is the
+operator's and never passes through the AI.
 
 **Path A stops here until question 13 (b) is confirmed in writing.**
+
+### S1c — Path B on the same host: contain the old staging, park it, start from an empty site (Path B only)
+
+When Path B reuses the host of an existing staging (question 1; the record `.ai/releases/2026-09-27-40d6f1b.md` takes this
+by delegation), the old install is contained, then moved aside whole — **nothing is deleted**. `install.sh` refuses a site
+that is already installed (the state marker, or an `APP_KEY` in `/etc/onhost/app.env`), and the old tree, its
+environment file and its deployer state would otherwise mix with the new install. The old database stays in the
+cluster, untouched; its stored live keys stay unreadable without the old `APP_KEY`, which is parked with `/etc/onhost`.
+S1b is **not** run on this path: the old `.git` leaves with the tree, and `install.sh` makes `$R` and never a `.git` in
+the site tree.
+
+Before it: S0 (read-only) recorded the old `<OLD_SHA>`, its `DB_DATABASE`/`DB_USERNAME`, `REDIS_DB`/`REDIS_CACHE_DB`
+and `REDIS_PREFIX`/`CACHE_PREFIX` (an unset prefix is Laravel's `onhost-database-` / `onhost-cache-`), and the owner
+confirmed that nothing on this host is production's. Then the old staging is contained — S0 GATE steps 1 and 2
+(disable + mask, runtime mask of the scheduler, the freeze) — and also:
+
+```bash
+cd $APP && $AS_WWW $P artisan down                 # the old site answers 503 until it is parked
+crontab -l 2>/dev/null | grep -nE 'artisan|onhost'; crontab -l -u www 2>/dev/null | grep -nE 'artisan|onhost'
+grep -rlE 'artisan|onhost' /www/server/cron /etc/cron.d 2>/dev/null   # aaPanel's Cron page writes /www/server/cron
+supervisorctl status 2>/dev/null | grep -i onhost
+```
+
+Switch off every entry these print in aaPanel (**Cron**: each task that calls `artisan`, `schedule:run` above all;
+**Supervisor**: every onhost program) — an aaPanel cron runs as root, and after the park it would run the **new** tree's
+`artisan` as root. `/etc/cron.d/onhost-staging-freeze` (S0 GATE) may stay: it acts only while `$STATE/expect-freeze`
+exists, and on the new install that is S4's freeze. Verify:
+
+```bash
+{ crontab -l 2>/dev/null; crontab -l -u www 2>/dev/null; } | grep -v '^[[:space:]]*#' | grep -E 'artisan|onhost'   # nothing
+# aaPanel's crontab lines call a script in /www/server/cron: none of the scripts that name artisan may still be scheduled
+for f in $(grep -rlE 'artisan|onhost' /www/server/cron 2>/dev/null); do crontab -l 2>/dev/null | grep -v '^[[:space:]]*#' | grep -F "$(basename "$f")"; done   # nothing
+supervisorctl status 2>/dev/null | grep -i onhost | grep -v -E 'STOPPED|EXITED'                                  # nothing
+ps -eo user,cmd | grep -E 'artisan|queue:work|horizon' | grep -v grep                                            # nothing
+systemctl list-units --all --plain --no-legend 'onhost-*' | grep -w active                                       # nothing
+```
+
+Park — a rename on one filesystem, never a copy (a copy would stop half-way at aaPanel's immutable `.user.ini` and
+leave two trees):
+
+```bash
+TODAY=$(date +%Y%m%d)
+PARK=/root/onhost-staging-old-$TODAY
+install -d -m 0700 $PARK                            # root only; the parked tree keeps its owners and modes (exact undo)
+park() { # $1 = what, $2 = name under $PARK
+  { [ -e "$1" ] || [ -L "$1" ]; } || { echo "absent: $1"; return 0; }
+  [ "$(stat -c %d "$1")" = "$(stat -c %d "$PARK")" ] || { echo "STOP: $1 is on another filesystem than $PARK — see below"; return 1; }
+  mv -T "$1" "$PARK/$2" && echo "parked $1 -> $PARK/$2"
+}
+install -d -m 0700 $PARK/systemd && cp -a /etc/systemd/system/onhost-* $PARK/systemd/ 2>/dev/null   # a copy for the record:
+                                                    # install.sh re-renders the two unit files by the same names; the masks stay
+cd /root                                            # no shell of this session stays inside the tree it moves
+park $APP wwwroot && park /etc/onhost etc-onhost && park $STATE state
+install -d -o www -g www -m 0755 $APP               # the empty site directory, as aaPanel creates one (www's; nginx keeps $APP/public)
+ls -la $APP; ls -la $PARK; stat -c '%a %U %n' $PARK
+```
+
+`STOP … another filesystem`: the site tree lives on another filesystem than `/root` (e.g. a separate `/www`). Park it on
+its own filesystem instead — `PARK_SITE=/www/onhost-staging-old-$TODAY; install -d -m 0700 $PARK_SITE`, then
+`mv -T $APP $PARK_SITE/wwwroot` after the same `stat -c %d` comparison, then the other two `park` lines and the
+`install -d … $APP` line — and record both park directories in the release record. Verify: `$PARK` (and `$PARK_SITE`) `700 root`; `$APP` empty and www's; `/etc/onhost` and `$STATE` absent.
+
+**Recommended (reversible) — the old database cannot be reached by the new role:** the old role stops logging in and
+new roles do not get `CONNECT` on the old database by default (PostgreSQL grants it to `PUBLIC`):
+
+```bash
+su - postgres -c "psql -c 'ALTER ROLE <old DB_USERNAME, S0> NOLOGIN' -c 'REVOKE CONNECT ON DATABASE <old DB_DATABASE, S0> FROM PUBLIC'"
+# undo: ALTER ROLE <old> LOGIN; GRANT CONNECT ON DATABASE <old db> TO PUBLIC
+```
+
+The new database and role — the password is generated on the host and never printed; keep S1c's last block, S2 and S3
+in **one** SSH session (the two passwords live in shell variables until S3 writes them into `app.env`):
+
+```bash
+NEWDB=onhost_staging_b; NEWROLE=onhost_b
+DBPW=$(openssl rand -hex 24)
+printf "create role %s login createdb password '%s';\n" "$NEWROLE" "$DBPW" | su - postgres -c psql   # CREATEDB: S6's restore drill
+su - postgres -c "createdb -O $NEWROLE -E UTF8 $NEWDB"
+su - postgres -c "psql -tAc \"select datname, datcollate, datctype from pg_database where datname='$NEWDB'\""   # record next to Q14
+REDISPW=$(awk '/^requirepass/ {print $2}' /www/server/redis/redis.conf)
+[ -n "$REDISPW" ] && echo redis-password-read || echo "STOP: Redis has no requirepass"
+```
+
+Redis is the host's one server, shared with the parked staging: the new install takes **other database numbers and
+another prefix** than S0 printed for the old one — `REDIS_DB=2`, `REDIS_CACHE_DB=3` (any pair the old staging does not
+use), `REDIS_PREFIX=onhost_staging_b_`, `CACHE_PREFIX=onhost_staging_b`. S3 writes them with `DB_DATABASE=$NEWDB`,
+`DB_USERNAME=$NEWROLE`, `DB_PASSWORD="$DBPW"`, `REDIS_PASSWORD="$REDISPW"` (then `unset DBPW REDISPW`), and the S3 spec
+pins them and refuses the old ones — append before `*UNLISTED=`:
+
+```text
+DB_DATABASE=onhost_staging_b
+DB_USERNAME=onhost_b
+REDIS_DB=2
+REDIS_CACHE_DB=3
+REDIS_PREFIX=onhost_staging_b_
+CACHE_PREFIX=onhost_staging_b
+DB_DATABASE!=<the old staging's DB_DATABASE, S0>
+REDIS_PREFIX!=<the old staging's REDIS_PREFIX, S0 — onhost-database- when it was unset>
+CACHE_PREFIX!=<the old staging's CACHE_PREFIX, S0 — onhost-cache- when it was unset>
+```
+
+Then S2, S3, S4 as written, with two differences. S4b: `install -m 0600 /dev/null $STATE/path-b` in the **new** state
+dir (the old one is parked), and `$STATE/egress-blocked` preferably lists production's panel and node addresses with
+the S0 GATE step 4 table and probe — the parked database holds live keys (question 13 b). S4, before `systemctl enable
+--now`: the scheduler still carries S0 GATE's runtime mask, so lift it first — the unit file is now the one `install.sh`
+rendered for the new tree:
+
+```bash
+systemctl cat onhost-scheduler.service | grep -E 'ExecStart|WorkingDirectory'   # the new tree's artisan (install.sh run 2)
+systemctl unmask --runtime onhost-scheduler.service
+```
+
+The provider lanes stay masked (S0 GATE's lasting masks survive the re-render).
+
+**Undo** (the whole Path B on this host; the owner decides, the new database stays until the owner drops it):
+
+```bash
+systemctl disable --now onhost-scheduler.service 'onhost-queue@default.service' 'onhost-queue@mails.service'
+systemctl mask --runtime onhost-scheduler.service
+UNDO=/root/onhost-staging-b-parked-$(date +%Y%m%d%H%M); install -d -m 0700 $UNDO
+mv -T $APP $UNDO/wwwroot && mv -T /etc/onhost $UNDO/etc-onhost && mv -T $STATE $UNDO/state   # the new install, parked in turn
+mv -T $PARK/wwwroot $APP && mv -T $PARK/etc-onhost /etc/onhost && mv -T $PARK/state $STATE   # $PARK_SITE/wwwroot if used
+```
+
+The old staging comes back **contained**: its units disabled and masked (the unit files are the new install's rendering;
+the old ones are in `$PARK/systemd` for the record), its site in maintenance, its aaPanel cron and supervisor entries off.
+It is Path A from here — nothing of it starts without the owner and the Path A steps. The deployer in
+`/usr/local/sbin` stays installed; `/usr/local/lib/onhost-deploy/source-sha` names `STAGING_SHA`. If the recommended
+PostgreSQL lines ran, their undo lines restore the old role.
 
 ### S2 — Fresh install (Path B only)
 
@@ -798,7 +938,8 @@ role rows); a `ROW-FAIL` is explained in the record. Record the duration. The 7-
 
 ## D. Go / no-go for "staging phase 1 live" (all must hold)
 
-- O1–O12 and questions 13–14 recorded; the release record lists the evidence below.
+- O1–O12 and all fourteen owner questions (1–14) recorded — an answer, or the default taken and marked as such; the
+  release record lists the evidence below.
 - S0: the isolation block confirmed by the owner (no shared database, Redis server + prefix, cache prefix, bucket,
   endpoint); PostgreSQL parity recorded.
 - Path A: every S0 *secret=stored* credential and `*_SECRET_REF` revoked at its issuer, confirmed in writing before S5
