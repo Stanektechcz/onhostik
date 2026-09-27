@@ -40,6 +40,25 @@ beforeEach(function () {
     Http::preventStrayRequests();
 });
 
+/*
+ * The days a document is issued on. Besides a UTC day and a Prague winter day, the two days the clocks change in Prague
+ * (the last Sundays of March and October: 23 and 25 hours) — issued ON that day, and issued fourteen days before it so
+ * that the due date and the overdue run fall on it and the dunning days are counted across the change.
+ */
+dataset('billingSweepDays', function () {
+    $forward = clockSweepNextLastSunday(3);
+    $back = clockSweepNextLastSunday(10);
+    $before = fn (string $day) => CarbonImmutable::parse($day)->subDays(14)->toDateString();
+
+    return [
+        'UTC, tomorrow' => ['UTC', null],
+        'Prague, winter' => ['Europe/Prague', clockSweepNextDay('01-15', 'Europe/Prague')],
+        'Prague, issued on the 23-hour day' => ['Europe/Prague', $forward],
+        'Prague, due on the 23-hour day' => ['Europe/Prague', $before($forward)],
+        'Prague, issued on the 25-hour day' => ['Europe/Prague', $back],
+        'Prague, due on the 25-hour day' => ['Europe/Prague', $before($back)],
+    ];
+});
 /** An issued postpaid invoice as InvoiceService::issue() leaves it at `$issuedAt`: due `$dueDays` days later, to the second. */
 function billingSweepInvoice(Organization $org, CarbonImmutable $issuedAt, int $dueDays = 14, string $state = Invoice::ISSUED): Invoice
 {
@@ -72,13 +91,15 @@ it('marks an invoice overdue on the first overdue run after its printed due date
         expect($invoice->refresh()->state)->toBe(Invoice::OVERDUE, 'still not overdue the day after its due date');
     };
 
-    $failures = clockSweep($scenario, 15, $tz, $day);
+    $runs = 0;
+    $failures = clockSweep(function (CarbonImmutable $at) use ($scenario, &$runs) {
+        $runs++;
+        $scenario($at);
+    }, 15, $tz, $day);
 
-    expect($failures)->toBe([], clockSweepWindows($failures));
-})->with([
-    'UTC, tomorrow' => ['UTC', null],
-    'Prague, winter' => ['Europe/Prague', clockSweepNextDay('01-15', 'Europe/Prague')],
-]);
+    expect($failures)->toBe([], clockSweepWindows($failures))
+        ->and($runs)->toBe(clockSweepSteps($day ?? clockSweepNextDay(), $tz)); // 92 on the 23-hour day, 100 on the 25-hour one
+})->with('billingSweepDays');
 
 it('counts the days a case is overdue in the days the invoice printed, whatever hour it fell due', function (string $tz, ?string $day) {
     $scenario = function (CarbonImmutable $issuedAt) {
@@ -103,13 +124,15 @@ it('counts the days a case is overdue in the days the invoice printed, whatever 
             ->and($case->refresh()->state)->toBe(DunningCase::OVERDUE_NOTICE);
     };
 
-    $failures = clockSweep($scenario, 15, $tz, $day);
+    $runs = 0;
+    $failures = clockSweep(function (CarbonImmutable $at) use ($scenario, &$runs) {
+        $runs++;
+        $scenario($at);
+    }, 15, $tz, $day);
 
-    expect($failures)->toBe([], clockSweepWindows($failures));
-})->with([
-    'UTC, tomorrow' => ['UTC', null],
-    'Prague, winter' => ['Europe/Prague', clockSweepNextDay('01-15', 'Europe/Prague')],
-]);
+    expect($failures)->toBe([], clockSweepWindows($failures))
+        ->and($runs)->toBe(clockSweepSteps($day ?? clockSweepNextDay(), $tz)); // 92 on the 23-hour day, 100 on the 25-hour one
+})->with('billingSweepDays');
 
 it('suspends on the thirtieth printed day and not a day earlier, whatever hour the invoice fell due', function () {
     $scenario = function (CarbonImmutable $issuedAt) {

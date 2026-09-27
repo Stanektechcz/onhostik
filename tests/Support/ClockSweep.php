@@ -25,7 +25,11 @@ use Illuminate\Support\Facades\DB;
  * failing instants as `local label => first line of the failure (test file:line)`. The scenario receives the instant (in
  * `$tz`); the application clock (`now()`, `Date`, `Carbon`, `CarbonImmutable`) is frozen there when it starts, and it may
  * travel. The day defaults to tomorrow: what the test seeded before the sweep (catalogue prices valid from the real now)
- * must already be valid, so a sweep never goes back in time — for another season `clockSweepNextDay('01-15')`.
+ * must already be valid, so a sweep never goes back in time — for another season `clockSweepNextDay('01-15')`, for the
+ * 23- and 25-hour days `clockSweepNextLastSunday(3|10)`.
+ *
+ * The steps are real elapsed time from local midnight to the next local midnight, so a day on which the clocks change
+ * has 23 or 25 hours of instants (the repeated autumn hour is swept twice, once per offset; labels carry the UTC time).
  *
  * @param  callable(CarbonImmutable): void  $scenario
  * @return array<string, string>
@@ -36,9 +40,10 @@ function clockSweep(callable $scenario, int $stepMinutes = 15, string $tz = 'UTC
         throw new InvalidArgumentException("a sweep step must divide the day evenly, {$stepMinutes} minutes does not");
     }
     $midnight = CarbonImmutable::parse($day ?? clockSweepNextDay(), $tz)->startOfDay();
+    $nextMidnight = $midnight->addDay()->startOfDay();
     $failures = [];
-    for ($minute = 0; $minute < 1440; $minute += $stepMinutes) {
-        $at = $midnight->addMinutes($minute);
+    for ($utc = $midnight->utc(); $utc->lessThan($nextMidnight); $utc = $utc->addMinutes($stepMinutes)) {
+        $at = $utc->setTimezone($tz);
         $error = clockSweepRunAt($scenario, $at);
         if ($error !== null) {
             $failures[clockSweepLabel($at)] = $error;
@@ -46,6 +51,29 @@ function clockSweep(callable $scenario, int $stepMinutes = 15, string $tz = 'UTC
     }
 
     return $failures;
+}
+
+/** How many instants clockSweep() visits on that local day (96 on an ordinary day at 15 minutes, 92 or 100 on a DST day). */
+function clockSweepSteps(string $day, string $tz, int $stepMinutes = 15): int
+{
+    $midnight = CarbonImmutable::parse($day, $tz)->startOfDay();
+
+    return intdiv($midnight->addDay()->startOfDay()->getTimestamp() - $midnight->getTimestamp(), $stepMinutes * 60);
+}
+
+/** The next last Sunday of `$month` after today (Y-m-d): in the EU the clocks go forward (3) or back (10) on it. */
+function clockSweepNextLastSunday(int $month, string $tz = 'Europe/Prague'): string
+{
+    $today = CarbonImmutable::now($tz)->startOfDay();
+    foreach ([$today->year, $today->year + 1] as $year) {
+        $day = CarbonImmutable::create($year, $month, 1, 0, 0, 0, $tz)->endOfMonth()->startOfDay();
+        $day = $day->subDays($day->dayOfWeek); // back to Sunday (0)
+        if ($day->greaterThan($today)) {
+            return $day->toDateString();
+        }
+    }
+
+    throw new LogicException('no last Sunday ahead');
 }
 
 /** The next `$monthDay` (m-d) after today, or tomorrow when none is given (Y-m-d, in `$tz`). */
