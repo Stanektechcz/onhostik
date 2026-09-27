@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Authorization\Authorizer;
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
+use Onhost\Domain\Identity\Authorization\RoleResolver;
 use Onhost\Domain\Identity\Models\ServiceAccount;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -171,12 +172,15 @@ final class GrantPolicy
         }
         $stored = DB::table('role_permissions')->where('role_key', $roleKey)->pluck('permission_key')->map(fn ($p) => (string) $p)->all();
 
-        return array_values(array_unique(array_merge(RoleCatalog::all()[$roleKey]['permissions'], $stored)));
+        // role definitions come through RoleResolver, not the raw catalogue (TASK-0037, program D6/P0-11; RiskFloorTest's
+        // allow-list only shrinks) — the key is known here, so grantable() is exactly the catalogue's line
+        return array_values(array_unique(array_merge(RoleResolver::grantable($roleKey), $stored)));
     }
 
     private static function assertOrganizationRole(string $roleKey): void
     {
-        if (! RoleCatalog::exists($roleKey) || RoleCatalog::all()[$roleKey]['staff'] || RoleCatalog::isResourceRole($roleKey)) {
+        // a known, non-staff, non-resource role — the same set as customerRoleKeys(), without reading the raw catalogue (TASK-0037 P0-11)
+        if (! in_array($roleKey, RoleCatalog::customerRoleKeys(), true)) {
             throw new DomainError('invalid_role', "Role {$roleKey} cannot be assigned inside an organization.", 422, ['field' => 'role']);
         }
     }
