@@ -83,8 +83,10 @@ public — no loopback, private, link-local, CGNAT, multicast; local names such 
 
 `organization.members.manage` says that somebody manages members, not what they may hand out: the owner role is not
 granted (ownership moves by a transfer), nobody edits their own membership — neither the role nor the end of the
-access — and a role is granted only by somebody whose own role covers every permission in it. Staff are not bound.
-Test: `tests/Feature/Organizations/AccessExpiryTest.php`.
+access — and a role is granted only by somebody whose own role covers every permission in it. Since Phase 0 of the
+permission program every membership and project-membership change is decided by one class, `Organizations\GrantPolicy`
+(§27). Staff are not compared there yet (P0-08, TASK-0039 not integrated).
+Tests: `tests/Feature/Organizations/AccessExpiryTest.php`, `tests/Feature/Organizations/GrantPolicyTest.php`.
 
 ## 5. Money
 
@@ -109,6 +111,15 @@ Test: `tests/Feature/Organizations/AccessExpiryTest.php`.
   estimate is read with `billing.wallet.read` at organization scope. An order held for the staff risk review cannot be
   withdrawn by the customer, and a service the consumer withdrew from never gets a chargeback. Test:
   `tests/Feature/Billing/WithdrawalTest.php`.
+* **Money out follows a confirmed destination** (TASK-0040, program P0-13/IF-14). Where a partner payout goes is its own
+  command — `partner.payout_account.manage`, HIGH, owner-only, never staff — with a mandatory notice to the owner and the
+  billing e-mail and a 7-day cooling-off; it is never a field of the money request (a payout request's `iban` must equal the
+  confirmed account or gets 409). The amount is computed under the partner row lock from the commissions it allocates in
+  the same transaction, and the payment re-checks it. `payout.pay` is CRITICAL, pays only an `approved` payout, under a row
+  lock, and the payer is neither the requester nor the approver (the sole operator: the time lock of §29).
+* **Grandfathering has a cut-over.** A legacy value is trusted only as it stood when the fix landed — an IBAN paid to
+  before the moment migration `000890` ran (one recorded `system_settings` row) — never as whatever the old path writes
+  later; the money step checks it again (409 `payout_account_unconfirmed`). Test: `tests/Feature/Partners/PayoutSafetyTest.php`.
 
 ## 6. Secrets that are handed out once are not kept
 
@@ -531,6 +542,151 @@ Tests: `tests/Feature/Provisioning/ResourceProvenanceTest.php`.
 Tests: `tests/Feature/Services/ServiceActionPermissionMapTest.php`, `tests/Feature/Services/ServiceActionRoleMatrixTest.php`,
 `tests/Feature/Services/ServiceActionSecondaryGatesTest.php`, `tests/Feature/Http/ApiTokenScopeMapTest.php`.
 
+---
+
+Sections 27–34 are Phase 0 of the permission program (`docs/security/permission-program-2026-09-27.md`, ADR-0009;
+TASK-0033 … TASK-0041). **Phase 0 is not signed off:** P0-08, P0-09 and P0-14 (staff reach on customer permissions, the
+token principal view, staff panel sign-on) are built in TASK-0039 but not integrated, so those holes are still open. They are
+listed, each with its pinning test, in `docs/runbooks/breach-register.md` → "Still open after Phase 0 wave 2". For the time
+before each fix, the same runbook and `onhost:forensics:lookback` (read-only) say whether a hole was used.
+
+## 27. A grant goes through GrantPolicy and never beyond the granter
+
+* Invite, accept, change role, remove, transfer ownership, add and remove a project role: all go through
+  `Organizations\GrantPolicy` (TASK-0036, program I1–I4, I8, I9, I11). Never write a membership or a project binding from a
+  new path without it.
+* The owner cannot be demoted by a mail link: inviting a current member is 409 `already_member`, accepting never lowers a
+  current membership (I9), the owner holds only `owner` and nobody else gets it (I4; ownership moves by a transfer, which
+  reports the role change of both people).
+* Only current members are changed or removed (404 otherwise — a stranger's id no longer makes them a member and shows
+  their e-mail), and only by somebody whose role covers the target's current role (403 `member_above_own`; an unknown
+  target role: the owner only). An unknown role key holds nothing for a grant.
+* Project roles need `organization.members.manage` (HIGH, fresh step-up) and come from `GrantPolicy::PROJECT_ROLES`;
+  memberships granted before the allow-list are listed by `onhost:projects:role-audit --dry-run` (read-only; the owner
+  decides, changes go through the organization's own remove/add).
+* Every grant path compares the person acted for — `onBehalfOfUserId ?? actorId` — in `GrantPolicy` and in
+  `ServiceAccessService::share` (TASK-0041); a service account by its own rights, an unknown actor type 403, and
+  `granted_by` records that person.
+* Open: staff are not compared (P0-08); a staff account holding `organization.close` globally can run `transfer_ownership`
+  in any organization it enters (P0-16 red team, MEDIUM, no task yet).
+
+Tests: `tests/Feature/Organizations/GrantPolicyTest.php`, `tests/Feature/Organizations/GrantBackingTest.php`,
+`tests/Feature/Security/WaveOneLeftoversTest.php`.
+
+## 28. An idempotency key answers only for who sent it, and for what
+
+* Service actions (TASK-0036): the operation key of a person is namespaced per organization, service, action and actor, and
+  the operation keeps `desired.request_hash`; the same key with another body is 409 `idempotency_key_reused`. The bus key of
+  `POST /v1/services/{id}/actions` names the service and the actor (controller) and adds a keyed payload fingerprint
+  (`ServiceActionCommand::idempotencyKey()`); two identical requests at once: one runs, the other gets 409
+  `operation_in_progress`.
+* Domain commands (TASK-0041): the bus key names the operation, the target (domain id or `org`) and the actor, and is
+  fingerprinted (`DomainCommand::idempotencyKey()`); another body under the same key is 409 at the controller (instant ops)
+  or in `DomainService` (operations). A true retry still gets its first answer.
+* A fingerprint of parameters is keyed (HMAC with `app.key`), never a plain hash: parameters may carry passwords. After an
+  `APP_KEY` rotation, a retry of an older request answers 409 instead of its operation.
+* Open (P0-16 red team, no task yet): the bus replay store is scoped per organization, not per person, for every other
+  header-keyed customer command (`hook.create`, `discord.link_code`, `service.spec`, `service.policy`, invitations, …), and
+  its stored results do not mask a Discord link code or a hook URL — a member who knows another member's key gets that
+  answer. The HTTP idempotency middleware keeps the raw response body for 24 h, before authorization, scoped `user:<id>`
+  (the plaintext of a new API token included), so another token of the same person gets it back.
+
+Tests: `tests/Feature/Organizations/GrantPolicyTest.php`, `tests/Feature/Domains/DomainKeyScopeTest.php`,
+`tests/Feature/Services/ArchiveRestoreKeyTest.php`, `tests/Feature/Security/WaveOneLeftoversTest.php`.
+
+## 29. Risk only goes up; staff routes ask staff keys
+
+* The bus runs every operation at `PermissionCatalog::effectiveRisk()` = max(declared, the permission's floor)
+  (TASK-0037). The floor is the catalogue risk, except that a customer permission rated CRITICAL floors at HIGH (customers
+  have no second person until S4-03). `LOWERED_RISK` is empty and pinned by a test; AI actors are judged on the effective
+  risk too.
+* The single-operator waiver (`ONHOST_FOUR_EYES=false`) spares only the sole active holder of `iam.approval.decide`, and
+  their own CRITICAL action (or price change) waits a cancellable time lock (`ONHOST_FOUR_EYES_TIME_LOCK_HOURS`, 24 h);
+  everybody else gets an ordinary approval request. Details: `docs/runbooks/approvals.md`.
+* Staff routes ask staff-audience keys: `/v1/staff/tickets` `staff.support.ticket.read`, `/v1/staff/withdrawals`
+  `staff.billing.read`; `staff.backup.read` exists for P0-15. Role definitions are read only through `RoleResolver`
+  (an architecture allow-list); `AuthorizationSeeder` runs in one transaction and writes only the difference.
+* Before a release that raises risks: `php artisan onhost:iam:risk-floor-report [--days=30]` (read-only) lists tokens and
+  service accounts that ran an operation now above them — tell their owners.
+* Open: a customer CRITICAL key reached through a staff global binding still runs HIGH and a forced purge is not
+  time-locked (P0-08/IF-9, pinned by RiskFloorTest); `support_manager` still holds `support.customer_impersonate` (SS-7); a
+  solo operator can create a second `platform_owner` with `onhost:staff:create` and approve their own CRITICAL actions (red
+  team, no task yet).
+
+Tests: `tests/Feature/Identity/RiskFloorTest.php`, `tests/Feature/Identity/FourEyesApprovalTest.php`.
+
+## 30. A Discord link or an action hook is one person's credential in one organization
+
+* It is re-checked against the person's current membership on every use (TASK-0035). A removed member's links are revoked
+  and hooks switched off by `RevokeMemberSideDoors` (on `organization.member.removed` / `.role_changed`); a lowered role
+  loses what the new role could not have made (a link needs `organization.manage`, a hook its action's permission). A link
+  of a non-member is revoked when used (410 `discord_link_revoked`); a hook of a non-member does not run and is disabled.
+  Every write is audited (`integration.discord.revoke`, `integration.hook.disable`).
+* What `/onhost` shows comes from `AssistantScope` with the current membership; `ask` needs `AssistantScope::mayChat`.
+* Leftovers from before the fix: `php artisan operator:integrations:orphan-links` (dry run) → review → `--apply`
+  (optional `--organization=`).
+* Open: for a member of staff the demotion check is satisfied by the global staff binding until P0-08 (IF-4).
+
+Test: `tests/Feature/Integrations/OrphanAccessTest.php`.
+
+## 31. An archive goes back only over a copy, for somebody who may read its source
+
+* `archive.restore` from both endpoints runs through `ServiceArchiveService::restore` (TASK-0035): `backup.read` where the
+  archived service lived (404 otherwise) and `backup.restore` at the target's project or organization (a resource-scoped
+  `svc_restore` share gets 403). A restore key answers only for its own target.
+* The live target is copied first; a safety copy counts only when it completed — a hypervisor snapshot only when the
+  hypervisor confirmed its task. If the copy fails, nothing is overwritten. The download fee is waived only after the
+  restore was accepted.
+* Open: a staff global `backup.read`/`backup.restore` binding passes `assertMayRestore` in every organization (P0-08).
+
+Tests: `tests/Feature/Services/ArchiveRestoreScopeTest.php`, `tests/Feature/Services/ArchiveRestoreKeyTest.php`.
+
+## 32. A game panel user belongs to one organization by its id alone
+
+* `PterodactylGameProvider::ensureUser()` looks the panel user up only by `GET /api/application/users/external/{organization}`
+  and accepts it only when `external_id` equals the organization id byte for byte and the user is not a root admin; it never
+  looks up by e-mail. New users get a synthetic e-mail (`options.synthetic_email_domain`); existing ones are not changed
+  (O2). Adopting an existing server also needs the exact external id (TASK-0033).
+* Before `panelAccount`, `setPanelPassword` and `createSubuser` the server's live owner on the panel (`servers/{id}.user`)
+  must carry the service's current organization and agree with the platform's record (otherwise `moved`); a refusal is a
+  non-retryable VALIDATION with no foreign id in it. Removing a collaborator is never held up.
+* A same-panel game migration needs the owner verdict `owned` (TASK-0041); a panel error while asking is retried.
+* Triage of existing mismatches is by hand: `onhost:game:panel-identity --dry-run` (`--apply` is refused).
+
+Test: `tests/Feature/Game/GamePanelIdentityTest.php`.
+
+## 33. aaPanel's root file API is not a tenant boundary
+
+* **Every node:** each unpack (`AaPanelTransport::extract`, `restoreFromArchive`) is listed on the node first
+  (`AaPanelArchivePreflight`): hardlinks, devices, absolute names, `..`, names with `.` or empty parts, anything beneath a
+  symlink of the archive, symlinks in a zip (zipinfo cannot show a link's target, so they are refused without a switch) and
+  symlinks that land outside the site are refused; an archive in the site is opened once, proven (inside the site, regular,
+  one name), copied to `/www/.onhost-stage` (root, 0700) and that copy is judged and unpacked. A download reads only a
+  proven copy (one open file inside the transport root, regular, one name — two names only for a file owned by `www` or
+  **this** site's agent; a download never creates or changes a user on the node). Shell output and listings live in
+  `/root/.onhost-shell`, never `/tmp` (TASK-0034, TASK-0041).
+* **A shared node is closed, not engineered around** (D11: a realpath check before root I/O is still a race):
+  `onhost:aapanel:tenancy` (alias `operator:aapanel:tenancy`) lists nodes several organizations share; `--apply` closes
+  them through the bus (HIGH, audited) — no in-panel file manager, import, PHP settings, apps, git deploy, staging or new
+  shell cron; the site's transport asks the gate at every call and writes, uploads and unpacks as the site's own shell user
+  (`<prefix>ag`), never root. An unreadable instance row is closed (TRANSIENT refusal).
+* **An open node never becomes shared** by an order or a staff/CLI move (`service.migrate`, `service.evacuate`):
+  `NodeScheduler::sharedNodeRefusal` admits only the organizations already on it or moving to it (anybody when empty), under
+  the placement lock (TASK-0041). Close it first (`--apply --instance=<key>`, `--force` for a node with historical sites).
+* Open: terminal, Node.js projects and existing cron run as the shared `www` user (an owner decision before the first
+  `--apply`); on open nodes the root write/UnZip/delete inside a site stays a race (D11).
+
+Test: `tests/Feature/Web/AaPanelTenancyTest.php`, `tests/Feature/Security/WaveOneLeftoversTest.php`.
+
+## 34. What Phase 0 has not closed yet
+
+The holes of P0-08, P0-09 and P0-14 (TASK-0039, not integrated), each pinned as open by
+`tests/Feature/Security/PhaseZeroOpenItemsTest.php`: an API token acting for any organization of its person (PA-04); staff
+global roles reaching customer permissions in any organization they enter (IF-4); a member of staff acting as staff on the
+customer's own routes (EXPL-1/2/3, SS-1, SS-14); a forced purge and staff `backup.delete` without a second person (SE-3,
+SS-5); staff panel sign-on without a ticket, reason, family check, second person or customer notice (SS-4, PA-06). The
+exact list and what to do when TASK-0039 lands: `docs/runbooks/breach-register.md`.
+
 ## What to look at on staging after deploying this
 
 * migration `000720` scrubs `domains.registry_status`; afterwards `select count(*) from domains where registry_status like '%authid%' and registry_status not like '%[redacted]%'` is 0;
@@ -552,3 +708,9 @@ Tests: `tests/Feature/Services/ServiceActionPermissionMapTest.php`, `tests/Featu
   `service.panel_account.manage`, an org_admin can no longer grant billing_admin (TASK-0021);
 * `php artisan onhost:audit:provider-calls` on a production copy (read-only, §19) before the first customer is told
   anything about the ISPConfig ownership hole.
+* Phase 0 of the permission program (§27–§34): **before** the first Phase-0 deploy, the forensic baseline
+  (`onhost:forensics:lookback` on production or a pre-deploy restore, `docs/runbooks/breach-register.md`); after it,
+  `onhost:doctor` reports the roles equal to the catalogue (the staff read keys and `partner.portal.read` arrive with
+  `AuthorizationSeeder`), and the read-only lists of `docs/runbooks/go-live-checklist.md` §7 (`onhost:game:panel-identity`,
+  `onhost:aapanel:tenancy`, `operator:integrations:orphan-links`, `onhost:projects:role-audit`,
+  `onhost:iam:risk-floor-report`, `onhost:partners:payout-anomalies`) are read before anything is applied.

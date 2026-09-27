@@ -7,7 +7,8 @@ how it is verified; nothing here is optional for production. Run through it top 
 verified in the repository or CI; **open** — work or procurement still missing; **operator** — the code is ready, an
 operator does it on the host at or after deploy; **owner-decision** — waits for the owner's decision; **legal** — waits
 for a lawyer. Every new behaviour that reaches existing services ships switched off (ADR-0007): section 6 lists those
-switches with the read-only command to run before each.
+switches with the read-only command to run before each; section 7 lists the operator steps of Phase 0 of the
+permission program (2026-09-27, TASK-0033 … TASK-0041), the forensic baseline first.
 
 ## 1. Platform
 
@@ -140,6 +141,58 @@ No existing service, customer or plan is changed; this is a tightening of author
   "push staging" button and the assistant's "replace production with staging" proposal are gone; a repeated click on the
   same Discord button no longer starts the action twice. Spec apply reports refused steps in `skipped`.
 - Staff: running dunning or the capacity pass by hand and signing into a customer's panel ask for a fresh step-up.
+
+## 7. Operator steps of Phase 0 of the permission program (TASK-0033 … TASK-0041)
+
+The program is `docs/security/permission-program-2026-09-27.md`, its decisions ADR-0009. Pure security fixes apply at deploy
+without a switch (they refuse only illegitimate requests); everything that takes away legitimate behaviour from existing
+customers is an operator command whose default is a dry run. **The forensic baseline comes first**, because the fixes and
+some `--apply` steps change the state the look-back reads. **Phase 0 is not signed off** until TASK-0039 (P0-08, P0-09,
+P0-14) is integrated and a new red-team round passes — its holes are listed in `docs/runbooks/breach-register.md`.
+
+| Step | Read first | Switch / command | Verify | Status |
+| --- | --- | --- | --- | --- |
+| Forensic look-back **baseline** — on production **before the first Phase-0 deploy**, or on a restore of the last backup taken before it (TASK-0038, D16). Blocks go-live | `docs/runbooks/breach-register.md` (mandatory baseline, *Isolation for every run*: SELECT-only database role, separate checkout, array mailer, null queue, no outbound network on a restore host) | `php artisan onhost:forensics:lookback --json` (read-only; exit 0 = no hit, 1 = hits, 2 = bad options) | the JSON's sha256 attached first to the cyber incident under legal hold; every hit followed up per source; the owner's Art. 33/34 decision recorded — drafts only, nothing sent without it (O3) | operator, owner-decision |
+| Deploy Phase 0: `AuthorizationSeeder` (staff read keys, `partner.portal.read`, the partner payout keys) and migration `000890` (payout accounts + the cut-over row that ends IBAN grandfathering) | release notes below | `infra/aapanel/deploy.sh` (runs the seeder); no switch | `onhost:doctor` → *roles in the database match the catalog* OK | operator |
+| Token listing — who loses what through an API token (TASK-0037, IF-13) | release notes below | `php artisan onhost:iam:risk-floor-report --days=30` (read-only) — tokens and service accounts that ran an operation now HIGH+; after TASK-0039 is integrated also `operator:tokens:unbound --dry-run` (tokens bound to no organization, tokens used on another one) before `ONHOST_TOKEN_ORGANIZATION_REQUIRED=true` | the owners of every listed token were told before the release | operator |
+| Solo operator: CRITICAL actions and price changes of the sole approver wait a time lock (TASK-0037, O4) | `docs/runbooks/approvals.md` | `ONHOST_FOUR_EYES_TIME_LOCK_HOURS` (default `24`, minimum 1) with `ONHOST_FOUR_EYES=false` | the first attempt opens a time-locked request; the repeat after the lock with a fresh step-up runs it; the requester can cancel it | owner-decision (default taken) |
+| Pterodactyl identity triage (TASK-0033, PA-01) | `.ai/handoffs/TASK-0033.md` (*Docs for integration*: triage steps) | `php artisan onhost:game:panel-identity --dry-run [--instance=]` (`--apply` is refused) | contact both organizations for every `foreign`/`unmarked` row; with anything in `dříve přes platformu` rotate that panel user's password and remove the collaborators added through the platform; re-home by hand and make the platform's record name the same user; rerun until every row reads `owned` | operator |
+| aaPanel tenancy (TASK-0034, TASK-0041, D11, O1) | the dry run's list; **owner decision first** on the terminal, Node.js projects and existing cron on a closed node (they run as the shared `www` user) | `php artisan onhost:aapanel:tenancy` (dry run) → notify the listed organizations (notice text in `.ai/handoffs/TASK-0034.md`) → let queued web operations on the node finish or cancel them → `--apply` (`--apply --instance=<key> --force` for a node with historical sites) → `onhost:services:cron-confine --apply`; back: `--reopen --instance=<key>` | the closed node's sites show no file manager, import, PHP settings, apps, deploy, staging or shell cron; SFTP and backups work; a first restore on a closed and an open test node confirms UnZip/upload from `/www/.onhost-stage` | owner-decision |
+| Orphaned Discord links and action hooks (TASK-0035, IF-15) | the dry run's list | `php artisan operator:integrations:orphan-links [--organization=]` (dry run) → review → `--apply` | the dry run again lists nothing | operator |
+| Legacy project roles outside the allow-list (TASK-0041, IF-3) | the dry run's list | `php artisan onhost:projects:role-audit --dry-run [--organization=]` (read-only; no `--apply`) | the owner decides each membership; changes go through the organization's own remove/add project member | owner-decision |
+| Partner masking notice (TASK-0040, O9) | the dry run's list of active partners | `php artisan onhost:partners:masking-notice` (dry run) → `--send` the same day as the deploy | each active partner got the in-app notice and the `legal-notice` mail once | operator |
+| Anomalous partner payouts (TASK-0040, IF-14) | `php artisan onhost:partners:payout-anomalies` (dry run; prints `List digest: …`) reviewed with the owner | `--apply --digest=<that digest>` (refused when the list changed — run the dry run again); first payouts and unconfirmed leftovers: freeze, confirm the account with the partner, release with a reason — or reject | frozen payouts cannot be approved or paid; finance pays only `approved` payouts, and the payment asks a second person (or the solo time lock) | owner-decision |
+| Evacuating a shared aaPanel node (TASK-0041) | — | target a closed node (or an empty one) | moves of other organizations onto an open node fail with the tenancy reason and the `--apply --instance=` hint | operator |
+| Phase 0 sign-off | TASK-0041 task file, *P0-16 red team* | integrate TASK-0039 (rebase 0039 → 0040 → 0041), replace the eight pins of `tests/Feature/Security/PhaseZeroOpenItemsTest.php` with its proofs, strike the list in `breach-register.md`, new red-team round | the red team passes; then P0-15 after seven days of an empty staff-reach shadow log | open |
+
+### Release note: Phase 0 of the permission program
+
+For the announcement to customers and the pull request (from the handoffs of TASK-0033 … TASK-0041). No plan, price or
+issued document changes.
+
+- Team access: a current member can no longer be invited again (409 — change their role instead), and an old link never
+  lowers anybody's role. An organization admin can no longer change or remove a member whose role holds more than their
+  own — in practice the billing admin; the owner can. Adding or removing a project role asks for a fresh confirmation, and
+  project roles come from a fixed list (existing ones keep working). The team page lists every role, removing asks for
+  confirmation, and "partner" reads "partner (commission only)".
+- Discord and action hooks: someone who left the organization, or whose role no longer allows it, loses the linked Discord
+  account and their hooks are switched off (not deleted; the list shows why). `/onhost` shows only what your own role shows.
+- Restoring the archive of a cancelled service needs the right to restore backups for the whole project or organization and
+  to read that service's data; the live target is copied first and nothing is overwritten when the copy fails.
+- Game servers: a panel account that is not your organization's is no longer shown or changed through the platform; new
+  panel accounts get a technical e-mail — use the owner's panel-password action instead of the panel's "forgot password".
+- aaPanel: archives that reach outside the site, and files that are links or second names, are no longer unpacked or
+  downloaded. On a server shared with other customers — only after the operator's notice — files, PHP settings, one-click
+  apps, git deployments, staging copies and scheduled shell commands can no longer be changed from the control panel
+  (SFTP/FTP stay; existing jobs keep running; backups can still be restored).
+- Step-up is now asked for publishing DNSSEC keys, changing a domain's registrant and downloading the archive of a
+  cancelled service; these are no longer possible with an API key. Domain requests that reuse an `Idempotency-Key` for a
+  different request get 409.
+- Partners: a payout request asks for a fresh confirmation and goes only to the payout account the partner's owner confirmed
+  (set once, usable after 7 days, with a notice); client contacts and overdue states are masked; members without the partner
+  portal permission (viewer, developer, …) no longer see the portal.
+- Staff: 58 staff operations take a fresh step-up; a solo operator's critical actions and price changes wait 24 hours;
+  paying a partner needs a second person.
 
 ## One report of how the installation stands
 
