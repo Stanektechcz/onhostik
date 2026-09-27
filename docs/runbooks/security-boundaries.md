@@ -609,9 +609,10 @@ Tests: `tests/Feature/Organizations/GrantPolicyTest.php`, `tests/Feature/Domains
 * Before a release that raises risks: `php artisan onhost:iam:risk-floor-report [--days=30]` (read-only) lists tokens and
   service accounts that ran an operation now above them — tell their owners.
 * Open: a customer CRITICAL key reached through a staff global binding still runs HIGH and a forced purge is not
-  time-locked (P0-08/IF-9, pinned by RiskFloorTest); `support_manager` still holds `support.customer_impersonate` (SS-7); a
-  solo operator can create a second `platform_owner` with `onhost:staff:create` and approve their own CRITICAL actions (red
-  team, no task yet).
+  time-locked (P0-08/IF-9, pinned by RiskFloorTest); `support_manager` still holds `support.customer_impersonate` (SS-7).
+* Closed (TASK-0041, red team MEDIUM): `onhost:staff:create` makes the account through the bus (`identity.staff.create`); a
+  further holder of `iam.approval.decide` while somebody already decides approvals is a time-locked request from the command
+  line (the approvers are told, may cancel it, cannot approve it) and is made only by a repeat after the lock.
 
 Tests: `tests/Feature/Identity/RiskFloorTest.php`, `tests/Feature/Identity/FourEyesApprovalTest.php`.
 

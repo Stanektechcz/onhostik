@@ -152,8 +152,9 @@ final class ApprovalService
      * hear about it at once (`iam.approval.time_locked`); the customer concerned only once a notice can be held back where
      * telling them would tip them off (a legal hold — program D7 `disclosure_restricted`).
      */
-    private function requestTimeLock(Command $command, CommandContext $context, string $hash): Approval
+    private function requestTimeLock(Command $command, CommandContext $context, string $hash, ?string $requester = null): Approval
     {
+        $requester ??= (string) $context->actorId;
         $scope = $command->scope();
         $hours = self::timeLockHours();
         $notBefore = now()->addHours($hours);
@@ -162,17 +163,33 @@ final class ApprovalService
             'subject_type' => $scope === null || $scope->isGlobal() ? null : $scope->type, 'subject_id' => $scope?->id,
             'payload' => ['command' => $this->redactor->redact($command->toAudit()), 'permission' => $command->permission(), 'scope' => $scope === null ? null : ['type' => $scope->type, 'id' => $scope->id, 'organization_id' => $scope->organizationId, 'project_id' => $scope->projectId],
                 'time_lock' => ['not_before' => $notBefore->toIso8601String(), 'hours' => $hours]],
-            'payload_hash' => $hash, 'requested_by' => (string) $context->actorId, 'reason' => self::reasonOf($command), 'state' => 'pending',
+            'payload_hash' => $hash, 'requested_by' => $requester, 'reason' => self::reasonOf($command), 'state' => 'pending',
             // the window to repeat it opens when the lock ends and stays open as long as an ordinary approval would
             'expires_at' => $notBefore->copy()->addHours(max(1, (int) config('onhost.identity.approval_ttl_hours', 24))),
         ]);
         $this->audit->record($context, 'iam.approval.time_lock', 'succeeded', ['approval_id' => $approval->id, 'action' => $approval->action, 'permission' => $command->permission(), 'not_before' => $notBefore->toIso8601String()], 'approval', $approval->id);
         $this->outbox->publish(GenericEvent::of('iam.approval.time_locked', 'approval', $approval->id, [
-            'approval_id' => $approval->id, 'action' => $approval->action, 'requested_by' => $approval->requested_by, 'requester' => (string) User::query()->whereKey($approval->requested_by)->value('name'),
+            'approval_id' => $approval->id, 'action' => $approval->action, 'requested_by' => $approval->requested_by, 'requester' => (string) (User::query()->whereKey($approval->requested_by)->value('name') ?? $requester),
             'reason' => $approval->reason, 'not_before' => $notBefore->toIso8601String(), 'hours' => $hours, 'expires_at' => $approval->expires_at?->toIso8601String(),
         ], $approval->organization_id));
 
         return $approval;
+    }
+
+    /**
+     * TASK-0041 (P0-16 red team, IF-10): an action asked for from the command line — a further holder of `iam.approval.decide`
+     * (StaffAccountCommandHandler). Nobody signed in there, so no second person can be asked and nobody can be told apart from
+     * the solo operator: it always waits the time lock. The pending request of this very action is handed back on a repeat.
+     * It is cancelled by rejecting it; it cannot be approved (decide()): approving would be the solo operator's shortcut again.
+     */
+    public function commandLineTimeLock(Command $command, CommandContext $context, string $requester): Approval
+    {
+        $hash = HashChain::hashPayload($command->toAudit());
+        $existing = Approval::query()->where('action', $command->name())->where('payload_hash', $hash)->where('requested_by', $requester)
+            ->where('state', 'pending')->where('expires_at', '>', now())->orderBy('created_at')->get()
+            ->first(fn (Approval $a) => self::timeLockOf($a) !== null);
+
+        return $existing ?? $this->requestTimeLock($command, $context, $hash, $requester);
     }
     // ── end TASK-0037 ──
 
@@ -191,6 +208,10 @@ final class ApprovalService
         }
         // TASK-0037: a time-locked request of the sole approver is cancelled by rejecting it — by themselves too (it is their own
         // action they take back). Approving their own is still refused: that would be the silent bypass again.
+        // TASK-0041: a request from the command line is nobody's; its lock runs out or an approver cancels it — never approved
+        if ($decision === 'approved' && self::timeLockOf($approval) !== null && str_starts_with((string) $approval->requested_by, 'cli:')) {
+            throw new DomainError('time_lock_not_approvable', 'This request came from the command line: it runs when its time lock ends, or it is cancelled. It is not approved.', 409);
+        }
         $cancelsOwnTimeLock = $decision === 'rejected' && $approval->requested_by === $decider->id && self::timeLockOf($approval) !== null;
         if ($approval->requested_by === $decider->id && ! $cancelsOwnTimeLock) {
             throw new DomainError('approval_own_request', 'A request is decided by somebody other than the person who made it.', 403);

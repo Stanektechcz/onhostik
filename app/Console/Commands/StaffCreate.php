@@ -5,23 +5,29 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
+use Illuminate\Support\Str;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
+use Onhost\Domain\Identity\Commands\StaffAccountCommand;
 use Onhost\Domain\Identity\Models\User;
-use Onhost\Platform\Audit\AuditRecorder;
+use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
+use Onhost\Platform\Errors\DomainError;
 
 /**
  * The first staff account of an installation (go-live checklist): a user with a global role, the password from a
  * hidden prompt. Further staff are invited from the console; MFA is enrolled by the person on first sign-in.
+ *
+ * TASK-0041 (P0-16 red team, owning task TASK-0037): the account is made through the command bus (`identity.staff.create`).
+ * A further approver — a role holding `iam.approval.decide` while somebody already decides approvals — waits the time lock:
+ * the first run opens it and makes nothing, the approvers are told and may cancel it, a repeat after the lock makes the account.
  */
 final class StaffCreate extends Command
 {
     protected $signature = 'onhost:staff:create {email} {--name=} {--role=platform_owner : A global role key from RoleCatalog (platform_owner, sre, support_manager, …)} {--stdin : Read the password from standard input}';
 
-    protected $description = 'Create a staff account with a global role (hidden password prompt)';
+    protected $description = 'Create a staff account with a global role (hidden password prompt; a further approver waits the time lock)';
 
-    public function handle(AuditRecorder $audit): int
+    public function handle(CommandBus $bus): int
     {
         $email = strtolower(trim((string) $this->argument('email')));
         $role = (string) $this->option('role');
@@ -46,9 +52,20 @@ final class StaffCreate extends Command
 
             return self::FAILURE;
         }
-        $user = User::query()->create(['name' => (string) ($this->option('name') ?: explode('@', $email)[0]), 'email' => $email, 'password' => $password, 'locale' => 'cs', 'timezone' => 'Europe/Prague', 'is_staff' => true, 'state' => 'active', 'email_verified_at' => now()]);
-        PolicyBinding::query()->create(['principal_type' => 'user', 'principal_id' => $user->id, 'role_key' => $role, 'scope_type' => 'global', 'scope_id' => null, 'organization_id' => null]);
-        $audit->record(CommandContext::system('cli:staff:create'), 'identity.staff.created', 'succeeded', ['email' => $email, 'role' => $role], 'user', $user->id);
+        try {
+            $result = $bus->dispatch(new StaffAccountCommand('staff.create:'.Str::ulid(), ['email' => $email, 'name' => $this->option('name') ?: null, 'role' => $role, 'password' => $password]), CommandContext::system('cli:staff:create'));
+        } catch (DomainError $e) {
+            $this->error($e->getMessage());
+
+            return self::FAILURE;
+        }
+        if (! (bool) data_get($result, 'created')) {
+            $this->warn("{$role} decides approvals, and somebody already does: a further approver is not made at once (time lock, TASK-0037).");
+            $this->line('Request '.data_get($result, 'approval_id').' is on the approvals page; the approvers were told and may cancel it.');
+            $this->line('Repeat this command with the same e-mail, name and role after '.data_get($result, 'not_before').' to make the account.');
+
+            return self::FAILURE;
+        }
         $this->info("Staff account {$email} created with the role {$role}; sign in at ".rtrim((string) config('app.url'), '/').'/sprava and enrol MFA.');
 
         return self::SUCCESS;
