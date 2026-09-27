@@ -307,7 +307,8 @@ final class RegistrarConnectionService
         if ($connection->registrar_instance_id === null) {
             throw new DomainError('registrar_connection_disconnected', 'The customer disconnected this account; it cannot be re-enabled.', 409);
         }
-        ProviderInstance::query()->whereIn('id', array_filter([$connection->registrar_instance_id, $connection->dns_instance_id]))->update(['state' => $enabled ? 'active' : 'disabled']);
+        // a containment is the platform owner's and lifted only by the instance state action (TASK-0045 review C): never written over here
+        ProviderInstance::query()->whereIn('id', array_filter([$connection->registrar_instance_id, $connection->dns_instance_id]))->where('state', '!=', ProviderInstance::CONTAINED)->update(['state' => $enabled ? 'active' : 'disabled']);
         $connection->forceFill(['state' => $enabled ? 'active' : 'disabled', 'stats' => array_merge((array) $connection->stats, ['staff_disabled' => $enabled ? null : ['at' => now()->toIso8601String(), 'reason' => $reason, 'by' => $context->actorId]])])->save();
         $this->run($connection, $enabled ? 'enable' : 'disable', true, array_filter(['reason' => $reason]));
         $this->audit->record($context->withScope($connection->organization_id), $enabled ? 'registrar.connection.enable' : 'registrar.connection.disable', 'succeeded', array_filter(['reason' => $reason]), 'registrar_connection', $connection->id);

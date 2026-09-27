@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Queue\Events\Looping;
 use Onhost\Platform\Settings\SettingsStore;
+use Throwable;
 
 /**
  * A heartbeat per queue lane (TASK-0045, staging pre-mortem 2026-09-27). The one heartbeat job (QueueHeartbeat, default
@@ -52,7 +53,13 @@ final class QueueLaneHeartbeat
     public function handle(Looping $event): void
     {
         foreach (explode(',', (string) $event->queue) as $lane) {
-            $this->beat(trim($lane));
+            try {
+                $this->beat(trim($lane));
+            } catch (Throwable $e) {
+                // a heartbeat must never stop the worker it reports on (review LOW): Redis or the database away, or two workers
+                // remembering the same new lane at once (the settings key is unique) — reported, and tried again next loop
+                report($e);
+            }
         }
     }
 

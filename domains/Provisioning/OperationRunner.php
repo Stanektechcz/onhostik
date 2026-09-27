@@ -62,17 +62,19 @@ final class OperationRunner
         }
         // TASK-0045: an operation of a contained (or disabled) instance waits, whoever started it; it neither runs nor fails
         if (($contained = $this->containedInstance($operation)) !== null) {
-            return $this->park($operation, $contained);
+            return $this->parkUnclaimed($operation, $contained);
         }
         if (! $this->claim($operation)) {
             return $operation->refresh()->state;
         }
+        $this->unpark($operation); // back from a containment: the time it waited is written down, never counted as its own (review MEDIUM-F)
 
         /** @var Workflow $workflow */
         $workflow = $this->container->make($operation->workflow);
         $context = $this->context($operation);
         $steps = $workflow->steps($operation);
         $deadline = microtime(true) + $budgetSeconds;
+        $ranThisTick = false; // a tick that completed a step keeps the attempt the claim counted, even when a later step parks
 
         while (microtime(true) < $deadline) {
             $operation->refresh();
@@ -87,6 +89,7 @@ final class OperationRunner
                 return $this->fail($operation, $workflow, $context, $refusal, false, ['access_revoked' => true, 'required_permission' => $operation->authorized_permission, 'step' => $step->label()]);
             }
             $attempt = $this->beginAttempt($operation, $step);
+            $refusalMark = $this->providers->refusalMark(); // did the registry refuse a contained panel during this step? (review MEDIUM-B)
             Context::add('operation', $operation->id);
             try {
                 $handle = $operation->external_handle;
@@ -98,7 +101,9 @@ final class OperationRunner
                 // as if it had not been started — not a failed attempt, no compensation, nothing sent to that panel (TASK-0045)
                 $this->finishAttempt($attempt, 'parked', $e->getMessage());
 
-                return $this->park($operation->refresh(), $e, $operation->external_handle === null);
+                $operation->refresh();
+
+                return $this->park($operation, $e, $operation->external_handle === null && ! $ranThisTick);
             } catch (ProviderException $e) {
                 $result = StepResult::fail($e->getMessage(), $e->isRetryable(), $e->toArray(), $e->retryAfterSeconds);
             } catch (Throwable $e) {
@@ -116,6 +121,7 @@ final class OperationRunner
                         'step_label' => $steps[$next] ?? null ? $steps[$next]->label() : $operation->step_label,
                     ])->save();
                     $context = $this->context($operation);
+                    $ranThisTick = true;
 
                     continue 2;
                 case StepResult::WAIT:
@@ -132,16 +138,18 @@ final class OperationRunner
 
                     return Operation::WAITING;
                 default:
-                    if (($refusal = InstanceContained::fromDetail($result->detail)) !== null) {
-                        // a step that turned the refusal into its own failure (`StepResult::fail($e->getMessage(), …, $e->extra)`): parked
-                        // all the same — a contained panel is a pause the owner chose, never a reason to fail and compensate (TASK-0045)
+                    // a step that turned the refusal into its own failure — with the refusal's detail (`fail(…, $e->extra)`), or
+                    // swallowed whole (`catch (DomainError|Throwable)` → `fail($e->getMessage())`, the registry saw it): parked all the
+                    // same. A contained panel is a pause the owner chose, never a reason to fail and compensate (TASK-0045, review B)
+                    if (($refusal = InstanceContained::fromDetail($result->detail) ?? $this->providers->refusedSince($refusalMark)) !== null) {
                         $this->finishAttempt($attempt, 'parked', $result->error);
 
-                        return $this->park($operation, $refusal, $operation->external_handle === null);
+                        return $this->park($operation, $refusal, $operation->external_handle === null && ! $ranThisTick, (bool) ($result->detail['rerun_step'] ?? false));
                     }
                     $this->finishAttempt($attempt, $result->retryable ? 'retry' : 'fail', $result->error);
                     $policy = RetryPolicy::provisioning();
-                    $elapsed = $operation->queued_at ? now()->diffInSeconds($operation->queued_at, true) : 0;
+                    // the time the run spent parked behind a containment is not its own (review MEDIUM-F)
+                    $elapsed = $operation->queued_at ? max(0, now()->diffInSeconds($operation->queued_at, true) - self::parkedSeconds($operation)) : 0;
                     if ($result->retryable && $policy->canRetry($operation->attempts, (int) $elapsed)) {
                         $delay = $policy->delayForAttempt($operation->attempts, $result->retryAfterSeconds);
                         $operation->forceFill(['state' => Operation::PENDING, 'next_run_at' => now()->addSeconds($delay), 'error' => $this->errorPayload($result->error, $result->detail, true)])->save();
@@ -159,8 +167,14 @@ final class OperationRunner
     }
 
     // ── TASK-0045: a contained panel stays contained ──
-    /** How long a parked operation waits before it asks again whether its instance is still contained. */
+    /**
+     * How long a parked operation waits before it asks again whether its instance is still contained: 15 minutes, doubled
+     * with every further park of the same containment, never more than PARK_MAX_MINUTES (review MEDIUM-F: a permanently
+     * disabled instance was asked every few minutes for ever). The doctor names runs parked for more than a week.
+     */
     public const PARK_MINUTES = 15;
+
+    public const PARK_MAX_MINUTES = 360;
 
     /** The refusal the registry would give this operation's own instance, or null when it may run. */
     private function containedInstance(Operation $operation): ?InstanceContained
@@ -182,19 +196,61 @@ final class OperationRunner
     }
 
     /**
-     * Leaves the operation in the state it can be run from again (PENDING, or WAITING on the task a panel already has) and
-     * looks again in PARK_MINUTES. `$uncount` gives back the attempt the claim counted: a parked run tried nothing.
+     * Parks a run this worker has NOT claimed (review MEDIUM-E): under the row lock, and only while it is PENDING or WAITING —
+     * a run another worker holds (RUNNING) is left alone, and one that ended meanwhile (CANCELLED, SUCCEEDED) is not rewritten.
      */
-    private function park(Operation $operation, InstanceContained $why, bool $uncount = false): string
+    private function parkUnclaimed(Operation $operation, InstanceContained $why): string
     {
-        $state = $operation->external_handle === null ? Operation::PENDING : Operation::WAITING;
-        $operation->forceFill([
-            'state' => $state, 'next_run_at' => now()->addMinutes(self::PARK_MINUTES),
+        return DB::transaction(function () use ($operation, $why) {
+            $fresh = Operation::query()->lockForUpdate()->findOrFail($operation->id);
+            if (! in_array($fresh->state, [Operation::PENDING, Operation::WAITING], true)) {
+                return (string) $fresh->state;
+            }
+
+            return $this->park($fresh, $why);
+        });
+    }
+
+    /**
+     * Leaves the operation in the state it can be run from again (PENDING, or WAITING on the task a panel already has) and
+     * looks again later (see PARK_MINUTES). `$uncount` gives back the attempt the claim counted: a parked run tried nothing.
+     * `$restartStep`: the step asked to start again after the lift (its handle names work that never ran — the game transfer).
+     * `context._parked` keeps `since` (this containment), `count` (parks in it) and `seconds` (all earlier ones, closed by unpark()).
+     */
+    private function park(Operation $operation, InstanceContained $why, bool $uncount = false, bool $restartStep = false): string
+    {
+        $parked = (array) data_get($operation->context, '_parked', []);
+        $count = (int) ($parked['count'] ?? 0) + 1;
+        $wait = min(self::PARK_MAX_MINUTES, self::PARK_MINUTES * 2 ** min(10, $count - 1));
+        $handle = $restartStep ? null : $operation->external_handle;
+        $state = $handle === null ? Operation::PENDING : Operation::WAITING;
+        $operation->withContext(['_parked' => ['since' => $parked['since'] ?? now()->toIso8601String(), 'count' => $count, 'seconds' => (int) ($parked['seconds'] ?? 0)]])->forceFill([
+            'state' => $state, 'external_handle' => $handle, 'next_run_at' => now()->addMinutes($wait),
             'attempts' => $uncount ? max(0, $operation->attempts - 1) : $operation->attempts,
-            'error' => $this->errorPayload($why->getMessage(), ['contained' => true, 'instance' => $why->instanceKey !== '' ? $why->instanceKey : null, 'instance_state' => $why->instanceState], true),
+            'error' => $this->errorPayload($why->getMessage(), ['contained' => true, 'instance' => $why->instanceKey !== '' ? $why->instanceKey : null, 'instance_state' => $why->instanceState, 'next_look_minutes' => $wait], true),
         ])->save();
 
         return $state;
+    }
+
+    /** The containment is over for this run: its length goes to `_parked.seconds`, which the timeouts leave out. */
+    private function unpark(Operation $operation): void
+    {
+        $parked = (array) data_get($operation->context, '_parked', []);
+        if (empty($parked['since'])) {
+            return;
+        }
+        $seconds = (int) ($parked['seconds'] ?? 0) + (int) Carbon::parse((string) $parked['since'])->diffInSeconds(now(), true);
+        $operation->withContext(['_parked' => ['since' => null, 'count' => 0, 'seconds' => $seconds]])->save();
+    }
+
+    /** Seconds this run spent parked behind a containment, the current one included. */
+    private static function parkedSeconds(Operation $operation): int
+    {
+        $parked = (array) data_get($operation->context, '_parked', []);
+        $open = empty($parked['since']) ? 0 : (int) Carbon::parse((string) $parked['since'])->diffInSeconds(now(), true);
+
+        return (int) ($parked['seconds'] ?? 0) + $open;
     }
     // ── end TASK-0045 ──
 
@@ -316,7 +372,9 @@ final class OperationRunner
         // only the waits of the current run count: a manual retry starts the clock again (earlier runs may have waited for hours)
         $waitingSince = $operation->attempts()->where('outcome', 'wait')->where('started_at', '>=', $operation->started_at)->orderBy('started_at')->value('started_at');
 
-        return $waitingSince !== null && now()->diffInSeconds(Carbon::parse($waitingSince), true) > $timeout;
+        // a containment is not the task's time (review MEDIUM-F): the panel was not asked while the run was parked. Parked time
+        // before this wait began is subtracted too — that errs on the side of waiting a little longer, never of failing early
+        return $waitingSince !== null && now()->diffInSeconds(Carbon::parse($waitingSince), true) - self::parkedSeconds($operation) > $timeout;
     }
 
     /** @param array<string,mixed> $detail @return array<string,mixed> */

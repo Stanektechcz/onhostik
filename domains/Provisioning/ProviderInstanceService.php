@@ -299,6 +299,10 @@ final class ProviderInstanceService
         if (! in_array($state, ProviderInstance::STATES, true)) {
             throw new DomainError('instance_state_invalid', 'State must be '.implode(', ', ProviderInstance::STATES).'.', 422, ['field' => 'state']);
         }
+        // a containment is set and lifted with a reason on record (TASK-0045 review LOW): it is the owner's stop for a panel
+        if (($state === ProviderInstance::CONTAINED || $instance->state === ProviderInstance::CONTAINED) && $state !== $instance->state && trim((string) $reason) === '') {
+            throw new DomainError('reason_required', 'Containing an instance, or lifting a containment, needs a reason.', 422, ['field' => 'reason']);
+        }
         // before a panel is taken down — an upgrade, a restart — the tasks it is carrying out for the platform are named (H519): a clone,
         // a backup, a restore running AT the panel would be cut off by it and followed blind afterwards
         $running = in_array($state, ['maintenance', 'disabled', ProviderInstance::CONTAINED], true) && $instance->state !== $state ? $this->tasksAtPanel($instance) : [];

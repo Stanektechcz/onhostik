@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Platform;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Onhost\Domain\Identity\Authorization\ApprovalService;
 use Onhost\Domain\Identity\Models\User;
+use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\ProviderInstance;
 
 /**
@@ -26,10 +28,13 @@ final class IsolationChecks
     /** Cache stores that keep their keys where another installation can read them. */
     private const SHARED_CACHE_DRIVERS = ['redis', 'memcached', 'database', 'dynamodb'];
 
+    /** A run parked longer than this is named in the doctor (a standing WARN). */
+    public const PARKED_DAYS = 7;
+
     /** @return list<array{area:string, check:string, ok:bool, detail:string, blocking:bool, fail_everywhere?:bool}> */
     public function rows(): array
     {
-        return [$this->contained(), $this->prefixes(), $this->turnstile(), $this->deciders()];
+        return [$this->contained(), $this->longParked(), $this->prefixes(), $this->turnstile(), $this->deciders()];
     }
 
     /** @return array{area:string, check:string, ok:bool, detail:string, blocking:bool} */
@@ -42,6 +47,23 @@ final class IsolationChecks
 
         // a containment is the owner's decision (staging Path A): always a standing WARN, never a deploy stop by itself
         return ['area' => 'providers', 'check' => 'no provider instance is contained', 'ok' => $kept->isEmpty(), 'detail' => $detail, 'blocking' => false];
+    }
+
+    /**
+     * Runs parked behind a containment for more than a week (review MEDIUM-F): a parked run is asked less and less often
+     * (OperationRunner::PARK_MAX_MINUTES) and never gives up by itself — somebody decides whether it still should run.
+     *
+     * @return array{area:string, check:string, ok:bool, detail:string, blocking:bool}
+     */
+    private function longParked(): array
+    {
+        $limit = now()->subDays(self::PARKED_DAYS);
+        $old = Operation::query()->whereIn('state', [Operation::PENDING, Operation::WAITING])->whereNotNull('context->_parked->since')->orderBy('queued_at')->limit(500)->get(['id', 'kind', 'context'])
+            ->filter(fn (Operation $o) => CarbonImmutable::parse((string) data_get($o->context, '_parked.since'))->lt($limit))->values();
+        $detail = $old->isEmpty() ? 'none' : $old->count().' run(s) waiting for a contained or disabled panel since more than '.self::PARKED_DAYS.' days: '
+            .$old->take(5)->map(fn (Operation $o) => $o->id.' ('.$o->kind.')')->implode(', ').' — lift the containment, or cancel them (provisioning.operation.cancel)';
+
+        return ['area' => 'automation', 'check' => 'no operation parked for more than '.self::PARKED_DAYS.' days', 'ok' => $old->isEmpty(), 'detail' => $detail, 'blocking' => false];
     }
 
     /**

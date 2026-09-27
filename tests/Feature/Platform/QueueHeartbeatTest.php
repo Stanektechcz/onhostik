@@ -2,10 +2,12 @@
 
 declare(strict_types=1);
 
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Event;
 use Onhost\Domain\Platform\QueueLaneHeartbeat;
+use Onhost\Platform\Settings\SettingsStore;
 use Symfony\Component\Process\Process;
 
 /*
@@ -128,4 +130,18 @@ it('lets the deployer report the lane rows as liveness rows, judged after the un
 
     // only the liveness family: any other row outside the lists is still refused on staging
     expect(laneGateVerdict(['automation|queue worker alive-ish' => 'WARN'], false)->getExitCode())->toBe(12);
+});
+
+it('judges a lane-like row name that ends in a newline like any other row (review round 1: \z, not $)', function () {
+    expect(laneGateVerdict(["automation|queue worker alive (mails)\n" => 'WARN'], false)->getExitCode())->toBe(12);
+});
+
+it('never lets a heartbeat that cannot be written stop the worker it reports on (review round 1)', function () {
+    $broken = Mockery::mock(Repository::class);
+    $broken->shouldReceive('put')->andThrow(new RuntimeException('Redis went away'));
+    $heartbeat = new QueueLaneHeartbeat($broken, app(SettingsStore::class));
+
+    $heartbeat->handle(new Looping('redis', 'mails')); // reported, not thrown
+
+    expect(true)->toBeTrue();
 });

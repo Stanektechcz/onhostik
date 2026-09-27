@@ -23,6 +23,11 @@ final class ProviderRegistry
     /** @var array<string, ProviderAdapter> */
     private array $instances = [];
 
+    /** How many times this process was refused a contained or disabled instance, and the last refusal (TASK-0045). */
+    private int $refusals = 0;
+
+    private ?InstanceContained $lastRefusal = null;
+
     public function __construct(private readonly Container $container, private readonly SecretStore $secrets) {}
 
     /** @param class-string<ProviderAdapter> $class */
@@ -135,8 +140,27 @@ final class ProviderRegistry
         $stored = $instance->exists ? ProviderInstance::query()->whereKey($instance->id)->value('state') : null;
         $state = is_string($stored) ? $stored : (string) $instance->state;
         if (in_array($state, ProviderInstance::REFUSED_STATES, true)) {
-            throw InstanceContained::of($instance, $state);
+            $this->refusals++;
+
+            throw $this->lastRefusal = InstanceContained::of($instance, $state);
         }
+    }
+
+    /**
+     * Review round 1 (MEDIUM-B): a step may catch the refusal and hand back a failure of its own (`catch (DomainError $e)` →
+     * `fail(…, ['error' => …])`, `catch (Throwable)` → `fail($e->getMessage())` — 40-odd such blocks in the workflows). The
+     * runner takes a mark before the step and asks afterwards whether the registry refused anything in between: then the
+     * failure is the containment's, and the run is parked however the step worded it. The registry is a singleton per process.
+     */
+    public function refusalMark(): int
+    {
+        return $this->refusals;
+    }
+
+    /** The last refusal given after `$mark`, or null when the registry refused nothing since. */
+    public function refusedSince(int $mark): ?InstanceContained
+    {
+        return $this->refusals > $mark ? $this->lastRefusal : null;
     }
     // ── end TASK-0045 ──
 }

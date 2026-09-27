@@ -22,7 +22,7 @@ final class NodeOrders
     /** @var array<string,callable(array<string,mixed>):NodeOrderProvider> */
     private array $drivers = [];
 
-    public function __construct(private readonly SecretStore $secrets)
+    public function __construct(private readonly SecretStore $secrets, private readonly ProviderRegistry $registry)
     {
         $this->drivers['hetzner'] = fn (array $credentials) => new HetznerCloudNodeOrderProvider((string) ($credentials['token'] ?? ''));
     }
@@ -43,6 +43,13 @@ final class NodeOrders
     public function for(ProviderInstance $instance): ?NodeOrderProvider
     {
         if (! $this->canOrder($instance)) {
+            return null;
+        }
+        try {
+            // TASK-0045 review A: the capacity planner asks this on the scheduler — a contained instance's token is not read and
+            // its vendor never called; the request stays a human purchase until staff lift the containment
+            $this->registry->refuseContained($instance);
+        } catch (InstanceContained) {
             return null;
         }
         $ref = (string) $instance->option('node_order.secret_ref', '');

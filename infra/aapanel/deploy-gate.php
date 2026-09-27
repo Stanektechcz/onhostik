@@ -73,7 +73,7 @@ final class OnhostDeployGate
      * this exact shape counts (a lane name in parentheses), and a lying target gains nothing: it could as well call a row OK.
      */
     public const DRAINED_FAMILIES = [
-        '/^automation\|queue worker alive \([a-z0-9][a-z0-9._-]{0,62}\)$/',
+        '/^automation\|queue worker alive \([a-z0-9][a-z0-9._-]{0,62}\)\z/', // \z, not $: a name ending in a newline is not this family
     ];
 
     public static function drained(string $name): bool

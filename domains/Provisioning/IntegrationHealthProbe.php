@@ -118,7 +118,14 @@ final class IntegrationHealthProbe
         }
         if ($up) {
             $reason = (string) $instance->state_reason;
-            $instance->forceFill(['state' => 'active', 'maintenance_until' => null, 'state_reason' => null, 'health' => array_merge((array) $instance->health, ['maintenance_overdue' => false])])->save();
+            // only while it is still that maintenance lock (TASK-0045 review D): a containment staff set while the probe was in
+            // flight must not be lifted from the model this probe loaded before it
+            $lifted = ProviderInstance::query()->whereKey($instance->id)->where('state', 'maintenance')->where('state_reason', $instance->state_reason)
+                ->update(['state' => 'active', 'maintenance_until' => null, 'state_reason' => null, 'health' => json_encode(array_merge((array) $instance->health, ['maintenance_overdue' => false]), JSON_UNESCAPED_UNICODE)]);
+            $instance->refresh();
+            if ($lifted === 0) {
+                return;
+            }
             $this->providers->forget($instance);
             $this->outbox->publish(GenericEvent::of('integration.maintenance.lifted', 'provider_instance', $instance->id, ['key' => $instance->key, 'provider' => $instance->provider, 'reason' => $reason, 'by' => $awaitingProbe ? 'address_probe' : 'expired_probe']));
 
