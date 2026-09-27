@@ -6,6 +6,8 @@ namespace Onhost\Domain\Services;
 
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Identity\Authorization\Authorizer;
+use Onhost\Domain\Identity\Authorization\IdentityCommandAuthorizer;
+use Onhost\Domain\Identity\Authorization\StaffActor;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Invoicing\InvoiceService;
 use Onhost\Domain\Orders\CreditOrderPolicy;
@@ -39,6 +41,12 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  */
 final class ServiceArchiveService
 {
+    /** What a restore of an archive asks at the target (ServiceActionCommand::PERMISSIONS['archive.restore']). */
+    private const RESTORE_KEY = 'backup.restore';
+
+    /** The staff read of customer backups: in staff mode, what finds the archive (TASK-0046, P0-08). */
+    private const STAFF_READ_KEY = 'staff.backup.read';
+
     public function __construct(
         private readonly FinalArchive $archives,
         private readonly DeletionPolicy $policy,
@@ -165,25 +173,46 @@ final class ServiceArchiveService
         return $operation;
     }
 
-    /** IF-11: the source is read, the target is restored for a whole project or organization — see restore(). */
+    /**
+     * IF-11: the source is read, the target is restored for a whole project or organization — see restore().
+     *
+     * TASK-0046 (permission program P0-08, IF-4 `archive.restore`): asked as a CUSTOMER — the bindings of the organization, its
+     * projects and its services (Authorizer::customerPermissionsAt), on the token's view when a token sent it. A global staff
+     * binding (backup_dr_admin's `backup.read`/`backup.restore`, platform_owner) or a JIT elevation used to count here as a
+     * customer's grant, so one member of staff restored an archive over any customer's live site from the customer's routes.
+     * The platform's authority is staff mode only (/v1/staff, StaffActor): a staff role that reads customer backups
+     * (`staff.backup.read`) and carries the restore. A member of staff who is a member of the organization restores there as
+     * that member, like anybody else.
+     */
     private function assertMayRestore(Backup $backup, Service $target, CommandContext $context): void
     {
         if ($context->actorType === 'system') {
             return; // the platform itself (an operator command, a saga) acts on its own authority
         }
+        $source = Service::query()->withTrashed()->find((string) $backup->service_id);
+        $sourceScope = $source === null ? CommandScope::organization($backup->organization_id) : CommandScope::resource($source->id, $source->organization_id, $source->project_id);
+        $targetScope = $target->project_id === null ? CommandScope::organization($target->organization_id) : CommandScope::project($target->project_id, $target->organization_id);
+        if (StaffActor::acts($context)) {
+            if (! StaffActor::may($context, self::STAFF_READ_KEY)) {
+                throw DomainError::notFound('backup');
+            }
+            if (! StaffActor::may($context, self::RESTORE_KEY)) {
+                throw new DomainError('forbidden', 'Archiv zrušené služby za ONhost obnoví jen role staffu, která obnovu nese.', 403, ['permission' => self::RESTORE_KEY, 'scope' => 'staff']);
+            }
+
+            return;
+        }
         // the person a staff member acts for is the one asked (red-team round; GrantPolicy, CreditOrderPolicy read it the same way)
         $person = $context->onBehalfOfUserId ?? $context->actorId;
         $user = $context->actorType === 'user' && $person !== null ? User::query()->find($person) : null;
-        if ($user === null) {
+        $principal = $user === null ? null : IdentityCommandAuthorizer::asToken($user, $context); // a token decides on its own view (P0-09)
+        if ($principal === null) {
             throw DomainError::forbidden('An archive is restored by a person.');
         }
-        $source = Service::query()->withTrashed()->find((string) $backup->service_id);
-        $sourceScope = $source === null ? CommandScope::organization($backup->organization_id) : CommandScope::resource($source->id, $source->organization_id, $source->project_id);
-        if (! $this->authorizer->can($user, 'backup.read', $sourceScope)) {
+        if (! in_array('backup.read', $this->authorizer->customerPermissionsAt($principal, $sourceScope), true)) {
             throw DomainError::notFound('backup');
         }
-        $targetScope = $target->project_id === null ? CommandScope::organization($target->organization_id) : CommandScope::project($target->project_id, $target->organization_id);
-        if (! $this->authorizer->can($user, 'backup.restore', $targetScope)) {
+        if (! in_array(self::RESTORE_KEY, $this->authorizer->customerPermissionsAt($principal, $targetScope), true)) {
             throw new DomainError('forbidden', 'Archiv zrušené služby obnoví jen ten, kdo smí obnovovat zálohy v celém projektu nebo organizaci.', 403, ['permission' => 'backup.restore', 'scope' => $target->project_id === null ? 'organization' : 'project']);
         }
     }
