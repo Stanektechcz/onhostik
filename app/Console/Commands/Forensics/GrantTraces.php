@@ -7,7 +7,7 @@ namespace App\Console\Commands\Forensics;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Onhost\Domain\Identity\Authorization\RoleCatalog;
+use Onhost\Domain\Identity\Authorization\RoleResolver;
 
 /**
  * Grants nothing in the platform should have made, for `onhost:forensics:lookback` (TASK-0038, review round 2): TD-2 (a
@@ -91,9 +91,10 @@ final class GrantTraces
             $staff = $this->history->isStaff($actor);
             [$actorRole, $fromAudit] = $this->history->roleAt($organizationId, $actor, $at);
             $projectRole = $this->projectRoleBefore((string) $row->resource_id, $actor, (string) $row->id);
-            $roles = RoleCatalog::all();
-            $held = [...($roles[(string) $actorRole]['permissions'] ?? []), ...($roles[(string) $projectRole]['permissions'] ?? [])];
-            $missing = array_values(array_diff($roles[(string) ($detail['role'] ?? '')]['permissions'] ?? [], $held));
+            // role definitions come through RoleResolver, not the raw catalogue (TASK-0037, program D6/P0-11); grantable() of an
+            // unknown role is nothing, exactly as the catalogue's `?? []` answered before
+            $held = [...RoleResolver::grantable((string) $actorRole), ...RoleResolver::grantable((string) $projectRole)];
+            $missing = array_values(array_diff(RoleResolver::grantable((string) ($detail['role'] ?? '')), $held));
             $self = $target === $actor;
             if (! $self && ($staff || $missing === [])) {
                 continue; // staff are not bound by mayGrant by design (their self-grants are); a covered role is an ordinary grant
