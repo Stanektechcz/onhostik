@@ -76,7 +76,7 @@ final class OrganizationsCommandHandler implements CommandHandler
             'rotate_calendar_feed' => ['feed' => $this->calendar->rotate($organization, $context)],
             'transfer_ownership' => (function () use ($organization, $command, $context) {
                 $heir = $this->user($command);
-                $this->grants->assertMayTransferOwnership($organization, $heir);
+                $this->grants->assertMayTransferOwnership($organization, $context, $heir);
 
                 return ['organization' => $this->organizations->transferOwnership($organization, $heir, $context)];
             })(),

@@ -160,6 +160,26 @@ it('tells the listeners that the previous owner was moved to another role by an 
         ->and($changed->first(fn ($m) => data_get($m->payload, 'user_id') === $heir->id && data_get($m->payload, 'to') === 'owner'))->not->toBeNull();
 });
 
+it('lets only the current owner give the organization away — not an administrator, not staff, not somebody acting for the owner', function () {
+    // P0-16 red team (MEDIUM): transfer_ownership checked the heir, never the actor. Whoever passed `organization.close` at the bus
+    // — a global staff binding carries it, a second person approves it — made anybody the owner of a customer's organization.
+    [$owner, $org] = $this->customerWithOrganization();
+    $heir = grantPolicyMember($org, 'org_admin');
+    $admin = grantPolicyMember($org, 'org_admin');
+    $staff = $this->staff('platform_owner');
+    $transfer = fn (CommandContext $context) => app(OrganizationsCommandHandler::class)->handle(new OrganizationCommand($org->id, (string) Str::ulid(), ['op' => 'transfer_ownership', 'user_id' => $heir->id]), $context);
+    $staffForOwner = new CommandContext('user', $staff->id, $org->id, null, '127.0.0.1', 'pest', 'test-session', stepUpMethod: 'totp', onBehalfOfUserId: $owner->id);
+
+    foreach (['administrator' => $this->contextFor($admin, $org, 'totp'), 'staff' => $this->contextFor($staff, $org, 'totp'), 'staff acting for the owner' => $staffForOwner] as $who => $context) {
+        expect(fn () => $transfer($context))->toThrow(fn (DomainError $e) => expect($e->error)->toBe('owner_transfer_only', $who)->and($e->status)->toBe(403));
+        expect($org->fresh()->owner_user_id)->toBe($owner->id, $who);
+    }
+
+    // what stays: the owner gives it away
+    $transfer($this->contextFor($owner, $org, 'totp'));
+    expect($org->fresh()->owner_user_id)->toBe($heir->id);
+});
+
 // ── IF-3 / TD-3: project roles go through the same policy ──────────────────────────────────────────────────────────────
 
 it('puts project roles behind member management, its step-up and an allow-list of project roles', function () {

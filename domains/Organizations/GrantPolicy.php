@@ -104,10 +104,25 @@ final class GrantPolicy
         return $membership;
     }
 
-    /** Ownership goes to a current member only (I8); who may transfer is `organization.close` (CRITICAL) at the bus. */
-    public function assertMayTransferOwnership(Organization $organization, User $target): OrganizationMembership
+    /**
+     * Ownership goes to a current member only (I8), and only the current owner gives it away (I4). `organization.close`
+     * (CRITICAL) at the bus is not enough: a global staff binding carries it, and a second person approving the request made
+     * anybody the owner of a customer's organization (P0-16 red team, TASK-0041). Nobody acts for the owner here either —
+     * the person who asks and the person acted for are both the owner. The system (no grantor) is bound by I8 only.
+     */
+    public function assertMayTransferOwnership(Organization $organization, CommandContext $context, User $target): OrganizationMembership
     {
-        return self::currentMembership($organization, $target);
+        $membership = self::currentMembership($organization, $target);
+        if ($context->actorType === 'system') {
+            return $membership;
+        }
+        $owner = (string) $organization->owner_user_id;
+        $person = (string) ($context->onBehalfOfUserId ?? $context->actorId);
+        if ($context->actorType !== 'user' || $owner === '' || $person !== $owner || (string) $context->actorId !== $owner) {
+            throw new DomainError('owner_transfer_only', 'Only the owner of the organization transfers its ownership.', 403);
+        }
+
+        return $membership;
     }
 
     /** A project role for a current member of the organization (I1, I2, I3, I11). */
