@@ -138,9 +138,7 @@ final class ServiceController extends ApiController
      */
     private static function actionKeyPrefix(Service $service, string $action, CommandContext $context): string
     {
-        $actor = substr(hash('sha256', $context->actorType.':'.($context->onBehalfOfUserId ?? $context->actorId ?? '')), 0, 16);
-
-        return "service.{$action}:{$service->id}:{$actor}";
+        return ServiceActionCommand::keyPrefix($service->id, $action, $context); // one helper for every door (the archive endpoint too)
     }
 
     /**

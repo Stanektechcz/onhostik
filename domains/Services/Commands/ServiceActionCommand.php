@@ -7,6 +7,7 @@ namespace Onhost\Domain\Services\Commands;
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\RiskAwareCommand;
 use Onhost\Domain\Services\DestructivePreview;
+use Onhost\Platform\Commands\CommandContext;
 use Onhost\Platform\Commands\CommandScope;
 use Onhost\Platform\Commands\OrganizationCommand;
 use Onhost\Platform\Errors\DomainError;
@@ -128,7 +129,26 @@ final class ServiceActionCommand extends OrganizationCommand implements RiskAwar
      */
     public function idempotencyKey(): string
     {
-        return $this->idempotencyKey.'#'.substr(hash_hmac('sha256', (string) json_encode($this->payload), (string) config('app.key')), 0, 16);
+        return self::fingerprinted($this->idempotencyKey, $this->payload);
+    }
+
+    /** The bus key of a service command: the caller's key and a keyed fingerprint of the payload (ServiceArchiveCommand too). @param array<mixed> $payload */
+    public static function fingerprinted(string $key, array $payload): string
+    {
+        return $key.'#'.substr(hash_hmac('sha256', (string) json_encode($payload), (string) config('app.key')), 0, 16);
+    }
+
+    /**
+     * The caller's key prefix for an action on one service, for EVERY door to it (TASK-0036 review round 1, red-team round): the
+     * action endpoint and the archive endpoint name the service and the actor (the person a staff member acts for first, as the
+     * operation's own namespace does), so the bus never answers one person's or one target's key for another, and both doors
+     * to one archive restore reach the same operation.
+     */
+    public static function keyPrefix(string $serviceId, string $action, CommandContext $context): string
+    {
+        $actor = substr(hash('sha256', $context->actorType.':'.($context->onBehalfOfUserId ?? $context->actorId ?? '')), 0, 16);
+
+        return "service.{$action}:{$serviceId}:{$actor}";
     }
 
     /**

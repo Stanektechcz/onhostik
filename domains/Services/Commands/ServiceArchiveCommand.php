@@ -35,6 +35,12 @@ final class ServiceArchiveCommand extends OrganizationCommand implements RiskAwa
         return (string) $this->get('op') === 'restore';
     }
 
+    /** The bus key: the caller's key (ServiceActionCommand::keyPrefix for a restore) with the payload's fingerprint, as a service action's. */
+    public function idempotencyKey(): string
+    {
+        return ServiceActionCommand::fingerprinted($this->idempotencyKey, $this->payload);
+    }
+
     public function requiresApproval(): bool
     {
         return false;

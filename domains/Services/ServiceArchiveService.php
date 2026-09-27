@@ -152,10 +152,11 @@ final class ServiceArchiveService
         if (! in_array($target->state, [ServiceStateMachine::ACTIVE, ServiceStateMachine::DEGRADED], true)) {
             throw new DomainError('service_state_invalid', 'Obnovu lze spustit jen do aktivní služby.', 409, ['state' => $target->state]);
         }
-        if (! in_array($family, ['web', 'managed'], true)) { // no automated path for this family: the archive is handed over instead, free of charge
-            $this->waive($backup, $context, 'restore to a new paid service ('.$target->id.')');
-
-            throw new DomainError('archive_restore_manual', 'Archiv této služby vracíme ručně — stažení je pro vás nyní zdarma a s obnovou vám pomůže podpora.', 409, ['waived' => true, 'backup_id' => $backup->id]);
+        // No automated path for this family: support hands the archive over. This is a refusal (409), and a refusal inside the bus
+        // transaction keeps nothing — the waive written here before was rolled back while the answer said `waived: true` and "free
+        // now" (red-team round of the Phase-0 chain). The answer says what was kept: nothing; whether the fee goes is support's call.
+        if (! in_array($family, ['web', 'managed'], true)) {
+            throw new DomainError('archive_restore_manual', 'Archiv této služby vracíme ručně — napište podpoře, s obnovou vám pomůže a domluví s vámi i poplatek za stažení.', 409, ['waived' => false, 'backup_id' => $backup->id]);
         }
         // the customer's bus command was checked for backup.restore; a restore writes over a live service for minutes, so the run asks again before each step (H315)
         $operation = $this->services->requestAction($target, 'archive.restore', $context, $idempotencyKey, ['backup_id' => $backup->id], authorizedPermission: 'backup.restore');
@@ -170,7 +171,9 @@ final class ServiceArchiveService
         if ($context->actorType === 'system') {
             return; // the platform itself (an operator command, a saga) acts on its own authority
         }
-        $user = $context->actorType === 'user' && $context->actorId !== null ? User::query()->find($context->actorId) : null;
+        // the person a staff member acts for is the one asked (red-team round; GrantPolicy, CreditOrderPolicy read it the same way)
+        $person = $context->onBehalfOfUserId ?? $context->actorId;
+        $user = $context->actorType === 'user' && $person !== null ? User::query()->find($person) : null;
         if ($user === null) {
             throw DomainError::forbidden('An archive is restored by a person.');
         }
