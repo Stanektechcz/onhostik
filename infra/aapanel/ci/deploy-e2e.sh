@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # CI end-to-end run of the INSTALLED deployer against a real copy of this application (TASK-0032). Only systemctl,
-# chown, setpriv (unprivileged it cannot switch users; it logs and runs the command) and the PHP-FPM reload are
-# stubbed; maintenance mode, composer, migrations, seeders, caches, onhost:openapi, the platform backup and its
+# chown, setpriv (unprivileged it cannot switch users; it logs and runs the command), nft (reading the host's reject
+# table needs root; the stub lists a table that rejects loopback) and the PHP-FPM reload are stubbed (setsid too where
+# the OS has none); maintenance mode, composer, migrations, seeders, caches, onhost:openapi, the platform backup and its
 # verification, the doctor, the gate, the egress probe and the HTTP checks are real (SQLite, local backup disk,
 # `php -S` serving public/). Runs A → B → A, where B adds a migration and edits the committed OpenAPI file (the
 # one tracked file a build rewrites). Nothing outside the work directory is touched.
@@ -84,11 +85,14 @@ if ! { ln -sfn "$box/etc/app.env" "$app/.env" 2>/dev/null && [ -L "$app/.env" ];
 (cd "$app" && COMPOSER_ALLOW_SUPERUSER=1 "$PHP_BIN" "$COMPOSER_BIN" install --no-dev --no-interaction --prefer-dist --no-progress --quiet)
 (cd "$app" && "$PHP_BIN" artisan migrate --force --no-interaction >/dev/null)
 
-echo "── stubs (systemctl, chown, fpm reload, setpriv; flock only where the OS has none)"
+echo "── stubs (systemctl, chown, fpm reload, setpriv, nft; flock and setsid only where the OS has none)"
 for tool in systemctl chown fpm-reload; do printf '#!/usr/bin/env bash\necho "%s $*" >> "%s/stub.log"\n[ "${1:-}" = is-active ] && exit 3\nexit 0\n' "$tool" "$box" > "$box/bin/$tool"; done
 # setpriv: the deployer hands every artisan/composer call to it (as_run); unprivileged it can only run the command
 printf '#!/usr/bin/env bash\necho "setpriv $*" >> "%s/stub.log"\nwhile [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n' "$box" > "$box/bin/setpriv"
 command -v flock >/dev/null 2>&1 || printf '#!/usr/bin/env bash\nexit 0\n' > "$box/bin/flock"
+command -v setsid >/dev/null 2>&1 || printf '#!/usr/bin/env bash\nwhile [ $# -gt 0 ] && [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n' > "$box/bin/setsid"
+# review round 1: the deployer holds every egress-blocked address to the host's reject table as well as to the probe
+printf '#!/usr/bin/env bash\nprintf "table inet onhost_containment {\\n\\tchain out {\\n\\t\\tip daddr 127.0.0.1 reject\\n\\t}\\n}\\n"\n' > "$box/bin/nft"
 chmod +x "$box/bin/"*
 
 echo "── serve public/ on 127.0.0.1:$PORT"
@@ -137,6 +141,7 @@ echo "── deploy A again (rollback over a migration: the backup is taken, not
 [ "$(grep -c ' rc=0 ' "$box/state/deploy.log")" = 3 ] || fail "deploy.log does not hold three successful runs"
 [ "$(grep -c ' set=platform-backups/' "$box/state/deploy.log")" = 3 ] || fail "not every run took a verified backup"
 # review round 0 (security HIGH): the site's PHP ran through setpriv, as the run user — composer and migrations included
-grep -q '^setpriv .* -- env -i .*composer.* install' "$box/stub.log" && grep -q '^setpriv .* -- env -i .*artisan migrate' "$box/stub.log" \
-  || fail "the deployer did not run composer and artisan through setpriv"
+# review round 1 (security HIGH): in a session of its own (setsid), never in root's
+grep -q '^setpriv .* -- setsid --wait env -i .*composer.* install' "$box/stub.log" && grep -q '^setpriv .* -- setsid --wait env -i .*artisan migrate' "$box/stub.log" \
+  || fail "the deployer did not run composer and artisan through setpriv and setsid"
 echo "E2E OK: A → B → A released through the gate ($box)"

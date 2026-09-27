@@ -35,6 +35,24 @@
 # recovery command (last good release) — there is no automatic rollback.
 set -euo pipefail
 
+# Nothing this script starts may hold root's terminal (review round 1, security HIGH). as_run puts the site's PHP in a
+# session of its own (setsid): no controlling terminal, so it cannot push keystrokes into root's shell (TIOCSTI, the
+# su/runuser class, CVE-2016-2779). A terminal merely inherited on fd 0-2 would still let a process www leaves behind
+# read what root types next (an SSH login's fds 0-2 are one read-write file), so stdin is /dev/null and a terminal
+# on stdout/stderr is reached only through root's own cat, which ignores SIGINT so a Ctrl-C still shows the recovery
+# lines. Runs first, before any fd is opened. Kept identical in install.sh.
+keep_terminal_from_children() {
+  exec </dev/null
+  if [ -t 1 ] && [ -t 2 ]; then
+    exec > >(trap '' INT; exec cat) 2>&1
+  elif [ -t 1 ]; then
+    exec > >(trap '' INT; exec cat)
+  elif [ -t 2 ]; then
+    exec 2> >(trap '' INT; exec cat >&2)
+  fi
+}
+keep_terminal_from_children
+
 SITE="${SITE:-staging.onhost.cz}"
 APP_DIR="${APP_DIR:-/www/wwwroot/${SITE}}"
 ENV_FILE="${ENV_FILE:-${ENV_DIR:-/etc/onhost}/app.env}"   # root-owned; $APP_DIR/.env must BE this file (install.sh symlinks it)
@@ -99,11 +117,13 @@ g() { GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="${DEPLOY_STATE_DIR}/gitconfig" gi
 # The site's PHP — artisan, composer and the scripts composer runs — never runs as root (review round 0, security HIGH;
 # D32.13 until then): app.env is root:www 0640 and www can write this tree (all of it on an existing staging; vendor/,
 # bootstrap/cache and compiled views everywhere), so root executing that code made a www compromise root at the next
-# release. setpriv switches to the run user (aaPanel kills `sudo -u www`), env -i gives it a fixed environment, and fd 9
-# (root's deploy lock) is closed so nothing the site starts can keep holding it. Kept identical in install.sh.
+# release. setpriv switches to the run user (aaPanel kills `sudo -u www`), setsid --wait gives it a session of its own
+# without a controlling terminal (review round 1, security HIGH: in root's session it could push keystrokes into
+# root's shell with TIOCSTI), env -i a fixed environment, stdin is /dev/null, and fd 9 (root's deploy lock) is closed so
+# nothing the site starts can keep holding it. Kept identical in install.sh.
 as_run() {
   setpriv --reuid="$RUN_USER" --regid="$RUN_USER" --init-groups -- \
-    env -i PATH="$DEPLOY_SAFE_PATH" HOME="$DEPLOY_WORK_DIR/home" "$@" 9>&-
+    setsid --wait env -i PATH="$DEPLOY_SAFE_PATH" HOME="$DEPLOY_WORK_DIR/home" "$@" </dev/null 9>&-
 }
 # BOOT_ENV points Laravel's framework caches (packages, services, config, routes, events) at this run's own directory:
 # the calls before the switch read a config fresh from app.env, not what the old release cached, and the build
@@ -159,21 +179,52 @@ vendor_ready() {
 # Outside production: every address of egress-blocked (host:port or [v6]:port, one per line) must refuse a connection
 # from the run user — the verifiable half of a contained staging's isolation from the live panels (staging-launch.md
 # S0 GATE; review round 0, security MEDIUM: a written revocation cannot be checked, and EgressGuard guards only the
-# destinations customers name). Prints what is wrong; a bare TCP connect, nothing is sent.
+# destinations customers name). A refused connection alone proves nothing (review round 1, security MEDIUM: NXDOMAIN, a
+# DNS outage or a panel that is down refused like the host's rule): a name must resolve now, and every address it
+# resolves to must also be rejected by the host's own table inet onhost_containment, in the one-address rule shape S0
+# GATE step 4 writes (or TEST-NET-1 for a name pinned in /etc/hosts). An empty list passes only on a host marked Path B
+# (the root-owned path-b). Prints what is wrong; a bare TCP connect per address, nothing is sent.
+egress_addresses() { # $1 = host: an address literal as it is, a name as root's resolver (the application's) answers now
+  if [[ "$1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || [[ "$1" == *:* ]]; then printf '%s\n' "$1" | tr 'A-F' 'a-f'; return 0; fi
+  getent ahosts "$1" 2>/dev/null | awk '{ print tolower($1) }' | sort -u
+}
+egress_rule_rejects() { # $1 = the table as nft lists it, $2 = address
+  printf '%s\n' "$1" | awk -v a="$2" '($1 == "ip" || $1 == "ip6") && $2 == "daddr" && $4 == "reject" \
+    && ($3 == a || ($3 == "192.0.2.0/24" && index(a, "192.0.2.") == 1)) { found = 1 } END { exit found ? 0 : 1 }'
+}
 egress_blocked_hold() {
-  local line hp host port open=""
+  local line hp host port a addrs table="" open="" unruled="" entries=()
   while IFS= read -r line || [ -n "$line" ]; do
     hp="$(printf '%s' "${line%%#*}" | tr -d ' \t\r')"
-    [ -n "$hp" ] || continue
-    if [[ "$hp" =~ ^\[([0-9A-Fa-f:.]+)\]:([0-9]{1,5})$ ]] || [[ "$hp" =~ ^([A-Za-z0-9.-]+):([0-9]{1,5})$ ]]; then
-      host="${BASH_REMATCH[1]}"; port="${BASH_REMATCH[2]}"
-    else
-      echo "not an address: '$hp' (host:port or [v6]:port)"; return 1
-    fi
-    # shellcheck disable=SC2016 # $1/$2 belong to the inner bash
-    if as_run timeout "$PROBE_TIMEOUT" bash -c 'exec 3<>"/dev/tcp/$1/$2"' probe "$host" "$port" 2>/dev/null; then open="$open $hp"; fi
+    [ -z "$hp" ] && continue
+    [[ "$hp" =~ ^\[([0-9A-Fa-f:.]+)\]:([0-9]{1,5})$ ]] || [[ "$hp" =~ ^([A-Za-z0-9.-]+):([0-9]{1,5})$ ]] \
+      || { echo "not an address: '$hp' (host:port or [v6]:port)"; return 1; }
+    entries+=("$hp")
   done < "$EGRESS_BLOCKED_FILE"
-  [ -z "$open" ] || { echo "can be reached as $RUN_USER:$open — the host's deny rule is missing or incomplete (staging-launch.md S0 GATE)"; return 1; }
+  if [ "${#entries[@]}" = 0 ]; then
+    root_only "$DEPLOY_STATE_DIR/path-b" && return 0
+    echo "is empty: a contained staging (Path A) lists every live endpoint; only a Path B host with no live credential runs with none, marked by the root-owned $DEPLOY_STATE_DIR/path-b (staging-launch.md S0 GATE step 4)"
+    return 1
+  fi
+  command -v nft >/dev/null 2>&1 || { echo "needs nft: the host's reject table is read with it (staging-launch.md S0 GATE step 4)"; return 1; }
+  table="$(nft list table inet onhost_containment 2>/dev/null)" || table=""
+  for hp in "${entries[@]}"; do
+    [[ "$hp" =~ ^\[?([^]]*)\]?:([0-9]+)$ ]]; host="${BASH_REMATCH[1]}"; port="${BASH_REMATCH[2]}"
+    addrs="$(egress_addresses "$host")"
+    [ -n "$addrs" ] || { echo "'$host' does not resolve (getent ahosts): a name that does not resolve now is no proof — list its addresses, or pin it in /etc/hosts (staging-launch.md S0 GATE step 4)"; return 1; }
+    for a in $addrs; do
+      egress_rule_rejects "$table" "$a" || unruled="$unruled $a"
+      # shellcheck disable=SC2016 # $1/$2 belong to the inner bash
+      if as_run timeout "$PROBE_TIMEOUT" bash -c 'exec 3<>"/dev/tcp/$1/$2"' probe "$a" "$port" 2>/dev/null; then open="$open $hp($a)"; fi
+    done
+  done
+  [ -z "$open" ] || echo "can be reached as $RUN_USER:$open — the host's deny rule is missing or incomplete (staging-launch.md S0 GATE)"
+  if [ -z "$table" ]; then
+    echo "no table inet onhost_containment (nft): nothing on this host is shown to reject the listed addresses (staging-launch.md S0 GATE step 4)"
+  elif [ -n "$unruled" ]; then
+    echo "not rejected by table inet onhost_containment:$unruled — a refused connection proves nothing without the host's rule (a panel that is down refuses too)"
+  fi
+  [ -z "$open" ] && [ -n "$table" ] && [ -z "$unruled" ]
 }
 gate() { "$PHP" "$DEPLOY_LIB_DIR/deploy-gate.php" "$@"; }
 utc_now() { date -u +%Y%m%d-%H%M%S; }
@@ -322,7 +373,7 @@ case "$self" in "$(realpath "$APP_DIR" 2>/dev/null || echo "$APP_DIR")"/*) die 2
 # the judge must be as trustworthy as the deployer: root's, and writable by nobody else
 root_only "$DEPLOY_LIB_DIR" "$DEPLOY_LIB_DIR/deploy-gate.php" "$DEPLOY_LIB_DIR/source-sha" "$(dirname "$self")" "$self" \
   || die 2 "the deployer files ($self, $DEPLOY_LIB_DIR and its deploy-gate.php, source-sha) must belong to uid $DEPLOY_OWNER_UID and be writable by nobody else: reinstall with install-deployer.sh"
-for tool in git curl flock find sort sha256sum setpriv timeout; do command -v "$tool" >/dev/null 2>&1 || die 2 "missing: $tool"; done
+for tool in git curl flock find sort sha256sum setpriv setsid timeout; do command -v "$tool" >/dev/null 2>&1 || die 2 "missing: $tool"; done
 [ -x "$PHP" ] || die 2 "PHP not found at $PHP"
 [ -d "$APP_DIR/.git" ] || die 2 "$APP_DIR is not a checkout"
 cd "$APP_DIR" || die 2 "cannot enter $APP_DIR"
@@ -350,7 +401,7 @@ tree_is_real || die 2 "storage, bootstrap and bootstrap/cache must be real direc
 run_uid="$(id -u "$RUN_USER" 2>/dev/null || true)"
 [[ "$run_uid" =~ ^[0-9]+$ ]] && [ "$run_uid" != 0 ] || die 2 "RUN_USER '$RUN_USER' must be an existing user other than root: the site's PHP never runs as root"
 [ "$(as_run id -u 2>/dev/null || true)" = "$run_uid" ] \
-  || die 2 "cannot run the site's PHP as $RUN_USER (setpriv from util-linux, run as root): the deployer never runs it as root (staging-launch.md S0)"
+  || die 2 "cannot run the site's PHP as $RUN_USER (setpriv, and setsid --wait from util-linux 2.31+, run as root): the deployer never runs it as root (staging-launch.md S0)"
 
 [ -z "$(find "$APP_DIR/.git" \( ! -uid "$DEPLOY_OWNER_UID" -o -perm /022 \) -print -quit)" ] \
   || die 2 ".git must belong to uid $DEPLOY_OWNER_UID and be writable by nobody else (chown -R root:root .git && chmod -R go-w .git)"

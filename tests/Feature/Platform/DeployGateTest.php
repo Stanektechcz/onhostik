@@ -514,19 +514,41 @@ function deployGateSandbox(): array
  * @param  string|false|null  $expectedUnits  the state dir's expected-units; null = the units STUB_UNITS says are running, false = no file
  * @return array{rc:int, out:string, log:string, stub:string, head:string}
  */
-function deployGateDeploy(array $box, array $env, array $stub = [], string|false|null $expectedUnits = null): array
+function deployGateDeploy(array $box, array $env, array $stub = [], string|false|null $expectedUnits = null, ?string $input = null): array
+{
+    $process = deployGateDeployProcess($box, $env, $stub, $expectedUnits, $input);
+    $process->run();
+
+    return deployGateDeployResult($box, $process);
+}
+
+/** Writes $content to $path unless it already holds exactly that (a deployer running concurrently reads these files). */
+function deployGateWriteIfChanged(string $path, string $content): void
+{
+    if (! is_file($path) || file_get_contents($path) !== $content) {
+        file_put_contents($path, $content);
+    }
+}
+
+/**
+ * The deployer process deployGateDeploy() runs, prepared but not started ($input = what it gets on stdin).
+ *
+ * @param  array<string, string|false>  $env
+ * @param  array<string, string>  $stub
+ */
+function deployGateDeployProcess(array $box, array $env, array $stub = [], string|false|null $expectedUnits = null, ?string $input = null): Process
 {
     $unitsFile = $box['dir'].'/state/expected-units';
     if ($expectedUnits === false) {
         @unlink($unitsFile);
     } else {
-        file_put_contents($unitsFile, $expectedUnits ?? implode("\n", preg_split('/\s+/', trim($stub['STUB_UNITS'] ?? ''), -1, PREG_SPLIT_NO_EMPTY))."\n");
+        deployGateWriteIfChanged($unitsFile, $expectedUnits ?? implode("\n", preg_split('/\s+/', trim($stub['STUB_UNITS'] ?? ''), -1, PREG_SPLIT_NO_EMPTY))."\n");
     }
     $base = "STUB_LOG='{$box['posix']}/stub.log'\nREAL_PHP='".deployGatePosix(PHP_BINARY)."'\n";
     foreach ($stub as $key => $value) {
         $base .= $key."='".str_replace("'", "'\\''", $value)."'\n";
     }
-    file_put_contents($box['dir'].'/bin/stub.env', $base);
+    deployGateWriteIfChanged($box['dir'].'/bin/stub.env', $base);
     $script = getenv('ONHOST_DEPLOY_SCRIPT') ?: $box['posix'].'/sbin/onhost-deploy';
     $process = new Process([(string) deployGateBash(), '-c', 'cd "$APP_DIR" && PATH="$STUB_BIN:$PATH" exec bash "$DEPLOYER"'], null, array_merge([
         'STUB_BIN' => $box['posix'].'/bin', 'DEPLOYER' => deployGatePosix((string) $script),
@@ -538,8 +560,16 @@ function deployGateDeploy(array $box, array $env, array $stub = [], string|false
         'BRANCH' => false, 'ALLOW_DOCTOR_FAIL' => false, 'SKIP_BACKUP' => false, 'REF' => false, 'EXPECTED_SHA' => false,
     ], $env));
     $process->setTimeout(120);
-    $process->run();
+    if ($input !== null) {
+        $process->setInput($input);
+    }
 
+    return $process;
+}
+
+/** @return array{rc:int, out:string, log:string, stub:string, head:string} */
+function deployGateDeployResult(array $box, Process $process): array
+{
     return [
         'rc' => (int) $process->getExitCode(), 'out' => $process->getOutput().$process->getErrorOutput(),
         'log' => (string) @file_get_contents($box['dir'].'/state/deploy.log'), 'stub' => (string) @file_get_contents($box['dir'].'/stub.log'),
@@ -994,7 +1024,8 @@ function deployGateExpectRunAsUser(string $stubLog, string $user): void
     expect($calls)->not->toBeEmpty();
     foreach ($calls as [$php, $before]) {
         $argv = explode(' [cache=', substr($php, 4))[0];
-        expect($before)->toStartWith("setpriv --reuid={$user} --regid={$user} --init-groups -- env -i PATH=")
+        // review round 1 (security HIGH): in a session of its own (setsid), so no controlling terminal to push keys into
+        expect($before)->toStartWith("setpriv --reuid={$user} --regid={$user} --init-groups -- setsid --wait env -i PATH=")
             ->and($before)->toContain(' '.$argv);
     }
     expect($stubLog)->not->toContain('COMPOSER_ALLOW_SUPERUSER');
@@ -1014,6 +1045,37 @@ it('runs every artisan and composer call as the run user with a clean environmen
     deployGateExpectRunAsUser($r['stub'], $box['USER']);
     expect($r['stub'])->toContain('composer install')->toContain('HOME='.$box['posix'].'/work/staging.test/home')
         ->and(is_dir($box['dir'].'/app/vendor'))->toBeTrue();
+});
+
+// Review round 1 (security HIGH): setpriv switched the user but left the site's PHP in root's session with root's
+// terminal on fd 0-2 — code www controls could push keystrokes into root's shell (TIOCSTI, the su/runuser class,
+// CVE-2016-2779) or, left running, read what root types next. Now it gets its own session (setsid, asserted on every
+// call by deployGateExpectRunAsUser) and nothing of the operator's input; the deployer and install.sh hand a terminal
+// to nothing they start (the same guard function in both, run first).
+it('gives the site\'s PHP its own session and nothing of the operator\'s input, in the deployer and in install.sh', function () {
+    $box = $this->deployBox = deployGateSandbox();
+
+    $r = deployGateDeploy($box, deployGateTo($box, $box['SHA_B']), ['STUB_READ_STDIN' => '1'], null, "echo OPERATOR-TYPED-THIS\n");
+
+    expect($r['rc'])->toBe(0, $r['out']);
+    deployGateExpectRunAsUser($r['stub'], $box['USER']);
+    expect((string) @file_get_contents($box['dir'].'/bin/stdin.seen'))->not->toContain('OPERATOR-TYPED-THIS')
+        ->and(substr_count((string) @file_get_contents($box['dir'].'/bin/stdin.seen'), "read:\n"))->toBeGreaterThan(3);   // it did read, and got nothing
+
+    foreach (['deploy.sh', 'install.sh'] as $script) {
+        $source = (string) file_get_contents(base_path('infra/aapanel/'.$script));
+        $guard = deployGateShellFunction($script, 'keep_terminal_from_children');
+        expect($guard)->toContain('exec </dev/null')->toContain('exec cat')
+            ->and(deployGateShellFunction($script, 'as_run'))->toMatch('#--init-groups -- \\\\\s+setsid --wait env -i [^\n]* </dev/null 9>&-#')
+            // the guard runs before anything else is started (the first command after `set -euo pipefail` and its definition)
+            ->and(strpos($source, "\nkeep_terminal_from_children\n"))->toBeGreaterThan(0)
+            ->and(strpos($source, "\nkeep_terminal_from_children\n"))->toBeLessThan(strpos($source, "\nsay() {"));
+    }
+
+    // the runbook's hand-run www lines: never setpriv without setsid, and the everyday prefix takes no terminal input
+    $doc = (string) file_get_contents(base_path('docs/runbooks/staging-launch.md'));
+    expect($doc)->not->toMatch('/setpriv --reuid=www --regid=www --init-groups --(?! setsid --wait)/')
+        ->and($doc)->toMatch('/^www\(\) \{[^\n]*setsid --wait "\$@" <\/dev\/null/m');
 });
 
 it('refuses before going down when the site\'s PHP cannot run as the run user, the run user is root, or vendor is a link', function () {
@@ -1048,6 +1110,8 @@ it('refuses a staging release while an address of the egress-blocked list can be
     $box = $this->deployBox = deployGateSandbox();
     $to = deployGateTo($box, $box['SHA_B']);
     $list = $box['dir'].'/state/egress-blocked';
+    // the host's reject table covers loopback here (review round 1: the probe alone is not enough, see the next case)
+    file_put_contents($box['dir'].'/bin/nft.table', "table inet onhost_containment {\n\tchain out {\n\t\tip daddr 127.0.0.1 reject\n\t}\n}\n");
 
     rename($list, $list.'.kept');
     $missing = deployGateDeploy($box, $to);
@@ -1071,8 +1135,92 @@ it('refuses a staging release while an address of the egress-blocked list can be
         ->and($reached['out'])->toContain($open)->toContain('can be reached')->not->toContain('127.0.0.1:1 ')
         ->and($reached['stub'])->toMatch('#setpriv --reuid='.preg_quote($box['USER'], '#').' [^\n]*/dev/tcp#');
 
-    $blocked = deployGateDeploy($box, $to);   // the listener is gone: nothing on the list answers
+    $blocked = deployGateDeploy($box, $to);   // the listener is gone: nothing on the list answers, the host rejects both
     expect($blocked['rc'])->toBe(0, $blocked['out'])->and($blocked['head'])->toBe($box['SHA_B']);
+});
+
+// Review round 1 (security MEDIUM): a refused connection proved nothing on its own — a name that did not resolve, a DNS
+// outage or a panel that was down passed exactly like the host's reject rule, and an empty list passed on every staging.
+// Now a name must resolve and every address it resolves to must be rejected by the host's own table (read with nft);
+// an empty list needs the root-owned Path B marker.
+it('holds the egress-blocked list to the host\'s reject rules: a name must resolve, each address must be rejected, and only Path B may list none', function () {
+    $box = $this->deployBox = deployGateSandbox();
+    $to = deployGateTo($box, $box['SHA_B']);
+    $list = $box['dir'].'/state/egress-blocked';
+    $table = $box['dir'].'/bin/nft.table';
+    $marker = $box['dir'].'/state/path-b';
+
+    unlink($marker);
+    $emptyPathA = deployGateDeploy($box, $to);                  // the sandbox's list names nothing
+
+    file_put_contents($list, "panel.invalid:8080\n");
+    $unresolved = deployGateDeploy($box, $to);                  // NXDOMAIN used to count as blocked
+
+    file_put_contents($box['dir'].'/bin/hosts', "127.0.0.1 panel.example.test\n");
+    file_put_contents($list, "panel.example.test:1\n");
+    @unlink($table);
+    $noTable = deployGateDeploy($box, $to);                     // nothing answers, but no rule refused it
+
+    file_put_contents($table, "table inet onhost_containment {\n\tchain out {\n\t\tip daddr 192.0.2.0/24 reject\n\t}\n}\n");
+    $unruled = deployGateDeploy($box, $to);                     // a table, but not for this address
+
+    foreach ([$emptyPathA, $unresolved, $noTable, $unruled] as $r) {
+        expect($r['rc'])->toBe(2, $r['out'])->and($r['stub'])->not->toContain('artisan down')->and($r['head'])->toBe($box['SHA_A']);
+    }
+    expect($emptyPathA['out'])->toContain('path-b')
+        ->and($unresolved['out'])->toContain("'panel.invalid' does not resolve")
+        ->and($noTable['out'])->toContain('onhost_containment')
+        ->and($unruled['out'])->toContain('not rejected')->toContain('127.0.0.1');
+
+    // the name's address is rejected by the host and nothing answers: released; the probe went to the resolved address
+    file_put_contents($table, "table inet onhost_containment {\n\tchain out {\n\t\tip daddr 192.0.2.0/24 reject\n\t\tip daddr 127.0.0.1 reject\n\t}\n}\n");
+    $held = deployGateDeploy($box, $to);
+    expect($held['rc'])->toBe(0, $held['out'])->and($held['head'])->toBe($box['SHA_B'])
+        ->and($held['stub'])->toMatch('#/dev/tcp[^\n]* 127\.0\.0\.1 1\n#');
+
+    // Path B: an empty list with the root-owned marker
+    file_put_contents($list, "# Path B: no live credential on this host\n");
+    touch($marker);
+    $pathB = deployGateDeploy($box, deployGateTo($box, $box['SHA_A']));
+    expect($pathB['rc'])->toBe(0, $pathB['out'])->and($pathB['head'])->toBe($box['SHA_A']);
+});
+
+// Review round 1 (qa MEDIUM): the per-site lock had no test. A second release of the same site (an operator racing a
+// rehearsal, two operators) must be refused before it changes anything, and the running one must finish undisturbed.
+it('refuses a second release of the same site while one runs, and leaves the running one alone', function () {
+    $box = $this->deployBox = deployGateSandbox();
+    $to = deployGateTo($box, $box['SHA_B']);
+    $stub = ['STUB_UNITS' => 'onhost-queue@default.service'];
+    $hold = $box['dir'].'/bin/hold-drain';
+    touch($hold);   // the first run's worker does not stop while this file exists: it waits in its drain, holding the lock
+
+    $first = deployGateDeployProcess($box, $to + ['DRAIN_TIMEOUT' => '60'], $stub);
+    $first->setTimeout(300);   // it waits while the second run is judged
+    $first->start();
+    $deadline = microtime(true) + 90;
+    while ($first->isRunning() && ! str_contains((string) @file_get_contents($box['dir'].'/stub.log'), 'systemctl stop') && microtime(true) < $deadline) {
+        usleep(200_000);
+    }
+    expect($first->isRunning())->toBeTrue($first->getOutput().$first->getErrorOutput());
+
+    $second = deployGateDeploy($box, $to + ['DEPLOY_OPERATOR' => 'second-operator', 'DRAIN_TIMEOUT' => '20'], $stub);   // were it let in, it would wait in the same drain
+    $whileHeld = [
+        'last_good' => is_file($box['dir'].'/state/last-good.json'),
+        'version' => is_file($box['dir'].'/app/VERSION'),
+        'head' => $second['head'],
+    ];
+    unlink($hold);
+    $first->wait();
+    $done = deployGateDeployResult($box, $first);
+
+    expect($second['rc'])->toBe(2, $second['out'])->and($second['out'])->toContain('another deploy of staging.test is running')
+        ->and($whileHeld)->toBe(['last_good' => false, 'version' => false, 'head' => $box['SHA_A']])
+        ->and($second['log'])->toMatch('/operator=second-operator [^\n]* stage=preflight rc=2 /')
+        ->and($done['rc'])->toBe(0, $done['out'])->and($done['head'])->toBe($box['SHA_B'])
+        ->and(preg_match_all('#^php \S*/artisan down --retry=60 --with-secret#m', $done['stub']))->toBe(1)   // one run went down
+        ->and(preg_match_all('#^php \S*composer install#m', $done['stub']))->toBe(1)                        // and built
+        ->and(substr_count($done['log'], ' rc=0 '))->toBe(1)
+        ->and(json_decode((string) file_get_contents($box['dir'].'/state/last-good.json'), true)['operator'])->toBe('test-operator');
 });
 
 it('installs with the site\'s PHP run only as the run user, and writes the application key itself', function () {
@@ -1117,7 +1265,7 @@ function deployGateShellFunction(string $file, string $name): string
 
 it('keeps the security-critical shell functions identical where two scripts need them, and never writes VERSION through a name', function () {
     // the deployer and install.sh repair the same tree the same way, and run the site's PHP as the same user the same way
-    foreach (['tree_is_real', 'repair_ownership', 'as_run', 'work_dir_ready', 'vendor_ready'] as $name) {
+    foreach (['tree_is_real', 'repair_ownership', 'as_run', 'work_dir_ready', 'vendor_ready', 'keep_terminal_from_children'] as $name) {
         expect(deployGateShellFunction('deploy.sh', $name))->not->toBe('')->toBe(deployGateShellFunction('install.sh', $name));
     }
     expect(deployGateShellFunction('deploy.sh', 'verify_signed_tag'))->not->toBe('')->toBe(deployGateShellFunction('install-deployer.sh', 'verify_signed_tag'));

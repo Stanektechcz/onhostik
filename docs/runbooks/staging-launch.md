@@ -37,9 +37,13 @@ DG=/usr/local/lib/onhost-deploy/deploy-gate.php   # the installed judge (S4b); b
 G="git -c safe.directory=$APP -c core.hooksPath=/dev/null -c core.fsmonitor=false -C $APP"   # read-only git as root before S1b
 PROVIDER_LANES="provider-pterodactyl provider-aapanel provider-ispconfig provider-proxmox provider-powerdns provider-registrar provider-kubernetes"
 # artisan by hand runs as www, as the deployer does (review round 0): www can write this tree (on an existing staging
-# all of it), so root running its PHP is a www → root path. AS_WWW empty = setpriv unusable: see S0 — the deployer
-# then refuses every release (rc 2).
-if setpriv --reuid=www --regid=www --init-groups true 2>/dev/null; then AS_WWW="setpriv --reuid=www --regid=www --init-groups --"; else AS_WWW=""; fi
+# all of it), so root running its PHP is a www → root path. In a session of its own (setsid, review round 1): in
+# root's session code www controls could push keystrokes into root's shell (TIOCSTI, CVE-2016-2779's class). `www`
+# also gives it no terminal at all — stdin /dev/null, output through root's cat — so nothing it leaves running reads
+# what root types next. WWW_CMD is the bare prefix, for cron and for the one prompt that needs the terminal (S5).
+# AS_WWW empty = setpriv or setsid --wait (util-linux 2.31+) unusable: see S0 — the deployer then refuses every release (rc 2).
+www() { ( set -o pipefail; setpriv --reuid=www --regid=www --init-groups -- setsid --wait "$@" </dev/null 2> >(cat >&2) | cat ); }
+if www true 2>/dev/null; then AS_WWW=www; WWW_CMD="setpriv --reuid=www --regid=www --init-groups -- setsid --wait"; else AS_WWW=""; WWW_CMD=""; fi
 # storage and bootstrap/cache back to www after anything root ran — never `chown -R`/`chmod -R` (they follow a symlink
 # given on the command line, and www can plant one); the deployer's own guarded sequence:
 own() {
@@ -144,7 +148,8 @@ nginx -T 2>/dev/null | grep -nE 'real_ip|set_real_ip_from|X-Forwarded-For|X-Real
 git config --file $APP/.git/config --list         # review: no foreign core.hooksPath, core.fsmonitor, url.*.insteadOf, filters
 ls $APP/.git/hooks | grep -v '\.sample$'          # review: nothing expected
 $G rev-parse HEAD; $G status --porcelain --untracked-files=all
-command -v setpriv && setpriv --reuid=www --regid=www --init-groups id   # uid=www: the deployer needs it (else rc 2, NO-GO)
+command -v setpriv setsid && www id   # uid=www (setpriv, and setsid --wait: util-linux 2.31+): the deployer needs both (else rc 2, NO-GO)
+sysctl -n dev.tty.legacy_tiocsti 2>/dev/null   # record: 1 or empty (kernel < 6.2) = TIOCSTI works; setsid is what stops it (review round 1)
 nft list tables 2>/dev/null; iptables -S OUTPUT 2>/dev/null | head; systemctl is-enabled nftables firewalld 2>/dev/null   # S0 GATE step 4
 grep -E 'opcache.validate_timestamps|opcache.revalidate_freq' /www/server/php/83/etc/php.ini; ls /etc/init.d | grep -i php-fpm
 command -v pg_dump pg_restore psql; ls /www/server/pgsql/bin 2>/dev/null; pg_dump --version
@@ -247,22 +252,32 @@ nft list table inet onhost_containment > /etc/nftables.d/onhost-containment.nft 
 # the probe the deployer runs before every staging release (and S10 daily): a bare TCP connect as www, nothing is sent
 probe() { sed -e 's/#.*//' -e 's/[[:space:]]//g' -e '/^$/d' $STATE/egress-blocked | while read -r hp; do h=${hp%:*}; h=${h#[}; h=${h%]}; p=${hp##*:}; $AS_WWW timeout 5 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$h" "$p" 2>/dev/null && echo "OPEN $hp"; done; }
 probe                                                  # prints nothing; any OPEN line: STOP, the rule is incomplete
+# and each address has its own reject rule (the deployer checks this too: a refused probe alone proves nothing)
+t="$(nft list table inet onhost_containment)"; for a in $(names | xargs -r -n1 getent ahosts | awk '{print $1}' | sort -u); do case $a in 192.0.2.*) continue ;; esac; printf '%s\n' "$t" | grep -qE "daddr $a reject" || echo "NO RULE $a"; done   # prints nothing
 ```
 
 The rule rejects in the host's own output path, so a probe of a covered address never leaves the machine; a probe of
 an address the rule misses is a bare TCP connect without a byte of payload (no credential, no request) — and the
-release is refused. The deployer refuses a staging release when `$STATE/egress-blocked` is missing (an empty file =
-none: Path B without live credentials), malformed, or when any address on it answers (rc 2, nothing changed). A
-host without nftables: the same rules with `iptables`/`ip6tables -A OUTPUT -d <addr> -j REJECT` (S0 records which).
+release is refused. The deployer refuses a staging release (rc 2, nothing changed) when `$STATE/egress-blocked` is
+missing or malformed, when any address on it answers, and — review round 1, security MEDIUM: NXDOMAIN, a DNS outage or
+a panel that is down refused a connection exactly like the rule — when a listed name does not resolve now (`getent
+ahosts`), when `nft list table inet onhost_containment` does not exist, or when an address a line resolves to has no
+`ip daddr <a> reject` / `ip6 daddr <a> reject` rule in it (a name pinned to TEST-NET-1: the `192.0.2.0/24` rule).
+nftables is therefore required (on an iptables-only host: install nftables, or the owner accepts Path A as NO-GO). An
+**empty** list passes only on Path B without any live credential, and only with the root-owned marker — never on Path A:
+
+```bash
+install -m 0600 /dev/null $STATE/path-b    # Path B only (O1 recorded), with the release record's owner confirmation
+```
 
 The freeze is a cache key: a Redis flush or restart lifts it silently, and it never held in-flight operations or the
-backup scheduler. Root's cron re-asserts it and says so in the journal when it was gone — only with `setpriv` (`AS_WWW`
+backup scheduler. Root's cron re-asserts it and says so in the journal when it was gone — only with `setpriv` (`WWW_CMD`
 set): without it the cron would run www's PHP as root every five minutes (D32.13), so there is no cron and S10 checks
 the freeze by hand:
 
 ```bash
-[ -n "$AS_WWW" ] && cat > /etc/cron.d/onhost-staging-freeze <<EOF
-*/5 * * * * root [ -f $STATE/expect-freeze ] || exit 0; cd $APP || exit 0; m="\$($AS_WWW $P artisan tinker --execute='echo json_encode(app(\Onhost\Domain\Provisioning\FreezeSwitch::class)->meta());' 2>/dev/null | tail -n 1)"; [ "\$m" != null ] || { logger -p user.err -t onhost-freeze 'staging freeze was missing: re-asserted'; $AS_WWW $P artisan onhost:provisioning:freeze 'staging containment (re-asserted by cron)' >/dev/null 2>&1; }
+[ -n "$WWW_CMD" ] && cat > /etc/cron.d/onhost-staging-freeze <<EOF
+*/5 * * * * root [ -f $STATE/expect-freeze ] || exit 0; cd $APP || exit 0; m="\$($WWW_CMD $P artisan tinker --execute='echo json_encode(app(\Onhost\Domain\Provisioning\FreezeSwitch::class)->meta());' 2>/dev/null | tail -n 1)"; [ "\$m" != null ] || { logger -p user.err -t onhost-freeze 'staging freeze was missing: re-asserted'; $WWW_CMD $P artisan onhost:provisioning:freeze 'staging containment (re-asserted by cron)' >/dev/null 2>&1; }
 EOF
 chmod 0644 /etc/cron.d/onhost-staging-freeze
 ```
@@ -530,7 +545,8 @@ list, and the same S7 command is run again (the deployer lifts the maintenance i
 ### S5 — Staff
 
 ```bash
-$AS_WWW $P artisan onhost:staff:create <owner-email> --name="<name>" --role=platform_owner   # hidden password prompt
+$WWW_CMD $P artisan onhost:staff:create <owner-email> --name="<name>" --role=platform_owner   # hidden password prompt
+exit   # the prompt needed the terminal (own session, so no TIOCSTI): end this SSH login, continue in a fresh one
 ```
 
 Each person signs in and enrols MFA themselves. **Never run `DevAccountSeeder` here.** A second approver only per O6.
@@ -733,8 +749,8 @@ role rows); a `ROW-FAIL` is explained in the record. Record the duration. The 7-
   S7-based estimate while production has not run).
 - S10: the environment, units and freeze held for its whole period (Path B: three nights of backup + verify without error).
 - S0 and every later hand-run artisan ran as www (`AS_WWW`), or the owner accepted root execution for staging in
-  writing (release record). The deployer runs every artisan and composer call as www itself (review round 0) and
-  refuses a host where `setpriv` cannot do that.
+  writing (release record). The deployer runs every artisan and composer call as www itself (review round 0), in a
+  session of its own with no terminal (review round 1), and refuses a host where `setpriv` or `setsid --wait` cannot do that.
 - Anything else is NO-GO. Phase 2 (test panels) has its own go/no-go after the owner's per-panel decision, and needs
   first: the non-terminal operations of the kept database cancelled (Path A), and the code follow-up that makes a
   contained instance refuse every actor (`ProviderRegistry::forInstance`, the backup scheduler — handoff).
@@ -781,8 +797,9 @@ role rows); a `ROW-FAIL` is explained in the record. Record the duration. The 7-
 ## G. Assumptions to check on the host (NOT verified from the repository)
 
 `setpriv` (util-linux) switches root to www with `--init-groups`, and www can read the tree and `app.env` (S0 prints
-`uid=www`); bash has `/dev/tcp` and coreutils `timeout` (the egress probe); nftables (or iptables) is available and its
-table survives a reboot the way S0 records;
+`uid=www`), and `setsid --wait` exists (util-linux 2.31+; an older host is refused, rc 2); bash has `/dev/tcp` and
+coreutils `timeout` (the egress probe); nftables is available (the deployer reads `table inet onhost_containment`)
+and the table survives a reboot the way S0 records; `getent ahosts` answers the way the application resolves;
 git ≥ 2.32 (GIT_CONFIG_GLOBAL) and ≥ 2.34 on production (SSH `verify-tag`); nginx answers on `127.0.0.1:443`; the staging
 nginx block behaves as written and no `real_ip` setting trusts a foreign range (S1 proves it); the FPM reload command;
 `DRAIN_TIMEOUT=300` s is enough (a worker job may run 900 s; the drain then fails with rc 3 and nothing changes — S8 g

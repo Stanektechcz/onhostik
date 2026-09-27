@@ -20,6 +20,22 @@
 # every lane of QUEUES) for the gated deployer; staging phase 1 installs with QUEUES='default mails'.
 set -euo pipefail
 
+# Nothing this script starts may hold root's terminal (review round 1, security HIGH): as_run puts the site's PHP in a
+# session of its own (setsid, no TIOCSTI into root's shell — CVE-2016-2779's class), stdin is /dev/null and a terminal
+# on stdout/stderr is reached only through root's own cat (a process www leaves behind cannot read what root types
+# next). Runs first. The deployer's function, character for character.
+keep_terminal_from_children() {
+  exec </dev/null
+  if [ -t 1 ] && [ -t 2 ]; then
+    exec > >(trap '' INT; exec cat) 2>&1
+  elif [ -t 1 ]; then
+    exec > >(trap '' INT; exec cat)
+  elif [ -t 2 ]; then
+    exec 2> >(trap '' INT; exec cat >&2)
+  fi
+}
+keep_terminal_from_children
+
 SITE="${SITE:-staging.onhost.cz}"                     # the aaPanel site (staging.onhost.cz for testing, onhost.cz for production)
 APP_DIR="${APP_DIR:-/www/wwwroot/${SITE}}"           # aaPanel site root (the repository checkout; nginx serves $APP_DIR/public)
 REPO="${REPO:-https://github.com/Stanektechcz/onhostik.git}"
@@ -46,11 +62,13 @@ art() { as_run "$PHP" "$APP_DIR/artisan" "$@"; }
 # The site's PHP — artisan, composer and the scripts composer runs — never runs as root (review round 0, security HIGH;
 # D32.13 until then): app.env is root:www 0640 and www can write this tree (all of it on an existing staging; vendor/,
 # bootstrap/cache and compiled views everywhere), so root executing that code made a www compromise root at the next
-# release. setpriv switches to the run user (aaPanel kills `sudo -u www`), env -i gives it a fixed environment, and fd 9
-# (the deployer's lock; unused here) is closed. The three functions below are the deployer's, character for character.
+# release. setpriv switches to the run user (aaPanel kills `sudo -u www`), setsid --wait gives it a session of its own
+# without a controlling terminal (review round 1, security HIGH), env -i a fixed environment, stdin is /dev/null, and
+# fd 9 (the deployer's lock; unused here) is closed. The three functions below are the deployer's, character for
+# character.
 as_run() {
   setpriv --reuid="$RUN_USER" --regid="$RUN_USER" --init-groups -- \
-    env -i PATH="$DEPLOY_SAFE_PATH" HOME="$DEPLOY_WORK_DIR/home" "$@" 9>&-
+    setsid --wait env -i PATH="$DEPLOY_SAFE_PATH" HOME="$DEPLOY_WORK_DIR/home" "$@" </dev/null 9>&-
 }
 # The run user's own space outside the tree: HOME, the composer cache, a release's framework caches. Its parent is
 # root's and writable by nobody else, so www cannot swap the directory for a link; root makes it and reads nothing
@@ -154,9 +172,10 @@ REF="${REF:-$EXPECTED_SHA}"
 has_ext() { "$PHP" -r 'exit(extension_loaded($argv[1]) ? 0 : 1);' "$1"; }   # php -m output differs between builds; ask PHP itself
 # the site's PHP runs as the run user, never as root (as_run; review round 0, security HIGH)
 need setpriv
+need setsid
 run_uid="$(id -u "$RUN_USER" 2>/dev/null || true)"
 [[ "$run_uid" =~ ^[0-9]+$ ]] && [ "$run_uid" != 0 ] || die "RUN_USER '$RUN_USER' must be an existing user other than root: the site's PHP never runs as root"
-[ "$(as_run id -u 2>/dev/null || true)" = "$run_uid" ] || die "cannot run the site's PHP as $RUN_USER (setpriv from util-linux, run as root)"
+[ "$(as_run id -u 2>/dev/null || true)" = "$run_uid" ] || die "cannot run the site's PHP as $RUN_USER (setpriv, and setsid --wait from util-linux 2.31+, run as root)"
 has_ext pdo_pgsql || die "PHP 8.3 needs pdo_pgsql (aaPanel → PHP 8.3 → Install extensions); loaded PDO drivers: $("$PHP" -r 'echo implode(",", PDO::getAvailableDrivers());')"
 for ext in intl bcmath mbstring openssl redis fileinfo zip gd opcache; do has_ext "$ext" || echo "warning: PHP extension ${ext} missing — install it in aaPanel (PHP 8.3 → extensions)"; done
 
