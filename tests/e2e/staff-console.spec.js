@@ -86,10 +86,17 @@ test('automation, jobs, game and fleet views render from the staff API; a rule s
   await expect(page.getByText('Vrácení kreditu (chargebacky)', { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/vratný podíl nevyužitého období: \d+ %/).first()).toBeVisible(); // the table finished loading (not the "Načítám…" head)
 
-  // the risk tuning endpoint behind the "Upravit váhy" action round-trips and resets
-  const tuned = await api(page, 'put', '/staff/automation/order.risk/tuning', { weights: { rapid_orders: 35 }, hold_score: 65, reason: 'e2e smoke' });
-  expect(tuned.error, JSON.stringify(tuned)).toBeUndefined();
-  expect(tuned.weights.rapid_orders).toBe(35);
-  const reset = await api(page, 'put', '/staff/automation/order.risk/tuning', { reset: true });
-  expect(reset.hold_score).toBe(60);
+  // the risk tuning endpoint behind the "Upravit váhy" action changes an automation rule, so it asks for a step-up like the
+  // rule switch above (TASK-0037: an operation's risk never goes below its permission's catalogue risk); a cancelled
+  // verification leaves the weights and the hold score exactly as they were
+  const riskBefore = (await api(page, 'get', '/staff/automation')).data.find((r) => r.key === 'order.risk').now;
+  const tuning = api(page, 'put', '/staff/automation/order.risk/tuning', { weights: { rapid_orders: 35 }, hold_score: 65, reason: 'e2e smoke' });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  const tuningRefused = await tuning;
+  expect(tuningRefused.error, JSON.stringify(tuningRefused)).toBeDefined();
+  await expect(dialog).toBeHidden();
+  const riskAfter = (await api(page, 'get', '/staff/automation')).data.find((r) => r.key === 'order.risk').now;
+  expect(riskAfter.hold_score).toBe(riskBefore.hold_score);
+  expect(riskAfter.weights).toBe(riskBefore.weights);
 });
