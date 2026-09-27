@@ -66,6 +66,8 @@ use Onhost\Platform\Outbox\OutboxMessage;
 use Onhost\Platform\Outbox\OutboxPublisher;
 use Tests\TestCase;
 
+require_once __DIR__.'/../../Support/ClockSweep.php';
+
 /*
  * Owner decision 8 (2026-09-25, TASK-0022 limit-raise): a limit of ONE service can be raised, and a raise is paid for —
  * the parent product's own option price per unit and per period, renewed every period like the service. Before it the only
@@ -420,57 +422,86 @@ function limitRaiseOverdue(Organization $org, Service $raise, int $daysAgo): arr
     return [$invoice, app(DunningService::class)->open($org->id, $invoice->id, $raise->id, $invoice->due_at)];
 }
 
+/** The scenario of the test below, as a closure the test and its 24-hour sweep bind to themselves (TASK-0047). */
+function limitRaiseUnpaidScenario(): Closure
+{
+    return function (): void {
+        Event::fake(['onhost.order.paid']);
+        Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+        [, $org] = $this->customerWithOrganization();
+        $parent = limitRaiseParent($org);
+        $base = (int) $parent->entitlements['mailboxes'];
+        [$raise] = limitRaiseDeliver($org, $parent, 'mailboxes', 5);
+        [, $case] = limitRaiseOverdue($org, $raise, 45);
+        $dunning = app(DunningService::class);
+
+        // day 45: other services are suspended here and come back when paid; a raise has nothing to suspend, so it stays
+        $dunning->tick();
+        expect($case->fresh()->state)->toBe('SUSPENDED')
+            ->and($case->actions()->where('action', 'addon_kept')->count())->toBe(1)
+            ->and($case->actions()->where('action', 'terminate_addon')->exists())->toBeFalse()
+            ->and(data_get($raise->fresh()->tags, 'addon.revoked_at'))->toBeNull()
+            ->and($parent->fresh()->entitlements['mailboxes'])->toBe($base + 5)
+            ->and($case->actions()->whereIn('action', ['suspend', 'suspend_retry'])->exists())->toBeFalse();
+
+        // day 61: the termination stage ends it, as it ends every unpaid service
+        $this->travel(16)->days();
+        $dunning->tick();
+        $dunning->tick();
+        expect(data_get($raise->fresh()->tags, 'addon.revoked_at'))->not->toBeNull()
+            ->and($parent->fresh()->entitlements['mailboxes'])->toBe($base)
+            ->and($case->actions()->where('action', 'terminate')->whereNull('meta->error')->exists())->toBeTrue()
+            ->and($case->actions()->whereIn('action', ['suspend', 'suspend_retry'])->exists())->toBeFalse();
+    };
+}
+
 it('keeps an unpaid raise through the suspension stage and ends it at the termination stage, never trying to suspend an add-on', function () {
-    Event::fake(['onhost.order.paid']);
-    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
-    [, $org] = $this->customerWithOrganization();
-    $parent = limitRaiseParent($org);
-    $base = (int) $parent->entitlements['mailboxes'];
-    [$raise] = limitRaiseDeliver($org, $parent, 'mailboxes', 5);
-    [, $case] = limitRaiseOverdue($org, $raise, 45);
-    $dunning = app(DunningService::class);
-
-    // day 45: other services are suspended here and come back when paid; a raise has nothing to suspend, so it stays
-    $dunning->tick();
-    expect($case->fresh()->state)->toBe('SUSPENDED')
-        ->and($case->actions()->where('action', 'addon_kept')->count())->toBe(1)
-        ->and($case->actions()->where('action', 'terminate_addon')->exists())->toBeFalse()
-        ->and(data_get($raise->fresh()->tags, 'addon.revoked_at'))->toBeNull()
-        ->and($parent->fresh()->entitlements['mailboxes'])->toBe($base + 5)
-        ->and($case->actions()->whereIn('action', ['suspend', 'suspend_retry'])->exists())->toBeFalse();
-
-    // day 61: the termination stage ends it, as it ends every unpaid service
-    $this->travel(16)->days();
-    $dunning->tick();
-    $dunning->tick();
-    expect(data_get($raise->fresh()->tags, 'addon.revoked_at'))->not->toBeNull()
-        ->and($parent->fresh()->entitlements['mailboxes'])->toBe($base)
-        ->and($case->actions()->where('action', 'terminate')->whereNull('meta->error')->exists())->toBeTrue()
-        ->and($case->actions()->whereIn('action', ['suspend', 'suspend_retry'])->exists())->toBeFalse();
+    limitRaiseUnpaidScenario()->call($this);
 });
 
+/** The scenario of the test below, as a closure the test and its 24-hour sweep bind to themselves (TASK-0047). */
+function limitRaisePaidYearlyScenario(): Closure
+{
+    return function (): void {
+        Event::fake(['onhost.order.paid']);
+        Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
+        [, $org] = $this->customerWithOrganization();
+        $parent = limitRaiseParent($org, 'aapanel', 'start', 'year');
+        $base = (int) $parent->entitlements['mailboxes'];
+        [$raise] = limitRaiseDeliver($org, $parent, 'mailboxes', 5);
+        expect(Subscription::query()->where('service_id', $raise->id)->sole()->period)->toBe('year');
+        [$invoice, $case] = limitRaiseOverdue($org, $raise, 40);
+        $dunning = app(DunningService::class);
+
+        $dunning->tick(); // day 40: past the suspension stage
+        $invoice->forceFill(['state' => Invoice::PAID, 'paid_minor' => $invoice->total_minor])->save(); // paid in full before day 60
+        // the next day, PAST the hour the case may be looked at again (tomorrow 06:00): a flat day from a run started between
+        // midnight and 06:00 UTC landed before it, the case was not due and stayed SUSPENDED (as 6904cb0 fixed DunningEnforcementTest)
+        $this->travelTo(now()->addDay()->startOfDay()->addHours(7));
+        $dunning->tick();
+
+        expect($case->fresh()->state)->toBe('RESOLVED')
+            ->and(data_get($raise->fresh()->tags, 'addon.revoked_at'))->toBeNull() // what was paid for is still delivered
+            ->and($raise->fresh()->state)->toBe(ServiceStateMachine::ACTIVE)
+            ->and($parent->fresh()->entitlements['mailboxes'])->toBe($base + 5);
+    };
+}
+
 it('keeps a yearly raise whose overdue renewal is paid after the suspension stage', function () {
-    Event::fake(['onhost.order.paid']);
-    Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
-    [, $org] = $this->customerWithOrganization();
-    $parent = limitRaiseParent($org, 'aapanel', 'start', 'year');
-    $base = (int) $parent->entitlements['mailboxes'];
-    [$raise] = limitRaiseDeliver($org, $parent, 'mailboxes', 5);
-    expect(Subscription::query()->where('service_id', $raise->id)->sole()->period)->toBe('year');
-    [$invoice, $case] = limitRaiseOverdue($org, $raise, 40);
-    $dunning = app(DunningService::class);
+    limitRaisePaidYearlyScenario()->call($this);
+});
 
-    $dunning->tick(); // day 40: past the suspension stage
-    $invoice->forceFill(['state' => Invoice::PAID, 'paid_minor' => $invoice->total_minor])->save(); // paid in full before day 60
-    // the next day, PAST the hour the case may be looked at again (tomorrow 06:00): a flat day from a run started between
-    // midnight and 06:00 UTC landed before it, the case was not due and stayed SUSPENDED (as 6904cb0 fixed DunningEnforcementTest)
-    $this->travelTo(now()->addDay()->startOfDay()->addHours(7));
-    $dunning->tick();
+/*
+ * TASK-0047: the yearly case failed every night between 00:00 and 06:00 UTC until e104507 (a flat day of travel landed
+ * before the 06:00 at which DunningService looks at a case again — a test artefact, production dunning runs at 06:00).
+ * Both dunning scenarios of a raise now run at every hour of the day, so neither can come back.
+ */
+it('keeps and ends a raise in dunning at every hour of the day', function () {
+    $unpaid = clockSweep(fn () => limitRaiseUnpaidScenario()->call($this), 60);
+    $paid = clockSweep(fn () => limitRaisePaidYearlyScenario()->call($this), 60);
 
-    expect($case->fresh()->state)->toBe('RESOLVED')
-        ->and(data_get($raise->fresh()->tags, 'addon.revoked_at'))->toBeNull() // what was paid for is still delivered
-        ->and($raise->fresh()->state)->toBe(ServiceStateMachine::ACTIVE)
-        ->and($parent->fresh()->entitlements['mailboxes'])->toBe($base + 5);
+    expect($unpaid)->toBe([], 'unpaid: '.clockSweepWindows($unpaid, 60))
+        ->and($paid)->toBe([], 'paid yearly: '.clockSweepWindows($paid, 60));
 });
 
 it('leaves an add-on sold today alone in dunning while the add-on renewals switch is off', function () {
