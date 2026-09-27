@@ -13,6 +13,7 @@ use Onhost\Domain\Identity\Authorization\IdentityCommandAuthorizer;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Provisioning\Models\Operation;
 use Onhost\Domain\Provisioning\Models\OperationAttempt;
+use Onhost\Domain\Provisioning\Models\ProviderInstance;
 use Onhost\Domain\Provisioning\Workflow\Step;
 use Onhost\Domain\Provisioning\Workflow\StepContext;
 use Onhost\Domain\Provisioning\Workflow\StepResult;
@@ -59,6 +60,10 @@ final class OperationRunner
 
             return $operation->state;
         }
+        // TASK-0045: an operation of a contained (or disabled) instance waits, whoever started it; it neither runs nor fails
+        if (($contained = $this->containedInstance($operation)) !== null) {
+            return $this->park($operation, $contained);
+        }
         if (! $this->claim($operation)) {
             return $operation->refresh()->state;
         }
@@ -88,6 +93,12 @@ final class OperationRunner
                 $result = $this->tracer->span('operation.step '.$step->label(), ['onhost.operation' => $operation->id, 'onhost.workflow' => class_basename((string) $operation->workflow), 'onhost.step' => $operation->step, 'onhost.service_id' => $operation->service_id, 'onhost.poll' => $handle !== null], fn () => $handle !== null
                     ? $step->poll($context, AsyncHandle::fromArray($handle))
                     : $step->run($context)); // one span per step (audit §5q-2)
+            } catch (InstanceContained $e) {
+                // a step reached a contained instance (a second panel of a migration, say): the run is parked where it stands,
+                // as if it had not been started — not a failed attempt, no compensation, nothing sent to that panel (TASK-0045)
+                $this->finishAttempt($attempt, 'parked', $e->getMessage());
+
+                return $this->park($operation->refresh(), $e, $operation->external_handle === null);
             } catch (ProviderException $e) {
                 $result = StepResult::fail($e->getMessage(), $e->isRetryable(), $e->toArray(), $e->retryAfterSeconds);
             } catch (Throwable $e) {
@@ -121,6 +132,13 @@ final class OperationRunner
 
                     return Operation::WAITING;
                 default:
+                    if (($refusal = InstanceContained::fromDetail($result->detail)) !== null) {
+                        // a step that turned the refusal into its own failure (`StepResult::fail($e->getMessage(), …, $e->extra)`): parked
+                        // all the same — a contained panel is a pause the owner chose, never a reason to fail and compensate (TASK-0045)
+                        $this->finishAttempt($attempt, 'parked', $result->error);
+
+                        return $this->park($operation, $refusal, $operation->external_handle === null);
+                    }
                     $this->finishAttempt($attempt, $result->retryable ? 'retry' : 'fail', $result->error);
                     $policy = RetryPolicy::provisioning();
                     $elapsed = $operation->queued_at ? now()->diffInSeconds($operation->queued_at, true) : 0;
@@ -139,6 +157,46 @@ final class OperationRunner
 
         return Operation::PENDING;
     }
+
+    // ── TASK-0045: a contained panel stays contained ──
+    /** How long a parked operation waits before it asks again whether its instance is still contained. */
+    public const PARK_MINUTES = 15;
+
+    /** The refusal the registry would give this operation's own instance, or null when it may run. */
+    private function containedInstance(Operation $operation): ?InstanceContained
+    {
+        $service = $operation->service_id !== null ? Service::query()->find($operation->service_id) : null;
+        // the same instance the steps ask for first (StepContext::instance())
+        $id = data_get($operation->context, 'provider_instance_id') ?? data_get($operation->desired, 'provider_instance_id') ?? $operation->provider_instance_id ?? $service?->provider_instance_id;
+        $instance = $id === null ? null : ProviderInstance::query()->find($id);
+        if ($instance === null) {
+            return null;
+        }
+        try {
+            $this->providers->refuseContained($instance);
+        } catch (InstanceContained $e) {
+            return $e;
+        }
+
+        return null;
+    }
+
+    /**
+     * Leaves the operation in the state it can be run from again (PENDING, or WAITING on the task a panel already has) and
+     * looks again in PARK_MINUTES. `$uncount` gives back the attempt the claim counted: a parked run tried nothing.
+     */
+    private function park(Operation $operation, InstanceContained $why, bool $uncount = false): string
+    {
+        $state = $operation->external_handle === null ? Operation::PENDING : Operation::WAITING;
+        $operation->forceFill([
+            'state' => $state, 'next_run_at' => now()->addMinutes(self::PARK_MINUTES),
+            'attempts' => $uncount ? max(0, $operation->attempts - 1) : $operation->attempts,
+            'error' => $this->errorPayload($why->getMessage(), ['contained' => true, 'instance' => $why->instanceKey !== '' ? $why->instanceKey : null, 'instance_state' => $why->instanceState], true),
+        ])->save();
+
+        return $state;
+    }
+    // ── end TASK-0045 ──
 
     private function claim(Operation $operation): bool
     {

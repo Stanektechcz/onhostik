@@ -54,6 +54,7 @@ final class ProviderRegistry
 
     public function forInstance(ProviderInstance $instance): ProviderAdapter
     {
+        $this->refuseContained($instance); // TASK-0045: before the cache and the test seam too — a held adapter is still an adapter
         if (isset($this->instances[$instance->id])) {
             return $this->instances[$instance->id];
         }
@@ -104,6 +105,7 @@ final class ProviderRegistry
      */
     public function trial(ProviderInstance $instance, array $credentials): ProviderAdapter
     {
+        $this->refuseContained($instance); // the access being tried goes to the same host
         $class = $this->adapters[$instance->provider] ?? null;
         if ($class === null) {
             throw new DomainError('provider_unsupported', "No adapter registered for provider {$instance->provider}", 500);
@@ -120,4 +122,21 @@ final class ProviderRegistry
     {
         unset($this->instances[$instance->id]);
     }
+
+    // ── TASK-0045: a contained panel stays contained ──
+    /**
+     * A `contained` or `disabled` instance is refused to every caller — customer, staff, the system — before an adapter or a
+     * credential is touched (staging pre-mortem 2026-09-27: `disabled` was a label nothing on the system path read). The
+     * stored state decides, not the model the caller holds: a worker that loaded the instance an hour ago, before staff
+     * contained it, is refused as well. One indexed read per call; the model's own state counts when the row is not stored.
+     */
+    public function refuseContained(ProviderInstance $instance): void
+    {
+        $stored = $instance->exists ? ProviderInstance::query()->whereKey($instance->id)->value('state') : null;
+        $state = is_string($stored) ? $stored : (string) $instance->state;
+        if (in_array($state, ProviderInstance::REFUSED_STATES, true)) {
+            throw InstanceContained::of($instance, $state);
+        }
+    }
+    // ── end TASK-0045 ──
 }

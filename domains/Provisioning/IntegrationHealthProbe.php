@@ -21,7 +21,7 @@ final class IntegrationHealthProbe
     public function run(): array
     {
         $stats = ['checked' => 0, 'up' => 0, 'down' => 0];
-        foreach (ProviderInstance::query()->where('state', '!=', 'disabled')->get() as $instance) {
+        foreach (ProviderInstance::query()->allowedToCall()->get() as $instance) { // a contained panel is not asked either (TASK-0045)
             $stats['checked']++;
             $stats[$this->probeInstance($instance)['up'] ? 'up' : 'down']++;
         }
@@ -38,6 +38,13 @@ final class IntegrationHealthProbe
     public function probeInstance(ProviderInstance $instance): array
     {
         $record = IntegrationHealth::query()->firstOrNew(['provider_instance_id' => $instance->id]);
+        // TASK-0045: a contained or disabled panel is not probed — the registry refuses it — and its record is left as it was:
+        // a refusal the owner chose is not an outage, so no `integration.down` and no alert follow from it
+        try {
+            $this->providers->refuseContained($instance);
+        } catch (InstanceContained $e) {
+            return ['up' => false, 'error' => $e->getMessage(), 'latency_ms' => null, 'version' => null, 'detail' => ['contained' => true, 'instance_state' => $e->instanceState], 'circuit_state' => $this->http->breaker($instance->key)->state(), 'checked_at' => ($record->checked_at ?? now())->toIso8601String()];
+        }
         $wasUp = $record->exists ? (bool) $record->up : null;
         $refusedBefore = $this->http->localRefusals();
         try {
