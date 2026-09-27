@@ -8,7 +8,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Partners\Models\PartnerCommission;
 use Onhost\Domain\Partners\Models\PartnerPayout;
-use Onhost\Domain\Partners\Models\PartnerPayoutAccount;
 use Onhost\Platform\Money\Money;
 use Throwable;
 
@@ -25,9 +24,14 @@ use Throwable;
  * A partner's first bank transfer has nothing to compare its IBAN with: it is listed as `unconfirmed` for a look, never
  * frozen (freezing it would hold every new partner's first money on a guess). A payout whose commissions are in another
  * currency cannot be compared and is listed as `unknown`. Frozen payouts are skipped: they were looked at already.
+ *
+ * Not frozen is not payable (review round 1): the pay step refuses a bank transfer to an IBAN outside this same confirmed
+ * set unless finance released it with a reason (PartnerPayouts::assertAccountConfirmed) — a listed first payout too.
  */
 final class PayoutAnomalies
 {
+    public function __construct(private readonly PayoutAccounts $accounts) {}
+
     /**
      * @return array{anomalies: list<array<string,mixed>>, released: list<array<string,mixed>>, unconfirmed: list<array<string,mixed>>, unknown: list<array<string,mixed>>, checked: int}
      */
@@ -37,7 +41,7 @@ final class PayoutAnomalies
         $sums = PartnerCommission::query()->whereIn('payout_id', $open->pluck('id')->all())->where('state', 'allocated')
             ->groupBy('payout_id', 'currency')->selectRaw('payout_id, currency, sum(amount_minor) as total')->get()->groupBy('payout_id');
         // a payout finance already released with a reason is not frozen again by the next run; it is listed as released
-        $released = DB::table('audit_events')->where('action', 'partner.payout.unfreeze')->whereIn('resource_id', $open->pluck('id')->all())->pluck('resource_id')->all();
+        $released = DB::table('audit_events')->where('action', 'partner.payout.unfreeze')->where('result', 'succeeded')->whereIn('resource_id', $open->pluck('id')->all())->pluck('resource_id')->all();
         $out = ['anomalies' => [], 'released' => [], 'unconfirmed' => [], 'unknown' => [], 'checked' => $open->count()];
         foreach ($open as $payout) {
             $row = ['payout_id' => $payout->id, 'number' => $payout->number, 'partner_id' => $payout->partner_id, 'state' => $payout->state,
@@ -70,19 +74,29 @@ final class PayoutAnomalies
     }
 
     /**
-     * The IBANs that were the partner's confirmed account when the payout was asked for: earlier paid payouts (grandfathered)
-     * and payout account rows usable by then.
+     * The IBANs that were the partner's confirmed account when the payout was asked for — the same set the pay step checks
+     * (PayoutAccounts::confirmedAt): owner accounts usable by then, and IBANs paid before the cut-over (review round 1: a
+     * leftover paid later, after a release, confirms nothing).
      *
      * @return list<string>
      */
     private function confirmedBefore(PartnerPayout $payout): array
     {
-        $at = $payout->requested_at ?? now();
-        $paid = PartnerPayout::query()->where('partner_id', $payout->partner_id)->where('id', '!=', $payout->id)->where('state', 'paid')->where('requested_at', '<', $at)->whereNotNull('iban')->pluck('iban');
-        $accounts = PartnerPayoutAccount::query()->where('partner_id', $payout->partner_id)->where('usable_from', '<=', $at)
-            ->where(fn ($q) => $q->whereNull('cancelled_at')->orWhere('cancelled_at', '>', $at))->pluck('iban');
+        return $this->accounts->confirmedAt($payout->partner_id, $payout->requested_at ?? now(), $payout->id);
+    }
 
-        return $paid->merge($accounts)->map(fn ($i) => PayoutAccounts::normalIban((string) $i))->filter()->unique()->values()->all();
+    /**
+     * What the owner said go to (review round 1): a short digest of the anomalies a run would freeze — payout, state, amount,
+     * account and why. `--apply` names the digest of the dry run it follows and freezes nothing when a new scan differs.
+     *
+     * @param  list<array<string,mixed>>  $anomalies
+     */
+    public static function digest(array $anomalies): string
+    {
+        $lines = array_map(fn (array $row) => implode('|', [$row['payout_id'], $row['state'], $row['amount'] instanceof Money ? $row['amount']->minor.$row['amount']->currency->value : '', $row['account'] ?? '', implode(',', $row['kinds'])]), $anomalies);
+        sort($lines);
+
+        return substr(hash('sha256', implode("\n", $lines)), 0, 12);
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /*
@@ -17,11 +18,20 @@ use Illuminate\Support\Facades\Schema;
  * partner_payouts gains who asked, who approved (paying is somebody else's act, four eyes) and a freeze flag set only by
  * `onhost:partners:payout-anomalies --apply` or finance. All columns are nullable additions: old code ignores them, new code
  * reads NULL as "not recorded" (an approval of old keeps its decider in `decided_by`). Row volume: partners and payouts.
+ *
+ * Review round 1: the moment this runs is the cut-over of grandfathering (program §8 row 41, D13) — one platform row in
+ * `system_settings`, written once (a re-run keeps the first) and read by PayoutAccounts; no staff screen writes that key.
+ * Only an IBAN paid before it is a confirmed account; a payout the old code left open and paid later never becomes one.
  */
 return new class extends Migration
 {
     public function up(): void
     {
+        DB::table('system_settings')->insertOrIgnore([
+            'key' => 'partners.payout_account.grandfathered_before', // PayoutAccounts::GRANDFATHER_SETTING
+            'value' => json_encode(now()->toIso8601String(), JSON_THROW_ON_ERROR), 'updated_by' => 'migration:000890', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
         Schema::create('partner_payout_accounts', function (Blueprint $table): void {
             $table->string('id', 40)->primary();
             $table->string('partner_id', 40);
@@ -52,5 +62,6 @@ return new class extends Migration
             $table->dropColumn(['payout_account_id', 'requested_by', 'approved_by', 'approved_at', 'frozen_at', 'frozen_by', 'frozen_reason']);
         });
         Schema::dropIfExists('partner_payout_accounts');
+        DB::table('system_settings')->where('key', 'partners.payout_account.grandfathered_before')->delete();
     }
 };

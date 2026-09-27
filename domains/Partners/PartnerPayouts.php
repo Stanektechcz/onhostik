@@ -13,6 +13,7 @@ use Onhost\Domain\Organizations\Models\Organization;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerCommission;
 use Onhost\Domain\Partners\Models\PartnerPayout;
+use Onhost\Domain\Partners\Models\PartnerPayoutAccount;
 use Onhost\Domain\Tax\TaxEngine;
 use Onhost\Domain\Tax\VatNumber;
 use Onhost\Domain\Tax\VatStanding;
@@ -29,7 +30,8 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  * with its self-billing document (TASK-0031): payouts ≥ 1 000 CZK by self-billing, ledger-posted as partner-commission expense
  * when paid. What this class guarantees:
  *  - a payout is exactly the commissions it allocated, read under the partner row lock (audit P1: the race of two requests);
- *  - its IBAN is the partner's confirmed payout account (PayoutAccounts), never the request's (audit P2);
+ *  - its IBAN is the partner's confirmed payout account (PayoutAccounts), never the request's (audit P2), and the payment
+ *    checks it again: a payout left open by the old code is not paid to an IBAN nobody confirmed (review round 1);
  *  - it is paid once, only from `approved`, by somebody other than who asked for it or approved it, with a second person
  *    on the payment (PartnerCommand `payout.pay` is CRITICAL; the sole operator waits the time lock) — audit P8, TD-4;
  *  - a payout held for a look (frozen) is neither approved nor paid until finance rejects or releases it.
@@ -204,6 +206,7 @@ final class PartnerPayouts
             }
             $this->assertNotFrozen($row);
             $this->assertPayer($row, $context);
+            $this->assertAccountConfirmed($row);
             $allocated = (int) PartnerCommission::query()->where('payout_id', $row->id)->where('state', 'allocated')->sum('amount_minor');
             if ($allocated !== $row->amount_minor) {
                 throw new DomainError('payout_allocation_mismatch', 'The payout stands for another amount than the commissions allocated to it; reject it and let the partner ask again.', 409, ['allocated' => Money::minor($allocated, $row->currency)]);
@@ -263,6 +266,40 @@ final class PartnerPayouts
         });
 
         return $payout->refresh();
+    }
+
+    /**
+     * Where the money goes is checked at the payment itself, under the row lock (review round 1, billing + security HIGH). A
+     * payout asked for since TASK-0040 takes its IBAN from the confirmed account; one the old code left open carries the IBAN
+     * its request typed (audit P2) — a partner's first payout is only listed by the anomaly look, and a look not run yet
+     * freezes nothing. So a bank transfer is paid only to an IBAN that was the partner's confirmed account when it was asked
+     * for (PayoutAccounts::confirmedAt), and a payout that names its account row only to that row's IBAN. A leftover without
+     * an account row passes only once finance released it with a recorded reason (`partner.payout.unfreeze`: hold it, confirm
+     * the account with the partner, release it); otherwise finance rejects it, the owner sets the account and the partner asks
+     * again. Paying a released one never makes its IBAN the account (grandfathering ends at the cut-over).
+     */
+    private function assertAccountConfirmed(PartnerPayout $payout): void
+    {
+        if ($payout->method !== 'bank_transfer') {
+            return;
+        }
+        $iban = PayoutAccounts::normalIban((string) $payout->iban);
+        $confirmed = $iban !== '' && in_array($iban, $this->accounts->confirmedAt($payout->partner_id, $payout->requested_at ?? now(), $payout->id), true);
+        if ($payout->payout_account_id !== null) {
+            $confirmed = $confirmed && PartnerPayoutAccount::query()->whereKey($payout->payout_account_id)->where('partner_id', $payout->partner_id)->where('iban', $iban)->exists();
+        } elseif (! $confirmed && $iban !== '') {
+            $confirmed = self::released($payout->id);
+        }
+        if (! $confirmed) {
+            $masked = PayoutAccounts::mask($iban);
+            throw new DomainError('payout_account_unconfirmed', "This payout goes to {$masked}, which was not the partner's confirmed payout account when it was asked for. Reject it (the organization owner sets the account and the partner asks again), or hold it, confirm the account with the partner and release it with a reason.", 409, ['account' => $masked]);
+        }
+    }
+
+    /** Finance released the payout from a hold with a recorded reason (the domain's own audit row, never a refused attempt). */
+    public static function released(string $payoutId): bool
+    {
+        return DB::table('audit_events')->where('action', 'partner.payout.unfreeze')->where('result', 'succeeded')->where('resource_id', $payoutId)->exists();
     }
 
     private function assertNotFrozen(PartnerPayout $payout): void

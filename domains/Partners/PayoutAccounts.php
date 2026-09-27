@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Onhost\Domain\Partners;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Onhost\Domain\Organizations\Models\Organization;
@@ -24,8 +25,8 @@ use Onhost\Platform\Outbox\OutboxPublisher;
  * went. Now the account is its own step — the partner organization's owner alone (`partner.payout_account.manage`, HIGH),
  * with a notice to the owner and the billing contact — and a new account is usable only after a cooling-off of
  * `COOLING_DAYS` (7, program §3), so a stolen session cannot redirect the next payout before anybody reads
- * the mail. An IBAN a paid payout already went to is the confirmed account without a row (grandfathered, program D13): no
- * existing partner has to set anything again.
+ * the mail. An IBAN a payout was paid to before the cut-over (migration 000890) is the confirmed account without a row
+ * (grandfathered, program D13): no existing partner has to set anything again, and nothing paid later becomes an account.
  */
 final class PayoutAccounts
 {
@@ -88,10 +89,54 @@ final class PayoutAccounts
         if ($usable !== null) {
             return ['active' => ['id' => $usable->id, 'iban' => $usable->iban, 'source' => 'owner', 'since' => $usable->usable_from], 'pending' => $pending];
         }
-        $paid = PartnerPayout::query()->where('partner_id', $partner->id)->where('state', 'paid')->where('method', 'bank_transfer')->whereNotNull('iban')->where('iban', '!=', '')
-            ->where('requested_at', '<=', $at)->orderByDesc('paid_at')->orderByDesc('requested_at')->first();
+        $paid = self::grandfathered($partner->id)?->where('requested_at', '<=', $at)->orderByDesc('paid_at')->orderByDesc('requested_at')->first();
 
         return ['active' => $paid === null ? null : ['id' => null, 'iban' => self::normalIban((string) $paid->iban), 'source' => 'grandfathered', 'since' => $paid->paid_at ?? $paid->requested_at], 'pending' => $pending];
+    }
+
+    /**
+     * Review round 1 (billing + security HIGH): grandfathering ends at the cut-over. The IBAN of a payout paid before migration
+     * 000890 ran is the partner's confirmed account; one paid after it is not — a payout the old code left open carries the IBAN
+     * its request typed (audit P2), and paying it (a first payout, or one finance released) must not make that IBAN the account
+     * every later payout, automatic ones included, goes to (program §8 row 41, D13: only IBANs already paid when the task lands).
+     * The migration writes the moment once; no staff screen writes this key. Without it nothing is grandfathered (the safe side).
+     */
+    public const GRANDFATHER_SETTING = 'partners.payout_account.grandfathered_before';
+
+    public static function grandfatheredBefore(): ?Carbon
+    {
+        $value = DB::table('system_settings')->where('key', self::GRANDFATHER_SETTING)->value('value');
+        $at = is_string($value) ? json_decode($value, true) : null;
+
+        return is_string($at) && $at !== '' ? Carbon::parse($at) : null;
+    }
+
+    /**
+     * The IBANs that were the partner's confirmed account at `$at`: an owner account usable by then (and not called off by then),
+     * and the IBAN of a payout asked for before `$at` and paid before the cut-over. The pay step and the anomaly look compare a
+     * payout's IBAN with this, as of the moment it was asked for.
+     *
+     * @return list<string>
+     */
+    public function confirmedAt(string $partnerId, Carbon $at, ?string $exceptPayoutId = null): array
+    {
+        $paid = self::grandfathered($partnerId)?->where('requested_at', '<', $at)->when($exceptPayoutId !== null, fn ($q) => $q->where('id', '!=', $exceptPayoutId))->pluck('iban') ?? collect();
+        $accounts = PartnerPayoutAccount::query()->where('partner_id', $partnerId)->where('usable_from', '<=', $at)
+            ->where(fn ($q) => $q->whereNull('cancelled_at')->orWhere('cancelled_at', '>', $at))->pluck('iban');
+
+        return $paid->merge($accounts)->map(fn ($i) => self::normalIban((string) $i))->filter()->unique()->values()->all();
+    }
+
+    /** @return Builder<PartnerPayout>|null the partner's bank transfers paid before the cut-over; null when there is no cut-over */
+    private static function grandfathered(string $partnerId): ?Builder
+    {
+        $before = self::grandfatheredBefore();
+        if ($before === null) {
+            return null;
+        }
+
+        return PartnerPayout::query()->where('partner_id', $partnerId)->where('state', 'paid')->where('method', 'bank_transfer')->whereNotNull('iban')->where('iban', '!=', '')
+            ->where(fn ($q) => $q->where('paid_at', '<', $before)->orWhere(fn ($q) => $q->whereNull('paid_at')->where('requested_at', '<', $before)));
     }
 
     /** @return array<string,mixed> the portal's answer: masked IBANs only */

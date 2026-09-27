@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
 use Onhost\Domain\Identity\Authorization\RoleCatalog;
+use Onhost\Domain\Identity\Authorization\TokenScopes;
 use Onhost\Domain\Identity\Models\User;
 use Onhost\Domain\Identity\StepUp\StepUpService;
 use Onhost\Domain\Invoicing\InvoiceService;
@@ -22,7 +23,9 @@ use Onhost\Domain\Partners\Commands\PartnerPortalCommand;
 use Onhost\Domain\Partners\Models\Partner;
 use Onhost\Domain\Partners\Models\PartnerCommission;
 use Onhost\Domain\Partners\Models\PartnerPayout;
+use Onhost\Domain\Partners\Models\PartnerPayoutAccount;
 use Onhost\Domain\Partners\PartnerService;
+use Onhost\Domain\Partners\PayoutAccounts;
 use Onhost\Domain\WalletLedger\Models\LedgerTransaction;
 use Onhost\Platform\Commands\CommandBus;
 use Onhost\Platform\Commands\CommandContext;
@@ -122,6 +125,63 @@ function pstRace(Organization $organization, User $owner, string $key, string $a
         }
         $sql = strtolower($query->sql);
         if (str_contains($sql, 'from "partners"') && DB::transactionLevel() >= $base + 2 && (DB::getDriverName() !== 'pgsql' || str_contains($sql, 'for update'))) {
+            $state['locked'] = true;
+
+            return;
+        }
+        if (str_contains($sql, 'from "partner_commissions"') && DB::transactionLevel() >= $base + 1) {
+            $state['fired'] = true;
+            if ($state['locked']) {
+                $state['waiting'] = true;
+
+                return;
+            }
+            $second();
+        }
+    });
+
+    return function () use (&$state, $second) {
+        if ($state['waiting']) {
+            $state['waiting'] = false;
+            $second();
+        }
+
+        return $state['result'];
+    };
+}
+
+/** The digest the dry run of `onhost:partners:payout-anomalies` printed for its list (review round 1: what --apply must name). */
+function pstDigest(string $output): string
+{
+    expect(preg_match('/List digest: ([0-9a-f]{12})/', $output, $match))->toBe(1);
+
+    return $match[1];
+}
+
+/**
+ * Two payments of one approved payout racing (review round 1, the pay-side twin of pstRace): the second arrives the moment
+ * the first sums the payout's commissions. If the first read the payout row inside its own transaction by then (`FOR UPDATE`
+ * on PostgreSQL) the second waits for it and runs after the first returned; otherwise it runs at once, in the middle.
+ *
+ * @return Closure(): (PartnerPayout|DomainError|null) runs a waiting second payment and returns what it answered
+ */
+function pstPayRace(PartnerPayout $payout): Closure
+{
+    $base = DB::transactionLevel();
+    $state = ['locked' => false, 'fired' => false, 'waiting' => false, 'result' => null];
+    $second = function () use ($payout, &$state): void {
+        try {
+            $state['result'] = app(PartnerService::class)->markPayoutPaid(PartnerPayout::query()->findOrFail($payout->id), 'BANK-SECOND', CommandContext::system('second-payer'));
+        } catch (DomainError $e) {
+            $state['result'] = $e;
+        }
+    };
+    DB::listen(function (QueryExecuted $query) use (&$state, $second, $base): void {
+        if ($state['fired']) {
+            return;
+        }
+        $sql = strtolower($query->sql);
+        if (str_contains($sql, 'from "partner_payouts"') && DB::transactionLevel() >= $base + 1 && (DB::getDriverName() !== 'pgsql' || str_contains($sql, 'for update'))) {
             $state['locked'] = true;
 
             return;
@@ -370,9 +430,14 @@ it('lists anomalous open payouts in a dry run and freezes only those once the ow
         ->not->toContain('PO-ANOM-3')->not->toContain(pstIban('B'))->toContain('CZ62…6789')->toContain('Nothing was changed');
     expect(PartnerPayout::query()->whereNotNull('frozen_at')->count())->toBe(0);
 
-    expect(Artisan::call('onhost:partners:payout-anomalies', ['--apply' => true]))->toBe(0);
+    // review round 1: --apply freezes the list the owner saw, named by its digest — never whatever a new scan finds
+    expect(Artisan::call('onhost:partners:payout-anomalies', ['--apply' => true]))->toBe(1)
+        ->and(Artisan::output())->toContain('--digest');
+    expect(PartnerPayout::query()->whereNotNull('frozen_at')->count())->toBe(0);
+    expect(Artisan::call('onhost:partners:payout-anomalies', ['--apply' => true, '--digest' => pstDigest($out)]))->toBe(0);
     expect(PartnerPayout::query()->whereNotNull('frozen_at')->orderBy('number')->pluck('number')->all())->toBe(['PO-ANOM-1', 'PO-ANOM-2']);
-    expect(Artisan::call('onhost:partners:payout-anomalies', ['--apply' => true]))->toBe(0); // a second run finds nothing new
+    Artisan::call('onhost:partners:payout-anomalies'); // a second run finds nothing new
+    expect(Artisan::call('onhost:partners:payout-anomalies', ['--apply' => true, '--digest' => pstDigest(Artisan::output())]))->toBe(0);
     expect(PartnerPayout::query()->whereNotNull('frozen_at')->count())->toBe(2);
     app(OutboxPublisher::class)->relayPending();
     expect(Notification::query()->where('event', 'partner.payout.frozen')->where('audience', 'internal')->count())->toBe(2);
@@ -450,4 +515,149 @@ it('tells every active partner once that client contacts and dunning are no long
     app(OutboxPublisher::class)->relayPending();
     expect(Notification::query()->where('event', 'partner.client_data.masked')->where('audience', 'customer')->pluck('organization_id')->sort()->values()->all())
         ->toBe(collect([$one->id, $two->id])->sort()->values()->all());
+});
+
+// ── review round 1: the pay step checks where the money goes; only IBANs paid before the cut-over are grandfathered ──
+
+it('pays a bank transfer only to an account confirmed when it was asked for, and a released leftover never becomes the account', function () {
+    [, $org] = $this->customerWithOrganization();
+    $partner = pstPartnerOf($org, 'monthly');
+    pstPaidBefore($partner, pstIban('A'));
+    $moved = pstPayoutRow($partner, 'PO-LEG-1', 100000, pstIban('B'), 'approved'); // left open by the old code: its request typed B
+    pstEarn($partner, 100000, $moved->id);
+    [, $org2] = $this->customerWithOrganization();
+    $partner2 = pstPartnerOf($org2, 'monthly');
+    $first = pstPayoutRow($partner2, 'PO-LEG-2', 100000, pstIban('C'), 'approved'); // the partner's first payout: nothing confirmed C
+    pstEarn($partner2, 100000, $first->id);
+    $partners = app(PartnerService::class);
+    $system = CommandContext::system('test');
+
+    foreach ([$moved, $first] as $payout) {
+        try {
+            $partners->markPayoutPaid($payout->fresh(), 'BANK-LEG', $system);
+            $this->fail("{$payout->number} was paid to an account nobody confirmed");
+        } catch (DomainError $e) {
+            expect($e->error)->toBe('payout_account_unconfirmed')->and($e->status)->toBe(409);
+        }
+        expect($payout->fresh()->state)->toBe('approved');
+    }
+    expect(LedgerTransaction::query()->where('kind', 'partner_payout')->count())->toBe(0);
+
+    // finance held each, confirmed the account with the partner and released it with a reason: now it is paid …
+    foreach ([$moved, $first] as $payout) {
+        $partners->freezePayout($payout->fresh(), 'Kontrola účtu u partnera', $system);
+        $partners->unfreezePayout($payout->fresh(), 'Partner potvrdil účet telefonicky i písemně', $system);
+        expect($partners->markPayoutPaid($payout->fresh(), 'BANK-'.$payout->number, $system)->state)->toBe('paid');
+    }
+
+    // … and its IBAN does not become the partner's account: the next payouts, automatic ones included, go to A or wait for the owner
+    expect(app(PayoutAccounts::class)->of($partner->fresh())['active'])->toMatchArray(['iban' => pstIban('A'), 'source' => 'grandfathered'])
+        ->and(app(PayoutAccounts::class)->of($partner2->fresh())['active'])->toBeNull();
+    pstEarn($partner, 150000);
+    pstEarn($partner2, 150000);
+    expect($partners->autoPayouts())->toBe(['requested' => 1, 'skipped' => 1])
+        ->and(PartnerPayout::query()->where('partner_id', $partner->id)->where('state', 'requested')->sole()->iban)->toBe(pstIban('A'))
+        ->and(PartnerPayout::query()->where('partner_id', $partner2->id)->where('state', 'requested')->exists())->toBeFalse();
+});
+
+it('refuses to pay a payout whose IBAN is not the account row it was asked for, released or not', function () {
+    [, $org] = $this->customerWithOrganization();
+    $partner = pstPartnerOf($org);
+    partnerConfirmedPayoutAccount($partner, pstIban('A'));
+    pstEarn($partner, 200000);
+    $partners = app(PartnerService::class);
+    $system = CommandContext::system('test');
+    $payout = $partners->requestPayout($partner, Money::minor(150000, 'CZK'), null, $system->withScope($org->id));
+    expect($payout->payout_account_id)->not->toBeNull()->and($payout->iban)->toBe(pstIban('A'));
+    $partners->approvePayout($payout, $system);
+    $payout->fresh()->forceFill(['iban' => pstIban('B')])->save(); // a row changed past the domain
+
+    expect(fn () => $partners->markPayoutPaid($payout->fresh(), 'BANK-X', $system))->toThrow(DomainError::class, 'confirmed');
+    $partners->freezePayout($payout->fresh(), 'Kontrola účtu u partnera', $system);
+    $partners->unfreezePayout($payout->fresh(), 'Partner potvrdil účet telefonicky i písemně', $system);
+    expect(fn () => $partners->markPayoutPaid($payout->fresh(), 'BANK-Y', $system))->toThrow(DomainError::class, 'confirmed');
+    expect($payout->fresh()->state)->toBe('approved')->and(LedgerTransaction::query()->where('kind', 'partner_payout')->count())->toBe(0);
+});
+
+it('freezes with --apply only the list the dry run showed, and refuses when the list changed since', function () {
+    [, $org] = $this->customerWithOrganization();
+    $partner = pstPartnerOf($org);
+    pstPaidBefore($partner, pstIban('A'));
+    $moved = pstPayoutRow($partner, 'PO-DIG-1', 100000, pstIban('B'), 'requested');
+    pstEarn($partner, 100000, $moved->id);
+    Artisan::call('onhost:partners:payout-anomalies');
+    $seen = pstDigest(Artisan::output());
+
+    $later = pstPayoutRow($partner, 'PO-DIG-2', 100000, pstIban('C'), 'requested'); // appeared after the owner read the list
+    pstEarn($partner, 100000, $later->id);
+    expect(Artisan::call('onhost:partners:payout-anomalies', ['--apply' => true, '--digest' => $seen]))->toBe(1)
+        ->and(Artisan::output())->toContain('changed since the dry run');
+    expect(PartnerPayout::query()->whereNotNull('frozen_at')->count())->toBe(0);
+
+    Artisan::call('onhost:partners:payout-anomalies');
+    expect(Artisan::call('onhost:partners:payout-anomalies', ['--apply' => true, '--digest' => pstDigest(Artisan::output())]))->toBe(0);
+    expect(PartnerPayout::query()->whereNotNull('frozen_at')->orderBy('number')->pluck('number')->all())->toBe(['PO-DIG-1', 'PO-DIG-2']);
+});
+
+it('pays a payout once when two payments of it race', function () {
+    [, $org] = $this->customerWithOrganization();
+    $partner = pstPartnerOf($org);
+    pstPaidBefore($partner, pstIban('A'));
+    pstEarn($partner, 200000);
+    $partners = app(PartnerService::class);
+    $payout = $partners->requestPayout($partner, Money::minor(150000, 'CZK'), null, CommandContext::system('test')->withScope($org->id));
+    $partners->approvePayout($payout, CommandContext::system('test'));
+
+    $finish = pstPayRace($payout);
+    $partners->markPayoutPaid($payout->fresh(), 'BANK-FIRST', CommandContext::system('first-payer'));
+    $second = $finish();
+
+    expect($second)->toBeInstanceOf(DomainError::class)->and($second->error)->toBe('payout_not_approved');
+    expect(LedgerTransaction::query()->where('kind', 'partner_payout')->count())->toBe(1)
+        ->and($payout->fresh()->payment_reference)->toBe('BANK-FIRST');
+});
+
+// ── review round 1: who is refused the payout doors — API tokens on the portal, staff without partner.manage ─────────
+
+it('keeps the partner portal and the payout account away from API tokens, whatever their scopes', function () {
+    [$owner, $org] = $this->customerWithOrganization();
+    $partner = pstPartnerOf($org);
+    pstPaidBefore($partner, pstIban('A'));
+    pstEarn($partner, 300000);
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1');
+    $token = $owner->createToken('partner-all', TokenScopes::ALL);
+    $token->accessToken->forceFill(['organization_id' => $org->id])->save();
+    app('auth')->forgetGuards();
+    $bearer = $token->plainTextToken;
+    $h = ['X-Organization' => $org->id];
+
+    foreach (['/v1/partner/overview', '/v1/partner/clients', '/v1/partner/commissions', '/v1/partner/payouts', '/v1/partner/payout-account'] as $path) {
+        $this->withToken($bearer)->withHeaders($h)->getJson($path)->assertForbidden();
+    }
+    $this->withToken($bearer)->withHeaders($h + ['Idempotency-Key' => 'tok-pay'])->postJson('/v1/partner/payouts', ['amount' => 1000])->assertForbidden();
+    $this->withToken($bearer)->withHeaders($h + ['Idempotency-Key' => 'tok-set'])->putJson('/v1/partner/payout-account', ['iban' => pstIban('B')])->assertForbidden();
+    $this->withToken($bearer)->withHeaders($h + ['Idempotency-Key' => 'tok-del'])->deleteJson('/v1/partner/payout-account/pending')->assertForbidden();
+
+    expect(PartnerPayout::query()->where('partner_id', $partner->id)->where('state', 'requested')->exists())->toBeFalse()
+        ->and(PartnerPayoutAccount::query()->where('partner_id', $partner->id)->exists())->toBeFalse()
+        ->and(TokenScopes::for('partner.portal.read'))->toBeNull()->and(TokenScopes::for('partner.payout_account.manage'))->toBeNull();
+});
+
+it('refuses every payout step to staff without partner.manage', function () {
+    [, $org] = $this->customerWithOrganization();
+    $partner = pstPartnerOf($org);
+    pstPaidBefore($partner, pstIban('A'));
+    pstEarn($partner, 200000);
+    $payout = app(PartnerService::class)->requestPayout($partner, Money::minor(150000, 'CZK'), null, CommandContext::system('test')->withScope($org->id));
+    $steps = ['approve' => [], 'reject' => ['reason' => 'Nesprávná částka výplaty'], 'pay' => ['reference' => 'BANK-NOPE'],
+        'freeze' => ['reason' => 'Kontrola účtu u partnera'], 'unfreeze' => ['reason' => 'Partner potvrdil účet písemně']];
+
+    foreach (['support_l2', 'billing_operator', 'auditor_read_only'] as $role) {
+        $this->actingAs($this->steppedUpStaff($role), 'sanctum');
+        foreach ($steps as $step => $body) {
+            $this->postJson("/v1/staff/partners/payouts/{$payout->id}/{$step}", $body)->assertForbidden()->assertJsonPath('error', 'access_not_approved');
+        }
+    }
+    expect($payout->fresh())->state->toBe('requested')->frozen_at->toBeNull()
+        ->and(LedgerTransaction::query()->where('kind', 'partner_payout')->count())->toBe(0);
 });
