@@ -165,6 +165,12 @@ final class TokenScopes
 
         // ── TASK-0031 ──
         // ── end TASK-0031 ──
+
+        // ── TASK-0037: the staff read keys (program IF-18) — staff routes are closed to tokens ──
+        'staff.support.ticket.read' => null,
+        'staff.backup.read' => null,
+        'staff.billing.read' => null,
+        // ── end TASK-0037 ──
     ];
 
     /** The scope a token needs for `$permission`; null = not available to API tokens (unknown permissions included). */

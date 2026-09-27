@@ -85,16 +85,15 @@ final class LimitRaiseService
     private function proof(Organization $organization, string $serviceId, string $metric, int $units, array $price, CommandContext $context): array
     {
         $ids = $context->verifiedApprovalIds;
-        if (! ApprovalService::enabled()) {
-            if ($ids === ['waived:single-operator']) {
-                return $ids;
-            }
-        } else {
-            foreach ($ids as $id) {
-                $approval = Approval::query()->find($id);
-                if ($approval !== null && self::names($approval, $organization, $serviceId, $metric, $units, $price, (string) $context->actorId)) {
-                    return [$approval->id];
-                }
+        // TASK-0037: with four eyes off only the sole approver is waived (after the time lock); everybody else brings a real
+        // approval, so the second person is checked whatever the switch says
+        if ($ids === ['waived:single-operator'] && ! ApprovalService::enabled()) {
+            return $ids;
+        }
+        foreach ($ids as $id) {
+            $approval = Approval::query()->find($id);
+            if ($approval !== null && self::names($approval, $organization, $serviceId, $metric, $units, $price, (string) $context->actorId)) {
+                return [$approval->id];
             }
         }
 

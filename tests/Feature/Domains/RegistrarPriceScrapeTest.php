@@ -47,7 +47,7 @@ it('imports scraped prices into the price book without overwriting manual or API
         ->and(RegistrarTldCost::query()->where('registrar_provider', 'subreg')->where('tld', 'org')->first()->meta['promo'])->toBeTrue();
 
     // the matrix shows both retail-derived costs per TLD (.cz: 160 Kč vs 250 Kč) and where the selling price falls below cost
-    $staff = $this->staff('platform_owner');
+    $staff = $this->steppedUpStaff('platform_owner');
     $this->actingAs($staff, 'sanctum');
     $tlds = collect($this->getJson('/v1/staff/registrars')->assertOk()->json('data.tlds'));
     $czRow = $tlds->firstWhere('tld', 'cz');

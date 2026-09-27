@@ -31,7 +31,8 @@ it('starts NIS2 and GDPR clocks for a cyber incident, warns at 75 %, marks misse
     $this->actingAs($this->staff('sre'), 'sanctum');
     $this->postJson('/v1/staff/security/incidents', ['title' => 'x'])->assertForbidden();
 
-    $this->actingAs($this->staff('security_soc'), 'sanctum');
+    // TASK-0037: a cyber incident is work under the HIGH security.incident.manage — it took no step-up while the command called it ordinary
+    $this->actingAs($this->steppedUpStaff('security_soc'), 'sanctum');
     $opened = $this->postJson('/v1/staff/security/incidents', ['title' => 'Únik přihlašovacích údajů z podpory', 'severity' => 'p1', 'nis2_scope' => true, 'personal_data_breach' => true, 'jurisdictions' => ['CZ']])
         ->assertCreated()->assertJsonPath('number', 'SEC-'.now()->format('Y').'-0001')->assertJsonPath('state', 'OPEN');
     $timers = collect($opened->json('timers'));
@@ -46,10 +47,10 @@ it('starts NIS2 and GDPR clocks for a cyber incident, warns at 75 %, marks misse
 
     $gdpr = ComplianceTimer::query()->where('timer', 'GDPR_72H')->firstOrFail();
     $this->postJson("/v1/staff/compliance/timers/{$gdpr->id}/submit", ['authority_reference' => 'ÚOOÚ-2026-0417'])->assertForbidden(); // SOC contains, legal files
-    $this->actingAs($this->staff('compliance_legal'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('compliance_legal'), 'sanctum');
     $this->postJson("/v1/staff/compliance/timers/{$gdpr->id}/submit", ['authority_reference' => 'ÚOOÚ-2026-0417'])->assertOk()->assertJsonPath('state', 'met');
 
-    $this->actingAs($this->staff('security_soc'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('security_soc'), 'sanctum');
     $this->postJson("/v1/staff/security/incidents/{$opened->json('id')}/transition", ['state' => 'CLOSED'])->assertStatus(409)->assertJsonPath('error', 'cyber_incident_timers_running');
     $this->postJson("/v1/staff/security/incidents/{$opened->json('id')}/transition", ['state' => 'CONTAINED'])->assertOk()->assertJsonPath('state', 'CONTAINED');
     $this->postJson("/v1/staff/security/incidents/{$opened->json('id')}/evidence", ['name' => 'auth.log', 'sha256' => str_repeat('a', 64)])->assertCreated();
@@ -67,7 +68,7 @@ it('handles a DSA abuse notice: acknowledgement, triage, statement of reasons to
     expect($case->service_id)->toBe($service->id)->and($case->organization_id)->toBe($org->id)->and($case->art18)->toBeFalse();
     expect(OutboxMessage::query()->where('name', 'abuse.case.opened')->exists())->toBeTrue();
 
-    $this->actingAs($this->staff('abuse_trust_safety'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('abuse_trust_safety'), 'sanctum');
     $this->postJson("/v1/staff/abuse-cases/{$case->id}/triage", ['decision' => 'action', 'reason' => 'Potvrzený phishing (screenshot, VirusTotal).'])->assertOk()->assertJsonPath('state', 'TRIAGED');
     $this->postJson("/v1/staff/abuse-cases/{$case->id}/notify", ['statement' => 'Obsah na /login napodobuje bankovní přihlášení; jde o phishing dle § 230 TZ.'])->assertOk()->assertJsonPath('state', 'CUSTOMER_NOTIFIED');
     $ticket = Ticket::query()->where('organization_id', $org->id)->firstOrFail();
@@ -76,6 +77,9 @@ it('handles a DSA abuse notice: acknowledgement, triage, statement of reasons to
     $soc = $this->staff('abuse_trust_safety');
     $this->actingAs($soc, 'sanctum');
     $this->postJson("/v1/staff/abuse-cases/{$case->id}/action", ['action' => 'service_suspended', 'reason' => 'Aktivní phishing ohrožuje třetí osoby.'])->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    // TASK-0037: every abuse action is work under the HIGH abuse.case.manage now, not only the suspension
+    $this->postJson("/v1/staff/abuse-cases/{$case->id}/action", ['action' => 'content_removed', 'reason' => 'Zákazník phishingovou stránku odstranil, ověřeno.'])->assertForbidden()->assertJsonPath('error', 'step_up_required');
+    app(StepUpService::class)->grant($soc, 'totp', null, '127.0.0.1');
     $this->postJson("/v1/staff/abuse-cases/{$case->id}/action", ['action' => 'content_removed', 'reason' => 'Zákazník phishingovou stránku odstranil, ověřeno.'])->assertOk()->assertJsonPath('state', 'ACTIONED')->assertJsonPath('action_taken', 'content_removed');
     expect(TicketMessage::query()->where('ticket_id', $ticket->id)->where('author_type', 'staff')->exists())->toBeTrue();
 

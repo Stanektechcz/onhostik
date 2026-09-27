@@ -120,9 +120,39 @@ reports the mode. Switch it back on the day a second person joins and grant them
 (`iam_admin`, `platform_owner`; for price changes one that also holds `catalog.manage`: `billing_finance_admin`,
 `platform_owner`).
 
+**The waiver is the only approver's, and it waits a time lock (TASK-0037, permission program IF-10/D8, owner default
+§10 O4).** It used to spare *every* actor the second person — anybody holding a critical permission acted alone. Now:
+
+- It applies only to the one active member of staff who holds `iam.approval.decide` (the sole approver). Everybody else
+  gets an ordinary request, which the sole approver decides. With two or more approvers nobody is waived: four eyes as usual.
+- The sole approver's own critical action (and every price or plan change) does **not** run at once. The first attempt is
+  refused with `approval_required` and opens a request with `time_lock.not_before` = now + `ONHOST_FOUR_EYES_TIME_LOCK_HOURS`
+  (**24**, at least 1); staff hear `iam.approval.time_locked` at once. Repeat the same action (same button, same payload)
+  after that moment, with a fresh step-up: it runs, audited `waived:single-operator`, and the request shows „použito".
+- Until then it can be **cancelled**: reject it on the approvals page (the requester may reject their own time-locked
+  request; approving their own is still refused) — it is recorded as `cancelled` and never runs.
+- No customer notice yet: a legal hold announced to the customer it concerns would tip them off; that waits for the
+  `disclosure_restricted` flag (program D7).
+- Emergency brakes stay immediate: they are HIGH, not critical (pausing/deleting a promo code, taking a product off sale,
+  `onhost:catalog:state draft` as the system actor).
+
 **Before deploying owner decision 13 with one operator: set `ONHOST_FOUR_EYES=false` first.** Otherwise every price,
 discount, promo code and plan change of the only operator waits for a second person who does not exist — the price
-list freezes (withdrawals and `onhost:catalog:state draft` keep working).
+list freezes (withdrawals and `onhost:catalog:state draft` keep working). With the switch off, the only operator's
+price changes take the time lock above: plan them a day ahead.
+
+## Risk never goes below the catalogue (TASK-0037)
+
+The bus runs every operation at the higher of what its command declares and the risk of its permission
+(`PermissionCatalog::effectiveRisk`; a customer permission rated CRITICAL floors at HIGH — customers have no second
+person yet). Operations that used to call themselves ordinary under a HIGH permission now take a fresh step-up — among
+them staff work on incidents on the status page, maintenance windows, SLA credits, abuse and cyber cases, partners and
+the marketplace, provider instances, nodes and placements, game and service migrations, registrar connections and the
+catalogue's panel navigation; and for customers `publish_ds` (DNSSEC), a registrant contact change and paying for an
+archive download. `PermissionCatalog::LOWERED_RISK` (empty) is the only way below the catalogue; `RiskFloorTest` pins it.
+Before releasing: `php artisan onhost:iam:risk-floor-report` (read-only) lists the API tokens and service accounts that
+used such an operation in the last 30 days — they cannot step up and will be refused — and counts the people who will
+see the step-up dialog.
 
 ## Staging checks
 

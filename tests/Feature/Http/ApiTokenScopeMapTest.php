@@ -297,6 +297,7 @@ it('never lets a token pay for and take away the archive of a cancelled service'
     // the portal's own session still pays and gets the link
     app('auth')->forgetGuards();
     $this->flushHeaders();
+    app(StepUpService::class)->grant($owner, 'totp', null, '127.0.0.1'); // TASK-0037: backup.restore is HIGH, so the portal steps up (a token never can)
     $this->actingAs($owner->fresh(), 'sanctum')->postJson("/v1/services/archives/{$backup->id}/download", [], $headers + ['Idempotency-Key' => 'portal-dl'])->assertOk()->assertJsonPath('data.charged', true);
 });
 

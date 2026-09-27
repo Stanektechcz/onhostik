@@ -52,7 +52,7 @@ it('lists the categories the catalogue sells, hides sold-out ones and keeps a sw
 });
 
 it('lets staff read and edit the sidebar configuration and refuses it to customers and overlong labels', function () {
-    $this->actingAs($this->staff('platform_owner'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('platform_owner'), 'sanctum');
     $shown = $this->getJson('/v1/staff/settings/panel-nav')->assertOk();
     expect($shown->json('data.categories.0.key'))->toBe('domain')->and($shown->json('data.categories.1.offered'))->toBeTrue()->and($shown->json('data.links'))->toHaveCount(12);
 

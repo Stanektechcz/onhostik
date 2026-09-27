@@ -21,7 +21,7 @@ final class WithdrawalController extends ApiController
 {
     public function index(Request $request, WithdrawalService $withdrawals): JsonResponse
     {
-        $this->api->authorize($request, 'billing.invoice.read', CommandScope::global());
+        $this->api->authorize($request, 'staff.billing.read', CommandScope::global()); // the staff key, not the customer's at global scope (TASK-0037, program IF-18)
         $state = (string) $request->query('state', '');
         $query = Withdrawal::query()->orderByDesc('created_at');
         if ($state !== '') {

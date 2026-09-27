@@ -61,7 +61,7 @@ it('lets a partner ask for any term, applies approved money terms next month and
     expect($wl)->toMatchArray(['hide_brand' => true, 'own_mail' => false, 'own_support' => false, 'limited' => ['own_mail', 'own_support']]);
 
     // finance decides: money terms wait for the first of next month, the scope applies at once
-    $staff = $this->staff('platform_owner');
+    $staff = $this->steppedUpStaff('platform_owner');
     $this->actingAs($staff, 'sanctum');
     expect($this->getJson('/v1/staff/partners/requests')->assertOk()->json('data'))->toHaveCount(4);
     $effective = now()->startOfMonth()->addMonth()->toDateString();

@@ -138,7 +138,7 @@ it('moves a game server to another node of its panel: stop, backup, rebuild, tra
     gameMigrationPanel($state);
     $sourceBinding = $service->primaryBinding();
 
-    $staff = $this->staff('infrastructure_admin');
+    $staff = $this->steppedUpStaff('infrastructure_admin');
     $this->actingAs($staff, 'sanctum');
     $started = $this->withHeader('Idempotency-Key', 'gmig-1')->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'games02', 'reason' => 'údržba uzlu games01'])->assertStatus(202)->json();
     $this->flushHeaders();
@@ -182,7 +182,7 @@ it('undoes a migration that fails before the switch: the half-built target is de
     $sourceNode = $service->node_id;
 
     // per node: the node is drained and every server of it gets its own saga; the scheduler picks the target (the only other active game node)
-    $staff = $this->staff('infrastructure_admin');
+    $staff = $this->steppedUpStaff('infrastructure_admin');
     $this->actingAs($staff, 'sanctum');
     $node = Node::query()->findOrFail($sourceNode);
     $result = $this->withHeader('Idempotency-Key', 'evac-1')->postJson("/v1/staff/integrations/{$instance->key}/game/nodes/{$node->id}/evacuate", ['reason' => 'disk replacement'])->assertStatus(202)->json();
@@ -275,7 +275,7 @@ it('moves a server to a node of another game panel: the account and the template
     $sourceInstance = ProviderInstance::query()->where('key', 'pterodactyl-games01')->firstOrFail();
     $sourceBinding = $service->primaryBinding();
 
-    $staff = $this->staff('infrastructure_admin');
+    $staff = $this->steppedUpStaff('infrastructure_admin');
     $this->actingAs($staff, 'sanctum');
     $started = $this->withHeader('Idempotency-Key', 'gmig-x1')->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'games02-n1', 'reason' => 'konsolidace panelů'])->assertStatus(202)->json();
     $this->flushHeaders();
@@ -315,7 +315,7 @@ it('waits for the window the customer chooses: the saga starts at the chosen tim
     $from = now()->addHours(2)->startOfMinute();
     $to = $from->copy()->addHours(6);
 
-    $staff = $this->staff('infrastructure_admin');
+    $staff = $this->steppedUpStaff('infrastructure_admin');
     $this->actingAs($staff, 'sanctum');
     $started = $this->withHeader('Idempotency-Key', 'gmig-w1')->postJson("/v1/staff/services/{$service->id}/migrate", ['target_node_id' => 'games02', 'reason' => 'výměna disků', 'window_from' => $from->toIso8601String(), 'window_to' => $to->toIso8601String()])->assertStatus(202)->json();
     $this->flushHeaders();
@@ -365,7 +365,7 @@ function collaboratorMigrationFixture(Organization $org): Service
 it('carries the collaborators to the new server with exactly the permissions they had', function () {
     [, $org] = $this->customerWithOrganization();
     $service = collaboratorMigrationFixture($org);
-    $this->actingAs($this->staff('infrastructure_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('infrastructure_admin'), 'sanctum');
     $console = ['control.console', 'control.start', 'control.stop', 'control.restart', 'websocket.connect'];
     $state = ['calls' => [], 'power' => [], 'files' => [], 'deleted' => [], 'subusers' => ['e4c1abcd' => [
         'su-a' => ['uuid' => 'su-a', 'email' => 'Helper@Example.test', 'username' => 'helper', 'permissions' => $console, 'created_at' => null],
@@ -396,7 +396,7 @@ it('carries the collaborators to the new server with exactly the permissions the
 it('stops before the switch when the target panel would give a collaborator more than was approved, and removes what it created', function () {
     [, $org] = $this->customerWithOrganization();
     $service = collaboratorMigrationFixture($org);
-    $this->actingAs($this->staff('infrastructure_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('infrastructure_admin'), 'sanctum');
     $binding = $service->primaryBinding();
     $state = ['calls' => [], 'power' => [], 'files' => [], 'deleted' => [], 'panel_widens' => true, 'subusers' => ['e4c1abcd' => [
         'su-a' => ['uuid' => 'su-a', 'email' => 'helper@example.test', 'username' => 'helper', 'permissions' => ['control.console', 'websocket.connect'], 'created_at' => null],
@@ -418,7 +418,7 @@ it('stops before the switch when the target panel would give a collaborator more
 it('moves without a collaborator the target cannot take unchanged only when that is asked for, and names them to the customer', function () {
     [, $org] = $this->customerWithOrganization();
     $service = collaboratorMigrationFixture($org);
-    $this->actingAs($this->staff('infrastructure_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('infrastructure_admin'), 'sanctum');
     $state = ['calls' => [], 'power' => [], 'files' => [], 'deleted' => [], 'panel_forgets' => ['backup.restore'], 'subusers' => ['e4c1abcd' => [
         'su-a' => ['uuid' => 'su-a', 'email' => 'helper@example.test', 'username' => 'helper', 'permissions' => ['control.console', 'websocket.connect'], 'created_at' => null],
         'su-b' => ['uuid' => 'su-b', 'email' => 'backups@example.test', 'username' => 'backups', 'permissions' => ['backup.read', 'backup.restore', 'websocket.connect'], 'created_at' => null],

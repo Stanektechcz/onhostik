@@ -30,7 +30,7 @@ final class SupportController extends ApiController
 {
     public function index(Request $request): JsonResponse
     {
-        $this->api->authorize($request, 'support.ticket.read', CommandScope::global());
+        $this->api->authorize($request, 'staff.support.ticket.read', CommandScope::global()); // the staff key, not the customer's at global scope (TASK-0037, program IF-18)
         $query = Ticket::query();
         foreach (['state', 'priority', 'category', 'queue_id', 'assignee_id', 'organization_id'] as $filter) {
             if ($request->filled($filter)) {
@@ -65,7 +65,7 @@ final class SupportController extends ApiController
 
     public function show(Request $request, AssistantService $assistant, string $ticket): JsonResponse
     {
-        $this->api->authorize($request, 'support.ticket.read', CommandScope::global());
+        $this->api->authorize($request, 'staff.support.ticket.read', CommandScope::global()); // the staff key, not the customer's at global scope (TASK-0037, program IF-18)
         $model = $this->find($ticket);
         app(StaffReadAudit::class)->record($request, $this->api->context($request), 'ticket', $model->organization_id, 'ticket', $model->id, ['number' => $model->number]);
         $messages = $model->messages()->get()->map(fn (TicketMessage $m) => ['id' => $m->id, 'from' => $m->uiFrom(), 'author_type' => $m->author_type, 'author_name' => $m->author_name, 'visibility' => $m->visibility, 'text' => $m->body, 'attachments' => $m->attachments ?? [], 'at' => $m->created_at?->toIso8601String()])->all();

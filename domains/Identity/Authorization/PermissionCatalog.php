@@ -25,6 +25,18 @@ final class PermissionCatalog
     public const OWNER_ONLY = ['organization.close', 'service.panel_account.manage'];
     // ── end TASK-0021 ──
 
+    // ── TASK-0037 (permission program IF-13, principle 6 "risk only goes up") ──
+    /**
+     * Operations allowed to run BELOW the risk of their permission: `command name => [permission => why]`. Empty, and pinned
+     * empty by RiskFloorTest — an entry is a reviewed decision, never a side effect. IdentityCommandAuthorizer used to trust a
+     * command's own riskLevel(), so `publish_ds` (a DS record at the registry under the HIGH `dns.dnssec.manage`), a registrant
+     * contact change and a dozen staff operations under HIGH permissions ran without a step-up (audit G4).
+     *
+     * @var array<string, array<string, string>>
+     */
+    public const LOWERED_RISK = [];
+    // ── end TASK-0037 ──
+
     /**
      * @return array<string, array{description:string, risk:string, audience:string}>
      */
@@ -168,6 +180,13 @@ final class PermissionCatalog
             'feature_flag.manage' => $s('Toggle feature flags', self::HIGH),
             // ── TASK-0022 limit-raise: a raise of a limit at no charge is money given away — a second person (docs/runbooks/approvals.md) ──
             'billing.limit_raise.waive' => $s('Grant a limit raise at no charge for one period (four eyes)', self::CRITICAL),
+            // ── TASK-0037 (program IF-18, critic D18): staff read with staff keys. The staff queue and the finance lists asked for
+            // the CUSTOMER keys at global scope; these land first so P0-15 can take the customer keys away from staff roles
+            // without 403-ing the support desk ──
+            'staff.support.ticket.read' => $s('Read the support ticket queue and tickets of every customer'),
+            'staff.backup.read' => $s('View backups and restore points of customer services (operations)'),
+            'staff.billing.read' => $s('View invoices, withdrawals and billing records of every customer (finance)'),
+            // ── end TASK-0037 ──
         ];
     }
 
@@ -181,6 +200,58 @@ final class PermissionCatalog
     {
         return self::all()[$permission]['risk'] ?? self::NORMAL;
     }
+
+    // ── TASK-0037 ──
+    /**
+     * The lowest risk an action under `$permission` may run at. The catalogue's risk — except that a CUSTOMER permission rated
+     * CRITICAL floors at HIGH: a customer has no second person to ask (approvals are staff-only until the customer decider rule,
+     * program D8/S4-03), and routing a customer's own action through the staff approval queue was rejected (D8). The GDPR
+     * erasure (`organization.close`) and deleting a backup generation (`backup.delete`) therefore stay what their commands
+     * always made them: a fresh step-up.
+     */
+    public static function floor(string $permission): string
+    {
+        $risk = self::risk($permission);
+
+        return $risk === self::CRITICAL && (self::all()[$permission]['audience'] ?? null) === 'customer' ? self::HIGH : $risk;
+    }
+
+    /**
+     * What the bus enforces: the higher of what the command declares and the floor of its permission (max(declared, catalogue),
+     * program §3 "Verification"). A command that declares nothing (not RiskAwareCommand) runs at the catalogue's risk, as before.
+     */
+    public static function effectiveRisk(string $permission, ?string $declared, ?string $commandName = null): string
+    {
+        if ($declared === null) {
+            return self::risk($permission);
+        }
+        if ($commandName !== null && isset(self::loweredRisk()[$commandName][$permission])) {
+            return $declared;
+        }
+        $floor = self::floor($permission);
+
+        return self::rank($declared) >= self::rank($floor) ? $declared : $floor;
+    }
+
+    /**
+     * LOWERED_RISK read as what it may hold, not as the empty list it is today (a reviewed entry must work the day it is added).
+     *
+     * @return array<string, array<string, string>>
+     */
+    public static function loweredRisk(): array
+    {
+        return self::LOWERED_RISK;
+    }
+
+    private static function rank(string $risk): int
+    {
+        return match ($risk) {
+            self::CRITICAL => 2,
+            self::HIGH => 1,
+            default => 0,
+        };
+    }
+    // ── end TASK-0037 ──
 
     public static function requiresStepUp(string $permission): bool
     {

@@ -43,7 +43,7 @@ it('plans moves from a hot node to a cold one and applies them as windowed migra
         ->and($byName->get('games01')['load_pct'])->toBe(75)->and($byName->get('games02')['load_pct'])->toBe(13);
 
     // the console reads the plan and applies it inside a window: one migration per move, waiting for the customer's start
-    $staff = $this->staff('infrastructure_admin');
+    $staff = $this->steppedUpStaff('infrastructure_admin');
     $this->actingAs($staff, 'sanctum');
     expect($this->getJson('/v1/staff/provisioning/rebalance?role=game')->assertOk()->json('data.moves'))->toHaveCount(1);
     $from = now()->addDay()->startOfMinute();

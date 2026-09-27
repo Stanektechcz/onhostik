@@ -64,14 +64,14 @@ it('lets finance set the VAT status by hand behind step-up and four eyes, keeps 
     expect($lapsed->lines[0]['tax_rate'])->toBe('19')->and($lapsed->lines[0]['tax_category'])->toBe('S')->and($lapsed->versions['vat_review'])->toBeTrue();
 });
 
-it('needs only the step-up when the platform runs with one operator', function () {
+it('needs the step-up and the time lock of the only approver when the platform runs with one operator (TASK-0037)', function () {
     config(['onhost.identity.four_eyes' => false]);
     [, $org] = $this->customerWithOrganization([], ['name' => 'ACME GmbH', 'country' => 'DE', 'vat_id' => 'DE123456789']);
     $finance = $this->staff('billing_finance_admin');
     $this->actingAs($finance, 'sanctum');
     app(StepUpService::class)->grant($finance, 'totp', null, '127.0.0.1');
 
-    $this->postJson("/v1/staff/customers/{$org->id}/vat-status", vatOverrideBody(['status' => 'invalid', 'days' => 5]))->assertStatus(202);
+    $this->soloAfterTimeLock($finance, fn () => $this->postJson("/v1/staff/customers/{$org->id}/vat-status", vatOverrideBody(['status' => 'invalid', 'days' => 5])))->assertStatus(202);
     expect(VatStanding::effectiveStatus($org->fresh()))->toBe('invalid');
 });
 
@@ -88,7 +88,7 @@ it('refuses an override without a reason or evidence, or for a number that canno
     $this->postJson($url, array_diff_key(vatOverrideBody(), ['evidence' => 1]))->assertUnprocessable();
     $this->postJson($url, vatOverrideBody(['status' => 'unknown']))->assertUnprocessable();
     $this->postJson($url, vatOverrideBody(['days' => 90]))->assertUnprocessable();
-    $this->postJson("/v1/staff/customers/{$swiss->id}/vat-status", vatOverrideBody())->assertUnprocessable()->assertJsonPath('error', 'vat_country_not_eu');
+    $this->soloAfterTimeLock($finance, fn () => $this->postJson("/v1/staff/customers/{$swiss->id}/vat-status", vatOverrideBody()))->assertUnprocessable()->assertJsonPath('error', 'vat_country_not_eu');
     expect(VatValidation::query()->count())->toBe(0);
 });
 

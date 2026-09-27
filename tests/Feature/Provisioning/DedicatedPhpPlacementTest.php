@@ -87,7 +87,7 @@ function dedicatedPhpRunStep(Service $service, ScheduleNodeStep $step): StepResu
 
 it('refuses to place a dedicated-PHP plan on a panel that runs one PHP pool for the whole node', function () {
     [$isp, $aap] = dedicatedPhpLab();
-    $this->actingAs($this->staff('platform_owner'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('platform_owner'), 'sanctum');
 
     $refused = $this->putJson('/v1/staff/placements', ['product_key' => 'web-hosting', 'plan_key' => 'profi', 'provider_instance_key' => 'aapanel-managed01'], ['Idempotency-Key' => 'dp-1'])
         ->assertUnprocessable()->assertJsonPath('error', 'placement_requires_dedicated_php')->json('message');

@@ -64,7 +64,7 @@ it('turns a reseller application into a partner awaiting approval, and approval 
 
     $this->actingAs($this->staff('sre'), 'sanctum');
     $this->getJson('/v1/staff/partners')->assertForbidden();
-    $this->actingAs($this->staff('billing_finance_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('billing_finance_admin'), 'sanctum');
     $partnerId = $applied->json('data.partner.id');
     expect($this->getJson('/v1/staff/partners?state=applied')->assertOk()->json('data.0.id'))->toBe($partnerId);
     $this->postJson("/v1/staff/partners/{$partnerId}/approve")->assertOk()->assertJsonPath('state', 'active')->assertJsonPath('tier', 'bronze')->assertJsonPath('rate', 15);

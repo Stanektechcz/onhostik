@@ -91,7 +91,7 @@ it('freeze switch needs step-up, drift resolution needs a note', function () {
 
     $this->getJson('/v1/staff/resource-mappings')->assertOk()->assertHeader('X-Total-Count', '1')->assertJsonPath('data.0.classification', 'REQUIRES_APPROVAL');
     $this->postJson("/v1/staff/resource-mappings/{$drift->id}/resolve", ['resolution' => 'approved', 'note' => 'customer-side change confirmed'])->assertForbidden(); // SRE reads drift, infrastructure admins decide it
-    $infra = $this->staff('infrastructure_admin');
+    $infra = $this->steppedUpStaff('infrastructure_admin');
     $this->actingAs($infra, 'sanctum');
     $this->postJson("/v1/staff/resource-mappings/{$drift->id}/resolve", ['resolution' => 'approved', 'note' => 'ok'])->assertUnprocessable();
     $this->postJson("/v1/staff/resource-mappings/{$drift->id}/resolve", ['resolution' => 'approved', 'note' => 'customer-side change confirmed'])->assertOk()->assertJsonPath('state', 'approved');

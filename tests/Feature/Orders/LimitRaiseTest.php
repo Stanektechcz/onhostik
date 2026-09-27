@@ -22,6 +22,7 @@ use Onhost\Domain\Catalog\Models\Plan;
 use Onhost\Domain\Catalog\Models\Product;
 use Onhost\Domain\Catalog\Models\ProductOption;
 use Onhost\Domain\Catalog\Models\PromoCode;
+use Onhost\Domain\Identity\Authorization\ApprovalService;
 use Onhost\Domain\Identity\Authorization\Models\Approval;
 use Onhost\Domain\Identity\Authorization\Models\PolicyBinding;
 use Onhost\Domain\Identity\Authorization\PermissionCatalog;
@@ -553,9 +554,11 @@ it('grants a raise at no charge only with a second person, bound to the service,
         ->and(Approval::query()->findOrFail($approvalId)->state)->toBe('consumed')
         ->and(AuditEvent::query()->where('action', 'staff.customer.limit_raise.free')->where('result', 'succeeded')->sole()->approval_ids)->toBe([$approvalId]);
 
-    // one operator alone (ONHOST_FOUR_EYES=false): the step-up stays, the audit says nobody else signed
+    // one operator alone (ONHOST_FOUR_EYES=false): the step-up stays, the audit says nobody else signed. Since TASK-0037 the waiver
+    // is the only approver's alone (the second person above leaves first) and their own raise waits the time lock (program IF-10)
     config()->set('onhost.identity.four_eyes', false);
-    $solo = limitRaiseSend($this, $finance, 'POST', $uri, ['units' => 2] + $body)->assertCreated();
+    PolicyBinding::query()->where('principal_id', '!=', $finance->id)->where('role_key', 'platform_owner')->delete();
+    $solo = $this->soloAfterTimeLock($finance, fn () => limitRaiseSend($this, $finance, 'POST', $uri, ['units' => 2] + $body))->assertCreated();
     $soloItem = OrderItem::query()->where('order_id', (string) $solo->json('order_id'))->sole();
     expect(data_get($soloItem->config, 'limit_raise.waived.approval_ids'))->toBe(['waived:single-operator']);
 
@@ -775,9 +778,9 @@ it('renews a free raise the customer switches back on at the list price, never a
     Http::fake(fn () => Http::response(['status' => true, 'msg' => 'ok']));
     [$owner, $org] = $this->customerWithOrganization();
     $parent = limitRaiseParent($org);
-    config()->set('onhost.identity.four_eyes', false); // one operator: the waiver is recorded as single-operator
+    config()->set('onhost.identity.four_eyes', false); // one operator: the waiver is recorded as single-operator, after the time lock (TASK-0037)
     $finance = limitRaiseStaff('billing_finance_admin');
-    $done = limitRaiseSend($this, $finance, 'POST', "/v1/staff/customers/{$org->id}/limit-raises/free", ['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5, 'note' => 'Kompenzace, tiket #9'])->assertCreated();
+    $done = $this->soloAfterTimeLock($finance, fn () => limitRaiseSend($this, $finance, 'POST', "/v1/staff/customers/{$org->id}/limit-raises/free", ['service_id' => $parent->id, 'metric' => 'mailboxes', 'units' => 5, 'note' => 'Kompenzace, tiket #9']))->assertCreated();
     $item = OrderItem::query()->where('order_id', (string) $done->json('order_id'))->sole();
     $addon = Service::query()->where('order_item_id', $item->id)->sole();
     $subscription = Subscription::query()->where('service_id', $addon->id)->sole();
@@ -1178,9 +1181,15 @@ it('creates a staff service above its plan only with a second person\'s waiver b
         ->and(Approval::query()->findOrFail($approvalId)->state)->toBe('consumed')
         ->and(AuditEvent::query()->where('action', 'provisioning.service.create')->where('result', 'succeeded')->sole()->approval_ids)->toBe([$approvalId]);
 
-    // one operator alone (ONHOST_FOUR_EYES=false): the step-up stays, the record says nobody else signed
+    // one operator alone (ONHOST_FOUR_EYES=false): the step-up stays, the record says nobody else signed. Since TASK-0037 the waiver
+    // is the only approver's alone (the others leave first) and their own request waits the time lock (program IF-10)
     config()->set('onhost.identity.four_eyes', false);
-    expect(limitRaiseStaffCreate($context, array_replace_recursive($waived, ['config' => ['label' => 'Turnaj 2']])))->toBe('accepted');
+    PolicyBinding::query()->where('principal_id', '!=', $staff->id)->where('scope_type', 'global')->delete();
+    $second = array_replace_recursive($waived, ['config' => ['label' => 'Turnaj 2']]);
+    expect(limitRaiseStaffCreate($context, $second))->toBe('approval_required');
+    $this->travel(ApprovalService::timeLockHours() * 60 + 1)->minutes();
+    app(StepUpService::class)->grant($staff, 'totp', 'test-session', '127.0.0.1');
+    expect(limitRaiseStaffCreate($context, $second))->toBe('accepted');
     expect(data_get(Service::query()->where('label', 'Turnaj 2')->sole()->tags, 'limit_waiver.approval_ids'))->toBe(['waived:single-operator']);
 });
 

@@ -56,6 +56,11 @@ final class NotificationRouter
             // four eyes: staff hear that somebody needs a second person, and what became of it
             'iam.approval.requested' => $this->internal($m, 'security', 'Žádost o schválení: '.($p['action'] ?? ''), trim((string) ($p['requester'] ?? '').' · '.(string) ($p['reason'] ?? ''), ' ·'), '/sprava/nastaveni/schvalovani', 'warn'),
             'iam.approval.decided' => $this->internal($m, 'security', (($p['decision'] ?? '') === 'approved' ? 'Žádost schválena: ' : 'Žádost zamítnuta: ').($p['action'] ?? ''), trim((string) ($p['decider'] ?? '').' · '.(string) ($p['note'] ?? ''), ' ·'), '/sprava/nastaveni/schvalovani'),
+            // ── TASK-0037 (program IF-10): the sole approver's own critical action waits a time lock; every member of staff hears
+            // of it at once and may cancel it. Staff only for now: the customer notice needs the disclosure_restricted flag first
+            // (program D7) — a legal hold announced to the customer it concerns would tip them off ──
+            'iam.approval.time_locked' => $this->internal($m, 'security', 'Časový zámek: '.($p['action'] ?? '').' od '.(string) ($p['not_before'] ?? ''), trim((string) ($p['requester'] ?? '').' · '.(string) ($p['reason'] ?? '').' · lze zrušit do uplynutí zámku', ' ·'), '/sprava/nastaveni/schvalovani', 'warn'),
+            // ── end TASK-0037 ──
             // one service shared with another person: the organization sees who was let in and when that ended
             // DNS the customer holds somewhere else is the one thing the platform cannot put right for them: what is
             // ours the check repairs before it says anything, so a letter here always means something they must do

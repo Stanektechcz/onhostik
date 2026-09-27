@@ -231,3 +231,9 @@ Producer additions (TASK-0036, permission program P0-07, IF-1..IF-3): the two me
 | `organization.member.role_changed` | organization | `user_id`, `email`, `from`, `to` — published for every `change_role` of a member (up, down or sideways; a consumer compares `from`/`to` itself; an accepted invitation that widens a role does not publish it), and now also by an ownership transfer, once for each person: the previous owner (`owner` → `org_admin`) and the heir (their earlier role → `owner`). A role change of somebody who is not a current member no longer exists (404), so no event names a stranger. An accepted invitation that would lower a current membership keeps it and publishes nothing | OrganizationService::changeRole, ::transferOwnership |
 | `organization.member.removed` | organization | `user_id`, `email` — published only after a real membership was removed (by hand, a guest released, `onhost:access:expire`); a removal aimed at a non-member is refused with 404 by GrantPolicy before anything is written or published | OrganizationService::removeMember |
 <!-- TASK-0036 grant-policy: end -->
+
+<!-- TASK-0037 time-lock: begin -->
+| Event | Aggregate | Payload / meaning | Source |
+| --- | --- | --- | --- |
+| `iam.approval.time_locked` | approval | `approval_id`, `action` (the command's name), `requested_by`, `requester`, `reason`, `not_before`, `hours`, `expires_at` — with `ONHOST_FOUR_EYES=false` the sole holder of `iam.approval.decide` asked for their own critical action; it runs only when repeated after `not_before` (`ONHOST_FOUR_EYES_TIME_LOCK_HOURS`, 24) and can be cancelled on the approvals page until then (a rejection of a time-locked request is recorded as `cancelled` in `iam.approval.decided`). Routed to staff (security, warn); no customer notice until the `disclosure_restricted` flag exists (program D7) | ApprovalService::request |
+<!-- TASK-0037 time-lock: end -->

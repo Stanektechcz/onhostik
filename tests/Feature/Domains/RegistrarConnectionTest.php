@@ -102,14 +102,14 @@ it('connects a customer WEDOS account, mirrors domains and zones, warns before e
     $this->patchJson("/v1/registrar-connections/{$connection->id}", ['credit_threshold_minor' => 5000, 'notices' => false])->assertOk()->assertJsonPath('connection.settings.credit_threshold_minor', 5000)->assertJsonPath('connection.settings.notices', false);
 
     // the operator sees every connection and can pause one; the customer's sync is refused while it is paused
-    $this->actingAs($this->staff('domain_dns_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('domain_dns_admin'), 'sanctum');
     $this->getJson('/v1/staff/registrar-connections')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.organization.name', $org->name)->assertJsonPath('data.0.state', 'active');
     $this->getJson("/v1/staff/customers/{$org->id}")->assertOk()->assertJsonCount(1, 'data.registrar_connections')->assertJsonPath('data.registrar_connections.0.login', 'ucet@firma.cz');
     $this->postJson("/v1/staff/registrar-connections/{$connection->id}/disable", ['reason' => 'abuse report'])->assertOk()->assertJsonPath('connection.state', 'disabled');
     expect(ProviderInstance::query()->where('organization_id', $org->id)->pluck('state')->unique()->all())->toBe(['disabled']);
     $this->actingAs($user, 'sanctum');
     $this->postJson("/v1/registrar-connections/{$connection->id}/sync")->assertStatus(409)->assertJsonPath('error', 'registrar_connection_disabled'); // every sync call is its own command (no replay of the earlier one)
-    $this->actingAs($this->staff('domain_dns_admin'), 'sanctum');
+    $this->actingAs($this->steppedUpStaff('domain_dns_admin'), 'sanctum');
     $this->postJson("/v1/staff/registrar-connections/{$connection->id}/enable")->assertOk()->assertJsonPath('connection.state', 'active');
 
     // disconnecting drops the credentials, the customer instances and the mirrors — the registrar account itself is untouched
